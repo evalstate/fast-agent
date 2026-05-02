@@ -65,10 +65,13 @@ from fast_agent.mcp.mcp_connection_manager import (
     _resolve_oauth_mode,
 )
 from fast_agent.mcp.skybridge import (
+    MCP_APP_MIME_TYPE,
     SKYBRIDGE_MIME_TYPE,
+    AppIntegrationKind,
     SkybridgeResourceConfig,
     SkybridgeServerConfig,
     SkybridgeToolConfig,
+    extract_app_tool_metadata,
 )
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler, ToolPermissionHandler
@@ -928,17 +931,12 @@ class MCPAggregator(ContextDependent):
 
         for namespaced_tool in tool_entries:
             tool_meta = namespaced_tool.tool.meta or {}
-            template_value = tool_meta.get("openai/outputTemplate")
-            if not template_value:
-                continue
-
             try:
-                template_uri = AnyUrl(template_value)
-            except Exception as exc:
-                warning = (
-                    f"Tool '{namespaced_tool.namespaced_tool_name}' outputTemplate "
-                    f"'{template_value}' is invalid: {exc}"
+                app_metadata = extract_app_tool_metadata(
+                    tool_meta, namespaced_tool_name=namespaced_tool.namespaced_tool_name
                 )
+            except ValueError as exc:
+                warning = str(exc)
                 config.warnings.append(warning)
                 logger.error(warning)
                 tool_configs.append(
@@ -950,11 +948,21 @@ class MCPAggregator(ContextDependent):
                 )
                 continue
 
+            if app_metadata is None:
+                continue
+
+            for metadata_warning in app_metadata.warnings:
+                warning = f"Tool '{namespaced_tool.namespaced_tool_name}' {metadata_warning}"
+                config.warnings.append(warning)
+                logger.warning(warning)
+
             tool_configs.append(
                 SkybridgeToolConfig(
                     tool_name=namespaced_tool.tool.name,
                     namespaced_tool_name=namespaced_tool.namespaced_tool_name,
-                    template_uri=template_uri,
+                    template_uri=app_metadata.resource_uri,
+                    kind=app_metadata.kind,
+                    visibility=app_metadata.visibility,
                 )
             )
 
@@ -971,6 +979,12 @@ class MCPAggregator(ContextDependent):
         except Exception as exc:  # noqa: BLE001 - logging and surfacing gracefully
             config.warnings.append(f"Failed to list resources: {exc}")
             return server_name, config
+
+        expected_mime_by_uri = {
+            str(tool.template_uri): tool.kind.expected_mime_type
+            for tool in tool_configs
+            if tool.template_uri is not None
+        }
 
         for resource_entry in resources:
             uri = resource_entry.uri
@@ -989,7 +1003,11 @@ class MCPAggregator(ContextDependent):
                 logger.debug(warning)
                 continue
 
-            sky_resource = SkybridgeResourceConfig(uri=uri_value)
+            entry_meta = getattr(resource_entry, "meta", None)
+            sky_resource = SkybridgeResourceConfig(
+                uri=uri_value,
+                meta=dict(entry_meta) if isinstance(entry_meta, dict) else {},
+            )
             config.ui_resources.append(sky_resource)
 
             try:
@@ -1011,15 +1029,29 @@ class MCPAggregator(ContextDependent):
                     seen_mime_types.append(mime_type)
                 if mime_type == SKYBRIDGE_MIME_TYPE:
                     sky_resource.mime_type = mime_type
+                    sky_resource.kind = AppIntegrationKind.SKYBRIDGE
                     sky_resource.is_skybridge = True
-                    break
+                elif mime_type == MCP_APP_MIME_TYPE:
+                    sky_resource.mime_type = mime_type
+                    sky_resource.kind = AppIntegrationKind.MCP_APP
+                    sky_resource.is_mcp_app = True
+
+                content_meta = getattr(content, "meta", None)
+                if isinstance(content_meta, dict):
+                    sky_resource.meta.update(content_meta)
 
             if sky_resource.mime_type is None and seen_mime_types:
                 sky_resource.mime_type = seen_mime_types[0]
 
-            if not sky_resource.is_skybridge:
+            if not sky_resource.is_valid_app_resource:
                 observed_type = sky_resource.mime_type or "unknown MIME type"
-                warning = f"served as '{observed_type}' instead of '{SKYBRIDGE_MIME_TYPE}'"
+                expected_mime_type = expected_mime_by_uri.get(uri_str)
+                expected_label = (
+                    f"'{expected_mime_type}'"
+                    if expected_mime_type
+                    else f"'{SKYBRIDGE_MIME_TYPE}' or '{MCP_APP_MIME_TYPE}'"
+                )
+                warning = f"served as '{observed_type}' instead of {expected_label}"
                 sky_resource.warning = warning
                 config.warnings.append(f"{uri_str}: {warning}")
 
@@ -1030,9 +1062,14 @@ class MCPAggregator(ContextDependent):
 
             resource_match = resource_lookup.get(str(tool_config.template_uri))
             if not resource_match:
+                resource_label = (
+                    "Skybridge"
+                    if tool_config.kind is AppIntegrationKind.SKYBRIDGE
+                    else tool_config.kind.display_name
+                )
                 warning = (
                     f"Tool '{tool_config.namespaced_tool_name}' references missing "
-                    f"Skybridge resource '{tool_config.template_uri}'"
+                    f"{resource_label} resource '{tool_config.template_uri}'"
                 )
                 tool_config.warning = warning
                 config.warnings.append(warning)
@@ -1040,13 +1077,18 @@ class MCPAggregator(ContextDependent):
                 continue
 
             tool_config.resource_uri = resource_match.uri
-            tool_config.is_valid = resource_match.is_skybridge
+            expected_mime_type = tool_config.kind.expected_mime_type
+            tool_config.is_valid = (
+                resource_match.is_skybridge
+                if tool_config.kind is AppIntegrationKind.SKYBRIDGE
+                else resource_match.is_mcp_app
+            )
 
-            if not resource_match.is_skybridge:
+            if not tool_config.is_valid:
                 warning = (
                     f"Tool '{tool_config.namespaced_tool_name}' references resource "
                     f"'{resource_match.uri}' served as '{resource_match.mime_type or 'unknown'}' "
-                    f"instead of '{SKYBRIDGE_MIME_TYPE}'"
+                    f"instead of '{expected_mime_type}'"
                 )
                 tool_config.warning = warning
                 config.warnings.append(warning)
@@ -1057,7 +1099,7 @@ class MCPAggregator(ContextDependent):
         valid_tool_count = sum(1 for tool in tool_configs if tool.is_valid)
         if config.enabled and valid_tool_count == 0:
             warning = (
-                f"Skybridge resources detected on server '{server_name}' but no tools expose them"
+                f"App resources detected on server '{server_name}' but no tools expose them"
             )
             config.warnings.append(warning)
             logger.warning(warning)
@@ -1186,24 +1228,41 @@ class MCPAggregator(ContextDependent):
         tools: list[Tool] = []
 
         for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items():
-            tool_copy = namespaced_tool.tool.model_copy(
-                deep=True, update={"name": namespaced_tool_name}
-            )
             skybridge_config = self._skybridge_configs.get(namespaced_tool.server_name)
+            discovered_tool = None
+            matching_tool = None
             if skybridge_config:
-                matching_tool = next(
+                discovered_tool = next(
                     (
                         tool
                         for tool in skybridge_config.tools
-                        if tool.namespaced_tool_name == namespaced_tool_name and tool.is_valid
+                        if tool.namespaced_tool_name == namespaced_tool_name
                     ),
                     None,
                 )
-                if matching_tool:
-                    meta = dict(tool_copy.meta or {})
+                if discovered_tool and discovered_tool.is_valid:
+                    matching_tool = discovered_tool
+
+            if discovered_tool and discovered_tool.is_app_only:
+                continue
+
+            tool_copy = namespaced_tool.tool.model_copy(
+                deep=True, update={"name": namespaced_tool_name}
+            )
+            if matching_tool:
+                meta = dict(tool_copy.meta or {})
+                if matching_tool.kind is AppIntegrationKind.MCP_APP:
+                    ui_meta = meta.get("ui")
+                    ui_meta_dict = dict(ui_meta) if isinstance(ui_meta, dict) else {}
+                    ui_meta_dict["resourceUri"] = str(matching_tool.template_uri)
+                    ui_meta_dict["visibility"] = list(matching_tool.visibility)
+                    meta["ui"] = ui_meta_dict
+                    meta["ui/appEnabled"] = True
+                    meta["ui/appTemplate"] = str(matching_tool.template_uri)
+                else:
                     meta["openai/skybridgeEnabled"] = True
                     meta["openai/skybridgeTemplate"] = str(matching_tool.template_uri)
-                    tool_copy.meta = meta
+                tool_copy.meta = meta
             tools.append(tool_copy)
 
         return ListToolsResult(tools=tools)

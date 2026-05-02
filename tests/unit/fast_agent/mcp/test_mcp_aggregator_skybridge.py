@@ -41,6 +41,7 @@ spec.loader.exec_module(_module)
 MCPAggregator = _module.MCPAggregator
 SkybridgeServerConfig = _module.SkybridgeServerConfig
 SKYBRIDGE_MIME_TYPE = _module.SKYBRIDGE_MIME_TYPE
+MCP_APP_MIME_TYPE = _module.MCP_APP_MIME_TYPE
 NamespacedTool = _module.NamespacedTool
 
 
@@ -109,6 +110,99 @@ def test_skybridge_detection_marks_valid_resources() -> None:
     aggregator._get_resource_from_server.assert_awaited_once_with(
         "test", "ui://component/app"
     )
+
+
+def test_mcp_app_detection_marks_valid_resources() -> None:
+    aggregator = _create_aggregator()
+
+    aggregator.server_supports_feature = AsyncMock(return_value=True)
+    aggregator._server_to_tool_map["test"] = [
+        NamespacedTool(
+            tool=_tool_with_meta(
+                name="tool_a",
+                input_schema={"type": "object"},
+                meta={"ui": {"resourceUri": "ui://component/app"}},
+            ),
+            server_name="test",
+            namespaced_tool_name="test.tool_a",
+        )
+    ]
+    aggregator._list_resources_from_server = AsyncMock(
+        return_value=[SimpleNamespace(uri="ui://component/app")]
+    )
+    aggregator._get_resource_from_server = AsyncMock(
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=MCP_APP_MIME_TYPE)])
+    )
+
+    _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
+
+    assert config.enabled is True
+    assert config.has_mcp_apps is True
+    assert len(config.ui_resources) == 1
+    assert config.ui_resources[0].is_mcp_app is True
+    assert len(config.tools) == 1
+    tool_cfg = config.tools[0]
+    assert tool_cfg.is_valid is True
+    assert tool_cfg.kind is _module.AppIntegrationKind.MCP_APP
+    assert tool_cfg.visibility == ["model", "app"]
+
+
+def test_mcp_app_detection_supports_legacy_flat_resource_uri() -> None:
+    aggregator = _create_aggregator()
+
+    aggregator.server_supports_feature = AsyncMock(return_value=True)
+    aggregator._server_to_tool_map["test"] = [
+        NamespacedTool(
+            tool=_tool_with_meta(
+                name="tool_a",
+                input_schema={"type": "object"},
+                meta={"ui/resourceUri": "ui://component/app"},
+            ),
+            server_name="test",
+            namespaced_tool_name="test.tool_a",
+        )
+    ]
+    aggregator._list_resources_from_server = AsyncMock(
+        return_value=[SimpleNamespace(uri="ui://component/app")]
+    )
+    aggregator._get_resource_from_server = AsyncMock(
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=MCP_APP_MIME_TYPE)])
+    )
+
+    _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
+
+    assert config.tools[0].is_valid is True
+    assert config.tools[0].kind is _module.AppIntegrationKind.MCP_APP
+
+
+def test_mcp_app_detection_warns_on_skybridge_mime() -> None:
+    aggregator = _create_aggregator()
+
+    aggregator.server_supports_feature = AsyncMock(return_value=True)
+    aggregator._server_to_tool_map["test"] = [
+        NamespacedTool(
+            tool=_tool_with_meta(
+                name="tool_a",
+                input_schema={"type": "object"},
+                meta={"ui": {"resourceUri": "ui://component/app"}},
+            ),
+            server_name="test",
+            namespaced_tool_name="test.tool_a",
+        )
+    ]
+    aggregator._list_resources_from_server = AsyncMock(
+        return_value=[SimpleNamespace(uri="ui://component/app")]
+    )
+    aggregator._get_resource_from_server = AsyncMock(
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=SKYBRIDGE_MIME_TYPE)])
+    )
+
+    _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
+
+    assert config.enabled is True
+    assert config.ui_resources[0].is_skybridge is True
+    assert config.tools[0].is_valid is False
+    assert "instead of 'text/html;profile=mcp-app'" in (config.tools[0].warning or "")
 
 
 def test_skybridge_detection_warns_on_invalid_mime() -> None:
@@ -231,6 +325,70 @@ def test_list_tools_marks_skybridge_meta() -> None:
     meta = tools_result.tools[0].meta or {}
     assert meta.get("openai/skybridgeEnabled") is True
     assert meta.get("openai/skybridgeTemplate") == "ui://component/app"
+
+
+def test_list_tools_marks_mcp_app_meta_and_hides_app_only_tools() -> None:
+    aggregator = _create_aggregator()
+    aggregator.initialized = True
+
+    model_tool = _tool_with_meta(
+        name="model_tool",
+        input_schema={"type": "object"},
+        meta={"ui": {"resourceUri": "ui://component/model", "visibility": ["model"]}},
+    )
+    app_tool = _tool_with_meta(
+        name="app_tool",
+        input_schema={"type": "object"},
+        meta={"ui": {"resourceUri": "ui://component/app", "visibility": ["app"]}},
+    )
+
+    model_namespaced = NamespacedTool(
+        tool=model_tool,
+        server_name="test",
+        namespaced_tool_name="test.model_tool",
+    )
+    app_namespaced = NamespacedTool(
+        tool=app_tool,
+        server_name="test",
+        namespaced_tool_name="test.app_tool",
+    )
+
+    aggregator._namespaced_tool_map = {
+        "test.model_tool": model_namespaced,
+        "test.app_tool": app_namespaced,
+    }
+    aggregator._server_to_tool_map["test"] = [model_namespaced, app_namespaced]
+    aggregator._skybridge_configs["test"] = SkybridgeServerConfig(
+        server_name="test",
+        supports_resources=True,
+        tools=[
+            _module.SkybridgeToolConfig(
+                tool_name="model_tool",
+                namespaced_tool_name="test.model_tool",
+                template_uri=_module.AnyUrl("ui://component/model"),
+                resource_uri=_module.AnyUrl("ui://component/model"),
+                kind=_module.AppIntegrationKind.MCP_APP,
+                visibility=["model"],
+                is_valid=True,
+            ),
+            _module.SkybridgeToolConfig(
+                tool_name="app_tool",
+                namespaced_tool_name="test.app_tool",
+                template_uri=_module.AnyUrl("ui://component/app"),
+                resource_uri=_module.AnyUrl("ui://component/app"),
+                kind=_module.AppIntegrationKind.MCP_APP,
+                visibility=["app"],
+                is_valid=True,
+            ),
+        ],
+    )
+
+    tools_result = asyncio.run(aggregator.list_tools())
+
+    assert [tool.name for tool in tools_result.tools] == ["test.model_tool"]
+    meta = tools_result.tools[0].meta or {}
+    assert meta.get("ui/appEnabled") is True
+    assert meta.get("ui/appTemplate") == "ui://component/model"
 
 
 def test_skybridge_resource_without_tool_warns() -> None:

@@ -46,3 +46,25 @@ def test_parse_marketplace_payload_expands_plugin_bundle_entries() -> None:
     ]
     assert all(skill.repo_url == "https://github.com/example/skills" for skill in skills)
     assert all(skill.bundle_name == "Useful Bundle" for skill in skills)
+
+
+def test_parse_marketplace_payload_does_not_label_unexpanded_plugin_as_bundle() -> None:
+    payload = {
+        "plugins": [
+                {
+                    "name": "session-investigator",
+                    "description": "Investigate sessions",
+                    "source": {
+                        "source": "github",
+                        "repo": "example/skills",
+                        "path": "skills/session-investigator",
+                    },
+                }
+        ],
+    }
+
+    skills = parse_marketplace_payload(payload)
+
+    assert len(skills) == 1
+    assert skills[0].name == "session-investigator"
+    assert skills[0].bundle_name is None

@@ -86,3 +86,15 @@ def test_build_tool_summaries_marks_smart_skybridge_tools() -> None:
     )
 
     assert summaries[0].suffix == "(Smart) (skybridge)"
+
+
+def test_build_tool_summaries_marks_mcp_app_tools() -> None:
+    agent = _AgentStub()
+
+    summaries = build_tool_summaries(
+        agent,
+        [_tool("app_tool", meta={"ui/appEnabled": True, "ui/appTemplate": "ui://app"})],
+    )
+
+    assert summaries[0].suffix == "(MCP App)"
+    assert summaries[0].template == "ui://app"

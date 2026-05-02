@@ -89,9 +89,11 @@ def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
 
         if meta.get("openai/skybridgeEnabled"):
             suffix = f"{suffix} (skybridge)" if suffix else "(skybridge)"
+        if meta.get("ui/appEnabled"):
+            suffix = f"{suffix} (MCP App)" if suffix else "(MCP App)"
 
         args = _format_tool_args(tool.inputSchema)
-        template = meta.get("openai/skybridgeTemplate")
+        template = meta.get("ui/appTemplate") or meta.get("openai/skybridgeTemplate")
 
         summaries.append(
             ToolSummary(

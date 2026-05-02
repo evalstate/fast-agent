@@ -808,7 +808,7 @@ class ToolDisplay:
     ) -> None:
         total_width = console.console.size.width
         resource_label = (
-            f"skybridge resource: {resource_uri}" if resource_uri else "skybridge resource"
+            f"app resource: {resource_uri}" if resource_uri else "app resource"
         )
         resource_text = Text(resource_label, style="magenta")
         line = self._display.style.metadata_line(resource_text, total_width)
@@ -1225,7 +1225,17 @@ class ToolDisplay:
             if not has_skybridge_signal:
                 continue
 
-            valid_resource_count = sum(1 for resource in resources if resource.is_skybridge)
+            valid_resource_count = sum(
+                1 for resource in resources if resource.is_valid_app_resource
+            )
+            mcp_app_resource_count = sum(1 for resource in resources if resource.is_mcp_app)
+            skybridge_resource_count = sum(1 for resource in resources if resource.is_skybridge)
+            mcp_app_tool_count = sum(
+                1 for tool in config.tools if tool.is_valid and tool.kind == "mcp_app"
+            )
+            skybridge_tool_count = sum(
+                1 for tool in config.tools if tool.is_valid and tool.kind == "skybridge"
+            )
 
             server_rows.append(
                 {
@@ -1233,11 +1243,16 @@ class ToolDisplay:
                     "config": config,
                     "resources": resources,
                     "valid_resource_count": valid_resource_count,
+                    "mcp_app_resource_count": mcp_app_resource_count,
+                    "skybridge_resource_count": skybridge_resource_count,
+                    "mcp_app_tool_count": mcp_app_tool_count,
+                    "skybridge_tool_count": skybridge_tool_count,
                     "total_resource_count": len(resources),
                     "active_tools": [
                         {
                             "name": tool.display_name,
                             "template": str(tool.template_uri) if tool.template_uri else None,
+                            "kind": tool.kind,
                         }
                         for tool in config.tools
                         if tool.is_valid
@@ -1267,7 +1282,7 @@ class ToolDisplay:
         if not server_rows and not warnings:
             return
 
-        heading = "[dim]OpenAI Apps SDK ([/dim][cyan]skybridge[/cyan][dim]) detected:[/dim]"
+        heading = "[dim]Interactive MCP app integrations detected:[/dim]"
         console.console.print()
         console.console.print(heading, markup=self._markup)
 
@@ -1276,23 +1291,33 @@ class ToolDisplay:
         else:
             for row in server_rows:
                 server_name = row["server_name"]
-                resource_count = row["valid_resource_count"]
                 tool_infos = row["active_tools"]
                 enabled = row["enabled"]
 
-                tool_count = len(tool_infos)
-                tool_word = "tool" if tool_count == 1 else "tools"
-                resource_word = (
-                    "skybridge resource" if resource_count == 1 else "skybridge resources"
+                segments: list[str] = []
+                if row["mcp_app_tool_count"] or row["mcp_app_resource_count"]:
+                    segments.append(
+                        "[cyan]MCP Apps[/cyan][dim]: "
+                        f"{row['mcp_app_tool_count']} tools, "
+                        f"{row['mcp_app_resource_count']} resources[/dim]"
+                    )
+                if row["skybridge_tool_count"] or row["skybridge_resource_count"]:
+                    segments.append(
+                        "[cyan]OpenAI Apps SDK[/cyan][dim]: "
+                        f"{row['skybridge_tool_count']} tools, "
+                        f"{row['skybridge_resource_count']} resources[/dim]"
+                    )
+                integration_segment = (
+                    "[dim]; [/dim]".join(segments)
+                    if segments
+                    else "[dim]no active app integrations[/dim]"
                 )
-                tool_segment = f"[cyan]{tool_count}[/cyan][dim] {tool_word}[/dim]"
-                resource_segment = f"[cyan]{resource_count}[/cyan][dim] {resource_word}[/dim]"
                 name_style = "cyan" if enabled else "yellow"
                 status_suffix = "" if enabled else "[dim] (issues detected)[/dim]"
 
                 console.console.print(
                     f"[dim]  ● [/dim][{name_style}]{server_name}[/{name_style}]{status_suffix}"
-                    f"[dim] — [/dim]{tool_segment}[dim], [/dim]{resource_segment}",
+                    f"[dim] — [/dim]{integration_segment}",
                     markup=self._markup,
                 )
 

@@ -355,7 +355,7 @@ class ModelDatabase:
         reasoning="gpt_oss",
     )
     OPENAI_GPT_5 = ModelParameters(
-        context_window=400000,
+        context_window=400000 - 128000,
         max_output_tokens=128000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
@@ -366,7 +366,7 @@ class ModelDatabase:
     )
 
     OPENAI_GPT_5_2 = ModelParameters(
-        context_window=400000,
+        context_window=400000 - 128000,
         max_output_tokens=128000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
@@ -377,7 +377,7 @@ class ModelDatabase:
     )
 
     OPENAI_GPT_CODEX = ModelParameters(
-        context_window=400000,
+        context_window=400000 - 128000,
         max_output_tokens=128000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
