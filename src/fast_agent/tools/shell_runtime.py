@@ -35,10 +35,12 @@ from fast_agent.ui.shell_output_truncation import (
     SHELL_OUTPUT_TRUNCATION_MARKER,
     split_shell_output_line_limit,
 )
-from fast_agent.utils.async_utils import gather_with_cancel
 
 _STREAM_READ_CHUNK_SIZE = 4096
 _MAX_PENDING_STREAM_BYTES = 65536
+_IO_DRAIN_TIMEOUT_SECONDS = 2.0
+_PROCESS_EXIT_POLL_SECONDS = 0.1
+_asyncio_sleep = asyncio.sleep
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,14 +55,16 @@ class _ShellProcessPlan:
 @dataclass(slots=True)
 class _ShellOutputState:
     output_segments: list[str] = field(default_factory=list)
+    output_tail_bytes: bytearray = field(default_factory=bytearray)
     output_bytes: int = 0
     total_output_bytes: int = 0
     output_truncated: bool = False
     truncation_notice_printed: bool = False
     had_stream_output: bool = False
     output_line_count: int = 0
-    last_output_time: float = field(default_factory=time.time)
+    last_output_time: float = field(default_factory=time.monotonic)
     timeout_occurred: bool = False
+    io_drain_timed_out: bool = False
 
 
 @dataclass(slots=True)
@@ -145,7 +149,7 @@ class ShellRuntime:
 
     @property
     def timeout_seconds(self) -> int:
-        """Return the timeout used for shell execution."""
+        """Return the idle/no-output timeout used for shell execution."""
         return self._timeout_seconds
 
     def set_output_byte_limit(self, output_byte_limit: int | None) -> None:
@@ -348,6 +352,7 @@ class ShellRuntime:
     def _append_output_text(self, output_text: str, state: _ShellOutputState) -> None:
         output_blob = output_text.encode("utf-8", errors="replace")
         state.total_output_bytes += len(output_blob)
+        self._append_output_tail(output_blob, state)
         if state.output_truncated:
             return
 
@@ -365,6 +370,23 @@ class ShellRuntime:
             state.output_segments.append(truncated_text)
         state.output_bytes += remaining
         state.output_truncated = True
+
+    def _append_output_tail(self, output_blob: bytes, state: _ShellOutputState) -> None:
+        tail_limit = self._truncated_tail_byte_limit()
+        if len(output_blob) >= tail_limit:
+            state.output_tail_bytes = bytearray(output_blob[-tail_limit:])
+            return
+
+        state.output_tail_bytes.extend(output_blob)
+        overflow = len(state.output_tail_bytes) - tail_limit
+        if overflow > 0:
+            del state.output_tail_bytes[:overflow]
+
+    def _truncated_tail_byte_limit(self) -> int:
+        return max(self._output_byte_limit // 2, 1)
+
+    def _truncated_head_byte_limit(self) -> int:
+        return max(self._output_byte_limit - self._truncated_tail_byte_limit(), 1)
 
     def _maybe_print_truncation_notice(
         self,
@@ -453,7 +475,7 @@ class ShellRuntime:
             style,
             display_state=display_state,
         )
-        output_state.last_output_time = time.time()
+        output_state.last_output_time = time.monotonic()
 
     async def _stream_process_output(
         self,
@@ -590,7 +612,7 @@ class ShellRuntime:
                 self._logger.debug("Watchdog: process exited normally")
                 return
 
-            elapsed = time.time() - output_state.last_output_time
+            elapsed = time.monotonic() - output_state.last_output_time
             remaining = self._timeout_seconds - elapsed
             time_since_warning = elapsed - last_warning_time
             if time_since_warning >= self._warning_interval_seconds and remaining > 0:
@@ -625,7 +647,38 @@ class ShellRuntime:
         except asyncio.CancelledError:
             return
 
+    async def _drain_output_tasks(
+        self,
+        tasks: list[asyncio.Task[None]],
+        *,
+        timeout_seconds: float,
+    ) -> bool:
+        done, pending = await asyncio.wait(tasks, timeout=timeout_seconds)
+        drain_timed_out = bool(pending)
+        try:
+            for task in done:
+                await task
+        finally:
+            for task in pending:
+                task.cancel()
+            for task in pending:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        return drain_timed_out
+
     async def _wait_for_process_exit(
+        self,
+        process: asyncio.subprocess.Process,
+        *,
+        is_windows: bool,
+    ) -> int:
+        while process.returncode is None:
+            await _asyncio_sleep(_PROCESS_EXIT_POLL_SECONDS)
+        return process.returncode
+
+    async def _wait_for_process_exit_after_termination(
         self,
         process: asyncio.subprocess.Process,
         *,
@@ -643,12 +696,32 @@ class ShellRuntime:
             except Exception:
                 return -1
 
-    def _truncation_summary(self, output_state: _ShellOutputState) -> str | None:
+    def _truncation_summary(
+        self,
+        output_state: _ShellOutputState,
+        *,
+        head_bytes: int | None = None,
+        tail_bytes: int | None = None,
+    ) -> str | None:
         if not output_state.output_truncated:
             return None
-        retained_tokens = max(int(output_state.output_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
+        retained_bytes = (
+            output_state.output_bytes
+            if head_bytes is None or tail_bytes is None
+            else head_bytes + tail_bytes
+        )
+        retained_tokens = max(int(retained_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
         total_tokens = max(int(output_state.total_output_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
-        omitted_bytes = max(output_state.total_output_bytes - output_state.output_bytes, 0)
+        omitted_bytes = max(output_state.total_output_bytes - retained_bytes, 0)
+        if head_bytes is not None and tail_bytes is not None:
+            return (
+                "[Output truncated: showing first "
+                f"{head_bytes} bytes and last {tail_bytes} bytes of "
+                f"{output_state.total_output_bytes} bytes "
+                f"(~{retained_tokens} of ~{total_tokens} tokens); "
+                f"omitted {omitted_bytes} middle bytes. "
+                "Increase shell_execution.output_byte_limit to retain more.]"
+            )
         return (
             "[Output truncated: retained "
             f"{output_state.output_bytes} of {output_state.total_output_bytes} bytes "
@@ -657,19 +730,51 @@ class ShellRuntime:
             "Increase shell_execution.output_byte_limit to retain more.]"
         )
 
+    def _truncated_combined_output(self, output_state: _ShellOutputState) -> str:
+        head_limit = self._truncated_head_byte_limit()
+        head_blob = "".join(output_state.output_segments).encode("utf-8", errors="replace")[
+            :head_limit
+        ]
+        tail_blob = bytes(output_state.output_tail_bytes)[-self._truncated_tail_byte_limit() :]
+
+        parts: list[str] = []
+        if head_blob:
+            head_text = head_blob.decode("utf-8", errors="replace")
+            parts.append(head_text if head_text.endswith("\n") else f"{head_text}\n")
+
+        truncation_summary = self._truncation_summary(
+            output_state,
+            head_bytes=len(head_blob),
+            tail_bytes=len(tail_blob),
+        )
+        if truncation_summary:
+            parts.append(f"{truncation_summary}\n")
+
+        if tail_blob:
+            tail_text = tail_blob.decode("utf-8", errors="replace")
+            parts.append(tail_text if tail_text.endswith("\n") else f"{tail_text}\n")
+
+        return "".join(parts)
+
     def _build_shell_result(
         self,
         *,
         return_code: int,
         output_state: _ShellOutputState,
     ) -> tuple[CallToolResult, str]:
-        combined_output = "".join(output_state.output_segments)
+        combined_output = (
+            self._truncated_combined_output(output_state)
+            if output_state.output_truncated
+            else "".join(output_state.output_segments)
+        )
         if combined_output and not combined_output.endswith("\n"):
             combined_output += "\n"
 
-        truncation_summary = self._truncation_summary(output_state)
-        if truncation_summary:
-            combined_output += f"{truncation_summary}\n"
+        if output_state.io_drain_timed_out:
+            combined_output += (
+                f"(output collection stopped after {_IO_DRAIN_TIMEOUT_SECONDS:.1f}s "
+                "because stdout/stderr pipes remained open)\n"
+            )
 
         if output_state.timeout_occurred:
             combined_output += f"(timeout after {self._timeout_seconds}s - process terminated)"
@@ -756,7 +861,7 @@ class ShellRuntime:
                 "The execute tool requires a 'command' string argument."
             )
         self._logger.debug(
-            f"Executing command with timeout={self._timeout_seconds}s, warning_interval={self._warning_interval_seconds}s"
+            f"Executing command with idle_timeout={self._timeout_seconds}s, warning_interval={self._warning_interval_seconds}s"
         )
 
         configured_working_dir = self.working_directory()
@@ -807,11 +912,14 @@ class ShellRuntime:
                     )
                 )
 
-                await gather_with_cancel([stdout_task, stderr_task])
-                await self._cancel_task_if_running(watchdog_task)
                 return_code = await self._wait_for_process_exit(
                     process,
                     is_windows=plan.is_windows,
+                )
+                await self._cancel_task_if_running(watchdog_task)
+                output_state.io_drain_timed_out = await self._drain_output_tasks(
+                    [stdout_task, stderr_task],
+                    timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
                 )
                 result, completion_details = self._build_shell_result(
                     return_code=return_code,
@@ -847,7 +955,7 @@ class ShellRuntime:
                 )
                 return CallToolResult(
                     isError=True,
-                    content=[TextContent(type="text", text=f"Command failed to start: {exc}")],
+                    content=[TextContent(type="text", text=f"Command execution failed: {exc}")],
                 )
 
     def _emit_progress_event(

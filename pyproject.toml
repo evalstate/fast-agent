@@ -46,7 +46,7 @@ dependencies = [
     "uvloop==0.22.1; platform_system != 'Windows'",
     "multilspy==0.0.15",
     "ruamel.yaml==0.19.1",
-    "huggingface_hub==1.12.2",
+    "huggingface_hub==1.13.0",
     "mslex==1.3.0",
 ]
 
