@@ -9,7 +9,7 @@ from typing import Literal
 from urllib.parse import urlencode
 
 import yaml
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import fast_agent.config as config_module
 from fast_agent.config import load_yaml_mapping, resolve_environment_config_file
@@ -143,10 +143,20 @@ class ModelOverlayMetadata(BaseModel):
     context_window: int | None = None
     max_output_tokens: int | None = None
     tokenizes: list[str] | None = None
+    json_mode: Literal["schema", "object"] | None = None
+    structured_tool_policy: Literal["always", "defer", "no_tools"] | None = None
+    model_specific: str | None = None
     # Legacy fallback retained for older overlay files. New overlays should use
     # defaults.temperature instead.
     default_temperature: float | None = None
     fast: bool | None = None
+
+    @field_validator("json_mode", mode="before")
+    @classmethod
+    def _normalize_json_mode(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() == "none":
+            return None
+        return value
 
 
 class ModelOverlayPicker(BaseModel):
@@ -320,6 +330,14 @@ class LoadedModelOverlay:
             }
             if self.manifest.metadata.tokenizes is not None:
                 update_payload["tokenizes"] = self.manifest.metadata.tokenizes
+            if "json_mode" in self.manifest.metadata.model_fields_set:
+                update_payload["json_mode"] = self.manifest.metadata.json_mode
+            if self.manifest.metadata.structured_tool_policy is not None:
+                update_payload["structured_tool_policy"] = (
+                    self.manifest.metadata.structured_tool_policy
+                )
+            if self.manifest.metadata.model_specific is not None:
+                update_payload["model_specific"] = self.manifest.metadata.model_specific
             if default_temperature is not None:
                 update_payload["default_temperature"] = default_temperature
             if self.manifest.metadata.fast is not None:
@@ -327,10 +345,16 @@ class LoadedModelOverlay:
             return existing.model_copy(update=update_payload)
 
         tokenizes = self.manifest.metadata.tokenizes or list(ModelDatabase.TEXT_ONLY)
+        json_mode: str | None = "schema"
+        if "json_mode" in self.manifest.metadata.model_fields_set:
+            json_mode = self.manifest.metadata.json_mode
         return ModelParameters(
             context_window=context_window,
             max_output_tokens=max_output_tokens,
             tokenizes=tokenizes,
+            json_mode=json_mode,
+            structured_tool_policy=self.manifest.metadata.structured_tool_policy,
+            model_specific=self.manifest.metadata.model_specific,
             default_provider=self.provider,
             default_temperature=default_temperature,
             fast=bool(self.manifest.metadata.fast),

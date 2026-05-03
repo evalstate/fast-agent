@@ -1,9 +1,11 @@
+import pytest
 from mcp import Tool
 from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsResult
 
 from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
 from fast_agent.llm.provider.bedrock.multipart_converter_bedrock import BedrockConverter
-from fast_agent.types import PromptMessageExtended
+from fast_agent.mcp.prompt import Prompt
+from fast_agent.types import PromptMessageExtended, RequestParams
 
 
 def test_bedrock_converter_emits_tool_use_items():
@@ -55,3 +57,48 @@ def test_resolve_tool_use_name_uses_mapped_name():
     )
 
     assert resolved == "my_tool"
+
+
+@pytest.mark.asyncio
+async def test_bedrock_structured_schema_path_preserves_tools(monkeypatch):
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    tool = Tool(
+        name="lookup",
+        description="Lookup data.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+    captured_tools = None
+
+    llm = object.__new__(BedrockLLM)
+    llm.default_request_params = RequestParams(model="amazon.nova-lite-v1:0")
+
+    async def structured_schema(
+        multipart_messages,
+        schema_arg,
+        request_params=None,
+        tools=None,
+    ):
+        nonlocal captured_tools
+        del multipart_messages, schema_arg, request_params
+        captured_tools = tools
+        return None, Prompt.assistant("ok")
+
+    monkeypatch.setattr(
+        llm,
+        "_apply_prompt_provider_specific_structured_schema",
+        structured_schema,
+    )
+
+    result = await BedrockLLM._apply_prompt_provider_specific(
+        llm,
+        [Prompt.user("call the tool")],
+        RequestParams(structured_schema=schema),
+        [tool],
+    )
+
+    assert result.last_text() == "ok"
+    assert captured_tools == [tool]

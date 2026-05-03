@@ -79,7 +79,7 @@ async def test_apply_prompt_converts_last_message_when_history_disabled():
 def test_reasoning_content_injected_for_reasoning_content_models():
     """Ensure reasoning_content channel is forwarded for models that support it."""
     context = Context()
-    llm = OpenAILLM(context=context, model="moonshotai/kimi-k2-thinking")
+    llm = OpenAILLM(context=context, model="zai-org/glm-5.1")
 
     reasoning_text = "deliberate steps"
     msg = PromptMessageExtended(
@@ -99,7 +99,7 @@ def test_reasoning_content_injected_for_reasoning_content_models():
 def test_reasoning_content_preserved_with_tool_calls():
     """Reasoning content should ride along even when assistant is calling tools."""
     context = Context()
-    llm = OpenAILLM(context=context, model="moonshotai/kimi-k2-thinking")
+    llm = OpenAILLM(context=context, model="zai-org/glm-5.1")
 
     tool_call = CallToolRequest(
         method="tools/call",

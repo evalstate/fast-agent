@@ -36,6 +36,9 @@ class ModelParameters(BaseModel):
     json_mode: None | str = "schema"
     """Structured output style. 'schema', 'object' or None for unsupported """
 
+    structured_tool_policy: Literal["always", "defer", "no_tools"] | None = None
+    """Default structured-output/regular-tool coexistence policy for this model."""
+
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
 
@@ -84,6 +87,9 @@ class ModelParameters(BaseModel):
     default_provider: Provider | None = None
     """Default provider used when model is referenced without an explicit prefix."""
 
+    model_specific: str | None = None
+    """Optional model-specific system prompt text for {{model_specific}}."""
+
     fast: bool = False
     """Whether this model is recommended for fast/simple tasks."""
 
@@ -103,6 +109,13 @@ class ModelDatabase:
 
     _RUNTIME_MODEL_DEFAULT_PROVIDERS: dict[str, Provider] = {}
     _RUNTIME_MODEL_PARAMS: dict[str, ModelParameters] = {}
+    REMOVED_MODEL_NAMES: frozenset[str] = frozenset(
+        {
+            "claude-3-haiku-20240307",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-7-sonnet-20250219",
+        }
+    )
 
     # Common parameter sets
     OPENAI_MULTIMODAL = [
@@ -153,6 +166,10 @@ class ModelDatabase:
     QWEN_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     XAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     TEXT_ONLY = ["text/plain"]
+    GPT_53_PLUS_MODEL_SPECIFIC = (
+        "Before making tool calls, send a brief preamble to the user\n"
+        "   explaining what you’re about to do."
+    )
 
     OPENAI_O_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
@@ -352,6 +369,7 @@ class ModelDatabase:
         max_output_tokens=32766,
         tokenizes=TEXT_ONLY,
         json_mode="object",
+        structured_tool_policy="defer",
         reasoning="gpt_oss",
     )
     OPENAI_GPT_5 = ModelParameters(
@@ -422,6 +440,7 @@ class ModelDatabase:
         response_service_tiers=("fast",),
         default_provider=Provider.RESPONSES,
         reasoning="openai",
+        model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -567,18 +586,12 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
     )
-    KIMI_MOONSHOT_THINKING = ModelParameters(
-        context_window=262144,
-        max_output_tokens=16384,
-        tokenizes=TEXT_ONLY,
-        json_mode="object",
-        reasoning="reasoning_content",
-    )
     KIMI_MOONSHOT_25 = ModelParameters(
         context_window=262144,
         max_output_tokens=16384,
         tokenizes=OPENAI_VISION,
-        json_mode="schema",
+        json_mode=None,
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
     )
@@ -589,6 +602,7 @@ class ModelDatabase:
         # supported in Moonshot's official API for now.
         tokenizes=OPENAI_VISION,
         json_mode="schema",
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
     )
@@ -651,6 +665,7 @@ class ModelDatabase:
         max_output_tokens=131072,
         tokenizes=TEXT_ONLY,
         json_mode="object",
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         stream_mode="manual",
     )
@@ -659,20 +674,34 @@ class ModelDatabase:
         max_output_tokens=131072,
         tokenizes=TEXT_ONLY,
         json_mode="object",
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
     )
 
     HF_PROVIDER_DEEPSEEK31 = ModelParameters(
-        context_window=163_800, max_output_tokens=8192, tokenizes=TEXT_ONLY
+        context_window=163_800,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        structured_tool_policy="defer",
     )
 
     HF_PROVIDER_DEEPSEEK32 = ModelParameters(
         context_window=163_800,
         max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
+        structured_tool_policy="defer",
         reasoning="gpt_oss",
+    )
+
+    HF_PROVIDER_DEEPSEEK4_PRO = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=393_216,
+        tokenizes=TEXT_ONLY,
+        structured_tool_policy="defer",
+        reasoning="reasoning_content",
+        default_provider=Provider.HUGGINGFACE,
     )
 
     HF_PROVIDER_QWEN3_NEXT = ModelParameters(
@@ -683,6 +712,8 @@ class ModelDatabase:
         context_window=262_144,
         max_output_tokens=65_536,
         tokenizes=QWEN_MULTIMODAL,
+        json_mode="object",
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         default_provider=Provider.HUGGINGFACE,
@@ -742,20 +773,38 @@ class ModelDatabase:
         "gpt-5-nano": _with_fast(OPENAI_GPT_5),
         "gpt-5-nano-2025-08-07": _with_fast(OPENAI_GPT_5),
         "gpt-5.1": OPENAI_GPT_5_2,
-        "gpt-5.1-codex": OPENAI_GPT_CODEX.model_copy(update={"response_service_tiers": ("fast",)}),
-        "gpt-5.2-codex": OPENAI_GPT_CODEX,
-        "gpt-5.3-codex": OPENAI_GPT_CODEX.model_copy(update={"response_service_tiers": ("fast",)}),
+        "gpt-5.3-codex": OPENAI_GPT_CODEX.model_copy(
+            update={
+                "response_service_tiers": ("fast",),
+                "model_specific": GPT_53_PLUS_MODEL_SPECIFIC,
+            }
+        ),
         "gpt-5.4": OPENAI_GPT_CODEX.model_copy(
-            update={"reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING}
+            update={
+                "reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING,
+                "model_specific": GPT_53_PLUS_MODEL_SPECIFIC,
+            }
         ),
         "gpt-5.5": OPENAI_GPT_CODEX.model_copy(
-            update={"reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING}
+            update={
+                "reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING,
+                "model_specific": GPT_53_PLUS_MODEL_SPECIFIC,
+            }
         ),
-        "gpt-5.4-mini": OPENAI_GPT_54_SMALL,
+        "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
+            update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
+        ),
         "gpt-5.4-nano": OPENAI_GPT_54_SMALL.model_copy(
-            update={"response_websocket_providers": (Provider.RESPONSES,)}
+            update={
+                "response_websocket_providers": (Provider.RESPONSES,),
+                "model_specific": GPT_53_PLUS_MODEL_SPECIFIC,
+            }
         ),
-        "gpt-5.3-codex-spark": _with_fast(OPENAI_GPT_CODEX_SPARK),
+        "gpt-5.3-codex-spark": _with_fast(
+            OPENAI_GPT_CODEX_SPARK.model_copy(
+                update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
+            )
+        ),
         "gpt-5.2": OPENAI_GPT_5_2.model_copy(
             update={
                 "response_transports": ("sse", "websocket"),
@@ -764,23 +813,9 @@ class ModelDatabase:
         ),
         "gpt-5.3-chat-latest": _with_fast(params=OPENAI_CHAT53_INSTANT),
         # Anthropic Models
-        "claude-3-haiku": ANTHROPIC_35_SERIES,
-        "claude-3-haiku-20240307": ANTHROPIC_LEGACY,
-        "claude-3-sonnet": ANTHROPIC_LEGACY,
-        "claude-3-opus": ANTHROPIC_LEGACY,
-        "claude-3-opus-20240229": ANTHROPIC_LEGACY,
-        "claude-3-opus-latest": ANTHROPIC_LEGACY,
         "claude-3-5-haiku": ANTHROPIC_35_SERIES,
         "claude-3-5-haiku-20241022": ANTHROPIC_35_SERIES,
         "claude-3-5-haiku-latest": _with_fast(ANTHROPIC_35_SERIES),
-        "claude-3-sonnet-20240229": ANTHROPIC_LEGACY,
-        "claude-3-5-sonnet": ANTHROPIC_35_SERIES,
-        "claude-3-5-sonnet-20240620": ANTHROPIC_35_SERIES,
-        "claude-3-5-sonnet-20241022": ANTHROPIC_35_SERIES,
-        "claude-3-5-sonnet-latest": ANTHROPIC_35_SERIES,
-        "claude-3-7-sonnet": ANTHROPIC_37_SERIES_THINKING,
-        "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES_THINKING,
-        "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES_THINKING,
         "claude-sonnet-4-0": _with_long_context(
             ANTHROPIC_SONNET_4_LEGACY, ANTHROPIC_LONG_CONTEXT_WINDOW
         ),
@@ -827,10 +862,6 @@ class ModelDatabase:
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": _with_fast(GROK_3),
-        "moonshotai/kimi-k2": KIMI_MOONSHOT,
-        "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT),
-        "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
-        "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "qwen/qwen3-32b": QWEN3_REASONER,
@@ -840,7 +871,9 @@ class ModelDatabase:
         "zai-org/glm-4.6": GLM_46,
         "zai-org/glm-4.7": GLM_47,
         "zai-org/glm-5": _with_fast(GLM_5),
-        "zai-org/glm-5.1": _with_fast(GLM_5),
+        "zai-org/glm-5.1": _with_fast(
+            GLM_5.model_copy(update={"structured_tool_policy": "defer"})
+        ),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "minimaxai/minimax-m2.5": MINIMAX_25,
@@ -848,6 +881,7 @@ class ModelDatabase:
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
+        "deepseek-ai/deepseek-v4-pro": HF_PROVIDER_DEEPSEEK4_PRO,
         # aliyun modern
         "qwen3-max": ALIYUN_QWEN3_MODERN,
     }
@@ -867,6 +901,8 @@ class ModelDatabase:
 
         effective_provider = provider or cls.get_default_provider(model)
         normalized = cls.normalize_model_name(model)
+        if normalized in cls.REMOVED_MODEL_NAMES:
+            return None
         if effective_provider is not None:
             provider_override = cls._PROVIDER_MODEL_OVERRIDES.get((effective_provider, normalized))
             if provider_override is not None:
@@ -947,6 +983,12 @@ class ModelDatabase:
         """Get supported tokenization types for a model"""
         params = cls.get_model_params(model, provider=provider)
         return params.tokenizes if params else None
+
+    @classmethod
+    def get_model_specific(cls, model: str, *, provider: Provider | None = None) -> str:
+        """Get optional model-specific system prompt text for a model."""
+        params = cls.get_model_params(model, provider=provider)
+        return params.model_specific if params and params.model_specific else ""
 
     @classmethod
     def supports_mime(
@@ -1249,10 +1291,28 @@ class ModelDatabase:
         return None
 
     @classmethod
+    def _model_name_without_explicit_prefix(cls, model_spec: str) -> str:
+        if "/" in model_spec:
+            prefix, rest = model_spec.split("/", 1)
+            if rest and any(prefix == provider.value for provider in Provider):
+                return rest
+
+        if "." in model_spec:
+            prefix, rest = model_spec.split(".", 1)
+            if rest and any(prefix == provider.value for provider in Provider):
+                return rest
+
+        return model_spec
+
+    @classmethod
     def get_default_provider(cls, model: str | None) -> Provider | None:
         """Get default provider for a model name."""
         model_key = cls._normalize_provider_lookup_name(model)
         if not model_key:
+            return None
+
+        bare_model_key = cls._model_name_without_explicit_prefix(model_key)
+        if bare_model_key in cls.REMOVED_MODEL_NAMES:
             return None
 
         explicit_provider = cls._provider_from_explicit_prefix(model_key)

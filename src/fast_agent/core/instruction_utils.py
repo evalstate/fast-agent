@@ -11,12 +11,14 @@ from fast_agent.core.instruction_refresh import (
     build_instruction,
     resolve_instruction_skill_manifests,
 )
+from fast_agent.llm.model_database import ModelDatabase
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.core.instruction_refresh import ConfiguredMcpInstructionCapable
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 INTERNAL_AGENT_CARD_SENTINEL = "(internal)"
 
@@ -40,6 +42,12 @@ class InstructionContextAgent(Protocol):
     def config(self) -> "AgentConfig": ...
 
     def set_instruction(self, instruction: str) -> None: ...
+
+
+@runtime_checkable
+class LlmInstructionContextAgent(InstructionContextAgent, Protocol):
+    @property
+    def llm(self) -> "FastAgentLLMProtocol | None": ...
 
 
 def _normalize_agent_type_value(value: object) -> str:
@@ -66,6 +74,18 @@ def _resolve_agent_card_paths(agent: InstructionContextAgent) -> tuple[str, str]
     return str(resolved), str(resolved.parent)
 
 
+def _resolve_model_specific(agent: InstructionContextAgent) -> str:
+    if isinstance(agent, LlmInstructionContextAgent) and agent.llm is not None:
+        model_params = agent.llm.resolved_model.model_params
+        if model_params is not None and model_params.model_specific:
+            return model_params.model_specific
+
+    config_model = agent.config.model
+    if config_model is None:
+        return ""
+    return ModelDatabase.get_model_specific(config_model)
+
+
 def build_agent_instruction_context(
     agent: InstructionContextAgent,
     base_context: Mapping[str, str] | None = None,
@@ -86,6 +106,7 @@ def build_agent_instruction_context(
     context["agentType"] = agent_type
     context["agentCardPath"] = card_path
     context["agentCardDir"] = card_dir
+    context["model_specific"] = _resolve_model_specific(agent)
     return context
 
 

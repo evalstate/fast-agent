@@ -15,8 +15,8 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 TEST_MODELS = [
-    "hf.moonshotai/Kimi-K2-Thinking:nebius",
-    "hf.moonshotai/Kimi-K2-Thinking:novita",
+    "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+    "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
 ]
 
 

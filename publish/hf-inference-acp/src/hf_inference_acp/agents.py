@@ -103,8 +103,8 @@ def _normalize_hf_model(model: str) -> str:
     have the hf. prefix, add it automatically.
 
     Examples:
-        moonshotai/Kimi-K2-Thinking:together -> hf.moonshotai/Kimi-K2-Thinking:together
-        hf.moonshotai/Kimi-K2-Thinking:together -> hf.moonshotai/Kimi-K2-Thinking:together
+        deepseek-ai/DeepSeek-V4-Pro:fireworks-ai -> hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai
+        hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai -> hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai
         kimi -> kimi (alias, unchanged)
         gpt-4o -> gpt-4o (no /, unchanged)
     """

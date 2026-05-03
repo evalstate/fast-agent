@@ -38,6 +38,7 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
+    assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
 
     # Test unknown model
     assert ModelDatabase.get_context_window("unknown-model") is None
@@ -84,6 +85,37 @@ def test_model_database_default_provider_lookup():
     assert ModelDatabase.get_default_provider("gpt-5?reasoning=low") == Provider.RESPONSES
     assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
+
+
+def test_anthropic_catalog_keeps_current_and_vertex_legacy_models() -> None:
+    assert ModelDatabase.get_model_params("claude-opus-4-7") is not None
+    assert ModelDatabase.get_model_params("claude-opus-4-6") is not None
+    assert ModelDatabase.get_model_params("claude-sonnet-4-6") is not None
+    assert ModelDatabase.get_model_params("claude-haiku-4-5") is not None
+
+    assert ModelDatabase.get_model_params("claude-3-5-haiku-latest") is not None
+    assert ModelDatabase.get_model_params("claude-sonnet-4-20250514") is not None
+    assert ModelDatabase.get_model_params("claude-opus-4-20250514") is not None
+
+    assert ModelDatabase.get_model_params("claude-3-haiku-20240307") is None
+    assert ModelDatabase.get_model_params("claude-3-5-sonnet-20241022") is None
+    assert ModelDatabase.get_model_params("claude-3-7-sonnet-20250219") is None
+
+
+def test_huggingface_qwen35_uses_json_object_mode_with_deferred_tools() -> None:
+    params = ModelDatabase.get_model_params("Qwen/Qwen3.5-397B-A17B")
+
+    assert params is not None
+    assert params.json_mode == "object"
+    assert params.structured_tool_policy == "defer"
+
+
+def test_huggingface_kimi25_disables_native_structured_outputs() -> None:
+    params = ModelDatabase.get_model_params("moonshotai/Kimi-K2.5")
+
+    assert params is not None
+    assert params.json_mode is None
+    assert params.structured_tool_policy == "defer"
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
@@ -356,8 +388,6 @@ def test_model_database_response_service_tiers() -> None:
     assert ModelDatabase.get_response_service_tiers("gpt-5.4") == ("fast", "flex")
     assert ModelDatabase.get_response_service_tiers("gpt-5.5") == ("fast", "flex")
     assert ModelDatabase.get_response_service_tiers("gpt-5.3-chat-latest") == ("fast",)
-    assert ModelDatabase.get_response_service_tiers("gpt-5.1-codex") == ("fast",)
-    assert ModelDatabase.get_response_service_tiers("gpt-5.2-codex") == ("fast", "flex")
     assert ModelDatabase.supports_response_service_tier("gpt-5.3-chat-latest", "flex") is False
     assert ModelDatabase.supports_response_service_tier("gpt-5.4", "flex") is True
     assert ModelDatabase.supports_response_service_tier("gpt-5.5", "flex") is True
@@ -414,7 +444,12 @@ def test_glm_51_matches_glm_5_capabilities() -> None:
 
     assert old is not None
     assert new is not None
-    assert new.model_dump() == old.model_dump()
+    old_dump = old.model_dump()
+    new_dump = new.model_dump()
+    old_dump.pop("structured_tool_policy", None)
+    new_dump.pop("structured_tool_policy", None)
+    assert new_dump == old_dump
+    assert new.structured_tool_policy == "defer"
 
 
 def test_model_database_codex_spark_is_text_only() -> None:
@@ -598,6 +633,18 @@ def test_huggingface_qwen35_default_reasoning_emits_chat_template_kwargs_enabled
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
 
 
+def test_huggingface_deepseek_v4_pro_uses_reasoning_content_streaming_metadata():
+    llm = _make_hf_llm("deepseek-ai/DeepSeek-V4-Pro:fireworks-ai")
+
+    assert llm.default_request_params.model == "deepseek-ai/DeepSeek-V4-Pro"
+    assert llm.default_request_params.maxTokens == 393_216
+    assert getattr(llm, "_reasoning_mode", None) == "reasoning_content"
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "deepseek-ai/DeepSeek-V4-Pro:fireworks-ai"
+    assert args["max_tokens"] == 393_216
+
+
 def test_huggingface_qwen35_reasoning_stream_hidden_when_disabled():
     llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
 
@@ -650,3 +697,23 @@ def test_model_database_runtime_model_params_registration():
 
     ModelDatabase.unregister_runtime_model_params(model_name)
     assert ModelDatabase.get_model_params(model_name) is None
+
+
+def test_model_specific_defaults_for_gpt_53_plus_family():
+    expected = (
+        "Before making tool calls, send a brief preamble to the user\n"
+        "   explaining what you’re about to do."
+    )
+
+    for model_name in (
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.3-chat-latest",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.5",
+    ):
+        assert ModelDatabase.get_model_specific(model_name) == expected
+
+    assert ModelDatabase.get_model_specific("gpt-5.2") == ""

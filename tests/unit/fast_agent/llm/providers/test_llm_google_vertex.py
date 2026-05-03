@@ -162,7 +162,7 @@ def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
         description="Return the probe payload for validation.",
         inputSchema={"type": "object", "properties": {}},
     )
-    params = RequestParams(structured_schema=schema)
+    params = RequestParams(structured_schema=schema, structured_tool_policy="defer")
 
     _, prepared_params = llm._prepare_structured_request(
         [Prompt.user("call the tool, then return json")],

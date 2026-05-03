@@ -4,6 +4,7 @@ from mcp import Tool
 
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.mcp.helpers.content_helpers import split_thinking_content
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -30,14 +31,24 @@ IMPORTANT RULES:
     ) -> tuple[list[PromptMessageExtended], RequestParams]:
         if not request_params.structured_schema:
             return messages, request_params
-        if not self._supports_structured_prompt():
-            return messages, request_params
-        if tools and not any(message.tool_results for message in messages):
-            return messages, request_params
+        if self._should_defer_structured_schema_for_tools(messages, request_params, tools):
+            return messages, request_params.model_copy(update={"structured_schema": None})
 
         prepared_params = request_params
-        prompt_format = self._structured_prompt_format()
-        if prompt_format == "json_object" and not request_params.response_format:
+        json_mode = self._structured_json_mode(request_params)
+        if json_mode == "schema" and not request_params.response_format:
+            return messages, request_params.model_copy(
+                update={
+                    "response_format": self.schema_to_response_format(
+                        request_params.structured_schema
+                    )
+                }
+            )
+
+        if not self._supports_structured_prompt():
+            return messages, request_params
+
+        if json_mode == "object" and not request_params.response_format:
             prepared_params = request_params.model_copy(
                 update={"response_format": {"type": "json_object"}}
             )
@@ -77,13 +88,25 @@ IMPORTANT RULES:
                 request_params,
             )
 
-        prompt_format = self._structured_prompt_format()
-        if prompt_format == "json_object" and not request_params.response_format:
+        json_mode = self._structured_json_mode(request_params)
+        if json_mode == "schema" and not request_params.response_format:
+            schema = self.model_to_response_format(model)
+            if schema:
+                request_params.response_format = schema
+            return await super()._apply_prompt_provider_specific_structured(
+                multipart_messages, model, request_params
+            )
+
+        if json_mode == "object" and not request_params.response_format:
             request_params.response_format = {"type": "json_object"}
 
         instructions = self._build_structured_prompt_instruction(model)
         if instructions:
             multipart_messages[-1].add_text(instructions)
+
+        if json_mode is None:
+            result = await self._apply_prompt_provider_specific(multipart_messages, request_params)
+            return self._structured_from_multipart(result, model)
 
         return await super()._apply_prompt_provider_specific_structured(
             multipart_messages, model, request_params
@@ -112,8 +135,17 @@ IMPORTANT RULES:
                 request_params,
             )
 
-        prompt_format = self._structured_prompt_format()
-        if prompt_format == "json_object" and not request_params.response_format:
+        json_mode = self._structured_json_mode(request_params)
+        if json_mode == "schema" and not request_params.response_format:
+            request_params.response_format = self.schema_to_response_format(schema)
+            return await FastAgentLLM._apply_prompt_provider_specific_structured_schema(
+                self,
+                multipart_messages,
+                schema,
+                request_params,
+            )
+
+        if json_mode == "object" and not request_params.response_format:
             request_params.response_format = {"type": "json_object"}
 
         instructions = self._build_structured_prompt_instruction_from_schema(schema)
@@ -134,6 +166,24 @@ IMPORTANT RULES:
     def _structured_prompt_format(self) -> str | None:
         """Return the response_format type this provider expects."""
         return "json_object"
+
+    def _structured_json_mode(self, request_params: RequestParams | None = None) -> str | None:
+        model_name = (
+            request_params.model
+            if request_params and request_params.model
+            else self.default_request_params.model
+            if self.default_request_params
+            else self._model_name
+        )
+        if not model_name:
+            return self._structured_prompt_format()
+        try:
+            params = self._get_model_params(model_name)
+        except Exception:
+            params = ModelDatabase.get_model_params(model_name)
+        if params is not None:
+            return params.json_mode
+        return self._structured_prompt_format()
 
     def _build_structured_prompt_instruction(self, model: Type[ModelT]) -> str | None:
         return self._build_structured_prompt_instruction_from_schema(model.model_json_schema())

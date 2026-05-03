@@ -1,5 +1,7 @@
 from typing import Any
 
+from fast_agent.llm.structured_schema import sanitize_structured_output_schema
+
 _STRUCTURAL_SCHEMA_KEYS = frozenset(
     {
         "$ref",
@@ -68,6 +70,15 @@ def sanitize_tool_input_schema(input_schema: dict[str, Any]) -> dict[str, Any]:
     if isinstance(sanitized, dict):
         return sanitized
     return {"type": "object", "properties": {}}
+
+
+def sanitize_response_format_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return an OpenAI strict-compatible response_format JSON schema."""
+    return sanitize_structured_output_schema(
+        schema,
+        require_all_properties=True,
+        additional_properties_false=True,
+    )
 
 
 def should_strip_tool_schema_defaults(model_name: str | None) -> bool:

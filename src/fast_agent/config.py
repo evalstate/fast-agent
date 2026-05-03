@@ -169,7 +169,7 @@ class ShellSettings(BaseModel):
 
     timeout_seconds: int = Field(
         default=90,
-        description="Maximum seconds to wait for command output before terminating",
+        description="Maximum seconds without command output before terminating",
     )
     warning_interval_seconds: int = Field(
         default=30,

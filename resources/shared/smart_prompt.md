@@ -45,4 +45,6 @@ remote tool or connector loading.
 
 Mermaid diagrams between code fences are supported.
 
+{{model_specific}}
+
 The current date is {{currentDate}}.

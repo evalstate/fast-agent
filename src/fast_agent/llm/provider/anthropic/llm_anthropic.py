@@ -98,6 +98,7 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
+from fast_agent.llm.structured_schema import sanitize_structured_output_schema
 from fast_agent.llm.task_budget import (
     format_task_budget_tokens,
     parse_task_budget_tokens,
@@ -898,6 +899,25 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return "tool_use"
         return "tool_use"
 
+    def _resolve_structured_tool_policy(
+        self,
+        request_params: RequestParams,
+    ) -> Literal["always", "defer", "no_tools"]:
+        if request_params.structured_tool_policy != "auto":
+            return request_params.structured_tool_policy
+
+        model_name = request_params.model or self.default_request_params.model or self._model_name
+        if model_name:
+            structured_mode = self._resolve_structured_output_mode(
+                model_name,
+                None,
+                request_params.structured_schema,
+            )
+            if structured_mode == "tool_use":
+                return "no_tools"
+
+        return super()._resolve_structured_tool_policy(request_params)
+
     def _is_auto_tool_use_structured_fallback(
         self,
         model: str,
@@ -963,12 +983,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if structured_schema is not None:
                 schema = cast(
                     "dict[str, object]",
-                    _ensure_additional_properties_false(structured_schema),
+                    sanitize_structured_output_schema(
+                        structured_schema,
+                        additional_properties_false=True,
+                    ),
                 )
             elif structured_model is not None:
                 schema = cast(
                     "dict[str, object]",
-                    _ensure_additional_properties_false(structured_model.model_json_schema()),
+                    sanitize_structured_output_schema(
+                        structured_model.model_json_schema(),
+                        additional_properties_false=True,
+                    ),
                 )
             else:
                 schema = {"type": "object"}

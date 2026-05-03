@@ -192,11 +192,43 @@ def _iter_model_identity_lines(
     if isinstance(context_window, int) and context_window > 0:
         lines.append(("Context window", str(context_window), False))
 
+    if resolved_model is not None:
+        lines.extend(_iter_structured_output_lines(resolved_model))
+
     sampling_overrides = _render_sampling_overrides(llm)
     if sampling_overrides:
         lines.append(("Sampling overrides", sampling_overrides, False))
 
     return [(label, value, emphasize) for label, value, emphasize in lines if value]
+
+
+def _iter_structured_output_lines(
+    resolved_model: "ResolvedModelSpec",
+) -> list[tuple[str, str, bool]]:
+    json_mode = resolved_model.json_mode
+    if json_mode == "schema":
+        structured_output = "schema"
+    elif json_mode == "object":
+        structured_output = "object"
+    elif json_mode is None and resolved_model.model_params is not None:
+        structured_output = "prompt-only + local validation"
+    else:
+        structured_output = "unknown (defaulting to provider behavior)"
+
+    policy = resolved_model.structured_tool_policy
+    if policy == "defer":
+        structured_tools = "two-phase (tools first, schema-only final)"
+    elif policy == "no_tools":
+        structured_tools = "structured-only (regular tools suppressed)"
+    elif policy == "always":
+        structured_tools = "same-request compatible"
+    else:
+        structured_tools = "default policy"
+
+    return [
+        ("Structured output", structured_output, False),
+        ("Structured + tools", structured_tools, False),
+    ]
 
 
 def _format_active_transport_value(

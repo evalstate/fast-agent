@@ -50,6 +50,10 @@ defaults:
 metadata:
   context_window: 75264
   max_output_tokens: 2048
+  model_specific: |
+    Use terse responses for this local model.
+  json_mode: object
+  structured_tool_policy: defer
 picker:
   label: Qwen local
   description: Imported from llama.cpp
@@ -147,9 +151,20 @@ Common fields:
 - `context_window`
 - `max_output_tokens`
 - `tokenizes`
+- `json_mode`: `schema`, `object`, `none`, or `null`
+- `structured_tool_policy`: `auto`, `always`, `defer`, or `no_tools`
+- `model_specific`: text made available to system prompts as `{{model_specific}}`
 - `fast`
 
 Use this for models that are not part of the built-in catalog or when local runtime limits differ from known defaults.
+
+`json_mode` describes how fast-agent should request structured output:
+
+- `schema` — provider-native JSON Schema constraints
+- `object` — provider JSON-object mode plus prompt instructions/local validation
+- `none`/`null` — prompt-only structured guidance plus local validation
+
+`structured_tool_policy: no_tools` suppresses regular tools and produces one structured response. `defer` uses tools first, then produces the final schema-constrained answer without tools. Use `defer` when a model should use tools to gather data before returning structured JSON.
 
 ---
 

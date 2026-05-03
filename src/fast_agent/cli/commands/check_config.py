@@ -1,13 +1,14 @@
 """Command to check FastAgent configuration."""
 
+import asyncio
 import json
 import os
 import platform
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import typer
 import yaml
@@ -2228,6 +2229,53 @@ def models(
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="provider") from exc
+
+
+@app.command("structured-tools")
+def structured_tools(
+    models: str = typer.Option(
+        ...,
+        "--models",
+        "--model",
+        help="Model id, alias, or comma-separated list of models to probe.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON output."),
+    structured_tool_policy: str = typer.Option(
+        "auto",
+        "--structured-tool-policy",
+        help="Policy to probe: auto, always, defer, or no_tools.",
+    ),
+) -> None:
+    """Probe structured output compatibility when tools are available."""
+    if structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
+        raise typer.BadParameter(
+            "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'",
+            param_hint="--structured-tool-policy",
+        )
+
+    model_names = [model.strip() for model in models.split(",") if model.strip()]
+    if not model_names:
+        raise typer.BadParameter("At least one model is required.", param_hint="--models")
+
+    from fast_agent.cli.checks.structured_tools_probe import (
+        StructuredToolPolicy,
+        _print_text_summary,
+        run_probe,
+    )
+
+    results = asyncio.run(
+        run_probe(
+            model_names,
+            structured_tool_policy=cast("StructuredToolPolicy", structured_tool_policy),
+        )
+    )
+    if json_output:
+        console.print_json(json.dumps([asdict(result) for result in results]))
+    else:
+        _print_text_summary(results)
+
+    if not all(result.passed for result in results):
+        raise typer.Exit(1)
 
 
 @app.callback(invoke_without_command=True)

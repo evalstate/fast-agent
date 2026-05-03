@@ -64,6 +64,10 @@ class _StructuredResponse(BaseModel):
     answer: str
 
 
+class _StructuredResponseWithMap(BaseModel):
+    metadata: dict[str, str]
+
+
 def test_opus_46_uses_adaptive_thinking_by_default():
     llm = _make_llm("claude-opus-4-6")
 
@@ -341,6 +345,24 @@ def test_json_structured_output_uses_output_config_format():
     assert "schema" in args["output_config"]["format"]
 
 
+def test_json_structured_output_sanitizes_map_additional_properties():
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+
+    args, _ = llm._build_anthropic_base_args(
+        model="claude-opus-4-6",
+        messages=[],
+        params=RequestParams(maxTokens=1024),
+        history=None,
+        current_extended=None,
+        request_tools=[],
+        structured_mode="json",
+        structured_model=_StructuredResponseWithMap,
+    )
+
+    metadata_schema = args["output_config"]["format"]["schema"]["properties"]["metadata"]
+    assert metadata_schema["additionalProperties"] is False
+
+
 def test_auto_structured_output_mode_prefers_json_when_direct_beta_supported():
     llm = _make_llm("claude-opus-4-6", reasoning=False)
 
@@ -501,7 +523,7 @@ def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
         description="Return the probe payload for validation.",
         inputSchema={"type": "object", "properties": {}},
     )
-    params = RequestParams(structured_schema=schema)
+    params = RequestParams(structured_schema=schema, structured_tool_policy="defer")
 
     _, prepared_params = llm._prepare_structured_request(
         [Prompt.user("call the tool, then return json")],
@@ -539,6 +561,43 @@ async def test_tool_use_structured_output_uses_raw_schema_when_supplied() -> Non
     assert isinstance(answer_schema, dict)
     normalized_answer_schema = {str(key): value for key, value in answer_schema.items()}
     assert normalized_answer_schema.get("type") == "string"
+
+
+@pytest.mark.asyncio
+async def test_tool_use_structured_output_sanitizes_raw_schema_for_anthropic() -> None:
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+    schema = {
+        "type": "object",
+        "properties": {
+            "answer": {"type": "string"},
+            "context": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": None,
+            },
+        },
+        "required": ["answer"],
+    }
+
+    tools = await llm._prepare_tools(
+        "claude-opus-4-6",
+        structured_model=None,
+        structured_schema=schema,
+        tools=None,
+        structured_mode="tool_use",
+    )
+
+    input_schema = tools[0]["input_schema"]
+    assert isinstance(input_schema, dict)
+    normalized_input_schema = {str(key): value for key, value in input_schema.items()}
+    assert normalized_input_schema["additionalProperties"] is False
+    assert normalized_input_schema["required"] == ["answer"]
+    properties = normalized_input_schema["properties"]
+    assert isinstance(properties, dict)
+    normalized_properties = {str(key): value for key, value in properties.items()}
+    context_schema = normalized_properties["context"]
+    assert isinstance(context_schema, dict)
+    assert "default" not in context_schema
+    assert schema["properties"]["context"]["default"] is None
 
 
 @pytest.mark.asyncio

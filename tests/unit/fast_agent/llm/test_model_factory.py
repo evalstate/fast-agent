@@ -34,7 +34,7 @@ from fast_agent.types import RequestParams
 TEST_ALIASES = {
     "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905",  # No default provider
     "glm": "hf.zai-org/GLM-4.6:cerebras",  # Has default provider
-    "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
+    "qwen35": "hf.Qwen/Qwen3.5-397B-A17B:novita",
     "minimax": "hf.MiniMaxAI/MiniMax-M2",  # No default provider
 }
 
@@ -43,8 +43,8 @@ def test_simple_model_names():
     """Test parsing of simple model names"""
     cases = [
         ("o1-mini", Provider.RESPONSES),
-        ("claude-3-haiku-20240307", Provider.ANTHROPIC),
-        ("claude-3-5-sonnet-20240620", Provider.ANTHROPIC),
+        ("claude-haiku-4-5", Provider.ANTHROPIC),
+        ("claude-sonnet-4-6", Provider.ANTHROPIC),
         ("claude-opus-4-6", Provider.ANTHROPIC),
     ]
 
@@ -59,9 +59,9 @@ def test_full_model_strings():
     """Test parsing of full model strings with providers"""
     cases = [
         (
-            "anthropic.claude-3-haiku-20240307",
+            "anthropic.claude-haiku-4-5",
             Provider.ANTHROPIC,
-            "claude-3-haiku-20240307",
+            "claude-haiku-4-5",
             None,
         ),
         ("openai.gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
@@ -144,6 +144,13 @@ def test_model_query_structured_tool_use():
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-sonnet-4-5"
     assert config.structured_output_mode == "tool_use"
+
+
+def test_model_query_structured_tools_policy():
+    config = ModelFactory.parse_model_string(
+        "claude-sonnet-4-6?structured=json&structured_tools=defer"
+    )
+    assert config.structured_tool_policy == "defer"
 
 
 def test_model_query_unknown_parameter_is_rejected() -> None:
@@ -245,7 +252,7 @@ def test_kimi25_alias_sets_thinking_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi25")
 
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2.5:fireworks-ai"
+    assert config.model_name == "moonshotai/Kimi-K2.5:novita"
     assert config.temperature == 1.0
     assert config.top_p == 0.95
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
@@ -255,7 +262,7 @@ def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi25instant")
 
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2.5:fireworks-ai"
+    assert config.model_name == "moonshotai/Kimi-K2.5:novita"
     assert config.temperature == 0.6
     assert config.top_p == 0.95
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
@@ -263,6 +270,10 @@ def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
 
 def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
     assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string("kimi26")
+
+
+def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
+    assert ModelFactory.parse_model_string("kimithink") == ModelFactory.parse_model_string("kimi26")
 
 
 def test_kimi26_alias_sets_thinking_sampling_defaults() -> None:
@@ -303,7 +314,7 @@ def test_model_query_transport_websocket_alias():
 
 
 def test_model_query_transport_auto():
-    config = ModelFactory.parse_model_string("codexplan52?transport=auto")
+    config = ModelFactory.parse_model_string("codexplan?transport=auto")
     assert config.transport == "auto"
 
 
@@ -345,14 +356,6 @@ def test_responses_chatgpt_flex_service_tier_query_rejected() -> None:
 def test_chatgpt_alias_flex_service_tier_query_rejected() -> None:
     with pytest.raises(ModelConfigError, match="gpt-5.3-chat-latest"):
         ModelFactory.parse_model_string("chatgpt?service_tier=flex")
-
-
-def test_responses_codex_52_flex_service_tier_query_allowed() -> None:
-    config = ModelFactory.parse_model_string("responses.gpt-5.2-codex?service_tier=flex")
-
-    assert config.provider == Provider.RESPONSES
-    assert config.model_name == "gpt-5.2-codex"
-    assert config.service_tier == "flex"
 
 
 def test_responses_codex_53_flex_service_tier_query_rejected() -> None:
@@ -552,7 +555,7 @@ def test_llm_class_creation():
     """Test creation of LLM classes"""
     cases = [
         ("gpt-4.1", OpenAILLM),
-        ("claude-3-haiku-20240307", AnthropicLLM),
+        ("claude-haiku-4-5", AnthropicLLM),
         ("openai.gpt-4.1", OpenAILLM),
     ]
 
@@ -608,6 +611,14 @@ def test_claude_alias_resolves_to_sonnet_46():
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-sonnet-4-6"
 
+    config = ModelFactory.parse_model_string("sonnet4")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-6"
+
+    config = ModelFactory.parse_model_string("opus4")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-7"
+
     config = ModelFactory.parse_model_string("opus46")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-opus-4-6"
@@ -621,6 +632,26 @@ def test_gemini31_alias_resolves_to_google_31_preview():
     config = ModelFactory.parse_model_string("gemini3.1")
     assert config.provider == Provider.GOOGLE
     assert config.model_name == "gemini-3.1-pro-preview"
+
+
+def test_deepseek_alias_resolves_to_native_deepseek_chat():
+    config = ModelFactory.parse_model_string("deepseek")
+    assert config.provider == Provider.DEEPSEEK
+    assert config.model_name == "deepseek-chat"
+
+
+def test_deepseek4_alias_resolves_to_hf_deepseek_v4_pro():
+    config = ModelFactory.parse_model_string("deepseek4")
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:fireworks-ai"
+
+
+def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
+    resolved = ModelFactory.resolve_model_spec("gpt-oss")
+
+    assert resolved.provider == Provider.HUGGINGFACE
+    assert resolved.wire_model_name == "openai/gpt-oss-120b:cerebras"
+    assert resolved.max_output_tokens == 32766
 
 
 def test_curated_catalog_aliases_are_parseable():
@@ -648,10 +679,6 @@ def test_codexplan_aliases_use_codex_oauth_provider():
     assert config.provider == Provider.RESPONSES
     assert config.model_name == "gpt-5.4"
 
-    config = ModelFactory.parse_model_string("codexplan52")
-    assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.2-codex"
-
     config = ModelFactory.parse_model_string("codexspark")
     assert config.provider == Provider.CODEX_RESPONSES
     assert config.model_name == "gpt-5.3-codex-spark"
@@ -663,7 +690,7 @@ def test_codexplan_aliases_use_codex_oauth_provider():
         ("glm", "zai-org/GLM-4.6:cerebras"),
         ("glm:groq", "zai-org/GLM-4.6:groq"),
         ("kimi:groq", "moonshotai/Kimi-K2-Instruct-0905:groq"),
-        ("qwen3:nebius", "Qwen/Qwen3-Next-80B-A3B-Instruct:nebius"),
+        ("qwen35:nebius", "Qwen/Qwen3.5-397B-A17B:nebius"),
     ],
 )
 def test_huggingface_alias_provider_routing_contracts(
