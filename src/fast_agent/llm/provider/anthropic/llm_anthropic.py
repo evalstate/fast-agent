@@ -4,7 +4,6 @@ import hashlib
 import inspect
 import json
 import os
-from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +32,7 @@ from opentelemetry.semconv._incubating.attributes import (
 )
 from opentelemetry.semconv_ai import LLMRequestTypeValues, SpanAttributes
 from opentelemetry.trace import Span, Status, StatusCode
+from pydantic import BaseModel
 
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
@@ -98,7 +98,6 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
-from fast_agent.llm.structured_schema import sanitize_structured_output_schema
 from fast_agent.llm.task_budget import (
     format_task_budget_tokens,
     parse_task_budget_tokens,
@@ -384,35 +383,9 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
         logger.debug(f"Failed to save stream chunk: {e}")
 
 
-def _ensure_additional_properties_false(schema: dict[str, Any]) -> dict[str, Any]:
-    """Ensure object schemas explicitly set additionalProperties=false."""
-    result = deepcopy(schema)
-
-    def visit(node: Any) -> None:
-        if isinstance(node, dict):
-            if node.get("type") == "object" and "additionalProperties" not in node:
-                node["additionalProperties"] = False
-
-            for key, value in node.items():
-                if key in {"properties", "$defs", "definitions", "patternProperties"}:
-                    if isinstance(value, dict):
-                        for child in value.values():
-                            visit(child)
-                    continue
-                if key in {"items", "anyOf", "oneOf", "allOf"}:
-                    if isinstance(value, list):
-                        for child in value:
-                            visit(child)
-                    else:
-                        visit(value)
-                    continue
-                visit(value)
-        elif isinstance(node, list):
-            for item in node:
-                visit(item)
-
-    visit(result)
-    return result
+def _transform_anthropic_schema(schema: type[BaseModel] | dict[str, Any]) -> dict[str, Any]:
+    """Return an Anthropic-compatible schema using the SDK's schema transformer."""
+    return transform_schema(schema)
 
 
 class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
@@ -942,14 +915,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         structured_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if structured_schema is not None:
-            schema = structured_schema
+            schema = _transform_anthropic_schema(structured_schema)
         elif structured_model is not None:
-            try:
-                schema = transform_schema(structured_model)
-            except Exception:
-                schema = structured_model.model_json_schema()
+            schema = _transform_anthropic_schema(cast("type[BaseModel]", structured_model))
         else:
-            schema = {"type": "object"}
+            schema = _transform_anthropic_schema({"type": "object"})
         return {"type": "json_schema", "schema": schema}
 
     async def _prepare_tools(
@@ -981,23 +951,14 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 )
             schema: dict[str, object]
             if structured_schema is not None:
-                schema = cast(
-                    "dict[str, object]",
-                    sanitize_structured_output_schema(
-                        structured_schema,
-                        additional_properties_false=True,
-                    ),
-                )
+                schema = cast("dict[str, object]", _transform_anthropic_schema(structured_schema))
             elif structured_model is not None:
                 schema = cast(
                     "dict[str, object]",
-                    sanitize_structured_output_schema(
-                        structured_model.model_json_schema(),
-                        additional_properties_false=True,
-                    ),
+                    _transform_anthropic_schema(cast("type[BaseModel]", structured_model)),
                 )
             else:
-                schema = {"type": "object"}
+                schema = cast("dict[str, object]", _transform_anthropic_schema({"type": "object"}))
             return [
                 ToolParam(
                     name=STRUCTURED_OUTPUT_TOOL_NAME,
@@ -1237,7 +1198,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             name=content_block.name,
                             index=event.index,
                         )
-                        tool_input_buffers.setdefault(state.tool_use_id, _AnthropicToolInputBuffer())
+                        tool_input_buffers.setdefault(
+                            state.tool_use_id, _AnthropicToolInputBuffer()
+                        )
                         self._notify_tool_stream_listeners(
                             "start",
                             {
@@ -1425,7 +1388,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     state = tool_tracker.resolve_open(index=event.index)
                     if state is not None and state.kind == "tool":
                         tool_tracker.close(index=event.index)
-                        preview_raw = tool_input_buffers.get(state.tool_use_id, _AnthropicToolInputBuffer()).joined()
+                        preview_raw = tool_input_buffers.get(
+                            state.tool_use_id, _AnthropicToolInputBuffer()
+                        ).joined()
                         if preview_raw:
                             preview = (
                                 preview_raw
@@ -1581,9 +1546,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
             incomplete_tools = tool_tracker.incomplete()
             if incomplete_tools:
-                tool_labels = [
-                    f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools
-                ]
+                tool_labels = [f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools]
                 logger.error(
                     "Anthropic stream ended with incomplete tool state",
                     data={
@@ -1593,8 +1556,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     },
                 )
                 raise RuntimeError(
-                    "Streaming completed but tool call(s) never finished: "
-                    + ", ".join(tool_labels)
+                    "Streaming completed but tool call(s) never finished: " + ", ".join(tool_labels)
                 )
 
             # Get the final message with complete usage data
@@ -1905,14 +1867,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if otel_span is not None:
                 with trace.use_span(otel_span, end_on_exit=False):
                     async with stream_manager as stream:
-                        response, thinking_segments, streamed_text_segments = await self._process_stream(
-                            stream, model, capture_filename
-                        )
+                        (
+                            response,
+                            thinking_segments,
+                            streamed_text_segments,
+                        ) = await self._process_stream(stream, model, capture_filename)
             else:
                 async with stream_manager as stream:
-                    response, thinking_segments, streamed_text_segments = await self._process_stream(
-                        stream, model, capture_filename
-                    )
+                    (
+                        response,
+                        thinking_segments,
+                        streamed_text_segments,
+                    ) = await self._process_stream(stream, model, capture_filename)
         except APIError as error:
             if otel_span is not None and otel_span.is_recording():
                 otel_span.record_exception(error)
@@ -2238,7 +2204,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         _save_stream_request(capture_filename, arguments)
 
         try:
-            response, thinking_segments, streamed_text_segments = await self._execute_anthropic_stream(
+            (
+                response,
+                thinking_segments,
+                streamed_text_segments,
+            ) = await self._execute_anthropic_stream(
                 anthropic=anthropic,
                 arguments=arguments,
                 model=model,
@@ -2391,7 +2361,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         last_message = multipart_messages[-1]
 
         if last_message.role == "user":
-            logger.debug("Last message in prompt is from user, generating structured schema response")
+            logger.debug(
+                "Last message in prompt is from user, generating structured schema response"
+            )
             message_param = AnthropicConverter.convert_to_anthropic(last_message)
             result = await self._anthropic_completion(
                 message_param,

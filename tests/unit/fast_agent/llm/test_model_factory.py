@@ -432,6 +432,20 @@ def test_transport_query_allows_codexresponses_provider_for_codex_spark():
     assert config.transport == "websocket"
 
 
+def test_transport_query_allows_xairesponses_provider_for_grok():
+    config = ModelFactory.parse_model_string("xairesponses.grok-4.3?transport=ws")
+    assert config.provider == Provider.XAI_RESPONSES
+    assert config.model_name == "grok-4.3"
+    assert config.transport == "websocket"
+
+
+def test_transport_query_allows_xai_provider_for_grok():
+    config = ModelFactory.parse_model_string("xai.grok-4.3?transport=ws")
+    assert config.provider == Provider.XAI
+    assert config.model_name == "grok-4.3"
+    assert config.transport == "websocket"
+
+
 def test_transport_query_rejects_openai_provider_even_with_responses_model():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("openai.gpt-5?transport=ws")
@@ -457,6 +471,29 @@ def test_factory_passes_transport_to_responses_llm_for_openai_responses_model() 
     assert isinstance(llm, ResponsesLLM)
     assert llm.provider == Provider.RESPONSES
     assert llm._transport == "websocket"
+
+
+def test_factory_builds_xairesponses_llm() -> None:
+    factory = ModelFactory.create_factory("xairesponses.grok-4.3?transport=ws")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.XAI_RESPONSES
+    assert llm._transport == "websocket"
+
+
+def test_factory_builds_xai_responses_llm_by_default() -> None:
+    factory = ModelFactory.create_factory("xai.grok-4.3?transport=ws")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.XAI
+    assert llm._transport == "websocket"
+
+
+def test_factory_builds_xai_legacy_llm() -> None:
+    factory = ModelFactory.create_factory("xai_legacy.grok-4")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, OpenAILLM)
+    assert llm.provider == Provider.XAI_LEGACY
 
 
 def test_factory_passes_service_tier_query_to_request_params() -> None:
@@ -632,6 +669,28 @@ def test_gemini31_alias_resolves_to_google_31_preview():
     config = ModelFactory.parse_model_string("gemini3.1")
     assert config.provider == Provider.GOOGLE
     assert config.model_name == "gemini-3.1-pro-preview"
+
+
+def test_gemini31_flash_lite_alias_resolves_to_google_preview():
+    config = ModelFactory.parse_model_string("gemini3.1flashlite")
+    assert config.provider == Provider.GOOGLE
+    assert config.model_name == "gemini-3.1-flash-lite-preview"
+
+
+def test_gemini25_alias_resolves_to_current_google_flash():
+    config = ModelFactory.parse_model_string("gemini25")
+    assert config.provider == Provider.GOOGLE
+    assert config.model_name == "gemini-2.5-flash"
+
+
+def test_grok_aliases_resolve_to_xai_grok_43():
+    config = ModelFactory.parse_model_string("grok")
+    assert config.provider == Provider.XAI
+    assert config.model_name == "grok-4.3"
+
+    config = ModelFactory.parse_model_string("grok4")
+    assert config.provider == Provider.XAI
+    assert config.model_name == "grok-4.3"
 
 
 def test_deepseek_alias_resolves_to_native_deepseek_chat():

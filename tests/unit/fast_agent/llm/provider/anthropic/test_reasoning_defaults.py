@@ -478,6 +478,39 @@ def test_json_structured_output_uses_raw_schema_when_supplied() -> None:
     assert args["output_config"]["format"]["schema"] == schema
 
 
+def test_json_structured_output_transforms_raw_schema_with_anthropic_sdk() -> None:
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+    schema = {
+        "type": "object",
+        "properties": {
+            "answer": {
+                "type": "string",
+                "minLength": 3,
+            }
+        },
+        "required": ["answer"],
+    }
+
+    args, _ = llm._build_anthropic_base_args(
+        model="claude-opus-4-6",
+        messages=[],
+        params=RequestParams(maxTokens=1024, structured_schema=schema),
+        history=None,
+        current_extended=None,
+        request_tools=[],
+        structured_mode="json",
+        structured_model=None,
+        structured_schema=schema,
+    )
+
+    transformed = args["output_config"]["format"]["schema"]
+    answer_schema = transformed["properties"]["answer"]
+    assert transformed["additionalProperties"] is False
+    assert "minLength" not in answer_schema
+    assert "minLength: 3" in answer_schema["description"]
+    assert schema["properties"]["answer"]["minLength"] == 3
+
+
 @pytest.mark.asyncio
 async def test_json_structured_output_preserves_regular_tools() -> None:
     llm = _make_llm("claude-opus-4-6", reasoning=False)

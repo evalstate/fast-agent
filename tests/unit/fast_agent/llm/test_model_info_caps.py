@@ -61,7 +61,7 @@ class DummyLLM:
 
 def test_model_alias_capabilities_match_canonical() -> None:
     alias = ModelInfo.from_name("gemini25")
-    canonical = ModelInfo.from_name("gemini-2.5-flash-preview-09-2025")
+    canonical = ModelInfo.from_name("gemini-2.5-flash")
 
     assert alias is not None
     assert canonical is not None
@@ -73,7 +73,7 @@ def test_model_alias_capabilities_match_canonical() -> None:
 def test_model_info_from_llm_uses_canonical_name() -> None:
     info = ModelInfo.from_llm(cast("FastAgentLLMProtocol", DummyLLM("gemini25")))
     assert info is not None
-    assert info.name == "gemini-2.5-flash-preview-09-2025"
+    assert info.name == "gemini-2.5-flash"
     assert info.tdv_flags == (True, True, True)
 
 

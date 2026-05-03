@@ -546,10 +546,15 @@ def _validate_transport_constraints(
     if transport not in {"websocket", "auto"}:
         return
 
-    if provider not in {Provider.CODEX_RESPONSES, Provider.RESPONSES}:
+    if provider not in {
+        Provider.CODEX_RESPONSES,
+        Provider.RESPONSES,
+        Provider.XAI,
+        Provider.XAI_RESPONSES,
+    }:
         raise ModelConfigError(
             "WebSocket transport is experimental and currently supported only for "
-            "the codexresponses and responses providers."
+            "the codexresponses, responses, xai, and xairesponses providers."
         )
 
     supports_transport = ModelDatabase.supports_response_transport(model_name, "websocket")
@@ -623,11 +628,14 @@ class ModelFactory:
         "deepseek": "deepseek-chat",
         "gemini": "gemini-3.1-pro-preview",
         "gemini2": "gemini-2.0-flash",
-        "gemini25": "gemini-2.5-flash-preview-09-2025",
+        "gemini25": "gemini-2.5-flash",
         "gemini25pro": "gemini-2.5-pro",
         "gemini3": "gemini-3-pro-preview",
         "gemini3.1": "gemini-3.1-pro-preview",
+        "gemini3.1flashlite": "gemini-3.1-flash-lite-preview",
         "gemini3flash": "gemini-3-flash-preview",
+        "grok": "xai.grok-4.3",
+        "grok4": "xai.grok-4.3",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
         "minimax": "hf.MiniMaxAI/MiniMax-M2.5:novita",
@@ -933,6 +941,10 @@ class ModelFactory:
 
                 return HuggingFaceLLM
             if provider == Provider.XAI:
+                from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
+
+                return XAIResponsesLLM
+            if provider == Provider.XAI_LEGACY:
                 from fast_agent.llm.provider.openai.llm_xai import XAILLM
 
                 return XAILLM
@@ -972,6 +984,10 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 
                 return OpenResponsesLLM
+            if provider == Provider.XAI_RESPONSES:
+                from fast_agent.llm.provider.openai.xai_responses import XAIExplicitResponsesLLM
+
+                return XAIExplicitResponsesLLM
 
         except Exception as e:
             raise ModelConfigError(

@@ -102,20 +102,57 @@ def test_anthropic_catalog_keeps_current_and_vertex_legacy_models() -> None:
     assert ModelDatabase.get_model_params("claude-3-7-sonnet-20250219") is None
 
 
-def test_huggingface_qwen35_uses_json_object_mode_with_deferred_tools() -> None:
+def _google_native_catalog_entries() -> list[tuple[str, ModelParameters]]:
+    entries: list[tuple[str, ModelParameters]] = []
+    for model in ModelDatabase.list_models():
+        if not model.startswith("gemini-"):
+            continue
+        if ModelDatabase.get_default_provider(model) != Provider.GOOGLE:
+            continue
+        params = ModelDatabase.get_model_params(model, provider=Provider.GOOGLE)
+        assert params is not None
+        entries.append((model, params))
+    return entries
+
+
+def test_google_native_catalog_uses_schema_mode() -> None:
+    gemini_entries = _google_native_catalog_entries()
+
+    assert gemini_entries
+    assert {params.json_mode for _, params in gemini_entries} == {"schema"}
+
+
+def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
+    gemini_models = {model for model, _ in _google_native_catalog_entries()}
+
+    assert {"gemini-2.5-flash", "gemini-2.5-pro"} <= gemini_models
+    assert not {
+        model
+        for model in gemini_models
+        if model.startswith("gemini-2.5-") and "preview" in model
+    }
+
+
+def test_google_native_schema_tool_policy_only_disables_tools_by_default() -> None:
+    policies = {params.structured_tool_policy for _, params in _google_native_catalog_entries()}
+
+    assert policies <= {None, "no_tools"}
+
+
+def test_huggingface_qwen35_uses_schema_mode_without_tools_by_default() -> None:
     params = ModelDatabase.get_model_params("Qwen/Qwen3.5-397B-A17B")
 
     assert params is not None
-    assert params.json_mode == "object"
-    assert params.structured_tool_policy == "defer"
+    assert params.json_mode == "schema"
+    assert params.structured_tool_policy == "no_tools"
 
 
-def test_huggingface_kimi25_disables_native_structured_outputs() -> None:
+def test_huggingface_kimi25_uses_schema_mode() -> None:
     params = ModelDatabase.get_model_params("moonshotai/Kimi-K2.5")
 
     assert params is not None
-    assert params.json_mode is None
-    assert params.structured_tool_policy == "defer"
+    assert params.json_mode == "schema"
+    assert params.structured_tool_policy is None
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
@@ -275,6 +312,35 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime("gpt-4o", "image/*")
     # Bare extensions
     assert ModelDatabase.supports_mime("gpt-4o", "png")
+
+
+def test_model_database_xai_grok_aliases_and_responses_transport():
+    assert ModelDatabase.get_default_provider("grok") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4.3-latest") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4-latest") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-3-latest") == Provider.XAI
+
+    assert ModelDatabase.get_context_window("grok") == 1_000_000
+    assert ModelDatabase.get_context_window("grok-4.3") == 1_000_000
+    assert ModelDatabase.get_context_window("grok-4") == 1_000_000
+    assert ModelDatabase.get_context_window("grok-4-0709") == 256000
+    assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
+    assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
+    assert ModelDatabase.supports_response_websocket_provider(
+        "grok-4.3",
+        Provider.XAI_RESPONSES,
+    )
+
+
+def test_model_database_xai_image_input_mime_types_match_docs():
+    vision_model = "grok-4-fast-reasoning"
+
+    assert ModelDatabase.supports_mime(vision_model, "image/jpeg")
+    assert ModelDatabase.supports_mime(vision_model, "jpg")
+    assert ModelDatabase.supports_mime(vision_model, "image/png")
+    assert not ModelDatabase.supports_mime(vision_model, "image/webp")
+    assert not ModelDatabase.supports_mime("grok-4.3", "image/png")
 
 
 def test_model_database_google_video_audio_mime_types():
@@ -449,7 +515,7 @@ def test_glm_51_matches_glm_5_capabilities() -> None:
     old_dump.pop("structured_tool_policy", None)
     new_dump.pop("structured_tool_policy", None)
     assert new_dump == old_dump
-    assert new.structured_tool_policy == "defer"
+    assert new.structured_tool_policy == "no_tools"
 
 
 def test_model_database_codex_spark_is_text_only() -> None:

@@ -29,7 +29,7 @@ class StructuredValue(BaseModel):
 
 
 class _CompatibleStructuredHarness(OpenAICompatibleLLM):
-    def __init__(self, model: str = "zai-org/GLM-5.1") -> None:
+    def __init__(self, model: str = "qwen/qwen3-32b") -> None:
         self.default_request_params = RequestParams(model=model)
 
     async def _apply_prompt_provider_specific(
@@ -455,7 +455,7 @@ def test_openai_compatible_prepare_structured_request_uses_request_model_overrid
         "properties": {"value": {"type": "string"}},
         "required": ["value"],
     }
-    llm = _CompatibleStructuredHarness(model="zai-org/GLM-5.1")
+    llm = _CompatibleStructuredHarness(model="qwen/qwen3-32b")
     original = Prompt.user("return json")
     params = RequestParams(
         model="moonshotai/Kimi-K2.6",
@@ -478,7 +478,7 @@ def test_openai_compatible_prepare_structured_request_request_model_override_to_
     llm = _CompatibleStructuredHarness(model="moonshotai/Kimi-K2.6")
     original = Prompt.user("return json")
     params = RequestParams(
-        model="zai-org/GLM-5.1",
+        model="qwen/qwen3-32b",
         structured_schema=schema,
         structured_tool_policy="defer",
     )
@@ -495,7 +495,7 @@ def test_openai_compatible_prepare_structured_request_prompt_only_for_no_json_mo
         "properties": {"value": {"type": "string"}},
         "required": ["value"],
     }
-    llm = _CompatibleStructuredHarness(model="moonshotai/Kimi-K2.5")
+    llm = _CompatibleStructuredHarness(model="claude-sonnet-4-0")
     original = Prompt.user("return json")
     params = RequestParams(structured_schema=schema, structured_tool_policy="defer")
 

@@ -982,6 +982,32 @@ class CodexResponsesSettings(ResponsesProviderSettingsBase):
     )
 
 
+class XAIResponsesSettings(BaseModel):
+    """Settings for using xAI's Responses-compatible API."""
+
+    api_key: str | None = Field(default=None, description="xAI API key")
+    base_url: str | None = Field(
+        default="https://api.x.ai/v1",
+        description="xAI API endpoint (default: https://api.x.ai/v1)",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default model when xAI Responses provider is selected without an explicit model"
+        ),
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
+    transport: Literal["sse", "websocket", "auto"] | None = Field(
+        default=None,
+        description="Responses transport mode override: sse, websocket, or auto fallback.",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class DeepSeekSettings(BaseModel):
     """Settings for using DeepSeek models in the fast-agent application."""
 
@@ -1011,6 +1037,10 @@ class GoogleSettings(BaseModel):
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
+    )
+    transport: Literal["sse", "websocket", "auto"] | None = Field(
+        default=None,
+        description="Responses transport mode override: sse, websocket, or auto fallback.",
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -1661,6 +1691,9 @@ class Settings(BaseSettings):
 
     codexresponses: CodexResponsesSettings | None = None
     """Settings for using Codex Responses models in the fast-agent application"""
+
+    xairesponses: XAIResponsesSettings | None = None
+    """Settings for using xAI Responses models in the fast-agent application"""
 
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""

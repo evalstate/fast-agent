@@ -164,7 +164,7 @@ class ModelDatabase:
         "video/webm",
     ]
     QWEN_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp"]
-    XAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
+    XAI_VISION = ["text/plain", "image/jpeg", "image/png"]
     TEXT_ONLY = ["text/plain"]
     GPT_53_PLUS_MODEL_SPECIFIC = (
         "Before making tool calls, send a brief preamble to the user\n"
@@ -368,8 +368,8 @@ class ModelDatabase:
         context_window=131072,
         max_output_tokens=32766,
         tokenizes=TEXT_ONLY,
-        json_mode="object",
-        structured_tool_policy="defer",
+        json_mode="schema",
+        structured_tool_policy="no_tools",
         reasoning="gpt_oss",
     )
     OPENAI_GPT_5 = ModelParameters(
@@ -567,6 +567,7 @@ class ModelDatabase:
         context_window=1_048_576,
         max_output_tokens=65_536,
         tokenizes=GOOGLE_MULTIMODAL,
+        json_mode="schema",
         reasoning="google_thinking",
         reasoning_effort_spec=GOOGLE_THINKING_EFFORT_SPEC,
         default_provider=Provider.GOOGLE,
@@ -576,22 +577,29 @@ class ModelDatabase:
         context_window=1_048_576,
         max_output_tokens=8192,
         tokenizes=GOOGLE_MULTIMODAL,
+        json_mode="schema",
         default_provider=Provider.GOOGLE,
     )
 
-    # 31/08/25 switched to object mode (even though groq says schema supported and used to work..)
-    KIMI_MOONSHOT = ModelParameters(
+    KIMI_MOONSHOT_INSTRUCT = ModelParameters(
         context_window=262144,
         max_output_tokens=16384,
         tokenizes=TEXT_ONLY,
-        json_mode="object",
+        json_mode="schema",
+    )
+    KIMI_MOONSHOT_THINKING = ModelParameters(
+        context_window=262144,
+        max_output_tokens=16384,
+        tokenizes=TEXT_ONLY,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
     )
     KIMI_MOONSHOT_25 = ModelParameters(
         context_window=262144,
         max_output_tokens=16384,
         tokenizes=OPENAI_VISION,
-        json_mode=None,
-        structured_tool_policy="defer",
+        json_mode="schema",
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
     )
@@ -602,23 +610,32 @@ class ModelDatabase:
         # supported in Moonshot's official API for now.
         tokenizes=OPENAI_VISION,
         json_mode="schema",
-        structured_tool_policy="defer",
+        structured_tool_policy="no_tools",
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
     )
-    # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
+    # xAI recommends Grok 4.3 for general text workloads. The pricing/tool
+    # invocation tables and file/collection storage pricing are billing policy,
+    # not model capability metadata, so they are intentionally not encoded here.
+    # xAI has not documented the max output tokens for Grok 4.x; keep the prior
+    # Grok 3-derived placeholder until an official per-model value is published.
     GROK_4 = ModelParameters(
         context_window=256000,
         max_output_tokens=16385,
         tokenizes=TEXT_ONLY,
         default_provider=Provider.XAI,
+        response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.XAI, Provider.XAI_RESPONSES),
     )
+    GROK_43 = GROK_4.model_copy(update={"context_window": 1_000_000})
 
     GROK_4_VLM = ModelParameters(
         context_window=2000000,
         max_output_tokens=16385,
         tokenizes=XAI_VISION,
         default_provider=Provider.XAI,
+        response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.XAI, Provider.XAI_RESPONSES),
     )
 
     # Source for Grok 3 max output: https://www.reddit.com/r/grok/comments/1j7209p/exploring_grok_3_beta_output_capacity_a_simple/
@@ -635,7 +652,7 @@ class ModelDatabase:
         context_window=202752,
         max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
-        json_mode="object",
+        json_mode="schema",
         reasoning="reasoning_content",
         stream_mode="manual",
     )
@@ -644,7 +661,7 @@ class ModelDatabase:
         context_window=202752,
         max_output_tokens=65536,  # default from https://docs.z.ai/guides/overview/concept-param#token-usage-calculation - max is 131072
         tokenizes=TEXT_ONLY,
-        json_mode="object",
+        json_mode="schema",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
@@ -654,7 +671,7 @@ class ModelDatabase:
         context_window=202800,
         max_output_tokens=131072,
         tokenizes=TEXT_ONLY,
-        json_mode="object",
+        json_mode="schema",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
@@ -664,8 +681,7 @@ class ModelDatabase:
         context_window=202752,
         max_output_tokens=131072,
         tokenizes=TEXT_ONLY,
-        json_mode="object",
-        structured_tool_policy="defer",
+        json_mode="schema",
         reasoning="reasoning_content",
         stream_mode="manual",
     )
@@ -673,8 +689,8 @@ class ModelDatabase:
         context_window=202752,
         max_output_tokens=131072,
         tokenizes=TEXT_ONLY,
-        json_mode="object",
-        structured_tool_policy="defer",
+        json_mode="schema",
+        structured_tool_policy="no_tools",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
@@ -684,14 +700,16 @@ class ModelDatabase:
         context_window=163_800,
         max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
-        structured_tool_policy="defer",
+        json_mode="schema",
+        structured_tool_policy="no_tools",
     )
 
     HF_PROVIDER_DEEPSEEK32 = ModelParameters(
         context_window=163_800,
         max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
-        structured_tool_policy="defer",
+        json_mode="schema",
+        structured_tool_policy="no_tools",
         reasoning="gpt_oss",
     )
 
@@ -699,7 +717,8 @@ class ModelDatabase:
         context_window=1_048_576,
         max_output_tokens=393_216,
         tokenizes=TEXT_ONLY,
-        structured_tool_policy="defer",
+        json_mode="schema",
+        structured_tool_policy="no_tools",
         reasoning="reasoning_content",
         default_provider=Provider.HUGGINGFACE,
     )
@@ -712,8 +731,8 @@ class ModelDatabase:
         context_window=262_144,
         max_output_tokens=65_536,
         tokenizes=QWEN_MULTIMODAL,
-        json_mode="object",
-        structured_tool_policy="defer",
+        json_mode="schema",
+        structured_tool_policy="no_tools",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         default_provider=Provider.HUGGINGFACE,
@@ -840,28 +859,39 @@ class ModelDatabase:
         # DeepSeek Models
         "deepseek-chat": _with_fast(DEEPSEEK_CHAT_STANDARD),
         # Google Gemini Models (vanilla aliases and versioned)
-        "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
-        "gemini-2.5-flash-preview": GEMINI_STANDARD,
-        "gemini-2.5-pro-preview": GEMINI_STANDARD,
-        "gemini-2.5-flash-preview-05-20": GEMINI_STANDARD,
-        "gemini-2.5-pro-preview-05-06": GEMINI_STANDARD,
-        "gemini-2.5-pro": GEMINI_STANDARD,
-        "gemini-2.5-flash-preview-09-2025": _with_fast(GEMINI_STANDARD),
-        "gemini-2.5-flash": _with_fast(GEMINI_STANDARD),
+        "gemini-2.0-flash": _with_fast(
+            GEMINI_2_FLASH.model_copy(update={"structured_tool_policy": "no_tools"})
+        ),
+        "gemini-2.5-pro": GEMINI_STANDARD.model_copy(
+            update={"structured_tool_policy": "no_tools"}
+        ),
+        "gemini-2.5-flash": _with_fast(
+            GEMINI_STANDARD.model_copy(update={"structured_tool_policy": "no_tools"})
+        ),
         "gemini-3-pro-preview": GEMINI_STANDARD,
         "gemini-3-flash-preview": GEMINI_STANDARD,
         "gemini-3.1-pro-preview": GEMINI_STANDARD,
+        "gemini-3.1-flash-lite-preview": _with_fast(
+            GEMINI_STANDARD.model_copy(update={"structured_tool_policy": "no_tools"})
+        ),
         # xAI Grok Models
+        "grok": GROK_43,
+        "grok-4.3": GROK_43,
+        "grok-4.3-latest": GROK_43,
         "grok-4-1-fast-reasoning": GROK_4_VLM,
         "grok-4-1-fast-non-reasoning": GROK_4_VLM,
         "grok-4-fast-reasoning": GROK_4_VLM,
         "grok-4-fast-non-reasoning": GROK_4_VLM,
-        "grok-4": GROK_4,
+        "grok-4": GROK_43,
+        "grok-4-latest": GROK_43,
         "grok-4-0709": GROK_4,
         "grok-3": GROK_3,
+        "grok-3-latest": GROK_3,
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": _with_fast(GROK_3),
+        "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT_INSTRUCT),
+        "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "qwen/qwen3-32b": QWEN3_REASONER,
@@ -872,7 +902,7 @@ class ModelDatabase:
         "zai-org/glm-4.7": GLM_47,
         "zai-org/glm-5": _with_fast(GLM_5),
         "zai-org/glm-5.1": _with_fast(
-            GLM_5.model_copy(update={"structured_tool_policy": "defer"})
+            GLM_5.model_copy(update={"structured_tool_policy": "no_tools"})
         ),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,

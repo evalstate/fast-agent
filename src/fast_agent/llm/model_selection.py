@@ -101,13 +101,19 @@ class ModelSelectionCatalog:
             ),
             CatalogModelEntry(alias="gemini3", model="google.gemini-3-pro-preview"),
             CatalogModelEntry(alias="gemini3.1", model="google.gemini-3.1-pro-preview"),
+            CatalogModelEntry(
+                alias="gemini3.1flashlite",
+                model="google.gemini-3.1-flash-lite-preview",
+                fast=True,
+            ),
         ),
         Provider.XAI: (
+            CatalogModelEntry(alias="grok", model="xai.grok-4.3"),
+            CatalogModelEntry(alias="grok4", model="xai.grok-4.3"),
             CatalogModelEntry(alias="grok41fast", model="grok-4-1-fast-reasoning", fast=True),
             CatalogModelEntry(
                 alias="grok41fast-nr", model="grok-4-1-fast-non-reasoning", fast=True
             ),
-            CatalogModelEntry(alias="grok4", model="xai.grok-4"),
         ),
         Provider.DEEPSEEK: (
             CatalogModelEntry(alias="deepseek", model="deepseek.deepseek-chat", fast=True),
