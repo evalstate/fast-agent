@@ -83,6 +83,11 @@ def test_model_database_default_provider_lookup():
     assert ModelDatabase.get_default_provider("claude-sonnet-4-6") == Provider.ANTHROPIC
     assert ModelDatabase.get_default_provider("openai.gpt-4.1") == Provider.OPENAI
     assert ModelDatabase.get_default_provider("gpt-5?reasoning=low") == Provider.RESPONSES
+    assert ModelDatabase.get_default_provider("moonshotai/kimi-k2") == Provider.HUGGINGFACE
+    assert (
+        ModelDatabase.get_default_provider("moonshotai/kimi-k2-instruct-0905")
+        == Provider.HUGGINGFACE
+    )
     assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
 
@@ -133,10 +138,10 @@ def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
     }
 
 
-def test_google_native_schema_tool_policy_only_disables_tools_by_default() -> None:
+def test_google_native_schema_tool_policy_keeps_tools_by_default() -> None:
     policies = {params.structured_tool_policy for _, params in _google_native_catalog_entries()}
 
-    assert policies <= {None, "no_tools"}
+    assert policies == {None}
 
 
 def test_huggingface_qwen35_uses_schema_mode_without_tools_by_default() -> None:

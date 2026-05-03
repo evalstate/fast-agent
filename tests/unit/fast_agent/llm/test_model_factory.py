@@ -276,6 +276,13 @@ def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
     assert ModelFactory.parse_model_string("kimithink") == ModelFactory.parse_model_string("kimi26")
 
 
+def test_direct_kimi_model_routes_to_huggingface() -> None:
+    config = ModelFactory.parse_model_string("moonshotai/kimi-k2")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/kimi-k2"
+
+
 def test_kimi26_alias_sets_thinking_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi26")
 

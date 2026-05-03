@@ -586,6 +586,7 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=TEXT_ONLY,
         json_mode="schema",
+        default_provider=Provider.HUGGINGFACE,
     )
     KIMI_MOONSHOT_THINKING = ModelParameters(
         context_window=262144,
@@ -594,6 +595,7 @@ class ModelDatabase:
         json_mode="schema",
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
+        default_provider=Provider.HUGGINGFACE,
     )
     KIMI_MOONSHOT_25 = ModelParameters(
         context_window=262144,
@@ -602,6 +604,7 @@ class ModelDatabase:
         json_mode="schema",
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
     )
     KIMI_MOONSHOT_26 = ModelParameters(
         context_window=262144,
@@ -613,6 +616,7 @@ class ModelDatabase:
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
     )
     # xAI recommends Grok 4.3 for general text workloads. The pricing/tool
     # invocation tables and file/collection storage pricing are billing policy,
@@ -859,21 +863,13 @@ class ModelDatabase:
         # DeepSeek Models
         "deepseek-chat": _with_fast(DEEPSEEK_CHAT_STANDARD),
         # Google Gemini Models (vanilla aliases and versioned)
-        "gemini-2.0-flash": _with_fast(
-            GEMINI_2_FLASH.model_copy(update={"structured_tool_policy": "no_tools"})
-        ),
-        "gemini-2.5-pro": GEMINI_STANDARD.model_copy(
-            update={"structured_tool_policy": "no_tools"}
-        ),
-        "gemini-2.5-flash": _with_fast(
-            GEMINI_STANDARD.model_copy(update={"structured_tool_policy": "no_tools"})
-        ),
+        "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
+        "gemini-2.5-pro": GEMINI_STANDARD,
+        "gemini-2.5-flash": _with_fast(GEMINI_STANDARD),
         "gemini-3-pro-preview": GEMINI_STANDARD,
         "gemini-3-flash-preview": GEMINI_STANDARD,
         "gemini-3.1-pro-preview": GEMINI_STANDARD,
-        "gemini-3.1-flash-lite-preview": _with_fast(
-            GEMINI_STANDARD.model_copy(update={"structured_tool_policy": "no_tools"})
-        ),
+        "gemini-3.1-flash-lite-preview": _with_fast(GEMINI_STANDARD),
         # xAI Grok Models
         "grok": GROK_43,
         "grok-4.3": GROK_43,
@@ -890,6 +886,7 @@ class ModelDatabase:
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": _with_fast(GROK_3),
+        "moonshotai/kimi-k2": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,

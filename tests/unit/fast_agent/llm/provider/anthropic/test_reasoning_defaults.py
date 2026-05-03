@@ -568,6 +568,34 @@ def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
     assert prepared_params.structured_schema is None
 
 
+def test_structured_schema_with_no_tools_policy_preserves_schema_for_tool_suppression() -> None:
+    llm = _make_llm("claude-sonnet-4-6", reasoning=False)
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+    tool = Tool(
+        name="lookup_probe_payload",
+        description="Return the probe payload for validation.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+    params = RequestParams(structured_schema=schema, structured_tool_policy="no_tools")
+
+    _, prepared_params = llm._prepare_structured_request(
+        [Prompt.user("return json without calling tools")],
+        params,
+        [tool],
+    )
+
+    assert prepared_params.structured_schema == schema
+    assert llm._should_suppress_tools_for_structured_final(
+        [Prompt.user("return json without calling tools")],
+        prepared_params,
+        [tool],
+    )
+
+
 @pytest.mark.asyncio
 async def test_tool_use_structured_output_uses_raw_schema_when_supplied() -> None:
     llm = _make_llm("claude-opus-4-6", reasoning=False)

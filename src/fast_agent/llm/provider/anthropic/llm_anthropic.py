@@ -2312,9 +2312,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         request_params: RequestParams,
         tools: list[Tool] | None = None,
     ) -> tuple[list[PromptMessageExtended], RequestParams]:
-        if not request_params.structured_schema or not tools:
-            return messages, request_params
-        if any(message.tool_results for message in messages):
+        if not self._should_suppress_structured_schema_for_tools(messages, request_params, tools):
             return messages, request_params
         return messages, request_params.model_copy(update={"structured_schema": None})
 
