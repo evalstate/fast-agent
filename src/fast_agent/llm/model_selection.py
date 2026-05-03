@@ -126,6 +126,11 @@ class ModelSelectionCatalog:
             CatalogModelEntry(
                 alias="deepseek4",
                 model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+                current=False,
+            ),
+            CatalogModelEntry(
+                alias="deepseek4pro",
+                model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
             ),
             CatalogModelEntry(
                 alias="kimi26",
