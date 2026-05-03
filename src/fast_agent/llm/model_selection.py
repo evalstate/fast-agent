@@ -109,7 +109,6 @@ class ModelSelectionCatalog:
         ),
         Provider.XAI: (
             CatalogModelEntry(alias="grok", model="xai.grok-4.3"),
-            CatalogModelEntry(alias="grok4", model="xai.grok-4.3"),
             CatalogModelEntry(alias="grok41fast", model="grok-4-1-fast-reasoning", fast=True),
             CatalogModelEntry(
                 alias="grok41fast-nr", model="grok-4-1-fast-non-reasoning", fast=True
@@ -124,6 +123,10 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="qwen3-max", model="aliyun.qwen3-max"),
         ),
         Provider.HUGGINGFACE: (
+            CatalogModelEntry(
+                alias="deepseek4",
+                model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+            ),
             CatalogModelEntry(
                 alias="kimi26",
                 display_label="Kimi 2.6",
@@ -167,18 +170,14 @@ class ModelSelectionCatalog:
             CatalogModelEntry(
                 alias="kimi25",
                 display_label="Kimi 2.5",
-                model=(
-                    "hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"
-                ),
+                model=("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
                 fast=True,
                 current=False,
             ),
             CatalogModelEntry(
                 alias="kimi25instant",
                 display_label="Kimi 2.5 (instant)",
-                model=(
-                    "hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"
-                ),
+                model=("hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"),
                 fast=True,
                 current=False,
             ),
@@ -199,10 +198,6 @@ class ModelSelectionCatalog:
                 alias="deepseek32",
                 model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
                 current=False,
-            ),
-            CatalogModelEntry(
-                alias="deepseek4pro",
-                model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
             ),
         ),
         Provider.CODEX_RESPONSES: (
