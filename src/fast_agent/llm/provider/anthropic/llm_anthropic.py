@@ -4,6 +4,7 @@ import hashlib
 import inspect
 import json
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -386,6 +387,37 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
 def _transform_anthropic_schema(schema: type[BaseModel] | dict[str, Any]) -> dict[str, Any]:
     """Return an Anthropic-compatible schema using the SDK's schema transformer."""
     return transform_schema(schema)
+
+
+def _ensure_additional_properties_false(schema: dict[str, Any]) -> dict[str, Any]:
+    """Ensure object schemas use Anthropic-compatible additionalProperties=false."""
+    result = deepcopy(schema)
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" and node.get("additionalProperties") is not False:
+                node["additionalProperties"] = False
+
+            for key, value in node.items():
+                if key in {"properties", "$defs", "definitions", "patternProperties"}:
+                    if isinstance(value, dict):
+                        for child in value.values():
+                            visit(child)
+                    continue
+                if key in {"items", "anyOf", "oneOf", "allOf"}:
+                    if isinstance(value, list):
+                        for child in value:
+                            visit(child)
+                    else:
+                        visit(value)
+                    continue
+                visit(value)
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(result)
+    return result
 
 
 class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
@@ -920,6 +952,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             schema = _transform_anthropic_schema(cast("type[BaseModel]", structured_model))
         else:
             schema = _transform_anthropic_schema({"type": "object"})
+        schema = _ensure_additional_properties_false(schema)
         return {"type": "json_schema", "schema": schema}
 
     async def _prepare_tools(
