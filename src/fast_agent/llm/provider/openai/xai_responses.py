@@ -42,7 +42,7 @@ class XAIResponsesLLM(ResponsesLLM):
         return ("xai",)
 
     def _default_transport_setting(self) -> ResponsesTransport:
-        return "auto"
+        return "sse"
 
     @property
     def web_search_supported(self) -> bool:

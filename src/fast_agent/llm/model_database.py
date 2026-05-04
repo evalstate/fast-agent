@@ -605,6 +605,7 @@ class ModelDatabase:
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
         default_provider=Provider.HUGGINGFACE,
+        model_specific="You have vision capabilities.",
     )
     KIMI_MOONSHOT_26 = ModelParameters(
         context_window=262144,
@@ -617,6 +618,7 @@ class ModelDatabase:
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
         default_provider=Provider.HUGGINGFACE,
+        model_specific="You have vision capabilities.",
     )
     # xAI recommends Grok 4.3 for general text workloads. The pricing/tool
     # invocation tables and file/collection storage pricing are billing policy,
@@ -824,9 +826,7 @@ class ModelDatabase:
             }
         ),
         "gpt-5.3-codex-spark": _with_fast(
-            OPENAI_GPT_CODEX_SPARK.model_copy(
-                update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
-            )
+            OPENAI_GPT_CODEX_SPARK.model_copy(update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC})
         ),
         "gpt-5.2": OPENAI_GPT_5_2.model_copy(
             update={

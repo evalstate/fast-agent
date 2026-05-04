@@ -85,7 +85,7 @@ def test_build_tool_summaries_marks_smart_skybridge_tools() -> None:
         [_tool("smart_with_resource", meta={"openai/skybridgeEnabled": True})],
     )
 
-    assert summaries[0].suffix == "(Smart) (skybridge)"
+    assert summaries[0].suffix == "(Smart) (Apps SDK)"
 
 
 def test_build_tool_summaries_marks_mcp_app_tools() -> None:

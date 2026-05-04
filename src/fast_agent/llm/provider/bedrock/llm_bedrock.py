@@ -2277,8 +2277,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         ]
 
         # IMPORTANT: Do NOT mutate the caller's messages. Create a deep copy of the last
-        # user message, append the schema to the copy only, and pass just that copy into
-        # the provider-specific path. This prevents contamination of routed messages.
+        # user message, append the schema to the copy only, and pass the full conversation
+        # with that copied last turn into the provider-specific path. This preserves tool
+        # and history context while preventing contamination of routed messages.
         try:
             temp_last = multipart_messages[-1].model_copy(deep=True)
         except Exception:
@@ -2294,8 +2295,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         )
 
         try:
+            structured_messages = [*multipart_messages[:-1], temp_last]
             result: PromptMessageExtended = await self._apply_prompt_provider_specific(
-                [temp_last], request_params
+                structured_messages, request_params
             )
             try:
                 parsed_model, _ = self._structured_from_multipart(result, model)
@@ -2326,8 +2328,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     )
                 temp_last_retry.add_text("\n".join(strict_parts + [simplified_schema_text]))
 
+                retry_messages = [*multipart_messages[:-1], temp_last_retry]
                 retry_result: PromptMessageExtended = await self._apply_prompt_provider_specific(
-                    [temp_last_retry], request_params
+                    retry_messages, request_params
                 )
                 return self._structured_from_multipart(retry_result, model)
         finally:
@@ -2400,7 +2403,12 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         temp_last.add_text("\n".join(prompt_parts))
 
         try:
-            result = await self._apply_prompt_provider_specific([temp_last], request_params, tools)
+            structured_messages = [*multipart_messages[:-1], temp_last]
+            result = await self._apply_prompt_provider_specific(
+                structured_messages,
+                request_params,
+                tools,
+            )
             if result.tool_calls:
                 return None, result
             parsed, _ = self._structured_schema_from_multipart(result, schema)
@@ -2426,8 +2434,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 )
             temp_last_retry.add_text("\n".join(strict_parts))
 
+            retry_messages = [*multipart_messages[:-1], temp_last_retry]
             retry_result = await self._apply_prompt_provider_specific(
-                [temp_last_retry],
+                retry_messages,
                 request_params,
                 tools,
             )

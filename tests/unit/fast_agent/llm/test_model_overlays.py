@@ -25,7 +25,10 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
-from fast_agent.llm.model_overlays import load_model_overlay_registry
+from fast_agent.llm.model_overlays import (
+    build_model_overlay_manifest_from_database,
+    load_model_overlay_registry,
+)
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider_types import Provider
@@ -46,6 +49,34 @@ def _cleanup_overlay_runtime_state(base_dir: Path) -> None:
 
 def _overlay_group(snapshot):
     return next(option for option in snapshot.providers if option.overlay_group)
+
+
+def test_export_preserves_explicit_provider_for_namespaced_model() -> None:
+    manifest = build_model_overlay_manifest_from_database("openrouter.moonshotai/kimi-k2")
+
+    assert manifest.provider == Provider.OPENROUTER
+    assert manifest.model == "moonshotai/kimi-k2"
+
+
+def test_export_preserves_explicit_provider_over_catalog_default() -> None:
+    manifest = build_model_overlay_manifest_from_database("openrouter.gpt-4o")
+
+    assert manifest.provider == Provider.OPENROUTER
+    assert manifest.model == "gpt-4o"
+
+
+def test_export_preserves_hf_namespace_before_database_lookup() -> None:
+    manifest = build_model_overlay_manifest_from_database("hf.openai/gpt-oss-120b:cerebras")
+
+    assert manifest.provider == Provider.HUGGINGFACE
+    assert manifest.model == "openai/gpt-oss-120b:cerebras"
+
+
+def test_export_preserves_bare_hf_namespace_that_matches_provider() -> None:
+    manifest = build_model_overlay_manifest_from_database("openai/gpt-oss-120b")
+
+    assert manifest.provider == Provider.HUGGINGFACE
+    assert manifest.model == "openai/gpt-oss-120b"
 
 
 def test_same_provider_overlays_create_distinct_openresponses_clients(tmp_path: Path) -> None:

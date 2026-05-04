@@ -78,7 +78,7 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
     assert "glm47" not in curated_aliases
-    assert "deepseek4pro" in curated_aliases
+    assert "deepseek4" in curated_aliases
     assert "deepseek32" in legacy_aliases
 
 

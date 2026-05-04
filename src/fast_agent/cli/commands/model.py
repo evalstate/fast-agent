@@ -41,6 +41,7 @@ from fast_agent.llm.llamacpp_discovery import (
 )
 from fast_agent.llm.model_overlays import (
     LoadedModelOverlay,
+    build_model_overlay_manifest_from_database,
     load_model_overlay_registry,
     load_model_overlay_secret_entries,
     serialize_model_overlay_manifest,
@@ -58,6 +59,7 @@ from fast_agent.ui.llamacpp_model_picker import (
     LlamaCppModelPickerContext,
     run_llamacpp_model_picker_async,
 )
+from fast_agent.ui.model_picker import run_model_picker_async
 from fast_agent.ui.model_reference_picker import (
     ModelReferencePickerItem,
     run_model_reference_picker_async,
@@ -1426,6 +1428,134 @@ def model_main(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
         raise typer.Exit(0)
+
+
+@app.command("export", help="Export a model-database entry as a local overlay manifest.")
+def model_export(
+    model: str | None = typer.Argument(
+        None,
+        help="Model name from the catalog (e.g. claude-4-sonnet-20250514). "
+        "Omit to choose interactively from the model picker.",
+    ),
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        "-n",
+        help="Name for the generated overlay (defaults to a sanitized model name).",
+    ),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="Override the provider for the overlay.",
+    ),
+    env: str | None = CommonAgentOptions.env_dir(),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        "-r",
+        help="Overwrite an existing overlay with the same name.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        "-d",
+        help="Print the generated manifest without writing it.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Export a ModelDatabase entry to a user-writable overlay manifest.
+
+    The generated overlay pre-populates model_specific, modalities (tokenizes),
+    context window, and other parameters so users can customize them locally.
+    """
+    import asyncio
+
+    from fast_agent.llm.provider_types import Provider
+
+    resolved_provider: Provider | None = None
+    if provider:
+        try:
+            resolved_provider = Provider(provider.lower())
+        except ValueError:
+            typer.echo(f"Unknown provider: {provider}", err=True)
+            raise typer.Exit(1)
+
+    async def _run_export() -> None:
+        selected_model = model
+        if selected_model is None:
+            # Use the normal TUI model picker so the user gets the full catalog
+            # with proper search, provider grouping, and no artificial limits.
+            picker_result = await run_model_picker_async()
+            if picker_result is None:
+                typer.echo("No model selected.", err=True)
+                raise typer.Exit(1)
+
+            # resolved_model is the fully-qualified spec the user chose
+            # (e.g. "openrouter.gpt-4o" or bare "claude-4-sonnet-20250514")
+            selected_model = picker_result.resolved_model or picker_result.selected_model
+            if not selected_model:
+                typer.echo("No model selected.", err=True)
+                raise typer.Exit(1)
+
+        if not selected_model:
+            typer.echo("Model name is required.", err=True)
+            raise typer.Exit(1)
+
+        try:
+            manifest = build_model_overlay_manifest_from_database(
+                selected_model,
+                provider=resolved_provider,
+                overlay_name=name,
+            )
+        except Exception as exc:
+            typer.echo(f"Failed to build overlay for '{selected_model}': {exc}", err=True)
+            raise typer.Exit(1)
+
+        yaml_text = serialize_model_overlay_manifest(manifest)
+
+        if dry_run:
+            if json_output:
+                payload = {
+                    "overlay_name": manifest.name,
+                    "dry_run": True,
+                    "manifest": manifest.model_dump(mode="json", exclude_none=True),
+                }
+                typer.echo(json.dumps(payload, indent=2))
+            else:
+                typer.echo(f"# Dry-run: would write overlay '{manifest.name}'")
+                typer.echo(yaml_text)
+            return
+
+        try:
+            out_path = write_model_overlay_manifest(
+                manifest,
+                env_dir=env,
+                replace=replace,
+            )
+        except FileExistsError as exc:
+            typer.echo(str(exc), err=True)
+            typer.echo("Use --replace to overwrite.", err=True)
+            raise typer.Exit(1)
+
+        if json_output:
+            payload = {
+                "overlay_name": manifest.name,
+                "path": str(out_path),
+                "dry_run": False,
+                "manifest": manifest.model_dump(mode="json", exclude_none=True),
+            }
+            typer.echo(json.dumps(payload, indent=2))
+        else:
+            typer.echo(f"Wrote overlay: {out_path}")
+            typer.echo(f"Use: fast-agent go --model {manifest.name}")
+
+    asyncio.run(_run_export())
 
 
 @app.command("setup")

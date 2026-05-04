@@ -11,14 +11,14 @@ from fast_agent.llm.provider.openai.xai_responses import (
 from fast_agent.llm.provider_types import Provider
 
 
-def test_xairesponses_provider_defaults_to_auto_transport() -> None:
+def test_xairesponses_provider_defaults_to_sse_transport() -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
         model="grok-4.3",
     )
 
     assert llm.provider == Provider.XAI
-    assert llm.configured_transport == "auto"
+    assert llm.configured_transport == "sse"
 
 
 def test_xairesponses_alias_remains_supported() -> None:

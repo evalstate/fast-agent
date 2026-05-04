@@ -55,9 +55,13 @@ def _tool_meta(tool: "Tool") -> dict[str, Any]:
 
 def _collect_tool_name_sets(agent: object) -> tuple[set[str], set[str], set[str]]:
     card_tool_names = set(agent.card_tool_names) if isinstance(agent, CardToolProvider) else set()
-    smart_tool_names = set(agent.smart_tool_names) if isinstance(agent, SmartToolingCapable) else set()
+    smart_tool_names = (
+        set(agent.smart_tool_names) if isinstance(agent, SmartToolingCapable) else set()
+    )
     agent_tool_names = (
-        set(agent.agent_backed_tools.keys()) if isinstance(agent, AgentBackedToolProvider) else set()
+        set(agent.agent_backed_tools.keys())
+        if isinstance(agent, AgentBackedToolProvider)
+        else set()
     )
     return card_tool_names, smart_tool_names, agent_tool_names
 
@@ -88,7 +92,7 @@ def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
             suffix = "(MCP)"
 
         if meta.get("openai/skybridgeEnabled"):
-            suffix = f"{suffix} (skybridge)" if suffix else "(skybridge)"
+            suffix = f"{suffix} (Apps SDK)" if suffix else "(Apps SDK)"
         if meta.get("ui/appEnabled"):
             suffix = f"{suffix} (MCP App)" if suffix else "(MCP App)"
 
