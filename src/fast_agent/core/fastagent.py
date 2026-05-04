@@ -1560,18 +1560,28 @@ class FastAgent(DecoratorMixin):
             tool_only_agents = {
                 name for name, data in self.agents.items() if data.get("tool_only", False)
             }
+            settings = config.get_settings()
+            plugin_command_base_path = (
+                Path(settings._config_file).parent if settings._config_file is not None else None
+            )
             if app_override is None:
                 app = AgentApp(
                     agents_map,
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
                     noenv_mode=runtime.noenv_mode,
+                    plugin_commands=settings.commands,
+                    plugin_command_base_path=plugin_command_base_path,
                 )
             else:
                 app_override.set_agents(
                     agents_map,
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
+                )
+                app_override.set_plugin_commands(
+                    settings.commands,
+                    base_path=plugin_command_base_path,
                 )
                 app_override.noenv_mode = runtime.noenv_mode
                 app = app_override

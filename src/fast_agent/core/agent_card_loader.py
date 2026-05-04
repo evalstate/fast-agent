@@ -17,6 +17,7 @@ from fast_agent.agents.agent_types import (
     FunctionToolConfig,
     MCPConnectTarget,
 )
+from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
 from fast_agent.config import MCPServerSettings, resolve_env_vars
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_rules import (
@@ -411,6 +412,8 @@ def _build_agent_data(
                 f"Valid types are: {sorted(VALID_LIFECYCLE_HOOK_TYPES)}",
             )
 
+    commands = _ensure_plugin_commands(raw.get("commands"), path)
+
     # Parse trim_tool_history shortcut
     trim_tool_history = _ensure_bool(raw.get("trim_tool_history"), "trim_tool_history", path)
 
@@ -435,6 +438,7 @@ def _build_agent_data(
         cwd=cwd,
         tool_hooks=tool_hooks,
         lifecycle_hooks=lifecycle_hooks,
+        commands=commands,
         trim_tool_history=trim_tool_history,
         mcp_connect=mcp_connect,
         source_path=path,
@@ -521,6 +525,10 @@ def _build_agent_data(
         agent_data["red_flag_max_length"] = red_flag
 
     return agent_data
+
+
+def _ensure_plugin_commands(raw_commands: Any, path: Path) -> dict[str, PluginCommandActionSpec] | None:
+    return parse_plugin_command_action_specs(raw_commands, source=str(path))
 
 
 def _default_use_history(type_key: str, raw_value: Any) -> bool:
@@ -1001,6 +1009,21 @@ def _serialize_agent_like_fields(
 
     if config.lifecycle_hooks:
         card["lifecycle_hooks"] = config.lifecycle_hooks
+
+    if config.commands:
+        card["commands"] = {
+            name: {
+                key: value
+                for key, value in {
+                    "description": spec.description,
+                    "input_hint": spec.input_hint,
+                    "handler": spec.handler,
+                    "key": spec.key,
+                }.items()
+                if value is not None
+            }
+            for name, spec in config.commands.items()
+        }
 
     if config.trim_tool_history:
         card["trim_tool_history"] = True

@@ -19,6 +19,7 @@ else:  # pragma: no cover - used only to satisfy type checkers
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.exceptions import ConfigFileError
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
@@ -1752,6 +1753,9 @@ class Settings(BaseSettings):
     cards: CardsSettings = CardsSettings()
     """Card pack registry selection settings."""
 
+    commands: dict[str, PluginCommandActionSpec] | None = None
+    """Global plugin command actions loaded from fastagent.config.yaml."""
+
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
 
@@ -1763,6 +1767,11 @@ class Settings(BaseSettings):
 
     _config_file: str | None = PrivateAttr(default=None)
     _secrets_file: str | None = PrivateAttr(default=None)
+
+    @field_validator("commands", mode="before")
+    @classmethod
+    def _validate_plugin_commands(cls, value: Any) -> dict[str, PluginCommandActionSpec] | None:
+        return parse_plugin_command_action_specs(value, source="fastagent.config.yaml")
 
     @field_validator("model_references")
     @classmethod

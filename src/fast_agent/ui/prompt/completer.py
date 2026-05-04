@@ -127,6 +127,7 @@ class AgentCompleter(Completer):
             self.commands.pop("prompt", None)  # Remove prompt command in human input mode
             self.commands.pop("tools", None)  # Remove tools command in human input mode
             self.commands.pop("usage", None)  # Remove usage command in human input mode
+        self._add_plugin_commands()
         self.agent_types = agent_types or {}
         self._mention_cache: dict[tuple[Any, ...], AgentCompleter._CacheEntry] = {}
         self._mention_cache_ttl_seconds = 3.0
@@ -135,6 +136,28 @@ class AgentCompleter(Completer):
             self._owner_loop = asyncio.get_running_loop()
         except RuntimeError:
             self._owner_loop = None
+
+    def _add_plugin_commands(self) -> None:
+        if self.agent_provider is None or self.current_agent is None:
+            return
+
+        commands = {}
+        if self.agent_provider.plugin_commands:
+            commands.update(self.agent_provider.plugin_commands)
+
+        agent = self.agent_provider.get_agent(self.current_agent)
+        if agent is not None and agent.config.commands:
+            commands.update(agent.config.commands)
+
+        for name, spec in commands.items():
+            if name in self.commands:
+                continue
+            description = spec.description
+            if spec.input_hint:
+                description = f"{description} {spec.input_hint}"
+            if spec.key:
+                description = f"{description} (key: {spec.key})"
+            self.commands[name] = description
 
     def _current_agent_has_web_tools_enabled(self) -> bool:
         return history_handlers.web_tools_enabled_for_agent(self._current_llm_agent())

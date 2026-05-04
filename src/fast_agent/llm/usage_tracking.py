@@ -342,10 +342,10 @@ class UsageAccumulator(BaseModel):
     def cache_hit_rate(self) -> float | None:
         """Percentage of total input context served from cache"""
         cache_tokens = self.cumulative_cache_read_tokens + self.cumulative_cache_hit_tokens
-        total_input_context = self.cumulative_input_tokens + cache_tokens
-        if total_input_context == 0:
+        total_input_tokens = self.cumulative_input_tokens
+        if total_input_tokens == 0:
             return None
-        return (cache_tokens / total_input_context) * 100
+        return (cache_tokens / total_input_tokens) * 100
 
     @computed_field
     @property

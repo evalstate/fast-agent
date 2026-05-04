@@ -10,6 +10,7 @@ from typing import Any, TypeAlias
 
 from mcp.client.session import ElicitationFnT
 
+from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.tools.function_tool_config import FunctionToolSpec
@@ -67,6 +68,7 @@ FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 # e.g., {"after_turn_complete": "hooks.py:my_hook"}
 ToolHooksConfig: TypeAlias = dict[str, str] | None
 LifecycleHooksConfig: TypeAlias = dict[str, str] | None
+PluginCommandsConfig: TypeAlias = dict[str, PluginCommandActionSpec] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +121,7 @@ class AgentConfig:
     cwd: Path | None = None
     tool_hooks: ToolHooksConfig = None
     lifecycle_hooks: LifecycleHooksConfig = None
+    commands: PluginCommandsConfig = None
     trim_tool_history: bool = False
     mcp_connect: list[MCPConnectTarget] = field(default_factory=list)
     source_path: Path | None = field(default=None, repr=False)
