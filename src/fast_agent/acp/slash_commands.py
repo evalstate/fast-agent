@@ -49,6 +49,11 @@ from fast_agent.command_actions import (
     PluginCommandActionContext,
     PluginCommandActionRegistry,
 )
+from fast_agent.command_actions.accessors import (
+    plugin_command_base_path_for_provider,
+    plugin_commands_for_agent,
+    plugin_commands_for_provider,
+)
 from fast_agent.commands.command_catalog import command_action_names
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import model as model_handlers
@@ -359,9 +364,10 @@ class SlashCommandHandler:
                     AvailableCommand(name=name, description=cmd.description, input=cmd_input)
                 )
 
-        if agent is not None and agent.config.commands:
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent_commands:
             existing_names = {command.name for command in commands}
-            for name, spec in agent.config.commands.items():
+            for name, spec in agent_commands.items():
                 if name in existing_names:
                     continue
                 cmd_input = None
@@ -373,7 +379,7 @@ class SlashCommandHandler:
                     AvailableCommand(name=name, description=spec.description, input=cmd_input)
                 )
 
-        global_commands = self.instance.app.plugin_commands
+        global_commands = plugin_commands_for_provider(self.instance.app)
         if global_commands:
             existing_names = {command.name for command in commands}
             for name, spec in global_commands.items():
@@ -709,9 +715,12 @@ class SlashCommandHandler:
             if command_name in agent_commands:
                 return await agent_commands[command_name].handler(arguments)
 
-        if agent is not None and agent.config.commands and command_name in agent.config.commands:
-            spec = agent.config.commands[command_name]
-            base_path = agent.config.source_path.parent if agent.config.source_path else None
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent is not None and agent_commands and command_name in agent_commands:
+            spec = agent_commands[command_name]
+            base_path = None
+            if isinstance(agent, AgentProtocol) and agent.config.source_path:
+                base_path = agent.config.source_path.parent
             return await self._execute_plugin_command_action(
                 agent,
                 command_name,
@@ -720,14 +729,14 @@ class SlashCommandHandler:
                 base_path=base_path,
             )
 
-        global_commands = self.instance.app.plugin_commands
+        global_commands = plugin_commands_for_provider(self.instance.app)
         if agent is not None and global_commands and command_name in global_commands:
             return await self._execute_plugin_command_action(
                 agent,
                 command_name,
                 arguments,
                 spec=global_commands[command_name],
-                base_path=self.instance.app.plugin_command_base_path,
+                base_path=plugin_command_base_path_for_provider(self.instance.app),
             )
 
         # Unknown command

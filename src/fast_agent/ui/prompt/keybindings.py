@@ -11,6 +11,11 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
 from rich import print as rich_print
 
+from fast_agent.command_actions.accessors import (
+    lookup_agent,
+    plugin_commands_for_agent,
+    plugin_commands_for_provider,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui.prompt.attachment_tokens import strip_local_attachment_tokens
 from fast_agent.ui.prompt.editor import get_text_from_editor
@@ -352,11 +357,13 @@ def _add_plugin_command_keybindings(
         return
 
     commands = {}
-    if agent_provider.plugin_commands:
-        commands.update(agent_provider.plugin_commands)
-    agent = agent_provider.get_agent(agent_name)
-    if agent is not None and agent.config.commands:
-        commands.update(agent.config.commands)
+    global_commands = plugin_commands_for_provider(agent_provider)
+    if global_commands:
+        commands.update(global_commands)
+    agent = lookup_agent(agent_provider, agent_name)
+    agent_commands = plugin_commands_for_agent(agent)
+    if agent_commands:
+        commands.update(agent_commands)
 
     for command_name, spec in commands.items():
         if not spec.key:

@@ -17,6 +17,11 @@ from mcp.types import ResourceTemplate
 from prompt_toolkit.completion import Completer, Completion
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.command_actions.accessors import (
+    lookup_agent,
+    plugin_commands_for_agent,
+    plugin_commands_for_provider,
+)
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.config import get_settings
@@ -142,12 +147,14 @@ class AgentCompleter(Completer):
             return
 
         commands = {}
-        if self.agent_provider.plugin_commands:
-            commands.update(self.agent_provider.plugin_commands)
+        global_commands = plugin_commands_for_provider(self.agent_provider)
+        if global_commands:
+            commands.update(global_commands)
 
-        agent = self.agent_provider.get_agent(self.current_agent)
-        if agent is not None and agent.config.commands:
-            commands.update(agent.config.commands)
+        agent = lookup_agent(self.agent_provider, self.current_agent)
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent_commands:
+            commands.update(agent_commands)
 
         for name, spec in commands.items():
             if name in self.commands:
