@@ -2243,10 +2243,59 @@ def structured_tools(
     ),
 ) -> None:
     """Probe structured output compatibility when tools are available."""
+    _run_structured_output_probe(
+        models=models,
+        json_output=json_output,
+        structured_tool_policy=structured_tool_policy,
+        mode="tools",
+    )
+
+
+@app.command("structured-output")
+def structured_output(
+    models: str = typer.Option(
+        ...,
+        "--models",
+        "--model",
+        help="Model id, alias, or comma-separated list of models to probe.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON output."),
+    mode: str = typer.Option(
+        "both",
+        "--mode",
+        help="Probe mode: direct, tools, or both. Default runs direct first, then tools.",
+    ),
+    structured_tool_policy: str = typer.Option(
+        "auto",
+        "--structured-tool-policy",
+        help="Tool policy for --mode tools/both: auto, always, defer, or no_tools.",
+    ),
+) -> None:
+    """Probe direct structured output, then structured output with tools."""
+    _run_structured_output_probe(
+        models=models,
+        json_output=json_output,
+        structured_tool_policy=structured_tool_policy,
+        mode=mode,
+    )
+
+
+def _run_structured_output_probe(
+    *,
+    models: str,
+    json_output: bool,
+    structured_tool_policy: str,
+    mode: str,
+) -> None:
     if structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
         raise typer.BadParameter(
             "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'",
             param_hint="--structured-tool-policy",
+        )
+    if mode not in {"direct", "tools", "both"}:
+        raise typer.BadParameter(
+            "mode must be 'direct', 'tools', or 'both'",
+            param_hint="--mode",
         )
 
     model_names = [model.strip() for model in models.split(",") if model.strip()]
@@ -2254,15 +2303,22 @@ def structured_tools(
         raise typer.BadParameter("At least one model is required.", param_hint="--models")
 
     from fast_agent.cli.checks.structured_tools_probe import (
+        StructuredProbeMode,
         StructuredToolPolicy,
         _print_text_summary,
-        run_probe,
+        run_probe_suite,
     )
 
+    modes = (
+        ["direct", "tools"]
+        if mode == "both"
+        else [cast("StructuredProbeMode", mode)]
+    )
     results = asyncio.run(
-        run_probe(
+        run_probe_suite(
             model_names,
             structured_tool_policy=cast("StructuredToolPolicy", structured_tool_policy),
+            modes=cast("list[StructuredProbeMode]", modes),
         )
     )
     if json_output:

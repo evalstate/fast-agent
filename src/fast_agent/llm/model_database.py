@@ -754,7 +754,7 @@ class ModelDatabase:
         context_window=262_144,
         max_output_tokens=65_536,
         tokenizes=QWEN_MULTIMODAL,
-        json_mode="schema",
+        json_mode="object",
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,

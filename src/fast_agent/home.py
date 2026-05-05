@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, FAST_AGENT_RUNTIME_ENVIRONMENT
 from fast_agent.core.exceptions import ConfigFileError
 
 HomeSource = Literal["cli", "FAST_AGENT_HOME", "ENVIRONMENT_DIR", "default"]
@@ -82,6 +82,10 @@ def resolve_fast_agent_home(
     base = _resolve_cwd(cwd)
     if cli_override is not None:
         return FastAgentHome(_resolve_path(cli_override, base), "cli")
+
+    runtime_environment = os.getenv(FAST_AGENT_RUNTIME_ENVIRONMENT)
+    if runtime_environment:
+        return FastAgentHome(_resolve_path(runtime_environment, base), "cli")
 
     fast_agent_home = os.getenv("FAST_AGENT_HOME")
     if fast_agent_home:

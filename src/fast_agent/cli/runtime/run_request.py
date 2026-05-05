@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.llm.request_params import StructuredToolPolicy
+
 Mode = Literal["interactive", "serve"]
 ExecutionMode = Literal["repl", "one_shot_message", "one_shot_prompt_file"]
 
@@ -80,6 +82,7 @@ class AgentRunRequest:
     watch: bool
     json_schema: str | None = None
     schema_model: str | None = None
+    structured_tool_policy: StructuredToolPolicy | None = None
     execution_mode: ExecutionMode | None = None
     quiet: bool = False
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
@@ -102,6 +105,15 @@ class AgentRunRequest:
             )
         if self.json_schema is not None and self.schema_model is not None:
             raise ValueError("--json-schema cannot be combined with --schema-model")
+        if self.structured_tool_policy is not None:
+            if self.structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
+                raise ValueError(
+                    "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'"
+                )
+            if self.json_schema is None:
+                raise ValueError("--structured-tool-policy requires --json-schema")
+            if self.schema_model is not None:
+                raise ValueError("--structured-tool-policy cannot be combined with --schema-model")
         if self.json_schema is not None or self.schema_model is not None:
             if self.execution_mode == "repl":
                 raise ValueError("--json-schema/--schema-model requires --message or --prompt-file")
@@ -139,6 +151,7 @@ class AgentRunRequest:
             "prompt_file": self.prompt_file,
             "json_schema": self.json_schema,
             "schema_model": self.schema_model,
+            "structured_tool_policy": self.structured_tool_policy,
             "result_file": self.result_file,
             "resume": self.resume,
             "url_servers": self.url_servers,

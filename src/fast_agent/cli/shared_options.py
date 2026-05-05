@@ -95,6 +95,14 @@ class CommonAgentOptions:
         )
 
     @staticmethod
+    def structured_tool_policy():
+        return typer.Option(
+            None,
+            "--structured-tool-policy",
+            help="Structured schema tool policy: auto, always, defer, or no_tools",
+        )
+
+    @staticmethod
     def env_dir():
         return typer.Option(None, "--env", help="Override the base fast-agent environment directory")
 
