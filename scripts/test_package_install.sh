@@ -25,7 +25,7 @@ uv pip install ../../dist/fast_agent_mcp-$VERSION-py3-none-any.whl
 fast-agent quickstart workflow
 
 # Check if workflows folder was created AND contains files
-if [ -d "workflow" ] && [ -f "workflow/chaining.py" ] && [ -f "workflow/fastagent.config.yaml" ]; then
+if [ -d "workflow" ] && [ -f "workflow/chaining.py" ] && [ -f "workflow/fast-agent.yaml" ]; then
     echo "✅ Test successful: workflow examples created!"
 else
     echo "❌ Test failed: workflow examples not created."
