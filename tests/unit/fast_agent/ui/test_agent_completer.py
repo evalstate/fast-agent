@@ -1052,6 +1052,8 @@ def test_get_completions_for_mcp_session_jar_suppresses_single_server_noise() ->
 
 
 def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1076,6 +1078,8 @@ def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None
 
 
 def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1100,6 +1104,8 @@ def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeyp
 
 
 def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1120,6 +1126,8 @@ def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) ->
 
 
 def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1152,6 +1160,8 @@ def test_get_completions_for_connect_alias_connect_flags() -> None:
 
 def test_get_completions_for_skills_remove(monkeypatch):
     """Test get_completions suggests local skills for /skills remove."""
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
         skills_root = Path(tmpdir) / "skills"
         _write_skill(skills_root, "alpha")

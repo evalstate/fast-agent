@@ -33,7 +33,7 @@ class Core:
         Initialize the core.
         Args:
             name:
-            settings: If unspecified, the settings are loaded from fastagent.config.yaml.
+            settings: If unspecified, the settings are loaded from fast-agent.yaml.
                 If this is a string or path-like object, it is treated as the path to the config file to load.
             signal_notification: Callback for getting notified on workflow signals/events.
         """

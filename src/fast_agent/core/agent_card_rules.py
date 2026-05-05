@@ -66,6 +66,7 @@ AGENT_CARD_FIELDS = {
     "function_tools",
     "tool_hooks",
     "lifecycle_hooks",
+    "commands",
     "trim_tool_history",
     "tool_input_schema",
     "messages",

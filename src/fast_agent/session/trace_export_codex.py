@@ -22,7 +22,13 @@ from mcp.types import (
     TextResourceContents,
 )
 
-from fast_agent.constants import FAST_AGENT_USAGE, REASONING
+from fast_agent.constants import (
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    FAST_AGENT_TIMING,
+    FAST_AGENT_USAGE,
+    OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    REASONING,
+)
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
@@ -387,6 +393,175 @@ def _developer_message_item(
     }
 
 
+def _content_item_from_mapping(
+    item: dict[str, object],
+    *,
+    output_text: bool,
+    sanitization: _TextSanitization | None = None,
+) -> dict[str, object] | None:
+    item_type = _string_field(item, "type")
+    if item_type in {"input_text", "output_text"}:
+        text = _string_field(item, "text")
+        if text is None:
+            return None
+        normalized_type = "output_text" if output_text else "input_text"
+        content_item: dict[str, object] = {
+            "type": normalized_type,
+            "text": _sanitize_text(sanitization, text),
+        }
+        annotations = item.get("annotations")
+        if isinstance(annotations, list):
+            content_item["annotations"] = annotations
+        return content_item
+
+    if item_type == "input_image":
+        image_url = _string_field(item, "image_url")
+        if image_url is None:
+            return None
+        content_item: dict[str, object] = {"type": "input_image", "image_url": image_url}
+        detail = _string_field(item, "detail")
+        if detail is not None:
+            content_item["detail"] = detail
+        return content_item
+
+    return None
+
+
+def _raw_assistant_message_items(
+    message: PromptMessageExtended,
+    sanitization: _TextSanitization | None = None,
+) -> list[dict[str, object]]:
+    """Return provider-captured assistant message items in Codex-compatible shape.
+
+    OpenAI Responses can emit multiple assistant message items in one fast-agent history
+    message (for example commentary followed by final_answer). The channel preserves that
+    item boundary and phase metadata; prefer it over reconstructing a single collapsed item.
+    """
+
+    items: list[dict[str, object]] = []
+    for payload in _json_channel_payloads(message, OPENAI_ASSISTANT_MESSAGE_ITEMS):
+        if payload.get("type") != "message":
+            continue
+
+        role = _string_field(payload, "role") or "assistant"
+        if role != "assistant":
+            continue
+
+        content_items: list[dict[str, object]] = []
+        content = payload.get("content")
+        if isinstance(content, list):
+            for raw_content_item in content:
+                content_item = _content_item_from_mapping(
+                    _object_mapping(raw_content_item) or {},
+                    output_text=True,
+                    sanitization=sanitization,
+                )
+                if content_item is not None:
+                    content_items.append(content_item)
+
+        if not content_items:
+            continue
+
+        item: dict[str, object] = {
+            "type": "message",
+            "role": "assistant",
+            "content": content_items,
+        }
+        phase = _string_field(payload, "phase")
+        if phase is not None:
+            item["phase"] = phase
+        items.append(item)
+
+    return items
+
+
+def _server_tool_input(payload: dict[str, object]) -> dict[str, object] | None:
+    input_payload = _object_mapping(payload.get("input"))
+    if input_payload is not None:
+        return input_payload
+    return payload
+
+
+def _string_list_field(mapping: dict[str, object] | None, key: str) -> list[str]:
+    if mapping is None:
+        return []
+    value = mapping.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
+
+
+def _web_search_action(
+    payload: dict[str, object],
+    sanitization: _TextSanitization | None = None,
+) -> dict[str, object] | None:
+    tool_input = _server_tool_input(payload)
+    action = _string_field(payload, "action")
+    query = _string_field(tool_input, "query") or _string_field(payload, "query")
+    queries = _string_list_field(tool_input, "queries") or _string_list_field(payload, "queries")
+    url = _string_field(tool_input, "url") or _string_field(payload, "url")
+    pattern = _string_field(tool_input, "pattern") or _string_field(payload, "pattern")
+
+    if query is not None:
+        query = _sanitize_text(sanitization, query)
+    queries = [_sanitize_text(sanitization, item) for item in queries]
+    if pattern is not None:
+        pattern = _sanitize_text(sanitization, pattern)
+
+    if action in {"open_page", "open_url", "fetch"} or (url is not None and not query and not queries):
+        result: dict[str, object] = {"type": "open_page"}
+        if url is not None:
+            result["url"] = url
+        return result
+
+    if action in {"find_in_page", "find"} or (url is not None and pattern is not None):
+        result: dict[str, object] = {"type": "find_in_page"}
+        if url is not None:
+            result["url"] = url
+        if pattern is not None:
+            result["pattern"] = pattern
+        return result
+
+    if query is None and not queries:
+        return None
+
+    result: dict[str, object] = {"type": "search"}
+    if query is not None:
+        result["query"] = query
+    if queries:
+        result["queries"] = queries
+    return result
+
+
+def _server_tool_response_items(
+    message: PromptMessageExtended,
+    sanitization: _TextSanitization | None = None,
+) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+
+    for payload in _json_channel_payloads(message, ANTHROPIC_SERVER_TOOLS_CHANNEL):
+        if payload.get("type") != "server_tool_use":
+            continue
+
+        tool_name = _string_field(payload, "name")
+        if tool_name not in {"web_search", "web_fetch", "web_search_call"}:
+            continue
+
+        item: dict[str, object] = {"type": "web_search_call"}
+        item_id = _string_field(payload, "id")
+        if item_id is not None:
+            item["id"] = item_id
+        status = _string_field(payload, "status")
+        if status is not None:
+            item["status"] = status
+        action = _web_search_action(payload, sanitization=sanitization)
+        if action is not None:
+            item["action"] = action
+        items.append(item)
+
+    return items
+
+
 def _assistant_message_item(
     message: PromptMessageExtended,
     sanitization: _TextSanitization | None = None,
@@ -527,25 +702,56 @@ def _int_field(mapping: dict[str, object] | None, key: str) -> int | None:
     return None
 
 
-def _message_usage_payload(message: PromptMessageExtended) -> dict[str, object] | None:
+def _float_field(mapping: dict[str, object] | None, key: str) -> float | None:
+    if mapping is None:
+        return None
+    value = mapping.get(key)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _milliseconds_field(mapping: dict[str, object] | None, key: str) -> int | None:
+    value = _float_field(mapping, key)
+    if value is None:
+        return None
+    return max(0, round(value))
+
+
+def _json_channel_payloads(
+    message: PromptMessageExtended,
+    channel_name: str,
+) -> list[dict[str, object]]:
     channels = message.channels
     if channels is None:
-        return None
+        return []
 
-    blocks = channels.get(FAST_AGENT_USAGE)
+    blocks = channels.get(channel_name)
     if blocks is None:
-        return None
+        return []
 
-    for text in reversed(_message_texts(blocks)):
+    payloads: list[dict[str, object]] = []
+    for text in _message_texts(blocks):
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
             continue
         parsed = _object_mapping(payload)
         if parsed is not None:
-            return parsed
+            payloads.append(parsed)
+    return payloads
 
-    return None
+
+def _message_usage_payload(message: PromptMessageExtended) -> dict[str, object] | None:
+    payloads = _json_channel_payloads(message, FAST_AGENT_USAGE)
+    return payloads[-1] if payloads else None
+
+
+def _message_timing_payload(message: PromptMessageExtended) -> dict[str, object] | None:
+    payloads = _json_channel_payloads(message, FAST_AGENT_TIMING)
+    return payloads[0] if payloads else None
 
 
 def _usage_turn_payload(message: PromptMessageExtended) -> dict[str, object] | None:
@@ -656,15 +862,7 @@ def _cached_input_tokens(turn_payload: dict[str, object] | None) -> int | None:
     return _int_field(cache_payload, "cache_hit_tokens")
 
 
-def _token_count_payload(
-    message: PromptMessageExtended,
-    *,
-    model_context_window: int | None,
-) -> dict[str, object] | None:
-    turn_payload = _usage_turn_payload(message)
-    if turn_payload is None:
-        return None
-
+def _token_usage_from_turn_payload(turn_payload: dict[str, object]) -> dict[str, object] | None:
     token_usage: dict[str, object] = {}
 
     input_tokens = _int_field(turn_payload, "display_input_tokens")
@@ -692,8 +890,69 @@ def _token_count_payload(
     if not token_usage:
         return None
 
+    return token_usage
+
+
+def _cached_input_tokens_from_summary(summary_payload: dict[str, object] | None) -> int | None:
+    cache_read_tokens = _int_field(summary_payload, "cumulative_cache_read_tokens")
+    cache_hit_tokens = _int_field(summary_payload, "cumulative_cache_hit_tokens")
+    total = (cache_read_tokens or 0) + (cache_hit_tokens or 0)
+    return total if total > 0 else None
+
+
+def _token_usage_from_summary_payload(
+    summary_payload: dict[str, object] | None,
+) -> dict[str, object] | None:
+    token_usage: dict[str, object] = {}
+
+    input_tokens = _int_field(summary_payload, "cumulative_input_tokens")
+    if input_tokens is not None:
+        token_usage["input_tokens"] = input_tokens
+
+    cached_input_tokens = _cached_input_tokens_from_summary(summary_payload)
+    if cached_input_tokens is not None:
+        token_usage["cached_input_tokens"] = cached_input_tokens
+
+    output_tokens = _int_field(summary_payload, "cumulative_output_tokens")
+    if output_tokens is not None:
+        token_usage["output_tokens"] = output_tokens
+
+    reasoning_output_tokens = _int_field(summary_payload, "cumulative_reasoning_tokens")
+    if reasoning_output_tokens is not None:
+        token_usage["reasoning_output_tokens"] = reasoning_output_tokens
+
+    total_tokens = _int_field(summary_payload, "cumulative_billing_tokens")
+    if total_tokens is None:
+        total_tokens = _int_field(summary_payload, "current_context_tokens")
+    if total_tokens is not None:
+        token_usage["total_tokens"] = total_tokens
+
+    if not token_usage:
+        return None
+
+    return token_usage
+
+
+def _token_count_payload(
+    message: PromptMessageExtended,
+    *,
+    model_context_window: int | None,
+) -> dict[str, object] | None:
+    turn_payload = _usage_turn_payload(message)
+    if turn_payload is None:
+        return None
+
+    last_token_usage = _token_usage_from_turn_payload(turn_payload)
+    if last_token_usage is None:
+        return None
+
+    total_token_usage = _token_usage_from_summary_payload(_usage_summary_payload(message))
+    if total_token_usage is None:
+        total_token_usage = dict(last_token_usage)
+
     info: dict[str, object] = {
-        "last_token_usage": token_usage,
+        "total_token_usage": total_token_usage,
+        "last_token_usage": last_token_usage,
     }
     if model_context_window is not None:
         info["model_context_window"] = model_context_window
@@ -783,7 +1042,7 @@ def _turn_started_payload(
     started_at: datetime | None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
-        "type": "turn_started",
+        "type": "task_started",
         "turn_id": turn_id,
         "collaboration_mode_kind": "default",
     }
@@ -814,10 +1073,14 @@ def _user_event_payload(
 def _turn_complete_payload(
     turn_id: str,
     last_agent_message: str | None,
+    *,
+    completed_at: datetime | None = None,
+    duration_ms: int | None = None,
+    time_to_first_token_ms: int | None = None,
     sanitization: _TextSanitization | None = None,
 ) -> dict[str, object]:
-    return {
-        "type": "turn_complete",
+    payload: dict[str, object] = {
+        "type": "task_complete",
         "turn_id": turn_id,
         "last_agent_message": (
             None
@@ -825,6 +1088,14 @@ def _turn_complete_payload(
             else _sanitize_text(sanitization, last_agent_message)
         ),
     }
+    completed_at_timestamp = _timestamp_or_none(completed_at)
+    if completed_at_timestamp is not None:
+        payload["completed_at"] = completed_at_timestamp
+    if duration_ms is not None:
+        payload["duration_ms"] = duration_ms
+    if time_to_first_token_ms is not None:
+        payload["time_to_first_token_ms"] = time_to_first_token_ms
+    return payload
 
 
 def _response_items(
@@ -844,9 +1115,15 @@ def _response_items(
     if reasoning_item is not None:
         items.append(reasoning_item)
 
-    assistant_item = _assistant_message_item(message, sanitization=sanitization)
-    if assistant_item is not None:
-        items.append(assistant_item)
+    items.extend(_server_tool_response_items(message, sanitization=sanitization))
+
+    raw_assistant_items = _raw_assistant_message_items(message, sanitization=sanitization)
+    if raw_assistant_items:
+        items.extend(raw_assistant_items)
+    else:
+        assistant_item = _assistant_message_item(message, sanitization=sanitization)
+        if assistant_item is not None:
+            items.append(assistant_item)
 
     items.extend(_function_call_items(message, sanitization=sanitization))
     return items
@@ -856,10 +1133,60 @@ def _is_turn_start(message: PromptMessageExtended) -> bool:
     return message.role == "user" and not message.tool_results
 
 
+def _elapsed_ms(started_at: datetime | None, completed_at: datetime | None) -> int | None:
+    if started_at is None or completed_at is None:
+        return None
+    elapsed_ms = (_normalize_utc(completed_at) - _normalize_utc(started_at)).total_seconds() * 1000
+    if elapsed_ms <= 0:
+        return None
+    return round(elapsed_ms)
+
+
+def _message_time_to_first_token_ms(message: PromptMessageExtended) -> int | None:
+    timing_payload = _message_timing_payload(message)
+    for key in (
+        "ttft_ms",
+        "time_to_first_token_ms",
+        "first_token_ms",
+        "first_token_latency_ms",
+        "time_to_response_ms",
+    ):
+        value = _milliseconds_field(timing_payload, key)
+        if value is not None:
+            return value
+    return None
+
+
 @dataclass(slots=True)
 class _TurnState:
     turn_id: str
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    llm_duration_ms: int = 0
+    time_to_first_token_ms: int | None = None
     last_agent_message: str | None = None
+
+    def observe_assistant_message(
+        self,
+        message: PromptMessageExtended,
+        message_timestamp: datetime | None,
+    ) -> None:
+        if message_timestamp is not None:
+            self.completed_at = message_timestamp
+
+        timing_payload = _message_timing_payload(message)
+        duration_ms = _milliseconds_field(timing_payload, "duration_ms")
+        if duration_ms is not None:
+            self.llm_duration_ms += duration_ms
+
+        if self.time_to_first_token_ms is None:
+            self.time_to_first_token_ms = _message_time_to_first_token_ms(message)
+
+    def duration_ms(self) -> int | None:
+        duration_ms = _elapsed_ms(self.started_at, self.completed_at)
+        if duration_ms is not None:
+            return duration_ms
+        return self.llm_duration_ms if self.llm_duration_ms > 0 else None
 
 
 _PRIVACY_FILTER_LIMITATIONS = [
@@ -1003,7 +1330,10 @@ class CodexTraceWriter:
                 turn_timestamps[turn_counter] if turn_counter < len(turn_timestamps) else None
             )
             turn_counter += 1
-            current_turn = _TurnState(turn_id=f"turn-{turn_counter}")
+            current_turn = _TurnState(
+                turn_id=f"turn-{turn_counter}",
+                started_at=turn_timestamp,
+            )
             records.append(
                 _record(
                     "event_msg",
@@ -1039,14 +1369,19 @@ class CodexTraceWriter:
             nonlocal current_turn
             if current_turn is None:
                 return
+            completed_at = current_turn.completed_at
             records.append(
                 _record(
                     "event_msg",
                     _turn_complete_payload(
                         current_turn.turn_id,
                         current_turn.last_agent_message,
+                        completed_at=completed_at,
+                        duration_ms=current_turn.duration_ms(),
+                        time_to_first_token_ms=current_turn.time_to_first_token_ms,
                         sanitization=sanitization,
                     ),
+                    timestamp=completed_at,
                 )
             )
             current_turn = None
@@ -1061,6 +1396,7 @@ class CodexTraceWriter:
                 start_turn(None)
 
             if current_turn is not None and message.role == "assistant":
+                current_turn.observe_assistant_message(message, message_timestamp)
                 texts = _message_texts(message.content)
                 if texts:
                     current_turn.last_agent_message = texts[-1]

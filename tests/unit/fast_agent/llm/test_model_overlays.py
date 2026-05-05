@@ -25,7 +25,10 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
-from fast_agent.llm.model_overlays import load_model_overlay_registry
+from fast_agent.llm.model_overlays import (
+    build_model_overlay_manifest_from_database,
+    load_model_overlay_registry,
+)
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider_types import Provider
@@ -46,6 +49,34 @@ def _cleanup_overlay_runtime_state(base_dir: Path) -> None:
 
 def _overlay_group(snapshot):
     return next(option for option in snapshot.providers if option.overlay_group)
+
+
+def test_export_preserves_explicit_provider_for_namespaced_model() -> None:
+    manifest = build_model_overlay_manifest_from_database("openrouter.moonshotai/kimi-k2")
+
+    assert manifest.provider == Provider.OPENROUTER
+    assert manifest.model == "moonshotai/kimi-k2"
+
+
+def test_export_preserves_explicit_provider_over_catalog_default() -> None:
+    manifest = build_model_overlay_manifest_from_database("openrouter.gpt-4o")
+
+    assert manifest.provider == Provider.OPENROUTER
+    assert manifest.model == "gpt-4o"
+
+
+def test_export_preserves_hf_namespace_before_database_lookup() -> None:
+    manifest = build_model_overlay_manifest_from_database("hf.openai/gpt-oss-120b:cerebras")
+
+    assert manifest.provider == Provider.HUGGINGFACE
+    assert manifest.model == "openai/gpt-oss-120b:cerebras"
+
+
+def test_export_preserves_bare_hf_namespace_that_matches_provider() -> None:
+    manifest = build_model_overlay_manifest_from_database("openai/gpt-oss-120b")
+
+    assert manifest.provider == Provider.HUGGINGFACE
+    assert manifest.model == "openai/gpt-oss-120b"
 
 
 def test_same_provider_overlays_create_distinct_openresponses_clients(tmp_path: Path) -> None:
@@ -137,6 +168,9 @@ picker:
 metadata:
   context_window: 65536
   max_output_tokens: 2048
+  json_mode: none
+  structured_tool_policy: defer
+  model_specific: Overlay-specific instructions.
   fast: true
 """.strip(),
     )
@@ -164,6 +198,9 @@ metadata:
         assert resolved.wire_model_name == "overlay-tests/Qwen-Picker"
         assert params.context_window == 65536
         assert params.max_output_tokens == 2048
+        assert params.json_mode is None
+        assert params.structured_tool_policy == "defer"
+        assert params.model_specific == "Overlay-specific instructions."
         assert params.fast is True
 
         assert ModelDatabase.get_model_params("overlay-tests/Qwen-Picker") is None
@@ -293,6 +330,40 @@ metadata:
         assert resolved.wire_model_name == "overlay-tests/Qwen-Picker"
         assert resolved.context_window == 65536
         assert resolved.max_output_tokens == 2048
+    finally:
+        _cleanup_overlay_runtime_state(tmp_path)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
+def test_new_overlay_model_defaults_to_schema_json_mode(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    _write_overlay(
+        env_dir,
+        "schema-default.yaml",
+        """
+name: schema-default
+provider: openresponses
+model: overlay-tests/Schema-Default
+connection:
+  base_url: http://localhost:8081/v1
+  auth: none
+metadata:
+  context_window: 65536
+  max_output_tokens: 2048
+""".strip(),
+    )
+
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+
+    try:
+        resolved = ModelFactory.resolve_model_spec("schema-default")
+
+        assert resolved.model_params is not None
+        assert resolved.model_params.json_mode == "schema"
     finally:
         _cleanup_overlay_runtime_state(tmp_path)
         if previous_env_dir is None:

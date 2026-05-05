@@ -56,11 +56,12 @@ def test_list_curated_models_for_provider() -> None:
     assert "claude-haiku-4-5" in models
     assert "claude-sonnet-4-6" in models
     assert "claude-opus-4-7" in models
+    assert "claude-opus-4-6" in models
 
 
 def test_list_curated_aliases_for_provider() -> None:
     aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
-    assert aliases == ["sonnet", "haiku", "opus"]
+    assert aliases == ["opus", "opus46", "sonnet", "haiku"]
 
 
 def test_legacy_aliases_are_listed_but_not_curated() -> None:
@@ -77,10 +78,18 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
     assert "glm47" not in curated_aliases
+    assert "deepseek4" not in curated_aliases
+    assert "deepseek4" in legacy_aliases
+    assert "deepseek32" in legacy_aliases
 
 
 def test_list_fast_models_uses_explicit_curated_designation() -> None:
-    for provider in (Provider.ANTHROPIC, Provider.CODEX_RESPONSES, Provider.HUGGINGFACE, Provider.GROQ):
+    for provider in (
+        Provider.ANTHROPIC,
+        Provider.CODEX_RESPONSES,
+        Provider.HUGGINGFACE,
+        Provider.GROQ,
+    ):
         assert ModelSelectionCatalog.list_fast_models(provider) == [
             entry.model for entry in _static_current_entries(provider) if entry.fast
         ]

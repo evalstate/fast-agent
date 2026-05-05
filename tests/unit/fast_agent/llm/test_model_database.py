@@ -38,6 +38,7 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
+    assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
 
     # Test unknown model
     assert ModelDatabase.get_context_window("unknown-model") is None
@@ -82,8 +83,81 @@ def test_model_database_default_provider_lookup():
     assert ModelDatabase.get_default_provider("claude-sonnet-4-6") == Provider.ANTHROPIC
     assert ModelDatabase.get_default_provider("openai.gpt-4.1") == Provider.OPENAI
     assert ModelDatabase.get_default_provider("gpt-5?reasoning=low") == Provider.RESPONSES
+    assert ModelDatabase.get_default_provider("moonshotai/kimi-k2") == Provider.HUGGINGFACE
+    assert (
+        ModelDatabase.get_default_provider("moonshotai/kimi-k2-instruct-0905")
+        == Provider.HUGGINGFACE
+    )
     assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
+
+
+def test_anthropic_catalog_keeps_current_and_vertex_legacy_models() -> None:
+    assert ModelDatabase.get_model_params("claude-opus-4-7") is not None
+    assert ModelDatabase.get_model_params("claude-opus-4-6") is not None
+    assert ModelDatabase.get_model_params("claude-sonnet-4-6") is not None
+    assert ModelDatabase.get_model_params("claude-haiku-4-5") is not None
+
+    assert ModelDatabase.get_model_params("claude-3-5-haiku-latest") is not None
+    assert ModelDatabase.get_model_params("claude-sonnet-4-20250514") is not None
+    assert ModelDatabase.get_model_params("claude-opus-4-20250514") is not None
+
+    assert ModelDatabase.get_model_params("claude-3-haiku-20240307") is None
+    assert ModelDatabase.get_model_params("claude-3-5-sonnet-20241022") is None
+    assert ModelDatabase.get_model_params("claude-3-7-sonnet-20250219") is None
+
+
+def _google_native_catalog_entries() -> list[tuple[str, ModelParameters]]:
+    entries: list[tuple[str, ModelParameters]] = []
+    for model in ModelDatabase.list_models():
+        if not model.startswith("gemini-"):
+            continue
+        if ModelDatabase.get_default_provider(model) != Provider.GOOGLE:
+            continue
+        params = ModelDatabase.get_model_params(model, provider=Provider.GOOGLE)
+        assert params is not None
+        entries.append((model, params))
+    return entries
+
+
+def test_google_native_catalog_uses_schema_mode() -> None:
+    gemini_entries = _google_native_catalog_entries()
+
+    assert gemini_entries
+    assert {params.json_mode for _, params in gemini_entries} == {"schema"}
+
+
+def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
+    gemini_models = {model for model, _ in _google_native_catalog_entries()}
+
+    assert {"gemini-2.5-flash", "gemini-2.5-pro"} <= gemini_models
+    assert not {
+        model
+        for model in gemini_models
+        if model.startswith("gemini-2.5-") and "preview" in model
+    }
+
+
+def test_google_native_schema_tool_policy_keeps_tools_by_default() -> None:
+    policies = {params.structured_tool_policy for _, params in _google_native_catalog_entries()}
+
+    assert policies == {None}
+
+
+def test_huggingface_qwen35_uses_schema_mode_without_tools_by_default() -> None:
+    params = ModelDatabase.get_model_params("Qwen/Qwen3.5-397B-A17B")
+
+    assert params is not None
+    assert params.json_mode == "schema"
+    assert params.structured_tool_policy == "no_tools"
+
+
+def test_huggingface_kimi25_uses_schema_mode() -> None:
+    params = ModelDatabase.get_model_params("moonshotai/Kimi-K2.5")
+
+    assert params is not None
+    assert params.json_mode == "schema"
+    assert params.structured_tool_policy is None
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
@@ -245,6 +319,35 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime("gpt-4o", "png")
 
 
+def test_model_database_xai_grok_aliases_and_responses_transport():
+    assert ModelDatabase.get_default_provider("grok") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4.3-latest") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4-latest") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-3-latest") == Provider.XAI
+
+    assert ModelDatabase.get_context_window("grok") == 1_000_000
+    assert ModelDatabase.get_context_window("grok-4.3") == 1_000_000
+    assert ModelDatabase.get_context_window("grok-4") == 1_000_000
+    assert ModelDatabase.get_context_window("grok-4-0709") == 256000
+    assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
+    assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
+    assert ModelDatabase.supports_response_websocket_provider(
+        "grok-4.3",
+        Provider.XAI_RESPONSES,
+    )
+
+
+def test_model_database_xai_image_input_mime_types_match_docs():
+    vision_model = "grok-4-fast-reasoning"
+
+    assert ModelDatabase.supports_mime(vision_model, "image/jpeg")
+    assert ModelDatabase.supports_mime(vision_model, "jpg")
+    assert ModelDatabase.supports_mime(vision_model, "image/png")
+    assert not ModelDatabase.supports_mime(vision_model, "image/webp")
+    assert not ModelDatabase.supports_mime("grok-4.3", "image/png")
+
+
 def test_model_database_google_video_audio_mime_types():
     """Test that Google models support expanded video/audio MIME types."""
     # Video formats (MP4, AVI, FLV, MOV, MPEG, MPG, WebM)
@@ -356,8 +459,6 @@ def test_model_database_response_service_tiers() -> None:
     assert ModelDatabase.get_response_service_tiers("gpt-5.4") == ("fast", "flex")
     assert ModelDatabase.get_response_service_tiers("gpt-5.5") == ("fast", "flex")
     assert ModelDatabase.get_response_service_tiers("gpt-5.3-chat-latest") == ("fast",)
-    assert ModelDatabase.get_response_service_tiers("gpt-5.1-codex") == ("fast",)
-    assert ModelDatabase.get_response_service_tiers("gpt-5.2-codex") == ("fast", "flex")
     assert ModelDatabase.supports_response_service_tier("gpt-5.3-chat-latest", "flex") is False
     assert ModelDatabase.supports_response_service_tier("gpt-5.4", "flex") is True
     assert ModelDatabase.supports_response_service_tier("gpt-5.5", "flex") is True
@@ -414,7 +515,12 @@ def test_glm_51_matches_glm_5_capabilities() -> None:
 
     assert old is not None
     assert new is not None
-    assert new.model_dump() == old.model_dump()
+    old_dump = old.model_dump()
+    new_dump = new.model_dump()
+    old_dump.pop("structured_tool_policy", None)
+    new_dump.pop("structured_tool_policy", None)
+    assert new_dump == old_dump
+    assert new.structured_tool_policy == "no_tools"
 
 
 def test_model_database_codex_spark_is_text_only() -> None:
@@ -598,6 +704,18 @@ def test_huggingface_qwen35_default_reasoning_emits_chat_template_kwargs_enabled
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
 
 
+def test_huggingface_deepseek_v4_pro_uses_reasoning_content_streaming_metadata():
+    llm = _make_hf_llm("deepseek-ai/DeepSeek-V4-Pro:fireworks-ai")
+
+    assert llm.default_request_params.model == "deepseek-ai/DeepSeek-V4-Pro"
+    assert llm.default_request_params.maxTokens == 393_216
+    assert getattr(llm, "_reasoning_mode", None) == "reasoning_content"
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "deepseek-ai/DeepSeek-V4-Pro:fireworks-ai"
+    assert args["max_tokens"] == 393_216
+
+
 def test_huggingface_qwen35_reasoning_stream_hidden_when_disabled():
     llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
 
@@ -650,3 +768,20 @@ def test_model_database_runtime_model_params_registration():
 
     ModelDatabase.unregister_runtime_model_params(model_name)
     assert ModelDatabase.get_model_params(model_name) is None
+
+
+def test_model_specific_defaults_for_gpt_53_plus_family():
+    expected = "Before making tool calls, send a brief preamble to the user explaining what you’re about to do."
+
+    for model_name in (
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.3-chat-latest",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.5",
+    ):
+        assert ModelDatabase.get_model_specific(model_name) == expected
+
+    assert ModelDatabase.get_model_specific("gpt-5.2") == ""

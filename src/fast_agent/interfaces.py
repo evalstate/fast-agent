@@ -99,6 +99,12 @@ class FastAgentLLMProtocol(Protocol):
         request_params: RequestParams | None = None,
     ) -> tuple[Any | None, PromptMessageExtended]: ...
 
+    def parse_structured_schema_response(
+        self,
+        message: PromptMessageExtended,
+        schema: dict[str, Any],
+    ) -> tuple[Any | None, PromptMessageExtended]: ...
+
     async def structured(
         self,
         messages: list[PromptMessageExtended],
@@ -121,6 +127,11 @@ class FastAgentLLMProtocol(Protocol):
         self,
         request_params: RequestParams | None = None,
     ) -> RequestParams: ...
+
+    def resolve_structured_tool_policy(
+        self,
+        request_params: RequestParams,
+    ) -> Literal["always", "defer", "no_tools"]: ...
 
     default_request_params: RequestParams
     instruction: str | None

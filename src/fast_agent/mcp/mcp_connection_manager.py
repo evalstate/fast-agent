@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Union, cast
 
 import httpx
-from anyio import Event, Lock, create_task_group
+from anyio import CancelScope, Event, Lock, create_task_group
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx import HTTPStatusError
 from mcp import ClientSession
@@ -35,6 +35,7 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.home import build_child_environment
 from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
@@ -201,6 +202,8 @@ def create_transport_context(
     config: MCPServerSettings,
     *,
     trigger_oauth: bool | None = None,
+    active_home: str | Path | None = None,
+    noenv: bool = False,
 ) -> AbstractAsyncContextManager:
     """
     Create a transport context manager for the given server configuration.
@@ -238,7 +241,12 @@ def create_transport_context(
         server_params = StdioServerParameters(
             command=config.command,
             args=config.args if config.args is not None else [],
-            env={**get_default_environment(), **(config.env or {})},
+            env=build_child_environment(
+                active_home=active_home,
+                noenv=noenv,
+                base=get_default_environment(),
+                overrides=config.env,
+            ),
             cwd=config.cwd,
         )
         error_handler = get_stderr_handler(server_name)
@@ -343,6 +351,7 @@ class ServerConnection:
         self._last_oauth_authorization_url: str | None = None
         self._oauth_abort_event = threading.Event()
         self._stdio_stderr_lines: deque[str] = deque(maxlen=STDIO_STDERR_BUFFER_LINES)
+        self._lifecycle_cancel_scope: CancelScope | None = None
 
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
@@ -360,6 +369,12 @@ class ServerConnection:
         """
         self._oauth_abort_event.set()
         self._shutdown_event.set()
+
+    def cancel_lifecycle(self) -> None:
+        """Request shutdown and cancel the lifecycle task if it is still blocked."""
+        self.request_shutdown()
+        if self._lifecycle_cancel_scope is not None:
+            self._lifecycle_cancel_scope.cancel()
 
     async def wait_for_shutdown_request(self) -> None:
         """
@@ -632,6 +647,16 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     task group. Any exceptions must be caught and handled gracefully, with errors
     recorded in server_conn._error_occurred and _error_message.
     """
+    with CancelScope() as cancel_scope:
+        server_conn._lifecycle_cancel_scope = cancel_scope
+        try:
+            await _run_server_lifecycle(server_conn)
+        finally:
+            server_conn._lifecycle_cancel_scope = None
+
+
+async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
+    """Run the server lifecycle inside the connection-owned cancellation scope."""
     server_name = server_conn.server_name
     try:
         transport_context = server_conn._transport_context_factory()
@@ -1105,7 +1130,16 @@ class MCPConnectionManager(ContextDependent):
                 server_params = StdioServerParameters(
                     command=config.command,
                     args=config.args if config.args is not None else [],
-                    env={**get_default_environment(), **(config.env or {})},
+                    env=build_child_environment(
+                        active_home=getattr(self.context.config, "_fast_agent_home", None)
+                        if self.context.config
+                        else None,
+                        noenv=bool(getattr(self.context.config, "_fast_agent_noenv", False))
+                        if self.context.config
+                        else False,
+                        base=get_default_environment(),
+                        overrides=config.env,
+                    ),
                     cwd=config.cwd,
                 )
                 # Create custom error handler to ensure all output is captured
@@ -1223,7 +1257,7 @@ class MCPConnectionManager(ContextDependent):
         try:
             await _wait_for_initialized_with_startup_budget(server_conn, startup_timeout_seconds)
         except asyncio.CancelledError:
-            server_conn.request_shutdown()
+            server_conn.cancel_lifecycle()
             async with self._lock:
                 current = self.running_servers.get(server_name)
                 if current is server_conn:
@@ -1232,7 +1266,7 @@ class MCPConnectionManager(ContextDependent):
                 self._server_oauth_active.pop(server_name, None)
             raise
         except TimeoutError as exc:
-            server_conn.request_shutdown()
+            server_conn.cancel_lifecycle()
             async with self._lock:
                 current = self.running_servers.get(server_name)
                 if current is server_conn:
@@ -1257,7 +1291,7 @@ class MCPConnectionManager(ContextDependent):
         server_name: str,
         server_conn: ServerConnection,
     ) -> None:
-        server_conn.request_shutdown()
+        server_conn.cancel_lifecycle()
         async with self._lock:
             current = self.running_servers.get(server_name)
             if current is server_conn:
@@ -1352,6 +1386,7 @@ class MCPConnectionManager(ContextDependent):
                 if server_conn.is_healthy():
                     return server_conn
 
+            await self._clear_running_server_state(server_name, server_conn)
             error_msg = server_conn._error_message or "Unknown error"
 
             if isinstance(error_msg, list):
@@ -1385,7 +1420,7 @@ class MCPConnectionManager(ContextDependent):
                 )
 
             raise ServerInitializationError(
-                f"MCP Server: '{server_name}': Failed to initialize - see details. Check fastagent.config.yaml?",
+                f"MCP Server: '{server_name}': Failed to initialize - see details. Check fast-agent.yaml?",
                 _append_stdio_stderr_details(server_conn, formatted_error),
             )
 
@@ -1471,6 +1506,7 @@ class MCPConnectionManager(ContextDependent):
                     logger.info(f"{server_name}: Reconnection successful")
                     return server_conn
 
+            await self._clear_running_server_state(server_name, server_conn)
             error_msg = server_conn._error_message or "Unknown error during reconnection"
 
             if isinstance(error_msg, list):

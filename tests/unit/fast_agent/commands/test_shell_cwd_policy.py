@@ -90,6 +90,40 @@ def test_collect_shell_cwd_issues_respects_shell_flag_request(tmp_path: Path) ->
     assert with_flag[0].kind == "missing"
 
 
+def test_collect_shell_cwd_issues_respects_no_shell(tmp_path: Path) -> None:
+    agents: dict[str, "AgentCardData"] = {
+        "shell": {
+            "config": AgentConfig(
+                name="shell",
+                instruction="x",
+                servers=[],
+                shell=True,
+                cwd=Path("missing"),
+            )
+        },
+        "skill": {
+            "config": AgentConfig(
+                name="skill",
+                instruction="x",
+                servers=[],
+                shell=False,
+                cwd=Path("missing-skill"),
+            )
+        },
+    }
+    agents["skill"]["config"].skill_manifests = [object()]  # type: ignore[list-item]
+
+    assert (
+        collect_shell_cwd_issues(
+            agents,
+            shell_runtime_requested=True,
+            no_shell=True,
+            cwd=tmp_path,
+        )
+        == []
+    )
+
+
 def test_collect_shell_cwd_issues_from_runtime_agents(tmp_path: Path) -> None:
     class RuntimeAgent:
         def __init__(self, shell_runtime_enabled: bool, cwd: Path | None) -> None:

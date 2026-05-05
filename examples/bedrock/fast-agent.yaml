@@ -1,4 +1,4 @@
-# Example minimal fast-agent.config.yaml for Bedrock
+# Example minimal fast-agent.yaml for Bedrock
 
 # List of supported models: https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html
 # Model string format: bedrock.<model_id>?reasoning=<value>

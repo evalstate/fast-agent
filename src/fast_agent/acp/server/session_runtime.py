@@ -615,7 +615,9 @@ class ACPServerSessionRuntime:
                 and isinstance(agent, ShellRuntimeCapable)
                 and agent.shell_runtime_enabled
             ):
-                agent.set_external_runtime(session_state.terminal_runtime)
+                shell_runtime = agent.shell_runtime
+                if shell_runtime is not None and not shell_runtime.prefer_local_shell:
+                    agent.set_external_runtime(session_state.terminal_runtime)
 
             if (
                 bind_runtimes
@@ -867,6 +869,14 @@ class ACPServerSessionRuntime:
                         continue
                     shell_runtime = agent.shell_runtime
                     if shell_runtime is None:
+                        continue
+                    if shell_runtime.prefer_local_shell:
+                        logger.info(
+                            "ACP terminal runtime injection skipped; local shell preferred",
+                            name="acp_terminal_local_shell_preferred",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                        )
                         continue
                     default_limit = shell_runtime.output_byte_limit
                     perm_handler = session_state.permission_handler

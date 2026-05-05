@@ -71,7 +71,7 @@ fast = FastAgent("MAKER Example")
 # on ambiguous messages, which is why we wrap it with MAKER for reliability
 @fast.agent(
     name="classifier",
-    model="claude-3-haiku-20240307", 
+    model="claude-haiku-4-5",
     instruction="""You are a customer support intent classifier.
 Classify the customer message into exactly one of: COMPLAINT, QUESTION, REQUEST, FEEDBACK.
 Respond with ONLY the single word classification, nothing else.

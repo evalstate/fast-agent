@@ -15,7 +15,7 @@ from fast_agent.ui.rich_progress import RichProgressDisplay
 
 
 def _make_event(
-    action: ProgressAction = ProgressAction.CHATTING,
+    action: ProgressAction = ProgressAction.SENDING,
     agent_name: str | None = "test-agent",
     target: str = "test-agent",
     details: str = "",
@@ -281,7 +281,7 @@ class TestToolProgressNoDoubleRender:
         display.start()
 
         # First create the task
-        event = _make_event(action=ProgressAction.CHATTING)
+        event = _make_event(action=ProgressAction.SENDING)
         display.update(event)
         assert "test-agent" in display._taskmap
 
@@ -524,7 +524,7 @@ class TestAggregatorInitializedVisibility:
         display = _make_display()
         display.start()
 
-        event = _make_event(action=ProgressAction.CHATTING)
+        event = _make_event(action=ProgressAction.SENDING)
         display.update(event)
 
         event = _make_event(
@@ -701,7 +701,7 @@ class TestAgentTaskClearing:
 
         display.update(
             _make_event(
-                action=ProgressAction.CHATTING,
+                action=ProgressAction.SENDING,
                 agent_name="agent-a",
                 target="agent-a",
             )
@@ -717,7 +717,7 @@ class TestAgentTaskClearing:
         )
         display.update(
             _make_event(
-                action=ProgressAction.CHATTING,
+                action=ProgressAction.SENDING,
                 agent_name="agent-b",
                 target="agent-b",
             )

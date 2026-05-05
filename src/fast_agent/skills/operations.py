@@ -14,7 +14,7 @@ import asyncio
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, cast
 
 from fast_agent.marketplace import source_utils as marketplace_source_utils
@@ -80,7 +80,7 @@ async def fetch_marketplace_skills(url: str) -> list[MarketplaceSkill]:
 async def fetch_marketplace_skills_with_source(
     url: str,
 ) -> tuple[list[MarketplaceSkill], str]:
-    return await marketplace_source_utils.fetch_marketplace_entries_with_source(
+    skills, resolved_source = await marketplace_source_utils.fetch_marketplace_entries_with_source(
         url,
         candidate_urls=candidate_marketplace_urls,
         normalize_url=normalize_marketplace_url,
@@ -90,6 +90,7 @@ async def fetch_marketplace_skills_with_source(
             source_url=source_url,
         ),
     )
+    return await asyncio.to_thread(_expand_implicit_skill_bundles, skills), resolved_source
 
 
 async def install_marketplace_skill(
@@ -709,6 +710,88 @@ def _copy_skill_from_marketplace_source(
         if commit is not None:
             path_oid = _resolve_git_path_oid(tmp_path, commit, skill.repo_path)
         return commit, path_oid, "remote"
+
+
+def _expand_implicit_skill_bundles(skills: Sequence[MarketplaceSkill]) -> list[MarketplaceSkill]:
+    expanded: list[MarketplaceSkill] = []
+    for skill in skills:
+        expanded.extend(_expand_implicit_skill_bundle(skill))
+    return expanded
+
+
+def _expand_implicit_skill_bundle(skill: MarketplaceSkill) -> list[MarketplaceSkill]:
+    if not _may_be_implicit_skill_bundle(skill):
+        return [skill]
+
+    local_repo = _resolve_local_repo(skill.repo_url)
+    try:
+        if local_repo is not None:
+            source_dir = _resolve_repo_subdir(local_repo, skill.repo_subdir)
+            return _discover_nested_marketplace_skills(skill, source_dir)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            clone_args = [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--filter=blob:none",
+                "--sparse",
+            ]
+            if skill.repo_ref:
+                clone_args.extend(["--branch", skill.repo_ref])
+            clone_args.extend([skill.repo_url, str(tmp_path)])
+
+            _run_git(clone_args)
+            _run_git(["git", "-C", str(tmp_path), "sparse-checkout", "set", skill.repo_subdir])
+            _run_git(["git", "-C", str(tmp_path), "checkout"])
+            source_dir = _resolve_repo_subdir(tmp_path, skill.repo_subdir)
+            return _discover_nested_marketplace_skills(skill, source_dir)
+    except Exception:
+        return [skill]
+
+
+def _may_be_implicit_skill_bundle(skill: MarketplaceSkill) -> bool:
+    path = PurePosixPath(skill.repo_subdir)
+    if path.name.lower() == "skill.md":
+        return False
+    return "skills" not in path.parts
+
+
+def _discover_nested_marketplace_skills(
+    skill: MarketplaceSkill,
+    source_dir: Path,
+) -> list[MarketplaceSkill]:
+    if (source_dir / "SKILL.md").exists() or (
+        source_dir.is_file() and source_dir.name.lower() == "skill.md"
+    ):
+        return [skill]
+
+    skills_dir = source_dir / "skills"
+    manifests = SkillRegistry.load_directory(skills_dir)
+    if not manifests:
+        return [skill]
+
+    nested: list[MarketplaceSkill] = []
+    for manifest in manifests:
+        relative_skill_dir = manifest.path.parent.relative_to(source_dir)
+        repo_path = PurePosixPath(skill.repo_subdir) / PurePosixPath(
+            relative_skill_dir.as_posix()
+        )
+        nested.append(
+            MarketplaceSkill(
+                name=manifest.name,
+                description=manifest.description,
+                repo_url=skill.repo_url,
+                repo_ref=skill.repo_ref,
+                repo_path=str(repo_path),
+                source_url=skill.source_url,
+                bundle_name=skill.bundle_name or skill.name,
+                bundle_description=skill.bundle_description or skill.description,
+            )
+        )
+    return nested
 
 
 def _atomic_replace_directory(*, existing_dir: Path, staged_dir: Path) -> None:

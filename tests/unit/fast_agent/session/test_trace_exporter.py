@@ -19,7 +19,12 @@ from mcp.types import (
     TextResourceContents,
 )
 
-from fast_agent.constants import FAST_AGENT_USAGE
+from fast_agent.constants import (
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    FAST_AGENT_TIMING,
+    FAST_AGENT_USAGE,
+    OPENAI_ASSISTANT_MESSAGE_ITEMS,
+)
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import save_json
 from fast_agent.privacy.sanitizer import PrivacyFilterModelInfo, RedactionSpan, SanitizedText
@@ -183,7 +188,7 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     }
     assert records[2]["type"] == "event_msg"
     assert "timestamp" not in records[2]
-    assert records[2]["payload"]["type"] == "turn_started"
+    assert records[2]["payload"]["type"] == "task_started"
     assert "started_at" not in records[2]["payload"]
     assert records[3]["type"] == "event_msg"
     assert "timestamp" not in records[3]
@@ -219,7 +224,7 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert "phase" not in records[7]["payload"]
     assert records[8]["type"] == "event_msg"
     assert "timestamp" not in records[8]
-    assert records[8]["payload"]["type"] == "turn_complete"
+    assert records[8]["payload"]["type"] == "task_complete"
     assert records[8]["payload"]["last_agent_message"] == "done"
 
 
@@ -260,8 +265,8 @@ def test_session_trace_exporter_context_window_falls_back_to_model(
     ]
 
     assert records[0]["payload"]["model_spec"] == "custom-overlay"
-    assert records[1]["payload"]["type"] == "turn_started"
-    assert records[1]["payload"]["model_context_window"] == 400000
+    assert records[1]["payload"]["type"] == "task_started"
+    assert records[1]["payload"]["model_context_window"] == 272000
     assert records[3]["payload"]["model"] == "gpt-5.4"
     assert records[3]["payload"]["model_spec"] == "custom-overlay"
 
@@ -324,6 +329,169 @@ def test_session_trace_exporter_preserves_assistant_commentary_phase(tmp_path: P
             "content": [{"type": "output_text", "text": "Planning next action."}],
             "end_turn": True,
             "phase": "commentary",
+        }
+    ]
+
+
+def test_session_trace_exporter_preserves_raw_openai_assistant_message_items(
+    tmp_path: Path,
+) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-raw-items"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Final answer.")],
+            channels={
+                OPENAI_ASSISTANT_MESSAGE_ITEMS: [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "type": "message",
+                                "role": "assistant",
+                                "phase": "commentary",
+                                "content": [
+                                    {"type": "output_text", "text": "Checking the repo."}
+                                ],
+                            }
+                        ),
+                    ),
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "type": "message",
+                                "role": "assistant",
+                                "phase": "final_answer",
+                                "content": [{"type": "output_text", "text": "Final answer."}],
+                            }
+                        ),
+                    ),
+                ]
+            },
+            stop_reason=LlmStopReason.END_TURN,
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assistant_messages = [
+        record["payload"]
+        for record in records
+        if record["type"] == "response_item"
+        and record["payload"].get("type") == "message"
+        and record["payload"].get("role") == "assistant"
+    ]
+
+    assert assistant_messages == [
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Checking the repo."}],
+            "phase": "commentary",
+        },
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Final answer."}],
+            "phase": "final_answer",
+        },
+    ]
+
+
+def test_session_trace_exporter_exports_server_web_search_as_codex_call(
+    tmp_path: Path,
+) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-web-search"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="look this up")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="I found a result.")],
+            channels={
+                ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "type": "server_tool_use",
+                                "id": "ws_1",
+                                "name": "web_search",
+                                "status": "completed",
+                                "input": {"query": "fast-agent trace viewer"},
+                            }
+                        ),
+                    )
+                ]
+            },
+            stop_reason=LlmStopReason.END_TURN,
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    web_search_calls = [
+        record["payload"]
+        for record in records
+        if record["type"] == "response_item"
+        and record["payload"].get("type") == "web_search_call"
+    ]
+
+    assert web_search_calls == [
+        {
+            "type": "web_search_call",
+            "id": "ws_1",
+            "status": "completed",
+            "action": {"type": "search", "query": "fast-agent trace viewer"},
         }
     ]
 
@@ -453,7 +621,7 @@ def test_session_trace_exporter_uses_message_timestamps_for_turn_date(tmp_path: 
     ]
 
     assert records[0]["payload"]["timestamp"] == "2026-04-20T13:03:00.000Z"
-    assert records[1]["payload"]["type"] == "turn_started"
+    assert records[1]["payload"]["type"] == "task_started"
     assert records[1]["payload"]["started_at"] == int(turn_started_at.timestamp())
     assert records[1]["timestamp"] == "2026-04-22T09:15:00.000Z"
     assert records[2]["payload"]["type"] == "user_message"
@@ -465,6 +633,70 @@ def test_session_trace_exporter_uses_message_timestamps_for_turn_date(tmp_path: 
     assert records[4]["timestamp"] == "2026-04-22T09:15:00.000Z"
     assert records[5]["payload"]["role"] == "assistant"
     assert records[5]["timestamp"] == "2026-04-22T09:15:05.000Z"
+    assert records[6]["payload"]["type"] == "task_complete"
+    assert records[6]["payload"]["completed_at"] == int(
+        (turn_started_at + timedelta(seconds=5)).timestamp()
+    )
+    assert records[6]["payload"]["duration_ms"] == 5000
+    assert records[6]["timestamp"] == "2026-04-22T09:15:05.000Z"
+
+
+def test_session_trace_exporter_adds_turn_timing_from_fast_agent_channels(
+    tmp_path: Path,
+) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-timing"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="done")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(
+                        type="text",
+                        text='{"duration_ms": 1234.56, "ttft_ms": 321.4}',
+                    )
+                ]
+            },
+            stop_reason=LlmStopReason.END_TURN,
+        ),
+    ]
+    _write_history_with_timestamps(
+        session_dir / "history_dev.json",
+        messages=messages,
+        timestamps=[None, None],
+    )
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    turn_complete = records[-1]["payload"]
+    assert turn_complete["type"] == "task_complete"
+    assert turn_complete["duration_ms"] == 1235
+    assert turn_complete["time_to_first_token_ms"] == 321
 
 
 def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -> None:
@@ -540,7 +772,7 @@ def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -
     ]
 
     assert records[1]["type"] == "event_msg"
-    assert records[1]["payload"]["type"] == "turn_started"
+    assert records[1]["payload"]["type"] == "task_started"
     assert records[2]["type"] == "turn_context"
     assert records[3]["type"] == "response_item"
     assert records[3]["payload"] == {
@@ -563,7 +795,7 @@ def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -
         "status": "success",
     }
     assert records[6]["type"] == "event_msg"
-    assert records[6]["payload"]["type"] == "turn_complete"
+    assert records[6]["payload"]["type"] == "task_complete"
     assert records[6]["payload"]["last_agent_message"] == "Using tools"
 
 
@@ -673,7 +905,7 @@ def test_session_trace_exporter_applies_privacy_sanitizer_to_codex_text(
     )
     assert tool_output["output"] == "<PRIVATE_PERSON> result"
     turn_complete = next(
-        payload for payload in reversed(payloads) if payload.get("type") == "turn_complete"
+        payload for payload in reversed(payloads) if payload.get("type") == "task_complete"
     )
     assert turn_complete["last_agent_message"] == "Using tools for <PRIVATE_PERSON>"
 
@@ -1036,7 +1268,7 @@ def test_session_trace_exporter_uses_usage_metadata_for_model_and_token_count(
     assert records[0]["payload"]["model_provider"] == "codexresponses"
     assert records[0]["payload"]["model_spec"] == "gpt-5.3-codex?service_tier=flex"
     assert records[1]["type"] == "event_msg"
-    assert records[1]["payload"]["type"] == "turn_started"
+    assert records[1]["payload"]["type"] == "task_started"
     assert records[1]["payload"]["model_context_window"] == 400000
     assert records[3]["type"] == "turn_context"
     assert records[3]["payload"]["model"] == "gpt-5.3-codex"
@@ -1045,6 +1277,13 @@ def test_session_trace_exporter_uses_usage_metadata_for_model_and_token_count(
     assert records[6]["payload"] == {
         "type": "token_count",
         "info": {
+            "total_token_usage": {
+                "input_tokens": 120,
+                "cached_input_tokens": 12,
+                "output_tokens": 30,
+                "reasoning_output_tokens": 7,
+                "total_tokens": 150,
+            },
             "last_token_usage": {
                 "input_tokens": 120,
                 "cached_input_tokens": 12,

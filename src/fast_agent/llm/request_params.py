@@ -18,6 +18,7 @@ else:
 
 ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
 ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
+StructuredToolPolicy: TypeAlias = Literal["auto", "always", "defer", "no_tools"]
 
 
 def response_mode_to_tool_result_mode(response_mode: ResponseMode) -> ToolResultMode | None:
@@ -80,6 +81,23 @@ class RequestParams(CreateMessageRequestParams):
     """
     Internal raw JSON Schema payload for schema-native structured output requests.
     Providers may translate this to response_format, tool schemas, or prompt instructions.
+    """
+
+    structured_tool_policy: StructuredToolPolicy = "auto"
+    """
+    Internal policy for raw-schema structured generation when tools are available.
+
+    Applies to ``generate(..., RequestParams(structured_schema=...), tools=...)``.
+    The typed ``structured(model, ...)`` API remains a final-answer path and does
+    not receive regular tools.
+
+    - ``auto``: use the provider/model default.
+    - ``always``: apply raw-schema constraints on every turn, including the first
+      tool-selection turn.
+    - ``defer``: suppress structured-output constraints until a tool result is
+      present, useful for models that otherwise answer JSON instead of calling a
+      required tool.
+    - ``no_tools``: suppress regular tools and produce one structured response.
     """
 
     template_vars: dict[str, Any] = Field(default_factory=dict)

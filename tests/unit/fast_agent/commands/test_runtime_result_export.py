@@ -130,6 +130,7 @@ def _make_request(
         noenv=False,
         force_smart=False,
         shell_runtime=False,
+        no_shell=False,
         mode="interactive",
         transport="http",
         host="127.0.0.1",
@@ -490,7 +491,7 @@ async def test_run_single_agent_cli_flow_json_schema_invalid_output_exits_nonzer
     assert exc_info.value.exit_code == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "valid JSON matching --json-schema" in captured.err
+    assert "valid JSON matching the structured output schema" in captured.err
 
 
 @pytest.mark.asyncio
@@ -606,9 +607,9 @@ async def test_resume_session_interactive_queues_markdown_preview(
     await _resume_session_if_requested(app, request)
 
     assert any("Resumed session" in notice for notice in plain_notices)
-    assert any("Last assistant message" in notice for notice in plain_notices)
     assert markdown_notices
     assert markdown_notices[0][0] == "## Welcome back\n\n- item"
+    assert markdown_notices[0][1]["title"] == "Last assistant message"
 
 
 @pytest.mark.asyncio

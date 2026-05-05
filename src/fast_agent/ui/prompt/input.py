@@ -437,6 +437,80 @@ def _collect_tool_children(agent: object) -> list[Any]:
     return _collect_tool_children_impl(agent)
 
 
+def _format_count(count: int, singular: str, plural: str | None = None) -> str:
+    label = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count:,} {label}"
+
+
+def _display_path(path: str) -> str:
+    home = Path.home()
+    resolved = Path(path).expanduser()
+    try:
+        return f"~/{resolved.resolve().relative_to(home).as_posix()}"
+    except ValueError:
+        return str(resolved)
+
+
+def _count_configured_hooks(agent_provider: "AgentApp") -> int:
+    total = 0
+    for agent in agent_provider.registered_agents().values():
+        config = getattr(agent, "config", None)
+        for field in ("tool_hooks", "lifecycle_hooks"):
+            hooks = getattr(config, field, None)
+            if isinstance(hooks, dict):
+                total += len(hooks)
+    return total
+
+
+def _count_configured_extensions(agent_provider: "AgentApp") -> int:
+    total = 0
+    global_commands = getattr(agent_provider, "plugin_commands", None)
+    if isinstance(global_commands, dict):
+        total += len(global_commands)
+
+    for agent in agent_provider.registered_agents().values():
+        config = getattr(agent, "config", None)
+        commands = getattr(config, "commands", None)
+        if isinstance(commands, dict):
+            total += len(commands)
+
+    return total
+
+
+def _show_fast_agent_home_summary(agent_provider: "AgentApp | None") -> None:
+    if agent_provider is None:
+        return
+    try:
+        first_agent = next(iter(agent_provider.registered_agents().values()))
+    except StopIteration:
+        return
+
+    context = getattr(first_agent, "context", None)
+    config = getattr(context, "config", None)
+    home = getattr(config, "_fast_agent_home", None)
+    if not home:
+        return
+
+    model_refs = getattr(config, "model_references", None)
+    model_ref_count = (
+        sum(len(namespace_refs) for namespace_refs in model_refs.values())
+        if isinstance(model_refs, dict)
+        else 0
+    )
+    parts = [
+        _format_count(len(agent_provider.registered_agent_names()), "agent"),
+        _format_count(_count_configured_hooks(agent_provider), "hook"),
+        _format_count(_count_configured_extensions(agent_provider), "extension"),
+        _format_count(model_ref_count, "modelref"),
+    ]
+    source = getattr(config, "_fast_agent_home_source", None)
+    source_suffix = f" [dim]via {source}[/dim]" if source else ""
+    rich_print(
+        f"[dim]fast-agent environment[/dim] [blue]{_display_path(str(home))}[/blue]"
+        f"[dim] ({', '.join(parts)}){source_suffix}[/dim]"
+    )
+
+
 # AgentCompleter moved to fast_agent.ui.prompt.completer
 
 
@@ -909,6 +983,8 @@ async def _show_input_startup(
 
     _show_input_help_banner(is_human_input=is_human_input)
     _show_model_shortcut_hints(agent_name=agent_name, agent_provider=agent_provider)
+    if agent_provider and not is_human_input:
+        _show_fast_agent_home_summary(agent_provider)
     await _show_shell_startup(
         agent_name=agent_name,
         agent_provider=agent_provider,

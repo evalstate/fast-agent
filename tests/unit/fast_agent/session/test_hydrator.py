@@ -379,6 +379,7 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
                     history_file=history_path.name,
                     resolved_prompt="Stored foo prompt",
                     model="sonnet-4",
+                    model_spec="anthropic.sonnet-4?reasoning=high",
                     provider="anthropic",
                     request_settings=SessionRequestSettingsSnapshot(
                         max_tokens=2048,
@@ -425,8 +426,8 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
     assert result.active_agent == "foo"
     assert result.usage_notices == ["usage restored"]
     assert runtime_foo.instruction == "Stored foo prompt"
-    assert runtime_foo.config.model == "anthropic.sonnet-4"
-    assert runtime_foo.model_updates == ["anthropic.sonnet-4"]
+    assert runtime_foo.config.model == "anthropic.sonnet-4?reasoning=high"
+    assert runtime_foo.model_updates == ["anthropic.sonnet-4?reasoning=high"]
     assert params.maxTokens == 2048
     assert params.temperature == 0.3
     assert params.use_history is True

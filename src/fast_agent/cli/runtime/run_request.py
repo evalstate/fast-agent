@@ -67,6 +67,7 @@ class AgentRunRequest:
     noenv: bool
     force_smart: bool
     shell_runtime: bool
+    no_shell: bool
     mode: Mode
     transport: str
     host: str
@@ -78,13 +79,17 @@ class AgentRunRequest:
     reload: bool
     watch: bool
     json_schema: str | None = None
+    schema_model: str | None = None
     execution_mode: ExecutionMode | None = None
     quiet: bool = False
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
+    prefer_local_shell: bool = False
 
     def __post_init__(self) -> None:
         if self.noenv and self.environment_dir is not None:
             raise ValueError("--noenv cannot be combined with --env")
+        if self.shell_runtime and self.no_shell:
+            raise ValueError("--shell cannot be combined with --no-shell")
         resolved_execution_mode = resolve_execution_mode(
             message=self.message,
             prompt_file=self.prompt_file,
@@ -95,11 +100,13 @@ class AgentRunRequest:
             raise ValueError(
                 f"execution_mode {self.execution_mode!r} does not match request inputs"
             )
-        if self.json_schema is not None:
+        if self.json_schema is not None and self.schema_model is not None:
+            raise ValueError("--json-schema cannot be combined with --schema-model")
+        if self.json_schema is not None or self.schema_model is not None:
             if self.execution_mode == "repl":
-                raise ValueError("--json-schema requires --message or --prompt-file")
+                raise ValueError("--json-schema/--schema-model requires --message or --prompt-file")
             if self.model is not None and "," in self.model:
-                raise ValueError("--json-schema cannot be combined with multiple models")
+                raise ValueError("structured output options cannot be combined with multiple models")
             self.quiet = True
 
     @property
@@ -131,6 +138,7 @@ class AgentRunRequest:
             "message": self.message,
             "prompt_file": self.prompt_file,
             "json_schema": self.json_schema,
+            "schema_model": self.schema_model,
             "result_file": self.result_file,
             "resume": self.resume,
             "url_servers": self.url_servers,
@@ -142,6 +150,8 @@ class AgentRunRequest:
             "noenv": self.noenv,
             "force_smart": self.force_smart,
             "shell_runtime": self.shell_runtime,
+            "no_shell": self.no_shell,
+            "prefer_local_shell": self.prefer_local_shell,
             "mode": self.mode,
             "transport": self.transport,
             "host": self.host,

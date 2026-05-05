@@ -180,14 +180,17 @@ class ResponsesOutputMixin:
                 self._print_phase_message(output_item, serialized_item)
                 serialized_items.append(serialized_item)
 
-        if not phases:
+        if not serialized_items:
             return [], None
 
-        unique_phases = set(phases)
-        message_phase = phases[0] if len(unique_phases) == 1 else None
         blocks: list[ContentBlock] = [
             TextContent(type="text", text=json.dumps(payload)) for payload in serialized_items
         ]
+        if not phases or len(phases) != len(serialized_items):
+            return blocks, None
+
+        unique_phases = set(phases)
+        message_phase = phases[0] if len(unique_phases) == 1 else None
         return blocks, message_phase
 
     def _record_usage(self, usage: Any, model_name: str) -> None:

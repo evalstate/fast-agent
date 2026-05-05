@@ -23,10 +23,9 @@ DEFAULT_CREATE_MODELS = [
     "gemini25",
     "minimax",
     "kimi",
-    "qwen3",
     "glm",
 ]
-DEFAULT_CHECK_MODELS = ["haiku", "gemini25", "gpt-5-mini?reasoning=minimal", "kimi", "qwen3", "glm"]
+DEFAULT_CHECK_MODELS = ["haiku", "gemini25", "gpt-5-mini?reasoning=minimal", "kimi", "glm"]
 MAGIC_STRING = "MAGIC-ACCESS-PHRASE-9F1C"
 MAGIC_TOOL = Tool(
     name="fetch_magic_string",

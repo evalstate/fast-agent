@@ -1,5 +1,5 @@
 import types
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from google.genai import types as google_types
@@ -12,13 +12,16 @@ from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import RequestParams
 
+if TYPE_CHECKING:
+    from fast_agent.llm.request_params import StructuredToolPolicy
+
 
 def _build_llm(config: Settings) -> GoogleNativeLLM:
     """Create a Google LLM instance with the provided config."""
     return GoogleNativeLLM(context=Context(config=config))
 
 
-def test_vertex_cfg_accepts_model_object_and_resolves_preview_names() -> None:
+def test_vertex_cfg_accepts_model_object_and_expands_model_names() -> None:
     """Vertex config may arrive as a pydantic model with a custom attr object."""
     google_settings = GoogleSettings()
     setattr(
@@ -35,7 +38,7 @@ def test_vertex_cfg_accepts_model_object_and_resolves_preview_names() -> None:
     assert project_id == "proj"
     assert location == "loc"
 
-    resolved = llm._resolve_model_name("gemini-2.5-flash-preview-09-2025")
+    resolved = llm._resolve_model_name("gemini-2.5-flash")
     assert (
         resolved
         == "projects/proj/locations/loc/publishers/google/models/gemini-2.5-flash"
@@ -63,8 +66,8 @@ def test_vertex_cfg_accepts_dict_and_provider_key_manager_allows_adc() -> None:
     assert project_id == "proj"
     assert location == "europe-west4"
 
-    resolved = llm._resolve_model_name("gemini-2.5-flash-preview-09-2025")
-    assert resolved.endswith("gemini-2.5-flash")
+    resolved = llm._resolve_model_name("gemini-3-flash-preview")
+    assert resolved.endswith("gemini-3-flash-preview")
     assert resolved.startswith(
         "projects/proj/locations/europe-west4/publishers/google/models/"
     )
@@ -162,7 +165,7 @@ def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
         description="Return the probe payload for validation.",
         inputSchema={"type": "object", "properties": {}},
     )
-    params = RequestParams(structured_schema=schema)
+    params = RequestParams(structured_schema=schema, structured_tool_policy="defer")
 
     _, prepared_params = llm._prepare_structured_request(
         [Prompt.user("call the tool, then return json")],
@@ -175,7 +178,18 @@ def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
 
 
 @pytest.mark.asyncio
-async def test_structured_schema_in_generate_path_uses_google_response_schema() -> None:
+@pytest.mark.parametrize(
+    ("policy", "expected_tools"),
+    [
+        ("auto", True),
+        ("always", True),
+        ("no_tools", False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_structured_schema_in_generate_path_can_keep_google_tools(
+    policy: str, expected_tools: bool
+) -> None:
     schema = {
         "type": "object",
         "properties": {"answer": {"type": "string"}},
@@ -224,6 +238,7 @@ async def test_structured_schema_in_generate_path_uses_google_response_schema() 
         request_params=RequestParams(
             model="gemini-2.0-flash",
             structured_schema=schema,
+            structured_tool_policy=cast("StructuredToolPolicy", policy),
         ),
         tools=[
             Tool(
@@ -237,5 +252,77 @@ async def test_structured_schema_in_generate_path_uses_google_response_schema() 
     config = cast("google_types.GenerateContentConfig", captured["config"])
     assert config.response_mime_type == "application/json"
     assert config.response_schema is not None
-    assert config.tools is None
+    assert bool(config.tools) is expected_tools
     assert response.last_text() == '{"answer":"ok"}'
+
+
+@pytest.mark.asyncio
+async def test_structured_schema_in_generate_path_returns_google_tool_calls() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+
+    class FakeModels:
+        async def generate_content(self, **kwargs):
+            return google_types.GenerateContentResponse.model_validate(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "role": "model",
+                                "parts": [
+                                    {
+                                        "function_call": {
+                                            "name": "lookup_probe_payload",
+                                            "args": {},
+                                        }
+                                    }
+                                ],
+                            },
+                            "finish_reason": "STOP",
+                        }
+                    ]
+                }
+            )
+
+    class FakeAio:
+        def __init__(self) -> None:
+            self.models = FakeModels()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.aio = FakeAio()
+
+    class Harness(GoogleNativeLLM):
+        def _initialize_google_client(self):
+            return FakeClient()
+
+    llm = Harness(context=Context(config=Settings()), model="gemini-2.0-flash")
+    response = await llm._google_completion(
+        [google_types.Content(role="user", parts=[google_types.Part.from_text(text="answer")])],
+        request_params=RequestParams(
+            model="gemini-2.0-flash",
+            structured_schema=schema,
+            structured_tool_policy="always",
+        ),
+        tools=[
+            Tool(
+                name="lookup_probe_payload",
+                description="Return the probe payload for validation.",
+                inputSchema={"type": "object", "properties": {}},
+            )
+        ],
+    )
+
+    assert response.tool_calls
+    [tool_call] = response.tool_calls.values()
+    assert tool_call.params.name == "lookup_probe_payload"
+    assert response.stop_reason == "toolUse"

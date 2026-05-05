@@ -78,18 +78,20 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="gpt-4.1-nano", model="openai.gpt-4.1-nano", fast=True),
         ),
         Provider.ANTHROPIC: (
+            CatalogModelEntry(alias="opus", model="claude-opus-4-7"),
+            CatalogModelEntry(alias="opus46", model="claude-opus-4-6"),
             CatalogModelEntry(alias="sonnet", model="claude-sonnet-4-6"),
             CatalogModelEntry(alias="haiku", model="claude-haiku-4-5", fast=True),
-            CatalogModelEntry(alias="opus", model="claude-opus-4-7"),
         ),
         Provider.ANTHROPIC_VERTEX: (
+            CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),
+            CatalogModelEntry(alias="opus46", model="anthropic-vertex.claude-opus-4-6"),
             CatalogModelEntry(alias="sonnet", model="anthropic-vertex.claude-sonnet-4-6"),
             CatalogModelEntry(
                 alias="haiku",
                 model="anthropic-vertex.claude-haiku-4-5",
                 fast=True,
             ),
-            CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
@@ -99,16 +101,21 @@ class ModelSelectionCatalog:
             ),
             CatalogModelEntry(alias="gemini3", model="google.gemini-3-pro-preview"),
             CatalogModelEntry(alias="gemini3.1", model="google.gemini-3.1-pro-preview"),
+            CatalogModelEntry(
+                alias="gemini3.1flashlite",
+                model="google.gemini-3.1-flash-lite-preview",
+                fast=True,
+            ),
         ),
         Provider.XAI: (
+            CatalogModelEntry(alias="grok", model="xai.grok-4.3"),
             CatalogModelEntry(alias="grok41fast", model="grok-4-1-fast-reasoning", fast=True),
             CatalogModelEntry(
                 alias="grok41fast-nr", model="grok-4-1-fast-non-reasoning", fast=True
             ),
-            CatalogModelEntry(alias="grok4", model="xai.grok-4"),
         ),
         Provider.DEEPSEEK: (
-            CatalogModelEntry(alias="deepseek", model="deepseek.deepseek-chat", fast=True),
+            CatalogModelEntry(alias="deepseek3", model="deepseek.deepseek-chat", fast=True),
         ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
@@ -116,6 +123,11 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="qwen3-max", model="aliyun.qwen3-max"),
         ),
         Provider.HUGGINGFACE: (
+            CatalogModelEntry(
+                alias="deepseek4",
+                model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+                current=False,
+            ),
             CatalogModelEntry(
                 alias="kimi26",
                 display_label="Kimi 2.6",
@@ -132,6 +144,11 @@ class ModelSelectionCatalog:
             ),
             CatalogModelEntry(
                 alias="glm51", display_label="GLM 5.1", model="hf.zai-org/GLM-5.1:together"
+            ),
+            CatalogModelEntry(
+                alias="minimax27",
+                display_label="Minimax 2.7",
+                model="hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
             ),
             CatalogModelEntry(
                 alias="qwen35",
@@ -155,22 +172,19 @@ class ModelSelectionCatalog:
                 alias="minimax25",
                 display_label="Minimax 2.5",
                 model="hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+                current=False,
             ),
             CatalogModelEntry(
                 alias="kimi25",
                 display_label="Kimi 2.5",
-                model=(
-                    "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
-                ),
+                model=("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
                 fast=True,
                 current=False,
             ),
             CatalogModelEntry(
                 alias="kimi25instant",
                 display_label="Kimi 2.5 (instant)",
-                model=(
-                    "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=0.6&top_p=0.95&reasoning=off"
-                ),
+                model=("hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"),
                 fast=True,
                 current=False,
             ),
@@ -190,9 +204,7 @@ class ModelSelectionCatalog:
             CatalogModelEntry(
                 alias="deepseek32",
                 model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-            ),
-            CatalogModelEntry(
-                alias="kimi-k2-thinking", model="hf.moonshotai/Kimi-K2-Thinking:together"
+                current=False,
             ),
         ),
         Provider.CODEX_RESPONSES: (
@@ -217,10 +229,6 @@ class ModelSelectionCatalog:
                 alias="gpt-5.4-mini",
                 model="codexresponses.gpt-5.4-mini?reasoning=medium",
                 fast=True,
-            ),
-            CatalogModelEntry(
-                alias="codexplan52",
-                model="codexresponses.gpt-5.2-codex?reasoning=high",
             ),
         ),
         Provider.GROQ: (

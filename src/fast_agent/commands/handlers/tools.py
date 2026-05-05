@@ -18,11 +18,40 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
 
 
+APP_SUFFIX_BADGES = ("(Apps SDK)", "(MCP App)")
+
+
+def _append_suffix(line: Text, suffix: str) -> None:
+    line.append(" ", style="dim cyan")
+
+    index = 0
+    while index < len(suffix):
+        badge = next(
+            (badge for badge in APP_SUFFIX_BADGES if suffix.startswith(badge, index)),
+            None,
+        )
+        if badge:
+            line.append(badge, style="bright_yellow")
+            index += len(badge)
+            continue
+
+        next_badge = min(
+            (
+                position
+                for badge in APP_SUFFIX_BADGES
+                if (position := suffix.find(badge, index)) >= 0
+            ),
+            default=len(suffix),
+        )
+        line.append(suffix[index:next_badge], style="dim cyan")
+        index = next_badge
+
+
 def _format_tool_line(tool_name: str, title: str | None, suffix: str | None) -> Text:
     line = Text()
     line.append(tool_name, style="bright_blue bold")
     if suffix:
-        line.append(f" {suffix}", style="dim cyan")
+        _append_suffix(line, suffix)
     if title and title.strip():
         line.append(f" {title}", style="default")
     return line

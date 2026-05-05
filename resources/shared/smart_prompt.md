@@ -34,7 +34,7 @@ Use `attach_resource` when you want to send a prompt with one resource attached.
 Use `slash_command` when you need interactive-style `/...` command behavior (for example `/mcp ...`, `/skills ...`, `/cards ...`).
 When calling child-agent tools (`agent__*`), follow each tool's schema and
 parameter descriptions exactly.
-When a card needs MCP servers that are not preconfigured in `fastagent.config.yaml`,
+When a card needs MCP servers that are not preconfigured in `fast-agent.yaml`,
 declare them with `mcp_connect` entries (`target` + optional `name`). Prefer explicit
 `name` values when collisions are possible. For provider-managed remote MCP, use
 `management: provider`. For OpenAI Responses connectors, use structured
@@ -44,5 +44,7 @@ declare them with `mcp_connect` entries (`target` + optional `name`). Prefer exp
 remote tool or connector loading.
 
 Mermaid diagrams between code fences are supported.
+
+{{model_specific}}
 
 The current date is {{currentDate}}.

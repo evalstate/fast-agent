@@ -207,15 +207,15 @@ is accepted for backward compatibility but is unnecessary there.
 
 ### Combining Agents and using MCP Servers
 
-_To generate examples use `fast-agent quickstart workflow`. This example can be run with `uv run workflow/chaining.py`. fast-agent looks for configuration files in the current directory before checking parent directories recursively._
+_To generate examples use `fast-agent quickstart workflow`. This example can be run with `uv run workflow/chaining.py`. Place `fast-agent.yaml` in the active fast-agent home, or pass an explicit config path when needed._
 
-Agents can be chained to build a workflow, using MCP Servers defined in the `fastagent.config.yaml` file:
+Agents can be chained to build a workflow, using MCP Servers defined in the `fast-agent.yaml` file:
 
 ```python
 @fast.agent(
     "url_fetcher",
     "Given a URL, provide a complete and comprehensive summary",
-    servers=["fetch"], # Name of an MCP Server defined in fastagent.config.yaml
+    servers=["fetch"], # Name of an MCP Server defined in fast-agent.yaml
 )
 @fast.agent(
     "social_media",
@@ -316,7 +316,7 @@ Extended example and all params sample is available in the repository as
 
 For SSE and HTTP MCP servers, OAuth is enabled by default with minimal configuration. A local callback server is used to capture the authorization code, with a paste-URL fallback if the port is unavailable.
 
-- Minimal per-server settings in `fastagent.config.yaml`:
+- Minimal per-server settings in `fast-agent.yaml`:
 
 ```yaml
 mcp:
@@ -668,7 +668,7 @@ Prompts can also be applied interactively through the interactive interface by u
 
 ### Sampling
 
-Sampling LLMs are configured per Client/Server pair. Specify the model name in fastagent.config.yaml as follows:
+Sampling LLMs are configured per Client/Server pair. Specify the model name in fast-agent.yaml as follows:
 
 ```yaml
 mcp:
@@ -683,7 +683,7 @@ mcp:
 ### Secrets File
 
 > [!TIP]
-> fast-agent will look recursively for a fastagent.secrets.yaml file, so you only need to manage this at the root folder of your agent definitions.
+> Put `fast-agent.secrets.yaml` alongside `fast-agent.yaml` in your active fast-agent home. Select a different home with `--env` or `FAST_AGENT_HOME`.
 
 ### Interactive Shell
 

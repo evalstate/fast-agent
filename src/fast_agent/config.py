@@ -19,8 +19,13 @@ else:  # pragma: no cover - used only to satisfy type checkers
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
 from fast_agent.core.exceptions import ConfigFileError
+from fast_agent.home import (
+    ConfigDiscoveryResult,
+    discover_config_files,
+    resolve_fast_agent_home,
+)
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.task_budget import parse_task_budget_tokens, validate_task_budget_tokens
@@ -169,7 +174,7 @@ class ShellSettings(BaseModel):
 
     timeout_seconds: int = Field(
         default=90,
-        description="Maximum seconds to wait for command output before terminating",
+        description="Maximum seconds without command output before terminating",
     )
     warning_interval_seconds: int = Field(
         default=30,
@@ -197,6 +202,13 @@ class ShellSettings(BaseModel):
     missing_cwd_policy: Literal["ask", "create", "warn", "error"] = Field(
         default="warn",
         description="Policy when an agent shell cwd is missing or invalid",
+    )
+    prefer_local_shell: bool = Field(
+        default=False,
+        description=(
+            "In ACP mode, keep the local fast-agent shell runtime instead of replacing it "
+            "with the ACP client's terminal runtime when the client advertises terminal support"
+        ),
     )
     enable_read_text_file: bool = Field(
         default=True,
@@ -975,6 +987,32 @@ class CodexResponsesSettings(ResponsesProviderSettingsBase):
     )
 
 
+class XAIResponsesSettings(BaseModel):
+    """Settings for using xAI's Responses-compatible API."""
+
+    api_key: str | None = Field(default=None, description="xAI API key")
+    base_url: str | None = Field(
+        default="https://api.x.ai/v1",
+        description="xAI API endpoint (default: https://api.x.ai/v1)",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default model when xAI Responses provider is selected without an explicit model"
+        ),
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
+    transport: Literal["sse", "websocket", "auto"] | None = Field(
+        default=None,
+        description="Responses transport mode override: sse, websocket, or auto fallback.",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class DeepSeekSettings(BaseModel):
     """Settings for using DeepSeek models in the fast-agent application."""
 
@@ -1004,6 +1042,10 @@ class GoogleSettings(BaseModel):
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
+    )
+    transport: Literal["sse", "websocket", "auto"] | None = Field(
+        default=None,
+        description="Responses transport mode override: sse, websocket, or auto fallback.",
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -1261,7 +1303,7 @@ class LoggerSettings(BaseModel):
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
     theme_file: str | None = None
-    """Optional Rich theme file for console styles. Relative paths resolve from fastagent.config.yaml."""
+    """Optional Rich theme file for console styles. Relative paths resolve from fast-agent.yaml."""
     code_theme: str = "native"
     """Pygments / Rich syntax theme for fenced code blocks and markdown code rendering."""
     render_fences_with_syntax: bool = True
@@ -1296,78 +1338,6 @@ class LoggerSettings(BaseModel):
         if value < 0:
             raise ValueError("apply_patch_preview_max_lines must be non-negative.")
         return value
-
-
-def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:
-    """
-    Find FastAgent configuration files with standardized behavior.
-
-    Returns:
-        Tuple of (config_path, secrets_path) where either can be None if not found.
-
-    Strategy:
-    1. Find config file recursively from start_path upward
-    2. Prefer secrets file in same directory as config file
-    3. If no secrets file next to config, search recursively from start_path
-    """
-    config_path = None
-    secrets_path = None
-
-    # First, find the config file with recursive search
-    current = start_path.resolve()
-    while current != current.parent:
-        potential_config = current / "fastagent.config.yaml"
-        if potential_config.exists():
-            config_path = potential_config
-            break
-        current = current.parent
-
-    # If config file found, prefer secrets file in the same directory
-    if config_path:
-        potential_secrets = config_path.parent / "fastagent.secrets.yaml"
-        if potential_secrets.exists():
-            secrets_path = potential_secrets
-        else:
-            # If no secrets file next to config, do recursive search from start
-            current = start_path.resolve()
-            while current != current.parent:
-                potential_secrets = current / "fastagent.secrets.yaml"
-                if potential_secrets.exists():
-                    secrets_path = potential_secrets
-                    break
-                current = current.parent
-    else:
-        # No config file found, just search for secrets file
-        current = start_path.resolve()
-        while current != current.parent:
-            potential_secrets = current / "fastagent.secrets.yaml"
-            if potential_secrets.exists():
-                secrets_path = potential_secrets
-                break
-            current = current.parent
-
-    return config_path, secrets_path
-
-
-def resolve_config_search_root(
-    start_path: Path,
-    *,
-    env_dir: str | Path | None = None,
-) -> Path:
-    """Resolve the base path for discovering config and secrets files.
-
-    If env_dir is provided (or ENVIRONMENT_DIR is set), search from there instead
-    of the current working directory.
-    """
-    base = start_path.resolve()
-    override = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
-    if not override:
-        return base
-
-    root = Path(override).expanduser()
-    if not root.is_absolute():
-        root = (base / root).resolve()
-    return root
 
 
 def resolve_env_vars(config_item: Any) -> Any:
@@ -1427,137 +1397,29 @@ def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
     return resolve_env_vars(payload)
 
 
-def find_project_config_file(start_path: Path) -> Path | None:
-    """Find project-level ``fastagent.config.yaml`` from ``start_path`` upward."""
-    current = start_path.resolve()
-    while current != current.parent:
-        candidate = current / "fastagent.config.yaml"
-        if candidate.exists():
-            return candidate
-        current = current.parent
-    return None
-
-
-def _find_parent_file(start_path: Path, filename: str) -> Path | None:
-    current = start_path.resolve().parent
-    while current != current.parent:
-        candidate = current / filename
-        if candidate.exists():
-            return candidate
-        current = current.parent
-    return None
-
-
-def find_legacy_project_config_file(start_path: Path) -> Path | None:
-    """Find a parent-directory ``fastagent.config.yaml``, excluding ``start_path`` itself."""
-    return _find_parent_file(start_path, "fastagent.config.yaml")
-
-
-def resolve_environment_config_file(
-    start_path: Path,
-    *,
-    env_dir: str | Path | None = None,
-) -> Path:
-    """Return the env overlay config path: ``<env>/fastagent.config.yaml``."""
-    base = start_path.resolve()
-    override = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
-
-    if override:
-        env_root = Path(override).expanduser()
-        if not env_root.is_absolute():
-            env_root = (base / env_root).resolve()
-    else:
-        env_root = (base / DEFAULT_ENVIRONMENT_DIR).resolve()
-
-    return env_root / "fastagent.config.yaml"
-
-
-def resolve_implicit_config_file(
-    start_path: Path,
-    *,
-    env_dir: str | Path | None = None,
-) -> Path | None:
-    """Resolve the active implicit config file using env, cwd, then legacy order."""
-    env_config = resolve_environment_config_file(start_path, env_dir=env_dir)
-    if env_config.exists():
-        return env_config
-
-    cwd_config = start_path.resolve() / "fastagent.config.yaml"
-    if cwd_config.exists():
-        return cwd_config
-
-    return find_legacy_project_config_file(start_path)
-
-
-def resolve_implicit_secrets_file(
-    start_path: Path,
-    *,
-    env_dir: str | Path | None = None,
-) -> Path | None:
-    """Resolve the active implicit secrets file using env, cwd, then legacy order."""
-    env_secrets = resolve_environment_config_file(start_path, env_dir=env_dir).with_name(
-        "fastagent.secrets.yaml"
-    )
-    if env_secrets.exists():
-        return env_secrets
-
-    cwd_secrets = start_path.resolve() / "fastagent.secrets.yaml"
-    if cwd_secrets.exists():
-        return cwd_secrets
-
-    return _find_parent_file(start_path, "fastagent.secrets.yaml")
-
-
 def load_implicit_settings(
     *,
     start_path: Path,
     env_dir: str | Path | None = None,
-) -> tuple[dict[str, Any], Path | None]:
-    """Load settings from the first implicit config found: env, cwd, then legacy."""
-    config_path = resolve_implicit_config_file(start_path, env_dir=env_dir)
-    if config_path is None or not config_path.exists():
-        return {}, None
-    return load_yaml_mapping(config_path), config_path
-
-
-def resolve_layered_config_file(
-    start_path: Path,
-    *,
-    env_dir: str | Path | None = None,
-) -> Path | None:
-    """Return the implicit config path using env, cwd, then legacy precedence."""
-    return resolve_implicit_config_file(start_path, env_dir=env_dir)
-
-
-def load_layered_settings(
-    *,
-    start_path: Path,
-    env_dir: str | Path | None = None,
-) -> tuple[dict[str, Any], Path | None]:
-    """Load merged settings from project config with env overlay.
-
-    Precedence: project config < environment config.
-
-    Returns:
-        A tuple of ``(merged_settings, effective_config_path)`` where
-        ``effective_config_path`` is the last-applied config path (env when
-        present, else project), or ``None`` when neither exists.
-    """
-
+    noenv: bool = False,
+) -> tuple[dict[str, Any], ConfigDiscoveryResult]:
+    """Load settings from the discovered config file."""
+    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir, noenv=noenv)
+    discovery = discover_config_files(cwd=start_path, home=home)
     merged: dict[str, Any] = {}
-    effective_config: Path | None = None
+    if discovery.config_path and discovery.config_path.exists():
+        merged = load_yaml_mapping(discovery.config_path)
+    return merged, discovery
 
-    project_config = find_project_config_file(start_path)
-    if project_config and project_config.exists():
-        merged = deep_merge(merged, load_yaml_mapping(project_config))
-        effective_config = project_config
 
-    env_config = resolve_environment_config_file(start_path, env_dir=env_dir)
-    if env_config.exists():
-        merged = deep_merge(merged, load_yaml_mapping(env_config))
-        effective_config = env_config
-
-    return merged, effective_config
+def load_selected_settings(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None = None,
+    noenv: bool = False,
+) -> tuple[dict[str, Any], ConfigDiscoveryResult]:
+    """Load first-found config/secrets settings with home then cwd precedence."""
+    return load_implicit_settings(start_path=start_path, env_dir=env_dir, noenv=noenv)
 
 
 def load_layered_model_settings(
@@ -1571,7 +1433,7 @@ def load_layered_model_settings(
     ``model_references`` uses deep-merge semantics, while ``default_model`` uses
     scalar replacement semantics.
     """
-    layered_settings, _ = load_layered_settings(start_path=start_path, env_dir=env_dir)
+    layered_settings, _ = load_selected_settings(start_path=start_path, env_dir=env_dir)
     layered: dict[str, Any] = {}
 
     if "default_model" in layered_settings:
@@ -1655,6 +1517,9 @@ class Settings(BaseSettings):
     codexresponses: CodexResponsesSettings | None = None
     """Settings for using Codex Responses models in the fast-agent application"""
 
+    xairesponses: XAIResponsesSettings | None = None
+    """Settings for using xAI Responses models in the fast-agent application"""
+
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
 
@@ -1712,6 +1577,9 @@ class Settings(BaseSettings):
     cards: CardsSettings = CardsSettings()
     """Card pack registry selection settings."""
 
+    commands: dict[str, PluginCommandActionSpec] | None = None
+    """Global plugin command actions loaded from fast-agent.yaml."""
+
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
 
@@ -1723,6 +1591,14 @@ class Settings(BaseSettings):
 
     _config_file: str | None = PrivateAttr(default=None)
     _secrets_file: str | None = PrivateAttr(default=None)
+    _fast_agent_home: str | None = PrivateAttr(default=None)
+    _fast_agent_home_source: str | None = PrivateAttr(default=None)
+    _fast_agent_noenv: bool = PrivateAttr(default=False)
+
+    @field_validator("commands", mode="before")
+    @classmethod
+    def _validate_plugin_commands(cls, value: Any) -> dict[str, PluginCommandActionSpec] | None:
+        return parse_plugin_command_action_specs(value, source="fast-agent.yaml")
 
     @field_validator("model_references")
     @classmethod
@@ -1758,37 +1634,64 @@ class Settings(BaseSettings):
 
     @classmethod
     def find_config(cls) -> Path | None:
-        """Find the config file in the current directory or parent directories."""
-        current_dir = Path.cwd()
-
-        # Check current directory and parent directories
-        while current_dir != current_dir.parent:
-            for filename in [
-                "fastagent.config.yaml",
-            ]:
-                config_path = current_dir / filename
-                if config_path.exists():
-                    return config_path
-            current_dir = current_dir.parent
-
-        return None
+        """Find the preferred config file in the current directory."""
+        config_path = Path.cwd() / "fast-agent.yaml"
+        return config_path if config_path.exists() else None
 
 
 # Global settings object
 _settings: Settings | None = None
 
 
-def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
+def _cached_settings_match_environment_request(
+    settings: Settings,
+    *,
+    env_dir: str | Path | None,
+    noenv: bool,
+) -> bool:
+    if noenv:
+        return settings._fast_agent_noenv
+
+    if settings._fast_agent_noenv:
+        return False
+
+    if env_dir is None and settings._fast_agent_home is None:
+        return True
+
+    requested_home = resolve_fast_agent_home(
+        cwd=Path.cwd(),
+        cli_override=env_dir,
+        noenv=False,
+    )
+    return (
+        requested_home is not None
+        and settings._fast_agent_home == str(requested_home.path)
+        and (env_dir is None or settings._fast_agent_home_source == "cli")
+    )
+
+
+def get_settings(
+    config_path: str | os.PathLike[str] | None = None,
+    *,
+    env_dir: str | os.PathLike[str] | None = None,
+    noenv: bool = False,
+) -> Settings:
     """Get settings instance, automatically loading from config file if available."""
 
     global _settings
+
+    env_dir_override = Path(env_dir) if env_dir is not None and not isinstance(env_dir, str) else env_dir
 
     # If we have a specific config path, always reload settings
     # This ensures each test gets its own config
     if config_path:
         # Reset for the new path
         _settings = None
-    elif _settings:
+    elif _settings and _cached_settings_match_environment_request(
+        _settings,
+        env_dir=env_dir_override,
+        noenv=noenv,
+    ):
         # Use cached settings only for no specific path
         return _settings
 
@@ -1806,10 +1709,16 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
             if resolved_path.exists():
                 config_file = resolved_path
 
-        # When config path is explicitly provided, find secrets using standardized logic
-        secrets_file = None
-        if config_file.exists():
-            _, secrets_file = find_fastagent_config_files(config_file.parent)
+        discovery = discover_config_files(
+            cwd=Path.cwd(),
+            home=resolve_fast_agent_home(
+                cwd=Path.cwd(),
+                cli_override=env_dir_override,
+                noenv=noenv,
+            ),
+            explicit_config_path=config_file,
+        )
+        secrets_file = discovery.secrets_path if config_file.exists() else None
 
         merged_settings = {}
         # Load main config if it exists
@@ -1819,18 +1728,15 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
         elif config_file and not config_file.exists():
             print(f"Warning: Specified config file does not exist: {config_file}")
     else:
-        # Implicit discovery prefers env-specific config, then cwd, then parent fallback.
-        env_override = os.getenv("ENVIRONMENT_DIR")
-        merged_settings, config_file = load_implicit_settings(
+        merged_settings, discovery = load_implicit_settings(
             start_path=Path.cwd(),
-            env_dir=env_override,
+            env_dir=env_dir_override,
+            noenv=noenv,
         )
+        config_file = discovery.config_path
+        secrets_file = discovery.secrets_path
         if config_file and config_file.exists():
-            config_sources.append((config_file, merged_settings))
-        secrets_file = resolve_implicit_secrets_file(
-            Path.cwd(),
-            env_dir=env_override,
-        )
+            config_sources.append((config_file, load_yaml_mapping(config_file)))
 
     # Load secrets file if found (regardless of whether config file exists)
     if secrets_file and secrets_file.exists():
@@ -1858,6 +1764,9 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     _settings = Settings(**merged_settings)
     _settings._config_file = str(config_file) if config_file else None
     _settings._secrets_file = str(secrets_file) if secrets_file else None
+    _settings._fast_agent_home = str(discovery.home.path) if discovery.home else None
+    _settings._fast_agent_home_source = discovery.home.source if discovery.home else None
+    _settings._fast_agent_noenv = noenv
     current_theme_file = getattr(_settings.logger, "theme_file", None)
     if current_theme_file is not None:
         for source_path, source_mapping in reversed(config_sources):

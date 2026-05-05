@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, cast
 
 from rich import print as rich_print
 
+from fast_agent.command_actions import (
+    PluginCommandActionContext,
+    PluginCommandActionRegistry,
+)
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import display as display_handlers
@@ -23,6 +27,8 @@ from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_export_help import render_session_export_help_markdown
 from fast_agent.commands.shared_command_intents import should_default_export_agent
+from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -91,8 +97,11 @@ from .mcp_connect_flow import handle_mcp_connect
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.command_actions.models import PluginCommandAgentProtocol
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.ui.interactive_prompt import InteractivePrompt
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -889,6 +898,18 @@ async def dispatch_command_payload(
 ) -> DispatchResult:
     del available_agents
 
+    plugin_result = await _dispatch_plugin_command_payload(
+        owner,
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+        available_agents_set=available_agents_set,
+        merge_pinned_agents=merge_pinned_agents,
+        shell_working_dir=shell_working_dir,
+    )
+    if plugin_result is not None:
+        return plugin_result
+
     local_result = await _dispatch_local_ui_payload(
         payload,
         prompt_provider=prompt_provider,
@@ -978,3 +999,106 @@ async def dispatch_command_payload(
         return reload_result
 
     return DispatchResult(handled=False)
+
+
+async def _dispatch_plugin_command_payload(
+    owner: "InteractivePrompt",
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+    available_agents_set: set[str],
+    merge_pinned_agents: Callable[[list[str]], list[str]],
+    shell_working_dir: Path | None,
+) -> DispatchResult | None:
+    if not isinstance(payload, UnknownCommand):
+        return None
+
+    command_line = payload.command.strip()
+    if not command_line.startswith("/"):
+        return None
+
+    command_name, _, arguments = command_line[1:].partition(" ")
+    command_name = command_name.strip()
+    arguments = arguments.lstrip()
+    if not command_name:
+        return None
+
+    current_agent = prompt_provider.get_agent(agent)
+    if current_agent is None:
+        return None
+
+    spec = None
+    base_path = None
+    agent_commands = current_agent.config.commands
+    if agent_commands is not None:
+        spec = agent_commands.get(command_name)
+        if spec is not None and current_agent.config.source_path is not None:
+            base_path = current_agent.config.source_path.parent
+
+    if spec is None and prompt_provider.plugin_commands is not None:
+        spec = prompt_provider.plugin_commands.get(command_name)
+        base_path = prompt_provider.plugin_command_base_path
+
+    if spec is None:
+        return None
+
+    try:
+        registry = PluginCommandActionRegistry.from_specs(
+            {command_name: spec},
+            base_path=base_path,
+        )
+        context = build_command_context(prompt_provider, agent)
+        plugin_context = PluginCommandActionContext(
+            command_name=command_name,
+            arguments=arguments,
+            agent=cast("PluginCommandAgentProtocol", current_agent),
+            settings=context.settings,
+            session_cwd=shell_working_dir,
+        )
+        action_result = await registry.execute(command_name, plugin_context)
+    except AgentConfigError as exc:
+        logger.warning("Failed to load plugin command action", command=command_name, error=str(exc))
+        rich_print(f"[red]Command /{command_name} failed to load:[/red] {exc}")
+        return DispatchResult(handled=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Plugin command action failed", command=command_name)
+        rich_print(f"[red]Command /{command_name} failed:[/red] {exc}")
+        return DispatchResult(handled=True)
+
+    if action_result is None:
+        return DispatchResult(handled=True)
+
+    outcome = CommandOutcome(
+        buffer_prefill=action_result.buffer_prefill,
+        switch_agent=action_result.switch_agent,
+        requires_refresh=action_result.refresh_agents,
+    )
+    if action_result.markdown:
+        outcome.add_message(action_result.markdown, render_markdown=True)
+    elif action_result.message:
+        outcome.add_message(action_result.message)
+
+    await emit_command_outcome(context, outcome)
+
+    result = DispatchResult(
+        handled=True,
+        buffer_prefill=outcome.buffer_prefill,
+        next_agent=outcome.switch_agent,
+    )
+
+    if outcome.requires_refresh:
+        next_available_agents, next_available_agents_set = _refresh_available_agents(
+            owner,
+            prompt_provider,
+            merge_pinned_agents,
+        )
+        result.available_agents = next_available_agents
+        result.available_agents_set = next_available_agents_set
+        available_agents_set = next_available_agents_set
+
+    if result.next_agent is not None and result.next_agent not in available_agents_set:
+        rich_print(f"[red]Unknown agent:[/red] {result.next_agent}")
+        result.next_agent = None
+
+    return result

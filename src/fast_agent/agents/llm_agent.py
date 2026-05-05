@@ -902,7 +902,7 @@ class LlmAgent(LlmDecorator):
                 list(reversed(trailing_users)), request_params=request_params
             )
 
-        (result, message), summary = await self._structured_schema_with_summary(
+        (result, message), summary = await self._structured_schema_via_generate_with_summary(
             messages, schema, request_params
         )
         summary_text = self._summary_text_for_result(message, summary)

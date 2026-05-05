@@ -40,7 +40,7 @@ class SpinnerDescriptionColumn(ProgressColumn):
         super().__init__(table_column=table_column or Column(no_wrap=True))
 
     def render(self, task: "Task") -> Text:
-        description_markup = f"[{self.description_style}]{task.description}▎"
+        description_markup = f"[{self.description_style}]{task.description}"
         if self.markup:
             description_text = Text.from_markup(description_markup)
         else:
@@ -64,12 +64,12 @@ class RichProgressDisplay:
         self._lock = RLock()
         self._taskmap: dict[str, TaskID] = {}
         self._task_kind: dict[str, str] = {}
-        self._description_spinner = SpinnerDescriptionColumn(spinner_name="dots3")
+        self._description_spinner = SpinnerDescriptionColumn(spinner_name="dots11")
         self._progress = Progress(
             self._description_spinner,
             TextColumn(
                 text_format="{task.fields[target]}",
-                style="Bold Blue",
+                style="Blue",
                 table_column=Column(
                     min_width=10,
                     max_width=16,
@@ -94,7 +94,9 @@ class RichProgressDisplay:
         self._stopped = False
         self._deferred_resume_at: float | None = None
         trace_path_raw = os.getenv("FAST_AGENT_PROGRESS_DEBUG_TRACE", "").strip()
-        self._trace_path: Path | None = Path(trace_path_raw).expanduser() if trace_path_raw else None
+        self._trace_path: Path | None = (
+            Path(trace_path_raw).expanduser() if trace_path_raw else None
+        )
 
     def _live_started(self) -> bool:
         """Return whether Rich's Live renderer has been started."""
@@ -297,14 +299,14 @@ class RichProgressDisplay:
             ProgressAction.CONNECTING: "bold yellow",
             ProgressAction.LOADED: "dim green",
             ProgressAction.INITIALIZED: "dim green",
-            ProgressAction.CHATTING: "bold blue",
-            ProgressAction.STREAMING: "bold green",  # Assistant Colour
-            ProgressAction.THINKING: "bold yellow",  # Assistant Colour
-            ProgressAction.ROUTING: "bold blue",
-            ProgressAction.PLANNING: "bold blue",
+            ProgressAction.SENDING: "blue",
+            ProgressAction.STREAMING: "green",  # Assistant Colour
+            ProgressAction.THINKING: "yellow",  # Assistant Colour
+            ProgressAction.ROUTING: "blue",
+            ProgressAction.PLANNING: "blue",
             ProgressAction.READY: "dim green",
-            ProgressAction.CALLING_TOOL: "bold magenta",
-            ProgressAction.TOOL_PROGRESS: "bold magenta",
+            ProgressAction.CALLING_TOOL: "magenta",
+            ProgressAction.TOOL_PROGRESS: "magenta",
             ProgressAction.FINISHED: "black on green",
             ProgressAction.SHUTDOWN: "black on red",
             ProgressAction.AGGREGATOR_INITIALIZED: "bold green",
@@ -491,26 +493,20 @@ class RichProgressDisplay:
             and event.correlation_id is not None
             and not self._is_internal_shell_tool(event.tool_name, event.server_name)
         )
-        if (
-            is_correlated_tool_event
-            and event.correlation_id
-        ):
+        if is_correlated_tool_event and event.correlation_id:
             task_name = f"{task_name}::{event.correlation_id}"
 
-        should_drop_tool_task = (
-            is_correlated_tool_event
-            and (
-                (
-                    event.action == ProgressAction.CALLING_TOOL
-                    and self._is_terminal_tool_event(event.tool_event)
-                )
-                or (
-                    event.action == ProgressAction.TOOL_PROGRESS
-                    and self._is_terminal_tool_progress(
-                        progress=event.progress,
-                        total=event.total,
-                        details=event.details,
-                    )
+        should_drop_tool_task = is_correlated_tool_event and (
+            (
+                event.action == ProgressAction.CALLING_TOOL
+                and self._is_terminal_tool_event(event.tool_event)
+            )
+            or (
+                event.action == ProgressAction.TOOL_PROGRESS
+                and self._is_terminal_tool_progress(
+                    progress=event.progress,
+                    total=event.total,
+                    details=event.details,
                 )
             )
         )
@@ -536,16 +532,13 @@ class RichProgressDisplay:
         # Ensure no None values in the update
         # For streaming, use custom description immediately to avoid flashing
         if (
-            event.action == ProgressAction.STREAMING
-            or event.action == ProgressAction.THINKING
+            event.action == ProgressAction.STREAMING or event.action == ProgressAction.THINKING
         ) and event.streaming_tokens:
             # Account for [dim][/dim] tags (11 characters) in padding calculation
-            formatted_tokens = (
-                f"▎[dim]◀[/dim] {event.streaming_tokens.strip()}".ljust(17 + 11)
-            )
+            formatted_tokens = f"▎[dim]◀[/dim] {event.streaming_tokens.strip()}".ljust(17 + 11)
             description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
-        elif event.action == ProgressAction.CHATTING:
-            # Add special formatting for chatting with dimmed arrow
+        elif event.action == ProgressAction.SENDING:
+            # Add special formatting for sending with dimmed arrow
             formatted_text = f"▎[dim]▶[/dim] {event.action.value.strip()}".ljust(17 + 11)
             description = f"[{self._get_action_style(event.action)}]{formatted_text}"
         elif event.action == ProgressAction.CALLING_TOOL:
@@ -606,7 +599,9 @@ class RichProgressDisplay:
             # This prevents idle/inactive agents from permanently cluttering the board.
             self._drop_task(task_name, task_id)
         elif event.action == ProgressAction.FINISHED:
-            finished_task = next((task for task in self._progress.tasks if task.id == task_id), None)
+            finished_task = next(
+                (task for task in self._progress.tasks if task.id == task_id), None
+            )
             elapsed = finished_task.elapsed if finished_task is not None else None
             elapsed_str = time.strftime(
                 "%H:%M:%S", time.gmtime(elapsed if elapsed is not None else 0)

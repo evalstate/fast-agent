@@ -6,6 +6,15 @@ from dataclasses import dataclass
 from typing import Any
 
 IMPOSSIBLE = -1_000_000_000.0
+VITERBI_TRANSITION_BIAS_KEYS = (
+    "transition_bias_background_stay",
+    "transition_bias_background_to_start",
+    "transition_bias_inside_to_continue",
+    "transition_bias_inside_to_end",
+    "transition_bias_end_to_background",
+    "transition_bias_end_to_start",
+)
+ZERO_TRANSITION_BIASES = {key: 0.0 for key in VITERBI_TRANSITION_BIAS_KEYS}
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,15 +40,23 @@ class ViterbiTables:
     end_mask: Any  # ndarray (L,)
 
 
-def build_viterbi_tables(labels: list[str], np_module: Any) -> ViterbiTables:
+def build_viterbi_tables(
+    labels: list[str],
+    np_module: Any,
+    *,
+    transition_biases: dict[str, float] | None = None,
+) -> ViterbiTables:
     """Build numpy transition tables for a label set. Call once per session."""
 
+    biases = ZERO_TRANSITION_BIASES | (transition_biases or {})
     label_count = len(labels)
     transitions = np_module.full((label_count, label_count), IMPOSSIBLE, dtype=np_module.float32)
     for previous_index, previous_label in enumerate(labels):
         for current_index, current_label in enumerate(labels):
             if _valid_transition(previous_label, current_label):
-                transitions[previous_index, current_index] = 0.0
+                transitions[previous_index, current_index] = _transition_bias(
+                    previous_label, current_label, biases
+                )
     start_mask = np_module.array(
         [0.0 if _valid_start(label) else IMPOSSIBLE for label in labels],
         dtype=np_module.float32,
@@ -193,6 +210,28 @@ def _valid_transition(previous: str, current: str) -> bool:
     if previous_prefix in {"B", "I"}:
         return current_prefix in {"I", "E"} and previous_kind == current_kind
     return False
+
+
+def _transition_bias(previous: str, current: str, biases: dict[str, float]) -> float:
+    previous_prefix, _ = _split_label(previous)
+    current_prefix, _ = _split_label(current)
+    if previous_prefix == "O":
+        return (
+            biases["transition_bias_background_stay"]
+            if current_prefix == "O"
+            else biases["transition_bias_background_to_start"]
+        )
+    if previous_prefix in {"B", "I"}:
+        return (
+            biases["transition_bias_inside_to_continue"]
+            if current_prefix == "I"
+            else biases["transition_bias_inside_to_end"]
+        )
+    return (
+        biases["transition_bias_end_to_background"]
+        if current_prefix == "O"
+        else biases["transition_bias_end_to_start"]
+    )
 
 
 def _split_label(label: str) -> tuple[str, str | None]:

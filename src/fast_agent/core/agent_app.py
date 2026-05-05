@@ -5,6 +5,7 @@ Direct AgentApp implementation for interacting with agents without proxies.
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
@@ -14,6 +15,7 @@ from rich.markup import escape
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
+from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
@@ -77,6 +79,8 @@ class AgentApp:
         tool_only_agents: set[str] | None = None,
         card_collision_warnings: list[str] | None = None,
         noenv_mode: bool = False,
+        plugin_commands: dict[str, PluginCommandActionSpec] | None = None,
+        plugin_command_base_path: Path | None = None,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -109,6 +113,8 @@ class AgentApp:
         )
         self._tool_only_agents: set[str] = tool_only_agents or set()
         self._card_collision_warnings: list[str] = card_collision_warnings or []
+        self._plugin_commands = plugin_commands
+        self._plugin_command_base_path = plugin_command_base_path
         self._last_refresh_result = AgentRefreshResult(changed=False)
         self._noenv_mode = noenv_mode
         self._missing_shell_cwd_policy_override: "MissingShellCwdPolicy | None" = None
@@ -129,6 +135,23 @@ class AgentApp:
     def get_agent(self, name: str) -> AgentProtocol | None:
         """Return the named agent if available, else None."""
         return self._agents.get(name)
+
+    @property
+    def plugin_commands(self) -> dict[str, PluginCommandActionSpec] | None:
+        return self._plugin_commands
+
+    @property
+    def plugin_command_base_path(self) -> Path | None:
+        return self._plugin_command_base_path
+
+    def set_plugin_commands(
+        self,
+        commands: dict[str, PluginCommandActionSpec] | None,
+        *,
+        base_path: Path | None,
+    ) -> None:
+        self._plugin_commands = commands
+        self._plugin_command_base_path = base_path
 
     def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
         if agent_name is None:

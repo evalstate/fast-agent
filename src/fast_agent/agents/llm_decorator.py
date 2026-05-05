@@ -68,6 +68,7 @@ from fast_agent.interfaces import (
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
@@ -778,7 +779,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """
         Implementation method for structured_schema.
         """
-        result, _ = await self._structured_schema_with_summary(messages, schema, request_params)
+        result, _ = await self._structured_schema_via_generate_with_summary(
+            messages, schema, request_params
+        )
         return result
 
     async def _generate_with_summary(
@@ -820,19 +823,26 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                 pass
         return structured_result, call_ctx.summary
 
-    async def _structured_schema_with_summary(
+    async def _structured_schema_via_generate_with_summary(
         self,
         messages: list[PromptMessageExtended],
         schema: dict[str, Any],
         request_params: RequestParams | None = None,
     ) -> tuple[tuple[Any | None, PromptMessageExtended], RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
+        normalized_schema = validate_json_schema_definition(schema)
         call_ctx = self._prepare_llm_call(messages, request_params)
+        call_params = (call_ctx.call_params or RequestParams()).model_copy(
+            update={"structured_schema": normalized_schema}
+        )
 
-        structured_result = await self._llm.structured_schema(
+        response = await self._llm.generate(
             call_ctx.full_history,
-            schema,
-            call_ctx.call_params,
+            call_params,
+        )
+        structured_result = self._llm.parse_structured_schema_response(
+            response,
+            normalized_schema,
         )
 
         if call_ctx.persist_history:

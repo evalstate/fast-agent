@@ -18,6 +18,8 @@ PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     "responses": "OPENAI_API_KEY",  # Temporary workaround
     "openresponses": "OPENRESPONSES_API_KEY",
     "codexresponses": "CODEX_API_KEY",
+    "xairesponses": "XAI_API_KEY",
+    "xai_legacy": "XAI_API_KEY",
 }
 PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # HuggingFace historically used "huggingface" (full name) in config files,
@@ -27,6 +29,8 @@ PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # Responses shares OpenAI credentials; allow reading openai.api_key when
     # responses.api_key is omitted.
     "responses": ("openai",),
+    "xairesponses": ("xai",),
+    "xai_legacy": ("xai",),
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
 API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex"})

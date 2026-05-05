@@ -58,6 +58,7 @@ class Context(BaseModel):
     server_registry: ServerRegistry | None = None
     task_registry: ActivityRegistry | None = None
     skill_registry: SkillRegistry | None = None
+    no_shell: bool = False
 
     tracer: trace.Tracer | None = None
     _connection_manager: "MCPConnectionManager | None" = None

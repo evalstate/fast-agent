@@ -17,6 +17,11 @@ from mcp.types import ResourceTemplate
 from prompt_toolkit.completion import Completer, Completion
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.command_actions.accessors import (
+    lookup_agent,
+    plugin_commands_for_agent,
+    plugin_commands_for_provider,
+)
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.config import get_settings
@@ -127,6 +132,7 @@ class AgentCompleter(Completer):
             self.commands.pop("prompt", None)  # Remove prompt command in human input mode
             self.commands.pop("tools", None)  # Remove tools command in human input mode
             self.commands.pop("usage", None)  # Remove usage command in human input mode
+        self._add_plugin_commands()
         self.agent_types = agent_types or {}
         self._mention_cache: dict[tuple[Any, ...], AgentCompleter._CacheEntry] = {}
         self._mention_cache_ttl_seconds = 3.0
@@ -135,6 +141,30 @@ class AgentCompleter(Completer):
             self._owner_loop = asyncio.get_running_loop()
         except RuntimeError:
             self._owner_loop = None
+
+    def _add_plugin_commands(self) -> None:
+        if self.agent_provider is None or self.current_agent is None:
+            return
+
+        commands = {}
+        global_commands = plugin_commands_for_provider(self.agent_provider)
+        if global_commands:
+            commands.update(global_commands)
+
+        agent = lookup_agent(self.agent_provider, self.current_agent)
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent_commands:
+            commands.update(agent_commands)
+
+        for name, spec in commands.items():
+            if name in self.commands:
+                continue
+            description = spec.description
+            if spec.input_hint:
+                description = f"{description} {spec.input_hint}"
+            if spec.key:
+                description = f"{description} (key: {spec.key})"
+            self.commands[name] = description
 
     def _current_agent_has_web_tools_enabled(self) -> bool:
         return history_handlers.web_tools_enabled_for_agent(self._current_llm_agent())
