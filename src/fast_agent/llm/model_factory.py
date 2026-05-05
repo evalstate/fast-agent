@@ -1,7 +1,7 @@
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Callable, Literal, Self, Type, Union
+from typing import Callable, Literal, Self, Type, Union, cast
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel
@@ -23,7 +23,7 @@ from fast_agent.llm.structured_output_mode import (
 )
 from fast_agent.llm.task_budget import parse_task_budget_tokens, validate_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbosityLevel, parse_text_verbosity
-from fast_agent.types import RequestParams
+from fast_agent.types import RequestParams, StructuredToolPolicy
 
 # Type alias for LLM classes
 LLMClass = Union[Type[PassthroughLLM], Type[PlaybackLLM], Type[SilentLLM], Type[SlowLLM], type]
@@ -39,6 +39,7 @@ class ModelConfig(BaseModel):
     reasoning_effort: ReasoningEffortSetting | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
+    structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool = False
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
@@ -62,6 +63,7 @@ class ModelQueryOverrides:
     instant: bool | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
+    structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool = False
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
@@ -92,6 +94,11 @@ class ModelQueryOverrides:
                 self.structured_output_mode
                 if self.structured_output_mode is not None
                 else defaults.structured_output_mode
+            ),
+            structured_tool_policy=(
+                self.structured_tool_policy
+                if self.structured_tool_policy is not None
+                else defaults.structured_tool_policy
             ),
             long_context=self.long_context or defaults.long_context,
             transport=self.transport if self.transport is not None else defaults.transport,
@@ -142,6 +149,7 @@ class ParsedModelSpec:
             reasoning_effort=self.reasoning_effort,
             text_verbosity=self.query_overrides.text_verbosity,
             structured_output_mode=self.query_overrides.structured_output_mode,
+            structured_tool_policy=self.query_overrides.structured_tool_policy,
             long_context=self.query_overrides.long_context,
             transport=self.query_overrides.transport,
             service_tier=self.query_overrides.service_tier,
@@ -237,6 +245,9 @@ def _parse_query_overrides(
         "reasoning",
         "verbosity",
         "structured",
+        "structured_tools",
+        "structuredToolPolicy",
+        "structured_tool_policy",
         "instant",
         "context",
         "transport",
@@ -266,6 +277,7 @@ def _parse_query_overrides(
     reasoning_effort: ReasoningEffortSetting | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
+    structured_tool_policy: StructuredToolPolicy | None = None
     instant: bool | None = None
     long_context = False
     transport: TransportSetting | None = None
@@ -301,6 +313,19 @@ def _parse_query_overrides(
                 f"Invalid structured query value: '{raw_value}' in '{model_spec}'"
             )
         structured_output_mode = parsed_structured
+
+    structured_tool_keys = (
+        "structured_tools",
+        "structuredToolPolicy",
+        "structured_tool_policy",
+    )
+    if any(key in query_params for key in structured_tool_keys):
+        raw_value = _collect_query_values(query_params, structured_tool_keys)[-1].strip()
+        if raw_value not in {"auto", "always", "defer", "no_tools"}:
+            raise ModelConfigError(
+                f"Invalid structured_tools query value: '{raw_value}' in '{model_spec}'"
+            )
+        structured_tool_policy = cast("StructuredToolPolicy", raw_value)
 
     if "instant" in query_params:
         raw_value = _collect_query_values(query_params, ("instant",))[-1]
@@ -365,6 +390,7 @@ def _parse_query_overrides(
         instant=instant,
         text_verbosity=text_verbosity,
         structured_output_mode=structured_output_mode,
+        structured_tool_policy=structured_tool_policy,
         long_context=long_context,
         transport=transport,
         service_tier=service_tier,
@@ -520,10 +546,15 @@ def _validate_transport_constraints(
     if transport not in {"websocket", "auto"}:
         return
 
-    if provider not in {Provider.CODEX_RESPONSES, Provider.RESPONSES}:
+    if provider not in {
+        Provider.CODEX_RESPONSES,
+        Provider.RESPONSES,
+        Provider.XAI,
+        Provider.XAI_RESPONSES,
+    }:
         raise ModelConfigError(
             "WebSocket transport is experimental and currently supported only for "
-            "the codexresponses and responses providers."
+            "the codexresponses, responses, xai, and xairesponses providers."
         )
 
     supports_transport = ModelDatabase.supports_response_transport(model_name, "websocket")
@@ -581,65 +612,59 @@ class ModelFactory:
         "codexplan": "codexresponses.gpt-5.5",
         "codexplan54": "codexresponses.gpt-5.4",
         "codexplan53": "codexresponses.gpt-5.3-codex",
-        "codexplan52": "codexresponses.gpt-5.2-codex",
-        "codexplan51": "codexresponses.gpt-5.1-codex",
         "codexspark": "codexresponses.gpt-5.3-codex-spark",
         "sonnet": "claude-sonnet-4-6",
-        "sonnet4": "claude-sonnet-4-0",
-        "sonnet45": "claude-sonnet-4-5",
+        "sonnet4": "claude-sonnet-4-6",
         "sonnet46": "claude-sonnet-4-6",
-        "sonnet35": "claude-3-5-sonnet-latest",
-        "sonnet37": "claude-3-7-sonnet-latest",
         "claude": "claude-sonnet-4-6",
         "haiku": "claude-haiku-4-5",
-        "haiku3": "claude-3-haiku-20240307",
-        "haiku35": "claude-3-5-haiku-latest",
         "haiku45": "claude-haiku-4-5",
         "opus": "claude-opus-4-7",
-        "opus4": "claude-opus-4-1",
-        "opus45": "claude-opus-4-5",
+        "opus4": "claude-opus-4-7",
         "opus46": "claude-opus-4-6",
         "opus47": "claude-opus-4-7",
-        "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek3": "deepseek-chat",
-        "deepseek": "deepseek-chat",
         "gemini": "gemini-3.1-pro-preview",
         "gemini2": "gemini-2.0-flash",
-        "gemini25": "gemini-2.5-flash-preview-09-2025",
+        "gemini25": "gemini-2.5-flash",
         "gemini25pro": "gemini-2.5-pro",
         "gemini3": "gemini-3-pro-preview",
         "gemini3.1": "gemini-3.1-pro-preview",
+        "gemini3.1flashlite": "gemini-3.1-flash-lite-preview",
         "gemini3flash": "gemini-3-flash-preview",
+        "grok": "xai.grok-4.3",
+        "grok4": "xai.grok-4.3",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
-        "minimax": "hf.MiniMaxAI/MiniMax-M2.5:novita",
+        "minimax": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
         "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax27": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
         "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
         "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
         "kimi": ("hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on"),
+        "kimithink": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm47": "hf.zai-org/GLM-4.7:cerebras",
         "glm51": "hf.zai-org/GLM-5.1:together",
         "glm5": "hf.zai-org/GLM-5:novita",
         "glm": "hf.zai-org/GLM-5.1:together",
-        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
-        "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
-        "kimithink": "hf.moonshotai/Kimi-K2-Thinking:fireworks-ai",
+        "deepseek": "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
+        "deepseek4": "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+        "deepseek4pro": "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+        "deepseekv4pro": "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
         "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "kimi26instant": (
             "hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"
         ),
         "kimi-2.6": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
-        "kimi25": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
+        "kimi25": ("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
         "kimi25instant": (
-            "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=0.6&top_p=0.95&reasoning=off"
+            "hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"
         ),
-        "kimi-2.5": (
-            "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
-        ),
+        "kimi-2.5": ("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
         "qwen35": (
             "hf.Qwen/Qwen3.5-397B-A17B:novita"
             "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
@@ -916,6 +941,10 @@ class ModelFactory:
 
                 return HuggingFaceLLM
             if provider == Provider.XAI:
+                from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
+
+                return XAIResponsesLLM
+            if provider == Provider.XAI_LEGACY:
                 from fast_agent.llm.provider.openai.llm_xai import XAILLM
 
                 return XAILLM
@@ -955,6 +984,10 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 
                 return OpenResponsesLLM
+            if provider == Provider.XAI_RESPONSES:
+                from fast_agent.llm.provider.openai.xai_responses import XAIExplicitResponsesLLM
+
+                return XAIExplicitResponsesLLM
 
         except Exception as e:
             raise ModelConfigError(

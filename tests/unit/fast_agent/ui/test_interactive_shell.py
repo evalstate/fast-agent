@@ -34,7 +34,7 @@ def test_run_interactive_shell_command_truncates_captured_output() -> None:
 
     assert result.return_code == 0
     assert len(result.output) == 8
-    assert result.output == "xxxxxxx\n"
+    assert result.output in {"xxxxxxx\n", "xxxxxx\r\n"}
 
 
 def test_update_alt_screen_state_tracks_enter_and_exit_sequences() -> None:

@@ -45,7 +45,7 @@ ACP sessions are always connection-scoped.
 - `kimi`
 - `glm`
 - `minimax`
-- `deepseek32`
+- `deepseek4pro`
 - `kimi25` (thinking profile)
 - `qwen35` (thinking profile)
 - `qwen35instruct` (instruct profile)

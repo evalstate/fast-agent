@@ -114,6 +114,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_STREAMING_TIMEOUT = "streaming_timeout"
     PARAM_SERVICE_TIER = "service_tier"
     PARAM_STRUCTURED_SCHEMA = "structured_schema"
+    PARAM_STRUCTURED_TOOL_POLICY = "structured_tool_policy"
 
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS = {
@@ -124,6 +125,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_STREAMING_TIMEOUT,
         PARAM_SERVICE_TIER,
         PARAM_STRUCTURED_SCHEMA,
+        PARAM_STRUCTURED_TOOL_POLICY,
     }
 
     """
@@ -180,6 +182,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._provider = provider
         # memory contains provider specific API types.
         self.history: Memory[MessageParamT] = SimpleMemory[MessageParamT]()
+        self._structured_tool_defer_info_logged = False
 
         # Initialize the display component
         from fast_agent.ui.console_display import ConsoleDisplay
@@ -302,6 +305,86 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.json_mode if params is not None else None
 
+    def _get_model_structured_tool_policy(
+        self, model_name: str | None
+    ) -> Literal["always", "defer", "no_tools"] | None:
+        params = self._get_model_params(model_name)
+        return params.structured_tool_policy if params is not None else None
+
+    def _default_structured_tool_policy(
+        self, model_name: str | None
+    ) -> Literal["always", "defer", "no_tools"]:
+        del model_name
+        return "always"
+
+    def _resolve_structured_tool_policy(
+        self,
+        request_params: RequestParams,
+    ) -> Literal["always", "defer", "no_tools"]:
+        policy = request_params.structured_tool_policy
+        if policy != "auto":
+            return policy
+
+        model_name = request_params.model or self.default_request_params.model or self._model_name
+        model_policy = self._get_model_structured_tool_policy(model_name)
+        if model_policy is not None:
+            return model_policy
+        return self._default_structured_tool_policy(model_name)
+
+    def resolve_structured_tool_policy(
+        self,
+        request_params: RequestParams,
+    ) -> Literal["always", "defer", "no_tools"]:
+        return self._resolve_structured_tool_policy(request_params)
+
+    def _should_defer_structured_schema_for_tools(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> bool:
+        return self._should_suppress_structured_schema_for_tools(messages, request_params, tools)
+
+    def _has_tool_results(self, messages: list[PromptMessageExtended]) -> bool:
+        return any(message.tool_results for message in messages)
+
+    def _has_structured_intent(self, request_params: RequestParams) -> bool:
+        return (
+            request_params.structured_schema is not None
+            or request_params.response_format is not None
+        )
+
+    def _should_suppress_structured_schema_for_tools(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> bool:
+        return (
+            request_params.structured_schema is not None
+            and bool(tools)
+            and self._resolve_structured_tool_policy(request_params) == "defer"
+            and not self._has_tool_results(messages)
+        )
+
+    def _should_suppress_tools_for_structured_final(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> bool:
+        return (
+            self._has_structured_intent(request_params)
+            and bool(tools)
+            and (
+                self._resolve_structured_tool_policy(request_params) == "no_tools"
+                or (
+                    self._resolve_structured_tool_policy(request_params) == "defer"
+                    and self._has_tool_results(messages)
+                )
+            )
+        )
+
     def _get_model_context_window(self, model_name: str | None) -> int | None:
         params = self._get_model_params(model_name)
         return params.context_window if params is not None else None
@@ -347,9 +430,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.anthropic_web_fetch_version if params is not None else None
 
-    def _get_model_anthropic_required_betas(
-        self, model_name: str | None
-    ) -> tuple[str, ...] | None:
+    def _get_model_anthropic_required_betas(self, model_name: str | None) -> tuple[str, ...] | None:
         params = self._get_model_params(model_name)
         return params.anthropic_required_betas if params is not None else None
 
@@ -463,7 +544,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         )
 
     def _provider_config_sections(self) -> tuple[str, ...]:
-        section_name = getattr(self, "config_section", None) or getattr(self.provider, "value", None)
+        section_name = getattr(self, "config_section", None) or getattr(
+            self.provider, "value", None
+        )
         return (section_name,) if section_name else ()
 
     def _provider_config_fallback_sections(self) -> tuple[str, ...]:
@@ -596,7 +679,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                         paused_progress = progress_display.paused()
 
                     with paused_progress:
-                        error_console.print(f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]")
+                        error_console.print(
+                            f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]"
+                        )
                         error_console.print(
                             f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
                         )
@@ -691,6 +776,44 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             final_request_params,
             tools,
         )
+        prepared_tools = tools
+        suppress_final_tools = self._should_suppress_tools_for_structured_final(
+            prepared_messages,
+            prepared_request_params,
+            tools,
+        )
+        if suppress_final_tools:
+            prepared_tools = None
+        suppress_schema = self._should_suppress_structured_schema_for_tools(
+            messages,
+            final_request_params,
+            tools,
+        )
+        if suppress_schema or suppress_final_tools:
+            policy = self._resolve_structured_tool_policy(final_request_params)
+            model_name = (
+                prepared_request_params.model
+                or self.default_request_params.model
+                or self._model_name
+            )
+            if policy == "defer" and not self._structured_tool_defer_info_logged:
+                self.logger.info(
+                    "Model/provider does not reliably support tools and structured output "
+                    "in the same request; using two-phase structured tool flow: tools first, "
+                    "schema-only final answer."
+                )
+                self._structured_tool_defer_info_logged = True
+            self.logger.debug(
+                "structured_tools_policy",
+                data={
+                    "model": model_name,
+                    "json_mode": self._get_model_json_mode(model_name),
+                    "structured_tool_policy": policy,
+                    "phase": "structured_final" if suppress_final_tools else "tool_selection",
+                    "suppressed_schema": suppress_schema,
+                    "suppressed_tools": suppress_final_tools,
+                },
+            )
 
         # Store MCP metadata in context variable
         if prepared_request_params.mcp_metadata:
@@ -702,7 +825,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
         try:
             assistant_response = await self._execute_with_retry(
-                self._apply_prompt_provider_specific, full_history, prepared_request_params, tools
+                self._apply_prompt_provider_specific,
+                full_history,
+                prepared_request_params,
+                prepared_tools,
             )
         finally:
             cleanup_timing_capture()
@@ -802,20 +928,44 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Tuple of (parsed model instance or None, assistant response message)
         """
-        schema = validate_json_schema_definition(model.model_json_schema())
-        parsed_json, assistant_response = await self.structured_schema(
-            messages,
-            schema,
-            request_params,
-        )
-        if parsed_json is None:
-            return None, assistant_response
+
+        final_request_params = self.get_request_params(request_params)
+        if final_request_params.mcp_metadata:
+            _mcp_metadata_var.set(final_request_params.mcp_metadata)
+
+        timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
         try:
-            return model.model_validate(parsed_json), assistant_response
-        except Exception as e:
-            logger = get_logger(__name__)
-            logger.warning(f"Failed to validate structured response: {str(e)}")
-            return None, assistant_response
+            result_or_response = await self._execute_with_retry(
+                self._apply_prompt_provider_specific_structured,
+                messages,
+                model,
+                final_request_params,
+                on_final_error=self._handle_retry_failure,
+            )
+        finally:
+            cleanup_timing_capture()
+
+        if isinstance(result_or_response, PromptMessageExtended):
+            result, assistant_response = self._structured_from_multipart(
+                result_or_response,
+                model,
+            )
+        else:
+            result, assistant_response = result_or_response
+
+        end_time = time.perf_counter()
+        self._add_timing_channel(
+            assistant_response,
+            timing_capture.start_time,
+            end_time,
+            ttft_ms=timing_capture.ttft_ms,
+            time_to_response_ms=timing_capture.time_to_response_ms,
+        )
+
+        self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
+        self._append_usage_channel(assistant_response)
+
+        return result, assistant_response
 
     async def structured_schema(
         self,
@@ -841,10 +991,18 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         )
 
         assistant_response = await self.generate(messages, final_request_params)
-        return self._structured_schema_from_multipart(
+        return self.parse_structured_schema_response(
             assistant_response,
             normalized_schema,
         )
+
+    def parse_structured_schema_response(
+        self,
+        message: PromptMessageExtended,
+        schema: dict[str, Any],
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """Parse and validate an assistant response against a raw JSON Schema."""
+        return self._structured_schema_from_multipart(message, schema)
 
     @staticmethod
     def model_to_response_format(
@@ -1095,7 +1253,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             # Use verb directly regardless of type
             act = self.verb
         else:
-            act = ProgressAction.CHATTING
+            act = ProgressAction.SENDING
 
         data = {
             "progress_action": act,

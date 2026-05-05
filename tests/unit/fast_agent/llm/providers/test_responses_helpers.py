@@ -933,6 +933,65 @@ def test_extract_raw_assistant_message_items_preserves_phase_metadata() -> None:
     assert payload["content"][0]["text"] == "Let me inspect that first."
 
 
+def test_extract_raw_assistant_message_items_preserves_unphased_messages() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="message",
+                id="msg_123",
+                role="assistant",
+                status="completed",
+                content=[SimpleNamespace(type="output_text", text="Checking the repo.")],
+            )
+        ]
+    )
+
+    raw_items, message_phase = harness._extract_raw_assistant_message_items(response)
+
+    assert message_phase is None
+    assert len(raw_items) == 1
+    assert isinstance(raw_items[0], TextContent)
+    payload = json.loads(raw_items[0].text)
+    assert payload["type"] == "message"
+    assert "phase" not in payload
+    assert payload["content"][0]["text"] == "Checking the repo."
+
+
+def test_extract_raw_assistant_message_items_keeps_mixed_phase_items() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="message",
+                id="msg_123",
+                role="assistant",
+                status="completed",
+                phase="commentary",
+                content=[SimpleNamespace(type="output_text", text="Checking the repo.")],
+            ),
+            SimpleNamespace(
+                type="message",
+                id="msg_124",
+                role="assistant",
+                status="completed",
+                content=[SimpleNamespace(type="output_text", text="Running commands.")],
+            ),
+        ]
+    )
+
+    raw_items, message_phase = harness._extract_raw_assistant_message_items(response)
+
+    assert message_phase is None
+    assert len(raw_items) == 2
+    assert isinstance(raw_items[0], TextContent)
+    assert isinstance(raw_items[1], TextContent)
+    first_payload = json.loads(raw_items[0].text)
+    second_payload = json.loads(raw_items[1].text)
+    assert first_payload["phase"] == "commentary"
+    assert "phase" not in second_payload
+
+
 def test_convert_extended_messages_to_provider_includes_assistant_phase() -> None:
     harness = _ContentHarness()
     message = PromptMessageExtended(

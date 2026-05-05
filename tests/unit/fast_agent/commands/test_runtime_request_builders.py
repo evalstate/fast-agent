@@ -480,6 +480,68 @@ def test_build_command_run_request_rejects_json_schema_with_multi_model() -> Non
         )
 
 
+def test_build_command_run_request_accepts_schema_model_for_one_shot() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message="hello",
+        prompt_file=None,
+        json_schema=None,
+        schema_model="tests.fixtures:Result",
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        mode="interactive",
+    )
+
+    assert request.schema_model == "tests.fixtures:Result"
+    assert request.quiet is True
+
+
+def test_build_command_run_request_rejects_json_schema_with_schema_model() -> None:
+    with pytest.raises(typer.BadParameter, match="Cannot combine --json-schema with --schema-model"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message="hello",
+            prompt_file=None,
+            json_schema="schema.json",
+            schema_model="tests.fixtures:Result",
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
+        )
+
+
 def test_resolve_smart_agent_enabled_disables_smart_for_multi_model_even_when_forced() -> None:
     assert resolve_smart_agent_enabled(
         "gpt-4.1,claude-sonnet-4-5",
@@ -699,6 +761,65 @@ def test_build_command_run_request_rejects_noenv_with_resume() -> None:
             mode="interactive",
             noenv=True,
         )
+
+
+def test_build_command_run_request_rejects_shell_with_no_shell() -> None:
+    with pytest.raises(typer.BadParameter, match="Cannot combine --shell with --no-shell"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=True,
+            no_shell=True,
+            mode="interactive",
+        )
+
+
+def test_build_command_run_request_propagates_no_shell() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        no_shell=True,
+        mode="interactive",
+    )
+
+    assert request.no_shell is True
 
 
 def test_build_command_run_request_rejects_malformed_url() -> None:

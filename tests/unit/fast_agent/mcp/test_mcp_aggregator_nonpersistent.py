@@ -113,7 +113,8 @@ async def test_initialize_server_creates_and_tears_down_session(monkeypatch) -> 
     transport_exited = False
 
     @asynccontextmanager
-    async def _fake_transport(server_name, config, trigger_oauth=None):
+    async def _fake_transport(server_name, config, trigger_oauth=None, **kwargs):
+        del kwargs
         del trigger_oauth
         nonlocal transport_entered, transport_exited
         transport_entered = True
@@ -179,7 +180,8 @@ async def test_initialize_server_forwards_server_config_to_custom_factory(monkey
     captured_server_config = None
 
     @asynccontextmanager
-    async def _fake_transport(server_name, config, trigger_oauth=None):
+    async def _fake_transport(server_name, config, trigger_oauth=None, **kwargs):
+        del kwargs
         del trigger_oauth
         yield (object(), object(), None)
 
@@ -212,7 +214,8 @@ async def test_initialize_server_retries_with_oauth_after_401(monkeypatch) -> No
     trigger_history: list[bool | None] = []
 
     @asynccontextmanager
-    async def _fake_transport(server_name, config, trigger_oauth=None):
+    async def _fake_transport(server_name, config, trigger_oauth=None, **kwargs):
+        del kwargs
         del server_name, config
         trigger_history.append(trigger_oauth)
         yield (object(), object(), None)

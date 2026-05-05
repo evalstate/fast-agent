@@ -27,6 +27,7 @@ from fast_agent.constants import (
 )
 from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
+from fast_agent.home import build_child_environment
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.display_suppression import display_tools_enabled
@@ -108,14 +109,17 @@ class ShellRuntime:
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
         self._display = ConsoleDisplay(config=config)
+        self._config = config
         self._agent_name = agent_name
         self._output_display_lines: int | None = None
         self._show_bash_output = True
+        self._prefer_local_shell = False
         if config is not None:
             shell_config = getattr(config, "shell_execution", None)
             if shell_config is not None:
                 self._output_display_lines = getattr(shell_config, "output_display_lines", None)
                 self._show_bash_output = bool(getattr(shell_config, "show_bash", True))
+                self._prefer_local_shell = shell_config.prefer_local_shell
 
         if self.enabled:
             # Detect the shell early so we can include it in the tool description
@@ -141,6 +145,11 @@ class ShellRuntime:
     @property
     def tool(self) -> Tool | None:
         return self._tool
+
+    @property
+    def prefer_local_shell(self) -> bool:
+        """Whether ACP mode should keep this local shell runtime instead of client terminal."""
+        return self._prefer_local_shell
 
     @property
     def output_byte_limit(self) -> int:
@@ -290,6 +299,10 @@ class ShellRuntime:
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
             "cwd": working_dir,
+            "env": build_child_environment(
+                active_home=getattr(self._config, "_fast_agent_home", None),
+                noenv=bool(getattr(self._config, "_fast_agent_noenv", False)),
+            ),
         }
         if is_windows:
             creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)

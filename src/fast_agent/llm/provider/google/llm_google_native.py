@@ -181,13 +181,12 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         )
 
     def _resolve_model_name(self, model: str) -> str:
-        """Resolve model name; for Vertex, apply a generic preview→base fallback.
+        """Resolve model name; for Vertex, expand first-party short ids.
 
         * If the caller passes a full publisher resource name, it is respected as-is.
         * If Vertex is not enabled, the short id is returned unchanged (Developer API path).
         * If Vertex is enabled, short first-party Google model ids are expanded under
-          `publishers/google`, applying a preview→base fallback so that e.g.
-          'gemini-2.5-flash-preview-09-2025' becomes 'gemini-2.5-flash'.
+          `publishers/google`.
         * Known partner model ids such as Anthropic Claude are left untouched so Vertex can
           resolve them using the provider-native short model name from the docs.
         """
@@ -204,10 +203,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if normalized.startswith(_GOOGLE_VERTEX_PARTNER_MODEL_PREFIXES):
             return model
 
-        # Vertex path: strip any '-preview-…' suffix to fall back to the base model id.
-        base_model = model.split("-preview-", 1)[0] if "-preview-" in model else model
-
-        return f"projects/{project_id}/locations/{location}/publishers/google/models/{base_model}"
+        return f"projects/{project_id}/locations/{location}/publishers/google/models/{model}"
 
     def _initialize_google_client(self) -> genai.Client:
         """
@@ -555,6 +551,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         *,
         response_mime_type: str | None = None,
         response_schema: object | None = None,
+        suppress_tools: bool | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using Google's generate_content API and available tools.
@@ -573,8 +570,16 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         self.logger.debug(f"Google completion requested with messages: {conversation_history}")
         self._log_chat_progress(self.chat_turn(), model=request_params.model)
 
+        if suppress_tools is None:
+            suppress_tools = (
+                self._has_structured_intent(request_params)
+                and bool(tools)
+                and self._resolve_structured_tool_policy(request_params) == "no_tools"
+            )
         available_tools: list[types.Tool] = (
-            self._converter.convert_to_google_tools(tools or []) if tools else []
+            self._converter.convert_to_google_tools(tools or [])
+            if tools and not suppress_tools
+            else []
         )
 
         # 2. Prepare generate_content arguments
@@ -585,15 +590,14 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             thinking_level=thinking_level,
         )
 
-        # Apply structured output config OR tool calling (mutually exclusive)
+        # Apply structured output and tool calling. Google native supports combining
+        # response_schema with tools, but no_tools/defer final turns suppress tools.
         if response_schema or response_mime_type:
-            # Structured output mode: disable tool use
             if response_mime_type:
                 generate_content_config.response_mime_type = response_mime_type
             if response_schema is not None:
                 generate_content_config.response_schema = response_schema
-        elif available_tools:
-            # Tool calling enabled only when not doing structured output
+        if available_tools:
             generate_content_config.tools = available_tools  # type: ignore[assignment]
             generate_content_config.tool_config = types.ToolConfig(
                 function_calling_config=types.FunctionCallingConfig(
@@ -679,10 +683,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     part
                 )  # Collect text for potential assistant message display
             elif isinstance(part, CallToolRequestParams):
-                # This is a function call requested by the model
-                # If in structured mode, ignore tool calls per either-or rule
-                if response_schema or response_mime_type:
-                    continue
                 tool_calls_to_execute.append(part)  # Collect tool calls to execute
 
         if not responses and (response_schema or response_mime_type):
@@ -742,9 +742,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         request_params: RequestParams,
         tools: list[McpTool] | None = None,
     ) -> tuple[list[PromptMessageExtended], RequestParams]:
-        if not request_params.structured_schema or not tools:
-            return messages, request_params
-        if any(message.tool_results for message in messages):
+        if not self._should_defer_structured_schema_for_tools(messages, request_params, tools):
             return messages, request_params
         return messages, request_params.model_copy(update={"structured_schema": None})
 
@@ -815,6 +813,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             conversation_history,
             request_params=request_params,
             tools=tools,
+            suppress_tools=self._should_suppress_tools_for_structured_final(
+                multipart_messages, request_params, tools
+            ),
         )
 
     def _convert_extended_messages_to_provider(

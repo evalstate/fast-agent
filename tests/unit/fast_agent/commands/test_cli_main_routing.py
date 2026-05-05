@@ -81,6 +81,15 @@ def test_auto_routes_to_go_when_pack_flag_used_at_root() -> None:
     assert "--pack-registry" in output
 
 
+def test_auto_routes_to_go_when_no_shell_used_at_root() -> None:
+    result = _run_fast_agent_cli("--no-shell", "--help")
+    output = strip_ansi(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "go [OPTIONS] COMMAND" in output
+    assert "--no-shell" in output
+
+
 def test_demo_subcommand_still_detected_after_env_option_value() -> None:
     result = _run_fast_agent_cli("--env", "demo", "demo", "--help")
     output = strip_ansi(result.stdout)

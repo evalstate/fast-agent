@@ -18,7 +18,7 @@ mcp:
       # target: "node c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-brave-search/dist/index.js"
       target: "npx -y @modelcontextprotocol/server-brave-search"
       env:
-        # You can also place your BRAVE_API_KEY in the fastagent.secrets.yaml file.
+        # You can also place your BRAVE_API_KEY in the fast-agent.secrets.yaml file.
         BRAVE_API_KEY: <your_brave_api_key>
     - name: filesystem
       # On windows update the target to use `node` and the absolute path to the server.

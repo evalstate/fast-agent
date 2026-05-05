@@ -202,6 +202,7 @@ class McpAgent(ABC, ToolAgent):
         self._skill_manifests: list[SkillManifest] = []
         self._skill_map: dict[str, SkillManifest] = {}
         self._skill_reader: SkillReader | None = None
+        self._no_shell_requested = bool(context and getattr(context, "no_shell", False))
         self.set_skill_manifests(manifests)
         self.skill_registry: SkillRegistry | None = None
         if isinstance(self.config.skills, SkillRegistry):
@@ -210,8 +211,11 @@ class McpAgent(ABC, ToolAgent):
             self.skill_registry = context.skill_registry
         self._warnings: list[str] = []
         self._warning_messages_seen: set[str] = set()
-        shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
-        shell_config_requested = bool(self.config.shell)
+        shell_flag_requested = (
+            bool(context and getattr(context, "shell_runtime", False))
+            and not self._no_shell_requested
+        )
+        shell_config_requested = bool(self.config.shell) and not self._no_shell_requested
         skills_configured = bool(self._skill_manifests)
         self._shell_runtime_activation_reason: str | None = None
 
@@ -220,7 +224,7 @@ class McpAgent(ABC, ToolAgent):
             reasons.append("--shell flag")
         if shell_config_requested:
             reasons.append("agent config")
-        if skills_configured:
+        if skills_configured and not self._no_shell_requested:
             reasons.append("agent skills configuration")
 
         if reasons:
@@ -248,12 +252,13 @@ class McpAgent(ABC, ToolAgent):
                 modes.append("switch")
             self._shell_access_modes = tuple(modes)
 
-        self._activate_shell_runtime(
-            self._shell_runtime_activation_reason,
-            working_directory=self.config.cwd,
-            skills_directory=skills_directory,
-            access_modes=self._shell_access_modes,
-        )
+        if self._shell_runtime_activation_reason is not None:
+            self._activate_shell_runtime(
+                self._shell_runtime_activation_reason,
+                working_directory=self.config.cwd,
+                skills_directory=skills_directory,
+                access_modes=self._shell_access_modes,
+            )
 
         # Store instruction context for template resolution
         self._instruction_context: dict[str, str] = {}
@@ -593,6 +598,8 @@ class McpAgent(ABC, ToolAgent):
             self._skill_reader = None
 
     def _ensure_shell_runtime_for_skills(self) -> None:
+        if self._no_shell_requested:
+            return
         if self._shell_runtime_enabled:
             return
         if self._external_runtime is not None:

@@ -11,6 +11,10 @@ from fast_agent.core.instruction_refresh import (
     rebuild_agent_instruction,
     resolve_instruction_skill_manifests,
 )
+from fast_agent.core.instruction_utils import (
+    InstructionContextAgent,
+    build_agent_instruction_context,
+)
 from fast_agent.skills import SKILLS_DEFAULT
 
 if TYPE_CHECKING:
@@ -145,6 +149,28 @@ def test_build_instruction_with_context() -> None:
     template = "Root: {{workspaceRoot}}"
     result = asyncio.run(build_instruction(template, context={"workspaceRoot": "/test/path"}))
     assert result == "Root: /test/path"
+
+
+def test_build_instruction_with_model_specific_context() -> None:
+    agent = SimpleNamespace(
+        name="gpt-agent",
+        instruction="",
+        agent_type="basic",
+        config=SimpleNamespace(
+            name="gpt-agent",
+            agent_type="basic",
+            source_path=None,
+            model="gpt-5.4",
+        ),
+    )
+    context = build_agent_instruction_context(cast("InstructionContextAgent", agent))
+
+    result = asyncio.run(
+        build_instruction("Base\n{{model_specific}}", context=context)
+    )
+
+    assert "Before making tool calls, send a brief preamble" in result
+    assert "{{model_specific}}" not in result
 
 
 def test_build_instruction_with_aggregator() -> None:

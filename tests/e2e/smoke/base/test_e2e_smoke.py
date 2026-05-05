@@ -21,12 +21,12 @@ if TYPE_CHECKING:
         "gpt-4.1-mini",
         "gpt-4o-mini",  # OpenAI model
         "o3-mini?reasoning=low",  # reasoner
-        "haiku35",  # Anthropic model
+        "haiku",  # Anthropic model
         "deepseek",
         "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
         "openrouter.google/gemini-2.0-flash-001",
-        "googleoai.gemini-2.5-flash-preview-05-20",
+        "googleoai.gemini-2.5-flash",
         "google.gemini-2.0-flash",
         "gemini2",
         "gemini25",  # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
@@ -96,7 +96,7 @@ async def test_open_ai_history(fast_agent, model_name):
     "model_name",
     [
         "gpt-4o-mini",  # OpenAI model
-        "haiku35",  # Anthropic model
+        "haiku",  # Anthropic model
         "sonnet",  # Anthropic model
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
@@ -304,7 +304,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
     "model_name",
     [
         "deepseek",
-        "haiku35",
+        "haiku",
         "gpt-4o",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
@@ -364,7 +364,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
     "model_name",
     [
         "deepseek",
-        "haiku35",
+        "haiku",
         "gpt-4o",
         "gpt-4.1-mini",
         "gemini2",
@@ -401,7 +401,7 @@ async def test_tool_calls_no_args(fast_agent, model_name):
     "model_name",
     [
         "deepseek",
-        "haiku35",
+        "haiku",
         #       "gpt-4o",
         #      "gpt-4.1",
         #     "gpt-4.1-nano",
@@ -439,7 +439,7 @@ async def test_tool_calls_no_args_typescript(fast_agent, model_name):
     "model_name",
     [
         "deepseek",
-        "haiku35",
+        "haiku",
         "gpt-4.1",
         "google.gemini-2.0-flash",
         "gemini25",  # Works -> DONE.

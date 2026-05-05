@@ -352,6 +352,12 @@ class SessionHydrator:
         if overlay_spec is not None:
             return overlay_spec
 
+        model_spec = agent_snapshot.model_spec
+        if model_spec is not None:
+            stripped_model_spec = model_spec.strip()
+            if stripped_model_spec:
+                return stripped_model_spec
+
         model_name = agent_snapshot.model
         if model_name is None:
             return None

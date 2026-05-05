@@ -142,6 +142,20 @@ def load_skills_for_context(
                 override_dirs.append(override_path)
             else:
                 override_dirs.append(base_dir / override_path)
+    else:
+        from fast_agent.config import get_settings
+        from fast_agent.paths import default_skill_paths
+
+        settings = get_settings()
+        settings_for_skills = (
+            settings
+            if settings.environment_dir is not None or settings._fast_agent_home_source != "default"
+            else None
+        )
+        override_dirs = default_skill_paths(
+            settings_for_skills,
+            cwd=base_dir,
+        )
 
     registry = SkillRegistry(base_dir=base_dir, directories=override_dirs)
     try:

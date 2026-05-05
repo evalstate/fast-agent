@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import pytest
 
 from fast_agent.privacy.privacy_filter_onnx import (
     OpenAIPrivacyFilterOnnxSanitizer,
+    _load_viterbi_transition_biases,
     _merge_spans,
     _provider_status_message,
     _replace_spans,
@@ -139,6 +141,31 @@ def test_replace_spans_handles_many_redactions_in_linear_pass() -> None:
     redacted = _replace_spans(text, spans)
 
     assert redacted == "a <PRIVATE_PERSON> b <PRIVATE_PERSON> c <PRIVATE_PERSON> d"
+
+
+def test_load_viterbi_transition_biases_reads_default_operating_point(tmp_path) -> None:
+    path = tmp_path / "viterbi_calibration.json"
+    path.write_text(
+        json.dumps(
+            {
+                "operating_points": {
+                    "default": {
+                        "biases": {
+                            "transition_bias_background_to_start": 1.25,
+                            "transition_bias_inside_to_end": -0.5,
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    biases = _load_viterbi_transition_biases(path)
+
+    assert biases["transition_bias_background_to_start"] == 1.25
+    assert biases["transition_bias_inside_to_end"] == -0.5
+    assert biases["transition_bias_background_stay"] == 0.0
 
 
 def test_resolve_onnx_execution_providers_prefers_cuda_for_auto() -> None:

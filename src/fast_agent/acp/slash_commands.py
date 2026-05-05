@@ -45,20 +45,31 @@ from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash.handlers import skills as skills_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
 from fast_agent.acp.slash.handlers import tools as tools_slash_handlers
+from fast_agent.command_actions import (
+    PluginCommandActionContext,
+    PluginCommandActionRegistry,
+)
+from fast_agent.command_actions.accessors import (
+    plugin_command_base_path_for_provider,
+    plugin_commands_for_agent,
+    plugin_commands_for_provider,
+)
 from fast_agent.commands.command_catalog import command_action_names
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.protocols import ACPCommandAllowlistProvider
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
+from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import get_settings
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
 
 if TYPE_CHECKING:
     from fast_agent.acp.acp_context import ACPContext
+    from fast_agent.command_actions.models import PluginCommandAgentProtocol
     from fast_agent.commands.context import AgentProvider
-    from fast_agent.commands.results import CommandOutcome
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
@@ -351,6 +362,36 @@ class SlashCommandHandler:
                     )
                 commands.append(
                     AvailableCommand(name=name, description=cmd.description, input=cmd_input)
+                )
+
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent_commands:
+            existing_names = {command.name for command in commands}
+            for name, spec in agent_commands.items():
+                if name in existing_names:
+                    continue
+                cmd_input = None
+                if spec.input_hint:
+                    cmd_input = AvailableCommandInput(
+                        root=UnstructuredCommandInput(hint=spec.input_hint)
+                    )
+                commands.append(
+                    AvailableCommand(name=name, description=spec.description, input=cmd_input)
+                )
+
+        global_commands = plugin_commands_for_provider(self.instance.app)
+        if global_commands:
+            existing_names = {command.name for command in commands}
+            for name, spec in global_commands.items():
+                if name in existing_names:
+                    continue
+                cmd_input = None
+                if spec.input_hint:
+                    cmd_input = AvailableCommandInput(
+                        root=UnstructuredCommandInput(hint=spec.input_hint)
+                    )
+                commands.append(
+                    AvailableCommand(name=name, description=spec.description, input=cmd_input)
                 )
 
         return commands
@@ -674,11 +715,86 @@ class SlashCommandHandler:
             if command_name in agent_commands:
                 return await agent_commands[command_name].handler(arguments)
 
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent is not None and agent_commands and command_name in agent_commands:
+            spec = agent_commands[command_name]
+            base_path = None
+            if isinstance(agent, AgentProtocol) and agent.config.source_path:
+                base_path = agent.config.source_path.parent
+            return await self._execute_plugin_command_action(
+                agent,
+                command_name,
+                arguments,
+                spec=spec,
+                base_path=base_path,
+            )
+
+        global_commands = plugin_commands_for_provider(self.instance.app)
+        if agent is not None and global_commands and command_name in global_commands:
+            return await self._execute_plugin_command_action(
+                agent,
+                command_name,
+                arguments,
+                spec=global_commands[command_name],
+                base_path=plugin_command_base_path_for_provider(self.instance.app),
+            )
+
         # Unknown command
         available = self.get_available_commands()
         return f"Unknown command: /{command_name}\n\nAvailable commands:\n" + "\n".join(
             f"  /{cmd.name} - {cmd.description}" for cmd in available
         )
+
+    async def _execute_plugin_command_action(
+        self,
+        agent: AgentProtocol,
+        command_name: str,
+        arguments: str,
+        spec,
+        base_path: Path | None,
+    ) -> str:
+        command_context = self._build_command_context()
+        try:
+            registry = PluginCommandActionRegistry.from_specs(
+                {command_name: spec},
+                base_path=base_path,
+            )
+            result = await registry.execute(
+                command_name,
+                PluginCommandActionContext(
+                    command_name=command_name,
+                    arguments=arguments,
+                    agent=cast("PluginCommandAgentProtocol", agent),
+                    settings=command_context.settings,
+                    session_cwd=command_context.session_cwd,
+                ),
+            )
+        except AgentConfigError as exc:
+            return f"Command /{command_name} failed to load: {exc}"
+        except Exception as exc:  # noqa: BLE001
+            self._logger.exception("Plugin command action failed", command=command_name)
+            return f"Command /{command_name} failed: {exc}"
+
+        if result is None:
+            return ""
+
+        outcome = CommandOutcome(
+            buffer_prefill=result.buffer_prefill,
+            switch_agent=result.switch_agent,
+            requires_refresh=result.refresh_agents,
+        )
+        if result.markdown:
+            outcome.add_message(result.markdown, render_markdown=True)
+        elif result.message:
+            outcome.add_message(result.message)
+        if result.buffer_prefill:
+            outcome.add_message(
+                "Command produced draft text:\n\n```text\n"
+                f"{result.buffer_prefill}\n"
+                "```",
+                render_markdown=True,
+            )
+        return self._format_outcome_as_markdown(outcome, f"/{command_name}")
 
     async def _handle_history(self, arguments: str | None = None) -> str:
         return await history_slash_handlers.handle_history(self, arguments)

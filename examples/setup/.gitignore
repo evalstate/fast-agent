@@ -1,5 +1,5 @@
 # Secrets
-fastagent.secrets.yaml
+fast-agent.secrets.yaml
 
 # Python cache/bytecode
 __pycache__/

@@ -1,5 +1,6 @@
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.schema_sanitizer import (
+    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -35,6 +36,49 @@ def test_sanitize_tool_input_schema_removes_default_recursively() -> None:
     assert "default" not in seed_schema
     assert "default" not in nested_count_schema
     assert seed_schema["type"] == "integer"
+
+
+def test_sanitize_response_format_schema_requires_all_properties() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "value": {"type": "string"},
+            "context": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": None,
+            },
+        },
+        "required": ["value"],
+    }
+
+    sanitized = sanitize_response_format_schema(schema)
+
+    assert sanitized["required"] == ["value", "context"]
+    assert sanitized["additionalProperties"] is False
+    assert "default" not in sanitized["properties"]["context"]
+
+
+def test_openai_response_format_uses_strict_schema_for_raw_structured_schema() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "value": {"type": "string"},
+            "context": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": None,
+            },
+        },
+        "required": ["value"],
+    }
+
+    llm = OpenAILLM(Provider.OPENAI, model="gpt-5-mini")
+    response_format = llm.schema_to_response_format(schema)
+    strict_schema = response_format["json_schema"]["schema"]
+
+    assert strict_schema["required"] == ["value", "context"]
+    assert strict_schema["additionalProperties"] is False
+    assert "default" not in strict_schema["properties"]["context"]
+    assert schema["required"] == ["value"]
 
 
 def test_should_strip_tool_schema_defaults_known_kimi_variants() -> None:

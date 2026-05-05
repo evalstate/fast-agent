@@ -9,9 +9,11 @@ DEFAULT_XAI_MODEL = "grok-4-1-fast-reasoning"
 
 
 class XAILLM(OpenAILLM):
-    def __init__(self, **kwargs) -> None:
+    config_section: str | None = "xai"
+
+    def __init__(self, provider: Provider = Provider.XAI_LEGACY, **kwargs) -> None:
         kwargs.pop("provider", None)
-        super().__init__(provider=Provider.XAI, **kwargs)
+        super().__init__(provider=provider, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize xAI parameters"""

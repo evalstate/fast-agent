@@ -68,6 +68,20 @@ def test_numpy_viterbi_respects_bioes_constraints() -> None:
             assert previous_kind == kind
 
 
+def test_numpy_viterbi_applies_transition_biases() -> None:
+    labels = ["O", "B-private_email", "E-private_email", "S-private_email"]
+    logits = np.zeros((2, len(labels)), dtype=np.float32)
+    tables = build_viterbi_tables(
+        labels,
+        np,
+        transition_biases={"transition_bias_inside_to_end": 5.0},
+    )
+
+    path = constrained_viterbi_np(logits, tables, np)
+
+    assert [labels[index] for index in path] == ["B-private_email", "E-private_email"]
+
+
 def test_token_spans_from_path_yields_expected_spans() -> None:
     path = [
         _LABELS.index("O"),

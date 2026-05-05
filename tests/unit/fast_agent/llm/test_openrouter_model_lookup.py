@@ -96,5 +96,6 @@ def test_openrouter_runtime_registration_does_not_override_static_models(monkeyp
 
     # Static metadata should remain unchanged for known models.
     assert ModelDatabase.get_max_output_tokens("moonshotai/kimi-k2") == 16384
+    assert ModelDatabase.get_default_provider("moonshotai/kimi-k2") == Provider.HUGGINGFACE
 
     ModelDatabase.clear_runtime_model_params(Provider.OPENROUTER)

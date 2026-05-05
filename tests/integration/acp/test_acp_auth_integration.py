@@ -23,7 +23,7 @@ from test_client import TestClient  # noqa: E402
 async def test_acp_initialize_survives_missing_provider_keys_and_prompts_fail_lazily(
     tmp_path: Path,
 ) -> None:
-    config_path = tmp_path / "fastagent.config.yaml"
+    config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
         textwrap.dedent(
             """
@@ -97,7 +97,7 @@ async def test_acp_initialize_survives_missing_provider_keys_and_prompts_fail_la
     assert isinstance(data, dict)
     assert data["methodId"] == "fast-agent-ai-secrets"
     assert data["message"] == "OpenAI API key not configured"
-    assert data["configFile"] == "fastagent.secrets.yaml"
+    assert data["configFile"] == "fast-agent.secrets.yaml"
     assert data["docsUrl"] == "https://fast-agent.ai/ref/config_file/"
     assert data["envVars"] == ["OPENAI_API_KEY"]
     assert "fast-agent model setup" in data["recommendedCommands"]

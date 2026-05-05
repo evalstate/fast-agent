@@ -86,6 +86,11 @@ class ResolvedModelSpec:
         return model_params.json_mode if model_params is not None else None
 
     @property
+    def structured_tool_policy(self) -> Literal["always", "defer", "no_tools"] | None:
+        model_params = self.model_params
+        return model_params.structured_tool_policy if model_params is not None else None
+
+    @property
     def reasoning_mode(self) -> str | None:
         model_params = self.model_params
         return model_params.reasoning if model_params is not None else None
@@ -188,6 +193,21 @@ class ResolvedModelSpec:
                 else:
                     effective_request_params = effective_request_params.model_copy(
                         update={"service_tier": config.service_tier}
+                    )
+
+        if config.structured_tool_policy is not None:
+            has_explicit_structured_tool_policy = (
+                effective_request_params is not None
+                and "structured_tool_policy" in effective_request_params.model_fields_set
+            )
+            if not has_explicit_structured_tool_policy:
+                if effective_request_params is None:
+                    effective_request_params = RequestParams(
+                        structured_tool_policy=config.structured_tool_policy
+                    )
+                else:
+                    effective_request_params = effective_request_params.model_copy(
+                        update={"structured_tool_policy": config.structured_tool_policy}
                     )
 
         default_max_tokens = self.default_max_tokens
@@ -303,4 +323,6 @@ def resolve_base_model_params(
     model_name: str,
 ) -> ModelParameters | None:
     """Resolve base model metadata without preferring overlay runtime mutations."""
+    if provider == Provider.HUGGINGFACE and ":" in model_name:
+        model_name = model_name.rsplit(":", 1)[0]
     return ModelDatabase.get_model_params(model_name, provider=provider)

@@ -4,7 +4,7 @@ from fast_agent import FastAgent
 from fast_agent.llm.request_params import RequestParams
 
 # Explicitly provide the path to the config file in the current directory
-CONFIG_FILE = "fastagent.config.yaml"
+CONFIG_FILE = "fast-agent.yaml"
 fast = FastAgent("fast-agent example", config_path=CONFIG_FILE, ignore_unknown_args=True)
 
 # Define T0 system variables here

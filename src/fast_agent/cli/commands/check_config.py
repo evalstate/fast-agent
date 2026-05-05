@@ -1,13 +1,14 @@
 """Command to check FastAgent configuration."""
 
+import asyncio
 import json
 import os
 import platform
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import typer
 import yaml
@@ -15,12 +16,12 @@ from rich.table import Table
 
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
-from fast_agent.config import resolve_config_search_root
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.keyring_utils import KeyringStatus, get_keyring_status
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.home import discover_config_files, resolve_fast_agent_home
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overlay_registry
 from fast_agent.llm.model_selection import ModelSelectionCatalog
@@ -210,17 +211,12 @@ def _resolve_active_model_providers(
 
 
 def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
-    """Find FastAgent configuration files using env, cwd, then legacy discovery."""
-    from fast_agent.config import (
-        resolve_implicit_config_file,
-        resolve_implicit_secrets_file,
-    )
-
-    config_path = resolve_implicit_config_file(start_path, env_dir=env_dir)
-    secrets_path = resolve_implicit_secrets_file(start_path, env_dir=env_dir)
+    """Find FastAgent configuration files using home then cwd discovery."""
+    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
+    discovery = discover_config_files(cwd=start_path, home=home)
     return {
-        "config": config_path,
-        "secrets": secrets_path,
+        "config": discovery.config_path,
+        "secrets": discovery.secrets_path,
     }
 
 
@@ -740,7 +736,7 @@ def show_models_overview(env_dir: Path | None = None) -> None:
             alias_table.add_row(alias_token, model)
         console.print(alias_table)
     else:
-        console.print("[dim]No model_references configured in fastagent.config.yaml[/dim]")
+        console.print("[dim]No model_references configured in fast-agent.yaml[/dim]")
 
     console.print()
     console.print(
@@ -1131,9 +1127,9 @@ def _validate_effective_settings(
     )
 
     try:
-        merged_settings, _ = load_implicit_settings(start_path=cwd, env_dir=env_override)
+        merged_settings, discovery = load_implicit_settings(start_path=cwd, env_dir=env_override)
 
-        secrets_path = config_files.get("secrets")
+        secrets_path = discovery.secrets_path or config_files.get("secrets")
         if isinstance(secrets_path, Path):
             merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
 
@@ -1190,7 +1186,8 @@ def _load_optional_keyring_module() -> Any | None:
 
 def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
     cwd = Path.cwd()
-    search_root = resolve_config_search_root(cwd, env_dir=env_dir)
+    home = resolve_fast_agent_home(cwd=cwd, cli_override=env_dir)
+    search_root = home.path if home is not None else cwd
     config_files = find_config_files(cwd, env_dir=env_dir)
     system_info = get_system_info()
     config_summary = get_config_summary(config_files["config"])
@@ -2057,7 +2054,7 @@ def _render_check_summary_guidance(context: _CheckSummaryContext) -> None:
         console.print(
             "\n[yellow]No API keys configured. Set up API keys to use LLM services:[/yellow]"
         )
-        console.print("1. Add keys to fastagent.secrets.yaml")
+        console.print("1. Add keys to fast-agent.secrets.yaml")
         env_vars = ", ".join(
             filter(
                 None,
@@ -2228,6 +2225,53 @@ def models(
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="provider") from exc
+
+
+@app.command("structured-tools")
+def structured_tools(
+    models: str = typer.Option(
+        ...,
+        "--models",
+        "--model",
+        help="Model id, alias, or comma-separated list of models to probe.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON output."),
+    structured_tool_policy: str = typer.Option(
+        "auto",
+        "--structured-tool-policy",
+        help="Policy to probe: auto, always, defer, or no_tools.",
+    ),
+) -> None:
+    """Probe structured output compatibility when tools are available."""
+    if structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
+        raise typer.BadParameter(
+            "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'",
+            param_hint="--structured-tool-policy",
+        )
+
+    model_names = [model.strip() for model in models.split(",") if model.strip()]
+    if not model_names:
+        raise typer.BadParameter("At least one model is required.", param_hint="--models")
+
+    from fast_agent.cli.checks.structured_tools_probe import (
+        StructuredToolPolicy,
+        _print_text_summary,
+        run_probe,
+    )
+
+    results = asyncio.run(
+        run_probe(
+            model_names,
+            structured_tool_policy=cast("StructuredToolPolicy", structured_tool_policy),
+        )
+    )
+    if json_output:
+        console.print_json(json.dumps([asdict(result) for result in results]))
+    else:
+        _print_text_summary(results)
+
+    if not all(result.passed for result in results):
+        raise typer.Exit(1)
 
 
 @app.callback(invoke_without_command=True)

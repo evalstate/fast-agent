@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
+
 if TYPE_CHECKING:
     import typer
 
@@ -37,6 +39,7 @@ def resolve_environment_dir_option(
         else:
             resolved = resolved.resolve()
         if set_env_var:
+            os.environ[FAST_AGENT_RUNTIME_ENVIRONMENT] = str(resolved)
             os.environ["ENVIRONMENT_DIR"] = str(resolved)
         return resolved
 

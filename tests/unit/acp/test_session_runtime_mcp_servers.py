@@ -41,9 +41,16 @@ class _VisibleAgentNamesOnlyApp(AgentApp):
 
 
 class _ShellRuntimeStub:
-    def __init__(self, *, timeout_seconds: int = 42, output_byte_limit: int = 1234) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_seconds: int = 42,
+        output_byte_limit: int = 1234,
+        prefer_local_shell: bool = False,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
         self.output_byte_limit = output_byte_limit
+        self.prefer_local_shell = prefer_local_shell
 
 
 class _ShellAgent(_Agent):
@@ -849,3 +856,39 @@ async def test_initialize_session_state_injects_terminal_runtime_via_public_shel
     assert session_state.terminal_runtime is not None
     assert shell_agent.injected_runtime is session_state.terminal_runtime
     assert session_state.terminal_runtime.timeout_seconds == 42
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_state_skips_terminal_runtime_when_local_shell_preferred(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    shell_agent = _ShellAgent("main")
+    shell_agent._runtime = _ShellRuntimeStub(prefer_local_shell=True)
+    agent = cast("AgentProtocol", shell_agent)
+    instance = AgentInstance(
+        app=AgentApp({"main": agent}),
+        agents={"main": agent},
+        registry_version=0,
+    )
+    server = _build_session_server(instance, [instance])
+    server._connection = cast("Any", object())
+    server._client_supports_terminal = True
+
+    async def fake_send_available_commands_update(_session_id: str) -> None:
+        return None
+
+    async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(server, "_send_available_commands_update", fake_send_available_commands_update)
+    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay)
+
+    session_state, _ = await server._initialize_session_state(
+        "session-1",
+        cwd=str(tmp_path),
+        mcp_servers=[],
+    )
+
+    assert session_state.terminal_runtime is None
+    assert shell_agent.injected_runtime is None

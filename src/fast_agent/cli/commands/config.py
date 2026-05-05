@@ -12,8 +12,11 @@ from fast_agent.config import (
     LoggerSettings,
     ShellSettings,
     load_implicit_settings,
-    resolve_environment_config_file,
-    resolve_implicit_config_file,
+)
+from fast_agent.home import (
+    PREFERRED_CONFIG_FILENAME,
+    discover_config_files,
+    resolve_fast_agent_home,
 )
 from fast_agent.human_input.form_fields import FormSchema, boolean, integer, string
 from fast_agent.human_input.simple_form import form_sync
@@ -30,7 +33,7 @@ ConfigOption = Annotated[
     typer.Option(
         "--config",
         "-c",
-        help="Path to config file (default: environment-dir fastagent.config.yaml)",
+        help="Path to config file (default: environment-dir fast-agent.yaml)",
         exists=False,  # Allow non-existent files (will be created)
     ),
 ]
@@ -38,10 +41,14 @@ ConfigOption = Annotated[
 
 def _default_config_file() -> Path:
     """Return the discovered implicit config path, or the default env path if none exist."""
-    discovered_path = resolve_implicit_config_file(Path.cwd())
-    if discovered_path is not None:
-        return discovered_path
-    return resolve_environment_config_file(Path.cwd())
+    cwd = Path.cwd()
+    home = resolve_fast_agent_home(cwd=cwd)
+    discovery = discover_config_files(cwd=cwd, home=home)
+    if discovery.config_path is not None:
+        return discovery.config_path
+    if home is not None:
+        return home.path / PREFERRED_CONFIG_FILENAME
+    return cwd / PREFERRED_CONFIG_FILENAME
 
 
 def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]:

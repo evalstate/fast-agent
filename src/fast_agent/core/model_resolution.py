@@ -72,7 +72,7 @@ def _resolve_reference_recursive(
     if references is None or len(references) == 0:
         raise ModelConfigError(
             f"Model reference '{token}' could not be resolved",
-            "No model_references are configured. Add a model_references section in fastagent.config.yaml.",
+            "No model_references are configured. Add a model_references section in fast-agent.yaml.",
         )
 
     if token in stack:

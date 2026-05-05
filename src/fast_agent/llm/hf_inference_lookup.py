@@ -139,7 +139,7 @@ async def lookup_inference_providers(
     """Look up available inference providers for a HuggingFace model.
 
     Args:
-        model_id: The HuggingFace model ID (e.g., "moonshotai/Kimi-K2-Thinking")
+        model_id: The HuggingFace model ID (e.g., "deepseek-ai/DeepSeek-V4-Pro")
         timeout: Request timeout in seconds
         lookup_fn: Optional function to use for lookup (for testing)
 
@@ -147,7 +147,7 @@ async def lookup_inference_providers(
         InferenceProviderLookupResult with provider information
 
     Example:
-        >>> result = await lookup_inference_providers("moonshotai/Kimi-K2-Thinking")
+        >>> result = await lookup_inference_providers("deepseek-ai/DeepSeek-V4-Pro")
         >>> if result.has_providers:
         ...     print(f"Available providers: {result.format_provider_list()}")
         ...     for model_str in result.format_model_strings():
@@ -296,7 +296,7 @@ async def validate_hf_model(
     """Validate that an HF model exists and has inference providers.
 
     Args:
-        model: The model string (e.g., "hf.moonshotai/Kimi-K2-Thinking:together")
+        model: The model string (e.g., "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai")
             Can also be an alias like "kimi" or "glm" that resolves to an HF model.
         presets: Optional dict of model presets (e.g., {"kimi": "hf.moonshotai/..."}).
             If not provided, no preset resolution is performed.

@@ -276,7 +276,7 @@ export ANTHROPIC_API_KEY="your-key-here"
 **Solution:**
 
 - Set environment variable: `export ANTHROPIC_API_KEY=...` an
-- Or create config file: `~/.config/fast-agent/fastagent.secrets.yaml`
+- Or create config file: `~/.config/fast-agent/fast-agent.secrets.yaml`
 
 ## Integration with Editors
 

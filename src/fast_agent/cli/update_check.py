@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import logging
-import os
 import re
 import time
 from pathlib import Path
@@ -48,12 +47,7 @@ def _resolve_environment_root(
     cwd: Path | None = None,
 ) -> Path:
     base = cwd or Path.cwd()
-    active_environment_dir: str | Path | None = environment_dir
-    if active_environment_dir is None:
-        env_override = os.getenv("ENVIRONMENT_DIR")
-        if env_override:
-            active_environment_dir = env_override
-    return resolve_environment_dir(cwd=base, override=active_environment_dir)
+    return resolve_environment_dir(cwd=base, override=environment_dir)
 
 
 def resolve_update_check_marker_path(

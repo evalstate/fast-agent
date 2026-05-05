@@ -23,6 +23,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import LlmAgentProtocol, ToolRunnerHookCapable
+from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
@@ -449,6 +450,22 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         return await runner.until_done()
 
+    async def structured_schema_impl(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """Run raw-schema structured output through the normal tool loop."""
+        llm = self._require_llm()
+        normalized_schema = validate_json_schema_definition(schema)
+        structured_params = llm.get_request_params(request_params).model_copy(
+            update={"structured_schema": normalized_schema}
+        )
+
+        response = await self.generate_impl(messages, structured_params)
+        return llm.parse_structured_schema_response(response, normalized_schema)
+
     def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
         if isinstance(self, ToolRunnerHookCapable):
             return self.tool_runner_hooks
@@ -553,6 +570,39 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         return await super().generate_impl(messages, request_params=request_params, tools=tools)
+
+    def should_finalize_deferred_structured_turn(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+        assistant_message: PromptMessageExtended,
+    ) -> bool:
+        del assistant_message
+        if self.llm is None:
+            return False
+        final_params = self.llm.get_request_params(request_params)
+        return (
+            final_params.structured_schema is not None
+            and bool(tools)
+            and self.llm.resolve_structured_tool_policy(final_params) == "defer"
+            and not any(message.tool_results for message in messages)
+        )
+
+    def should_suppress_tools_for_structured_turn(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+    ) -> bool:
+        del messages
+        if self.llm is None or not tools:
+            return False
+        final_params = self.llm.get_request_params(request_params)
+        return (
+            final_params.structured_schema is not None
+            and self.llm.resolve_structured_tool_policy(final_params) == "no_tools"
+        )
 
     def _should_display_user_message(self, message: PromptMessageExtended) -> bool:
         return not message.tool_results

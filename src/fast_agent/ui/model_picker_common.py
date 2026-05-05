@@ -157,6 +157,7 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
 
     return False
 
+
 def _catalog_options_from_entries(
     entries: tuple[CatalogModelEntry, ...],
     *,

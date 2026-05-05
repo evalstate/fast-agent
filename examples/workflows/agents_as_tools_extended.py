@@ -57,7 +57,7 @@ fast = FastAgent("Agents-as-Tools demo")
     servers=[
         "time",
         "fetch",
-    ],  # MCP servers 'time' and 'fetch' configured in fastagent.config.yaml
+    ],  # MCP servers 'time' and 'fetch' configured in fast-agent.yaml
 )
 @fast.agent(
     name="London-Project-Manager",

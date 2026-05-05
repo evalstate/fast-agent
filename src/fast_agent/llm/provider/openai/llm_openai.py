@@ -43,6 +43,7 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.schema_sanitizer import (
+    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -1187,9 +1188,10 @@ class OpenAILLM(
         request_params: RequestParams,
         tools: list[Tool] | None = None,
     ) -> tuple[list[PromptMessageExtended], RequestParams]:
-        del tools
         if not request_params.structured_schema or request_params.response_format:
             return messages, request_params
+        if self._should_defer_structured_schema_for_tools(messages, request_params, tools):
+            return messages, request_params.model_copy(update={"structured_schema": None})
         return messages, request_params.model_copy(
             update={
                 "response_format": self.schema_to_response_format(
@@ -1211,6 +1213,19 @@ class OpenAILLM(
             multipart_messages,
             schema,
             request_params,
+        )
+
+    def schema_to_response_format(
+        self,
+        schema: dict[str, Any],
+        *,
+        name: str = "structured_output",
+        strict: bool = True,
+    ) -> dict[str, Any]:
+        return FastAgentLLM.schema_to_response_format(
+            sanitize_response_format_schema(schema) if strict else schema,
+            name=name,
+            strict=strict,
         )
 
     def _prepare_api_request(

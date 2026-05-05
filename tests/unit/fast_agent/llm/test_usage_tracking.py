@@ -312,13 +312,13 @@ def test_cache_hit_rate_calculation():
     openai_turn = TurnUsage.from_openai(openai_usage, "gpt-4o")
     accumulator.add_turn(openai_turn)
 
-    # With our updated algorithm:
+    # Cache hit rate is the share of input context served from cache.
     # Anthropic cumulative_input: 1000 + 300 (cache read) = 1300
     # OpenAI cumulative_input: 800 (already includes cache)
     # Total cumulative_input: 1300 + 800 = 2100
     # Total cache: 300 (anthropic read) + 200 (openai hit) = 500
-    # Hit rate: 500 / (2100 + 500) * 100 = 500/2600 = 19.23%
-    expected_hit_rate = 500 / (2100 + 500) * 100
+    # Hit rate: 500 / 2100 * 100 = 23.81%
+    expected_hit_rate = 500 / 2100 * 100
     assert accumulator.cache_hit_rate is not None
     assert abs(accumulator.cache_hit_rate - expected_hit_rate) < 0.01
 

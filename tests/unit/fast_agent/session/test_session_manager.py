@@ -96,7 +96,9 @@ def test_prune_sessions_skips_pinned(tmp_path) -> None:
         reset_session_manager()
 
 
-def test_get_session_manager_normalizes_relative_environment_dir(tmp_path) -> None:
+def test_get_session_manager_resolves_relative_environment_dir_without_mutating_env(
+    tmp_path,
+) -> None:
     original_env = os.environ.get("ENVIRONMENT_DIR")
     first_cwd = tmp_path / "first"
     second_cwd = tmp_path / "second"
@@ -108,13 +110,12 @@ def test_get_session_manager_normalizes_relative_environment_dir(tmp_path) -> No
 
     try:
         manager_first = get_session_manager(cwd=first_cwd)
-        normalized_env = os.environ.get("ENVIRONMENT_DIR")
-        assert normalized_env is not None
-        assert normalized_env == str((first_cwd / ".dev").resolve())
+        assert os.environ.get("ENVIRONMENT_DIR") == ".dev"
 
         manager_second = get_session_manager(cwd=second_cwd)
-        assert manager_second is manager_first
-        assert manager_second.base_dir == (first_cwd / ".dev" / "sessions").resolve()
+        assert manager_second is not manager_first
+        assert manager_first.base_dir == (first_cwd / ".dev" / "sessions").resolve()
+        assert manager_second.base_dir == (second_cwd / ".dev" / "sessions").resolve()
         assert manager_second.workspace_dir == second_cwd.resolve()
     finally:
         reset_session_manager()

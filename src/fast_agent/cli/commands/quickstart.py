@@ -50,7 +50,7 @@ _EXAMPLE_CONFIGS = {
             "parallel.py",
             "router.py",
             "short_story.txt",
-            "fastagent.config.yaml",
+            "fast-agent.yaml",
         ],
         create_subdir=True,
         path_in_examples=["workflows"],
@@ -61,7 +61,7 @@ _EXAMPLE_CONFIGS = {
             "example. Uses Brave Search and Docker MCP Servers.\n"
             "Creates examples in a 'researcher' subdirectory."
         ),
-        files=["researcher.py", "researcher-eval.py", "fastagent.config.yaml"],
+        files=["researcher.py", "researcher-eval.py", "fast-agent.yaml"],
         create_subdir=True,
         path_in_examples=["researcher"],
     ),
@@ -72,7 +72,7 @@ _EXAMPLE_CONFIGS = {
             "Creates examples in a 'data-analysis' subdirectory with mount-point for data.\n"
             "Uses MCP 'roots' feature for mapping"
         ),
-        files=["analysis.py", "fastagent.config.yaml"],
+        files=["analysis.py", "fast-agent.yaml"],
         mount_point_files=["WA_Fn-UseC_-HR-Employee-Attrition.csv"],
         create_subdir=True,
         path_in_examples=["data-analysis"],
@@ -86,8 +86,8 @@ _EXAMPLE_CONFIGS = {
         files=[
             "agent_one.py",
             "agent_two.py",
-            "fastagent.config.yaml",
-            "fastagent.secrets.yaml.example",
+            "fast-agent.yaml",
+            "fast-agent.secrets.yaml.example",
         ],
         create_subdir=True,
         path_in_examples=["mcp", "state-transfer"],
@@ -102,8 +102,8 @@ _EXAMPLE_CONFIGS = {
             "elicitation_account_server.py",
             "elicitation_forms_server.py",
             "elicitation_game_server.py",
-            "fastagent.config.yaml",
-            "fastagent.secrets.yaml.example",
+            "fast-agent.yaml",
+            "fast-agent.secrets.yaml.example",
             "forms_demo.py",
             "game_character.py",
             "game_character_handler.py",
@@ -124,7 +124,7 @@ _EXAMPLE_CONFIGS = {
             "README.md",
             "agent.py",
             "docker-compose.yml",
-            "fastagent.config.yaml",
+            "fast-agent.yaml",
             "image_demo.py",
             "simple_agent.py",
             "mcp_server/",
@@ -132,7 +132,7 @@ _EXAMPLE_CONFIGS = {
             "tensorzero_config/",
         ],
         create_subdir=True,
-        path_in_examples=["elicitations"],
+        path_in_examples=["tensorzero"],
     ),
     "toad-cards": ExampleConfig(
         description=(
@@ -459,7 +459,7 @@ def _show_completion_message(example_type: str, created: list[str]) -> None:
             console.print("2. The dataset is available in the mount-point directory:")
             console.print("   - mount-point/WA_Fn-UseC_-HR-Employee-Attrition.csv")
             console.print(
-                "On Windows platforms, please edit the fastagent.config.yaml and adjust the volume mount point."
+                "On Windows platforms, please edit the fast-agent.yaml and adjust the volume mount point."
             )
         elif example_type == "state-transfer":
             console.print(

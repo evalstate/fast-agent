@@ -192,13 +192,13 @@ def _context_with_io(
 
 
 @pytest.mark.asyncio
-async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None:
+async def test_models_aliases_lists_selected_home_alias_values(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     _write_yaml(
-        workspace / "fastagent.config.yaml",
+        workspace / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -209,7 +209,7 @@ async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None
         },
     )
     _write_yaml(
-        env_dir / "fastagent.config.yaml",
+        env_dir / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -236,7 +236,7 @@ async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None
     assert "▎ model references" in rendered
     assert "▎•" not in rendered
     assert "$system.fast = env-fast" in rendered
-    assert "$system.code = project-code" in rendered
+    assert "$system.code = project-code" not in rendered
 
 
 @pytest.mark.asyncio
@@ -279,7 +279,7 @@ async def test_models_doctor_lists_all_agents_including_tool_only(tmp_path: Path
     workspace.mkdir(parents=True)
 
     _write_yaml(
-        env_dir / "fastagent.config.yaml",
+        env_dir / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -393,7 +393,7 @@ async def test_models_doctor_dedupes_repeated_alias_missing_note(tmp_path: Path)
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    expected_note = "No model_references are configured. Add a model_references section in fastagent.config.yaml."
+    expected_note = "No model_references are configured. Add a model_references section in fast-agent.yaml."
     assert rendered.count(expected_note) == 1
 
 
@@ -499,7 +499,7 @@ async def test_models_aliases_set_writes_env_target(tmp_path: Path) -> None:
     finally:
         os.chdir(previous_cwd)
 
-    config_path = env_dir / "fastagent.config.yaml"
+    config_path = env_dir / "fast-agent.yaml"
     assert config_path.exists()
     saved = _read_yaml(config_path)
     assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
@@ -519,7 +519,7 @@ async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_pat
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     _write_yaml(
-        env_dir / "fastagent.config.yaml",
+        env_dir / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -543,7 +543,7 @@ async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_pat
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    saved = _read_yaml(env_dir / "fast-agent.yaml")
     assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
 
     rendered = str(outcome.messages[0].text)
@@ -559,7 +559,7 @@ async def test_models_aliases_set_reopens_vertex_selection_for_vertex_model(tmp_
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     _write_yaml(
-        env_dir / "fastagent.config.yaml",
+        env_dir / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -611,7 +611,7 @@ async def test_models_aliases_set_can_create_new_alias_interactively(tmp_path: P
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    saved = _read_yaml(env_dir / "fast-agent.yaml")
     assert saved["model_references"]["custom"]["review"] == "gpt-4.1-mini"
 
     rendered = str(outcome.messages[0].text)
@@ -627,7 +627,7 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     _write_yaml(
-        env_dir / "fastagent.config.yaml",
+        env_dir / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -654,11 +654,11 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    saved = _read_yaml(env_dir / "fast-agent.yaml")
     assert saved["model_references"]["system"]["fast"] == "gpt-4.1-mini"
     assert io.emitted_messages
     assert _message_text(io.emitted_messages[0]).find(
-        str((env_dir / "fastagent.config.yaml").resolve())
+        str((env_dir / "fast-agent.yaml").resolve())
     ) != -1
 
     rendered = str(outcome.messages[0].text)
@@ -671,7 +671,7 @@ async def test_models_aliases_unset_writes_project_target(tmp_path: Path) -> Non
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
-    project_config = workspace / "fastagent.config.yaml"
+    project_config = workspace / "fast-agent.yaml"
     _write_yaml(
         project_config,
         {
@@ -727,7 +727,7 @@ async def test_models_aliases_set_dry_run_is_deterministic(tmp_path: Path) -> No
     finally:
         os.chdir(previous_cwd)
 
-    assert (env_dir / "fastagent.config.yaml").exists() is False
+    assert (env_dir / "fast-agent.yaml").exists() is False
 
     rendered = str(outcome.messages[0].text)
     assert "▎ model references set" in rendered
@@ -809,7 +809,7 @@ async def test_models_references_follow_loaded_config_root_instead_of_cwd_overla
     workspace.mkdir(parents=True)
 
     _write_yaml(
-        parent / "fastagent.config.yaml",
+        parent / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -819,7 +819,7 @@ async def test_models_references_follow_loaded_config_root_instead_of_cwd_overla
         },
     )
     _write_yaml(
-        env_dir / "fastagent.config.yaml",
+        env_dir / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -830,7 +830,7 @@ async def test_models_references_follow_loaded_config_root_instead_of_cwd_overla
     )
 
     settings = Settings(environment_dir=None)
-    settings._config_file = str(parent / "fastagent.config.yaml")
+    settings._config_file = str(parent / "fast-agent.yaml")
 
     previous_cwd = Path.cwd()
     previous_env_dir = os.environ.get("ENVIRONMENT_DIR")

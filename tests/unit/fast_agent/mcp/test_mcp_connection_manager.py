@@ -333,6 +333,56 @@ async def test_get_server_cancellation_cleans_up_pending_connection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_server_startup_timeout_cancels_blocked_lifecycle() -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class HangingTransportContext:
+        async def __aenter__(self):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except BaseException:
+                cancelled.set()
+                raise
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    server_conn = ServerConnection(
+        server_name="demo",
+        server_config=MCPServerSettings(
+            name="demo",
+            transport="http",
+            url="http://127.0.0.1:9/mcp",
+        ),
+        transport_context_factory=HangingTransportContext,
+        client_session_factory=lambda *_args, **_kwargs: object(),
+    )
+
+    async def _fake_launch_server(*_args, **_kwargs):
+        manager.running_servers["demo"] = server_conn
+        asyncio.create_task(_server_lifecycle_task(server_conn))
+        await entered.wait()
+        return server_conn
+
+    manager.launch_server = _fake_launch_server  # type: ignore[method-assign]
+
+    with pytest.raises(ServerInitializationError):
+        await manager.get_server(
+            "demo",
+            client_session_factory=lambda *_args, **_kwargs: object(),
+            startup_timeout_seconds=0.01,
+        )
+
+    await asyncio.wait_for(cancelled.wait(), timeout=1.0)
+    assert "demo" not in manager.running_servers
+    assert server_conn._shutdown_event.is_set()
+    assert server_conn._oauth_abort_event.is_set()
+
+
+@pytest.mark.asyncio
 async def test_get_server_retries_with_oauth_after_401_startup() -> None:
     manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
     unhealthy = _make_server_connection()

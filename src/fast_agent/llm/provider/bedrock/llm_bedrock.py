@@ -2127,6 +2127,16 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # For assistant messages: Return the last message (no completion needed)
             return last_message
 
+        effective_params = self.get_request_params(request_params)
+        if effective_params.structured_schema:
+            _, response = await self._apply_prompt_provider_specific_structured_schema(
+                multipart_messages,
+                effective_params.structured_schema,
+                effective_params,
+                tools,
+            )
+            return response
+
         # Convert the last user message to Bedrock message parameter format
         message_param = BedrockConverter.convert_to_bedrock(last_message)
 
@@ -2135,7 +2145,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         # via _convert_to_provider_format()
         return await self._bedrock_completion(
             message_param,
-            request_params,
+            effective_params,
             tools,
             pre_messages=None,
             history=multipart_messages,
@@ -2224,7 +2234,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # Fall through to normal generation path
             pass
 
-        request_params = self.get_request_params(request_params)
+        request_params = self.get_request_params(request_params).model_copy(
+            update={"structured_schema": None}
+        )
 
         # For structured outputs: disable reasoning entirely and set temperature=0 for deterministic JSON
         # This avoids conflicts between reasoning (requires temperature=1) and structured output (wants temperature=0)
@@ -2265,8 +2277,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         ]
 
         # IMPORTANT: Do NOT mutate the caller's messages. Create a deep copy of the last
-        # user message, append the schema to the copy only, and pass just that copy into
-        # the provider-specific path. This prevents contamination of routed messages.
+        # user message, append the schema to the copy only, and pass the full conversation
+        # with that copied last turn into the provider-specific path. This preserves tool
+        # and history context while preventing contamination of routed messages.
         try:
             temp_last = multipart_messages[-1].model_copy(deep=True)
         except Exception:
@@ -2282,8 +2295,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         )
 
         try:
+            structured_messages = [*multipart_messages[:-1], temp_last]
             result: PromptMessageExtended = await self._apply_prompt_provider_specific(
-                [temp_last], request_params
+                structured_messages, request_params
             )
             try:
                 parsed_model, _ = self._structured_from_multipart(result, model)
@@ -2314,8 +2328,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     )
                 temp_last_retry.add_text("\n".join(strict_parts + [simplified_schema_text]))
 
+                retry_messages = [*multipart_messages[:-1], temp_last_retry]
                 retry_result: PromptMessageExtended = await self._apply_prompt_provider_specific(
-                    [temp_last_retry], request_params
+                    retry_messages, request_params
                 )
                 return self._structured_from_multipart(retry_result, model)
         finally:
@@ -2327,6 +2342,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         multipart_messages: list[PromptMessageExtended],
         schema: dict[str, Any],
         request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
     ) -> tuple[Any | None, PromptMessageExtended]:
         try:
             if multipart_messages and multipart_messages[-1].role == "assistant":
@@ -2339,7 +2355,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         except Exception:
             pass
 
-        request_params = self.get_request_params(request_params)
+        request_params = self.get_request_params(request_params).model_copy(
+            update={"structured_schema": None}
+        )
 
         original_reasoning_effort = self.reasoning_effort
         self.set_reasoning_effort(ReasoningEffortSetting(kind="toggle", value=False))
@@ -2385,7 +2403,14 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         temp_last.add_text("\n".join(prompt_parts))
 
         try:
-            result = await self._apply_prompt_provider_specific([temp_last], request_params)
+            structured_messages = [*multipart_messages[:-1], temp_last]
+            result = await self._apply_prompt_provider_specific(
+                structured_messages,
+                request_params,
+                tools,
+            )
+            if result.tool_calls:
+                return None, result
             parsed, _ = self._structured_schema_from_multipart(result, schema)
             if parsed is None:
                 raise ValueError("structured parse returned None; triggering retry")
@@ -2409,13 +2434,27 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 )
             temp_last_retry.add_text("\n".join(strict_parts))
 
+            retry_messages = [*multipart_messages[:-1], temp_last_retry]
             retry_result = await self._apply_prompt_provider_specific(
-                [temp_last_retry],
+                retry_messages,
                 request_params,
+                tools,
             )
+            if retry_result.tool_calls:
+                return None, retry_result
             return self._structured_schema_from_multipart(retry_result, schema)
         finally:
             self.set_reasoning_effort(original_reasoning_effort)
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        if not self._should_defer_structured_schema_for_tools(messages, request_params, tools):
+            return messages, request_params
+        return messages, request_params.model_copy(update={"structured_schema": None})
 
     def _clean_json_response(self, text: str) -> str:
         """Clean up JSON response by removing text before first { and after last }.

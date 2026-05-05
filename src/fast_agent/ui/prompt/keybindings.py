@@ -11,6 +11,12 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
 from rich import print as rich_print
 
+from fast_agent.command_actions.accessors import (
+    lookup_agent,
+    plugin_commands_for_agent,
+    plugin_commands_for_provider,
+)
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui.prompt.attachment_tokens import strip_local_attachment_tokens
 from fast_agent.ui.prompt.editor import get_text_from_editor
 from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
@@ -50,6 +56,9 @@ class AgentKeyBindings(KeyBindings):
 
 class PromptInputInterrupt(Exception):
     """Internal prompt-toolkit interrupt used instead of raw KeyboardInterrupt."""
+
+
+logger = get_logger(__name__)
 
 
 def _cycle_completion(buffer: Buffer, *, backwards: bool) -> bool:
@@ -333,4 +342,50 @@ def create_keybindings(
             except Exception:
                 pass
 
+    _add_plugin_command_keybindings(kb, agent_provider=agent_provider, agent_name=agent_name)
+
     return kb
+
+
+def _add_plugin_command_keybindings(
+    kb: AgentKeyBindings,
+    *,
+    agent_provider: "AgentApp | None",
+    agent_name: str | None,
+) -> None:
+    if agent_provider is None or agent_name is None:
+        return
+
+    commands = {}
+    global_commands = plugin_commands_for_provider(agent_provider)
+    if global_commands:
+        commands.update(global_commands)
+    agent = lookup_agent(agent_provider, agent_name)
+    agent_commands = plugin_commands_for_agent(agent)
+    if agent_commands:
+        commands.update(agent_commands)
+
+    for command_name, spec in commands.items():
+        if not spec.key:
+            continue
+        keys = tuple(part for part in spec.key.split() if part)
+        if not keys:
+            continue
+
+        try:
+
+            @kb.add(*keys)
+            def _(event, command_name=command_name) -> None:
+                command = f"/{command_name}"
+                event.current_buffer.text = command
+                event.current_buffer.cursor_position = len(command)
+                event.current_buffer.validate_and_handle()
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Ignoring invalid plugin command keybinding",
+                agent=agent_name,
+                command=command_name,
+                key=spec.key,
+                error=str(exc),
+            )

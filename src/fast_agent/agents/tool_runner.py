@@ -56,6 +56,21 @@ class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
 
     async def list_tools(self) -> ListToolsResult: ...
 
+    def should_finalize_deferred_structured_turn(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+        assistant_message: PromptMessageExtended,
+    ) -> bool: ...
+
+    def should_suppress_tools_for_structured_turn(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+    ) -> bool: ...
+
 
 _logger = get_logger(__name__)
 
@@ -142,6 +157,7 @@ class ToolRunner:
         self._pending_tool_request: PromptMessageExtended | None = None
         self._pending_tool_response: PromptMessageExtended | None = None
         self._staged_terminal_response: PromptMessageExtended | None = None
+        self._deferred_structured_finalization_started = False
 
     def _defer_hook_status_messages(self, bucket: str) -> AbstractContextManager[None]:
         # TODO: Replace this post-hook flush boundary with a first-class
@@ -194,10 +210,20 @@ class ToolRunner:
             finally:
                 self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_LLM_CALL)
 
+        tools_for_call = (
+            []
+            if self._agent.should_suppress_tools_for_structured_turn(
+                self._delta_messages,
+                self._request_params,
+                self._tools,
+            )
+            else self._tools
+        )
+
         assistant_message = await self._agent._tool_runner_llm_step(
             self._delta_messages,
             request_params=self._request_params,
-            tools=self._tools,
+            tools=tools_for_call,
         )
 
         self._last_message = assistant_message
@@ -222,6 +248,8 @@ class ToolRunner:
         if assistant_message.stop_reason == LlmStopReason.TOOL_USE:
             self._pending_tool_request = assistant_message
             self._pending_tool_response = None  # Clear cache for new request
+        elif self._should_start_deferred_structured_finalization(assistant_message):
+            self._start_deferred_structured_finalization(assistant_message)
         else:
             self._done = True
 
@@ -559,6 +587,43 @@ class ToolRunner:
             if self._last_message is not None:
                 self._delta_messages.append(self._last_message)
             self._delta_messages.append(tool_message)
+
+    def _should_start_deferred_structured_finalization(
+        self,
+        assistant_message: PromptMessageExtended,
+    ) -> bool:
+        if self._deferred_structured_finalization_started:
+            return False
+        return self._agent.should_finalize_deferred_structured_turn(
+            self._delta_messages,
+            self._request_params,
+            self._tools,
+            assistant_message,
+        )
+
+    def _start_deferred_structured_finalization(
+        self,
+        assistant_message: PromptMessageExtended,
+    ) -> None:
+        self._deferred_structured_finalization_started = True
+        finalizer = PromptMessageExtended(
+            role="user",
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        "Now produce the final answer as structured JSON matching the "
+                        "requested schema. Do not call any tools."
+                    ),
+                )
+            ],
+        )
+        if self._use_history_enabled():
+            self._delta_messages = [finalizer]
+        else:
+            self._delta_messages.append(assistant_message)
+            self._delta_messages.append(finalizer)
+        self._tools = []
 
     def _consume_staged_terminal_response(self) -> PromptMessageExtended | None:
         staged = self._staged_terminal_response

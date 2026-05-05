@@ -173,6 +173,7 @@ class FastAgent(DecoratorMixin):
         quiet: bool = False,  # Add quiet parameter
         environment_dir: str | pathlib.Path | None = None,
         skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None = None,
+        noenv: bool = False,
         **kwargs,
     ) -> None:
         """
@@ -304,6 +305,12 @@ class FastAgent(DecoratorMixin):
                 help="Watch AgentCard paths and reload when files change",
             )
             parser.add_argument(
+                "--noenv",
+                "--no-env",
+                action="store_true",
+                help="Disable fast-agent home/environment directory use",
+            )
+            parser.add_argument(
                 "--card-tool",
                 action="append",
                 dest="card_tools",
@@ -364,11 +371,19 @@ class FastAgent(DecoratorMixin):
         if self._programmatic_quiet:
             self.args.quiet = True
 
+        if noenv:
+            self.args.noenv = True
+        elif not hasattr(self.args, "noenv"):
+            self.args.noenv = False
+
         # Apply CLI environment directory if not already set programmatically
         if self._environment_dir_override is None and hasattr(self.args, "env") and self.args.env:
             self._environment_dir_override = self._normalize_environment_dir(self.args.env)
 
         if self._environment_dir_override is not None:
+            from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
+
+            os.environ[FAST_AGENT_RUNTIME_ENVIRONMENT] = str(self._environment_dir_override)
             os.environ["ENVIRONMENT_DIR"] = str(self._environment_dir_override)
 
         # Apply CLI skills directory if not already set programmatically
@@ -411,6 +426,13 @@ class FastAgent(DecoratorMixin):
             if instance_settings is not None:
                 instance_settings._config_file = getattr(self, "_loaded_config_file", None)
                 instance_settings._secrets_file = getattr(self, "_loaded_secrets_file", None)
+                instance_settings._fast_agent_home = getattr(self, "_loaded_fast_agent_home", None)
+                instance_settings._fast_agent_home_source = getattr(
+                    self, "_loaded_fast_agent_home_source", None
+                )
+                instance_settings._fast_agent_noenv = bool(
+                    getattr(self, "_loaded_fast_agent_noenv", False)
+                )
             if instance_settings is not None:
                 config.update_global_settings(instance_settings)
 
@@ -501,9 +523,18 @@ class FastAgent(DecoratorMixin):
 
         try:
             # Use get_settings to load config - this handles all paths and secrets merging
-            settings = _config_module.get_settings(self.config_path)
+            settings = _config_module.get_settings(
+                self.config_path,
+                env_dir=self._environment_dir_override,
+                noenv=bool(getattr(self.args, "noenv", False)),
+            )
             self._loaded_config_file = settings._config_file if settings else None
             self._loaded_secrets_file = settings._secrets_file if settings else None
+            self._loaded_fast_agent_home = settings._fast_agent_home if settings else None
+            self._loaded_fast_agent_home_source = (
+                settings._fast_agent_home_source if settings else None
+            )
+            self._loaded_fast_agent_noenv = settings._fast_agent_noenv if settings else False
             # Convert to dict for backward compatibility
             self.config = settings.model_dump() if settings else {}
         finally:
@@ -1560,18 +1591,28 @@ class FastAgent(DecoratorMixin):
             tool_only_agents = {
                 name for name, data in self.agents.items() if data.get("tool_only", False)
             }
+            settings = config.get_settings()
+            plugin_command_base_path = (
+                Path(settings._config_file).parent if settings._config_file is not None else None
+            )
             if app_override is None:
                 app = AgentApp(
                     agents_map,
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
                     noenv_mode=runtime.noenv_mode,
+                    plugin_commands=settings.commands,
+                    plugin_command_base_path=plugin_command_base_path,
                 )
             else:
                 app_override.set_agents(
                     agents_map,
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
+                )
+                app_override.set_plugin_commands(
+                    settings.commands,
+                    base_path=plugin_command_base_path,
                 )
                 app_override.noenv_mode = runtime.noenv_mode
                 app = app_override
@@ -2739,13 +2780,13 @@ class FastAgent(DecoratorMixin):
             handle_error(
                 e,
                 "Server Configuration Error",
-                "Please check your 'fastagent.config.yaml' configuration file and add the missing server definitions.",
+                "Please check your 'fast-agent.yaml' configuration file and add the missing server definitions.",
             )
         elif isinstance(e, ProviderKeyError):
             handle_error(
                 e,
                 "Provider Configuration Error",
-                "Please check your 'fastagent.secrets.yaml' configuration file and ensure all required API keys are set.",
+                "Please check your 'fast-agent.secrets.yaml' configuration file and ensure all required API keys are set.",
             )
         elif isinstance(e, AgentConfigError):
             handle_error(

@@ -16,18 +16,18 @@ from fast_agent.llm.hf_inference_lookup import (
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_lookup_model_with_providers():
-    """Test looking up a model that has inference providers (Kimi-K2-Thinking)."""
-    result = await lookup_inference_providers("moonshotai/Kimi-K2-Thinking")
+    """Test looking up a model that has inference providers (DeepSeek-V4-Pro)."""
+    result = await lookup_inference_providers("deepseek-ai/DeepSeek-V4-Pro")
 
     assert result.exists is True
     assert result.error is None
-    assert result.model_id == "moonshotai/Kimi-K2-Thinking"
+    assert result.model_id == "deepseek-ai/DeepSeek-V4-Pro"
     assert result.has_providers is True
     assert len(result.live_providers) > 0
 
     # Verify at least one known provider exists
     provider_names = [p.name for p in result.live_providers]
-    known_providers = {"novita", "nebius", "together", "featherless-ai"}
+    known_providers = {"fireworks-ai", "novita", "nebius", "together", "featherless-ai"}
     assert any(name in known_providers for name in provider_names), (
         f"Expected at least one known provider, got: {provider_names}"
     )
@@ -68,9 +68,9 @@ async def test_lookup_nonexistent_model():
 @pytest.mark.asyncio
 async def test_lookup_strips_hf_prefix():
     """Test that hf. prefix is correctly stripped from model ID."""
-    result = await lookup_inference_providers("hf.moonshotai/Kimi-K2-Thinking")
+    result = await lookup_inference_providers("hf.deepseek-ai/DeepSeek-V4-Pro")
 
-    assert result.model_id == "moonshotai/Kimi-K2-Thinking"
+    assert result.model_id == "deepseek-ai/DeepSeek-V4-Pro"
     assert result.exists is True
     assert result.has_providers is True
 
@@ -79,9 +79,9 @@ async def test_lookup_strips_hf_prefix():
 @pytest.mark.asyncio
 async def test_lookup_strips_provider_suffix():
     """Test that :provider suffix is correctly stripped from model ID."""
-    result = await lookup_inference_providers("moonshotai/Kimi-K2-Thinking:together")
+    result = await lookup_inference_providers("deepseek-ai/DeepSeek-V4-Pro:together")
 
-    assert result.model_id == "moonshotai/Kimi-K2-Thinking"
+    assert result.model_id == "deepseek-ai/DeepSeek-V4-Pro"
     assert result.exists is True
     assert result.has_providers is True
 
@@ -90,9 +90,9 @@ async def test_lookup_strips_provider_suffix():
 @pytest.mark.asyncio
 async def test_lookup_strips_both_prefix_and_suffix():
     """Test that both hf. prefix and :provider suffix are correctly stripped."""
-    result = await lookup_inference_providers("hf.moonshotai/Kimi-K2-Thinking:novita")
+    result = await lookup_inference_providers("hf.deepseek-ai/DeepSeek-V4-Pro:novita")
 
-    assert result.model_id == "moonshotai/Kimi-K2-Thinking"
+    assert result.model_id == "deepseek-ai/DeepSeek-V4-Pro"
     assert result.exists is True
     assert result.has_providers is True
 
@@ -101,14 +101,14 @@ async def test_lookup_strips_both_prefix_and_suffix():
 @pytest.mark.asyncio
 async def test_format_model_strings():
     """Test that format_model_strings returns correct model:provider strings."""
-    result = await lookup_inference_providers("moonshotai/Kimi-K2-Thinking")
+    result = await lookup_inference_providers("deepseek-ai/DeepSeek-V4-Pro")
 
     assert result.has_providers
     model_strings = result.format_model_strings()
 
     assert len(model_strings) == len(result.live_providers)
     for model_str in model_strings:
-        assert model_str.startswith("moonshotai/Kimi-K2-Thinking:")
+        assert model_str.startswith("deepseek-ai/DeepSeek-V4-Pro:")
         provider_name = model_str.split(":")[-1]
         assert any(p.name == provider_name for p in result.live_providers)
 
@@ -117,7 +117,7 @@ async def test_format_model_strings():
 @pytest.mark.asyncio
 async def test_format_provider_list():
     """Test that format_provider_list returns comma-separated provider names."""
-    result = await lookup_inference_providers("moonshotai/Kimi-K2-Thinking")
+    result = await lookup_inference_providers("deepseek-ai/DeepSeek-V4-Pro")
 
     assert result.has_providers
     provider_list = result.format_provider_list()
@@ -131,10 +131,10 @@ async def test_format_provider_list():
 @pytest.mark.asyncio
 async def test_format_inference_lookup_message_with_providers():
     """Test formatting a lookup result with providers."""
-    result = await lookup_inference_providers("moonshotai/Kimi-K2-Thinking")
+    result = await lookup_inference_providers("deepseek-ai/DeepSeek-V4-Pro")
     message = format_inference_lookup_message(result)
 
-    assert "moonshotai/Kimi-K2-Thinking" in message
+    assert "deepseek-ai/DeepSeek-V4-Pro" in message
     assert "inference provider" in message.lower()
     assert "/set-model" in message
     assert "hf." in message

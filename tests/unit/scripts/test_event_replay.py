@@ -89,7 +89,7 @@ def test_select_events_applies_window_and_validates() -> None:
 def test_replay_events_replays_progress_with_scaled_timing() -> None:
     now = datetime(2026, 2, 20, 12, 0, 0)
     events = [
-        _event(timestamp=now, action=ProgressAction.CHATTING),
+        _event(timestamp=now, action=ProgressAction.SENDING),
         _event(timestamp=now + timedelta(seconds=1), action=None),
         _event(timestamp=now + timedelta(seconds=3), action=ProgressAction.THINKING),
     ]

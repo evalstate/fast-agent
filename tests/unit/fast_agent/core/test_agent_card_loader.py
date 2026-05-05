@@ -430,3 +430,54 @@ def test_dump_agent_card_preserves_tool_input_schema(tmp_path: Path) -> None:
     assert "tool_input_schema:" in dumped
     assert "query:" in dumped
     assert "required:" in dumped
+
+
+def test_load_agent_card_parses_plugin_command_actions(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: command_agent",
+                "commands:",
+                "  draft-next:",
+                "    description: Draft the next user message",
+                "    input_hint: \"[format]\"",
+                "    handler: \"commands.py:draft_next\"",
+                "    key: \"c-x d\"",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    commands = loaded[0].agent_data["config"].commands
+
+    assert commands is not None
+    assert commands["draft-next"].description == "Draft the next user message"
+    assert commands["draft-next"].handler == "commands.py:draft_next"
+    assert commands["draft-next"].input_hint == "[format]"
+    assert commands["draft-next"].key == "c-x d"
+
+
+def test_dump_agent_card_preserves_plugin_command_actions(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: command_agent",
+                "commands:",
+                "  review-last:",
+                "    description: Review the last response",
+                "    handler: \"commands.py:review_last\"",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    dumped = dump_agent_to_string("command_agent", loaded[0].agent_data, as_yaml=True)
+
+    assert "commands:" in dumped
+    assert "review-last:" in dumped
+    assert "description: Review the last response" in dumped
+    assert "handler: commands.py:review_last" in dumped

@@ -939,8 +939,8 @@ class ConsoleDisplay:
                 saw_phase = True
                 phase_label = PHASE_LABELS.get(phase, phase)
                 label = Text()
-                label.append("▎", style="dim")
-                label.append(phase_label, style="dim")
+                label.append("▎", style="green")
+                label.append(phase_label, style="green")
                 if self._looks_like_markdown(section_text):
                     sections.append(
                         Group(

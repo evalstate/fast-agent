@@ -39,14 +39,9 @@ CURATED_MODELS: list[CuratedModel] = [
         description="MiniMax-M2.1, Optimized specifically for robustness in coding, tool use, instruction following, and long-horizon planning.",
     ),
     CuratedModel(
-        id="deepseek32",
-        display_name="DeepSeek 3.2",
-        description=" DeepSeek-V3.2, a model that harmonizes high computational efficiency with superior reasoning and agent performance.",
-    ),
-    CuratedModel(
-        id="kimithink",
-        display_name="Kimi K2 Thinking",
-        description="Advanced reasoning model with extended thinking",
+        id="deepseek4pro",
+        display_name="DeepSeek V4 Pro",
+        description="DeepSeek-V4-Pro via Fireworks AI, with a 1M token context window and native reasoning stream output.",
     ),
     CuratedModel(
         id="gpt-oss",
@@ -152,7 +147,7 @@ def format_model_list_help() -> str:
             "- `/set-model glm` - Use GLM 4.6",
             "- `/set-model kimi25instant` - Use Kimi 2.5 instant profile",
             "- `/set-model qwen35instruct` - Use Qwen 3.5 with instruct sampling profile",
-            "- `/set-model moonshotai/Kimi-K2-Thinking` - Set model (autoroute) and show providers",
+            "- `/set-model deepseek4pro` - Use DeepSeek V4 Pro",
             "",
             "## Model String Format",
             "",
