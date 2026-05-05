@@ -1420,7 +1420,7 @@ class MCPConnectionManager(ContextDependent):
                 )
 
             raise ServerInitializationError(
-                f"MCP Server: '{server_name}': Failed to initialize - see details. Check fastagent.config.yaml?",
+                f"MCP Server: '{server_name}': Failed to initialize - see details. Check fast-agent.yaml?",
                 _append_stdio_stderr_details(server_conn, formatted_error),
             )
 

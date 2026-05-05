@@ -1303,7 +1303,7 @@ class LoggerSettings(BaseModel):
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
     theme_file: str | None = None
-    """Optional Rich theme file for console styles. Relative paths resolve from fastagent.config.yaml."""
+    """Optional Rich theme file for console styles. Relative paths resolve from fast-agent.yaml."""
     code_theme: str = "native"
     """Pygments / Rich syntax theme for fenced code blocks and markdown code rendering."""
     render_fences_with_syntax: bool = True
@@ -1578,7 +1578,7 @@ class Settings(BaseSettings):
     """Card pack registry selection settings."""
 
     commands: dict[str, PluginCommandActionSpec] | None = None
-    """Global plugin command actions loaded from fastagent.config.yaml."""
+    """Global plugin command actions loaded from fast-agent.yaml."""
 
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
@@ -1598,7 +1598,7 @@ class Settings(BaseSettings):
     @field_validator("commands", mode="before")
     @classmethod
     def _validate_plugin_commands(cls, value: Any) -> dict[str, PluginCommandActionSpec] | None:
-        return parse_plugin_command_action_specs(value, source="fastagent.config.yaml")
+        return parse_plugin_command_action_specs(value, source="fast-agent.yaml")
 
     @field_validator("model_references")
     @classmethod
@@ -1634,20 +1634,9 @@ class Settings(BaseSettings):
 
     @classmethod
     def find_config(cls) -> Path | None:
-        """Find the config file in the current directory or parent directories."""
-        current_dir = Path.cwd()
-
-        # Check current directory and parent directories
-        while current_dir != current_dir.parent:
-            for filename in [
-                "fastagent.config.yaml",
-            ]:
-                config_path = current_dir / filename
-                if config_path.exists():
-                    return config_path
-            current_dir = current_dir.parent
-
-        return None
+        """Find the preferred config file in the current directory."""
+        config_path = Path.cwd() / "fast-agent.yaml"
+        return config_path if config_path.exists() else None
 
 
 # Global settings object

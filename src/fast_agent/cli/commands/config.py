@@ -33,7 +33,7 @@ ConfigOption = Annotated[
     typer.Option(
         "--config",
         "-c",
-        help="Path to config file (default: environment-dir fastagent.config.yaml)",
+        help="Path to config file (default: environment-dir fast-agent.yaml)",
         exists=False,  # Allow non-existent files (will be created)
     ),
 ]

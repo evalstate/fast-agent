@@ -22,8 +22,8 @@ from fast_agent.config import get_settings
 # Create a RAG Corpus, Import Files, and Generate a response
 # uv pip install google-api-python-client
 
-# TODO(developer): Update PROJECT_ID, LOCATION fastagent.config.yaml
-CONFIG_PATH = "fastagent.secrets.yaml"
+# TODO(developer): Update PROJECT_ID, LOCATION fast-agent.yaml
+CONFIG_PATH = "fast-agent.secrets.yaml"
 
 # google:
 #   vertex_ai:
@@ -44,7 +44,7 @@ SAMPLE_DRIVE = "1J3ubtdkmFuWDjfW3_qT2Fhsdn2pbtv-8"
 
 if not PROJECT_ID or not LOCATION:
     raise ValueError(
-        "Missing google.vertex_ai.project_id/location in fastagent.secrets.yaml"
+        "Missing google.vertex_ai.project_id/location in fast-agent.secrets.yaml"
     )
 
 

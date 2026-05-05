@@ -621,6 +621,7 @@ class ModelDatabase:
         default_provider=Provider.HUGGINGFACE,
         model_specific="You have vision capabilities.",
     )
+
     # xAI recommends Grok 4.3 for general text workloads. The pricing/tool
     # invocation tables and file/collection storage pricing are billing policy,
     # not model capability metadata, so they are intentionally not encoded here.
@@ -700,6 +701,15 @@ class ModelDatabase:
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        stream_mode="manual",
+    )
+    MINIMAX_27 = ModelParameters(
+        context_window=192200,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
         stream_mode="manual",
     )
 
@@ -905,6 +915,7 @@ class ModelDatabase:
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "minimaxai/minimax-m2.5": MINIMAX_25,
+        "minimaxai/minimax-m2.7": MINIMAX_27,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,

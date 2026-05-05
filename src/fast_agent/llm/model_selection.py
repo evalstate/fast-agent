@@ -124,10 +124,6 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             CatalogModelEntry(
-                alias="deepseek",
-                model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
-            ),
-            CatalogModelEntry(
                 alias="deepseek4",
                 model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
                 current=False,
@@ -148,6 +144,11 @@ class ModelSelectionCatalog:
             ),
             CatalogModelEntry(
                 alias="glm51", display_label="GLM 5.1", model="hf.zai-org/GLM-5.1:together"
+            ),
+            CatalogModelEntry(
+                alias="minimax27",
+                display_label="Minimax 2.7",
+                model="hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
             ),
             CatalogModelEntry(
                 alias="qwen35",
@@ -171,6 +172,7 @@ class ModelSelectionCatalog:
                 alias="minimax25",
                 display_label="Minimax 2.5",
                 model="hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+                current=False,
             ),
             CatalogModelEntry(
                 alias="kimi25",

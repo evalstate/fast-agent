@@ -2780,13 +2780,13 @@ class FastAgent(DecoratorMixin):
             handle_error(
                 e,
                 "Server Configuration Error",
-                "Please check your 'fastagent.config.yaml' configuration file and add the missing server definitions.",
+                "Please check your 'fast-agent.yaml' configuration file and add the missing server definitions.",
             )
         elif isinstance(e, ProviderKeyError):
             handle_error(
                 e,
                 "Provider Configuration Error",
-                "Please check your 'fastagent.secrets.yaml' configuration file and ensure all required API keys are set.",
+                "Please check your 'fast-agent.secrets.yaml' configuration file and ensure all required API keys are set.",
             )
         elif isinstance(e, AgentConfigError):
             handle_error(

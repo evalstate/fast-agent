@@ -230,7 +230,7 @@ pytest tests/integration/acp/ -v
 Terminal support respects existing shell runtime configuration:
 
 ```yaml
-# fastagent.config.yaml
+# fast-agent.yaml
 shell_execution:
   timeout_seconds: 90  # Applies to both local and ACP terminals
   warning_interval_seconds: 30

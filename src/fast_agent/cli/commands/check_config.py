@@ -736,7 +736,7 @@ def show_models_overview(env_dir: Path | None = None) -> None:
             alias_table.add_row(alias_token, model)
         console.print(alias_table)
     else:
-        console.print("[dim]No model_references configured in fastagent.config.yaml[/dim]")
+        console.print("[dim]No model_references configured in fast-agent.yaml[/dim]")
 
     console.print()
     console.print(
@@ -2054,7 +2054,7 @@ def _render_check_summary_guidance(context: _CheckSummaryContext) -> None:
         console.print(
             "\n[yellow]No API keys configured. Set up API keys to use LLM services:[/yellow]"
         )
-        console.print("1. Add keys to fastagent.secrets.yaml")
+        console.print("1. Add keys to fast-agent.secrets.yaml")
         env_vars = ", ".join(
             filter(
                 None,

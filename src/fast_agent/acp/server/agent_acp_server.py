@@ -81,7 +81,7 @@ logger = get_logger(__name__)
 
 ACP_AUTH_METHOD_ID = "fast-agent-ai-secrets"
 ACP_AUTH_DOCS_URL = "https://fast-agent.ai/ref/config_file/"
-ACP_AUTH_CONFIG_FILE = "fastagent.secrets.yaml"
+ACP_AUTH_CONFIG_FILE = "fast-agent.secrets.yaml"
 ACP_AUTH_RECOMMENDED_COMMANDS: tuple[str, ...] = (
     "fast-agent check",
     "fast-agent model doctor",
@@ -369,7 +369,7 @@ class AgentACPServer(ACPAgent):
                     id=ACP_AUTH_METHOD_ID,
                     name="Configure fast-agent",
                     description=(
-                        "Set provider keys in fastagent.secrets.yaml or env vars. "
+                        "Set provider keys in fast-agent.secrets.yaml or env vars. "
                         "See docs: [Configuration Reference](https://fast-agent.ai/ref/config_file/)"
                     ),
                 )
