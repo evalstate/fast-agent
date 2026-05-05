@@ -84,14 +84,14 @@ def resolve_fast_agent_home(
         return FastAgentHome(_resolve_path(cli_override, base), "cli")
 
     runtime_environment = os.getenv(FAST_AGENT_RUNTIME_ENVIRONMENT)
-    if runtime_environment:
+    legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
+    if runtime_environment and legacy_environment_dir == runtime_environment:
         return FastAgentHome(_resolve_path(runtime_environment, base), "cli")
 
     fast_agent_home = os.getenv("FAST_AGENT_HOME")
     if fast_agent_home:
         return FastAgentHome(_resolve_path(fast_agent_home, base), "FAST_AGENT_HOME")
 
-    legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
     if legacy_environment_dir:
         return FastAgentHome(_resolve_path(legacy_environment_dir, base), "ENVIRONMENT_DIR")
 
