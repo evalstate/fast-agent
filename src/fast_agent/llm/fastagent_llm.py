@@ -349,7 +349,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return any(message.tool_results for message in messages)
 
     def _has_structured_intent(self, request_params: RequestParams) -> bool:
-        return request_params.structured_schema is not None or request_params.response_format is not None
+        return (
+            request_params.structured_schema is not None
+            or request_params.response_format is not None
+        )
 
     def _should_suppress_structured_schema_for_tools(
         self,
@@ -427,9 +430,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.anthropic_web_fetch_version if params is not None else None
 
-    def _get_model_anthropic_required_betas(
-        self, model_name: str | None
-    ) -> tuple[str, ...] | None:
+    def _get_model_anthropic_required_betas(self, model_name: str | None) -> tuple[str, ...] | None:
         params = self._get_model_params(model_name)
         return params.anthropic_required_betas if params is not None else None
 
@@ -543,7 +544,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         )
 
     def _provider_config_sections(self) -> tuple[str, ...]:
-        section_name = getattr(self, "config_section", None) or getattr(self.provider, "value", None)
+        section_name = getattr(self, "config_section", None) or getattr(
+            self.provider, "value", None
+        )
         return (section_name,) if section_name else ()
 
     def _provider_config_fallback_sections(self) -> tuple[str, ...]:
@@ -676,7 +679,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                         paused_progress = progress_display.paused()
 
                     with paused_progress:
-                        error_console.print(f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]")
+                        error_console.print(
+                            f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]"
+                        )
                         error_console.print(
                             f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
                         )
@@ -787,7 +792,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if suppress_schema or suppress_final_tools:
             policy = self._resolve_structured_tool_policy(final_request_params)
             model_name = (
-                prepared_request_params.model or self.default_request_params.model or self._model_name
+                prepared_request_params.model
+                or self.default_request_params.model
+                or self._model_name
             )
             if policy == "defer" and not self._structured_tool_defer_info_logged:
                 self.logger.info(
@@ -1246,7 +1253,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             # Use verb directly regardless of type
             act = self.verb
         else:
-            act = ProgressAction.CHATTING
+            act = ProgressAction.SENDING
 
         data = {
             "progress_action": act,

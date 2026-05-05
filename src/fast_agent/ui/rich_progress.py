@@ -40,7 +40,7 @@ class SpinnerDescriptionColumn(ProgressColumn):
         super().__init__(table_column=table_column or Column(no_wrap=True))
 
     def render(self, task: "Task") -> Text:
-        description_markup = f"[{self.description_style}]{task.description}▎"
+        description_markup = f"[{self.description_style}]{task.description}"
         if self.markup:
             description_text = Text.from_markup(description_markup)
         else:
@@ -69,7 +69,7 @@ class RichProgressDisplay:
             self._description_spinner,
             TextColumn(
                 text_format="{task.fields[target]}",
-                style="Bold Blue",
+                style="Blue",
                 table_column=Column(
                     min_width=10,
                     max_width=16,
@@ -299,14 +299,14 @@ class RichProgressDisplay:
             ProgressAction.CONNECTING: "bold yellow",
             ProgressAction.LOADED: "dim green",
             ProgressAction.INITIALIZED: "dim green",
-            ProgressAction.CHATTING: "bold blue",
-            ProgressAction.STREAMING: "bold green",  # Assistant Colour
-            ProgressAction.THINKING: "bold yellow",  # Assistant Colour
-            ProgressAction.ROUTING: "bold blue",
-            ProgressAction.PLANNING: "bold blue",
+            ProgressAction.SENDING: "blue",
+            ProgressAction.STREAMING: "green",  # Assistant Colour
+            ProgressAction.THINKING: "yellow",  # Assistant Colour
+            ProgressAction.ROUTING: "blue",
+            ProgressAction.PLANNING: "blue",
             ProgressAction.READY: "dim green",
-            ProgressAction.CALLING_TOOL: "bold magenta",
-            ProgressAction.TOOL_PROGRESS: "bold magenta",
+            ProgressAction.CALLING_TOOL: "magenta",
+            ProgressAction.TOOL_PROGRESS: "magenta",
             ProgressAction.FINISHED: "black on green",
             ProgressAction.SHUTDOWN: "black on red",
             ProgressAction.AGGREGATOR_INITIALIZED: "bold green",
@@ -537,8 +537,8 @@ class RichProgressDisplay:
             # Account for [dim][/dim] tags (11 characters) in padding calculation
             formatted_tokens = f"▎[dim]◀[/dim] {event.streaming_tokens.strip()}".ljust(17 + 11)
             description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
-        elif event.action == ProgressAction.CHATTING:
-            # Add special formatting for chatting with dimmed arrow
+        elif event.action == ProgressAction.SENDING:
+            # Add special formatting for sending with dimmed arrow
             formatted_text = f"▎[dim]▶[/dim] {event.action.value.strip()}".ljust(17 + 11)
             description = f"[{self._get_action_style(event.action)}]{formatted_text}"
         elif event.action == ProgressAction.CALLING_TOOL:

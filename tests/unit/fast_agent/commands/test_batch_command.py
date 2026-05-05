@@ -106,3 +106,46 @@ def test_batch_structured_accepts_pydantic_schema_model(tmp_path):
     record = json.loads(output_path.read_text(encoding="utf-8"))
     assert record["ok"] is True
     assert record["result"] == {"id": "1", "x": 2}
+
+
+def test_batch_structured_accepts_shell_runtime_flag(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    schema_path = tmp_path / "schema.json"
+    summary_path = tmp_path / "summary.json"
+    template_path = tmp_path / "row.md"
+
+    input_path.write_text('{"id":"1","x":2}\n', encoding="utf-8")
+    schema_path.write_text('{"type":"object"}', encoding="utf-8")
+    template_path.write_text("{{row_json}}", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "structured",
+            "-x",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--schema",
+            str(schema_path),
+            "--template",
+            str(template_path),
+            "--model",
+            "passthrough",
+            "--summary-output",
+            str(summary_path),
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["shell_runtime"] is True

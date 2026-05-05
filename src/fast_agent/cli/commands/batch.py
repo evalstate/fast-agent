@@ -10,6 +10,7 @@ import typer
 
 from fast_agent.batch.structured import StructuredBatchOptions, run_structured_batch
 from fast_agent.cli.command_support import ensure_context_object
+from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.utils.async_utils import configure_uvloop
 
 app = typer.Typer(help="Run batch processing jobs.")
@@ -92,6 +93,7 @@ def structured(
         "--final-summary/--no-final-summary",
         help="Print final summary to stdout",
     ),
+    shell_runtime: bool = CommonAgentOptions.shell(),
 ) -> None:
     """Run one selected input row -> one structured model request -> one output record."""
     for value, name in (
@@ -136,6 +138,7 @@ def structured(
         summary_output_path=summary_output_path,
         final_summary=final_summary,
         environment_dir=environment_dir,
+        shell_runtime=shell_runtime,
     )
 
     try:

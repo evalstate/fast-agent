@@ -55,6 +55,7 @@ class StructuredBatchOptions:
     summary_output_path: Path | None = None
     final_summary: bool = True
     environment_dir: Path | None = None
+    shell_runtime: bool = False
 
 
 PydanticModel: TypeAlias = type[BaseModel]
@@ -259,6 +260,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
             "schema_model": options.schema_model,
             "instruction": str(options.instruction_path) if options.instruction_path else None,
             "template": str(options.template_path) if options.template_path else "<default>",
+            "shell_runtime": options.shell_runtime,
         },
     )
 
@@ -277,6 +279,10 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
     @fast.agent(name="batch_worker", instruction=instruction, model=options.model, default=True)
     async def batch_worker() -> None:
         pass
+
+    if options.shell_runtime:
+        await fast.app.initialize()
+        setattr(fast.app.context, "shell_runtime", True)
 
     output_mode = "a" if options.resume else "w"
     if options.overwrite:

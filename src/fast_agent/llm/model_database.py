@@ -166,9 +166,10 @@ class ModelDatabase:
     QWEN_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     XAI_VISION = ["text/plain", "image/jpeg", "image/png"]
     TEXT_ONLY = ["text/plain"]
+    # encourage commentary
     GPT_53_PLUS_MODEL_SPECIFIC = (
-        "Before making tool calls, send a brief preamble to the user\n"
-        "   explaining what you’re about to do."
+        "Before making tool calls, send a brief preamble to the user "
+        "explaining what you’re about to do."
     )
 
     OPENAI_O_CLASS_REASONING = ReasoningEffortSpec(
