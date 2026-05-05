@@ -60,8 +60,8 @@ from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, Sessi
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
-from fast_agent.config import MCPServerSettings
-from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.config import MCPServerSettings, get_settings
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
@@ -478,6 +478,17 @@ class AgentACPServer(ACPAgent):
         return str(path.resolve())
 
     def _get_session_manager(self, *, cwd: Path | None = None) -> Any:
+        if cwd is None:
+            return get_session_manager()
+
+        settings = get_settings()
+        configured_environment_dir = settings.environment_dir
+        if configured_environment_dir is not None:
+            return get_session_manager(cwd=cwd, environment_override=configured_environment_dir)
+
+        if settings._fast_agent_home_source == "default":
+            return get_session_manager(cwd=cwd, environment_override=DEFAULT_ENVIRONMENT_DIR)
+
         return get_session_manager(cwd=cwd)
 
     @staticmethod

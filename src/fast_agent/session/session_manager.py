@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Mapping
 
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.session.snapshot import (
@@ -65,6 +66,30 @@ def _normalized_environment_override(cwd: pathlib.Path) -> str | None:
     if home is None or home.source == "default":
         return None
     return str(home.path)
+
+
+def _session_environment_override(
+    *,
+    cwd: pathlib.Path,
+    explicit_cwd: bool,
+    environment_override: str | pathlib.Path | None,
+    respect_env_override: bool,
+) -> str | pathlib.Path | None:
+    if environment_override is not None or not respect_env_override:
+        return environment_override
+
+    env_override = _normalized_environment_override(cwd)
+    if env_override is not None:
+        return env_override
+
+    if explicit_cwd:
+        from fast_agent.config import get_settings
+
+        settings = get_settings()
+        if settings.environment_dir is None and settings._fast_agent_home_source == "default":
+            return DEFAULT_ENVIRONMENT_DIR
+
+    return None
 
 
 def display_session_name(name: str) -> str:
@@ -564,10 +589,14 @@ class SessionManager:
         respect_env_override: bool = True,
     ) -> None:
         """Initialize session manager."""
+        explicit_cwd = cwd is not None
         base = (cwd or pathlib.Path.cwd()).resolve()
-        env_override = environment_override
-        if env_override is None:
-            env_override = _normalized_environment_override(base) if respect_env_override else None
+        env_override = _session_environment_override(
+            cwd=base,
+            explicit_cwd=explicit_cwd,
+            environment_override=environment_override,
+            respect_env_override=respect_env_override,
+        )
         env_paths = resolve_environment_paths(cwd=base, override=env_override)
         self.workspace_dir = base
         self.base_dir = env_paths.sessions
@@ -1079,24 +1108,26 @@ def get_session_manager(
 ) -> SessionManager:
     """Get or create the global session manager."""
     global _session_manager
+    explicit_cwd = cwd is not None
     resolved_cwd = cwd.resolve() if cwd is not None else pathlib.Path.cwd().resolve()
-    env_override = environment_override
-    if env_override is None:
-        env_override = (
-            _normalized_environment_override(resolved_cwd) if respect_env_override else None
-        )
+    env_override = _session_environment_override(
+        cwd=resolved_cwd,
+        explicit_cwd=explicit_cwd,
+        environment_override=environment_override,
+        respect_env_override=respect_env_override,
+    )
     expected_paths = resolve_environment_paths(cwd=resolved_cwd, override=env_override)
     if _session_manager is None:
         _session_manager = SessionManager(
             cwd=cwd,
-            environment_override=environment_override,
+            environment_override=env_override,
             respect_env_override=respect_env_override,
         )
         return _session_manager
     if _session_manager.base_dir != expected_paths.sessions:
         _session_manager = SessionManager(
             cwd=cwd,
-            environment_override=environment_override,
+            environment_override=env_override,
             respect_env_override=respect_env_override,
         )
     elif _session_manager.workspace_dir != resolved_cwd:
