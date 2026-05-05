@@ -6,6 +6,7 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 """
 
 import asyncio
+import os
 from importlib.metadata import version as get_version
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Sequence, cast
@@ -483,7 +484,14 @@ class AgentACPServer(ACPAgent):
 
         settings = get_settings()
         configured_environment_dir = settings.environment_dir
-        if configured_environment_dir is not None:
+        legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
+        ambient_legacy_environment_dir = (
+            configured_environment_dir is not None
+            and legacy_environment_dir is not None
+            and Path(configured_environment_dir).expanduser()
+            == Path(legacy_environment_dir).expanduser()
+        )
+        if configured_environment_dir is not None and not ambient_legacy_environment_dir:
             return get_session_manager(cwd=cwd, environment_override=configured_environment_dir)
 
         if settings._fast_agent_home_source == "default":
