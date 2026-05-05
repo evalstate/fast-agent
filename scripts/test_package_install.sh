@@ -37,7 +37,7 @@ fi
 
 # Run the quickstart command
 fast-agent quickstart state-transfer
-if [ -d "state-transfer" ] && [ -f "state-transfer/agent_one.py" ] && [ -f "state-transfer/fastagent.config.yaml" ]; then
+if [ -d "state-transfer" ] && [ -f "state-transfer/agent_one.py" ] && [ -f "state-transfer/fast-agent.yaml" ]; then
     echo "✅ Test successful: state-transfer examples created!"
 else
     echo "❌ Test failed: state-transfer examples not created."
@@ -50,7 +50,7 @@ fi
 printf '\n' | fast-agent scaffold --force
 
 # Check that setup created the expected files in the current directory
-if [ -f "fastagent.config.yaml" ] && [ -f "fastagent.secrets.yaml" ] && [ -f "agent.py" ]; then
+if [ -f "fast-agent.yaml" ] && [ -f "fast-agent.secrets.yaml" ] && [ -f "agent.py" ]; then
     echo "✅ Test successful: setup created config, secrets, and agent.py!"
 else
     echo "❌ Test failed: setup did not create expected files."
