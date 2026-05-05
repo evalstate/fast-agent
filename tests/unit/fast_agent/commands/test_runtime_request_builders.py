@@ -302,6 +302,38 @@ def test_build_command_run_request_accepts_json_schema_for_message_mode() -> Non
     assert request.quiet is True
 
 
+def test_build_command_run_request_accepts_structured_tool_policy_for_json_schema() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message="hello",
+        prompt_file=None,
+        json_schema="schema.json",
+        structured_tool_policy="defer",
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        mode="interactive",
+    )
+
+    assert request.structured_tool_policy == "defer"
+    assert request.to_agent_setup_kwargs()["structured_tool_policy"] == "defer"
+
+
 def test_build_command_run_request_accepts_json_schema_for_prompt_file_mode() -> None:
     request = build_command_run_request(
         name="cli",
@@ -529,6 +561,98 @@ def test_build_command_run_request_rejects_json_schema_with_schema_model() -> No
             prompt_file=None,
             json_schema="schema.json",
             schema_model="tests.fixtures:Result",
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
+        )
+
+
+def test_build_command_run_request_rejects_structured_tool_policy_without_json_schema() -> None:
+    with pytest.raises(typer.BadParameter, match="--structured-tool-policy requires --json-schema"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message="hello",
+            prompt_file=None,
+            structured_tool_policy="defer",
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
+        )
+
+
+def test_build_command_run_request_rejects_structured_tool_policy_with_schema_model() -> None:
+    with pytest.raises(
+        typer.BadParameter,
+        match="--structured-tool-policy cannot be combined with --schema-model",
+    ):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message="hello",
+            prompt_file=None,
+            schema_model="tests.fixtures:Result",
+            structured_tool_policy="defer",
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
+        )
+
+
+def test_build_command_run_request_rejects_invalid_structured_tool_policy() -> None:
+    with pytest.raises(typer.BadParameter, match="structured tool policy must be"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message="hello",
+            prompt_file=None,
+            json_schema="schema.json",
+            structured_tool_policy="sometimes",
             result_file=None,
             resume=None,
             npx=None,

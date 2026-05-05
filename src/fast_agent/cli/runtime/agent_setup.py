@@ -48,7 +48,7 @@ from .shell_cwd_policy import (
 )
 
 if TYPE_CHECKING:
-    from fast_agent.types import PromptMessageExtended
+    from fast_agent.types import PromptMessageExtended, StructuredToolPolicy
 
     from .run_request import AgentRunRequest
 
@@ -59,10 +59,20 @@ async def _structured_call(
     agent_obj: Any,
     prompt: Any,
     schema_source: StructuredSchemaSource,
+    structured_tool_policy: StructuredToolPolicy | None = None,
 ) -> tuple[Any | None, Any]:
     if isinstance(schema_source, type) and issubclass(schema_source, BaseModel):
         return await agent_obj.structured(prompt, schema_source)
-    return await agent_obj.structured_schema(prompt, schema_source)
+    if structured_tool_policy is None:
+        return await agent_obj.structured_schema(prompt, schema_source)
+
+    from fast_agent.types import RequestParams
+
+    return await agent_obj.structured_schema(
+        prompt,
+        schema_source,
+        RequestParams(structured_tool_policy=structured_tool_policy),
+    )
 
 
 def _structured_output_payload(parsed: Any) -> Any:
@@ -883,7 +893,12 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             response = await agent_obj.generate(request.message)
             print(response.last_text() or "")
         else:
-            parsed, response = await _structured_call(agent_obj, request.message, structured_source)
+            parsed, response = await _structured_call(
+                agent_obj,
+                request.message,
+                structured_source,
+                request.structured_tool_policy,
+            )
             if parsed is None:
                 typer.echo(
                     "Error: model response did not produce valid JSON matching the structured output schema.",
@@ -908,7 +923,12 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             response = await agent_obj.generate(prompt)
             print(response.last_text() or "")
         else:
-            parsed, response = await _structured_call(agent_obj, prompt, structured_source)
+            parsed, response = await _structured_call(
+                agent_obj,
+                prompt,
+                structured_source,
+                request.structured_tool_policy,
+            )
             if parsed is None:
                 typer.echo(
                     "Error: model response did not produce valid JSON matching the structured output schema.",

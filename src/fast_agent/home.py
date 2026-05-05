@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, FAST_AGENT_RUNTIME_ENVIRONMENT
 from fast_agent.core.exceptions import ConfigFileError
 
 HomeSource = Literal["cli", "FAST_AGENT_HOME", "ENVIRONMENT_DIR", "default"]
@@ -83,11 +83,17 @@ def resolve_fast_agent_home(
     if cli_override is not None:
         return FastAgentHome(_resolve_path(cli_override, base), "cli")
 
+    runtime_environment = os.getenv(FAST_AGENT_RUNTIME_ENVIRONMENT)
+    legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
+    if runtime_environment:
+        runtime_path = _resolve_path(runtime_environment, base)
+        if legacy_environment_dir == runtime_environment or _is_relative_to(runtime_path, base):
+            return FastAgentHome(runtime_path, "cli")
+
     fast_agent_home = os.getenv("FAST_AGENT_HOME")
     if fast_agent_home:
         return FastAgentHome(_resolve_path(fast_agent_home, base), "FAST_AGENT_HOME")
 
-    legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
     if legacy_environment_dir:
         return FastAgentHome(_resolve_path(legacy_environment_dir, base), "ENVIRONMENT_DIR")
 
@@ -234,6 +240,14 @@ def _resolve_path(path: str | Path, cwd: Path) -> Path:
     if not resolved.is_absolute():
         resolved = cwd / resolved
     return resolved.resolve()
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return False
+    return True
 
 
 def _format_ambiguity(kind: str, directory: Path, candidates: tuple[Path, ...]) -> str:

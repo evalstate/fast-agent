@@ -543,9 +543,10 @@ class FastAgent(DecoratorMixin):
 
     def _is_acp_server_mode(self) -> bool:
         """Return True when this instance is serving the ACP transport."""
-        return bool(getattr(self.args, "server", False)) and getattr(
-            self.args, "transport", None
-        ) == "acp"
+        return (
+            bool(getattr(self.args, "server", False))
+            and getattr(self.args, "transport", None) == "acp"
+        )
 
     @property
     def context(self) -> Context:
@@ -1337,7 +1338,9 @@ class FastAgent(DecoratorMixin):
                     target_label = target
 
                 existing = effective_servers.get(resolved_name)
-                if existing is not None and not self._settings_equivalent(existing, resolved_settings):
+                if existing is not None and not self._settings_equivalent(
+                    existing, resolved_settings
+                ):
                     raise AgentConfigError(
                         (
                             f"Server name collision for '{resolved_name}' from mcp_connect "
@@ -1368,7 +1371,9 @@ class FastAgent(DecoratorMixin):
 
             base_servers = list(self._agent_declared_servers.get(name, []))
             self._agent_declared_servers[name] = base_servers
-            merged_servers = list(dict.fromkeys(base_servers + resolved_servers_by_agent.get(name, [])))
+            merged_servers = list(
+                dict.fromkeys(base_servers + resolved_servers_by_agent.get(name, []))
+            )
             config_obj.servers = merged_servers
 
         for name in list(self._agent_declared_servers.keys()):
@@ -1798,7 +1803,9 @@ class FastAgent(DecoratorMixin):
     ) -> AgentRefreshResult:
         agents_to_hydrate = updated_agents if updated_agents is not None else agents
         hydration_result = self._hydrate_active_agents_from_session(agents_to_hydrate)
-        hydration = await hydration_result if inspect.isawaitable(hydration_result) else hydration_result
+        hydration = (
+            await hydration_result if inspect.isawaitable(hydration_result) else hydration_result
+        )
         if hydration is None:
             if updated_agents:
                 self._reload_updated_agent_file_histories(
@@ -1866,7 +1873,9 @@ class FastAgent(DecoratorMixin):
                 await agent.shutdown()
 
             old_agents = {
-                name: active_agents_local.get(name) for name in impacted if name in active_agents_local
+                name: active_agents_local.get(name)
+                for name in impacted
+                if name in active_agents_local
             }
 
             await self._rebuild_impacted_agents(
@@ -1885,7 +1894,9 @@ class FastAgent(DecoratorMixin):
 
             if impacted:
                 updated_agents = {
-                    name: active_agents_local[name] for name in impacted if name in active_agents_local
+                    name: active_agents_local[name]
+                    for name in impacted
+                    if name in active_agents_local
                 }
                 await self._finalize_updated_agents(updated_agents, state.runtime)
                 refresh_result = await self._refresh_result_from_session_restore(
@@ -2168,9 +2179,7 @@ class FastAgent(DecoratorMixin):
         app.set_attach_mcp_server_callback(attach_mcp_server)
         app.set_detach_mcp_server_callback(detach_mcp_server)
         app.set_list_attached_mcp_servers_callback(list_attached_mcp_servers)
-        app.set_list_configured_detached_mcp_servers_callback(
-            list_configured_detached_mcp_servers
-        )
+        app.set_list_configured_detached_mcp_servers_callback(list_configured_detached_mcp_servers)
 
     def _configure_wrapper_callbacks(
         self,
@@ -2383,7 +2392,9 @@ class FastAgent(DecoratorMixin):
     ) -> AgentProtocol:
         if agent_name and agent_name not in active_agents:
             available_agents = ", ".join(active_agents.keys())
-            print(f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}")
+            print(
+                f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}"
+            )
             raise SystemExit(1)
         return wrapper._agent(agent_name)
 
@@ -2804,7 +2815,7 @@ class FastAgent(DecoratorMixin):
             handle_error(
                 e,
                 "Model Configuration Error",
-                "Common models: gpt-5.1, kimi, sonnet, haiku. Set reasoning effort on supported models with gpt-5-mini?reasoning=high",
+                "Common models: gpt-5.5, kimi, sonnet, haiku. Set reasoning effort on supported models with gpt-5.4-mini?reasoning=high",
             )
         elif isinstance(e, CircularDependencyError):
             handle_error(

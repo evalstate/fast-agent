@@ -2,6 +2,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 
+from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
 from fast_agent.paths import default_skill_paths
 from fast_agent.skills.registry import SkillRegistry
 
@@ -11,12 +12,18 @@ def _without_environment_dir():
     import fast_agent.config as config_module
 
     original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    original_fast_agent_home = os.environ.pop("FAST_AGENT_HOME", None)
+    original_runtime_environment = os.environ.pop(FAST_AGENT_RUNTIME_ENVIRONMENT, None)
     original_settings = getattr(config_module, "_settings", None)
     config_module._settings = None
     try:
         yield
     finally:
         config_module._settings = original_settings
+        if original_runtime_environment is not None:
+            os.environ[FAST_AGENT_RUNTIME_ENVIRONMENT] = original_runtime_environment
+        if original_fast_agent_home is not None:
+            os.environ["FAST_AGENT_HOME"] = original_fast_agent_home
         if original_env_dir is not None:
             os.environ["ENVIRONMENT_DIR"] = original_env_dir
 
@@ -49,6 +56,26 @@ def test_default_directory_prefers_fast_agent(tmp_path: Path) -> None:
 
         manifests = registry.load_manifests()
         assert {manifest.name for manifest in manifests} == {"alpha", "beta"}
+
+
+def test_runtime_environment_takes_precedence_over_fast_agent_home(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runtime_skills = workspace / ".cdx" / "skills"
+    home_skills = tmp_path / "home" / "skills"
+    write_skill(runtime_skills, "runtime", body="Runtime body")
+    write_skill(home_skills, "home", body="Home body")
+
+    monkeypatch.setenv("FAST_AGENT_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv(FAST_AGENT_RUNTIME_ENVIRONMENT, str(workspace / ".cdx"))
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+
+    registry = SkillRegistry(base_dir=workspace)
+
+    assert registry.directories == [runtime_skills.resolve()]
+    assert [manifest.name for manifest in registry.load_manifests()] == ["runtime"]
 
 
 def test_default_directory_falls_back_to_claude(tmp_path: Path) -> None:
