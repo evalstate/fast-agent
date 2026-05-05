@@ -115,7 +115,7 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.DEEPSEEK: (
-            CatalogModelEntry(alias="deepseek", model="deepseek.deepseek-chat", fast=True),
+            CatalogModelEntry(alias="deepseek3", model="deepseek.deepseek-chat", fast=True),
         ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
@@ -124,8 +124,13 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             CatalogModelEntry(
+                alias="deepseek",
+                model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+            ),
+            CatalogModelEntry(
                 alias="deepseek4",
                 model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+                current=False,
             ),
             CatalogModelEntry(
                 alias="kimi26",

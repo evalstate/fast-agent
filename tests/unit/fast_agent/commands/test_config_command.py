@@ -118,7 +118,7 @@ def test_load_config_defaults_to_environment_config_path(tmp_path: Path, monkeyp
     monkeypatch.chdir(workspace)
     monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
 
-    expected = workspace / ".fast-agent" / "fastagent.config.yaml"
+    expected = workspace / ".fast-agent" / "fast-agent.yaml"
 
     config_data, config_path = config_command._load_config()
 
@@ -152,7 +152,7 @@ def test_load_config_prefers_cwd_config_before_legacy(
     assert config_data == {"logger": {"show_tools": True}}
 
 
-def test_load_config_falls_back_to_legacy_parent_config(
+def test_load_config_ignores_parent_config(
     tmp_path: Path, monkeypatch
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -169,11 +169,11 @@ def test_load_config_falls_back_to_legacy_parent_config(
 
     config_data, config_path = config_command._load_config()
 
-    assert config_path == workspace / "fastagent.config.yaml"
-    assert config_data == {"logger": {"show_tools": False}}
+    assert config_path == nested / ".fast-agent" / "fast-agent.yaml"
+    assert config_data == {}
 
 
-def test_config_display_updates_legacy_parent_config_when_run_from_nested_dir(
+def test_config_display_writes_selected_home_config_when_parent_config_exists(
     tmp_path: Path, monkeypatch
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -213,7 +213,7 @@ def test_config_display_updates_legacy_parent_config_when_run_from_nested_dir(
     assert result.exit_code == 0, result.output
 
     config_data, config_path = config_command._load_config()
-    assert config_path == workspace / "fastagent.config.yaml"
+    assert config_path == nested / ".fast-agent" / "fast-agent.yaml"
     logger = config_data["logger"]
     assert logger["show_tools"] is False
     assert logger["show_chat"] is False

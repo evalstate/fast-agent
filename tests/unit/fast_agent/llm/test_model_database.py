@@ -771,10 +771,7 @@ def test_model_database_runtime_model_params_registration():
 
 
 def test_model_specific_defaults_for_gpt_53_plus_family():
-    expected = (
-        "Before making tool calls, send a brief preamble to the user\n"
-        "   explaining what you’re about to do."
-    )
+    expected = "Before making tool calls, send a brief preamble to the user explaining what you’re about to do."
 
     for model_name in (
         "gpt-5.3-codex",

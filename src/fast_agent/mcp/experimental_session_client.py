@@ -80,7 +80,7 @@ class JsonFileSessionCookieStore:
 
     @classmethod
     def from_environment(cls) -> JsonFileSessionCookieStore:
-        env_paths = resolve_environment_paths(override=os.getenv("ENVIRONMENT_DIR"))
+        env_paths = resolve_environment_paths()
         return cls(env_paths.root / "mcp-cookie.json")
 
     def load(self) -> dict[str, dict[str, Any]]:

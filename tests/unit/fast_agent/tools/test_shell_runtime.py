@@ -149,6 +149,31 @@ def _extract_progress_payloads(logger: RecordingFastLogger) -> list[dict[str, An
     return payloads
 
 
+def test_shell_process_plan_exports_runtime_home(tmp_path: Path) -> None:
+    settings = Settings()
+    settings._fast_agent_home = str(tmp_path / ".fast-agent")
+    runtime = ShellRuntime(activation_reason="test", logger=logging.getLogger(__name__), config=settings)
+
+    plan = runtime._build_process_plan(tmp_path)
+
+    assert plan.process_kwargs["env"]["FAST_AGENT_RUNTIME_ENVIRONMENT"] == str(
+        (tmp_path / ".fast-agent").resolve()
+    )
+    assert plan.process_kwargs["env"]["ENVIRONMENT_DIR"] == str((tmp_path / ".fast-agent").resolve())
+
+
+def test_shell_process_plan_strips_runtime_home_in_noenv(tmp_path: Path) -> None:
+    settings = Settings()
+    settings._fast_agent_home = str(tmp_path / ".fast-agent")
+    settings._fast_agent_noenv = True
+    runtime = ShellRuntime(activation_reason="test", logger=logging.getLogger(__name__), config=settings)
+
+    plan = runtime._build_process_plan(tmp_path)
+
+    assert "FAST_AGENT_RUNTIME_ENVIRONMENT" not in plan.process_kwargs["env"]
+    assert "ENVIRONMENT_DIR" not in plan.process_kwargs["env"]
+
+
 def _terminate_pid(pid_path: Path) -> None:
     if not pid_path.exists():
         return

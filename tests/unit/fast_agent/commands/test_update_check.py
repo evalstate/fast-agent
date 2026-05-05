@@ -44,6 +44,7 @@ def test_resolve_update_check_marker_path_uses_configured_environment_dir(
 ) -> None:
     previous_settings = get_settings()
     monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     update_global_settings(Settings(environment_dir=".dev"))
     (tmp_path / ".dev").mkdir()
 

@@ -50,6 +50,7 @@ class ServerRegistry:
             config_path (str): Path to the YAML configuration file.
         """
         self._init_results: dict[str, "InitializeResult"] = {}
+        self._config = config
         if config is not None and config.mcp is not None:
             self.registry = config.mcp.servers or {}
 
@@ -142,6 +143,8 @@ class ServerRegistry:
                 server_name=server_name,
                 config=config,
                 trigger_oauth=oauth_enabled,
+                active_home=getattr(self._config, "_fast_agent_home", None),
+                noenv=bool(getattr(self._config, "_fast_agent_noenv", False)),
             )
 
             async with transport_context as (read_stream, write_stream, _get_session_id_cb):

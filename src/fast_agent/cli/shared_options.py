@@ -85,7 +85,15 @@ class CommonAgentOptions:
             "--json-schema",
             help="Path to a JSON Schema file used for one-shot structured output",
         )
-    
+
+    @staticmethod
+    def schema_model():
+        return typer.Option(
+            None,
+            "--schema-model",
+            help="Pydantic BaseModel import path used for one-shot structured output (module.path:ClassName)",
+        )
+
     @staticmethod
     def env_dir():
         return typer.Option(None, "--env", help="Override the base fast-agent environment directory")
@@ -118,6 +126,14 @@ class CommonAgentOptions:
     @staticmethod
     def shell():
         return typer.Option(False, "--shell", "-x", help="Enable a local shell runtime and expose the execute tool (bash or pwsh).")
+
+    @staticmethod
+    def no_shell():
+        return typer.Option(
+            False,
+            "--no-shell",
+            help="Disable local shell/filesystem tools, even when skills or agent config request them.",
+        )
 
     @staticmethod
     def smart():

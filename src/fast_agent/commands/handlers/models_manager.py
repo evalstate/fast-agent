@@ -41,7 +41,7 @@ _PROVIDER_NAME_ALIASES: dict[str, str] = {
 }
 
 _NO_MODEL_REFERENCES_NOTE = (
-    "No model_references are configured. Add a model_references section in fastagent.config.yaml."
+    "No model_references are configured. Add a model_references section in fast-agent.yaml."
 )
 _REFERENCES_USAGE = (
     "Usage: /model references "

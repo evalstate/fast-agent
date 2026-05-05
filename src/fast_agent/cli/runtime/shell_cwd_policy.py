@@ -91,9 +91,13 @@ def collect_shell_cwd_issues(
     agents: Mapping[str, AgentCardData],
     *,
     shell_runtime_requested: bool,
+    no_shell: bool = False,
     cwd: Path | None = None,
 ) -> list[ShellCwdIssue]:
     """Collect invalid shell cwd entries from currently loaded agent configs."""
+    if no_shell:
+        return []
+
     base_dir = cwd or Path.cwd()
     issues: list[ShellCwdIssue] = []
 
@@ -250,5 +254,8 @@ def _shell_runtime_active_for_agent(
     shell_runtime_requested: bool,
     shell_enabled: bool,
     skills_configured: bool,
+    no_shell: bool = False,
 ) -> bool:
+    if no_shell:
+        return False
     return shell_runtime_requested or shell_enabled or skills_configured

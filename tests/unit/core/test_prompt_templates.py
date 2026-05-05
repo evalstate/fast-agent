@@ -153,6 +153,7 @@ This is the skill body content.
     client_info = {"name": "test-client"}
 
     original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    original_fast_agent_home = os.environ.pop("FAST_AGENT_HOME", None)
     import fast_agent.config as config_module
     original_settings = getattr(config_module, "_settings", None)
     config_module._settings = None
@@ -162,6 +163,8 @@ This is the skill body content.
         config_module._settings = original_settings
         if original_env_dir is not None:
             os.environ["ENVIRONMENT_DIR"] = original_env_dir
+        if original_fast_agent_home is not None:
+            os.environ["FAST_AGENT_HOME"] = original_fast_agent_home
 
     # Verify skills were loaded
     assert "agentSkills" in context

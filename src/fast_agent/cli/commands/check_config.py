@@ -16,12 +16,12 @@ from rich.table import Table
 
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
-from fast_agent.config import resolve_config_search_root
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.keyring_utils import KeyringStatus, get_keyring_status
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.home import discover_config_files, resolve_fast_agent_home
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overlay_registry
 from fast_agent.llm.model_selection import ModelSelectionCatalog
@@ -211,17 +211,12 @@ def _resolve_active_model_providers(
 
 
 def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
-    """Find FastAgent configuration files using env, cwd, then legacy discovery."""
-    from fast_agent.config import (
-        resolve_implicit_config_file,
-        resolve_implicit_secrets_file,
-    )
-
-    config_path = resolve_implicit_config_file(start_path, env_dir=env_dir)
-    secrets_path = resolve_implicit_secrets_file(start_path, env_dir=env_dir)
+    """Find FastAgent configuration files using home then cwd discovery."""
+    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
+    discovery = discover_config_files(cwd=start_path, home=home)
     return {
-        "config": config_path,
-        "secrets": secrets_path,
+        "config": discovery.config_path,
+        "secrets": discovery.secrets_path,
     }
 
 
@@ -1132,9 +1127,9 @@ def _validate_effective_settings(
     )
 
     try:
-        merged_settings, _ = load_implicit_settings(start_path=cwd, env_dir=env_override)
+        merged_settings, discovery = load_implicit_settings(start_path=cwd, env_dir=env_override)
 
-        secrets_path = config_files.get("secrets")
+        secrets_path = discovery.secrets_path or config_files.get("secrets")
         if isinstance(secrets_path, Path):
             merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
 
@@ -1191,7 +1186,8 @@ def _load_optional_keyring_module() -> Any | None:
 
 def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
     cwd = Path.cwd()
-    search_root = resolve_config_search_root(cwd, env_dir=env_dir)
+    home = resolve_fast_agent_home(cwd=cwd, cli_override=env_dir)
+    search_root = home.path if home is not None else cwd
     config_files = find_config_files(cwd, env_dir=env_dir)
     system_info = get_system_info()
     config_summary = get_config_summary(config_files["config"])

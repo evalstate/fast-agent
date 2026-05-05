@@ -25,7 +25,6 @@ from fast_agent.config import (
     deep_merge,
     load_implicit_settings,
     load_yaml_mapping,
-    resolve_implicit_secrets_file,
 )
 from fast_agent.llm.llamacpp_discovery import (
     DEFAULT_LLAMA_CPP_URL,
@@ -657,8 +656,9 @@ def _load_cli_settings(
     cwd: Path,
     env_dir: str | Path | None,
 ) -> Settings:
-    merged_settings, config_file = load_implicit_settings(start_path=cwd, env_dir=env_dir)
-    secrets_path = resolve_implicit_secrets_file(cwd, env_dir=env_dir)
+    merged_settings, discovery = load_implicit_settings(start_path=cwd, env_dir=env_dir)
+    config_file = discovery.config_path
+    secrets_path = discovery.secrets_path
     if secrets_path and secrets_path.exists():
         merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
 
@@ -674,8 +674,8 @@ def _load_tolerant_config_payload(
     env_dir: str | Path | None,
 ) -> dict[str, object] | None:
     try:
-        merged_settings, _ = load_implicit_settings(start_path=cwd, env_dir=env_dir)
-        secrets_path = resolve_implicit_secrets_file(cwd, env_dir=env_dir)
+        merged_settings, discovery = load_implicit_settings(start_path=cwd, env_dir=env_dir)
+        secrets_path = discovery.secrets_path
         if secrets_path and secrets_path.exists():
             merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
     except Exception:

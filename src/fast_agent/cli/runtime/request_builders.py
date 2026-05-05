@@ -126,6 +126,12 @@ def validate_noenv_conflicts(
         raise typer.BadParameter("Cannot combine --noenv with --resume.")
 
 
+def validate_shell_conflicts(*, shell_enabled: bool, no_shell: bool) -> None:
+    """Validate unsupported shell option combinations."""
+    if shell_enabled and no_shell:
+        raise typer.BadParameter("Cannot combine --shell with --no-shell.")
+
+
 def validate_execution_mode_inputs(
     *,
     message: str | None,
@@ -146,20 +152,28 @@ def validate_execution_mode_inputs(
 def validate_json_schema_inputs(
     *,
     json_schema: str | None,
+    schema_model: str | None = None,
     execution_mode: ExecutionMode,
     model: str | None,
 ) -> None:
-    if json_schema is None:
+    if json_schema is not None and schema_model is not None:
+        raise typer.BadParameter(
+            "Cannot combine --json-schema with --schema-model.",
+            param_hint="--schema-model",
+        )
+    if json_schema is None and schema_model is None:
         return
     if execution_mode == "repl":
+        option = "--schema-model" if schema_model is not None else "--json-schema"
         raise typer.BadParameter(
-            "--json-schema requires --message or --prompt-file",
-            param_hint="--json-schema",
+            f"{option} requires --message or --prompt-file",
+            param_hint=option,
         )
     if is_multi_model(model):
+        option = "--schema-model" if schema_model is not None else "--json-schema"
         raise typer.BadParameter(
-            "Cannot combine --json-schema with multiple models.",
-            param_hint="--json-schema",
+            f"Cannot combine {option} with multiple models.",
+            param_hint=option,
         )
 
 
@@ -384,8 +398,10 @@ def build_agent_run_request(
     watch: bool,
     quiet: bool = False,
     prefer_local_shell: bool = False,
+    no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
     json_schema: str | None = None,
+    schema_model: str | None = None,
     force_smart: bool = False,
     noenv: bool = False,
 ) -> AgentRunRequest:
@@ -395,12 +411,14 @@ def build_agent_run_request(
         environment_dir=environment_dir,
         resume=resume,
     )
+    validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
     execution_mode = validate_execution_mode_inputs(
         message=message,
         prompt_file=prompt_file,
     )
     validate_json_schema_inputs(
         json_schema=json_schema,
+        schema_model=schema_model,
         execution_mode=execution_mode,
         model=model,
     )
@@ -457,6 +475,7 @@ def build_agent_run_request(
         message=message,
         prompt_file=prompt_file,
         json_schema=json_schema,
+        schema_model=schema_model,
         result_file=result_file,
         resume=resume,
         url_servers=url_servers,
@@ -468,6 +487,7 @@ def build_agent_run_request(
         noenv=noenv,
         force_smart=force_smart,
         shell_runtime=shell_enabled,
+        no_shell=no_shell,
         prefer_local_shell=prefer_local_shell,
         mode=mode,
         transport=transport,
@@ -533,10 +553,12 @@ def build_command_run_request(
     watch: bool = False,
     quiet: bool = False,
     prefer_local_shell: bool = False,
+    no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
     force_smart: bool = False,
     noenv: bool = False,
     json_schema: str | None = None,
+    schema_model: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_noenv_conflicts(
@@ -544,6 +566,7 @@ def build_command_run_request(
         environment_dir=environment_dir,
         resume=resume,
     )
+    validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
 
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     resolved_instruction, inferred_agent_name = resolve_instruction_option(
@@ -567,6 +590,7 @@ def build_command_run_request(
         message=message,
         prompt_file=prompt_file,
         json_schema=json_schema,
+        schema_model=schema_model,
         result_file=result_file,
         resume=resume,
         stdio_commands=stdio_commands,
@@ -578,6 +602,7 @@ def build_command_run_request(
         force_smart=force_smart,
         shell_enabled=shell_enabled,
         prefer_local_shell=prefer_local_shell,
+        no_shell=no_shell,
         mode=mode,
         transport=transport,
         host=host,

@@ -17,6 +17,7 @@ _OPTIONS_WITHOUT_VALUES = {
     "--noenv",
     "--no-env",
     "--shell",
+    "--no-shell",
     "--watch",
     "--reload",
     "--smart",

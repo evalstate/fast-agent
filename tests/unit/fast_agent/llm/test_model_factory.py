@@ -700,10 +700,10 @@ def test_grok_aliases_resolve_to_xai_grok_43():
     assert config.model_name == "grok-4.3"
 
 
-def test_deepseek_alias_resolves_to_native_deepseek_chat():
+def test_deepseek_alias_resolves_to_hf_deepseek_v4_pro():
     config = ModelFactory.parse_model_string("deepseek")
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-chat"
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:fireworks-ai"
 
 
 def test_deepseek4_alias_resolves_to_hf_deepseek_v4_pro():

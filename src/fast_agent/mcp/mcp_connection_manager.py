@@ -35,6 +35,7 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.home import build_child_environment
 from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
@@ -201,6 +202,8 @@ def create_transport_context(
     config: MCPServerSettings,
     *,
     trigger_oauth: bool | None = None,
+    active_home: str | Path | None = None,
+    noenv: bool = False,
 ) -> AbstractAsyncContextManager:
     """
     Create a transport context manager for the given server configuration.
@@ -238,7 +241,12 @@ def create_transport_context(
         server_params = StdioServerParameters(
             command=config.command,
             args=config.args if config.args is not None else [],
-            env={**get_default_environment(), **(config.env or {})},
+            env=build_child_environment(
+                active_home=active_home,
+                noenv=noenv,
+                base=get_default_environment(),
+                overrides=config.env,
+            ),
             cwd=config.cwd,
         )
         error_handler = get_stderr_handler(server_name)
@@ -1122,7 +1130,16 @@ class MCPConnectionManager(ContextDependent):
                 server_params = StdioServerParameters(
                     command=config.command,
                     args=config.args if config.args is not None else [],
-                    env={**get_default_environment(), **(config.env or {})},
+                    env=build_child_environment(
+                        active_home=getattr(self.context.config, "_fast_agent_home", None)
+                        if self.context.config
+                        else None,
+                        noenv=bool(getattr(self.context.config, "_fast_agent_noenv", False))
+                        if self.context.config
+                        else False,
+                        base=get_default_environment(),
+                        overrides=config.env,
+                    ),
                     cwd=config.cwd,
                 )
                 # Create custom error handler to ensure all output is captured

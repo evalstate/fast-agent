@@ -27,6 +27,7 @@ from fast_agent.constants import (
 )
 from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
+from fast_agent.home import build_child_environment
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.display_suppression import display_tools_enabled
@@ -108,6 +109,7 @@ class ShellRuntime:
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
         self._display = ConsoleDisplay(config=config)
+        self._config = config
         self._agent_name = agent_name
         self._output_display_lines: int | None = None
         self._show_bash_output = True
@@ -297,6 +299,10 @@ class ShellRuntime:
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
             "cwd": working_dir,
+            "env": build_child_environment(
+                active_home=getattr(self._config, "_fast_agent_home", None),
+                noenv=bool(getattr(self._config, "_fast_agent_noenv", False)),
+            ),
         }
         if is_windows:
             creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)

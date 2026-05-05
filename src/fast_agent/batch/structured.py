@@ -6,10 +6,8 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from importlib import import_module
 from typing import TYPE_CHECKING, Any, TextIO, TypeAlias, cast
 
-from jsonschema.exceptions import SchemaError
 from pydantic import BaseModel
 
 from fast_agent.batch.input import RowCandidate, RowError, iter_input_rows, select_rows
@@ -25,7 +23,11 @@ from fast_agent.batch.template import DEFAULT_ROW_TEMPLATE, render_row_template
 from fast_agent.cli.runtime.request_builders import resolve_default_instruction
 from fast_agent.constants import FAST_AGENT_TIMING
 from fast_agent.llm.request_params import RequestParams
-from fast_agent.llm.structured_schema import validate_json_schema_definition
+from fast_agent.llm.structured_schema import (
+    StructuredSchemaSource,
+    load_json_schema_file,
+    load_pydantic_model,
+)
 from fast_agent.mcp.helpers.content_helpers import get_text
 
 if TYPE_CHECKING:
@@ -58,8 +60,7 @@ class StructuredBatchOptions:
     shell_runtime: bool = False
 
 
-PydanticModel: TypeAlias = type[BaseModel]
-SchemaSource: TypeAlias = dict[str, Any] | PydanticModel
+SchemaSource: TypeAlias = StructuredSchemaSource
 
 
 def utc_now_iso() -> str:
@@ -67,40 +68,7 @@ def utc_now_iso() -> str:
 
 
 def load_json_schema(path: Path) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise ValueError(f"Could not read JSON schema file {path}: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON schema file {path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise ValueError(f"JSON schema file {path} must contain a JSON object")
-    try:
-        return validate_json_schema_definition(payload)
-    except SchemaError as exc:
-        raise ValueError(f"Invalid JSON schema in {path}: {exc.message}") from exc
-
-
-def load_pydantic_model(spec: str) -> PydanticModel:
-    module_name, separator, class_path = spec.partition(":")
-    if not module_name or separator != ":" or not class_path:
-        raise ValueError("Expected --schema-model in the form module.path:ClassName")
-
-    try:
-        target: object = import_module(module_name)
-    except ImportError as exc:
-        raise ValueError(f"Could not import schema model module {module_name}: {exc}") from exc
-
-    try:
-        for part in class_path.split("."):
-            target = getattr(target, part)
-    except AttributeError as exc:
-        raise ValueError(f"Could not resolve schema model {spec}: missing {part}") from exc
-
-    if not isinstance(target, type) or not issubclass(target, BaseModel):
-        raise ValueError("--schema-model must point to a pydantic BaseModel subclass")
-
-    return target
+    return load_json_schema_file(path)
 
 
 def load_schema_source(options: StructuredBatchOptions) -> SchemaSource:

@@ -81,6 +81,7 @@ def _make_request(
         noenv=False,
         force_smart=False,
         shell_runtime=False,
+        no_shell=False,
         mode="interactive",
         transport="http",
         host="127.0.0.1",
@@ -228,7 +229,7 @@ async def test_select_model_from_picker_preserves_overlay_token_when_resolved_mo
 
 @pytest.mark.asyncio
 async def test_select_model_from_picker_passes_config_start_path(monkeypatch, tmp_path: Path) -> None:
-    config_path = tmp_path / "project" / "fastagent.config.yaml"
+    config_path = tmp_path / "project" / "fast-agent.yaml"
     config_path.parent.mkdir(parents=True)
     config_path.write_text("default_model: haikutiny\n", encoding="utf-8")
     request = _make_request(config_path=str(config_path))
@@ -378,7 +379,7 @@ def test_resolve_model_picker_initial_selection_uses_config_relative_overlay_dir
     workspace = tmp_path / "workspace"
     project_dir = workspace / "project"
     env_dir = project_dir / ".fast-agent"
-    config_path = project_dir / "fastagent.config.yaml"
+    config_path = project_dir / "fast-agent.yaml"
     overlays_dir = env_dir / "model-overlays"
     overlays_dir.mkdir(parents=True)
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -419,7 +420,7 @@ def test_load_request_settings_refreshes_stale_cached_settings(tmp_path: Path) -
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     env_dir.mkdir(parents=True)
-    (env_dir / "fastagent.config.yaml").write_text(
+    (env_dir / "fast-agent.yaml").write_text(
         "model_references:\n"
         "  system:\n"
         "    last_used: gpt-4.1-mini\n",
@@ -442,7 +443,7 @@ def test_load_request_settings_refreshes_stale_cached_settings(tmp_path: Path) -
         config_module._settings = old_settings
 
     assert settings.model_references["system"]["last_used"] == "gpt-4.1-mini"
-    assert settings._config_file == str((env_dir / "fastagent.config.yaml").resolve())
+    assert settings._config_file == str((env_dir / "fast-agent.yaml").resolve())
 
 
 def test_persist_model_picker_last_used_selection_writes_env_overlay(tmp_path: Path) -> None:
@@ -467,7 +468,7 @@ def test_persist_model_picker_last_used_selection_writes_env_overlay(tmp_path: P
 
     assert persisted is True
 
-    with open(env_dir / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -498,7 +499,7 @@ def test_persist_model_picker_last_used_selection_uses_request_environment_dir(
 
     assert persisted is True
 
-    with open(env_dir / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -511,7 +512,7 @@ def test_persist_model_picker_last_used_selection_uses_runtime_cwd_env_root(
     nested = workspace / "nested"
     workspace.mkdir(parents=True)
     nested.mkdir(parents=True)
-    (workspace / "fastagent.config.yaml").write_text("default_model: null\n", encoding="utf-8")
+    (workspace / "fast-agent.yaml").write_text("default_model: null\n", encoding="utf-8")
 
     previous_cwd = Path.cwd()
     previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
@@ -531,9 +532,9 @@ def test_persist_model_picker_last_used_selection_uses_runtime_cwd_env_root(
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
     assert persisted is True
-    assert not (workspace / ".fast-agent" / "fastagent.config.yaml").exists()
+    assert not (workspace / ".fast-agent" / "fast-agent.yaml").exists()
 
-    with open(nested / ".fast-agent" / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(nested / ".fast-agent" / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -563,7 +564,7 @@ def test_persist_model_picker_last_used_selection_creates_env_overlay_on_first_r
 
     assert persisted is True
 
-    with open(env_dir / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -574,7 +575,7 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
 ) -> None:
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".fast-agent"
-    config_path = env_dir / "fastagent.config.yaml"
+    config_path = env_dir / "fast-agent.yaml"
     workspace.mkdir(parents=True)
     env_dir.mkdir(parents=True)
     config_path.write_text(
@@ -602,7 +603,7 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
     assert persisted is True
-    assert not (env_dir / ".fast-agent" / "fastagent.config.yaml").exists()
+    assert not (env_dir / ".fast-agent" / "fast-agent.yaml").exists()
 
     with open(config_path, "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
@@ -632,7 +633,7 @@ def test_persist_model_picker_last_used_selection_respects_noenv(tmp_path: Path)
         os.chdir(previous_cwd)
 
     assert persisted is False
-    assert not (env_dir / "fastagent.config.yaml").exists()
+    assert not (env_dir / "fast-agent.yaml").exists()
 
 
 def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
@@ -643,7 +644,7 @@ def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
     config_root.mkdir(parents=True)
     workspace.mkdir(parents=True)
 
-    config_path = config_root / "fastagent.config.yaml"
+    config_path = config_root / "fast-agent.yaml"
     config_path.write_text("default_model: claude-haiku-4-5\n", encoding="utf-8")
 
     request = _make_request(config_path=str(config_path))
@@ -664,7 +665,7 @@ def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
     assert persisted is True
-    assert not (workspace / ".fast-agent" / "fastagent.config.yaml").exists()
+    assert not (workspace / ".fast-agent" / "fast-agent.yaml").exists()
 
     with open(config_path, "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
@@ -733,7 +734,7 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
         config_module._settings = old_settings
 
-    config_path = workspace / ".fast-agent" / "fastagent.config.yaml"
+    config_path = workspace / ".fast-agent" / "fast-agent.yaml"
     assert config_path.exists()
 
     with open(config_path, "r", encoding="utf-8") as handle:
@@ -757,7 +758,7 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".cdx"
     env_dir.mkdir(parents=True)
-    (env_dir / "fastagent.config.yaml").write_text(
+    (env_dir / "fast-agent.yaml").write_text(
         "default_model: null\n"
         "model_references:\n"
         "  system:\n"

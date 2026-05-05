@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
+from importlib import import_module
+from pathlib import Path
 from typing import Any
 
+from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
+from pydantic import BaseModel
+
+PydanticModel = type[BaseModel]
+StructuredSchemaSource = dict[str, Any] | PydanticModel
 
 
 def validate_json_schema_definition(schema: dict[str, Any]) -> dict[str, Any]:
@@ -18,6 +26,64 @@ def validate_json_instance(instance: Any, schema: dict[str, Any]) -> None:
     validator_class = validator_for(schema)
     validator = validator_class(schema)
     validator.validate(instance)
+
+
+def load_json_schema_file(path: str | Path) -> dict[str, Any]:
+    schema_path = Path(path).expanduser()
+    try:
+        raw_text = schema_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Could not read JSON schema file {schema_path}: {exc}") from exc
+
+    try:
+        loaded = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON schema file {schema_path}: {exc}") from exc
+
+    if not isinstance(loaded, dict):
+        raise ValueError(f"JSON schema file {schema_path} must contain a JSON object")
+
+    try:
+        return validate_json_schema_definition(loaded)
+    except SchemaError as exc:
+        raise ValueError(f"Invalid JSON schema in {schema_path}: {exc.message}") from exc
+
+
+def load_pydantic_model(spec: str) -> PydanticModel:
+    module_name, separator, class_path = spec.partition(":")
+    if not module_name or separator != ":" or not class_path:
+        raise ValueError("Expected --schema-model in the form module.path:ClassName")
+
+    try:
+        target: object = import_module(module_name)
+    except ImportError as exc:
+        raise ValueError(f"Could not import schema model module {module_name}: {exc}") from exc
+
+    try:
+        for part in class_path.split("."):
+            target = getattr(target, part)
+    except AttributeError as exc:
+        raise ValueError(f"Could not resolve schema model {spec}: missing {part}") from exc
+
+    if not isinstance(target, type) or not issubclass(target, BaseModel):
+        raise ValueError("--schema-model must point to a pydantic BaseModel subclass")
+
+    return target
+
+
+def load_structured_schema_source(
+    *,
+    json_schema: str | Path | None,
+    schema_model: str | None,
+) -> StructuredSchemaSource:
+    if json_schema is not None and schema_model is not None:
+        raise ValueError("--json-schema and --schema-model cannot be used together")
+    if json_schema is None and schema_model is None:
+        raise ValueError("One of --json-schema or --schema-model is required")
+    if schema_model is not None:
+        return load_pydantic_model(schema_model)
+    assert json_schema is not None
+    return load_json_schema_file(json_schema)
 
 
 def sanitize_structured_output_schema(

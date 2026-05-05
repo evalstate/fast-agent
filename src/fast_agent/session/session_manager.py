@@ -58,21 +58,13 @@ HISTORY_PREVIOUS_SUFFIX = "_previous.json"
 
 
 def _normalized_environment_override(cwd: pathlib.Path) -> str | None:
-    """Return ENVIRONMENT_DIR as an absolute path string when set."""
-    override = os.getenv("ENVIRONMENT_DIR")
-    if not override:
+    """Return the active environment override as an absolute path string when set."""
+    from fast_agent.home import resolve_fast_agent_home
+
+    home = resolve_fast_agent_home(cwd=cwd)
+    if home is None or home.source == "default":
         return None
-
-    path = pathlib.Path(override).expanduser()
-    if not path.is_absolute():
-        path = (cwd / path).resolve()
-    else:
-        path = path.resolve()
-
-    normalized = str(path)
-    if normalized != override:
-        os.environ["ENVIRONMENT_DIR"] = normalized
-    return normalized
+    return str(home.path)
 
 
 def display_session_name(name: str) -> str:

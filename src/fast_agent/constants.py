@@ -102,4 +102,7 @@ CONTROL_MESSAGE_SAVE_HISTORY = "***SAVE_HISTORY"
 FAST_AGENT_SHELL_CHILD_ENV = "FAST_AGENT_SHELL_CHILD"
 """Environment variable set when running fast-agent shell commands."""
 
+FAST_AGENT_RUNTIME_ENVIRONMENT = "FAST_AGENT_RUNTIME_ENVIRONMENT"
+"""Resolved active fast-agent home exported to shell commands and automation."""
+
 SHELL_NOTICE_PREFIX = "[yellow][bold]Agents have shell[/bold][/yellow]"

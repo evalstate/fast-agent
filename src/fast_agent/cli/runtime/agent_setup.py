@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import typer
-from jsonschema.exceptions import SchemaError
 from prompt_toolkit import PromptSession
+from pydantic import BaseModel
 
 from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
@@ -23,7 +23,10 @@ from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.structured_schema import validate_json_schema_definition
+from fast_agent.llm.structured_schema import (
+    StructuredSchemaSource,
+    load_structured_schema_source,
+)
 from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.model_picker_common import (
@@ -52,25 +55,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _load_structured_json_schema(path_str: str) -> dict[str, Any]:
-    schema_path = Path(path_str).expanduser()
-    try:
-        raw_text = schema_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ValueError(f"Could not read JSON schema file {schema_path}: {exc}") from exc
+async def _structured_call(
+    agent_obj: Any,
+    prompt: Any,
+    schema_source: StructuredSchemaSource,
+) -> tuple[Any | None, Any]:
+    if isinstance(schema_source, type) and issubclass(schema_source, BaseModel):
+        return await agent_obj.structured(prompt, schema_source)
+    return await agent_obj.structured_schema(prompt, schema_source)
 
-    try:
-        loaded = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON schema file {schema_path}: {exc}") from exc
 
-    if not isinstance(loaded, dict):
-        raise ValueError(f"JSON schema file {schema_path} must contain a JSON object")
-
-    try:
-        return validate_json_schema_definition(loaded)
-    except SchemaError as exc:
-        raise ValueError(f"Invalid JSON schema in {schema_path}: {exc.message}") from exc
+def _structured_output_payload(parsed: Any) -> Any:
+    if isinstance(parsed, BaseModel):
+        return parsed.model_dump(mode="json")
+    return parsed
 
 
 def _find_last_assistant_text(history: list[Any]) -> str | None:
@@ -119,7 +117,11 @@ def _load_request_settings(request: "AgentRunRequest"):
     if request.config_path is None:
         config_module._settings = None
 
-    return get_settings_or_exit(request.config_path)
+    return get_settings_or_exit(
+        request.config_path,
+        env_dir=request.environment_dir,
+        noenv=request.noenv,
+    )
 
 
 def _resolve_model_picker_initial_selection(
@@ -432,6 +434,7 @@ def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> No
     issues = collect_shell_cwd_issues(
         fast.agents,
         shell_runtime_requested=request.shell_runtime,
+        no_shell=request.no_shell,
         cwd=Path.cwd(),
     )
     if not issues:
@@ -495,6 +498,7 @@ def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> No
     remaining_issues = collect_shell_cwd_issues(
         fast.agents,
         shell_runtime_requested=request.shell_runtime,
+        no_shell=request.no_shell,
         cwd=Path.cwd(),
     )
     if remaining_issues:
@@ -625,7 +629,6 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
     assistant_text = _find_last_assistant_text(list(preview_history))
     if assistant_text:
         if interactive_notice:
-            queue_startup_notice("[dim]Last assistant message:[/dim]")
             queue_startup_markdown_notice(
                 assistant_text,
                 title="Last assistant message",
@@ -811,9 +814,12 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
     # Allow interactive prompt startup checks to honor per-run CLI override policy.
     agent_app.missing_shell_cwd_policy_override = request.missing_shell_cwd_policy
     try:
-        structured_schema = (
-            _load_structured_json_schema(request.json_schema)
-            if request.json_schema is not None
+        structured_source = (
+            load_structured_schema_source(
+                json_schema=request.json_schema,
+                schema_model=request.schema_model,
+            )
+            if request.json_schema is not None or request.schema_model is not None
             else None
         )
     except ValueError as exc:
@@ -873,18 +879,18 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
         assert request.message is not None
         agent_obj = agent_app._agent(request.target_agent_name)
         history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
-        if structured_schema is None:
+        if structured_source is None:
             response = await agent_obj.generate(request.message)
             print(response.last_text() or "")
         else:
-            parsed, response = await agent_obj.structured_schema(request.message, structured_schema)
+            parsed, response = await _structured_call(agent_obj, request.message, structured_source)
             if parsed is None:
                 typer.echo(
-                    "Error: model response did not produce valid JSON matching --json-schema.",
+                    "Error: model response did not produce valid JSON matching the structured output schema.",
                     err=True,
                 )
                 raise typer.Exit(1)
-            sys.stdout.write(json.dumps(parsed, ensure_ascii=False))
+            sys.stdout.write(json.dumps(_structured_output_payload(parsed), ensure_ascii=False))
         if request.result_file and not _response_was_persisted(
             history_before,
             agent_obj.message_history,
@@ -898,18 +904,18 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
         prompt = load_prompt(Path(request.prompt_file))
         agent_obj = agent_app._agent(request.target_agent_name)
         history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
-        if structured_schema is None:
+        if structured_source is None:
             response = await agent_obj.generate(prompt)
             print(response.last_text() or "")
         else:
-            parsed, response = await agent_obj.structured_schema(prompt, structured_schema)
+            parsed, response = await _structured_call(agent_obj, prompt, structured_source)
             if parsed is None:
                 typer.echo(
-                    "Error: model response did not produce valid JSON matching --json-schema.",
+                    "Error: model response did not produce valid JSON matching the structured output schema.",
                     err=True,
                 )
                 raise typer.Exit(1)
-            sys.stdout.write(json.dumps(parsed, ensure_ascii=False))
+            sys.stdout.write(json.dumps(_structured_output_payload(parsed), ensure_ascii=False))
         if request.result_file and not _response_was_persisted(
             history_before,
             agent_obj.message_history,
@@ -1007,6 +1013,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         quiet=request.mode == "serve" or request.quiet,
         skills_directory=request.skills_directory,
         environment_dir=request.environment_dir,
+        noenv=request.noenv,
     )
 
     if request.model:
@@ -1018,7 +1025,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
     fast.args.watch = request.watch
     fast.args.agent = request.target_agent_name or request.agent_name or "agent"
 
-    if request.noenv or request.shell_runtime:
+    if request.noenv or request.shell_runtime or request.no_shell or request.prefer_local_shell:
         await fast.app.initialize()
         if request.noenv:
             config = fast.app.context.config
@@ -1026,6 +1033,8 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                 config.session_history = False
         if request.shell_runtime:
             setattr(fast.app.context, "shell_runtime", True)
+        if request.no_shell:
+            setattr(fast.app.context, "no_shell", True)
         if request.prefer_local_shell:
             config = fast.app.context.config
             if config is not None:

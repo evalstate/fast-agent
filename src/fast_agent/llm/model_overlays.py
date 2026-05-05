@@ -12,9 +12,10 @@ import yaml
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import fast_agent.config as config_module
-from fast_agent.config import load_yaml_mapping, resolve_environment_config_file
+from fast_agent.config import load_yaml_mapping
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.home import resolve_fast_agent_home
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
 
@@ -473,13 +474,12 @@ def resolve_model_overlay_paths(
     base_path = (start_path or Path.cwd()).resolve()
     override = env_dir
     if override is None:
-        override = os.getenv("ENVIRONMENT_DIR")
-    if override is None:
         configured = _settings_environment_override(start_path=start_path)
         if configured is not None:
             base_path, override = configured
 
-    env_root = resolve_environment_config_file(base_path, env_dir=override).parent
+    home = resolve_fast_agent_home(cwd=base_path, cli_override=override)
+    env_root = home.path if home is not None else base_path
     return ModelOverlayPaths(
         env_root=env_root,
         overlays_dir=env_root / "model-overlays",
