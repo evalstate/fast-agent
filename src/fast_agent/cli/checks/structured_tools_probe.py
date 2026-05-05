@@ -23,12 +23,13 @@ PROBE_SCHEMA = validate_json_schema_definition(
     {
         "type": "object",
         "properties": {
-            "probe_id": {"type": "string"},
-            "magic_number": {"type": "integer"},
-            "tool_name": {"type": "string"},
+            "city": {"type": "string"},
+            "condition": {"type": "string"},
+            "temperature_c": {"type": "integer"},
+            "observation_id": {"type": "string"},
             "summary": {"type": "string"},
         },
-        "required": ["probe_id", "magic_number", "tool_name", "summary"],
+        "required": ["city", "condition", "temperature_c", "observation_id", "summary"],
         "additionalProperties": False,
     }
 )
@@ -69,9 +70,8 @@ class ProbeResult:
 
 def _build_tools_prompt() -> str:
     return (
-        "You must call the `get_probe_payload` tool before answering. "
-        "The payload changes every run, so do not guess. "
-        #        "After the tool result arrives, return only JSON that matches the required schema."
+        "Use the `get_city_weather` tool to look up the weather reading for Paris. "
+        "Then return a concise JSON weather report using the tool result."
     )
 
 
@@ -168,27 +168,29 @@ async def _probe_tools_model(
     *,
     structured_tool_policy: StructuredToolPolicy,
 ) -> ProbeResult:
-    probe_id = f"probe-{random.SystemRandom().randint(100_000, 999_999)}"
-    magic_number = random.SystemRandom().randint(10_000_000, 99_999_999)
+    observation_id = f"weather-{random.SystemRandom().randint(100_000, 999_999)}"
+    temperature_c = random.SystemRandom().randint(18, 24)
+    condition = "Sunny"
     tool_call_count = 0
 
-    async def get_probe_payload() -> dict[str, str | int]:
-        """Return the current probe payload required for the final structured answer.
+    async def get_city_weather(city: str) -> dict[str, str | int]:
+        """Return a fictional weather reading for a city.
 
-        Call this tool to obtain the authoritative probe_id and magic_number for
-        this run. Do not guess or invent these values.
+        Use this read-only helper when a weather report needs current structured
+        fields for the requested city.
         """
         nonlocal tool_call_count
         tool_call_count += 1
         return {
-            "probe_id": probe_id,
-            "magic_number": magic_number,
-            "tool_name": "get_probe_payload",
+            "city": city,
+            "condition": condition,
+            "temperature_c": temperature_c,
+            "observation_id": observation_id,
         }
 
     agent = ToolAgent(
         AgentConfig(name="tools-structured-probe", model=model),
-        tools=[get_probe_payload],
+        tools=[get_city_weather],
         context=core.context,
     )
 
@@ -216,12 +218,14 @@ async def _probe_tools_model(
 
         if tool_call_count < 1:
             raise ValueError("tool was not called")
-        if parsed.get("probe_id") != probe_id:
-            raise ValueError("probe_id did not match the tool result")
-        if parsed.get("magic_number") != magic_number:
-            raise ValueError("magic_number did not match the tool result")
-        if parsed.get("tool_name") != "get_probe_payload":
-            raise ValueError("tool_name did not match the expected tool")
+        if parsed.get("city") != "Paris":
+            raise ValueError("city did not match the requested weather report")
+        if parsed.get("condition") != condition:
+            raise ValueError("condition did not match the tool result")
+        if parsed.get("temperature_c") != temperature_c:
+            raise ValueError("temperature_c did not match the tool result")
+        if parsed.get("observation_id") != observation_id:
+            raise ValueError("observation_id did not match the tool result")
 
         stop_reason = response.stop_reason.value if response.stop_reason is not None else None
         return ProbeResult(

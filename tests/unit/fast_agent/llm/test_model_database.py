@@ -12,6 +12,8 @@ Testing notes:
   test_max_tokens_acp_regression.py.
 """
 
+from mcp import Tool
+
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
@@ -24,6 +26,8 @@ from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.mcp.prompt import Prompt
+from fast_agent.types import RequestParams
 from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
 
 
@@ -144,12 +148,30 @@ def test_google_native_schema_tool_policy_keeps_tools_by_default() -> None:
     assert policies == {None}
 
 
-def test_huggingface_qwen35_uses_schema_mode_without_tools_by_default() -> None:
-    params = ModelDatabase.get_model_params("Qwen/Qwen3.5-397B-A17B")
+def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    tool = Tool(
+        name="lookup",
+        description="Lookup data.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+    llm = _make_hf_llm("Qwen/Qwen3.5-397B-A17B")
 
-    assert params is not None
-    assert params.json_mode == "schema"
-    assert params.structured_tool_policy == "no_tools"
+    prepared_messages, prepared_params = llm._prepare_structured_request(
+        [Prompt.user("return json")],
+        RequestParams(structured_schema=schema),
+        [tool],
+    )
+
+    assert llm.resolve_structured_tool_policy(RequestParams(structured_schema=schema)) == "no_tools"
+    assert prepared_params.response_format == {"type": "json_object"}
+    prepared_text = prepared_messages[-1].last_text()
+    assert prepared_text is not None
+    assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
 
 
 def test_huggingface_kimi25_uses_schema_mode() -> None:

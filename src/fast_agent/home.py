@@ -85,8 +85,10 @@ def resolve_fast_agent_home(
 
     runtime_environment = os.getenv(FAST_AGENT_RUNTIME_ENVIRONMENT)
     legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
-    if runtime_environment and legacy_environment_dir == runtime_environment:
-        return FastAgentHome(_resolve_path(runtime_environment, base), "cli")
+    if runtime_environment:
+        runtime_path = _resolve_path(runtime_environment, base)
+        if legacy_environment_dir == runtime_environment or _is_relative_to(runtime_path, base):
+            return FastAgentHome(runtime_path, "cli")
 
     fast_agent_home = os.getenv("FAST_AGENT_HOME")
     if fast_agent_home:
@@ -238,6 +240,14 @@ def _resolve_path(path: str | Path, cwd: Path) -> Path:
     if not resolved.is_absolute():
         resolved = cwd / resolved
     return resolved.resolve()
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return False
+    return True
 
 
 def _format_ambiguity(kind: str, directory: Path, candidates: tuple[Path, ...]) -> str:
