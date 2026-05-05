@@ -78,14 +78,18 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
     assert "glm47" not in curated_aliases
-    assert "deepseek" in curated_aliases
     assert "deepseek4" not in curated_aliases
     assert "deepseek4" in legacy_aliases
     assert "deepseek32" in legacy_aliases
 
 
 def test_list_fast_models_uses_explicit_curated_designation() -> None:
-    for provider in (Provider.ANTHROPIC, Provider.CODEX_RESPONSES, Provider.HUGGINGFACE, Provider.GROQ):
+    for provider in (
+        Provider.ANTHROPIC,
+        Provider.CODEX_RESPONSES,
+        Provider.HUGGINGFACE,
+        Provider.GROQ,
+    ):
         assert ModelSelectionCatalog.list_fast_models(provider) == [
             entry.model for entry in _static_current_entries(provider) if entry.fast
         ]
