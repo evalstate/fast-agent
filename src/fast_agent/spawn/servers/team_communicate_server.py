@@ -90,8 +90,8 @@ def _parse_recipients(value: str) -> list[str]:
     """Parse a recipient string into a list of names.
 
     Accepts:
-      - Single name: "Minh - Dev"
-      - Comma-separated: "Minh - Dev, Linh - PM"
+      - Single name: "Agent A - Dev"
+      - Comma-separated: "Agent A - Dev, Agent C - PM"
     """
     if not value:
         return []
@@ -114,14 +114,14 @@ def team_communicate(
 
     Args:
         to: Primary recipient(s) who should take action.
-            Single name: "Minh - Dev"
-            Multiple names (comma-separated): "Minh - Dev, Tuan - QE"
+            Single name: "Agent A - Dev"
+            Multiple names (comma-separated): "Agent A - Dev, Agent B - QE"
         message: Your message or question.
-        my_name: YOUR agent name (e.g. "Hoa - BA"). Required for proper sender tracking.
+        my_name: YOUR agent name (e.g. "Agent D - BA"). Required for proper sender tracking.
         message_type: "question" | "task" | "review_request" | "feedback" | "response"
         cc: Optional FYI recipient(s) — they receive the message tagged as [CC]
             so they know it was sent directly to the 'to' recipients.
-            Comma-separated: "Linh - PM" or "Linh - PM, Hoa - BA"
+            Comma-separated: "Agent C - PM" or "Agent C - PM, Agent D - BA"
     """
     bus = _get_bus()
     if not bus:
@@ -195,7 +195,7 @@ def check_responses(
     """Check your inbox for messages from teammates.
 
     Args:
-        my_name: YOUR agent name (e.g. "Minh - Dev"). Required to identify your inbox.
+        my_name: YOUR agent name (e.g. "Agent A - Dev"). Required to identify your inbox.
         from_agent: Optional — filter to only show messages from this agent.
                     Leave empty to see all messages.
         wait: If True, poll every 3s until a message arrives or timeout.
@@ -293,7 +293,7 @@ def reply_to_message(
     Args:
         to: Agent name to reply to.
         message: Your reply content.
-        my_name: YOUR agent name (e.g. "Hoa - BA"). Required for proper sender tracking.
+        my_name: YOUR agent name (e.g. "Agent D - BA"). Required for proper sender tracking.
         original_message_id: The message_id you're replying to (optional).
     """
     bus = _get_bus()

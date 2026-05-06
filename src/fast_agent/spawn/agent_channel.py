@@ -82,7 +82,7 @@ class AgentChannel:
 
     Usage — server side (agent subprocess)::
 
-        channel = AgentChannel("Minh - Dev", channel_dir)
+        channel = AgentChannel("Agent A - Dev", channel_dir)
         await channel.start_server()
         try:
             while True:
@@ -95,7 +95,7 @@ class AgentChannel:
 
     Usage — client side (any process)::
 
-        AgentChannel.send_signal("Minh - Dev", "wake")
+        AgentChannel.send_signal("Agent A - Dev", "wake")
     """
 
     def __init__(self, agent_name: str, channel_dir: Path | None = None) -> None:

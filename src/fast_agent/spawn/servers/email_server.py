@@ -50,8 +50,8 @@ def send_email(
     blocker alerts, or any message that doesn't need a formal meeting.
 
     Args:
-        to: Recipient name(s). Single: "Minh - Dev".
-            Multiple (comma-separated): "Minh - Dev, Tuan - QE".
+        to: Recipient name(s). Single: "Agent A - Dev".
+            Multiple (comma-separated): "Agent A - Dev, Agent B - QE".
             Broadcast: "all".
         body: Your email content.
         subject: Short summary of the email (shown in timeline).

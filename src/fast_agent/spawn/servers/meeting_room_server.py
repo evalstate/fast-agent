@@ -229,7 +229,7 @@ async def create_meeting(
                 "Sprint 1 kickoff" or "Blocker review cho SCRUM-5".
                 Do NOT put detailed discussion points here.
         participants: Comma-separated AGENT NAMES in speaking order.
-                      E.g. "Linh - PM, Hoa - BA, Khang - SA"
+                      E.g. "Agent C - PM, Agent D - BA, Agent E - SA"
         max_rounds: Maximum conversation rounds (default 3).
         my_name: YOUR agent name (auto-detected from env).
         workspace_dir: Workspace path (auto-detected from env).
@@ -747,7 +747,7 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
 
     Args:
         meeting_id: The meeting.
-        agent_name: Agent name to add (e.g. "Tuan - QE").
+        agent_name: Agent name to add (e.g. "Agent B - QE").
 
     Returns:
         JSON with updated participant list.
