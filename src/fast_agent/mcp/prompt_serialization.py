@@ -136,10 +136,16 @@ def from_json(json_str: str) -> list[PromptMessageExtended]:
     Returns:
         List of PromptMessageExtended objects
     """
-    # Parse JSON to dictionary
+    # Parse JSON — strict format: {"messages": [...]}
+    # This is the only format produced by to_json(). Do NOT add fallbacks
+    # for other formats — fix the producer instead.
     result_dict = json.loads(json_str)
+    if not isinstance(result_dict, dict):
+        raise ValueError(
+            f"Invalid context JSON format: expected dict, got {type(result_dict).__name__}. "
+            "Context must be saved via to_json() which produces {'messages': [...]}."
+        )
 
-    # Extract messages array
     messages_data = result_dict.get("messages", [])
 
     extended_messages: list[PromptMessageExtended] = []

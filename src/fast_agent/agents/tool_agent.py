@@ -381,10 +381,41 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tools=tools,
             hooks=self._build_tool_runner_hooks(request_params),
         )
+        # File-based debug — what hooks does ToolRunner get?
+        try:
+            import pathlib as _pld2
+            import os as _os3
+            import time as _t2
+            _dp2 = _pld2.Path(_os3.environ.get("PROJECT_DIR", ".")) / ".runtime" / "cache" / "logs" / "hooks_debug.log"
+            _dp2.parent.mkdir(parents=True, exist_ok=True)
+            with open(_dp2, "a") as _hf2:
+                _hooks_obj = runner._hooks
+                _btc = getattr(_hooks_obj, 'before_tool_call', None) if _hooks_obj else None
+                _blm = getattr(_hooks_obj, 'before_llm_call', None) if _hooks_obj else None
+                _hf2.write(f"{_t2.strftime('%H:%M:%S')} ToolRunner created: hooks={type(_hooks_obj).__name__ if _hooks_obj else 'None'} btc={_btc is not None} blm={_blm is not None}\n")
+        except Exception:
+            pass
         return await runner.until_done()
 
     def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
-        if isinstance(self, ToolRunnerHookCapable):
+        # File-based debug — trace hooks resolution
+        _is_capable = isinstance(self, ToolRunnerHookCapable)
+        _hooks_val = getattr(self, 'tool_runner_hooks', 'MISSING') if _is_capable else None
+        try:
+            import pathlib as _pld
+            _dp = _pld.Path(os.environ.get("PROJECT_DIR", ".")) / ".runtime" / "cache" / "logs" / "hooks_debug.log" if hasattr(__builtins__, '__name__') else _pld.Path(".") / ".runtime" / "cache" / "logs" / "hooks_debug.log"
+            try:
+                import os as _os2
+                _dp = _pld.Path(_os2.environ.get("PROJECT_DIR", ".")) / ".runtime" / "cache" / "logs" / "hooks_debug.log"
+            except Exception:
+                pass
+            _dp.parent.mkdir(parents=True, exist_ok=True)
+            with open(_dp, "a") as _hf:
+                import time as _t
+                _hf.write(f"{_t.strftime('%H:%M:%S')} _tool_runner_hooks: capable={_is_capable} hooks_val={type(_hooks_val).__name__} self_type={type(self).__name__}\n")
+        except Exception:
+            pass
+        if _is_capable:
             return self.tool_runner_hooks
         return None
 

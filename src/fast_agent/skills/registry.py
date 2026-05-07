@@ -145,8 +145,28 @@ class SkillRegistry:
         directory: Path,
         errors: list[dict[str, str]] | None = None,
     ) -> list[SkillManifest]:
-        """Load manifests from a directory, using absolute paths."""
+        """Load manifests from a directory, using absolute paths.
+
+        If the directory itself contains a SKILL.md, it is treated as a single
+        skill directory. Otherwise, it is scanned for child skill directories.
+        """
         manifests: list[SkillManifest] = []
+
+        # Check if the directory itself is a skill directory
+        direct_manifest = directory / "SKILL.md"
+        if direct_manifest.exists():
+            manifest, error = cls._parse_manifest(direct_manifest)
+            if manifest:
+                manifests.append(manifest)
+            elif errors is not None:
+                errors.append(
+                    {
+                        "path": str(direct_manifest),
+                        "error": error or "Failed to parse skill manifest",
+                    }
+                )
+            return manifests
+
         for entry in sorted(directory.iterdir()):
             if not entry.is_dir():
                 continue

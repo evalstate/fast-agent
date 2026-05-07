@@ -91,6 +91,11 @@ def finalize_stream_response(
     if usage:
         input_tokens = getattr(usage, "input_tokens", 0) or 0
         output_tokens = getattr(usage, "output_tokens", 0) or 0
+        cached_tokens = 0
+        input_details = getattr(usage, "input_tokens_details", None)
+        if input_details is not None:
+            cached_tokens = getattr(input_details, "cached_tokens", 0) or 0
+        cache_info = f", Cached tokens: {cached_tokens}" if cached_tokens > 0 else ""
         token_str = str(output_tokens).rjust(5)
         data = {
             "progress_action": ProgressAction.STREAMING,
@@ -101,7 +106,7 @@ def finalize_stream_response(
         }
         logger.info("Streaming progress", data=data)
         logger.info(
-            f"Streaming complete - Model: {model}, Input tokens: {input_tokens}, Output tokens: {output_tokens}"
+            f"Streaming complete - Model: {model}, Input tokens: {input_tokens}, Output tokens: {output_tokens}{cache_info}"
         )
 
     output_items = list(getattr(final_response, "output", []) or [])

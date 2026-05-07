@@ -689,6 +689,8 @@ async def _wait_for_initialized_with_startup_budget(
 
     startup_clock = time.monotonic()
     interval = max(0.01, poll_interval_seconds)
+    # Hard wall-clock cap: even with OAuth exclusion, never wait more than 3x the timeout
+    wall_clock_cap = startup_timeout_seconds * 3.0
 
     while not server_conn.is_initialized():
         now = time.monotonic()
@@ -698,6 +700,12 @@ async def _wait_for_initialized_with_startup_budget(
 
         if machine_elapsed >= startup_timeout_seconds:
             raise TimeoutError("MCP server startup timed out (non-OAuth budget exhausted)")
+
+        if wall_elapsed >= wall_clock_cap:
+            raise TimeoutError(
+                f"MCP server startup wall-clock cap exceeded ({wall_elapsed:.1f}s > "
+                f"{wall_clock_cap:.1f}s cap, oauth_wait={oauth_wait_elapsed:.1f}s)"
+            )
 
         await asyncio.sleep(interval)
 
@@ -941,10 +949,17 @@ class MCPConnectionManager(ContextDependent):
                     raise ValueError(
                         f"Server '{server_name}' uses stdio transport but no command is specified"
                     )
+                # Inherit SPAWN_* and VIRTUAL_ENV from parent process
+                # (get_default_environment() only passes HOME/PATH/SHELL etc.)
+                import os as _os
+                _parent_extras = {
+                    k: v for k, v in _os.environ.items()
+                    if k.startswith("SPAWN_") or k in ("VIRTUAL_ENV",)
+                }
                 server_params = StdioServerParameters(
                     command=config.command,
                     args=config.args if config.args is not None else [],
-                    env={**get_default_environment(), **(config.env or {})},
+                    env={**get_default_environment(), **_parent_extras, **(config.env or {})},
                     cwd=config.cwd,
                 )
                 # Create custom error handler to ensure all output is captured
