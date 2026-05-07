@@ -49,15 +49,15 @@ def _get_store() -> TeamSessionStore:
 # Random Agent Naming
 # ───────────────────────────────────────────────────────────
 
-# Pool of Vietnamese first names (no diacritics for compatibility)
+# Pool of gender-neutral first names (ASCII only, internationally readable).
 _AGENT_NAME_POOL = [
-    "An", "Bao", "Chi", "Dung", "Giang", "Hai", "Hung", "Khanh",
-    "Lam", "Long", "Mai", "Nam", "Ngoc", "Phong", "Phuc", "Quan",
-    "Son", "Tam", "Thao", "Thien", "Thinh", "Toan", "Trung", "Tuan",
-    "Vinh", "Vu", "Xuan", "Yen", "Dat", "Ha", "Hieu", "Hoang",
-    "Huong", "Khoa", "Lan", "Loc", "Minh", "Nhat", "Oanh", "Phuong",
-    "Quang", "Tai", "Thanh", "Thuy", "Tien", "Trang", "Tram", "Vy",
-    "Khoi", "Binh",
+    "Alex", "Avery", "Bailey", "Blake", "Cameron", "Casey", "Charlie",
+    "Dakota", "Drew", "Eden", "Elliot", "Emerson", "Finley", "Frankie",
+    "Hayden", "Jamie", "Jesse", "Jordan", "Kai", "Kendall", "Logan",
+    "Mason", "Morgan", "Parker", "Peyton", "Phoenix", "Quinn", "Reagan",
+    "Reese", "Riley", "River", "Robin", "Rowan", "Ryan", "Sage", "Sam",
+    "Sasha", "Sawyer", "Skyler", "Sydney", "Taylor", "Toby", "Tyler",
+    "Wren", "Adrian", "Ash", "Bennett", "Carson", "Devon", "Emery",
 ]
 
 
