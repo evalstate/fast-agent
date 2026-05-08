@@ -161,7 +161,7 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
 
-    config_path = env_paths.root / "fastagent.config.yaml"
+    config_path = env_paths.root / "fast-agent.yaml"
     config_path.write_text(
         "default_model: \"$system.default\"\n"
         "model_references:\n"
