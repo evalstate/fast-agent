@@ -29,6 +29,11 @@ def _validate_non_negative(value: int | None, name: str) -> None:
         raise typer.BadParameter(f"{name} must be non-negative")
 
 
+def _fail_validation(message: str) -> None:
+    typer.echo(f"Error: {message}", err=True)
+    raise typer.Exit(2)
+
+
 def _run_async(coro):
     configure_uvloop()
     return asyncio.run(coro)
@@ -146,17 +151,17 @@ def run(
         _validate_non_negative(value, name)
 
     if resume and overwrite:
-        raise typer.BadParameter("--resume and --overwrite cannot be used together")
+        _fail_validation("--resume and --overwrite cannot be used together")
     if instruction_path is not None and agent_card_source is not None:
-        raise typer.BadParameter("--agent-card and --instruction cannot be used together")
+        _fail_validation("--agent-card and --instruction cannot be used together")
     if agent_name is not None and agent_card_source is None:
-        raise typer.BadParameter("--agent requires --agent-card")
+        _fail_validation("--agent requires --agent-card")
     if schema_path is not None and schema_model is not None:
-        raise typer.BadParameter("--schema and --schema-model cannot be used together")
+        _fail_validation("--schema and --schema-model cannot be used together")
     if hf_dataset_path is not None and hf_dataset is None:
-        raise typer.BadParameter("--hf-dataset-path requires --hf-dataset")
+        _fail_validation("--hf-dataset-path requires --hf-dataset")
     if hf_dataset is not None and export_traces_path is None:
-        raise typer.BadParameter("--hf-dataset requires --export-traces")
+        _fail_validation("--hf-dataset requires --export-traces")
 
     context = ensure_context_object(ctx)
     env_dir = context.get("env_dir")

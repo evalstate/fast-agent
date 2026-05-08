@@ -292,7 +292,7 @@ def create_keybindings(
         try:
             edited_text = await run_in_terminal(
                 lambda: get_text_from_editor(current_text),
-                render_cli_done=True,
+                render_cli_done=False,
                 in_executor=True,
             )
             app_ref.current_buffer.text = edited_text

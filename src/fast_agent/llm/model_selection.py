@@ -111,7 +111,6 @@ class ModelSelectionCatalog:
                 model="google.gemini-3-flash-preview",
                 fast=True,
             ),
-            CatalogModelEntry(alias="gemini3", model="google.gemini-3-pro-preview", current=False),
         ),
         Provider.XAI: (
             CatalogModelEntry(alias="Grok 4.3", model="xai.grok-4.3"),
@@ -189,14 +188,14 @@ class ModelSelectionCatalog:
                 display_label="Kimi 2.5",
                 model=("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
                 fast=True,
-                current=False,
+                current=True,
             ),
             CatalogModelEntry(
                 alias="kimi25instant",
                 display_label="Kimi 2.5 (instant)",
                 model=("hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"),
                 fast=True,
-                current=False,
+                current=True,
             ),
             CatalogModelEntry(
                 alias="glm5",
