@@ -142,10 +142,10 @@ def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
     }
 
 
-def test_google_native_schema_tool_policy_keeps_tools_by_default() -> None:
+def test_google_native_schema_tool_policy_matches_catalog_entries() -> None:
     policies = {params.structured_tool_policy for _, params in _google_native_catalog_entries()}
 
-    assert policies == {None}
+    assert policies == {None, "no_tools"}
 
 
 def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -> None:

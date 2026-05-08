@@ -23,7 +23,7 @@ from fast_agent.config import Settings, get_settings
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import parse_model_reference_token
-from fast_agent.home import CONFIG_FILENAMES, PREFERRED_CONFIG_FILENAME, find_config_in_directory
+from fast_agent.home import CONFIG_FILENAMES, find_config_in_directory
 from fast_agent.marketplace import formatting as marketplace_formatting
 from fast_agent.marketplace import registry_urls as marketplace_registry_urls
 from fast_agent.marketplace import source_utils as marketplace_source_utils
@@ -1416,7 +1416,7 @@ def _resolve_manifest_file_install_path(relative: str, *, env_root: Path) -> str
     if existing_config is not None:
         return existing_config.name
 
-    return PREFERRED_CONFIG_FILENAME
+    return relative
 
 
 def _extract_installable_last_used_model(
