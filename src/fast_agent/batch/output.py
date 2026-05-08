@@ -1,4 +1,4 @@
-"""JSONL output envelope helpers for structured batch runs."""
+"""JSONL output envelope helpers for batch runs."""
 
 from __future__ import annotations
 

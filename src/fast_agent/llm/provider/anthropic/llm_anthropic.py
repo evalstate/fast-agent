@@ -98,7 +98,6 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
-from fast_agent.llm.structured_schema import sanitize_structured_output_schema
 from fast_agent.llm.task_budget import (
     format_task_budget_tokens,
     parse_task_budget_tokens,
@@ -385,13 +384,13 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
 
 
 def _transform_anthropic_schema(schema: type[BaseModel] | dict[str, Any]) -> dict[str, Any]:
-    """Return an Anthropic-compatible schema using the SDK's schema transformer."""
+    """Return an Anthropic-compatible schema using the SDK's schema transformer.
+
+    Anthropic accepts both Pydantic models and raw JSON-schema dicts through the
+    same SDK transformer. Keep fast-agent out of this normalization path so the
+    model and raw-schema routes match Anthropic SDK behavior exactly.
+    """
     return transform_schema(schema)
-
-
-def _ensure_additional_properties_false(schema: dict[str, Any]) -> dict[str, Any]:
-    """Ensure object schemas use Anthropic-compatible additionalProperties=false."""
-    return sanitize_structured_output_schema(schema, additional_properties_false=True)
 
 
 class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
@@ -926,7 +925,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             schema = _transform_anthropic_schema(cast("type[BaseModel]", structured_model))
         else:
             schema = _transform_anthropic_schema({"type": "object"})
-        schema = _ensure_additional_properties_false(schema)
         return {"type": "json_schema", "schema": schema}
 
     async def _prepare_tools(

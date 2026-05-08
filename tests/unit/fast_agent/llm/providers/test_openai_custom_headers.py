@@ -201,14 +201,14 @@ class TestLLMDefaultHeadersMethod:
 
         assert llm._default_headers() == headers
 
-    def test_xai_llm_default_headers_returns_configured_headers(self):
-        """xAI LLM should return headers from xai config."""
-        from fast_agent.llm.provider.openai.llm_xai import XAILLM
+    def test_xai_responses_llm_default_headers_returns_configured_headers(self):
+        """xAI Responses LLM should return headers from xai config."""
+        from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
 
         headers = {"X-XAI-Custom": "value"}
         settings = Settings.model_validate({"xai": {"default_headers": headers}})
         context = Context(config=settings)
-        llm = XAILLM(context=context)
+        llm = XAIResponsesLLM(context=context)
 
         assert llm._default_headers() == headers
 

@@ -517,6 +517,7 @@ class WebSocketResponsesStream:
         self._saw_terminal_event = False
         self._stop_after_next = False
         self._final_response: Any | None = None
+        self.first_event_monotonic: float | None = None
         self._completed_output_items: list[tuple[int | None, int, Any]] = []
         self._events_seen = 0
         self._last_frame_preview: str | None = None
@@ -599,6 +600,21 @@ class WebSocketResponsesStream:
             self._last_frame_preview = _preview_text(raw_data)
 
             event_type = payload.get("type")
+            if not isinstance(event_type, str) and "error" in payload:
+                (
+                    error_message,
+                    error_code,
+                    error_status,
+                    error_param,
+                ) = self._extract_error_details(payload)
+                raise ResponsesWebSocketError(
+                    error_message,
+                    stream_started=self._stream_started,
+                    error_code=error_code,
+                    status=error_status,
+                    error_param=error_param,
+                )
+
             if event_type == "response.output_item.done":
                 item = payload.get("item")
                 output_index = payload.get("output_index")
@@ -645,6 +661,8 @@ class WebSocketResponsesStream:
                 self._saw_terminal_event = True
                 self._stop_after_next = True
 
+            if self.first_event_monotonic is None:
+                self.first_event_monotonic = time.perf_counter()
             self._events_seen += 1
             return event
 

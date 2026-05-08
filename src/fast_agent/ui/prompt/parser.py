@@ -51,6 +51,7 @@ from fast_agent.ui.command_payloads import (
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
+    ModelXSearchCommand,
     PinSessionCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
@@ -551,6 +552,7 @@ def _parse_model_command(cmd_line: str, remainder: str) -> CommandPayload:
         "verbosity": ModelVerbosityCommand,
         "fast": ModelFastCommand,
         "web_search": ModelWebSearchCommand,
+        "x_search": ModelXSearchCommand,
         "web_fetch": ModelWebFetchCommand,
         "switch": ModelSwitchCommand,
     }

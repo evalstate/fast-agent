@@ -66,6 +66,7 @@ from fast_agent.ui.command_payloads import (
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
+    ModelXSearchCommand,
     PinSessionCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
@@ -596,6 +597,15 @@ async def _dispatch_model_payload(
         case ModelWebSearchCommand(value=value):
             context = build_command_context(prompt_provider, agent)
             outcome = await model_handlers.handle_model_web_search(
+                context,
+                agent_name=agent,
+                value=value,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case ModelXSearchCommand(value=value):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await model_handlers.handle_model_x_search(
                 context,
                 agent_name=agent,
                 value=value,

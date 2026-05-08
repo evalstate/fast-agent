@@ -1,4 +1,4 @@
-"""Direct-mode structured batch runner."""
+"""Batch runner for row-oriented agent/model jobs."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from fast_agent.batch.output import (
 from fast_agent.batch.resume import load_completed_ids
 from fast_agent.batch.summary import BatchSummary
 from fast_agent.batch.template import DEFAULT_ROW_TEMPLATE, render_row_template
+from fast_agent.batch.traces import BatchTraceOptions, BatchTraceRecorder
 from fast_agent.cli.runtime.request_builders import resolve_default_instruction
 from fast_agent.constants import FAST_AGENT_TIMING
 from fast_agent.llm.request_params import RequestParams
@@ -29,9 +30,13 @@ from fast_agent.llm.structured_schema import (
     load_pydantic_model,
 )
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.session.trace_export_errors import SessionExportUploadError
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from fast_agent.core.fastagent import FastAgent
+    from fast_agent.interfaces import AgentProtocol
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,11 @@ class StructuredBatchOptions:
     final_summary: bool = True
     environment_dir: Path | None = None
     shell_runtime: bool = False
+    agent_card_source: str | None = None
+    agent_name: str | None = None
+    export_traces_path: Path | None = None
+    hf_dataset: str | None = None
+    hf_dataset_path: str | None = None
 
 
 SchemaSource: TypeAlias = StructuredSchemaSource
@@ -71,15 +81,22 @@ def load_json_schema(path: Path) -> dict[str, Any]:
     return load_json_schema_file(path)
 
 
-def load_schema_source(options: StructuredBatchOptions) -> SchemaSource:
+def load_schema_source(options: StructuredBatchOptions) -> SchemaSource | None:
+    if options.agent_card_source is not None and options.instruction_path is not None:
+        raise ValueError("--agent-card and --instruction cannot be used together")
+    if options.agent_name is not None and options.agent_card_source is None:
+        raise ValueError("--agent requires --agent-card")
     if options.schema_path is not None and options.schema_model is not None:
         raise ValueError("--schema and --schema-model cannot be used together")
-    if options.schema_path is None and options.schema_model is None:
-        raise ValueError("One of --schema or --schema-model is required")
+    if options.hf_dataset_path is not None and options.hf_dataset is None:
+        raise ValueError("--hf-dataset-path requires --hf-dataset")
+    if options.hf_dataset is not None and options.export_traces_path is None:
+        raise ValueError("--hf-dataset requires --export-traces")
     if options.schema_model is not None:
         return load_pydantic_model(options.schema_model)
-    assert options.schema_path is not None
-    return load_json_schema(options.schema_path)
+    if options.schema_path is not None:
+        return load_json_schema(options.schema_path)
+    return None
 
 
 def load_text_file(path: Path, label: str) -> str:
@@ -190,7 +207,7 @@ def _reject_duplicate_output_paths(options: StructuredBatchOptions) -> None:
 
 
 async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any]:
-    """Run a direct-mode structured batch job and return the summary payload."""
+    """Run a batch job and return the summary payload."""
     _prepare_output_files(options)
 
     schema_source = load_schema_source(options)
@@ -199,11 +216,14 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
         if options.template_path is not None
         else DEFAULT_ROW_TEMPLATE
     )
-    instruction = (
-        load_text_file(options.instruction_path, "instruction")
-        if options.instruction_path is not None
-        else resolve_default_instruction(options.model, "interactive")
-    )
+    if options.agent_card_source is None:
+        instruction: str | None = (
+            load_text_file(options.instruction_path, "instruction")
+            if options.instruction_path is not None
+            else resolve_default_instruction(options.model, "interactive")
+        )
+    else:
+        instruction = None
 
     all_candidates = list(iter_input_rows(options.input_path))
     selected = select_rows(
@@ -227,15 +247,21 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
             "schema": str(options.schema_path) if options.schema_path is not None else None,
             "schema_model": options.schema_model,
             "instruction": str(options.instruction_path) if options.instruction_path else None,
+            "agent_card": options.agent_card_source,
+            "agent": None,
             "template": str(options.template_path) if options.template_path else "<default>",
             "shell_runtime": options.shell_runtime,
+            "output_mode": "structured" if schema_source is not None else "text",
+            "export_traces": str(options.export_traces_path) if options.export_traces_path else None,
+            "hf_dataset": options.hf_dataset,
+            "hf_dataset_path": options.hf_dataset_path,
         },
     )
 
     from fast_agent import FastAgent
 
     fast = FastAgent(
-        name="structured batch",
+        name="batch",
         parse_cli_args=False,
         ignore_unknown_args=True,
         quiet=True,
@@ -244,9 +270,9 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
     if options.model:
         fast.args.model = options.model
 
-    @fast.agent(name="batch_worker", instruction=instruction, model=options.model, default=True)
-    async def batch_worker() -> None:
-        pass
+    target_agent_name = await _configure_batch_worker(fast, options, instruction)
+    if options.agent_card_source is not None:
+        summary.metadata["agent"] = target_agent_name
 
     if options.shell_runtime:
         await fast.app.initialize()
@@ -257,7 +283,8 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
         output_mode = "w"
 
     async with fast.run() as agent_app:
-        worker = agent_app._agent("batch_worker")
+        worker = agent_app._agent(target_agent_name)
+        trace_recorder = _configure_trace_recorder(worker, options, summary.metadata)
         with options.output_path.open(output_mode, encoding="utf-8") as output_handle:
             with _optional_jsonl_handle(options.error_output_path, "a" if options.resume else "w") as error_handle:
                 with _optional_jsonl_handle(
@@ -298,14 +325,28 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                             )
                             summary.processed_rows += 1
                             summary.failed_rows += 1
+                            if trace_recorder is not None:
+                                trace_recorder.record_row_without_trace(
+                                    row_number=candidate.row_number,
+                                    identity=identity,
+                                    ok=False,
+                                    error_type=row_error.type,
+                                    error_message=row_error.message,
+                                )
                             if _max_errors_reached(summary.failed_rows, options.max_errors):
                                 break
                             continue
 
                         assert rendered is not None
                         assert candidate.row is not None
+                        if trace_recorder is not None:
+                            trace_recorder.start_row(
+                                row_number=candidate.row_number,
+                                identity=identity,
+                                rendered=rendered,
+                            )
                         try:
-                            parsed, response = await _structured_row_call(
+                            parsed, response = await _row_call(
                                 worker,
                                 rendered=rendered,
                                 schema_source=schema_source,
@@ -334,6 +375,13 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                                 )
                                 summary.processed_rows += 1
                                 summary.failed_rows += 1
+                                if trace_recorder is not None:
+                                    trace_recorder.finish_row(
+                                        ok=False,
+                                        response=response,
+                                        error_type="StructuredOutputError",
+                                        error_message="Model response did not satisfy the JSON schema",
+                                    )
                                 if _max_errors_reached(summary.failed_rows, options.max_errors):
                                     break
                                 continue
@@ -353,6 +401,8 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                                 timing=timing,
                             )
                             summary.processed_rows += 1
+                            if trace_recorder is not None:
+                                trace_recorder.finish_row(ok=True, response=response)
                         except Exception as exc:
                             record = error_envelope(
                                 identity=identity,
@@ -372,8 +422,31 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                             )
                             summary.processed_rows += 1
                             summary.failed_rows += 1
+                            if trace_recorder is not None:
+                                trace_recorder.finish_row(
+                                    ok=False,
+                                    error_type=type(exc).__name__,
+                                    error_message=str(exc),
+                                )
                             if _max_errors_reached(summary.failed_rows, options.max_errors):
                                 break
+
+        if trace_recorder is not None:
+            summary.metadata["trace_run_id"] = trace_recorder.run_id
+            if options.hf_dataset is not None:
+                try:
+                    upload = trace_recorder.upload_to_hf_dataset(
+                        dataset_repo=options.hf_dataset,
+                        dataset_path=options.hf_dataset_path,
+                    )
+                except SessionExportUploadError as exc:
+                    raise ValueError(str(exc)) from exc
+                summary.metadata["hf_dataset_upload"] = {
+                    "repo_id": upload.repo_id,
+                    "path_in_repo": upload.path_in_repo,
+                    "commit_url": upload.commit_url,
+                    "file_url": upload.file_url,
+                }
 
     completed_at = utc_now_iso()
     payload = summary.to_dict(completed_at)
@@ -385,13 +458,69 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
     return payload
 
 
-async def _structured_row_call(
+def _configure_trace_recorder(
+    worker: AgentProtocol,
+    options: StructuredBatchOptions,
+    metadata: dict[str, Any],
+) -> BatchTraceRecorder | None:
+    trace_options = BatchTraceOptions(
+        export_traces_path=options.export_traces_path,
+        hf_dataset=options.hf_dataset,
+        hf_dataset_path=options.hf_dataset_path,
+    )
+    if trace_options.export_traces_path is None:
+        return None
+    recorder = BatchTraceRecorder(
+        trace_dir=trace_options.export_traces_path,
+        agent=worker,
+        run_metadata=metadata,
+    )
+    recorder.initialize()
+    recorder.install_hook()
+    return recorder
+
+
+async def _configure_batch_worker(
+    fast: FastAgent,
+    options: StructuredBatchOptions,
+    instruction: str | None,
+) -> str:
+    if options.agent_card_source is None:
+        assert instruction is not None
+
+        @fast.agent(name="batch_worker", instruction=instruction, model=options.model, default=True)
+        async def batch_worker() -> None:
+            pass
+
+        return "batch_worker"
+
+    from fast_agent.batch.agent_card import (
+        force_loaded_card_history_off,
+        load_batch_agent_card,
+        override_selected_agent_model,
+    )
+
+    selection = load_batch_agent_card(
+        fast,
+        source=options.agent_card_source,
+        requested_agent=options.agent_name,
+    )
+    force_loaded_card_history_off(fast, selection.loaded_names)
+    if options.model is not None:
+        override_selected_agent_model(fast, selection.target_name, options.model)
+    return selection.target_name
+
+
+async def _row_call(
     worker: Any,
     *,
     rendered: str,
-    schema_source: SchemaSource,
+    schema_source: SchemaSource | None,
 ) -> tuple[Any | None, Any]:
     request_params = RequestParams(use_history=False)
+    if schema_source is None:
+        response = await worker.generate(rendered, request_params)
+        return response.last_text() or "", response
     if isinstance(schema_source, type) and issubclass(schema_source, BaseModel):
         return await worker.structured(rendered, schema_source, request_params)
     return await worker.structured_schema(rendered, schema_source, request_params)

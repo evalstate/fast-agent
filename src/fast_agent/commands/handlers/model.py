@@ -16,11 +16,14 @@ from fast_agent.commands.model_capabilities import (
     resolve_web_fetch_supported,
     resolve_web_search_enabled,
     resolve_web_search_supported,
+    resolve_x_search_enabled,
+    resolve_x_search_supported,
     service_tier_command_values,
     set_service_tier,
     set_task_budget_tokens,
     set_web_fetch_enabled,
     set_web_search_enabled,
+    set_x_search_enabled,
 )
 from fast_agent.commands.model_details import (
     add_model_details,
@@ -61,6 +64,7 @@ if TYPE_CHECKING:
 
 
 model_supports_web_search = _model_capabilities.model_supports_web_search
+model_supports_x_search = _model_capabilities.model_supports_x_search
 model_supports_web_fetch = _model_capabilities.model_supports_web_fetch
 model_supports_service_tier = _model_capabilities.model_supports_service_tier
 model_supports_task_budget = _model_capabilities.model_supports_task_budget
@@ -108,6 +112,12 @@ async def _handle_model_web_tool(
     enabled_resolver: Callable[[object], bool],
     setter: Callable[[object, bool | None], None],
 ) -> CommandOutcome:
+    # TODO: If another provider-native boolean tool lands, consider replacing the
+    # web_search/x_search/web_fetch-specific command/protocol plumbing with a
+    # typed runtime-setting registry. Keep user-facing commands as aliases, but
+    # route parser, ACP, completions, capability checks, and this handler through
+    # one generic setting key. Provider code would still translate each key into
+    # its native payload/metadata shape.
     outcome = CommandOutcome()
     resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
     if resolved is None:
@@ -537,6 +547,24 @@ async def handle_model_web_search(
         supported_resolver=resolve_web_search_supported,
         enabled_resolver=resolve_web_search_enabled,
         setter=set_web_search_enabled,
+    )
+
+
+async def handle_model_x_search(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+) -> CommandOutcome:
+    return await _handle_model_web_tool(
+        ctx,
+        agent_name=agent_name,
+        value=value,
+        label="X Search",
+        setting_name="x_search",
+        supported_resolver=resolve_x_search_supported,
+        enabled_resolver=resolve_x_search_enabled,
+        setter=set_x_search_enabled,
     )
 
 

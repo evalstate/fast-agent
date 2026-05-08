@@ -232,15 +232,13 @@ async def test_show_assistant_message_renders_web_metadata_for_final_turn() -> N
     assert len(capture_display.calls) == 1
     call = capture_display.calls[0]
     assert call.get("bottom_items") == ["web_search x1"]
-    pre_content = call.get("pre_content")
-    assert isinstance(pre_content, Text)
-    assert "Sources" in pre_content.plain
-    assert "done" not in pre_content.plain
+    assert call.get("pre_content") is None
 
     additional = call.get("additional_message")
     assert isinstance(additional, Text)
     plain = additional.plain
-    assert "Sources" not in plain
+    assert "Sources" in plain
+    assert "done" not in plain
     assert "Web activity: web_search x1" in plain
     assert call.get("highlight_index") == 0
 
@@ -285,6 +283,64 @@ async def test_show_assistant_message_replays_provider_mcp_tools() -> None:
     assert [item["type_label"] for item in capture_display.tool_results] == [
         "remote tool result"
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_show_assistant_message_replays_x_search_internal_calls() -> None:
+    agent = LlmAgent(AgentConfig("x-search"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Answer based on X search.")],
+        stop_reason=LlmStopReason.END_TURN,
+        channels={
+            ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                TextContent(
+                    type="text",
+                    text=(
+                        '{"type":"server_tool_use",'
+                        '"provider_tool_type":"x_search_call",'
+                        '"name":"x_keyword_search",'
+                        '"id":"xs_1",'
+                        '"arguments":"{\\"query\\":\\"from:rachelnabors harness\\",\\"limit\\":\\"5\\"}",'
+                        '"input":{"query":"from:rachelnabors harness","limit":"5"}}'
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=(
+                        '{"type":"server_tool_use",'
+                        '"provider_tool_type":"x_search_call",'
+                        '"name":"x_thread_fetch",'
+                        '"id":"xs_2",'
+                        '"input":{"post_id":"2050165558214066579"}}'
+                    ),
+                ),
+            ]
+        },
+    )
+
+    await agent.show_assistant_message(message)
+
+    assert capture_display.event_order == ["tool_call", "tool_call", "assistant"]
+    assert [item["tool_name"] for item in capture_display.tool_calls] == [
+        "x_keyword_search",
+        "x_thread_fetch",
+    ]
+    assert [item["type_label"] for item in capture_display.tool_calls] == [
+        "remote tool call",
+        "remote tool call",
+    ]
+    assert capture_display.tool_calls[0]["tool_args"] == {
+        "query": "from:rachelnabors harness",
+        "limit": "5",
+    }
+    assert capture_display.tool_calls[1]["tool_args"] == {
+        "post_id": "2050165558214066579"
+    }
 
 
 @pytest.mark.unit

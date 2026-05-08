@@ -83,6 +83,27 @@ def test_shell_tool_call_renders_code_without_markdown_padding() -> None:
     assert any(line.startswith("echo hi") for line in command_lines)
 
 
+def test_shell_tool_call_header_includes_timeout() -> None:
+    display = ConsoleDisplay()
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            tool_name="execute",
+            tool_args={"command": "echo hi"},
+            metadata={
+                "variant": "shell",
+                "command": "echo hi",
+                "shell_name": "bash",
+                "shell_path": "/bin/bash",
+                "timeout_seconds": 90,
+            },
+            name="dev",
+        )
+
+    rendered = capture.get()
+    assert "bash (/bin/bash) | timeout 90s" in rendered
+
+
 
 def test_apply_patch_tool_call_renders_preview() -> None:
     display = ConsoleDisplay()

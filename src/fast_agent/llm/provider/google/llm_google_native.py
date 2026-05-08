@@ -907,13 +907,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         # Prepare request params
         request_params = self.get_request_params(request_params)
 
-        # Build schema for structured output
-        schema = None
-        try:
-            schema = model.model_json_schema()
-        except Exception:
-            pass
-        response_schema = model if schema is None else schema
+        # Google genai accepts Pydantic models directly for response_schema and
+        # applies its own schema processing. Use that model route instead of
+        # eagerly converting to a dict so Pydantic and raw-schema inputs remain
+        # distinct and match downstream SDK behavior.
+        response_schema = model
 
         # Convert the last user message to provider-native content for the current turn
         turn_messages: list[types.Content] = []

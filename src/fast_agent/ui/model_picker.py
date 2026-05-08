@@ -329,7 +329,7 @@ class _SplitListPicker:
         if config_name == "codexresponses":
             return "Codex (Plan)"
         if config_name == "generic":
-            return "Local (ollama)"
+            return "Generic (ollama)"
         if config_name == "fast-agent":
             return "fast-agent"
 

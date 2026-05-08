@@ -58,6 +58,9 @@ async def _handle_model_like(
             elif subcmd == "web_search":
                 command_kind = "web_search"
                 value = argument or None
+            elif subcmd == "x_search":
+                command_kind = "x_search"
+                value = argument or None
             elif subcmd == "web_fetch":
                 command_kind = "web_fetch"
                 value = argument or None
@@ -122,6 +125,12 @@ async def _handle_model_like(
         )
     elif command_kind == "web_search":
         outcome = await model_handlers.handle_model_web_search(
+            ctx,
+            agent_name=handler.current_agent_name,
+            value=value,
+        )
+    elif command_kind == "x_search":
+        outcome = await model_handlers.handle_model_x_search(
             ctx,
             agent_name=handler.current_agent_name,
             value=value,

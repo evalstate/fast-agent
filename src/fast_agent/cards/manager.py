@@ -23,6 +23,7 @@ from fast_agent.config import Settings, get_settings
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import parse_model_reference_token
+from fast_agent.home import CONFIG_FILENAMES, PREFERRED_CONFIG_FILENAME, find_config_in_directory
 from fast_agent.marketplace import formatting as marketplace_formatting
 from fast_agent.marketplace import registry_urls as marketplace_registry_urls
 from fast_agent.marketplace import source_utils as marketplace_source_utils
@@ -1298,7 +1299,10 @@ def _build_install_copy_plan(
 
     for entry in manifest.files:
         source = _resolve_pack_source_path(pack_root, entry)
-        destination_relative = _validate_manifest_install_path(entry)
+        destination_relative = _resolve_manifest_file_install_path(
+            _validate_manifest_install_path(entry),
+            env_root=env_root,
+        )
         _ensure_env_target_path(destination_relative, env_root)
         plan.append(_PlannedCopy(source=source, destination_relative=destination_relative))
 
@@ -1362,7 +1366,7 @@ def _merge_last_used_model_into_copy_plan(
     mergeable_unmanaged_files: set[str] = set()
 
     for item in copy_plan:
-        if item.destination_relative != "fastagent.config.yaml":
+        if item.destination_relative not in CONFIG_FILENAMES:
             merged_plan.append(item)
             continue
 
@@ -1402,6 +1406,17 @@ def _merge_last_used_model_into_copy_plan(
             mergeable_unmanaged_files.add(item.destination_relative)
 
     return merged_plan, mergeable_unmanaged_files
+
+
+def _resolve_manifest_file_install_path(relative: str, *, env_root: Path) -> str:
+    if relative not in CONFIG_FILENAMES:
+        return relative
+
+    existing_config = find_config_in_directory(env_root)
+    if existing_config is not None:
+        return existing_config.name
+
+    return PREFERRED_CONFIG_FILENAME
 
 
 def _extract_installable_last_used_model(

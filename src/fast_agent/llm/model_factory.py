@@ -44,6 +44,7 @@ class ModelConfig(BaseModel):
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
+    x_search: bool | None = None
     web_fetch: bool | None = None
     task_budget_tokens: int | None = None
     task_budget_configured: bool = False
@@ -68,6 +69,7 @@ class ModelQueryOverrides:
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
+    x_search: bool | None = None
     web_fetch: bool | None = None
     task_budget_tokens: int | None = None
     task_budget_configured: bool = False
@@ -106,6 +108,7 @@ class ModelQueryOverrides:
                 self.service_tier if self.service_tier is not None else defaults.service_tier
             ),
             web_search=self.web_search if self.web_search is not None else defaults.web_search,
+            x_search=self.x_search if self.x_search is not None else defaults.x_search,
             web_fetch=self.web_fetch if self.web_fetch is not None else defaults.web_fetch,
             task_budget_tokens=(
                 self.task_budget_tokens
@@ -154,6 +157,7 @@ class ParsedModelSpec:
             transport=self.query_overrides.transport,
             service_tier=self.query_overrides.service_tier,
             web_search=self.query_overrides.web_search,
+            x_search=self.query_overrides.x_search,
             web_fetch=self.query_overrides.web_fetch,
             task_budget_tokens=self.query_overrides.task_budget_tokens,
             task_budget_configured=self.query_overrides.task_budget_configured,
@@ -253,6 +257,7 @@ def _parse_query_overrides(
         "transport",
         "service_tier",
         "web_search",
+        "x_search",
         "web_fetch",
         "task_budget",
         "taskBudget",
@@ -283,6 +288,7 @@ def _parse_query_overrides(
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
+    x_search: bool | None = None
     web_fetch: bool | None = None
     task_budget_tokens: int | None = None
     task_budget_configured = False
@@ -370,6 +376,10 @@ def _parse_query_overrides(
         raw_value = _collect_query_values(query_params, ("web_search",))[-1]
         web_search = _parse_on_off_query(raw_value, "web_search", model_spec)
 
+    if "x_search" in query_params:
+        raw_value = _collect_query_values(query_params, ("x_search",))[-1]
+        x_search = _parse_on_off_query(raw_value, "x_search", model_spec)
+
     if "web_fetch" in query_params:
         raw_value = _collect_query_values(query_params, ("web_fetch",))[-1]
         web_fetch = _parse_on_off_query(raw_value, "web_fetch", model_spec)
@@ -395,6 +405,7 @@ def _parse_query_overrides(
         transport=transport,
         service_tier=service_tier,
         web_search=web_search,
+        x_search=x_search,
         web_fetch=web_fetch,
         task_budget_tokens=task_budget_tokens,
         task_budget_configured=task_budget_configured,
@@ -550,11 +561,10 @@ def _validate_transport_constraints(
         Provider.CODEX_RESPONSES,
         Provider.RESPONSES,
         Provider.XAI,
-        Provider.XAI_RESPONSES,
     }:
         raise ModelConfigError(
             "WebSocket transport is experimental and currently supported only for "
-            "the codexresponses, responses, xai, and xairesponses providers."
+            "the codexresponses, responses, and xai providers."
         )
 
     supports_transport = ModelDatabase.supports_response_transport(model_name, "websocket")
@@ -607,11 +617,12 @@ class ModelFactory:
         "gpt55": "responses.gpt-5.5",
         "gpt54-mini": "responses.gpt-5.4-mini",
         "gpt54-nano": "responses.gpt-5.4-nano",
-        "chatgpt": "responses.gpt-5.3-chat-latest",
+        "chatgpt": "responses.chat-latest",
+        "chat-latest": "responses.chat-latest",
         "codex": "responses.gpt-5.3-codex",
-        "codexplan": "codexresponses.gpt-5.5",
-        "codexplan54": "codexresponses.gpt-5.4",
-        "codexplan53": "codexresponses.gpt-5.3-codex",
+        "codexplan": "codexresponses.gpt-5.5?reasoning=medium",
+        "codexplan54": "codexresponses.gpt-5.4?reasoning=high",
+        "codexplan53": "codexresponses.gpt-5.3-codex?reasoning=medium",
         "codexspark": "codexresponses.gpt-5.3-codex-spark",
         "sonnet": "claude-sonnet-4-6",
         "sonnet4": "claude-sonnet-4-6",
@@ -944,10 +955,6 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
 
                 return XAIResponsesLLM
-            if provider == Provider.XAI_LEGACY:
-                from fast_agent.llm.provider.openai.llm_xai import XAILLM
-
-                return XAILLM
             if provider == Provider.OPENROUTER:
                 from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
 
@@ -984,11 +991,6 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 
                 return OpenResponsesLLM
-            if provider == Provider.XAI_RESPONSES:
-                from fast_agent.llm.provider.openai.xai_responses import XAIExplicitResponsesLLM
-
-                return XAIExplicitResponsesLLM
-
         except Exception as e:
             raise ModelConfigError(
                 f"Provider '{provider.value}' is unavailable or missing dependencies: {e}"

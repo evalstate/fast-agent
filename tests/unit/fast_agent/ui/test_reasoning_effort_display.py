@@ -105,6 +105,29 @@ def test_effort_explicit_setting_not_blue() -> None:
     assert "⣶" in gauge
 
 
+def test_effort_none_low_medium_high_scale_uses_full_dynamic_range() -> None:
+    spec = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="low"),
+    )
+
+    assert (
+        render_reasoning_effort_gauge(ReasoningEffortSetting(kind="effort", value="low"), spec)
+        == "<style bg='ansigreen'>⣤</style>"
+    )
+    assert (
+        render_reasoning_effort_gauge(
+            ReasoningEffortSetting(kind="effort", value="medium"), spec
+        )
+        == "<style bg='ansiyellow'>⣶</style>"
+    )
+    assert (
+        render_reasoning_effort_gauge(ReasoningEffortSetting(kind="effort", value="high"), spec)
+        == "<style bg='ansired'>⣿</style>"
+    )
+
+
 def test_toggle_auto_not_blue() -> None:
     """Toggle specs should never show blue even when setting is None."""
     spec = ReasoningEffortSpec(

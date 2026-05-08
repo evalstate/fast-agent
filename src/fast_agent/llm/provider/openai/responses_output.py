@@ -49,6 +49,9 @@ class ResponsesOutputMixin:
         self._tool_call_diagnostics = None
         return diagnostics
 
+    def _is_provider_managed_function_call(self, name: str) -> bool:
+        return False
+
     def _seen_tool_call_ids_state(self) -> set[str]:
         seen = getattr(self, "_seen_tool_call_ids", None)
         if seen is None:
@@ -246,6 +249,8 @@ class ResponsesOutputMixin:
             item_id = getattr(item, "id", None)
             call_id = getattr(item, "call_id", None)
             name = getattr(item, "name", None) or "tool"
+            if self._is_provider_managed_function_call(name):
+                continue
             if item_type == "custom_tool_call":
                 custom_input = getattr(item, "input", None)
                 if isinstance(custom_input, str):

@@ -1081,6 +1081,10 @@ class ToolDisplay:
                 elif shell_name:
                     right_parts.append(shell_name)
 
+                timeout_seconds = metadata.get("timeout_seconds")
+                if timeout_seconds:
+                    right_parts.append(f"timeout {timeout_seconds}s")
+
                 base_label = " | ".join(right_parts) if right_parts else None
                 right_info = self._build_tool_right_info(base_label, tool_call_id)
                 truncate_content = False
@@ -1091,7 +1095,6 @@ class ToolDisplay:
                 if working_dir_display:
                     bottom_items.append(f"cwd: {working_dir_display}")
 
-                timeout_seconds = metadata.get("timeout_seconds")
                 warning_interval = metadata.get("warning_interval_seconds")
 
                 if timeout_seconds and warning_interval:

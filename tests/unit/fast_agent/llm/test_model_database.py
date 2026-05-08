@@ -142,10 +142,10 @@ def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
     }
 
 
-def test_google_native_schema_tool_policy_keeps_tools_by_default() -> None:
+def test_google_native_schema_tool_policy_matches_catalog_entries() -> None:
     policies = {params.structured_tool_policy for _, params in _google_native_catalog_entries()}
 
-    assert policies == {None}
+    assert policies == {None, "no_tools"}
 
 
 def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -> None:
@@ -354,10 +354,6 @@ def test_model_database_xai_grok_aliases_and_responses_transport():
     assert ModelDatabase.get_context_window("grok-4-0709") == 256000
     assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
     assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
-    assert ModelDatabase.supports_response_websocket_provider(
-        "grok-4.3",
-        Provider.XAI_RESPONSES,
-    )
 
 
 def test_model_database_xai_image_input_mime_types_match_docs():
@@ -524,11 +520,23 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("o1") == "openai"
     assert ModelDatabase.get_reasoning("o3-mini") == "openai"
     assert ModelDatabase.get_reasoning("gpt-5") == "openai"
+    assert ModelDatabase.get_reasoning("grok-4.3") == "openai"
     assert ModelDatabase.get_reasoning("gpt-5.3-codex-spark") is None
     assert ModelDatabase.get_reasoning("claude-opus-4-6") == "anthropic_thinking"
     assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
     assert ModelDatabase.get_reasoning("Qwen/Qwen3.5-397B-A17B") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
+
+
+def test_model_database_grok_43_reasoning_spec() -> None:
+    spec = ModelDatabase.get_reasoning_effort_spec("grok-4.3")
+
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["none", "low", "medium", "high"]
+    assert spec.default is not None
+    assert spec.default.kind == "effort"
+    assert spec.default.value == "low"
 
 
 def test_glm_51_matches_glm_5_capabilities() -> None:

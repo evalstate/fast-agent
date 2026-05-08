@@ -764,6 +764,8 @@ def _model_command_completions(
         subcommands["fast"] = "Set service tier (on/off/status; flex when supported)"
     if completer._supports_web_search_setting():
         subcommands["web_search"] = "Set web search tool state (on/off/default)"
+    if completer._supports_x_search_setting():
+        subcommands["x_search"] = "Set X Search tool state (on/off/default)"
     if completer._supports_web_fetch_setting():
         subcommands["web_fetch"] = "Set web fetch tool state (on/off/default)"
     subcommands["switch"] = "Switch model (starts new session)"
@@ -825,6 +827,18 @@ def _model_command_completions(
         )
         return results
     if subcmd == "web_search" and completer._supports_web_search_setting():
+        results.extend(
+            Completion(
+                value,
+                start_position=-len(argument),
+                display=value,
+                display_meta=subcmd,
+            )
+            for value in ("on", "off", "default")
+            if value.startswith(argument.lower())
+        )
+        return results
+    if subcmd == "x_search" and completer._supports_x_search_setting():
         results.extend(
             Completion(
                 value,

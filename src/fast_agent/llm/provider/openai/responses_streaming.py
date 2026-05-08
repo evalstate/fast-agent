@@ -78,38 +78,27 @@ def _mcp_call_output_chunk(output: Any) -> str | None:
 def _tool_search_arguments_chunk(arguments: Any) -> str | None:
     return _preview_json_like(arguments)
 
-def _responses_tool_family(item: Any) -> ToolActivityFamily:
-    return tool_family_for_item_type(getattr(item, "type", None))
 
-
-def _tool_progress_display(item: Any) -> tuple[ToolActivityFamily, str, str | None]:
-    tool_name = responses_tool_name(item)
-    family = _responses_tool_family(item)
-    display_name = build_tool_activity_presentation(
-        tool_name=tool_name,
-        family=family,
-        phase="call",
-    ).display_name
-
+def _tool_progress_chunk(item: Any, *, family: ToolActivityFamily) -> str | None:
     item_type = getattr(item, "type", None)
     if item_type == "tool_search_call":
-        return family, display_name, (
-            _tool_search_arguments_chunk(getattr(item, "arguments", None))
-            or tool_activity_status_text(family=family, status="in_progress")
+        return _tool_search_arguments_chunk(getattr(item, "arguments", None)) or (
+            tool_activity_status_text(family=family, status="in_progress")
         )
     if item_type in {"web_search_call", "mcp_list_tools"}:
-        return family, display_name, tool_activity_status_text(family=family, status="in_progress")
+        return tool_activity_status_text(family=family, status="in_progress")
     if item_type == "mcp_call":
         arguments = getattr(item, "arguments", None)
-        return family, display_name, (
-            arguments if isinstance(arguments, str) and arguments else None
-        )
-    return family, display_name, None
+        return arguments if isinstance(arguments, str) and arguments else None
+    return None
+
+
 class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
     if TYPE_CHECKING:
         from pathlib import Path
 
         from fast_agent.core.logging.logger import Logger
+        from fast_agent.llm.tool_tracking import ToolKind
 
         logger: Logger
         name: str | None
@@ -133,6 +122,34 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         ) -> int: ...
 
         def chat_turn(self) -> int: ...
+
+    def _is_provider_managed_function_call(self, name: str) -> bool:
+        return False
+
+    def _tool_family_for_responses_item(
+        self,
+        *,
+        item_type: str | None,
+        tool_name: str,
+    ) -> ToolActivityFamily:
+        del tool_name
+        return tool_family_for_item_type(item_type)
+
+    def _tool_kind_for_responses_item(
+        self,
+        *,
+        item_type: str | None,
+        tool_name: str,
+    ) -> "ToolKind":
+        family = self._tool_family_for_responses_item(
+            item_type=item_type,
+            tool_name=tool_name,
+        )
+        if family == "web_search":
+            return "web_search"
+        if family in {"remote_tool", "remote_tool_listing", "remote_tool_search"}:
+            return "server_tool"
+        return "tool"
 
     def _log_tool_stream_event(
         self,
@@ -170,30 +187,43 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         item = getattr(event, "item", None)
         if not item_is_responses_tool(item):
             return False
+        item_type = getattr(item, "type", None) or "tool"
+        tool_name = responses_tool_name(item)
 
         index = getattr(event, "output_index", None)
         if index is None:
             return True
 
-        item_type = getattr(item, "type", None) or "tool"
         tool_info = tool_state.register(
             tool_use_id=responses_tool_use_id(
                 item,
                 index,
                 getattr(event, "item_id", None),
             ),
-            name=responses_tool_name(item),
+            name=tool_name,
             index=index,
             item_id=getattr(event, "item_id", None),
             item_type=item_type,
-            kind="web_search" if item_type == "web_search_call" else "tool",
+            kind=self._tool_kind_for_responses_item(
+                item_type=item_type,
+                tool_name=tool_name,
+            ),
         )
         tool_info.argument_snapshot_present = (
             item_type == "mcp_call"
             and isinstance(getattr(item, "arguments", None), str)
             and bool(getattr(item, "arguments", None))
         )
-        family, display_name, display_chunk = _tool_progress_display(item)
+        family = self._tool_family_for_responses_item(
+            item_type=item_type,
+            tool_name=tool_name,
+        )
+        display_chunk = _tool_progress_chunk(item, family=family)
+        display_name = build_tool_activity_presentation(
+            tool_name=tool_name,
+            family=family,
+            phase="call",
+        ).display_name
         payload = tool_event_payload(
             tool_name=tool_info.tool_name,
             tool_use_id=tool_info.tool_use_id,
@@ -250,7 +280,10 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 tool_name=tool_info.tool_name,
                 tool_use_id=tool_info.tool_use_id,
                 index=index,
-                family=tool_family_for_item_type(tool_info.item_type),
+                family=self._tool_family_for_responses_item(
+                    item_type=tool_info.item_type,
+                    tool_name=tool_info.tool_name,
+                ),
                 phase="call",
                 chunk=getattr(event, "delta", None),
             )
@@ -288,7 +321,10 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             index=fallback_index,
             item_id=event_item_id,
             item_type=fallback_item_type,
-            kind="web_search" if fallback_item_type == "web_search_call" else "tool",
+            kind=self._tool_kind_for_responses_item(
+                item_type=fallback_item_type,
+                tool_name=fallback_name,
+            ),
         )
 
     def _handle_responses_tool_lifecycle_event(
@@ -315,7 +351,10 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         tool_use_id = tool_info.tool_use_id
         tool_name = tool_info.tool_name or "web_search"
         status = event_type.rsplit(".", 1)[-1]
-        family = tool_family_for_item_type(tool_info.item_type)
+        family = self._tool_family_for_responses_item(
+            item_type=tool_info.item_type,
+            tool_name=tool_name,
+        )
         payload = tool_event_payload(
             tool_name=tool_name,
             tool_use_id=tool_use_id,
@@ -406,7 +445,10 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         if index is None:
             index = tool_info.index if tool_info.index is not None else -1
         item_type = tool_info.item_type if tool_info else getattr(item, "type", None)
-        family = tool_family_for_item_type(item_type if isinstance(item_type, str) else None)
+        family = self._tool_family_for_responses_item(
+            item_type=item_type if isinstance(item_type, str) else None,
+            tool_name=tool_name,
+        )
         stop_payload = tool_event_payload(
             tool_name=tool_name,
             tool_use_id=tool_use_id,
@@ -632,6 +674,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 continue
 
             tool_name, tool_use_id, family = fallback_tool_spec(item, index)
+            if getattr(item, "type", None) in {
+                "function_call",
+                "custom_tool_call",
+            } and self._is_provider_managed_function_call(tool_name):
+                family = self._tool_family_for_responses_item(
+                    item_type=getattr(item, "type", None),
+                    tool_name=tool_name,
+                )
             payload = tool_event_payload(
                 tool_name=tool_name,
                 tool_use_id=tool_use_id,

@@ -39,7 +39,7 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.citation_display import (
     collect_citation_sources,
-    render_sources_pre_content,
+    render_sources_additional_text,
     web_tool_badges,
 )
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -376,7 +376,7 @@ class LlmAgent(LlmDecorator):
         pre_segments: list[Text] = []
         additional_segments: list[Text] = []
         show_post_turn_metadata = self._should_show_post_turn_metadata(message)
-        sources_text = render_sources_pre_content(message) if show_post_turn_metadata else None
+        sources_text = render_sources_additional_text(message) if show_post_turn_metadata else None
         badge_items = web_tool_badges(message) if show_post_turn_metadata else []
         self._log_web_metadata_debug(
             message,
@@ -386,7 +386,7 @@ class LlmAgent(LlmDecorator):
         )
 
         if sources_text is not None:
-            pre_segments.append(sources_text)
+            additional_segments.append(sources_text)
 
         if badge_items:
             additional_segments.append(

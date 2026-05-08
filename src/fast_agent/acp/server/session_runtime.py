@@ -65,6 +65,7 @@ class SessionRuntimeHost(Protocol):
     _create_instance_task: Any
     _dispose_instance_task: Any
     server_name: str
+    server_version: str
     sessions: dict[str, AgentInstance]
     _session_lock: asyncio.Lock
     _prompt_locks: dict[str, asyncio.Lock]
@@ -97,6 +98,24 @@ class SessionRuntimeHost(Protocol):
 class ACPServerSessionRuntime:
     def __init__(self, host: SessionRuntimeHost) -> None:
         self._host = host
+
+    def _prompt_client_info(self) -> dict[str, str]:
+        client_info = {
+            "name": "fast-agent",
+            "version": self._host.server_version,
+        }
+        acp_client = self._host._client_info
+        if acp_client:
+            name = acp_client.get("name")
+            version = acp_client.get("version")
+            title = acp_client.get("title")
+            if isinstance(name, str):
+                client_info["viaName"] = name
+            if isinstance(version, str):
+                client_info["viaVersion"] = version
+            if isinstance(title, str):
+                client_info["viaTitle"] = title
+        return client_info
 
     async def _rebuild_agent_instructions_for_filesystem(
         self,
@@ -947,7 +966,7 @@ class ACPServerSessionRuntime:
         enrich_with_environment_context(
             session_context,
             cwd,
-            self._host._client_info,
+            self._prompt_client_info(),
             self._host._skills_directory_override,
         )
         self._apply_session_agent_bindings(

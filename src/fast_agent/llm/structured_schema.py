@@ -159,7 +159,7 @@ def _sanitize_structured_output_schema_node(
     if (
         additional_properties_false
         and (node.get("type") == "object" or isinstance(properties, dict))
-        and node.get("additionalProperties") is not False
+        and "additionalProperties" not in node
     ):
         node["additionalProperties"] = False
 

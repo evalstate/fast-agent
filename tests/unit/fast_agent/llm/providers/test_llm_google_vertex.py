@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from google.genai import types as google_types
 from mcp import Tool
+from pydantic import BaseModel
 
 from fast_agent.config import GoogleSettings, Settings
 from fast_agent.context import Context
@@ -14,6 +15,12 @@ from fast_agent.types import RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.llm.request_params import StructuredToolPolicy
+
+
+class StructuredSample(BaseModel):
+    name: str
+    count: int = 3
+    tags: dict[str, str]
 
 
 def _build_llm(config: Settings) -> GoogleNativeLLM:
@@ -254,6 +261,68 @@ async def test_structured_schema_in_generate_path_can_keep_google_tools(
     assert config.response_schema is not None
     assert bool(config.tools) is expected_tools
     assert response.last_text() == '{"answer":"ok"}'
+
+
+@pytest.mark.asyncio
+async def test_structured_model_path_passes_pydantic_model_to_google_sdk() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeModels:
+        async def generate_content(self, **kwargs):
+            captured.update(kwargs)
+            return google_types.GenerateContentResponse.model_validate(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "role": "model",
+                                "parts": [
+                                    {
+                                        "text": (
+                                            '{"name":"Ada","count":3,'
+                                            '"tags":{"role":"engineer"}}'
+                                        )
+                                    }
+                                ],
+                            },
+                            "finish_reason": "STOP",
+                        }
+                    ]
+                }
+            )
+
+    class FakeAio:
+        def __init__(self) -> None:
+            self.models = FakeModels()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.aio = FakeAio()
+
+    class Harness(GoogleNativeLLM):
+        def _initialize_google_client(self):
+            return FakeClient()
+
+    llm = Harness(context=Context(config=Settings()), model="gemini-2.0-flash")
+
+    parsed, response = await llm._apply_prompt_provider_specific_structured(
+        [Prompt.user("return json")],
+        StructuredSample,
+        RequestParams(model="gemini-2.0-flash"),
+    )
+
+    config = cast("google_types.GenerateContentConfig", captured["config"])
+    assert config.response_mime_type == "application/json"
+    assert config.response_schema is StructuredSample
+    assert isinstance(parsed, StructuredSample)
+    assert parsed.tags == {"role": "engineer"}
+    assert response.last_text() == '{"name":"Ada","count":3,"tags":{"role":"engineer"}}'
 
 
 @pytest.mark.asyncio

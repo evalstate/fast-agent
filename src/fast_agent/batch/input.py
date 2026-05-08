@@ -1,4 +1,4 @@
-"""Input row loading and selection for structured batch runs."""
+"""Input row loading and selection for batch runs."""
 
 from __future__ import annotations
 

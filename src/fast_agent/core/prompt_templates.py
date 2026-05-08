@@ -22,6 +22,39 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _display_name_with_version(
+    info: Mapping[str, str],
+    *,
+    title_key: str = "title",
+    name_key: str = "name",
+    version_key: str = "version",
+) -> str | None:
+    display_name = info.get(title_key) or info.get(name_key)
+    if not display_name:
+        return None
+
+    version = info.get(version_key)
+    if version and version != "unknown":
+        return f"{display_name} {version}"
+    return display_name
+
+
+def _format_client_info(client_info: Mapping[str, str]) -> str | None:
+    display = _display_name_with_version(client_info)
+    if not display:
+        return None
+
+    via = _display_name_with_version(
+        client_info,
+        title_key="viaTitle",
+        name_key="viaName",
+        version_key="viaVersion",
+    )
+    if via:
+        return f"{display} via {via}"
+    return display
+
+
 def apply_template_variables(
     template: str | None, variables: Mapping[str, str | None] | None
 ) -> str | None:
@@ -213,13 +246,9 @@ def enrich_with_environment_context(
     if cwd:
         env_lines.append(f"Workspace root: {cwd}")
     if client_info:
-        display_name = client_info.get("title") or client_info.get("name")
-        version = client_info.get("version")
-        if display_name:
-            if version and version != "unknown":
-                env_lines.append(f"Client: {display_name} {version}")
-            else:
-                env_lines.append(f"Client: {display_name}")
+        formatted_client = _format_client_info(client_info)
+        if formatted_client:
+            env_lines.append(f"Client: {formatted_client}")
     if server_platform:
         env_lines.append(f"Host platform: {server_platform}")
 

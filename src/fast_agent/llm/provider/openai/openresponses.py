@@ -121,6 +121,18 @@ class OpenResponsesLLM(OpenResponsesStreamingMixin, ResponsesLLM):
             return settings.base_url
         return base_url
 
+    def _responses_client(self) -> AsyncOpenAI:
+        api_key = self._api_key()
+        if api_key:
+            return super()._responses_client()
+
+        original_api_key = self._init_api_key
+        self._init_api_key = DEFAULT_OPENRESPONSES_API_KEY or "openresponses-local"
+        try:
+            return super()._responses_client()
+        finally:
+            self._init_api_key = original_api_key
+
     def _build_response_args(
         self,
         input_items: list[dict[str, Any]],

@@ -246,8 +246,11 @@ class ResolvedModelSpec:
             Provider.RESPONSES,
             Provider.OPENRESPONSES,
             Provider.CODEX_RESPONSES,
+            Provider.XAI,
         }:
             kwargs["web_search"] = config.web_search
+        if config.x_search is not None and self.provider == Provider.XAI:
+            kwargs["x_search"] = config.x_search
         if config.web_fetch is not None and self.provider == Provider.ANTHROPIC:
             kwargs["web_fetch"] = config.web_fetch
         if config.task_budget_configured and self.provider in {

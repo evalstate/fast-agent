@@ -386,6 +386,12 @@ class AgentCompleter(Completer):
             return False
         return model_handlers.model_supports_web_search(llm)
 
+    def _supports_x_search_setting(self) -> bool:
+        llm = self._current_agent_llm()
+        if llm is None:
+            return False
+        return model_handlers.model_supports_x_search(llm)
+
     def _supports_service_tier_setting(self) -> bool:
         llm = self._current_agent_llm()
         if llm is None:
