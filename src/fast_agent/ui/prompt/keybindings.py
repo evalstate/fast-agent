@@ -6,6 +6,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
@@ -286,20 +287,23 @@ def create_keybindings(
     @kb.add("c-e")
     async def _(event) -> None:
         """Ctrl+E: Edit current buffer in $EDITOR."""
-        current_text = event.app.current_buffer.text
+        app_ref = event.app
+        current_text = app_ref.current_buffer.text
         try:
-            edited_text = await event.app.loop.run_in_executor(
-                None, get_text_from_editor, current_text
+            edited_text = await run_in_terminal(
+                lambda: get_text_from_editor(current_text),
+                render_cli_done=True,
+                in_executor=True,
             )
-            event.app.current_buffer.text = edited_text
-            event.app.current_buffer.cursor_position = len(edited_text)
+            app_ref.current_buffer.text = edited_text
+            app_ref.current_buffer.cursor_position = len(edited_text)
         except asyncio.CancelledError:
             rich_print("[yellow]Editor interaction cancelled.[/yellow]")
         except Exception as exc:
             rich_print(f"[red]Error during editor interaction: {exc}[/red]")
         finally:
-            if event.app:
-                event.app.invalidate()
+            app_ref.renderer.clear()
+            app_ref.invalidate()
 
     kb.agent_provider = agent_provider
     kb.current_agent_name = agent_name

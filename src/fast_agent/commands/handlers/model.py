@@ -112,6 +112,12 @@ async def _handle_model_web_tool(
     enabled_resolver: Callable[[object], bool],
     setter: Callable[[object, bool | None], None],
 ) -> CommandOutcome:
+    # TODO: If another provider-native boolean tool lands, consider replacing the
+    # web_search/x_search/web_fetch-specific command/protocol plumbing with a
+    # typed runtime-setting registry. Keep user-facing commands as aliases, but
+    # route parser, ACP, completions, capability checks, and this handler through
+    # one generic setting key. Provider code would still translate each key into
+    # its native payload/metadata shape.
     outcome = CommandOutcome()
     resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
     if resolved is None:

@@ -2251,6 +2251,7 @@ def structured_tools(
     )
 
 
+@app.command("structured")
 @app.command("structured-output")
 def structured_output(
     models: str = typer.Option(
@@ -2261,17 +2262,20 @@ def structured_output(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON output."),
     mode: str = typer.Option(
-        "both",
+        "all",
         "--mode",
-        help="Probe mode: direct, tools, or both. Default runs direct first, then tools.",
+        help=(
+            "Probe mode: direct, pydantic, tools, both, or all. "
+            "Default runs direct JSON Schema, direct Pydantic, then tools."
+        ),
     ),
     structured_tool_policy: str = typer.Option(
         "auto",
         "--structured-tool-policy",
-        help="Tool policy for --mode tools/both: auto, always, defer, or no_tools.",
+        help="Tool policy for --mode tools/both/all: auto, always, defer, or no_tools.",
     ),
 ) -> None:
-    """Probe direct structured output, then structured output with tools."""
+    """Probe direct structured output, Pydantic structured output, and tools."""
     _run_structured_output_probe(
         models=models,
         json_output=json_output,
@@ -2292,9 +2296,9 @@ def _run_structured_output_probe(
             "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'",
             param_hint="--structured-tool-policy",
         )
-    if mode not in {"direct", "tools", "both"}:
+    if mode not in {"direct", "pydantic", "tools", "both", "all"}:
         raise typer.BadParameter(
-            "mode must be 'direct', 'tools', or 'both'",
+            "mode must be 'direct', 'pydantic', 'tools', 'both', or 'all'",
             param_hint="--mode",
         )
 
@@ -2309,11 +2313,10 @@ def _run_structured_output_probe(
         run_probe_suite,
     )
 
-    modes = (
-        ["direct", "tools"]
-        if mode == "both"
-        else [cast("StructuredProbeMode", mode)]
-    )
+    modes = {
+        "both": ["direct", "tools"],
+        "all": ["direct", "pydantic", "tools"],
+    }.get(mode, [cast("StructuredProbeMode", mode)])
     results = asyncio.run(
         run_probe_suite(
             model_names,

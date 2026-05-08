@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-import random
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -17,41 +18,113 @@ from fast_agent.llm.structured_schema import (
 )
 
 StructuredToolPolicy = Literal["auto", "always", "defer", "no_tools"]
-StructuredProbeMode = Literal["direct", "tools"]
+StructuredProbeMode = Literal["direct", "pydantic", "tools"]
+StructuredProbeCase = Literal["json_schema", "pydantic"]
 
-PROBE_SCHEMA = validate_json_schema_definition(
+ORDER_ID = "ORD-7291"
+
+ORDER_REPORT_SCHEMA = validate_json_schema_definition(
     {
+        "$defs": {
+            "line_item": {
+                "type": "object",
+                "properties": {
+                    "sku": {"type": "string", "description": "Inventory SKU."},
+                    "quantity": {"type": "integer", "minimum": 1},
+                    "unit_price_usd": {"type": "number", "minimum": 0},
+                },
+                "required": ["sku", "quantity", "unit_price_usd"],
+                "additionalProperties": False,
+            },
+            "fulfillment": {
+                "type": "object",
+                "properties": {
+                    "carrier": {"type": "string", "enum": ["DHL", "UPS", "FedEx", "LocalCourier"]},
+                    "priority": {"type": "string", "enum": ["standard", "expedite"]},
+                    "eta_days": {"type": "integer", "minimum": 1, "maximum": 14},
+                },
+                "required": ["carrier", "priority", "eta_days"],
+                "additionalProperties": False,
+            },
+        },
         "type": "object",
         "properties": {
-            "city": {"type": "string"},
-            "condition": {"type": "string"},
-            "temperature_c": {"type": "integer"},
-            "observation_id": {"type": "string"},
+            "order_id": {"type": "string"},
+            "customer_tier": {"type": "string", "enum": ["standard", "plus", "enterprise"]},
+            "destination_city": {"type": "string"},
+            "line_items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 4,
+                "items": {"$ref": "#/$defs/line_item"},
+            },
+            "fulfillment": {"$ref": "#/$defs/fulfillment"},
+            "risk_flags": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": ["address_check", "inventory_watch", "weather_delay"],
+                },
+            },
+            "total_usd": {"type": "number", "minimum": 0},
+            "ready_to_ship": {"type": "boolean"},
             "summary": {"type": "string"},
         },
-        "required": ["city", "condition", "temperature_c", "observation_id", "summary"],
+        "required": [
+            "order_id",
+            "customer_tier",
+            "destination_city",
+            "line_items",
+            "fulfillment",
+            "risk_flags",
+            "total_usd",
+            "ready_to_ship",
+            "summary",
+        ],
         "additionalProperties": False,
     }
 )
 
-DIRECT_PROBE_SCHEMA = validate_json_schema_definition(
-    {
-        "type": "object",
-        "properties": {
-            "city": {"type": "string"},
-            "condition": {"type": "string"},
-            "temperature_c": {"type": "integer"},
-            "summary": {"type": "string"},
-        },
-        "required": ["city", "condition", "temperature_c", "summary"],
-        "additionalProperties": False,
-    }
-)
+PROBE_SCHEMA = ORDER_REPORT_SCHEMA
+DIRECT_PROBE_SCHEMA = ORDER_REPORT_SCHEMA
+
+
+class ProbeLineItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sku: str = Field(description="Inventory SKU")
+    quantity: int = Field(ge=1)
+    unit_price_usd: float = Field(ge=0)
+
+
+class ProbeFulfillment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    carrier: Literal["DHL", "UPS", "FedEx", "LocalCourier"]
+    priority: Literal["standard", "expedite"]
+    eta_days: int = Field(ge=1, le=14)
+
+
+class ProbeOrderSummary(BaseModel):
+    """Medium-complexity structured-output probe model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    order_id: str
+    customer_tier: Literal["standard", "plus", "enterprise"]
+    destination_city: str
+    line_items: list[ProbeLineItem] = Field(min_length=2, max_length=4)
+    fulfillment: ProbeFulfillment
+    risk_flags: list[Literal["address_check", "inventory_watch", "weather_delay"]]
+    total_usd: float = Field(ge=0)
+    ready_to_ship: bool
+    summary: str
 
 
 @dataclass(slots=True)
 class ProbeResult:
     mode: StructuredProbeMode
+    case: StructuredProbeCase
     model: str
     resolved_model: str | None
     provider: str | None
@@ -68,17 +141,51 @@ class ProbeResult:
     error: str | None = None
 
 
+def _base_order_report(*, summary: str = "Paris order is ready for expedited DHL shipping.") -> dict[str, Any]:
+    return {
+        "order_id": ORDER_ID,
+        "customer_tier": "plus",
+        "destination_city": "Paris",
+        "line_items": [
+            {"sku": "notebook", "quantity": 2, "unit_price_usd": 12.5},
+            {"sku": "pen", "quantity": 5, "unit_price_usd": 1.2},
+        ],
+        "fulfillment": {"carrier": "DHL", "priority": "expedite", "eta_days": 3},
+        "risk_flags": ["inventory_watch"],
+        "total_usd": 31.0,
+        "ready_to_ship": True,
+        "summary": summary,
+    }
+
+
 def _build_tools_prompt() -> str:
     return (
-        "Use the `get_city_weather` tool to look up the weather reading for Paris. "
-        "Then return a concise JSON weather report using the tool result."
+        f"Use the `get_order_readiness` tool to look up order {ORDER_ID}. "
+        "Then return one JSON order readiness report using the tool result. "
+        "Preserve order_id, customer_tier, destination_city, line_items, fulfillment, "
+        "risk_flags, total_usd, and ready_to_ship exactly as returned by the tool. "
+        "Add only a concise summary string."
     )
 
 
 def _build_direct_prompt() -> str:
     return (
-        "Return a concise JSON weather report for Paris. Use city Paris, "
-        "condition Sunny, temperature_c 21, and a short summary."
+        "Return exactly one JSON order readiness report with this data: "
+        f"order_id {ORDER_ID}; customer_tier plus; destination_city Paris; "
+        "line_items notebook quantity 2 unit_price_usd 12.5 and pen quantity 5 "
+        "unit_price_usd 1.2; fulfillment carrier DHL priority expedite eta_days 3; "
+        "risk_flags inventory_watch; total_usd 31.0; ready_to_ship true; "
+        "summary Paris order is ready for expedited DHL shipping."
+    )
+
+
+def _build_pydantic_prompt() -> str:
+    return (
+        "Create an order summary object for validation. Use order_id ORD-7291, "
+        "customer_tier plus, destination_city Paris, two line items "
+        "(notebook x2 at 12.5 USD and pen x5 at 1.2 USD), DHL expedited "
+        "fulfillment with eta_days 3, risk_flags [inventory_watch], total_usd 31.0, "
+        "ready_to_ship true, and a concise summary."
     )
 
 
@@ -90,6 +197,19 @@ def _llm_metadata(agent: ToolAgent) -> tuple[str | None, str | None, str | None]
         resolved_model.wire_model_name if resolved_model is not None else None,
         agent.llm.provider.config_name,
         resolved_model.json_mode if resolved_model is not None else None,
+    )
+
+
+def _matches_order_report(parsed: dict[str, Any], expected: dict[str, Any]) -> bool:
+    return (
+        parsed.get("order_id") == expected["order_id"]
+        and parsed.get("customer_tier") == expected["customer_tier"]
+        and parsed.get("destination_city") == expected["destination_city"]
+        and parsed.get("line_items") == expected["line_items"]
+        and parsed.get("fulfillment") == expected["fulfillment"]
+        and parsed.get("risk_flags") == expected["risk_flags"]
+        and parsed.get("total_usd") == expected["total_usd"]
+        and parsed.get("ready_to_ship") == expected["ready_to_ship"]
     )
 
 
@@ -105,25 +225,21 @@ async def _probe_direct_model(core: Core, model: str) -> ProbeResult:
         parsed, response = await agent.structured_schema(
             _build_direct_prompt(),
             DIRECT_PROBE_SCHEMA,
-            RequestParams(use_history=False, maxTokens=1024),
+            RequestParams(use_history=False, maxTokens=1400),
         )
         if not isinstance(parsed, dict):
             raise ValueError(f"structured response was not a JSON object: {type(parsed).__name__}")
 
         validate_json_instance(parsed, DIRECT_PROBE_SCHEMA)
-        matched = (
-            parsed.get("city") == "Paris"
-            and parsed.get("condition") == "Sunny"
-            and parsed.get("temperature_c") == 21
-        )
-        if not matched:
-            raise ValueError("weather response did not match the requested payload")
+        if not _matches_order_report(parsed, _base_order_report()):
+            raise ValueError("order report did not match the requested payload")
 
         resolved_model, provider, json_mode = _llm_metadata(agent)
         response_text = response.last_text()
         stop_reason = response.stop_reason.value if response.stop_reason is not None else None
         return ProbeResult(
             mode="direct",
+            case="json_schema",
             model=model,
             resolved_model=resolved_model,
             provider=provider,
@@ -142,6 +258,74 @@ async def _probe_direct_model(core: Core, model: str) -> ProbeResult:
         resolved_model, provider, json_mode = _llm_metadata(agent)
         return ProbeResult(
             mode="direct",
+            case="json_schema",
+            model=model,
+            resolved_model=resolved_model,
+            provider=provider,
+            json_mode=json_mode,
+            structured_tool_policy=None,
+            passed=False,
+            tool_calls=0,
+            final_json_valid=False,
+            matched_tool_payload=False,
+            matched_direct_payload=False,
+            stop_reason=None,
+            response_text=None,
+            parsed=None,
+            error=str(exc),
+        )
+    finally:
+        with suppress(Exception):
+            await agent.shutdown()
+
+
+async def _probe_pydantic_model(core: Core, model: str) -> ProbeResult:
+    agent = ToolAgent(
+        AgentConfig(name="pydantic-structured-probe", model=model),
+        tools=[],
+        context=core.context,
+    )
+
+    try:
+        await agent.attach_llm(ModelFactory.create_factory(model))
+        result, response = await agent.structured(
+            _build_pydantic_prompt(),
+            ProbeOrderSummary,
+            RequestParams(use_history=False, maxTokens=1400),
+        )
+        if result is None:
+            raise ValueError("structured response did not validate as ProbeOrderSummary")
+
+        parsed = result.model_dump(mode="json")
+        validate_json_instance(parsed, ProbeOrderSummary.model_json_schema())
+        if not _matches_order_report(parsed, _base_order_report()):
+            raise ValueError("Pydantic order summary did not match the requested payload")
+
+        resolved_model, provider, json_mode = _llm_metadata(agent)
+        response_text = response.last_text()
+        stop_reason = response.stop_reason.value if response.stop_reason is not None else None
+        return ProbeResult(
+            mode="pydantic",
+            case="pydantic",
+            model=model,
+            resolved_model=resolved_model,
+            provider=provider,
+            json_mode=json_mode,
+            structured_tool_policy=None,
+            passed=True,
+            tool_calls=0,
+            final_json_valid=True,
+            matched_tool_payload=False,
+            matched_direct_payload=True,
+            stop_reason=stop_reason,
+            response_text=response_text,
+            parsed=parsed,
+        )
+    except Exception as exc:
+        resolved_model, provider, json_mode = _llm_metadata(agent)
+        return ProbeResult(
+            mode="pydantic",
+            case="pydantic",
             model=model,
             resolved_model=resolved_model,
             provider=provider,
@@ -168,29 +352,29 @@ async def _probe_tools_model(
     *,
     structured_tool_policy: StructuredToolPolicy,
 ) -> ProbeResult:
-    observation_id = f"weather-{random.SystemRandom().randint(100_000, 999_999)}"
-    temperature_c = random.SystemRandom().randint(18, 24)
-    condition = "Sunny"
     tool_call_count = 0
+    tool_payload = _base_order_report(summary="")
 
-    async def get_city_weather(city: str) -> dict[str, str | int]:
-        """Return a fictional weather reading for a city.
+    async def get_order_readiness(order_id: str) -> dict[str, Any]:
+        """Return a fictional order readiness report.
 
-        Use this read-only helper when a weather report needs current structured
-        fields for the requested city.
+        Use this read-only helper when an order needs current structured
+        fulfillment fields before producing a final report.
         """
         nonlocal tool_call_count
         tool_call_count += 1
-        return {
-            "city": city,
-            "condition": condition,
-            "temperature_c": temperature_c,
-            "observation_id": observation_id,
-        }
+        if order_id != ORDER_ID:
+            return {
+                **tool_payload,
+                "order_id": order_id,
+                "ready_to_ship": False,
+                "risk_flags": ["address_check"],
+            }
+        return tool_payload
 
     agent = ToolAgent(
         AgentConfig(name="tools-structured-probe", model=model),
-        tools=[get_city_weather],
+        tools=[get_order_readiness],
         context=core.context,
     )
 
@@ -198,7 +382,7 @@ async def _probe_tools_model(
         use_history=False,
         structured_schema=PROBE_SCHEMA,
         structured_tool_policy=structured_tool_policy,
-        maxTokens=1024,
+        maxTokens=1400,
         max_iterations=4,
     )
 
@@ -218,18 +402,13 @@ async def _probe_tools_model(
 
         if tool_call_count < 1:
             raise ValueError("tool was not called")
-        if parsed.get("city") != "Paris":
-            raise ValueError("city did not match the requested weather report")
-        if parsed.get("condition") != condition:
-            raise ValueError("condition did not match the tool result")
-        if parsed.get("temperature_c") != temperature_c:
-            raise ValueError("temperature_c did not match the tool result")
-        if parsed.get("observation_id") != observation_id:
-            raise ValueError("observation_id did not match the tool result")
+        if not _matches_order_report(parsed, tool_payload):
+            raise ValueError("order report did not match the tool result")
 
         stop_reason = response.stop_reason.value if response.stop_reason is not None else None
         return ProbeResult(
             mode="tools",
+            case="json_schema",
             model=model,
             resolved_model=resolved_model,
             provider=provider,
@@ -248,6 +427,7 @@ async def _probe_tools_model(
         resolved_model, provider, json_mode = _llm_metadata(agent)
         return ProbeResult(
             mode="tools",
+            case="json_schema",
             model=model,
             resolved_model=resolved_model,
             provider=provider,
@@ -267,13 +447,14 @@ async def _probe_tools_model(
         with suppress(Exception):
             await agent.shutdown()
 
+
 def _print_text_summary(results: list[ProbeResult]) -> None:
     for result in results:
         status = "PASS" if result.passed else "FAIL"
         provider = result.provider or "unknown"
         policy = result.structured_tool_policy or "-"
         details = (
-            f"mode={result.mode} policy={policy} "
+            f"mode={result.mode} case={result.case} policy={policy} "
             f"tool_calls={result.tool_calls} stop_reason={result.stop_reason or '-'}"
         )
         print(f"{status:4} {result.model:28} provider={provider:18} {details}")
@@ -297,6 +478,8 @@ async def run_probe(
         for model in models:
             if mode == "direct":
                 results.append(await _probe_direct_model(core, model))
+            elif mode == "pydantic":
+                results.append(await _probe_pydantic_model(core, model))
             else:
                 results.append(
                     await _probe_tools_model(
@@ -324,6 +507,8 @@ async def run_probe_suite(
             for mode in modes:
                 if mode == "direct":
                     results.append(await _probe_direct_model(core, model))
+                elif mode == "pydantic":
+                    results.append(await _probe_pydantic_model(core, model))
                 else:
                     results.append(
                         await _probe_tools_model(
