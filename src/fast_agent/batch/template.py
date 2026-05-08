@@ -1,4 +1,4 @@
-"""Tiny row template renderer for structured batch runs."""
+"""Tiny row template renderer for batch runs."""
 
 from __future__ import annotations
 

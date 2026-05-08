@@ -275,10 +275,17 @@ class CommandContext:
     def resolve_session_manager(self) -> "SessionManager":
         from fast_agent.session import get_session_manager
 
+        environment_override = self.resolve_settings().environment_dir
         if self.session_store_scope == "app":
-            return get_session_manager()
+            return get_session_manager(environment_override=environment_override)
         if self.session_store_cwd is not None:
-            return get_session_manager(cwd=self.session_store_cwd)
+            return get_session_manager(
+                cwd=self.session_store_cwd,
+                environment_override=environment_override,
+            )
         if self.session_cwd is not None:
-            return get_session_manager(cwd=self.session_cwd)
-        return get_session_manager()
+            return get_session_manager(
+                cwd=self.session_cwd,
+                environment_override=environment_override,
+            )
+        return get_session_manager(environment_override=environment_override)

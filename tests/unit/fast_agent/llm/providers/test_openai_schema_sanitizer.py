@@ -1,3 +1,8 @@
+from copy import deepcopy
+
+from openai.lib._pydantic import _ensure_strict_json_schema, to_strict_json_schema
+from pydantic import BaseModel
+
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.schema_sanitizer import (
     sanitize_response_format_schema,
@@ -5,6 +10,12 @@ from fast_agent.llm.provider.openai.schema_sanitizer import (
     should_strip_tool_schema_defaults,
 )
 from fast_agent.llm.provider_types import Provider
+
+
+class StructuredSample(BaseModel):
+    name: str
+    count: int = 3
+    tags: dict[str, str]
 
 
 def test_sanitize_tool_input_schema_removes_default_recursively() -> None:
@@ -56,6 +67,19 @@ def test_sanitize_response_format_schema_requires_all_properties() -> None:
     assert sanitized["required"] == ["value", "context"]
     assert sanitized["additionalProperties"] is False
     assert "default" not in sanitized["properties"]["context"]
+
+
+def test_sanitize_response_format_schema_matches_openai_sdk_strictifier() -> None:
+    schema = StructuredSample.model_json_schema()
+    expected = deepcopy(schema)
+
+    sanitized = sanitize_response_format_schema(schema)
+    _ensure_strict_json_schema(expected, path=(), root=expected)
+
+    assert sanitized == expected
+    assert sanitized == to_strict_json_schema(StructuredSample)
+    assert sanitized["properties"]["tags"]["additionalProperties"] == {"type": "string"}
+    assert schema["required"] == ["name", "tags"]
 
 
 def test_openai_response_format_uses_strict_schema_for_raw_structured_schema() -> None:

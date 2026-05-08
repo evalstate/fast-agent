@@ -121,53 +121,13 @@ def remote_tool_activities(message: "PromptMessageExtended") -> list[ToolActivit
     tool_names_by_id: dict[str, str] = {}
 
     for order, payload in enumerate(payloads):
-        block_type = payload.get("type")
-        if block_type == "mcp_tool_use":
-            tool_use_id = payload.get("id")
-            tool_name, server_name = _remote_tool_name(payload)
-            if not isinstance(tool_use_id, str) or tool_name is None:
-                continue
-
-            arguments = payload.get("input")
-            if not isinstance(arguments, Mapping):
-                arguments = {}
-
-            tool_names_by_id[tool_use_id] = tool_name
-            activities.append(
-                ToolActivity(
-                    kind="call",
-                    tool_use_id=tool_use_id,
-                    tool_name=tool_name,
-                    order=order,
-                    arguments=dict(arguments),
-                    is_remote=True,
-                    family="remote_tool",
-                    server_name=server_name,
-                )
-            )
-            continue
-
-        if block_type != "mcp_tool_result":
-            continue
-
-        tool_use_id = payload.get("tool_use_id")
-        if not isinstance(tool_use_id, str):
-            continue
-
-        tool_name = tool_names_by_id.get(tool_use_id, tool_use_id)
-        server_name = tool_name.split("/", 1)[0] if "/" in tool_name else None
-        activities.append(
-            ToolActivity(
-                kind="result",
-                tool_use_id=tool_use_id,
-                tool_name=tool_name,
-                order=order,
-                result=_result_from_payload(payload),
-                is_remote=True,
-                family="remote_tool",
-                server_name=server_name,
-            )
+        activity = _activity_from_remote_payload(
+            payload,
+            order=order,
+            tool_names_by_id=tool_names_by_id,
         )
+        if activity is not None:
+            activities.append(activity)
 
     return activities
 
@@ -246,18 +206,120 @@ def _remote_tool_name(payload: Mapping[str, Any]) -> tuple[str | None, str | Non
     return raw_name, None
 
 
+def _activity_from_remote_payload(
+    payload: Mapping[str, Any],
+    *,
+    order: int,
+    tool_names_by_id: dict[str, str],
+) -> ToolActivity | None:
+    block_type = payload.get("type")
+    if block_type == "mcp_tool_use":
+        return _mcp_tool_use_activity(
+            payload,
+            order=order,
+            tool_names_by_id=tool_names_by_id,
+        )
+    if block_type == "mcp_tool_result":
+        return _mcp_tool_result_activity(
+            payload,
+            order=order,
+            tool_names_by_id=tool_names_by_id,
+        )
+    if block_type == "server_tool_use":
+        return _server_tool_use_activity(payload, order=order)
+    return None
+
+
+def _mcp_tool_use_activity(
+    payload: Mapping[str, Any],
+    *,
+    order: int,
+    tool_names_by_id: dict[str, str],
+) -> ToolActivity | None:
+    tool_use_id = payload.get("id")
+    tool_name, server_name = _remote_tool_name(payload)
+    if not isinstance(tool_use_id, str) or tool_name is None:
+        return None
+
+    arguments = payload.get("input")
+    if not isinstance(arguments, Mapping):
+        arguments = {}
+
+    tool_names_by_id[tool_use_id] = tool_name
+    return ToolActivity(
+        kind="call",
+        tool_use_id=tool_use_id,
+        tool_name=tool_name,
+        order=order,
+        arguments=dict(arguments),
+        is_remote=True,
+        family="remote_tool",
+        server_name=server_name,
+    )
+
+
+def _mcp_tool_result_activity(
+    payload: Mapping[str, Any],
+    *,
+    order: int,
+    tool_names_by_id: Mapping[str, str],
+) -> ToolActivity | None:
+    tool_use_id = payload.get("tool_use_id")
+    if not isinstance(tool_use_id, str):
+        return None
+
+    tool_name = tool_names_by_id.get(tool_use_id, tool_use_id)
+    server_name = tool_name.split("/", 1)[0] if "/" in tool_name else None
+    return ToolActivity(
+        kind="result",
+        tool_use_id=tool_use_id,
+        tool_name=tool_name,
+        order=order,
+        result=_result_from_payload(payload),
+        is_remote=True,
+        family="remote_tool",
+        server_name=server_name,
+    )
+
+
+def _server_tool_use_activity(
+    payload: Mapping[str, Any],
+    *,
+    order: int,
+) -> ToolActivity | None:
+    if payload.get("provider_tool_type") != "x_search_call":
+        return None
+
+    tool_use_id = payload.get("id")
+    raw_name = payload.get("name")
+    if not isinstance(tool_use_id, str) or not isinstance(raw_name, str):
+        return None
+
+    return ToolActivity(
+        kind="call",
+        tool_use_id=tool_use_id,
+        tool_name=raw_name,
+        order=order,
+        arguments=_arguments_from_payload(payload),
+        is_remote=True,
+        family="remote_tool",
+    )
+
+
 def _remote_tool_payloads(message: "PromptMessageExtended") -> list[dict[str, Any]]:
     channels = getattr(message, "channels", None)
     if not isinstance(channels, Mapping):
         return []
 
     raw_payloads = _decode_channel_payloads(channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT))
-    mcp_payloads = [payload for payload in raw_payloads if _is_mcp_payload(payload)]
-    if mcp_payloads:
-        return mcp_payloads
+    raw_remote_payloads = [
+        payload for payload in raw_payloads if _is_remote_activity_payload(payload)
+    ]
+    if raw_remote_payloads:
+        return raw_remote_payloads
 
     fallback_payloads = _decode_channel_payloads(channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL))
-    return [payload for payload in fallback_payloads if _is_mcp_payload(payload)]
+    return [payload for payload in fallback_payloads if _is_remote_activity_payload(payload)]
 
 
 def _decode_channel_payloads(blocks: Sequence[Any] | None) -> list[dict[str, Any]]:
@@ -281,6 +343,30 @@ def _decode_channel_payloads(blocks: Sequence[Any] | None) -> list[dict[str, Any
 def _is_mcp_payload(payload: Mapping[str, Any]) -> bool:
     block_type = payload.get("type")
     return block_type == "mcp_tool_use" or block_type == "mcp_tool_result"
+
+
+def _is_remote_activity_payload(payload: Mapping[str, Any]) -> bool:
+    if _is_mcp_payload(payload):
+        return True
+    return payload.get("type") == "server_tool_use" and payload.get(
+        "provider_tool_type"
+    ) == "x_search_call"
+
+
+def _arguments_from_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    raw_input = payload.get("input")
+    if isinstance(raw_input, Mapping):
+        return {key: value for key, value in raw_input.items() if isinstance(key, str)}
+
+    raw_arguments = payload.get("arguments")
+    if isinstance(raw_arguments, str) and raw_arguments:
+        try:
+            parsed = json.loads(raw_arguments)
+        except json.JSONDecodeError:
+            return {"arguments": raw_arguments}
+        if isinstance(parsed, Mapping):
+            return {key: value for key, value in parsed.items() if isinstance(key, str)}
+    return {}
 
 
 def _result_from_payload(payload: Mapping[str, Any]) -> CallToolResult:

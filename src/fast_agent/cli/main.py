@@ -101,7 +101,7 @@ def show_welcome(update_notice: str | None = None) -> None:
     table.add_row("skills", "Manage skills (list/available/search/add/remove/update)")
     table.add_row("config", "Configure settings interactively (shell, model)")
     table.add_row("auth", "Manage OAuth tokens in the OS keyring for MCP servers")
-    table.add_row("batch", "Run structured batch processing jobs")
+    table.add_row("batch", "Run batch processing jobs")
     table.add_row("scaffold", "Create agent template and configuration")
     table.add_row("quickstart", "Create example applications (workflow, researcher, etc.)")
     table.add_row("demo", "Run local UI demos (no model calls)")

@@ -1,4 +1,4 @@
-"""Run summary aggregation for structured batch runs."""
+"""Run summary aggregation for batch runs."""
 
 from __future__ import annotations
 

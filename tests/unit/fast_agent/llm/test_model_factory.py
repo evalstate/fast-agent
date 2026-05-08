@@ -361,7 +361,7 @@ def test_responses_chatgpt_flex_service_tier_query_rejected() -> None:
 
 
 def test_chatgpt_alias_flex_service_tier_query_rejected() -> None:
-    with pytest.raises(ModelConfigError, match="gpt-5.3-chat-latest"):
+    with pytest.raises(ModelConfigError, match="chat-latest"):
         ModelFactory.parse_model_string("chatgpt?service_tier=flex")
 
 
@@ -439,18 +439,25 @@ def test_transport_query_allows_codexresponses_provider_for_codex_spark():
     assert config.transport == "websocket"
 
 
-def test_transport_query_allows_xairesponses_provider_for_grok():
-    config = ModelFactory.parse_model_string("xairesponses.grok-4.3?transport=ws")
-    assert config.provider == Provider.XAI_RESPONSES
-    assert config.model_name == "grok-4.3"
-    assert config.transport == "websocket"
-
-
 def test_transport_query_allows_xai_provider_for_grok():
     config = ModelFactory.parse_model_string("xai.grok-4.3?transport=ws")
     assert config.provider == Provider.XAI
     assert config.model_name == "grok-4.3"
     assert config.transport == "websocket"
+
+
+def test_reasoning_query_allows_xai_grok_43_effort() -> None:
+    config = ModelFactory.parse_model_string("xai.grok-4.3?reasoning=high")
+    assert config.provider == Provider.XAI
+    assert config.model_name == "grok-4.3"
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="high")
+
+
+def test_x_search_query_allows_xai_grok() -> None:
+    config = ModelFactory.parse_model_string("xai.grok-4.3?x_search=on")
+    assert config.provider == Provider.XAI
+    assert config.model_name == "grok-4.3"
+    assert config.x_search is True
 
 
 def test_transport_query_rejects_openai_provider_even_with_responses_model():
@@ -480,14 +487,6 @@ def test_factory_passes_transport_to_responses_llm_for_openai_responses_model() 
     assert llm._transport == "websocket"
 
 
-def test_factory_builds_xairesponses_llm() -> None:
-    factory = ModelFactory.create_factory("xairesponses.grok-4.3?transport=ws")
-    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
-    assert isinstance(llm, ResponsesLLM)
-    assert llm.provider == Provider.XAI_RESPONSES
-    assert llm._transport == "websocket"
-
-
 def test_factory_builds_xai_responses_llm_by_default() -> None:
     factory = ModelFactory.create_factory("xai.grok-4.3?transport=ws")
     llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
@@ -496,11 +495,14 @@ def test_factory_builds_xai_responses_llm_by_default() -> None:
     assert llm._transport == "websocket"
 
 
-def test_factory_builds_xai_legacy_llm() -> None:
-    factory = ModelFactory.create_factory("xai_legacy.grok-4")
+def test_factory_passes_x_search_override_to_xai_responses_llm() -> None:
+    from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
+
+    factory = ModelFactory.create_factory("xai.grok-4.3?x_search=on")
     llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
-    assert isinstance(llm, OpenAILLM)
-    assert llm.provider == Provider.XAI_LEGACY
+    assert isinstance(llm, XAIResponsesLLM)
+    assert llm.provider == Provider.XAI
+    assert llm._x_search_override is True
 
 
 def test_factory_passes_service_tier_query_to_request_params() -> None:

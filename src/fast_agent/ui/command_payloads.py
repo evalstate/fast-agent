@@ -380,6 +380,12 @@ class ModelWebSearchCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelXSearchCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_x_search"] = "model_x_search"
+
+
+@dataclass(frozen=True, slots=True)
 class ModelWebFetchCommand(CommandBase):
     value: str | None
     kind: Literal["model_web_fetch"] = "model_web_fetch"
@@ -452,6 +458,7 @@ CommandPayload = (
     | ModelVerbosityCommand
     | ModelFastCommand
     | ModelWebSearchCommand
+    | ModelXSearchCommand
     | ModelWebFetchCommand
     | ModelSwitchCommand
     | InterruptCommand

@@ -55,6 +55,21 @@ def test_enrich_with_environment_context_populates_env_block():
     assert "internal://fast-agent/model-overlays" in context["agentInternalResources"]
 
 
+def test_enrich_with_environment_context_formats_acp_client_handoff():
+    context: dict[str, str] = {}
+    client_info = {
+        "name": "fast-agent",
+        "version": "0.7.1",
+        "viaName": "zed",
+        "viaTitle": "Zed",
+        "viaVersion": "1.2.3",
+    }
+
+    enrich_with_environment_context(context, "/workspace/app", client_info)
+
+    assert "Client: fast-agent 0.7.1 via Zed 1.2.3" in context["env"]
+
+
 def test_file_template_substitutes_contents_relative_to_workspace(tmp_path):
     """File templates should resolve relative to workspaceRoot."""
     # Create a file in the workspace

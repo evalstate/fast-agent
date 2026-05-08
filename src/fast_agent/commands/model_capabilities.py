@@ -48,6 +48,10 @@ def resolve_web_search_enabled(llm: FastAgentLLMProtocol | object | None) -> boo
     return bool(_read_capability(llm, lambda candidate: candidate.web_search_enabled, default=False))
 
 
+def resolve_x_search_enabled(llm: FastAgentLLMProtocol | object | None) -> bool:
+    return bool(_read_capability(llm, lambda candidate: candidate.x_search_enabled, default=False))
+
+
 def resolve_web_fetch_enabled(llm: FastAgentLLMProtocol | object | None) -> bool:
     return bool(_read_capability(llm, lambda candidate: candidate.web_fetch_enabled, default=False))
 
@@ -55,6 +59,12 @@ def resolve_web_fetch_enabled(llm: FastAgentLLMProtocol | object | None) -> bool
 def resolve_web_search_supported(llm: FastAgentLLMProtocol | object | None) -> bool:
     return bool(
         _read_capability(llm, lambda candidate: candidate.web_search_supported, default=False)
+    )
+
+
+def resolve_x_search_supported(llm: FastAgentLLMProtocol | object | None) -> bool:
+    return bool(
+        _read_capability(llm, lambda candidate: candidate.x_search_supported, default=False)
     )
 
 
@@ -70,6 +80,15 @@ def set_web_search_enabled(llm: FastAgentLLMProtocol | object, value: bool | Non
         lambda candidate: candidate.set_web_search_enabled,
         value,
         unsupported_message="Current model does not support web search configuration.",
+    )
+
+
+def set_x_search_enabled(llm: FastAgentLLMProtocol | object, value: bool | None) -> None:
+    _set_capability(
+        llm,
+        lambda candidate: candidate.set_x_search_enabled,
+        value,
+        unsupported_message="Current model does not support X Search configuration.",
     )
 
 
@@ -161,6 +180,11 @@ def describe_service_tier_state(llm: FastAgentLLMProtocol | object | None) -> st
 def model_supports_web_search(llm: FastAgentLLMProtocol | object | None) -> bool:
     """Return True when model/provider supports web_search runtime configuration."""
     return resolve_web_search_supported(llm)
+
+
+def model_supports_x_search(llm: FastAgentLLMProtocol | object | None) -> bool:
+    """Return True when model/provider supports x_search runtime configuration."""
+    return resolve_x_search_supported(llm)
 
 
 def model_supports_web_fetch(llm: FastAgentLLMProtocol | object | None) -> bool:

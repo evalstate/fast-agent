@@ -1,6 +1,5 @@
+from copy import deepcopy
 from typing import Any
-
-from fast_agent.llm.structured_schema import sanitize_structured_output_schema
 
 _STRUCTURAL_SCHEMA_KEYS = frozenset(
     {
@@ -73,12 +72,18 @@ def sanitize_tool_input_schema(input_schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def sanitize_response_format_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Return an OpenAI strict-compatible response_format JSON schema."""
-    return sanitize_structured_output_schema(
-        schema,
-        require_all_properties=True,
-        additional_properties_false=True,
-    )
+    """Return an OpenAI strict-compatible response_format JSON schema.
+
+    OpenAI's SDK owns the strict-schema rules used for Pydantic models. For raw
+    user-supplied schemas we call the same SDK helper behind the model route so
+    dict schemas and Pydantic schemas are normalized consistently. The OpenAI
+    dependency is pinned, but the helper is private and mutates in place, so keep
+    this wrapper as the only direct usage and always copy before calling it.
+    """
+    from openai.lib._pydantic import _ensure_strict_json_schema
+
+    copied = deepcopy(schema)
+    return _ensure_strict_json_schema(copied, path=(), root=copied)
 
 
 def should_strip_tool_schema_defaults(model_name: str | None) -> bool:

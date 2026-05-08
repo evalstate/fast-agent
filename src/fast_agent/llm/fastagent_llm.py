@@ -488,6 +488,20 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             raise ValueError("Current model does not support web search configuration.")
 
     @property
+    def x_search_supported(self) -> bool:
+        """Whether provider-side X Search is supported by this model/provider."""
+        return False
+
+    @property
+    def x_search_enabled(self) -> bool:
+        """Whether provider-side X Search is enabled for this LLM instance."""
+        return False
+
+    def set_x_search_enabled(self, value: bool | None) -> None:
+        if value is not None and not self.x_search_supported:
+            raise ValueError("Current model does not support X Search configuration.")
+
+    @property
     def web_fetch_supported(self) -> bool:
         """Whether provider-side web fetch is supported by this model/provider."""
         return False

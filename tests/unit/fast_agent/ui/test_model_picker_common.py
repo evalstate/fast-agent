@@ -51,6 +51,34 @@ def test_generic_provider_uses_custom_local_model_option() -> None:
     ]
 
 
+def test_curated_scope_hides_non_current_catalog_entries(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    env_dir.mkdir(parents=True, exist_ok=True)
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    try:
+        snapshot = build_snapshot(config_payload={})
+    finally:
+        reset_env_dir = tmp_path / ".empty-fast-agent-curated-scope"
+        reset_env_dir.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+    hf_option = next(option for option in snapshot.providers if option.option_key == "hf")
+
+    curated_options = model_options_for_option(snapshot, hf_option, source="curated")
+    all_options = model_options_for_option(snapshot, hf_option, source="all")
+
+    curated_tokens = {option.preset_token for option in curated_options}
+    all_tokens = {option.preset_token for option in all_options}
+
+    assert "glm47" not in curated_tokens
+    assert "glm47" in all_tokens
+
+
 def test_openresponses_models_do_not_report_web_search_support() -> None:
     capabilities = model_capabilities("openresponses.gpt-5-mini")
 
@@ -160,7 +188,22 @@ def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
     ]
 
     option_keys = [provider.option_key for provider in snapshot.providers]
-    assert option_keys.index(LLAMACPP_PROVIDER_KEY) == option_keys.index(Provider.GENERIC.config_name) + 1
+    assert option_keys.index(LLAMACPP_PROVIDER_KEY) == option_keys.index(Provider.GENERIC.config_name) - 1
+
+    generic_option = next(provider for provider in snapshot.providers if provider.option_key == Provider.GENERIC.config_name)
+    assert generic_option.option_display_name == "Generic (ollama)"
+
+
+def test_refer_to_docs_providers_show_docs_option() -> None:
+    snapshot = build_snapshot(config_payload={})
+    option = next(provider for provider in snapshot.providers if provider.provider == Provider.AZURE)
+
+    assert model_options_for_option(snapshot, option, source="curated") == [
+        ModelOption(
+            spec="azure.refer-to-docs",
+            label="Refer to docs (provider-specific setup)",
+        )
+    ]
 
 
 def test_build_snapshot_loads_overlays_relative_to_config_path(tmp_path: Path) -> None:

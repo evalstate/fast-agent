@@ -37,6 +37,8 @@ def classify_tool_activity_family(
 
     if normalized_type in {"tool_search_call", "tool_search_output"} or normalized_name == "tool_search":
         return "remote_tool_search"
+    if normalized_type == "x_search_call":
+        return "remote_tool"
     if normalized_type == "web_search_call" or normalized_name in {"web_search", "web_search_call"}:
         return "web_search"
     if (

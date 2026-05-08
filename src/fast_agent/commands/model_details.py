@@ -13,6 +13,7 @@ from fast_agent.commands.model_capabilities import (
     resolve_task_budget_tokens,
     resolve_web_fetch_supported,
     resolve_web_search_supported,
+    resolve_x_search_supported,
 )
 from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
 from fast_agent.llm.model_display_name import (
@@ -302,6 +303,9 @@ def _add_model_runtime_settings(
 
     if resolve_web_search_supported(llm):
         _emit_model_line(outcome, "Web search", _enabled_label(llm.web_search_enabled))
+
+    if resolve_x_search_supported(llm):
+        _emit_model_line(outcome, "X Search", _enabled_label(llm.x_search_enabled))
 
     if resolve_web_fetch_supported(llm):
         _emit_model_line(outcome, "Web fetch", _enabled_label(llm.web_fetch_enabled))

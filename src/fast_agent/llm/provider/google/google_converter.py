@@ -45,6 +45,11 @@ class GoogleConverter:
         Recursively removes unsupported JSON schema keywords for google.genai.types.Schema.
         Specifically removes 'additionalProperties', '$schema', 'exclusiveMaximum', and 'exclusiveMinimum'.
         Also resolves $ref references and inlines $defs.
+
+        Pydantic structured outputs are passed to google.genai as model classes
+        so the SDK can normalize them. This helper is only for arbitrary raw
+        schema dicts, where fast-agent strips known-unsupported keywords before
+        handing the schema to the SDK.
         """
         # First, resolve any $ref references in the schema
         schema = self._resolve_refs(schema, schema)

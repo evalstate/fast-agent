@@ -332,7 +332,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
     CommandSpec(
         command="model",
         summary="Model inspection, switching, and runtime settings",
-        usage="/model [reasoning|task_budget|verbosity|fast|web_search|web_fetch|switch|doctor|references|catalog|help] [args]",
+        usage="/model [reasoning|task_budget|verbosity|fast|web_search|x_search|web_fetch|switch|doctor|references|catalog|help] [args]",
         actions=(
             CommandActionSpec(
                 action="reasoning",
@@ -363,6 +363,12 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 help="Inspect or set web search state",
                 usage="/model web_search [on|off|default]",
                 examples=("/model web_search off",),
+            ),
+            CommandActionSpec(
+                action="x_search",
+                help="Inspect or set X Search state",
+                usage="/model x_search [on|off|default]",
+                examples=("/model x_search on",),
             ),
             CommandActionSpec(
                 action="web_fetch",

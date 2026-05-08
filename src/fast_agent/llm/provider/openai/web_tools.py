@@ -67,6 +67,36 @@ def build_web_search_tool(
     return payload
 
 
+def build_xai_web_search_tool(
+    resolved: ResolvedOpenAIWebSearch,
+) -> dict[str, Any] | None:
+    if not resolved.enabled:
+        return None
+
+    from fast_agent.config import XAIWebSearchSettings
+
+    settings = resolved.settings
+    if not isinstance(settings, XAIWebSearchSettings):
+        settings = XAIWebSearchSettings(
+            enabled=settings.enabled,
+            allowed_domains=settings.allowed_domains,
+        )
+
+    payload: dict[str, Any] = {
+        "type": "web_search",
+    }
+
+    if settings.allowed_domains:
+        payload["filters"] = {"allowed_domains": list(settings.allowed_domains)}
+    elif settings.excluded_domains:
+        payload["filters"] = {"excluded_domains": list(settings.excluded_domains)}
+
+    if settings.enable_image_understanding is not None:
+        payload["enable_image_understanding"] = settings.enable_image_understanding
+
+    return payload
+
+
 def _as_payload(value: object) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return {str(key): item for key, item in value.items()}

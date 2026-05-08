@@ -55,14 +55,13 @@ def test_schema_file_and_schema_model_are_mutually_exclusive(tmp_path):
         load_schema_source(options)
 
 
-def test_one_schema_source_is_required(tmp_path):
+def test_schema_source_is_optional(tmp_path):
     options = StructuredBatchOptions(
         input_path=tmp_path / "rows.jsonl",
         output_path=tmp_path / "out.jsonl",
     )
 
-    with pytest.raises(ValueError, match="One of --schema or --schema-model is required"):
-        load_schema_source(options)
+    assert load_schema_source(options) is None
 
 
 def test_load_pydantic_model_from_import_path():

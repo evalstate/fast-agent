@@ -1,4 +1,4 @@
-"""Resume-state helpers for structured batch runs."""
+"""Resume-state helpers for batch runs."""
 
 from __future__ import annotations
 

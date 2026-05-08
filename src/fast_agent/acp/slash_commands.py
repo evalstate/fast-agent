@@ -426,7 +426,8 @@ class SlashCommandHandler:
             return (
                 "reasoning <value> | task_budget <off|20k+|status when supported> | "
                 "verbosity <value> | fast <on|off|status|flex when supported> | "
-                "web_search <on|off|default> | web_fetch <on|off|default>"
+                "web_search <on|off|default> | x_search <on|off|default> | "
+                "web_fetch <on|off|default>"
             )
 
         options = ["reasoning <value>"]
@@ -439,6 +440,8 @@ class SlashCommandHandler:
             options.append(f"fast <{service_tier_values}>")
         if model_handlers.model_supports_web_search(llm):
             options.append("web_search <on|off|default>")
+        if model_handlers.model_supports_x_search(llm):
+            options.append("x_search <on|off|default>")
         if model_handlers.model_supports_web_fetch(llm):
             options.append("web_fetch <on|off|default>")
         options.extend(

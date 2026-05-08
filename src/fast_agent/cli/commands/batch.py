@@ -34,16 +34,20 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
-@app.command("structured")
-def structured(
+@app.command("run")
+def run(
     ctx: typer.Context,
     input_path: Path = typer.Option(..., "--input", "-i", help="Input .jsonl or .csv file"),
     output_path: Path = typer.Option(..., "--output", "-o", help="Output JSONL file"),
-    schema_path: Path | None = typer.Option(None, "--schema", help="JSON Schema file"),
+    schema_path: Path | None = typer.Option(
+        None,
+        "--schema",
+        help="Optional JSON Schema file for structured results",
+    ),
     schema_model: str | None = typer.Option(
         None,
         "--schema-model",
-        help="Pydantic BaseModel import path, for example myapp.schemas:Result",
+        help="Optional Pydantic BaseModel import path for structured results",
     ),
     template_path: Path | None = typer.Option(
         None,
@@ -53,9 +57,30 @@ def structured(
     instruction_path: Path | None = typer.Option(
         None,
         "--instruction",
-        help="System instruction file; defaults to fast-agent's standard instruction",
+        help=(
+            "System instruction file for direct mode; defaults to fast-agent's "
+            "standard instruction. Mutually exclusive with --agent-card"
+        ),
     ),
-    model: str | None = typer.Option(None, "--model", "-m", help="Model override"),
+    agent_card_source: str | None = typer.Option(
+        None,
+        "--agent-card",
+        help=(
+            "AgentCard file, directory, or URL defining the batch worker. "
+            "Mutually exclusive with --instruction"
+        ),
+    ),
+    agent_name: str | None = typer.Option(
+        None,
+        "--agent",
+        help="Agent name to run when --agent-card loads multiple runnable agents",
+    ),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model override for direct mode or the selected AgentCard worker",
+    ),
     include_input: bool = typer.Option(
         False,
         "--include-input/--no-include-input",
@@ -88,6 +113,21 @@ def structured(
         "--summary-output",
         help="Write final summary JSON to this path",
     ),
+    export_traces_path: Path | None = typer.Option(
+        None,
+        "--export-traces",
+        help="Directory for per-row Codex trace JSONL files and manifest.jsonl",
+    ),
+    hf_dataset: str | None = typer.Option(
+        None,
+        "--hf-dataset",
+        help="Upload exported traces to this Hugging Face dataset repository",
+    ),
+    hf_dataset_path: str | None = typer.Option(
+        None,
+        "--hf-dataset-path",
+        help="Path or prefix inside the Hugging Face dataset for exported traces",
+    ),
     final_summary: bool = typer.Option(
         True,
         "--final-summary/--no-final-summary",
@@ -95,7 +135,7 @@ def structured(
     ),
     shell_runtime: bool = CommonAgentOptions.shell(),
 ) -> None:
-    """Run one selected input row -> one structured model request -> one output record."""
+    """Run one selected input row -> one agent/model request -> one output record."""
     for value, name in (
         (limit, "--limit"),
         (offset, "--offset"),
@@ -107,10 +147,16 @@ def structured(
 
     if resume and overwrite:
         raise typer.BadParameter("--resume and --overwrite cannot be used together")
+    if instruction_path is not None and agent_card_source is not None:
+        raise typer.BadParameter("--agent-card and --instruction cannot be used together")
+    if agent_name is not None and agent_card_source is None:
+        raise typer.BadParameter("--agent requires --agent-card")
     if schema_path is not None and schema_model is not None:
         raise typer.BadParameter("--schema and --schema-model cannot be used together")
-    if schema_path is None and schema_model is None:
-        raise typer.BadParameter("One of --schema or --schema-model is required")
+    if hf_dataset_path is not None and hf_dataset is None:
+        raise typer.BadParameter("--hf-dataset-path requires --hf-dataset")
+    if hf_dataset is not None and export_traces_path is None:
+        raise typer.BadParameter("--hf-dataset requires --export-traces")
 
     context = ensure_context_object(ctx)
     env_dir = context.get("env_dir")
@@ -136,9 +182,14 @@ def structured(
         error_output_path=error_output_path,
         telemetry_output_path=telemetry_output_path,
         summary_output_path=summary_output_path,
+        export_traces_path=export_traces_path,
+        hf_dataset=hf_dataset,
+        hf_dataset_path=hf_dataset_path,
         final_summary=final_summary,
         environment_dir=environment_dir,
         shell_runtime=shell_runtime,
+        agent_card_source=agent_card_source,
+        agent_name=agent_name,
     )
 
     try:

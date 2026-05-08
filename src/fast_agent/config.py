@@ -893,6 +893,42 @@ class OpenAIWebSearchSettings(BaseModel):
         return normalized
 
 
+class XAIWebSearchSettings(OpenAIWebSearchSettings):
+    """xAI Responses web_search tool settings."""
+
+    tool_type: Literal["web_search"] = "web_search"
+    excluded_domains: list[str] | None = Field(
+        default=None,
+        description="Domains to exclude from xAI web search results (maximum 5).",
+    )
+    enable_image_understanding: bool | None = Field(
+        default=None,
+        description="Enable xAI image understanding for images encountered during web search.",
+    )
+
+    @field_validator("allowed_domains")
+    @classmethod
+    def _validate_xai_allowed_domains(cls, value: list[str] | None) -> list[str] | None:
+        normalized = _validate_domain_list(value)
+        if normalized is not None and len(normalized) > 5:
+            raise ValueError("xAI allowed_domains supports at most 5 domains.")
+        return normalized
+
+    @field_validator("excluded_domains")
+    @classmethod
+    def _validate_excluded_domains(cls, value: list[str] | None) -> list[str] | None:
+        normalized = _validate_domain_list(value)
+        if normalized is not None and len(normalized) > 5:
+            raise ValueError("xAI excluded_domains supports at most 5 domains.")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_domain_filters(self) -> "XAIWebSearchSettings":
+        if self.allowed_domains and self.excluded_domains:
+            raise ValueError("xAI web_search cannot set both allowed_domains and excluded_domains.")
+        return self
+
+
 class ResponsesProviderSettingsBase(BaseModel):
     """Shared settings for Responses-family providers."""
 
@@ -987,31 +1023,6 @@ class CodexResponsesSettings(ResponsesProviderSettingsBase):
     )
 
 
-class XAIResponsesSettings(BaseModel):
-    """Settings for using xAI's Responses-compatible API."""
-
-    api_key: str | None = Field(default=None, description="xAI API key")
-    base_url: str | None = Field(
-        default="https://api.x.ai/v1",
-        description="xAI API endpoint (default: https://api.x.ai/v1)",
-    )
-    default_model: str | None = Field(
-        default=None,
-        description=(
-            "Default model when xAI Responses provider is selected without an explicit model"
-        ),
-    )
-    default_headers: dict[str, str] | None = Field(
-        default=None,
-        description="Custom headers for all API requests",
-    )
-    transport: Literal["sse", "websocket", "auto"] | None = Field(
-        default=None,
-        description="Responses transport mode override: sse, websocket, or auto fallback.",
-    )
-
-    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
-
 
 class DeepSeekSettings(BaseModel):
     """Settings for using DeepSeek models in the fast-agent application."""
@@ -1052,7 +1063,7 @@ class GoogleSettings(BaseModel):
 
 
 class XAISettings(BaseModel):
-    """Settings for using xAI Grok models in the fast-agent application."""
+    """Settings for using xAI Grok models via the Responses API."""
 
     api_key: str | None = Field(default=None, description="xAI API key")
     base_url: str | None = Field(
@@ -1067,6 +1078,8 @@ class XAISettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    web_search: XAIWebSearchSettings = Field(default_factory=XAIWebSearchSettings)
+    x_search: bool = Field(default=False, description="Enable xAI X Search remote tool.")
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -1516,9 +1529,6 @@ class Settings(BaseSettings):
 
     codexresponses: CodexResponsesSettings | None = None
     """Settings for using Codex Responses models in the fast-agent application"""
-
-    xairesponses: XAIResponsesSettings | None = None
-    """Settings for using xAI Responses models in the fast-agent application"""
 
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""

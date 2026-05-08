@@ -246,6 +246,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
 
+    XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="low"),
+    )
+
     ANTHROPIC_WEB_SEARCH_LEGACY = "web_search_20250305"
     ANTHROPIC_WEB_FETCH_LEGACY = "web_fetch_20250910"
     ANTHROPIC_WEB_SEARCH_46 = "web_search_20260209"
@@ -641,9 +647,15 @@ class ModelDatabase:
         structured_tool_policy="always",
         default_provider=Provider.XAI,
         response_transports=("sse", "websocket"),
-        response_websocket_providers=(Provider.XAI, Provider.XAI_RESPONSES),
+        response_websocket_providers=(Provider.XAI,),
     )
-    GROK_43 = GROK_4.model_copy(update={"context_window": 1_000_000})
+    GROK_43 = GROK_4.model_copy(
+        update={
+            "context_window": 1_000_000,
+            "reasoning": "openai",
+            "reasoning_effort_spec": XAI_GROK_43_REASONING_EFFORT_SPEC,
+        }
+    )
 
     GROK_4_VLM = ModelParameters(
         context_window=2000000,
@@ -653,7 +665,7 @@ class ModelDatabase:
         structured_tool_policy="always",
         default_provider=Provider.XAI,
         response_transports=("sse", "websocket"),
-        response_websocket_providers=(Provider.XAI, Provider.XAI_RESPONSES),
+        response_websocket_providers=(Provider.XAI,),
     )
 
     # Source for Grok 3 max output: https://www.reddit.com/r/grok/comments/1j7209p/exploring_grok_3_beta_output_capacity_a_simple/
@@ -856,6 +868,7 @@ class ModelDatabase:
             }
         ),
         "gpt-5.3-chat-latest": _with_fast(params=OPENAI_CHAT53_INSTANT),
+        "chat-latest": _with_fast(params=OPENAI_CHAT53_INSTANT),
         # Anthropic Models
         "claude-3-5-haiku": ANTHROPIC_35_SERIES,
         "claude-3-5-haiku-20241022": ANTHROPIC_35_SERIES,

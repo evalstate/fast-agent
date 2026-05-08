@@ -11,6 +11,7 @@ from fast_agent.commands.handlers.model import (
     handle_model_verbosity,
     handle_model_web_fetch,
     handle_model_web_search,
+    handle_model_x_search,
 )
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.core.exceptions import ModelConfigError
@@ -95,8 +96,10 @@ class _StubLLM:
         model_name: str,
         *,
         web_search_supported: bool = False,
+        x_search_supported: bool = False,
         web_fetch_supported: bool = False,
         web_search_default: bool = False,
+        x_search_default: bool = False,
         web_fetch_default: bool = False,
         service_tier_supported: bool = False,
         service_tier_default: str | None = None,
@@ -160,10 +163,13 @@ class _StubLLM:
         self.task_budget_supported = task_budget_supported
         self._task_budget_tokens = task_budget_default
         self.web_search_supported = web_search_supported
+        self.x_search_supported = x_search_supported
         self.web_fetch_supported = web_fetch_supported
         self._web_search_default = web_search_default
+        self._x_search_default = x_search_default
         self._web_fetch_default = web_fetch_default
         self._web_search_override: bool | None = None
+        self._x_search_override: bool | None = None
         self._web_fetch_override: bool | None = None
 
     @property
@@ -191,6 +197,14 @@ class _StubLLM:
         return fetch_enabled
 
     @property
+    def x_search_enabled(self) -> bool:
+        return bool(
+            self._x_search_override
+            if self._x_search_override is not None
+            else self._x_search_default
+        )
+
+    @property
     def service_tier(self) -> str | None:
         return self._service_tier
 
@@ -208,6 +222,11 @@ class _StubLLM:
         if value is not None and not self.web_search_supported:
             raise ValueError("Current model does not support web search configuration.")
         self._web_search_override = value
+
+    def set_x_search_enabled(self, value: bool | None) -> None:
+        if value is not None and not self.x_search_supported:
+            raise ValueError("Current model does not support X Search configuration.")
+        self._x_search_override = value
 
     def set_web_fetch_enabled(self, value: bool | None) -> None:
         if value is not None and not self.web_fetch_supported:
@@ -554,6 +573,31 @@ async def test_model_web_search_set_and_reset_to_default() -> None:
     reset_outcome = await handle_model_web_search(ctx, agent_name="test", value="default")
     reset_text = [str(m.text) for m in reset_outcome.messages]
     assert "Web search: set to default (disabled)." in reset_text
+
+
+@pytest.mark.asyncio
+async def test_model_x_search_set_and_reset_to_default() -> None:
+    llm = _StubLLM(
+        "grok-4.3",
+        provider=Provider.XAI,
+        x_search_supported=True,
+        x_search_default=False,
+    )
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    set_outcome = await handle_model_x_search(ctx, agent_name="test", value="on")
+    set_text = [str(m.text) for m in set_outcome.messages]
+    assert "X Search: set to enabled." in set_text
+
+    reset_outcome = await handle_model_x_search(ctx, agent_name="test", value="default")
+    reset_text = [str(m.text) for m in reset_outcome.messages]
+    assert "X Search: set to default (disabled)." in reset_text
 
 
 @pytest.mark.asyncio

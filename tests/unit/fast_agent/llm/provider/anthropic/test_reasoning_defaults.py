@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from anthropic.lib._parse._transform import transform_schema
 from mcp import Tool
 from pydantic import BaseModel
 
@@ -66,6 +67,12 @@ class _StructuredResponse(BaseModel):
 
 class _StructuredResponseWithMap(BaseModel):
     metadata: dict[str, str]
+
+
+class StructuredSample(BaseModel):
+    name: str
+    count: int = 3
+    tags: dict[str, str]
 
 
 def test_opus_46_uses_adaptive_thinking_by_default():
@@ -509,6 +516,18 @@ def test_json_structured_output_transforms_raw_schema_with_anthropic_sdk() -> No
     assert "minLength" not in answer_schema
     assert "minLength: 3" in answer_schema["description"]
     assert schema["properties"]["answer"]["minLength"] == 3
+
+
+def test_json_structured_output_matches_anthropic_sdk_for_model_and_raw_schema() -> None:
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+    raw_schema = StructuredSample.model_json_schema()
+
+    model_format = llm._build_output_format(StructuredSample)
+    raw_format = llm._build_output_format(None, raw_schema)
+
+    assert model_format["schema"] == transform_schema(StructuredSample)
+    assert raw_format["schema"] == transform_schema(raw_schema)
+    assert raw_format["schema"]["properties"]["tags"]["additionalProperties"] is False
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         "  /model verbosity <value> - Set text verbosity (low/medium/high)",
         "  /model fast <value> - Set service tier (on/off/status; flex when supported)",
         "  /model web_search <value> - Set web search (on/off/default, if supported)",
+        "  /model x_search <value> - Set X Search (on/off/default, if supported)",
         "  /model web_fetch <value> - Set web fetch (on/off/default, if supported)",
         "  /model switch [<name>] - Switch model (starts new session)",
         "  /model doctor - Inspect model onboarding readiness",

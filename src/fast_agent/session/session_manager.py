@@ -78,14 +78,17 @@ def _session_environment_override(
     if environment_override is not None or not respect_env_override:
         return environment_override
 
+    from fast_agent.config import get_settings
+
+    settings = get_settings()
+    if settings.environment_dir is not None:
+        return settings.environment_dir
+
     env_override = _normalized_environment_override(cwd)
     if env_override is not None:
         return env_override
 
     if explicit_cwd:
-        from fast_agent.config import get_settings
-
-        settings = get_settings()
         if settings.environment_dir is None and settings._fast_agent_home_source == "default":
             return DEFAULT_ENVIRONMENT_DIR
 

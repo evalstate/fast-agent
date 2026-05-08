@@ -145,7 +145,7 @@ def test_picker_uses_prompt_toolkit_layout_focus() -> None:
 
 
 def test_provider_display_name_uses_local_generic_label() -> None:
-    assert _SplitListPicker._provider_display_name("generic", "Generic") == "Local (ollama)"
+    assert _SplitListPicker._provider_display_name("generic", "Generic") == "Generic (ollama)"
 
 
 def test_provider_display_name_uses_overlays_label_for_overlay_group() -> None:
@@ -427,6 +427,22 @@ def test_snapshot_disables_anthropic_vertex_group_when_adc_missing(monkeypatch) 
 
     assert option.active is False
     assert option.disabled_reason == "Google ADC not found"
+
+
+def test_snapshot_shows_anthropic_vertex_group_without_configuration() -> None:
+    snapshot = build_snapshot(config_payload={})
+
+    option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+    )
+    picker = _SplitListPicker(config_path=None)
+
+    assert option.active is False
+    assert option.disabled_reason is None
+    assert picker._provider_availability_label(option) == "not configured"
+    assert picker._provider_availability_style(option) == "inactive"
 
 
 def test_snapshot_adds_anthropic_vertex_group_for_env_only_setup(monkeypatch) -> None:
