@@ -1,3 +1,4 @@
+from click.utils import strip_ansi
 from mcp.types import TextContent
 
 from fast_agent.cli.command_support import get_settings_or_exit
@@ -44,10 +45,11 @@ def test_go_help_shows_path_or_url_metavars():
     result = CliRunner().invoke(go.app, ["--help"], terminal_width=160)
 
     assert result.exit_code == 0
-    assert "--config-path" in result.output
-    assert "--prompt-file" in result.output
-    assert "--json-schema" in result.output
-    assert result.output.count("<path-or-uri>") >= 3
+    output = strip_ansi(result.output)
+    assert "--config-path" in output
+    assert "--prompt-file" in output
+    assert "--json-schema" in output
+    assert output.count("<path-or-uri>") >= 3
 
 
 def test_go_help_does_not_show_completion_options():
@@ -58,5 +60,6 @@ def test_go_help_does_not_show_completion_options():
     result = CliRunner().invoke(go.app, ["--help"], terminal_width=160)
 
     assert result.exit_code == 0
-    assert "--install-completion" not in result.output
-    assert "--show-completion" not in result.output
+    output = strip_ansi(result.output)
+    assert "--install-completion" not in output
+    assert "--show-completion" not in output
