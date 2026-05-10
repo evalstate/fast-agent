@@ -36,6 +36,13 @@ def test_read_text_source_expands_user_home(tmp_path, monkeypatch):
     assert read_text_source("~/schema.json", label="JSON schema file") == "{}"
 
 
+def test_read_text_source_preserves_local_file_not_found(tmp_path):
+    missing = tmp_path / "missing.md"
+
+    with pytest.raises(FileNotFoundError):
+        read_text_source(missing, label="instruction")
+
+
 class _FakeHfFile:
     def __init__(self, data: bytes) -> None:
         self._data = data

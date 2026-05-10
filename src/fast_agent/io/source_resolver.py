@@ -36,6 +36,8 @@ def read_text_source(source: str | Path, *, label: str = "source") -> str:
     path = _path_from_source(source_text, parsed)
     try:
         return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise
     except OSError as exc:
         raise ValueError(f"Could not read {label} {source_text}: {exc}") from exc
 
