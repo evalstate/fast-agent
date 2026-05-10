@@ -58,15 +58,39 @@ if TYPE_CHECKING:
 _parse_update_argument = parse_update_argument
 
 
-def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -> None:
+def _append_manifest_entry(
+    content: Text,
+    manifest: SkillManifest,
+    index: int,
+    *,
+    disabled: bool = False,
+) -> None:
     entry = Text()
     entry.append(f"[{index:2}] ", style="dim cyan")
     entry.append(manifest.name, style="bright_blue bold")
+    if disabled:
+        entry.append("  (disabled)", style="dim yellow")
     content.append_text(entry)
     content.append("\n")
 
     if manifest.description:
         append_wrapped_text(content, manifest.description, indent="     ")
+
+    # URI-backed (Skills-over-MCP) manifests have no filesystem path —
+    # the provenance is the publishing MCP server. Don't try to derive
+    # a `source_path` for them; the SEP-required provenance is the
+    # server identity, not a directory.
+    if manifest.path is None:
+        content.append("     ", style="dim")
+        server = manifest.server_name or "unknown"
+        content.append(f"source: mcp-server {server}", style="dim green")
+        content.append("\n")
+        if manifest.uri:
+            content.append("     ", style="dim")
+            content.append(f"uri: {manifest.uri}", style="dim")
+            content.append("\n")
+        content.append("\n")
+        return
 
     source_path = manifest.path.parent if manifest.path.is_file() else manifest.path
     try:
@@ -1004,6 +1028,117 @@ async def handle_resolve_skill_template(
     return outcome
 
 
+async def handle_disable_skill(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    """Hide a skill from this session.
+
+    Disabled skills don't appear in the model's `<available_skills>`
+    block on subsequent renderings and the SkillReader's allow-list no
+    longer admits their paths/URIs, so the model can't read them either.
+    The disable list is in-process and resets when the session ends.
+    """
+    outcome = CommandOutcome()
+    if not argument or not argument.strip():
+        outcome.add_message(
+            "Usage: /skills disable <name>",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    name = argument.strip()
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    if not hasattr(agent_obj, "disable_skill"):
+        outcome.add_message(
+            "This agent does not support per-skill toggles.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    changed = agent_obj.disable_skill(name)
+    if not changed:
+        outcome.add_message(
+            (
+                f"Skill '{name}' is not active on this agent (or already disabled). "
+                "Run `/skills` to see the current list."
+            ),
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    outcome.add_message(
+        f"Disabled skill: {name}",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    outcome.add_message(
+        (
+            "Note: the model's existing context still mentions disabled "
+            "skills, but the read_skill tool will refuse to load them."
+        ),
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    return outcome
+
+
+async def handle_enable_skill(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    if not argument or not argument.strip():
+        outcome.add_message(
+            "Usage: /skills enable <name>",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    name = argument.strip()
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    if not hasattr(agent_obj, "enable_skill"):
+        outcome.add_message(
+            "This agent does not support per-skill toggles.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    changed = agent_obj.enable_skill(name)
+    if not changed:
+        outcome.add_message(
+            f"Skill '{name}' is not currently disabled.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    outcome.add_message(
+        f"Enabled skill: {name}",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    return outcome
+
+
 async def handle_skills_command(
     ctx: CommandContext,
     *,
@@ -1049,12 +1184,21 @@ async def handle_skills_command(
         return await handle_resolve_skill_template(
             ctx, agent_name=agent_name, argument=argument
         )
+    if normalized in {"disable", "off"}:
+        return await handle_disable_skill(
+            ctx, agent_name=agent_name, argument=argument
+        )
+    if normalized in {"enable", "on"}:
+        return await handle_enable_skill(
+            ctx, agent_name=agent_name, argument=argument
+        )
 
     outcome = CommandOutcome()
     outcome.add_message(
         (
             f"Unknown /skills action: {normalized}. "
-            "Use list/available/search/add/remove/update/registry/templates/resolve/help."
+            "Use list/available/search/add/remove/update/registry/"
+            "templates/resolve/enable/disable/help."
         ),
         channel="warning",
         right_info="skills",
