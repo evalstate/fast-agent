@@ -34,6 +34,16 @@ INDEX_URI = "skill://index.json"
 MAX_INDEX_BYTES = 1_048_576  # 1 MiB
 MAX_SKILL_MD_BYTES = 262_144  # 256 KiB
 
+# Schema versions of the Agent Skills discovery index this host knows how to
+# parse. Per SEP-2640: clients SHOULD match `$schema` against known URIs
+# before processing. An unknown schema does not abort parsing — we proceed
+# best-effort so a newer index that adds fields stays readable for the
+# entries we still recognize — but it does emit a warning so the operator
+# knows the host may be missing functionality the server expects.
+KNOWN_INDEX_SCHEMAS = frozenset(
+    {"https://schemas.agentskills.io/discovery/0.2.0/schema.json"}
+)
+
 
 def merge_filesystem_and_mcp_manifests(
     filesystem_manifests: Sequence[SkillManifest],
@@ -169,6 +179,18 @@ async def _read_index(
             data={"server": server_name, "error": str(exc)},
         )
         return None
+
+    if isinstance(parsed, dict):
+        schema = parsed.get("$schema")
+        if isinstance(schema, str) and schema not in KNOWN_INDEX_SCHEMAS:
+            logger.warning(
+                "Skill index $schema is not in the known set; parsing best-effort",
+                data={
+                    "server": server_name,
+                    "schema": schema,
+                    "supported": sorted(KNOWN_INDEX_SCHEMAS),
+                },
+            )
 
     skills = parsed.get("skills") if isinstance(parsed, dict) else None
     if not isinstance(skills, list):
