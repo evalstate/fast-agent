@@ -1258,6 +1258,111 @@ async def handle_resolve_skill_template(
     return outcome
 
 
+async def handle_preview_skill(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    """Show a skill's SKILL.md content without the model touching it.
+
+    Satisfies SEP-2640's "SHOULD let users inspect a skill's content
+    before it is loaded into model context." The model decides
+    autonomously when to call `read_skill`, so this is the only
+    pre-load surface for users.
+
+    The lookup re-uses the agent's SkillReader so the read goes through
+    the same trust boundary, archive cache, and (for MCP-backed skills)
+    aggregator dispatch as a model-driven read. The output is rendered
+    to the user, not added to model context, so a preview never plants
+    skill text in the conversation.
+    """
+    outcome = CommandOutcome()
+    if not argument or not argument.strip():
+        outcome.add_message(
+            "Usage: /skills preview <name>",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    name = argument.strip()
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    manifests = list(getattr(agent_obj, "_skill_manifests", None) or [])
+    match = next(
+        (m for m in manifests if m.name.lower() == name.lower()),
+        None,
+    )
+    if match is None:
+        outcome.add_message(
+            f"No skill named '{name}' on this agent. Run `/skills` to list.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    reader = getattr(agent_obj, "_skill_reader", None)
+    if reader is None:
+        outcome.add_message(
+            "Skill reader is not initialized on this agent.",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    # Use the same `path` argument shape the model uses, so a disabled
+    # skill is also unreadable here — preview honors the toggle state.
+    if match.path is not None:
+        location = str(match.path)
+    elif match.uri is not None:
+        location = match.uri
+    else:
+        outcome.add_message(
+            f"Skill '{name}' has no readable location.",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    result = await reader.execute({"path": location})
+    body = ""
+    for block in result.content:
+        if hasattr(block, "text"):
+            body += block.text
+
+    if result.isError:
+        outcome.add_message(
+            f"Preview failed: {body}",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    header = Text()
+    append_heading(header, f"Skill preview: {match.name}")
+    source = (
+        f"mcp-server: {match.server_name}"
+        if match.uri
+        else (f"filesystem: {match.path.parent}" if match.path else "unknown")
+    )
+    header.append_text(Text(f"source: {source}\n", style="dim"))
+    header.append_text(Text(f"location: {location}\n\n", style="dim"))
+    outcome.add_message(header, right_info="skills", agent_name=agent_name)
+    # Render the body as markdown so headings, code blocks, etc. survive.
+    outcome.add_message(
+        body,
+        right_info="skills",
+        agent_name=agent_name,
+        render_markdown=True,
+    )
+    return outcome
+
+
 async def handle_disable_skill(
     ctx: CommandContext,
     *,
@@ -1422,13 +1527,17 @@ async def handle_skills_command(
         return await handle_enable_skill(
             ctx, agent_name=agent_name, argument=argument
         )
+    if normalized in {"preview", "inspect", "show"}:
+        return await handle_preview_skill(
+            ctx, agent_name=agent_name, argument=argument
+        )
 
     outcome = CommandOutcome()
     outcome.add_message(
         (
             f"Unknown /skills action: {normalized}. "
             "Use list/available/search/add/remove/update/registry/"
-            "templates/resolve/enable/disable/help."
+            "templates/resolve/enable/disable/preview/help."
         ),
         channel="warning",
         right_info="skills",

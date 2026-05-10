@@ -20,7 +20,7 @@ def skills_usage_lines() -> list[str]:
     """Return the shared usage/help text for skills management commands."""
     return [
         "Usage: /skills [list|available|search|add|remove|update|registry|"
-        "templates|resolve|enable|disable|help] [args]",
+        "templates|resolve|enable|disable|preview|help] [args]",
         "",
         "Examples:",
         "- /skills available",
@@ -34,6 +34,7 @@ def skills_usage_lines() -> list[str]:
         "- /skills resolve <number>      # fill template variables and register",
         "- /skills enable <name>         # restore a previously-disabled skill",
         "- /skills disable <name>        # hide a skill from this session",
+        "- /skills preview <name>        # render a skill's SKILL.md body to you only",
     ]
 
 
