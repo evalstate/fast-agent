@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rich import print as rich_print
@@ -23,7 +22,7 @@ def load_prompt_messages_from_file(
     try:
         from fast_agent.mcp.prompts.prompt_load import load_prompt
 
-        return load_prompt(Path(filename))
+        return load_prompt(filename)
     except FileNotFoundError:
         rich_print(f"[red]File not found: {filename}[/red]")
     except AgentConfigError as exc:

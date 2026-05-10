@@ -54,6 +54,7 @@ DEFAULT_TOOL_CARDS_DIR = _DEFAULT_TOOL_CARDS_DIR
 app = typer.Typer(
     help="Run an interactive agent directly from the command line without creating an agent.py file",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    add_completion=False,
 )
 
 
@@ -343,7 +344,8 @@ def go(
     pack_registry: str | None = typer.Option(
         None,
         "--pack-registry",
-        help="Marketplace URL or path used to resolve --pack when it is not already installed.",
+        metavar="<path-or-uri>",
+        help="Marketplace path, HTTP(S) URL, file:// URI, or hf:// URI used to resolve --pack when it is not already installed.",
     ),
     agent: str | None = CommonAgentOptions.agent(),
     message: str | None = typer.Option(
@@ -356,7 +358,8 @@ def go(
         None,
         "--prompt-file",
         "-p",
-        help="Prompt file to send once and exit (either text or JSON)",
+        metavar="<path-or-uri>",
+        help="Path, HTTP(S) URL, file:// URI, or hf:// URI to a prompt file to send once and exit (either text or JSON)",
     ),
     json_schema: str | None = CommonAgentOptions.json_schema(),
     schema_model: str | None = CommonAgentOptions.schema_model(),

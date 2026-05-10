@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from importlib import import_module
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 from pydantic import BaseModel
+
+from fast_agent.io.source_resolver import read_text_source
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 PydanticModel = type[BaseModel]
 StructuredSchemaSource = dict[str, Any] | PydanticModel
@@ -29,24 +33,23 @@ def validate_json_instance(instance: Any, schema: dict[str, Any]) -> None:
 
 
 def load_json_schema_file(path: str | Path) -> dict[str, Any]:
-    schema_path = Path(path).expanduser()
     try:
-        raw_text = schema_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ValueError(f"Could not read JSON schema file {schema_path}: {exc}") from exc
+        raw_text = read_text_source(path, label="JSON schema file")
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
 
     try:
         loaded = json.loads(raw_text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON schema file {schema_path}: {exc}") from exc
+        raise ValueError(f"Invalid JSON schema file {path}: {exc}") from exc
 
     if not isinstance(loaded, dict):
-        raise ValueError(f"JSON schema file {schema_path} must contain a JSON object")
+        raise ValueError(f"JSON schema file {path} must contain a JSON object")
 
     try:
         return validate_json_schema_definition(loaded)
     except SchemaError as exc:
-        raise ValueError(f"Invalid JSON schema in {schema_path}: {exc.message}") from exc
+        raise ValueError(f"Invalid JSON schema in {path}: {exc.message}") from exc
 
 
 def load_pydantic_model(spec: str) -> PydanticModel:

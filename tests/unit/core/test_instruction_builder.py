@@ -274,6 +274,7 @@ class TestInstructionBuilderUrlPatterns:
         import requests
 
         class MockResponse:
+            encoding = None
             text = "Remote content"
 
             def raise_for_status(self):

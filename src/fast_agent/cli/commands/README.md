@@ -16,17 +16,18 @@ fast-agent go [OPTIONS]
 ### Options
 
 - `--name TEXT`: Name for the agent (default: "FastAgent CLI")
-- `--instruction`, `-i TEXT`: Instruction for the agent (default: "You are a helpful AI Agent.")
-- `--config-path`, `-c TEXT`: Path to config file
+- `--instruction`, `-i <path-or-uri>`: Instruction file path, HTTP(S) URL, `file://` URI, or `hf://` URI for the agent
+- `--config-path`, `-c <path-or-uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to config file
 - `--servers TEXT`: Comma-separated list of server names to enable from config
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--pack`, `--card-pack TEXT`: Install or reuse a named card pack in the selected environment before launch
-- `--pack-registry TEXT`: Marketplace URL or file used to resolve `--pack` when it is not already installed
+- `--pack-registry <path-or-uri>`: Marketplace path, HTTP(S) URL, `file://` URI, or `hf://` URI used to resolve `--pack` when it is not already installed
 - `--message`, `-m TEXT`: Message to send to the agent once, then exit
-- `--prompt-file`, `-p TEXT`: Prompt file to send to the agent once, then exit (either text or JSON)
+- `--prompt-file`, `-p <path-or-uri>`: Prompt file path, HTTP(S) URL, `file://` URI, or `hf://` URI to send to the agent once, then exit (either text or JSON)
+- `--json-schema <path-or-uri>`: JSON Schema file path, HTTP(S) URL, `file://` URI, or `hf://` URI for one-shot structured output
 - `--quiet`: Disable progress display and logging
 
 The `--model` value can include query overrides such as
@@ -64,6 +65,9 @@ fast-agent go --message="What is the weather today?" --model=haiku
 
 # Non-interactive mode with a prompt file
 fast-agent go --prompt-file=my-prompt.txt --model=haiku
+
+# Non-interactive mode with a prompt from Hugging Face Hub generic storage
+fast-agent go --prompt-file hf://buckets/evalstate/home/demo.md --model=haiku
 ```
 
 ### URL Connection Details
@@ -98,10 +102,10 @@ fast-agent serve [OPTIONS]
 ### Options
 
 - `--name TEXT`: Name for the MCP server (default: "fast-agent")
-- `--instruction`, `-i TEXT`: Instruction for the agent (defaults to the standard FastAgent instruction)
-- `--config-path`, `-c TEXT`: Path to config file
+- `--instruction`, `-i <path-or-uri>`: Instruction file path, HTTP(S) URL, `file://` URI, or `hf://` URI for the agent
+- `--config-path`, `-c <path-or-uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to config file
 - `--servers TEXT`: Comma-separated list of server names to enable from config
-- `--card`, `--agent-cards TEXT`: Path or URL to an AgentCard file or directory (repeatable)
+- `--card`, `--agent-cards <path-or-uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to an AgentCard file or directory (repeatable)
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers

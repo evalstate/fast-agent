@@ -7,6 +7,7 @@ to Model Context Protocol (MCP) format for processing by fast-agent.
 
 import re
 from typing import cast
+from urllib.parse import urlparse
 
 import acp.schema as acp_schema
 import mcp.types as mcp_types
@@ -24,6 +25,8 @@ from acp.helpers import (
 )
 from mcp.types import ContentBlock as MCPContentBlock
 from pydantic import AnyUrl
+
+from fast_agent.io.path_uri import file_uri_to_path
 
 
 def convert_acp_content_to_mcp(acp_content: ACPContentBlock) -> MCPContentBlock | None:
@@ -135,17 +138,14 @@ def _file_uri_to_path(uri: str) -> str:
         file:///C:/Users/test/foo.txt -> C:/Users/test/foo.txt
         /already/a/path.txt -> /already/a/path.txt (unchanged)
     """
-    if uri.startswith("file:///"):
-        path = uri[7:]  # Remove "file://"
-        # On Windows, file:///C:/path -> C:/path (remove leading /)
-        # On Unix, file:///home/user -> /home/user (keep leading /)
-        if len(path) > 2 and path[0] == "/" and path[2] == ":":
-            # Windows path like /C:/Users/...
-            path = path[1:]
+    parsed = urlparse(uri)
+    if parsed.scheme == "file":
+        if parsed.netloc and not parsed.path:
+            return parsed.netloc
+        path = str(file_uri_to_path(parsed))
+        if re.match(r"^/[A-Za-z]:", path):
+            return path[1:]
         return path
-    elif uri.startswith("file://"):
-        # file://host/path or malformed - just strip file://
-        return uri[7:]
     return uri
 
 

@@ -202,7 +202,7 @@ async def _dispatch_local_ui_payload(
             if not resolved_paths:
                 context = build_command_context(prompt_provider, agent_name)
                 prompted_path = await context.io.prompt_text(
-                    "Attach file path or URL:",
+                    "Attach file path or HTTP(S) URL:",
                     allow_empty=False,
                 )
                 if not prompted_path:

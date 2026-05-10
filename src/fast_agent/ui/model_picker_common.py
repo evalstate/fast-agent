@@ -163,6 +163,7 @@ def _catalog_options_from_entries(
     provider: Provider,
     source: ModelSource,
     spec_transform: Any = None,
+    filter_current: bool = True,
 ) -> list[ModelOption]:
     transform = spec_transform or (lambda value: value)
 
@@ -193,6 +194,8 @@ def _catalog_options_from_entries(
         )
 
     if source == "curated":
+        if not filter_current:
+            return entry_options
         return [option for entry, option in zip(entries, entry_options) if entry.current]
 
     seen_identities: set[tuple[Provider, str]] = set()
@@ -250,6 +253,7 @@ def model_options_for_option(
             option.curated_entries,
             provider=Provider.ANTHROPIC,
             source="curated",
+            filter_current=False,
         )
 
     assert provider is not None

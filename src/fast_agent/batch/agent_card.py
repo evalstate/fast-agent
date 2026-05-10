@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.exceptions import AgentConfigError
@@ -26,9 +25,7 @@ def load_batch_agent_card(
 ) -> BatchAgentCardSelection:
     """Load a batch AgentCard source and select the worker agent."""
     try:
-        loaded_names = (
-            fast.load_agents_from_url(source) if _is_url(source) else fast.load_agents(source)
-        )
+        loaded_names = fast.load_agents(source)
     except AgentConfigError as exc:
         raise ValueError(str(exc)) from exc
 
@@ -79,12 +76,6 @@ def override_selected_agent_model(fast: FastAgent, target_name: str, model: str)
     if config is None:
         raise ValueError(f"Agent '{target_name}' is missing AgentConfig")
     config.model = model
-
-
-def _is_url(source: str) -> bool:
-    parsed = urlparse(source)
-    return parsed.scheme in {"http", "https"}
-
 
 def _agent_config(fast: FastAgent, name: str) -> AgentConfig | None:
     agent_data = fast.agents.get(name)
