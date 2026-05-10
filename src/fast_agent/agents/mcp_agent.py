@@ -73,6 +73,7 @@ from fast_agent.mcp.mcp_aggregator import (
     ServerStatus,
 )
 from fast_agent.mcp.mcp_skills_loader import (
+    INDEX_URI as SKILL_INDEX_URI,
     load_mcp_skill_manifests,
     merge_filesystem_and_mcp_manifests,
 )
@@ -211,6 +212,11 @@ class McpAgent(ABC, ToolAgent):
         # are not registered as concrete manifests until the user
         # resolves them via `/skills resolve`.
         self._skill_template_entries: list = []
+        # Servers we successfully subscribed to `skill://index.json` on.
+        # Tracked so a re-subscribe attempt after server reconnect can be
+        # idempotent and we don't double-register the notification hook.
+        self._skill_subscribed_servers: set[str] = set()
+        self._skill_discovery_lock: asyncio.Lock | None = None
         self._no_shell_requested = bool(context and getattr(context, "no_shell", False))
         self.set_skill_manifests(manifests)
         self.skill_registry: SkillRegistry | None = None
@@ -659,6 +665,156 @@ class McpAgent(ABC, ToolAgent):
         self._skill_template_entries = list(loaded.template_entries)
 
         self.set_skill_manifests(merged, archive_cache=loaded.archive_cache)
+
+        # Subscribe to `skill://index.json` on each server we just talked
+        # to so we can react to live skill catalog changes. Subscribe is
+        # advisory (SHOULD on servers); failures are normal and silent.
+        await self._subscribe_to_skill_index(server_names, enabled_servers)
+
+    async def _subscribe_to_skill_index(
+        self,
+        server_names: Sequence[str],
+        enabled_servers: set[str] | None,
+    ) -> None:
+        """Subscribe to `skill://index.json` for each enabled server.
+
+        Also wires up the agent-level notification callback once. Multiple
+        agents using the same aggregator would conflict on this callback,
+        so we set it only if it's unset — if another agent already set it
+        we don't override (live skill updates won't fire for us, but the
+        already-installed callback continues to do its job).
+        """
+        # Install our notification handler on the aggregator. Conservatively
+        # leave the slot alone if anything else already populated it.
+        agg = self._aggregator
+        if getattr(agg, "server_notification_callback", None) is None:
+            agg.server_notification_callback = self._on_server_notification
+
+        for server_name in server_names:
+            if enabled_servers is not None and server_name not in enabled_servers:
+                continue
+            if server_name in self._skill_subscribed_servers:
+                continue
+            try:
+                ok = await agg.subscribe_to_resource(server_name, SKILL_INDEX_URI)
+            except Exception:
+                ok = False
+            if ok:
+                self._skill_subscribed_servers.add(server_name)
+
+    async def _on_server_notification(self, server_name: str, notification) -> None:
+        """Handle server notifications relayed via the aggregator.
+
+        We only care about `notifications/resources/updated` targeting
+        `skill://index.json`; everything else is a no-op so this can
+        safely be the global handler without disturbing other behaviors.
+        """
+        # Local import keeps the module import cost low — most agents
+        # never see this notification path.
+        try:
+            from mcp.types import ResourceUpdatedNotification
+        except Exception:
+            return
+
+        root = getattr(notification, "root", None)
+        if not isinstance(root, ResourceUpdatedNotification):
+            return
+
+        uri = str(root.params.uri).rstrip("/")
+        if uri != SKILL_INDEX_URI.rstrip("/"):
+            return
+
+        # Re-discover skills for this server in a background task — the
+        # notification handler must not block the session's message loop.
+        asyncio.create_task(self._refresh_skills_after_index_update(server_name))
+
+    async def _refresh_skills_after_index_update(self, server_name: str) -> None:
+        """Re-fetch the index for one server and merge changes into state."""
+        if self._skill_discovery_lock is None:
+            self._skill_discovery_lock = asyncio.Lock()
+        async with self._skill_discovery_lock:
+            try:
+                loaded = await load_mcp_skill_manifests(
+                    self._aggregator,
+                    [server_name],
+                    enabled_servers=None,
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    "Skill index refresh failed",
+                    data={"server": server_name, "error": str(exc)},
+                )
+                return
+
+            # Compute add/remove for this server only (other servers'
+            # manifests must not move).
+            previous_for_server = {
+                m.name
+                for m in self._skill_manifests
+                if m.server_name == server_name
+            }
+            new_for_server = {m.name for m in loaded.manifests}
+            added = sorted(new_for_server - previous_for_server)
+            removed = sorted(previous_for_server - new_for_server)
+
+            # Rebuild: keep filesystem manifests + manifests from servers
+            # other than `server_name`, replace this server's manifests
+            # wholesale with the freshly-discovered set.
+            kept = [
+                m
+                for m in self._skill_manifests
+                if m.server_name != server_name
+            ]
+            merged, warnings = merge_filesystem_and_mcp_manifests(
+                kept, loaded.manifests
+            )
+            for message in warnings:
+                self._record_warning(
+                    f"[dim]{message}[/dim]", surface="startup_once"
+                )
+
+            # Merge template entries: keep templates from other servers,
+            # replace this server's templates with the new set.
+            kept_templates = [
+                t
+                for t in self._skill_template_entries
+                if getattr(t, "server_name", None) != server_name
+            ]
+            self._skill_template_entries = kept_templates + list(loaded.template_entries)
+
+            # Carry the existing archive cache for unchanged servers and
+            # overlay this server's new cache (archive caches are keyed
+            # by skill-root URI, not server, but skills go away when
+            # they're removed from the index so we re-derive both).
+            new_cache = dict(self._skill_archive_cache)
+            # Strip cache entries for this server's previously-loaded skills.
+            previous_uris_for_server = {
+                m.uri.rstrip("/").removesuffix("/SKILL.md")
+                for m in self._skill_manifests
+                if m.server_name == server_name and m.uri
+            }
+            for root_uri in previous_uris_for_server:
+                new_cache.pop(root_uri, None)
+            new_cache.update(loaded.archive_cache)
+
+            self.set_skill_manifests(merged, archive_cache=new_cache)
+
+        if added or removed:
+            # System prompt's <available_skills> block was substituted at
+            # init and is now part of the conversation history — we do
+            # NOT rewrite it. The SkillReader's allow-list is updated, so
+            # removed skills become unreadable on next attempt; the user
+            # sees the change via the runtime toolbar notice.
+            change_summary = ", ".join(
+                [f"+{n}" for n in added] + [f"-{n}" for n in removed]
+            )
+            self._record_warning(
+                (
+                    f"[dim]Skills updated from server '{server_name}': "
+                    f"{change_summary}[/dim]"
+                ),
+                surface="runtime_toolbar",
+            )
 
     @property
     def skill_template_entries(self) -> list:
