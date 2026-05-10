@@ -270,6 +270,7 @@ def format_skills_for_prompt(
     *,
     read_tool_name: str = "read_skill",
     include_preamble: bool = True,
+    disabled_skill_names: set[str] | None = None,
 ) -> str:
     """
     Format skill manifests into XML block per the Agent Skills specification.
@@ -280,20 +281,34 @@ def format_skills_for_prompt(
       <description>Brief capability summary</description>
       <location>/absolute/path/to/SKILL.md</location>
       <directory>/absolute/path/to/skill-name</directory>
+      <source>filesystem: /skills/skill-name</source>
     </skill>
+
+    The `<source>` element gives the model and the user visibility into
+    where each skill came from — SEP-2640 SHOULD: hosts must indicate
+    provenance when presenting MCP-served skills. Symmetric on filesystem
+    skills so the model never has to special-case the absence of one.
 
     Args:
         manifests: Collection of skill manifests to format
         read_tool_name: Name of the tool used to read skill files (for preamble)
         include_preamble: Whether to include instructional preamble text
+        disabled_skill_names: Names the user has toggled off this session.
+            Matching manifests are filtered out before rendering so the
+            model never sees them. Comparison is case-insensitive to match
+            the dedup semantics used by SkillRegistry.
     """
     if not manifests:
         return ""
+
+    disabled = {n.lower() for n in (disabled_skill_names or set())}
 
     formatted_parts: list[str] = []
     has_mcp_skill = False
 
     for manifest in manifests:
+        if manifest.name.lower() in disabled:
+            continue
         lines: list[str] = ["<skill>"]
         lines.append(f"  <name>{manifest.name}</name>")
 
@@ -309,6 +324,8 @@ def format_skills_for_prompt(
             skill_root = strip_skill_md(manifest.uri)
             lines.append(f"  <location>{manifest.uri}</location>")
             lines.append(f"  <directory>{skill_root}</directory>")
+            server = manifest.server_name or "unknown"
+            lines.append(f"  <source>mcp-server: {server}</source>")
         elif manifest.path is not None:
             # Filesystem skill: location is the absolute SKILL.md path.
             skill_dir = manifest.path.parent
@@ -320,8 +337,15 @@ def format_skills_for_prompt(
                 if subdir.is_dir():
                     lines.append(f"  <{tag_name}>{subdir}</{tag_name}>")
 
+            lines.append(f"  <source>filesystem: {skill_dir}</source>")
+
         lines.append("</skill>")
         formatted_parts.append("\n".join(lines))
+
+    if not formatted_parts:
+        # All manifests were filtered out — render nothing so the prompt
+        # doesn't carry an empty <available_skills> block.
+        return ""
 
     skills_xml = "<available_skills>\n" + "\n".join(formatted_parts) + "\n</available_skills>"
 

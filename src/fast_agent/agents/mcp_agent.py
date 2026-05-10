@@ -217,6 +217,12 @@ class McpAgent(ABC, ToolAgent):
         # idempotent and we don't double-register the notification hook.
         self._skill_subscribed_servers: set[str] = set()
         self._skill_discovery_lock: asyncio.Lock | None = None
+        # Names the user has toggled off via `/skills disable <name>`.
+        # Lowercased keys so the comparison matches SkillRegistry's
+        # case-insensitive dedup. Filtered out of both the prompt
+        # rendering and the SkillReader allow-list, so a removed skill
+        # is invisible to the model and unreadable on next attempt.
+        self._disabled_skill_names: set[str] = set()
         self._no_shell_requested = bool(context and getattr(context, "no_shell", False))
         self.set_skill_manifests(manifests)
         self.skill_registry: SkillRegistry | None = None
@@ -885,14 +891,29 @@ class McpAgent(ABC, ToolAgent):
         self._skill_manifests = list(manifests)
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
         self._skill_archive_cache = dict(archive_cache or {})
+        self._rebuild_skill_reader()
+
+    def _rebuild_skill_reader(self) -> None:
+        """(Re)build the SkillReader against the current manifest + disabled-set.
+
+        Called whenever manifests change OR the disabled-skill set is
+        toggled. Splitting this out keeps the toggle path from having to
+        re-derive `_skill_manifests` itself — just filters at reader
+        construction time.
+        """
         if self._skill_manifests:
+            visible = [
+                m
+                for m in self._skill_manifests
+                if m.name.lower() not in self._disabled_skill_names
+            ]
             # The aggregator is only needed when any manifest is URI-backed
             # (Skills-over-MCP), but passing it unconditionally is cheap and
             # keeps the reader uniform. The archive cache lets the reader
             # answer reads from in-memory unpacked content without an extra
             # round trip to the server.
             self._skill_reader = SkillReader(
-                self._skill_manifests,
+                visible,
                 self.logger,
                 aggregator=self._aggregator,
                 archive_cache=self._skill_archive_cache or None,
@@ -900,6 +921,31 @@ class McpAgent(ABC, ToolAgent):
             self._ensure_shell_runtime_for_skills()
         else:
             self._skill_reader = None
+
+    @property
+    def disabled_skill_names(self) -> set[str]:
+        """Lowercased names of skills toggled off this session."""
+        return set(self._disabled_skill_names)
+
+    def disable_skill(self, name: str) -> bool:
+        """Hide a skill from this session. Returns True if state changed."""
+        key = name.strip().lower()
+        if not key or key not in {m.name.lower() for m in self._skill_manifests}:
+            return False
+        if key in self._disabled_skill_names:
+            return False
+        self._disabled_skill_names.add(key)
+        self._rebuild_skill_reader()
+        return True
+
+    def enable_skill(self, name: str) -> bool:
+        """Restore a previously-disabled skill. Returns True if state changed."""
+        key = name.strip().lower()
+        if key not in self._disabled_skill_names:
+            return False
+        self._disabled_skill_names.discard(key)
+        self._rebuild_skill_reader()
+        return True
 
     def _ensure_shell_runtime_for_skills(self) -> None:
         if self._no_shell_requested:
