@@ -81,11 +81,15 @@ async def test_uri_read_allows_descendant_of_skill_root() -> None:
 
 
 @pytest.mark.asyncio
-async def test_uri_outside_known_skill_root_denied() -> None:
+async def test_non_skill_scheme_outside_known_root_denied() -> None:
+    """The trust boundary still rejects non-`skill://` URIs that don't
+    descend from any discovered manifest root. SEP narrows the
+    unenumerated-load relaxation to `skill://` only — for other schemes
+    the host has no evidence the URI is a skill at all."""
     manifest = _mcp_manifest("git-workflow")
     reader = SkillReader([manifest], logger=MagicMock(), aggregator=MagicMock())
 
-    result = await reader.execute({"path": "skill://unknown/SKILL.md"})
+    result = await reader.execute({"path": "github://owner/repo/foo.md"})
 
     assert result.isError
     assert "Access denied" in result.content[0].text
@@ -270,14 +274,16 @@ async def test_file_uri_rejected_even_if_registered() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unmapped_uri_denied() -> None:
-    """Defense in depth for the SkillManifest invariant: if a URI somehow
-    lands in allowed-roots without a matching server_name, the aggregator
-    would fall through every connected server. The reader must refuse
-    before dispatch.
+async def test_orphan_skill_uri_fans_out_to_aggregator() -> None:
+    """SEP-2640 §Discovery: hosts MUST support loading a skill given only
+    its URI, even when the URI never appeared in any index. A manifest
+    that's URI-backed but has no `server_name` (or a URI handed to the
+    model that doesn't match any discovered root) reaches the aggregator
+    *without* a server_name, which fans out across connected servers.
+    First responder wins — the documented ambiguity in the SEP.
     """
-    # Construct by bypassing __post_init__ so we can simulate an invariant
-    # violation. In normal use the registry validates this at construction.
+    # Construct by bypassing __post_init__ so we can simulate the no-
+    # server_name case the SEP description matches: an unenumerated URI.
     manifest = SkillManifest.__new__(SkillManifest)
     object.__setattr__(manifest, "name", "orphan")
     object.__setattr__(manifest, "description", "d")
@@ -290,11 +296,63 @@ async def test_unmapped_uri_denied() -> None:
     object.__setattr__(manifest, "metadata", None)
     object.__setattr__(manifest, "allowed_tools", None)
 
-    reader = SkillReader([manifest], logger=MagicMock(), aggregator=MagicMock())
+    agg = _fake_aggregator(
+        {"skill://orphan/SKILL.md": _text_result("# orphan body", "skill://orphan/SKILL.md")}
+    )
+    reader = SkillReader([manifest], logger=MagicMock(), aggregator=agg)
     result = await reader.execute({"path": "skill://orphan/SKILL.md"})
 
+    assert not result.isError
+    assert "orphan body" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_unenumerated_skill_uri_load() -> None:
+    """SEP MUST: a `skill://` URI handed to the model (via server
+    instructions, user input, or another skill) loads even when no
+    manifest covers it. The aggregator fanout finds the publishing
+    server; first responder wins.
+    """
+    agg = _fake_aggregator(
+        {
+            "skill://surprise/SKILL.md": _text_result(
+                "# surprise body", "skill://surprise/SKILL.md"
+            )
+        }
+    )
+    # No manifests at all — purely unenumerated.
+    reader = SkillReader([], logger=MagicMock(), aggregator=agg)
+    result = await reader.execute({"path": "skill://surprise/SKILL.md"})
+
+    assert not result.isError
+    assert "surprise body" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_unenumerated_non_skill_scheme_denied() -> None:
+    """The SEP narrows unenumerated load to `skill://` only: 'outside
+    the index, hosts recognize skills by the skill:// scheme prefix.'
+    An unknown `github://` URI has no evidence it's a skill, so reject.
+    """
+    agg = _fake_aggregator({})
+    reader = SkillReader([], logger=MagicMock(), aggregator=agg)
+    result = await reader.execute({"path": "github://owner/repo/foo.md"})
+
     assert result.isError
-    assert "not mapped to a known" in result.content[0].text
+    assert "not within an allowed skill root" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_unenumerated_uri_with_no_responding_server() -> None:
+    """When no connected server serves the URI, return a useful error
+    instead of a stack trace from the aggregator's 'not found on any
+    server' raise."""
+    agg = _fake_aggregator({})  # every read raises
+    reader = SkillReader([], logger=MagicMock(), aggregator=agg)
+    result = await reader.execute({"path": "skill://missing/SKILL.md"})
+
+    assert result.isError
+    assert "not served by any connected MCP server" in result.content[0].text
 
 
 @pytest.mark.asyncio
