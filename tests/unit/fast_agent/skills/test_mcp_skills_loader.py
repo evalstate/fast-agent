@@ -79,7 +79,7 @@ async def test_loads_concrete_skill_md_entries() -> None:
     }
     agg = _make_aggregator(responses)
 
-    manifests = await load_mcp_skill_manifests(agg, ["srv"])
+    manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
 
     assert len(manifests) == 1
     m = manifests[0]
@@ -94,7 +94,7 @@ async def test_loads_concrete_skill_md_entries() -> None:
 async def test_missing_index_yields_empty() -> None:
     agg = _make_aggregator({})  # get_resource on index raises
 
-    manifests = await load_mcp_skill_manifests(agg, ["srv"])
+    manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
 
     assert manifests == []
 
@@ -106,7 +106,7 @@ async def test_malformed_index_yields_empty() -> None:
     }
     agg = _make_aggregator(responses)
 
-    manifests = await load_mcp_skill_manifests(agg, ["srv"])
+    manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
     assert manifests == []
 
 
@@ -116,7 +116,7 @@ async def test_index_without_skills_key_yields_empty() -> None:
         ("srv", INDEX_URI): _read_result(json.dumps({"other": 1}), INDEX_URI),
     }
     agg = _make_aggregator(responses)
-    assert await load_mcp_skill_manifests(agg, ["srv"]) == []
+    assert (await load_mcp_skill_manifests(agg, ["srv"])).manifests == []
 
 
 @pytest.mark.asyncio
@@ -137,7 +137,7 @@ async def test_template_entries_skipped() -> None:
     }
     agg = _make_aggregator(responses)
 
-    assert await load_mcp_skill_manifests(agg, ["srv"]) == []
+    assert (await load_mcp_skill_manifests(agg, ["srv"])).manifests == []
 
 
 @pytest.mark.asyncio
@@ -170,7 +170,7 @@ async def test_partial_skill_md_failure_does_not_poison_batch() -> None:
     }
     agg = _make_aggregator(responses)
 
-    manifests = await load_mcp_skill_manifests(agg, ["srv"])
+    manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
 
     assert [m.name for m in manifests] == ["good"]
 
@@ -215,7 +215,7 @@ async def test_degenerate_url_without_skill_path_segment_rejected() -> None:
     }
     agg = _make_aggregator(responses)
 
-    manifests = await load_mcp_skill_manifests(agg, ["srv"])
+    manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
 
     assert [m.name for m in manifests] == ["good"]
 
@@ -254,7 +254,7 @@ async def test_file_uri_entry_rejected() -> None:
     }
     agg = _make_aggregator(responses)
 
-    manifests = await load_mcp_skill_manifests(agg, ["srv"])
+    manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
     assert [m.name for m in manifests] == ["good"]
 
 
@@ -268,7 +268,7 @@ async def test_oversize_index_rejected() -> None:
     }
     agg = _make_aggregator(responses)
 
-    manifests = await load_mcp_skill_manifests(agg, ["srv"])
+    manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
     assert manifests == []
 
 
@@ -307,7 +307,7 @@ async def test_oversize_skill_md_rejected() -> None:
     }
     agg = _make_aggregator(responses)
 
-    manifests = await load_mcp_skill_manifests(agg, ["srv"])
+    manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
     assert [m.name for m in manifests] == ["good"]
 
 
@@ -336,8 +336,173 @@ async def test_enabled_servers_filter() -> None:
     agg = _make_aggregator(responses)
 
     # Only server "b" enabled — "a" is suppressed even though its index exists.
-    manifests = await load_mcp_skill_manifests(agg, ["a"], enabled_servers={"b"})
+    manifests = (await load_mcp_skill_manifests(agg, ["a"], enabled_servers={"b"})).manifests
     assert manifests == []
+
+
+class TestArchiveEntries:
+    """`type: "archive"` index entries: fetch as blob, unpack in memory,
+    rewrite manifest URI to the post-unpack `<root>/SKILL.md`, populate
+    archive_cache so the reader can serve supporting files locally.
+    """
+
+    @staticmethod
+    def _make_targz(entries: list[tuple[str, bytes]]) -> bytes:
+        import io
+        import tarfile
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            for name, data in entries:
+                info = tarfile.TarInfo(name=name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        return buf.getvalue()
+
+    @staticmethod
+    def _blob_result(blob: bytes, uri: str, mime: str) -> ReadResourceResult:
+        import base64
+
+        from mcp.types import BlobResourceContents
+
+        return ReadResourceResult(
+            contents=[
+                BlobResourceContents(
+                    uri=AnyUrl(uri),
+                    mimeType=mime,
+                    blob=base64.b64encode(blob).decode("ascii"),
+                )
+            ]
+        )
+
+    @pytest.mark.asyncio
+    async def test_archive_entry_unpacks_and_caches(self) -> None:
+        skill_md = _skill_md("pdf-processing", description="Process PDFs")
+        archive = self._make_targz(
+            [
+                ("SKILL.md", skill_md.encode("utf-8")),
+                ("references/FORMS.md", b"forms guide"),
+                ("scripts/extract.py", b"#!/usr/bin/env python\n"),
+            ]
+        )
+
+        responses = {
+            ("srv", INDEX_URI): _read_result(
+                _index(
+                    [
+                        {
+                            "name": "pdf-processing",
+                            "type": "archive",
+                            "description": "Process PDFs",
+                            "url": "skill://pdf-processing.tar.gz",
+                        }
+                    ]
+                ),
+                INDEX_URI,
+            ),
+            ("srv", "skill://pdf-processing.tar.gz"): self._blob_result(
+                archive, "skill://pdf-processing.tar.gz", "application/gzip"
+            ),
+        }
+        agg = _make_aggregator(responses)
+
+        loaded = await load_mcp_skill_manifests(agg, ["srv"])
+
+        # Manifest is rewritten to point at the post-unpack SKILL.md URI,
+        # not the original `.tar.gz` URL. The rest of the host treats
+        # archive-backed and skill-md-backed entries identically.
+        assert len(loaded.manifests) == 1
+        m = loaded.manifests[0]
+        assert m.name == "pdf-processing"
+        assert m.uri == "skill://pdf-processing/SKILL.md"
+        assert m.server_name == "srv"
+
+        # The archive cache is keyed by skill *root* URI (no /SKILL.md
+        # suffix), and contains every member of the unpacked archive.
+        assert "skill://pdf-processing" in loaded.archive_cache
+        files = loaded.archive_cache["skill://pdf-processing"]
+        assert files["SKILL.md"] == skill_md.encode("utf-8")
+        assert files["references/FORMS.md"] == b"forms guide"
+        assert files["scripts/extract.py"].startswith(b"#!/usr/bin/env python")
+
+    @pytest.mark.asyncio
+    async def test_unsafe_archive_silently_skipped(self) -> None:
+        """A traversal attack in the archive must drop the entry without
+        aborting discovery — other index entries still load."""
+        skill_md = _skill_md("safe", description="Safe one")
+        bad_archive = self._make_targz(
+            [
+                ("SKILL.md", b"---\nname: bad\ndescription: x\n---\n"),
+                ("../escape.md", b"x"),
+            ]
+        )
+        good_archive = self._make_targz(
+            [("SKILL.md", skill_md.encode("utf-8"))]
+        )
+
+        responses = {
+            ("srv", INDEX_URI): _read_result(
+                _index(
+                    [
+                        {
+                            "name": "bad",
+                            "type": "archive",
+                            "description": "x",
+                            "url": "skill://bad.tar.gz",
+                        },
+                        {
+                            "name": "safe",
+                            "type": "archive",
+                            "description": "Safe one",
+                            "url": "skill://safe.tar.gz",
+                        },
+                    ]
+                ),
+                INDEX_URI,
+            ),
+            ("srv", "skill://bad.tar.gz"): self._blob_result(
+                bad_archive, "skill://bad.tar.gz", "application/gzip"
+            ),
+            ("srv", "skill://safe.tar.gz"): self._blob_result(
+                good_archive, "skill://safe.tar.gz", "application/gzip"
+            ),
+        }
+        agg = _make_aggregator(responses)
+
+        loaded = await load_mcp_skill_manifests(agg, ["srv"])
+        assert [m.name for m in loaded.manifests] == ["safe"]
+        assert "skill://safe" in loaded.archive_cache
+        assert "skill://bad" not in loaded.archive_cache
+
+    @pytest.mark.asyncio
+    async def test_archive_with_no_blob_silently_skipped(self) -> None:
+        """If the server returns text where we expected a blob, drop the
+        entry. (This shouldn't happen in practice, but the loader must not
+        crash.)"""
+        responses = {
+            ("srv", INDEX_URI): _read_result(
+                _index(
+                    [
+                        {
+                            "name": "x",
+                            "type": "archive",
+                            "description": "x",
+                            "url": "skill://x.tar.gz",
+                        }
+                    ]
+                ),
+                INDEX_URI,
+            ),
+            ("srv", "skill://x.tar.gz"): _read_result(
+                "this is text, not a blob",
+                "skill://x.tar.gz",
+                mime="text/plain",
+            ),
+        }
+        agg = _make_aggregator(responses)
+        loaded = await load_mcp_skill_manifests(agg, ["srv"])
+        assert loaded.manifests == []
+        assert loaded.archive_cache == {}
 
 
 def _fs(tmp_path: Path, name: str) -> SkillManifest:
@@ -472,7 +637,7 @@ class TestSchemaVersionValidation:
             ),
         }
         agg = _make_aggregator(responses)
-        await load_mcp_skill_manifests(agg, ["srv"])
+        (await load_mcp_skill_manifests(agg, ["srv"]))
         assert not any("$schema" in msg for msg, _ in recorded)
 
     @pytest.mark.asyncio
@@ -500,7 +665,7 @@ class TestSchemaVersionValidation:
             ),
         }
         agg = _make_aggregator(responses)
-        manifests = await load_mcp_skill_manifests(agg, ["srv"])
+        manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
         # Best-effort parsing: the entry still becomes a manifest.
         assert [m.name for m in manifests] == ["git-workflow"]
         # ...and the unknown-schema warning fired with the seen version.
@@ -515,7 +680,7 @@ class TestSchemaVersionValidation:
         body = json.dumps({"skills": []})  # no $schema key
         responses = {("srv", INDEX_URI): _read_result(body, INDEX_URI)}
         agg = _make_aggregator(responses)
-        manifests = await load_mcp_skill_manifests(agg, ["srv"])
+        manifests = (await load_mcp_skill_manifests(agg, ["srv"])).manifests
         assert manifests == []
         # No $schema key at all is treated as tolerant — no warning. The
         # SEP frames `$schema` as a SHOULD on servers; warning when it's

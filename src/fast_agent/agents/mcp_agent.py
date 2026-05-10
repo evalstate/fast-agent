@@ -206,6 +206,7 @@ class McpAgent(ABC, ToolAgent):
         self._skill_manifests: list[SkillManifest] = []
         self._skill_map: dict[str, SkillManifest] = {}
         self._skill_reader: SkillReader | None = None
+        self._skill_archive_cache: dict[str, dict[str, bytes]] = {}
         self._no_shell_requested = bool(context and getattr(context, "no_shell", False))
         self.set_skill_manifests(manifests)
         self.skill_registry: SkillRegistry | None = None
@@ -625,7 +626,7 @@ class McpAgent(ABC, ToolAgent):
                 return
 
         try:
-            mcp_manifests = await load_mcp_skill_manifests(
+            loaded = await load_mcp_skill_manifests(
                 self._aggregator,
                 server_names,
                 enabled_servers=enabled_servers,
@@ -639,28 +640,37 @@ class McpAgent(ABC, ToolAgent):
             )
             return
 
-        if not mcp_manifests:
+        if not loaded.manifests:
             return
 
         merged, warnings = merge_filesystem_and_mcp_manifests(
-            self._skill_manifests, mcp_manifests
+            self._skill_manifests, loaded.manifests
         )
         for message in warnings:
             self._record_warning(f"[dim]{message}[/dim]", surface="startup_once")
 
-        self.set_skill_manifests(merged)
+        self.set_skill_manifests(merged, archive_cache=loaded.archive_cache)
 
-    def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
+    def set_skill_manifests(
+        self,
+        manifests: Sequence[SkillManifest],
+        *,
+        archive_cache: dict[str, dict[str, bytes]] | None = None,
+    ) -> None:
         self._skill_manifests = list(manifests)
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
+        self._skill_archive_cache = dict(archive_cache or {})
         if self._skill_manifests:
             # The aggregator is only needed when any manifest is URI-backed
             # (Skills-over-MCP), but passing it unconditionally is cheap and
-            # keeps the reader uniform.
+            # keeps the reader uniform. The archive cache lets the reader
+            # answer reads from in-memory unpacked content without an extra
+            # round trip to the server.
             self._skill_reader = SkillReader(
                 self._skill_manifests,
                 self.logger,
                 aggregator=self._aggregator,
+                archive_cache=self._skill_archive_cache or None,
             )
             self._ensure_shell_runtime_for_skills()
         else:
