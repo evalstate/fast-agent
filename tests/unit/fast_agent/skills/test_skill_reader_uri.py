@@ -314,3 +314,124 @@ async def test_filesystem_read_still_works(tmp_path) -> None:
     result = await reader.execute({"path": str(md)})
     assert not result.isError
     assert "body" in result.content[0].text
+
+
+# --- Archive cache reads -------------------------------------------------
+
+
+def _archive_manifest(name: str = "pdf-processing", server: str = "srv") -> SkillManifest:
+    return SkillManifest(
+        name=name,
+        description=f"The {name} skill",
+        body="",
+        path=None,
+        uri=f"skill://{name}/SKILL.md",
+        server_name=server,
+    )
+
+
+@pytest.mark.asyncio
+async def test_archive_cache_serves_skill_md_locally() -> None:
+    """An archive-backed SKILL.md is served from the cache without
+    calling the aggregator. Important property: archive distribution
+    delivers the multi-file skill atomically; subsequent reads must not
+    silently change the source under the model."""
+    manifest = _archive_manifest()
+    cache = {
+        "skill://pdf-processing": {
+            "SKILL.md": b"# pdf body",
+        }
+    }
+    # Aggregator left as MagicMock without a get_resource — any call
+    # would raise. The test asserts the archive cache short-circuits.
+    agg = MagicMock()
+    agg.get_resource = MagicMock(side_effect=AssertionError("must not call aggregator"))
+
+    reader = SkillReader([manifest], logger=MagicMock(), aggregator=agg, archive_cache=cache)
+    result = await reader.execute({"path": "skill://pdf-processing/SKILL.md"})
+    assert not result.isError
+    assert result.content[0].text == "# pdf body"
+
+
+@pytest.mark.asyncio
+async def test_archive_cache_serves_supporting_file_locally() -> None:
+    manifest = _archive_manifest()
+    cache = {
+        "skill://pdf-processing": {
+            "SKILL.md": b"# pdf body",
+            "references/FORMS.md": b"forms guide",
+        }
+    }
+    agg = MagicMock()
+    agg.get_resource = MagicMock(side_effect=AssertionError("must not call aggregator"))
+
+    reader = SkillReader([manifest], logger=MagicMock(), aggregator=agg, archive_cache=cache)
+    result = await reader.execute({"path": "skill://pdf-processing/references/FORMS.md"})
+    assert not result.isError
+    assert result.content[0].text == "forms guide"
+
+
+@pytest.mark.asyncio
+async def test_archive_cache_missing_file_returns_error() -> None:
+    """If the model asks for a file the archive doesn't contain, fail
+    cleanly — do NOT fall through to the aggregator. The archive is the
+    authoritative file set; falling through would mask packaging gaps."""
+    manifest = _archive_manifest()
+    cache = {"skill://pdf-processing": {"SKILL.md": b"# body"}}
+    agg = MagicMock()
+    agg.get_resource = MagicMock(side_effect=AssertionError("must not call aggregator"))
+
+    reader = SkillReader([manifest], logger=MagicMock(), aggregator=agg, archive_cache=cache)
+    result = await reader.execute({"path": "skill://pdf-processing/missing.md"})
+    assert result.isError
+    assert "not found in archive" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_archive_cache_trust_boundary_still_enforced() -> None:
+    """The cache is a perf/atomicity layer; it doesn't widen the trust
+    boundary. A traversal URI is rejected before the cache lookup."""
+    manifest = _archive_manifest()
+    cache = {"skill://pdf-processing": {"SKILL.md": b"# body"}}
+    reader = SkillReader([manifest], logger=MagicMock(), archive_cache=cache)
+
+    result = await reader.execute({"path": "skill://pdf-processing/../escape/SKILL.md"})
+    assert result.isError
+    assert "not within an allowed skill root" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_non_cached_uri_falls_through_to_aggregator() -> None:
+    """A URI that's allowed but not in the archive cache (e.g. a
+    `skill-md` entry alongside an archive entry) reaches the aggregator
+    normally."""
+    archive_m = _archive_manifest("pdf-processing")
+    skill_md_m = _mcp_manifest("git-workflow")
+    cache = {"skill://pdf-processing": {"SKILL.md": b"pdf body"}}
+    agg = _fake_aggregator(
+        {
+            "skill://git-workflow/SKILL.md": _text_result(
+                "# git body", "skill://git-workflow/SKILL.md"
+            )
+        }
+    )
+    reader = SkillReader(
+        [archive_m, skill_md_m], logger=MagicMock(), aggregator=agg, archive_cache=cache
+    )
+    result = await reader.execute({"path": "skill://git-workflow/SKILL.md"})
+    assert not result.isError
+    assert "git body" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_archive_cache_binary_member_rejected_with_clear_error() -> None:
+    """A non-UTF-8 supporting file (e.g. a PNG asset) returns an error
+    explaining `read_skill` only returns text — same posture as the
+    aggregator path's binary-resource branch."""
+    manifest = _archive_manifest()
+    # 0x80 alone is invalid utf-8.
+    cache = {"skill://pdf-processing": {"SKILL.md": b"# body", "logo.png": b"\x80\x81"}}
+    reader = SkillReader([manifest], logger=MagicMock(), archive_cache=cache)
+    result = await reader.execute({"path": "skill://pdf-processing/logo.png"})
+    assert result.isError
+    assert "not valid UTF-8" in result.content[0].text or "binary" in result.content[0].text
