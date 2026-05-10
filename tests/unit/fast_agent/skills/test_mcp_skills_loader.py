@@ -422,3 +422,102 @@ class TestMergeFilesystemAndMcpManifests:
         merged, warnings = merge_filesystem_and_mcp_manifests(fs, [])
         assert [m.name for m in merged] == ["alpha"]
         assert warnings == []
+
+
+class TestSchemaVersionValidation:
+    """SEP-2640: clients SHOULD match $schema against known URIs.
+
+    Unknown / missing $schema must not abort parsing — the host is meant
+    to forward-compat by ignoring fields it doesn't understand — but an
+    unknown one must surface a warning so operators know the host may be
+    parsing a newer index incompletely.
+
+    fast-agent's logger fans out through an AsyncEventBus rather than
+    stdlib logging, so pytest's caplog won't see these warnings. Patch
+    the loader module's logger to a recording stub instead.
+    """
+
+    @staticmethod
+    def _patched_logger(monkeypatch) -> list[tuple[str, dict]]:
+        from fast_agent.mcp import mcp_skills_loader as loader_mod
+
+        recorded: list[tuple[str, dict]] = []
+
+        class _Stub:
+            def warning(self, message: str, **data) -> None:
+                # data may contain a `data=` kwarg per fast-agent convention,
+                # or be flat. Normalize both shapes.
+                payload = data.get("data") if "data" in data else data
+                recorded.append((message, dict(payload or {})))
+
+            def debug(self, *_args, **_kwargs) -> None:
+                pass
+
+            def error(self, *_args, **_kwargs) -> None:
+                pass
+
+            def info(self, *_args, **_kwargs) -> None:
+                pass
+
+        monkeypatch.setattr(loader_mod, "logger", _Stub())
+        return recorded
+
+    @pytest.mark.asyncio
+    async def test_known_schema_no_warning(self, monkeypatch) -> None:
+        recorded = self._patched_logger(monkeypatch)
+        responses = {
+            ("srv", INDEX_URI): _read_result(
+                _index([]),  # default helper uses the known schema
+                INDEX_URI,
+            ),
+        }
+        agg = _make_aggregator(responses)
+        await load_mcp_skill_manifests(agg, ["srv"])
+        assert not any("$schema" in msg for msg, _ in recorded)
+
+    @pytest.mark.asyncio
+    async def test_unknown_schema_warns_but_parses(self, monkeypatch) -> None:
+        recorded = self._patched_logger(monkeypatch)
+        body = json.dumps(
+            {
+                "$schema": "https://schemas.agentskills.io/discovery/9.9.9/schema.json",
+                "skills": [
+                    {
+                        "name": "git-workflow",
+                        "type": "skill-md",
+                        "description": "d",
+                        "url": "skill://git-workflow/SKILL.md",
+                    }
+                ],
+            }
+        )
+        responses = {
+            ("srv", INDEX_URI): _read_result(body, INDEX_URI),
+            ("srv", "skill://git-workflow/SKILL.md"): _read_result(
+                _skill_md("git-workflow"),
+                "skill://git-workflow/SKILL.md",
+                mime="text/markdown",
+            ),
+        }
+        agg = _make_aggregator(responses)
+        manifests = await load_mcp_skill_manifests(agg, ["srv"])
+        # Best-effort parsing: the entry still becomes a manifest.
+        assert [m.name for m in manifests] == ["git-workflow"]
+        # ...and the unknown-schema warning fired with the seen version.
+        assert any(
+            "$schema" in msg and data.get("schema", "").endswith("/9.9.9/schema.json")
+            for msg, data in recorded
+        ), f"expected unknown-schema warning, got: {recorded}"
+
+    @pytest.mark.asyncio
+    async def test_missing_schema_silently_proceeds(self, monkeypatch) -> None:
+        recorded = self._patched_logger(monkeypatch)
+        body = json.dumps({"skills": []})  # no $schema key
+        responses = {("srv", INDEX_URI): _read_result(body, INDEX_URI)}
+        agg = _make_aggregator(responses)
+        manifests = await load_mcp_skill_manifests(agg, ["srv"])
+        assert manifests == []
+        # No $schema key at all is treated as tolerant — no warning. The
+        # SEP frames `$schema` as a SHOULD on servers; warning when it's
+        # absent would be noise for legitimate older / minimal servers.
+        assert not any("$schema" in msg for msg, _ in recorded)
