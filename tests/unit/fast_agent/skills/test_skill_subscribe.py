@@ -140,11 +140,12 @@ async def test_refresh_removes_dropped_skill_after_index_update(tmp_path: Path) 
     await agent._refresh_skills_after_index_update("srv")
     assert {m.name for m in agent._skill_manifests if m.server_name == "srv"} == {"alpha"}
 
-    # The reader's allow-list reflects the removal: a read of beta's
-    # SKILL.md is no longer admitted.
-    result = await agent._skill_reader.execute({"path": "skill://beta/SKILL.md"})
-    assert result.isError
-    assert "not within an allowed skill root" in result.content[0].text
+    # `beta` is no longer in the active manifest set, so it won't appear
+    # in the next-rendered <available_skills> block — that's the user-
+    # visible removal. Note: per SEP-2640 §Discovery, a `skill://beta/...`
+    # URI handed to the model (via instructions, user input, or another
+    # skill) is still readable via the aggregator fanout path — removal
+    # from the index doesn't mean the server stops serving the URI.
 
 
 @pytest.mark.asyncio

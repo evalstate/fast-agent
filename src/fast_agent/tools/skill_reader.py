@@ -117,7 +117,7 @@ class SkillReader:
         return False
 
     def _is_uri_allowed(self, uri: str) -> bool:
-        """Check the URI is under a known skill root (trust boundary).
+        """Check the URI is admissible for reading (trust boundary).
 
         Rejects URIs containing `..` or `.` path segments (raw or
         percent-encoded) so `skill://good/../evil/SKILL.md` and
@@ -129,6 +129,20 @@ class SkillReader:
         `Path.resolve()` for the same normalization; URIs get these
         explicit rejects instead of a full URL normalize to keep the
         trust boundary independent of server URI semantics.
+
+        Two-tier admission:
+        - **Inside a discovered manifest root** — admit. Any scheme
+          (`skill://`, `github://`, `repo://`) is fine because the SEP
+          allows servers to publish skills under non-`skill://` schemes
+          *provided* they appear in `skill://index.json`. The discovered
+          root is the host's evidence that the URI is in the index.
+        - **`skill://` scheme outside any discovered root** — admit.
+          SEP-2640 §Discovery is explicit: "hosts MUST support loading
+          a skill given only its URI" — even when the URI never appeared
+          in an index (user hands it to the model, server instructions
+          mention it, another skill links to it). The SEP narrows this
+          to `skill://` for unenumerated URIs: "outside the index, hosts
+          recognize skills by the skill:// scheme prefix."
 
         Case handling follows RFC 3986: scheme and traversal-marker
         checks operate on a lowercased copy (scheme is case-insensitive,
@@ -156,6 +170,12 @@ class SkillReader:
         for root in self._allowed_uri_roots:
             if uri == root or uri.startswith(f"{root}/"):
                 return True
+        # Unenumerated skill URI (SEP-2640 §Discovery). Admit `skill://`
+        # only — for any other scheme, the host's evidence that this is
+        # actually a skill comes from the index, which by definition we
+        # haven't seen for this URI.
+        if lowered.startswith("skill://"):
+            return True
         return False
 
     def _find_server_for_uri(self, uri: str) -> str | None:
@@ -297,34 +317,56 @@ class SkillReader:
 
         server_name = self._find_server_for_uri(uri)
         if server_name is None:
-            # Defense in depth: the manifest invariant should guarantee every
-            # URI has a publishing server, but if that invariant is ever
-            # violated the aggregator would iterate every connected server
-            # and return the first one that happens to serve the URI —
-            # crossing the per-server trust boundary silently.
-            return CallToolResult(
-                isError=True,
-                content=[
-                    TextContent(
-                        type="text",
-                        text=(
-                            f"Access denied: {uri} is not mapped to a known "
-                            "MCP server."
-                        ),
-                    )
-                ],
+            # Unenumerated `skill://` URI per SEP-2640 §Discovery: the
+            # host MUST support loading by URI even when the URI never
+            # appeared in any index. We call the aggregator without a
+            # `server_name`, which fans out across connected servers
+            # (first to respond wins). This is the documented ambiguity
+            # the SEP example calls out: "two connected servers may both
+            # serve skill://refunds/SKILL.md" — fast-agent's fallthrough
+            # picks the first responder. If you have a non-enumerated
+            # skill on a specific server, name it: server_name disambig
+            # ates and matches the SEP's read_resource(server, uri) shape.
+            #
+            # Trust posture: `_is_uri_allowed` already required either a
+            # discovered manifest root OR `skill://` scheme. For a
+            # non-`skill://` scheme without a matching root we'd already
+            # have rejected before reaching here.
+            self._logger.debug(
+                "Reading unenumerated skill URI via aggregator fanout",
+                data={"uri": uri},
             )
-        try:
-            result = await self._aggregator.get_resource(uri, server_name=server_name)
-        except Exception as exc:
-            self._logger.error(
-                "Failed to read MCP skill resource",
-                data={"uri": uri, "server": server_name, "error": str(exc)},
-            )
-            return CallToolResult(
-                isError=True,
-                content=[TextContent(type="text", text=f"Error reading resource: {exc}")],
-            )
+            try:
+                result = await self._aggregator.get_resource(uri)
+            except Exception as exc:
+                self._logger.error(
+                    "Failed to read unenumerated MCP skill URI",
+                    data={"uri": uri, "error": str(exc)},
+                )
+                return CallToolResult(
+                    isError=True,
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=(
+                                f"Resource {uri} was not served by any connected "
+                                "MCP server."
+                            ),
+                        )
+                    ],
+                )
+        else:
+            try:
+                result = await self._aggregator.get_resource(uri, server_name=server_name)
+            except Exception as exc:
+                self._logger.error(
+                    "Failed to read MCP skill resource",
+                    data={"uri": uri, "server": server_name, "error": str(exc)},
+                )
+                return CallToolResult(
+                    isError=True,
+                    content=[TextContent(type="text", text=f"Error reading resource: {exc}")],
+                )
 
         text_parts: list[str] = []
         binary_mimes: list[str] = []
