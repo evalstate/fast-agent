@@ -14,13 +14,18 @@ if TYPE_CHECKING:
 def skills_usage_lines() -> list[str]:
     """Return the shared usage/help text for skills management commands."""
     return [
-        "Usage: /skills [list|available|search|add|remove|update|registry|help] [args]",
+        "Usage: /skills [list|available|search|add|remove|update|registry|"
+        "templates|resolve|enable|disable|help] [args]",
         "",
         "Examples:",
         "- /skills available",
         "- /skills search docker",
         "- /skills add <number|name>",
         "- /skills registry",
+        "- /skills templates             # list Skills-over-MCP template entries",
+        "- /skills resolve <number>      # fill template variables and register",
+        "- /skills enable <name>         # restore a previously-disabled skill",
+        "- /skills disable <name>        # hide a skill from this session",
     ]
 
 

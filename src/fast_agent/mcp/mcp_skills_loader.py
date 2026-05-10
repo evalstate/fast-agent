@@ -55,11 +55,59 @@ MAX_ARCHIVE_BLOB_BYTES = 4 * 1024 * 1024  # 4 MiB
 ARCHIVE_SUFFIXES = (".tar.gz", ".tgz", ".zip")
 
 
+@dataclass(frozen=True)
+class SkillTemplateEntry:
+    """A parameterized skill namespace from `skill://index.json`.
+
+    `type: "mcp-resource-template"` entries describe a skill space the
+    user navigates rather than a concrete skill — the URL is an RFC 6570
+    URI template (e.g. `skill://docs/{product}/SKILL.md`) which a host
+    resolves by filling each variable, typically via the MCP completion
+    API. Resolved URIs become regular `skill-md` entries; the template
+    itself is never registered as a `SkillManifest`.
+    """
+
+    server_name: str
+    url_template: str
+    description: str
+
+    def variable_names(self) -> list[str]:
+        """Return RFC 6570 variable names (just simple `{var}` form)."""
+        import re
+
+        # The SEP example only uses simple expansion (`{product}`), so a
+        # full RFC 6570 parser is overkill. Accept letters/digits/_-. in
+        # variable names per RFC 6570 §2.3.
+        return re.findall(r"\{([A-Za-z0-9_.\-]+)\}", self.url_template)
+
+
+def expand_uri_template(template: str, values: dict[str, str]) -> str:
+    """Resolve a simple RFC 6570 template by substituting `{var}` literals.
+
+    Only handles the bare `{var}` form — no `{?var}`, `{+var}`, etc. The
+    SEP example (`skill://docs/{product}/SKILL.md`) is the bound case
+    we're targeting; if a server uses an extended form we'll need to
+    pull in the `uritemplate` package or hand-roll more shapes.
+    """
+    import re
+    from urllib.parse import quote
+
+    def _sub(match: "re.Match[str]") -> str:
+        name = match.group(1)
+        if name not in values:
+            raise KeyError(f"template variable not provided: {name}")
+        # `quote` with `safe=""` percent-encodes `/` and other reserved
+        # characters. RFC 6570 simple expansion does exactly this.
+        return quote(values[name], safe="")
+
+    return re.sub(r"\{([A-Za-z0-9_.\-]+)\}", _sub, template)
+
+
 @dataclass
 class LoadedSkills:
     """Result of `load_mcp_skill_manifests`.
 
-    The loader discovers two distinct kinds of artifact:
+    The loader discovers three distinct kinds of artifact:
 
     - `manifests` — concrete skills (both `skill-md` and `archive` index
       entries reduce to one `SkillManifest` each).
@@ -68,13 +116,15 @@ class LoadedSkills:
       `/SKILL.md` stripped, NOT the original `.tar.gz` URL). The
       SkillReader checks this cache before issuing `resources/read`,
       so archive-backed reads stay local after the initial fetch.
-
-    Future fields land here (template entries in Feature 3) so the
-    loader's signature stops growing.
+    - `template_entries` — `mcp-resource-template` index entries left
+      unresolved. The host surfaces these in its UI; the user fills
+      variables (via the MCP completion API) and the resolved URI
+      registers as a regular `skill-md` entry.
     """
 
     manifests: list[SkillManifest] = field(default_factory=list)
     archive_cache: dict[str, dict[str, bytes]] = field(default_factory=dict)
+    template_entries: list[SkillTemplateEntry] = field(default_factory=list)
 
 
 def merge_filesystem_and_mcp_manifests(
@@ -152,12 +202,30 @@ async def load_mcp_skill_manifests(
         for entry in entries:
             entry_type = entry.get("type")
             if entry_type == "mcp-resource-template":
-                logger.debug(
-                    "Skipping MCP skill template entry (not yet supported)",
-                    data={
-                        "server": server_name,
-                        "url": entry.get("url"),
-                    },
+                url = entry.get("url")
+                description = entry.get("description") or ""
+                if not isinstance(url, str) or not url:
+                    logger.warning(
+                        "Skill template entry missing `url`",
+                        data={"server": server_name, "entry": entry},
+                    )
+                    continue
+                if url.lower().startswith("file://"):
+                    # Same trust rationale as concrete entries: a
+                    # `file://` root delegates content authority to the
+                    # local filesystem, which collapses the per-server
+                    # boundary the SEP relies on.
+                    logger.warning(
+                        "Rejecting `file://` skill template URI",
+                        data={"server": server_name, "url": url},
+                    )
+                    continue
+                result.template_entries.append(
+                    SkillTemplateEntry(
+                        server_name=server_name,
+                        url_template=url,
+                        description=description,
+                    )
                 )
                 continue
             if entry_type == "skill-md":
@@ -248,6 +316,38 @@ async def _read_index(
         )
         return None
     return [entry for entry in skills if isinstance(entry, dict)]
+
+
+async def resolve_skill_template(
+    aggregator: "MCPAggregator",
+    template: SkillTemplateEntry,
+    variables: dict[str, str],
+) -> SkillManifest | None:
+    """Expand `template` with `variables` and fetch the resulting SKILL.md.
+
+    Returns a `SkillManifest` ready to register, or `None` if expansion
+    fails (missing variable) or the resulting resource can't be loaded.
+    The host treats the manifest exactly as if a `skill-md` index entry
+    had named the resolved URI — no special handling is needed downstream.
+    """
+    try:
+        resolved_url = expand_uri_template(template.url_template, variables)
+    except KeyError as exc:
+        logger.warning(
+            "Skill template expansion missing variable",
+            data={
+                "server": template.server_name,
+                "url_template": template.url_template,
+                "missing": str(exc),
+            },
+        )
+        return None
+
+    synthetic_entry = {
+        "type": "skill-md",
+        "url": resolved_url,
+    }
+    return await _load_concrete_entry(aggregator, template.server_name, synthetic_entry)
 
 
 async def _load_concrete_entry(

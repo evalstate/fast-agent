@@ -779,6 +779,231 @@ async def handle_update_skill(
     return outcome
 
 
+async def handle_list_skill_templates(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+) -> CommandOutcome:
+    """List `mcp-resource-template` entries discovered from connected servers.
+
+    These are RFC 6570 URI templates the user must fill before the skill
+    is registered. Without this surface they'd be invisible — the loader
+    collects them, but until a `/skills resolve` walks the variables
+    they never enter the active manifest set or the model's context.
+    """
+    outcome = CommandOutcome()
+
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    templates = getattr(agent_obj, "skill_template_entries", None)
+    if not templates:
+        outcome.add_message(
+            "No skill templates discovered on this agent's connected MCP servers.",
+            channel="info",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    content = Text()
+    append_heading(content, "Skill templates:")
+    content.append_text(
+        Text(
+            "Each entry describes a parameterized skill namespace. "
+            "Resolve one with `/skills resolve <number>` to register it.",
+            style="dim",
+        )
+    )
+    content.append("\n\n")
+
+    for index, template in enumerate(templates, 1):
+        entry = Text()
+        entry.append(f"[{index:2}] ", style="dim cyan")
+        entry.append(template.url_template, style="bright_blue bold")
+        content.append_text(entry)
+        content.append("\n")
+        if template.description:
+            append_wrapped_text(content, template.description, indent="     ")
+        content.append("     ", style="dim")
+        content.append(f"server: {template.server_name}", style="dim green")
+        content.append("\n")
+        variables = template.variable_names()
+        if variables:
+            content.append("     ", style="dim")
+            content.append(
+                f"variables: {', '.join(variables)}",
+                style="dim",
+            )
+            content.append("\n")
+        content.append("\n")
+
+    outcome.add_message(content, right_info="skills", agent_name=agent_name)
+    return outcome
+
+
+async def handle_resolve_skill_template(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+    interactive: bool = True,
+) -> CommandOutcome:
+    """Walk a template's variables (via MCP completion) and register the result.
+
+    Argument is the 1-based index from `/skills templates`. Optional
+    `var=value` overrides may be appended (space-separated) to skip the
+    completion prompt for specific variables — useful for scripted /
+    non-interactive runs.
+    """
+    outcome = CommandOutcome()
+
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    templates = list(getattr(agent_obj, "skill_template_entries", None) or [])
+    if not templates:
+        outcome.add_message(
+            "No skill templates available on this agent.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    if not argument or not argument.strip():
+        outcome.add_message(
+            "Usage: /skills resolve <number> [var=value ...]",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    tokens = argument.strip().split()
+    selector = tokens[0]
+    overrides: dict[str, str] = {}
+    for tok in tokens[1:]:
+        if "=" not in tok:
+            outcome.add_message(
+                f"Override must be var=value, got: {tok}",
+                channel="error",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+        key, value = tok.split("=", 1)
+        overrides[key.strip()] = value.strip()
+
+    if not selector.isdigit():
+        outcome.add_message(
+            f"Template selector must be a number from `/skills templates`, got: {selector}",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+    index = int(selector)
+    if not (1 <= index <= len(templates)):
+        outcome.add_message(
+            f"No template at index {index}. Use `/skills templates` to list.",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+    template = templates[index - 1]
+
+    values: dict[str, str] = {}
+    for var_name in template.variable_names():
+        if var_name in overrides:
+            values[var_name] = overrides[var_name]
+            continue
+
+        try:
+            candidates = await agent_obj.complete_skill_template_argument(
+                template,
+                argument_name=var_name,
+                value="",
+                context_args=values or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            outcome.add_message(
+                f"Completion failed for variable '{var_name}': {exc}",
+                channel="error",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+
+        if interactive:
+            picked: str | None
+            if candidates:
+                picked = await ctx.io.prompt_selection(
+                    f"Value for `{var_name}` (server-suggested):",
+                    options=candidates,
+                    allow_cancel=True,
+                )
+            else:
+                # Server returned no suggestions; fall back to free-form
+                # input — the SEP allows servers to publish templates
+                # without exhaustive completion support, in which case
+                # the user has to type the value.
+                picked = await ctx.io.prompt_text(
+                    f"Value for `{var_name}` (no server suggestions; type or empty to cancel):",
+                    allow_empty=True,
+                )
+            if not picked:
+                outcome.add_message(
+                    "Resolution cancelled.",
+                    channel="info",
+                    right_info="skills",
+                    agent_name=agent_name,
+                )
+                return outcome
+            values[var_name] = picked
+        else:
+            # Non-interactive: bail rather than guess.
+            outcome.add_message(
+                (
+                    f"Variable `{var_name}` not provided. Re-run interactively "
+                    "or pass `var=value` overrides."
+                ),
+                channel="error",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+
+    try:
+        manifest = await agent_obj.register_resolved_skill_template(template, values)
+    except Exception as exc:  # noqa: BLE001
+        outcome.add_message(
+            f"Failed to register resolved skill: {exc}",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    if manifest is None:
+        outcome.add_message(
+            (
+                "Resolved skill could not be loaded (server returned no "
+                "SKILL.md, parse failed, or a same-named skill is already "
+                "registered). See the log for details."
+            ),
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    outcome.add_message(
+        f"Registered skill: {manifest.name} (from {template.server_name})",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    return outcome
+
+
 async def handle_skills_command(
     ctx: CommandContext,
     *,
@@ -818,12 +1043,18 @@ async def handle_skills_command(
         return await handle_remove_skill(ctx, agent_name=agent_name, argument=argument)
     if normalized in {"update", "refresh", "upgrade"}:
         return await handle_update_skill(ctx, agent_name=agent_name, argument=argument)
+    if normalized in {"templates", "template"}:
+        return await handle_list_skill_templates(ctx, agent_name=agent_name)
+    if normalized in {"resolve"}:
+        return await handle_resolve_skill_template(
+            ctx, agent_name=agent_name, argument=argument
+        )
 
     outcome = CommandOutcome()
     outcome.add_message(
         (
             f"Unknown /skills action: {normalized}. "
-            "Use list/available/search/add/remove/update/registry/help."
+            "Use list/available/search/add/remove/update/registry/templates/resolve/help."
         ),
         channel="warning",
         right_info="skills",

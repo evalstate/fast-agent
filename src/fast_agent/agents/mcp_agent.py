@@ -207,6 +207,10 @@ class McpAgent(ABC, ToolAgent):
         self._skill_map: dict[str, SkillManifest] = {}
         self._skill_reader: SkillReader | None = None
         self._skill_archive_cache: dict[str, dict[str, bytes]] = {}
+        # Discovered `mcp-resource-template` entries (Feature 3). These
+        # are not registered as concrete manifests until the user
+        # resolves them via `/skills resolve`.
+        self._skill_template_entries: list = []
         self._no_shell_requested = bool(context and getattr(context, "no_shell", False))
         self.set_skill_manifests(manifests)
         self.skill_registry: SkillRegistry | None = None
@@ -649,7 +653,66 @@ class McpAgent(ABC, ToolAgent):
         for message in warnings:
             self._record_warning(f"[dim]{message}[/dim]", surface="startup_once")
 
+        # Template entries don't reduce to manifests until the user
+        # resolves them, but the agent has to hold them somewhere so the
+        # REPL `/skills templates` command can list them.
+        self._skill_template_entries = list(loaded.template_entries)
+
         self.set_skill_manifests(merged, archive_cache=loaded.archive_cache)
+
+    @property
+    def skill_template_entries(self) -> list:
+        """Discovered `mcp-resource-template` entries awaiting resolution."""
+        return list(self._skill_template_entries)
+
+    async def complete_skill_template_argument(
+        self,
+        template,
+        argument_name: str,
+        value: str = "",
+        context_args: dict[str, str] | None = None,
+    ) -> list[str]:
+        """Ask the publishing server for completion candidates for a template variable.
+
+        Thin wrapper over `MCPAggregator.complete_resource_argument`. The
+        wrapper exists so the slash-command handler doesn't need to reach
+        through the agent into the aggregator and can mock-test against
+        the agent alone.
+        """
+        completion = await self._aggregator.complete_resource_argument(
+            server_name=template.server_name,
+            template_uri=template.url_template,
+            argument_name=argument_name,
+            value=value,
+            context_args=context_args,
+        )
+        return list(getattr(completion, "values", []) or [])
+
+    async def register_resolved_skill_template(
+        self,
+        template,
+        variables: dict[str, str],
+    ) -> "SkillManifest | None":
+        """Expand `template` against `variables`, fetch the resulting SKILL.md,
+        and merge it into the active manifest set.
+
+        Returns the new manifest on success, or None if expansion or
+        fetch failed (the reason is already logged by the loader). The
+        host emits its own user-facing notice from the caller.
+        """
+        from fast_agent.mcp.mcp_skills_loader import resolve_skill_template
+
+        manifest = await resolve_skill_template(self._aggregator, template, variables)
+        if manifest is None:
+            return None
+        if manifest.name in self._skill_map:
+            # Filesystem / earlier MCP manifest wins. The dedup
+            # semantics here match `merge_filesystem_and_mcp_manifests`
+            # so resolution doesn't silently shadow a configured skill.
+            return None
+        new_manifests = list(self._skill_manifests) + [manifest]
+        self.set_skill_manifests(new_manifests, archive_cache=self._skill_archive_cache)
+        return manifest
 
     def set_skill_manifests(
         self,
