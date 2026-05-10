@@ -37,6 +37,7 @@ from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 app = typer.Typer(
     help="Check and diagnose FastAgent configuration",
     no_args_is_help=False,  # Allow showing our custom help instead
+    add_completion=False,
 )
 logger = get_logger(__name__)
 

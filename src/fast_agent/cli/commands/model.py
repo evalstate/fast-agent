@@ -76,9 +76,10 @@ class ModelReferencePickerIO(Protocol):
         items: tuple[ModelReferenceSetupItem, ...],
     ) -> str | None: ...
 
-app = typer.Typer(help="Interactive model reference setup.")
+app = typer.Typer(help="Interactive model reference setup.", add_completion=False)
 llamacpp_app = typer.Typer(
-    help="Discover llama.cpp models, preview overlays, and import local runtime overlays."
+    help="Discover llama.cpp models, preview overlays, and import local runtime overlays.",
+    add_completion=False,
 )
 app.add_typer(llamacpp_app, name="llamacpp")
 

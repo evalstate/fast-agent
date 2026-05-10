@@ -13,7 +13,7 @@ from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.utils.async_utils import configure_uvloop
 
-app = typer.Typer(help="Run batch processing jobs.")
+app = typer.Typer(help="Run batch processing jobs.", add_completion=False)
 
 
 @app.callback(invoke_without_command=True)

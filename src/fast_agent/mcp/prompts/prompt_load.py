@@ -7,6 +7,7 @@ from mcp.types import PromptMessage, TextContent
 from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
+from fast_agent.io.source_resolver import materialize_text_source
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp import mime_utils, resource_utils
@@ -115,7 +116,9 @@ def load_prompt(file: Path | str) -> list[PromptMessageExtended]:
         List of PromptMessageExtended objects with full conversation state
     """
     if isinstance(file, str):
-        file = Path(file)
+        file = materialize_text_source(file, label="prompt file")
+    else:
+        file = materialize_text_source(file, label="prompt file")
     path_str = str(file).lower()
 
     if path_str.endswith(".json"):

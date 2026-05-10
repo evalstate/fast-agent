@@ -11,6 +11,7 @@ Built-in placeholders (automatically resolved):
     {{hostPlatform}} - Platform info (e.g., "Linux-6.6.0-x86_64")
     {{pythonVer}} - Python version (e.g., "3.12.0")
     {{url:https://...}} - Fetches content from URL
+    {{url:hf://...}} - Fetches content from Hugging Face Hub
     {{file:path}} - Reads file content (requires workspaceRoot)
     {{file_silent:path}} - Reads file, empty string if missing
 
@@ -45,6 +46,7 @@ from typing import Awaitable, Callable
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
+from fast_agent.io.source_resolver import read_text_source
 
 logger = get_logger(__name__)
 
@@ -66,26 +68,6 @@ def _get_host_platform() -> str:
 def _get_python_version() -> str:
     """Return Python version."""
     return platform.python_version()
-
-
-def _fetch_url_content(url: str) -> str:
-    """
-    Fetch content from a URL.
-
-    Args:
-        url: The URL to fetch content from
-
-    Returns:
-        The text content from the URL
-
-    Raises:
-        requests.RequestException: If the URL cannot be fetched
-    """
-    import requests
-
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    return response.text
 
 
 def _load_internal_resource(resource_id: str) -> str:
@@ -312,13 +294,13 @@ class InstructionBuilder:
         )
 
     def _resolve_url_patterns(self, text: str) -> str:
-        """Resolve {{url:https://...}} patterns by fetching content."""
-        url_pattern = re.compile(r"\{\{url:(https?://[^}]+)\}\}")
+        """Resolve {{url:https://...}} and {{url:hf://...}} patterns by fetching content."""
+        url_pattern = re.compile(r"\{\{url:((?:https?|hf)://[^}]+)\}\}")
 
         def replace_url(match: re.Match) -> str:
             url = match.group(1)
             try:
-                return _fetch_url_content(url)
+                return read_text_source(url, label="URL template")
             except Exception as e:
                 logger.warning(
                     f"Failed to fetch URL {url}: {e}",

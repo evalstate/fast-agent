@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 app = typer.Typer(
     help="Start fast-agent as an ACP stdio server (convenience wrapper for 'serve --transport acp').",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    add_completion=False,
 )
 
 ROOT_SUBCOMMANDS = {

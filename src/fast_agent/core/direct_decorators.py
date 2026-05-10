@@ -42,6 +42,7 @@ from fast_agent.core.function_tool_support import (
     decorator_supports_scoped_function_tools,
 )
 from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
+from fast_agent.io.source_resolver import read_text_source
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 
@@ -128,27 +129,6 @@ class DecoratedMakerProtocol(DecoratedAgentProtocol[P, R], Protocol):
     _max_samples: int
 
 
-def _fetch_url_content(url: str) -> str:
-    """
-    Fetch content from a URL.
-
-    Args:
-        url: The URL to fetch content from
-
-    Returns:
-        The text content from the URL
-
-    Raises:
-        requests.RequestException: If the URL cannot be fetched
-        UnicodeDecodeError: If the content cannot be decoded as UTF-8
-    """
-    import requests
-
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()  # Raise exception for HTTP errors
-    return response.text
-
-
 def _apply_templates(text: str) -> str:
     """
     Apply template substitutions to instruction text.
@@ -156,6 +136,7 @@ def _apply_templates(text: str) -> str:
     Supported templates:
         {{currentDate}} - Current date in format "24 July 2025"
         {{url:https://...}} - Content fetched from the specified URL
+        {{url:hf://...}} - Content fetched from Hugging Face Hub
 
     Note: File templates ({{file:...}} and {{file_silent:...}}) are resolved later
     during runtime to ensure they're relative to the workspaceRoot.
@@ -180,11 +161,11 @@ def _apply_templates(text: str) -> str:
     text = text.replace("{{currentDate}}", current_date)
 
     # Apply {{url:...}} templates
-    url_pattern = re.compile(r"\{\{url:(https?://[^}]+)\}\}")
+    url_pattern = re.compile(r"\{\{url:((?:https?|hf)://[^}]+)\}\}")
 
     def replace_url(match):
         url = match.group(1)
-        return _fetch_url_content(url)
+        return read_text_source(url, label="URL template")
 
     text = url_pattern.sub(replace_url, text)
 
@@ -208,9 +189,9 @@ def _resolve_instruction(instruction: str | Path | AnyUrl) -> str:
         requests.RequestException: If the URL cannot be fetched
     """
     if isinstance(instruction, Path):
-        text = instruction.read_text(encoding="utf-8")
+        text = read_text_source(instruction, label="instruction")
     elif isinstance(instruction, AnyUrl):
-        text = _fetch_url_content(str(instruction))
+        text = read_text_source(str(instruction), label="instruction")
     else:
         text = instruction
 

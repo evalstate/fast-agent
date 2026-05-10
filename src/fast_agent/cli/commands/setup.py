@@ -5,7 +5,7 @@ from rich.prompt import Confirm
 
 from fast_agent.ui.console import console as shared_console
 
-app = typer.Typer()
+app = typer.Typer(add_completion=False)
 console = shared_console
 
 

@@ -114,11 +114,21 @@ Use this information when needed.
         # Check that the pattern would be found
         import re
 
-        url_pattern = re.compile(r"\{\{url:(https?://[^}]+)\}\}")
+        url_pattern = re.compile(r"\{\{url:((?:https?|hf)://[^}]+)\}\}")
         matches = url_pattern.findall(text)
 
         assert len(matches) == 1
         assert matches[0] == "https://example.com/prompt.md"
+
+    def test_hf_url_template_pattern_recognition(self):
+        """Test that hf:// URL templates are recognized by the regex pattern."""
+        text = "Instructions: {{url:hf://buckets/evalstate/home/demo.md}} More text."
+
+        url_pattern = re.compile(r"\{\{url:((?:https?|hf)://[^}]+)\}\}")
+        matches = url_pattern.findall(text)
+
+        assert len(matches) == 1
+        assert matches[0] == "hf://buckets/evalstate/home/demo.md"
 
     def test_multiple_url_templates_pattern(self):
         """Test multiple URL templates in the same text."""
@@ -126,7 +136,7 @@ Use this information when needed.
 
         import re
 
-        url_pattern = re.compile(r"\{\{url:(https?://[^}]+)\}\}")
+        url_pattern = re.compile(r"\{\{url:((?:https?|hf)://[^}]+)\}\}")
         matches = url_pattern.findall(text)
 
         assert len(matches) == 2
@@ -137,10 +147,10 @@ Use this information when needed.
         """Test that malformed URL templates are left unchanged."""
         text = "This has {{url:not-a-url}} and {{url:}} and {{url:ftp://invalid}} templates."
 
-        # Since we only match http/https, ftp should be ignored
+        # Since we only match http/https/hf, ftp should be ignored
         import re
 
-        url_pattern = re.compile(r"\{\{url:(https?://[^}]+)\}\}")
+        url_pattern = re.compile(r"\{\{url:((?:https?|hf)://[^}]+)\}\}")
         matches = url_pattern.findall(text)
 
         # Should find no valid HTTP/HTTPS URLs

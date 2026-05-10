@@ -57,7 +57,7 @@ def _build_demo_stream_handle(
     )
 
 
-app = typer.Typer(help="Demo commands for UI features.")
+app = typer.Typer(help="Demo commands for UI features.", add_completion=False)
 
 _SOURCE_MARKDOWN_DEMO_DIR = Path(__file__).resolve().parents[4] / "examples" / "markdown"
 _PACKAGED_MARKDOWN_DEMO_DIR = (

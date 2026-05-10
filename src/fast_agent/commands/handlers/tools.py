@@ -9,7 +9,12 @@ from rich.text import Text
 
 from fast_agent.commands.handlers._text_utils import truncate_description
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.commands.tool_summaries import ToolSummary, build_tool_summaries
+from fast_agent.commands.tool_summaries import (
+    ProviderToolSummary,
+    ToolSummary,
+    build_provider_tool_summaries,
+    build_tool_summaries,
+)
 from fast_agent.interfaces import AgentProtocol
 
 if TYPE_CHECKING:
@@ -63,6 +68,27 @@ def _format_tool_description(description: str) -> list[Text]:
     return [Text(line, style="white") for line in wrapped_lines]
 
 
+def _append_provider_tool_section(
+    content: Text,
+    provider_summaries: list[ProviderToolSummary],
+) -> None:
+    if not provider_summaries:
+        return
+
+    content.append("Provider-hosted tools", style="bold")
+    content.append("\n\n")
+
+    for summary in provider_summaries:
+        state = "enabled" if summary.enabled else "disabled"
+        line = Text()
+        line.append("  • ", style="dim cyan")
+        line.append(summary.name, style="bright_blue bold")
+        line.append(f" (provider-hosted, {state})", style="dim cyan")
+        line.append(f" {summary.description}", style="white")
+        content.append_text(line)
+        content.append("\n")
+
+
 def _summaries_from_tools(agent: object, tools: list["Tool"]) -> list[ToolSummary]:
     return build_tool_summaries(agent, tools)
 
@@ -88,8 +114,9 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
         return outcome
 
     tools_result = await agent.list_tools()
+    provider_summaries = build_provider_tool_summaries(agent)
 
-    if not tools_result.tools:
+    if not tools_result.tools and not provider_summaries:
         outcome.add_message(
             "No tools available for this agent.",
             channel="warning",
@@ -105,34 +132,40 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
     content.append_text(header)
     content.append("\n\n")
 
-    for index, summary in enumerate(summaries, 1):
-        line = Text()
-        line.append(f"[{index:2}] ", style="dim cyan")
-        line.append_text(_format_tool_line(summary.name, summary.title, summary.suffix))
-        content.append_text(line)
-        content.append("\n")
+    if tools_result.tools:
+        content.append("MCP / local tools", style="bold")
+        content.append("\n\n")
 
-        description = summary.description
-        if description:
-            for wrapped_line in _format_tool_description(description):
-                content.append("     ", style="dim")
-                content.append_text(wrapped_line)
-                content.append("\n")
-
-        if summary.args:
-            args_text = _format_args_text(summary.args)
-            if args_text:
-                content.append("     ", style="dim")
-                content.append(f"args: {args_text}", style="dim magenta")
-                content.append("\n")
-
-        if summary.template:
-            content.append("     ", style="dim")
-            content.append("template: ", style="dim magenta")
-            content.append(str(summary.template))
+        for index, summary in enumerate(summaries, 1):
+            line = Text()
+            line.append(f"[{index:2}] ", style="dim cyan")
+            line.append_text(_format_tool_line(summary.name, summary.title, summary.suffix))
+            content.append_text(line)
             content.append("\n")
 
-        content.append("\n")
+            description = summary.description
+            if description:
+                for wrapped_line in _format_tool_description(description):
+                    content.append("     ", style="dim")
+                    content.append_text(wrapped_line)
+                    content.append("\n")
+
+            if summary.args:
+                args_text = _format_args_text(summary.args)
+                if args_text:
+                    content.append("     ", style="dim")
+                    content.append(f"args: {args_text}", style="dim magenta")
+                    content.append("\n")
+
+            if summary.template:
+                content.append("     ", style="dim")
+                content.append("template: ", style="dim magenta")
+                content.append(str(summary.template))
+                content.append("\n")
+
+            content.append("\n")
+
+    _append_provider_tool_section(content, provider_summaries)
 
     outcome.add_message(
         content,

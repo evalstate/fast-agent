@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import yaml
 
-from fast_agent.llm.model_reference_config import ModelReferenceConfigService
+from fast_agent.config import Settings
+from fast_agent.llm.model_reference_config import (
+    ModelReferenceConfigService,
+    resolve_model_reference_start_path,
+)
 
 
 def _write_yaml(path, payload: dict) -> None:
@@ -17,6 +21,19 @@ def _read_yaml(path) -> dict:
     if isinstance(loaded, dict):
         return loaded
     return {}
+
+
+def test_resolve_start_path_treats_config_inside_env_dir_as_env_root_parent(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    config_path = env_dir / "fast-agent.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("default_model: haiku\n", encoding="utf-8")
+
+    settings = Settings(environment_dir=None)
+    settings._config_file = str(config_path)
+
+    assert resolve_model_reference_start_path(settings=settings) == workspace
 
 
 def test_set_reference_dry_run_does_not_mutate_target_file(tmp_path) -> None:

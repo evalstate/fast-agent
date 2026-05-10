@@ -64,9 +64,15 @@ def get_settings_or_exit(
 
     from fast_agent.config import get_settings
     from fast_agent.core.exceptions import FastAgentError, format_fast_agent_error
+    from fast_agent.io.source_resolver import materialize_text_source
 
     try:
-        return get_settings(config_path, env_dir=env_dir, noenv=noenv)
+        resolved_config_path = (
+            materialize_text_source(config_path, label="config file", suffix=".yaml")
+            if config_path is not None
+            else None
+        )
+        return get_settings(resolved_config_path, env_dir=env_dir, noenv=noenv)
     except FastAgentError as exc:
         typer.echo(f"Error loading fast-agent settings: {format_fast_agent_error(exc)}", err=True)
         raise typer.Exit(1) from exc

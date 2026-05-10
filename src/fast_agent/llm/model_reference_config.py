@@ -17,6 +17,7 @@ from fast_agent.config import (
     load_layered_model_settings,
     load_yaml_mapping,
 )
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.model_resolution import parse_model_reference_token
 from fast_agent.home import (
@@ -202,7 +203,10 @@ def resolve_model_reference_start_path(
     if settings is not None:
         config_file = getattr(settings, "_config_file", None)
         if isinstance(config_file, str) and config_file.strip():
-            return Path(config_file).expanduser().resolve().parent
+            config_parent = Path(config_file).expanduser().resolve().parent
+            if config_parent.name == DEFAULT_ENVIRONMENT_DIR:
+                return config_parent.parent
+            return config_parent
 
         env_dir = getattr(settings, "environment_dir", None)
         if isinstance(env_dir, str) and env_dir.strip():
