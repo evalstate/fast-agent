@@ -92,7 +92,7 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         providers=(Provider.HUGGINGFACE,),
     ),
     "xai": ProviderCatalogScope(
-        display_name="XAI",
+        display_name="xAI",
         providers=(Provider.XAI,),
     ),
     "openrouter": ProviderCatalogScope(

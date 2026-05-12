@@ -34,7 +34,7 @@ class Provider(Enum):
     AZURE = ("azure", "Azure")  # Azure OpenAI Service
     ALIYUN = ("aliyun", "Aliyun")  # Aliyun Bailian OpenAI Service
     HUGGINGFACE = ("hf", "HuggingFace")  # For HuggingFace MCP connections
-    XAI = ("xai", "XAI")  # For xAI Grok models via the Responses API
+    XAI = ("xai", "xAI")  # For xAI Grok models via the Responses API
     BEDROCK = ("bedrock", "Bedrock")
     GROQ = ("groq", "Groq")
     CODEX_RESPONSES = ("codexresponses", "Codex Responses")
