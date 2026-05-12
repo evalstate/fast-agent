@@ -22,8 +22,8 @@ from fast_agent.batch.summary import BatchSummary
 from fast_agent.batch.template import DEFAULT_ROW_TEMPLATE, render_row_template
 from fast_agent.batch.traces import BatchTraceOptions, BatchTraceRecorder
 from fast_agent.cli.runtime.request_builders import resolve_default_instruction
-from fast_agent.constants import FAST_AGENT_TIMING
-from fast_agent.llm.request_params import RequestParams
+from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_USAGE
+from fast_agent.llm.request_params import BatchRequestContext, RequestParams
 from fast_agent.llm.structured_schema import (
     StructuredSchemaSource,
     load_json_schema_file,
@@ -120,21 +120,38 @@ def _identity_for_candidate(candidate: RowCandidate, id_field: str | None) -> tu
     return str(row[id_field]), None
 
 
-def _extract_timing(response: Any) -> dict[str, Any] | None:
+def _extract_json_channel(response: Any, channel_name: str) -> dict[str, Any] | None:
     channels = response.channels
     if not isinstance(channels, Mapping):
         return None
-    timing_blocks = channels.get(FAST_AGENT_TIMING)
-    if not timing_blocks:
+    blocks = channels.get(channel_name)
+    if not blocks:
         return None
-    timing_text = get_text(timing_blocks[0])
-    if not timing_text:
+    text = get_text(blocks[0])
+    if not text:
         return None
     try:
-        timing = json.loads(timing_text)
+        payload = json.loads(text)
     except json.JSONDecodeError:
         return None
-    return timing if isinstance(timing, dict) else None
+    return payload if isinstance(payload, dict) else None
+
+
+def _extract_timing(response: Any) -> dict[str, Any] | None:
+    return _extract_json_channel(response, FAST_AGENT_TIMING)
+
+
+def _extract_usage(response: Any) -> dict[str, Any] | None:
+    usage = _extract_json_channel(response, FAST_AGENT_USAGE)
+    if usage is None:
+        return None
+    if "turn" not in usage and "raw_usage" not in usage:
+        return usage
+    return {
+        key: value
+        for key in ("turn", "raw_usage")
+        if (value := usage.get(key)) is not None
+    }
 
 
 def _write_optional_failure(
@@ -152,6 +169,7 @@ def _write_optional_telemetry(
     row_number: int,
     ok: bool,
     timing: dict[str, Any] | None,
+    usage: dict[str, Any] | None = None,
 ) -> None:
     if telemetry_handle is None:
         return
@@ -162,7 +180,7 @@ def _write_optional_telemetry(
             "row_number": row_number,
             "ok": ok,
             "timing": timing or {},
-            "usage": {},
+            "usage": usage or {},
         },
     )
 
@@ -350,8 +368,13 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                                 worker,
                                 rendered=rendered,
                                 schema_source=schema_source,
+                                batch_context=BatchRequestContext(
+                                    row_number=candidate.row_number,
+                                    identity=identity,
+                                ),
                             )
                             timing = _extract_timing(response)
+                            usage = _extract_usage(response)
                             summary.add_timing(timing)
                             if parsed is None:
                                 record = error_envelope(
@@ -372,6 +395,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                                     row_number=candidate.row_number,
                                     ok=False,
                                     timing=timing,
+                                    usage=usage,
                                 )
                                 summary.processed_rows += 1
                                 summary.failed_rows += 1
@@ -399,6 +423,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                                 row_number=candidate.row_number,
                                 ok=True,
                                 timing=timing,
+                                usage=usage,
                             )
                             summary.processed_rows += 1
                             if trace_recorder is not None:
@@ -516,8 +541,9 @@ async def _row_call(
     *,
     rendered: str,
     schema_source: SchemaSource | None,
+    batch_context: BatchRequestContext,
 ) -> tuple[Any | None, Any]:
-    request_params = RequestParams(use_history=False)
+    request_params = RequestParams(use_history=False, batch_context=batch_context)
     if schema_source is None:
         response = await worker.generate(rendered, request_params)
         return response.last_text() or "", response

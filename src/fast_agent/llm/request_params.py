@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, DEFAULT_STREAMING_TIMEOUT
 
@@ -36,6 +36,13 @@ def tool_result_mode_allows_response_mode(tool_result_mode: ToolResultMode) -> b
 def tool_result_mode_is_passthrough(tool_result_mode: ToolResultMode) -> bool:
     """Return whether the effective tool handling should bypass postprocessing."""
     return tool_result_mode == "passthrough"
+
+
+class BatchRequestContext(BaseModel):
+    """Internal metadata for one batch row."""
+
+    row_number: int
+    identity: str | int
 
 
 class RequestParams(CreateMessageRequestParams):
@@ -128,6 +135,11 @@ class RequestParams(CreateMessageRequestParams):
     - ``passthrough``: return tool results directly as assistant output.
     - ``selectable``: expose a per-call ``response_mode`` switch; absent an override,
       execution behaves like ``postprocess``.
+    """
+
+    batch_context: BatchRequestContext | None = None
+    """
+    Internal batch row context. Excluded from provider payloads and tool calls.
     """
 
     streaming_timeout: float | None = DEFAULT_STREAMING_TIMEOUT
