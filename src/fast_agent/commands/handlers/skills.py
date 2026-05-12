@@ -1099,10 +1099,9 @@ async def handle_preview_skill(
         return outcome
 
     result = await reader.execute({"path": location})
-    body = ""
-    for block in result.content:
-        if hasattr(block, "text"):
-            body += block.text
+    body = "".join(
+        block.text for block in result.content if hasattr(block, "text")
+    )
 
     if result.isError:
         outcome.add_message(
