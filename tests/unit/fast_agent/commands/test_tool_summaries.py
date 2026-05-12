@@ -18,7 +18,7 @@ def _tool(
         name=name,
         title=None,
         description=description,
-        meta=meta or {},
+        _meta=meta or {},
         inputSchema=input_schema or {},
     )
 

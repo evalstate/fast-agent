@@ -11,7 +11,7 @@ from fast_agent.core.logging.logger import get_logger
 logger = get_logger(__name__)
 
 
-class LoggerTextIO(TextIO):
+class LoggerTextIO(io.StringIO):
     """
     A TextIO implementation that logs to our application logger.
     This implements the full TextIO interface as specified by Python.
@@ -29,8 +29,6 @@ class LoggerTextIO(TextIO):
         super().__init__()
         self.server_name = server_name
         self._on_line = on_line
-        # Use a StringIO for buffering
-        self._buffer = io.StringIO()
         # Keep track of complete and partial lines
         self._line_buffer = ""
 
@@ -47,7 +45,7 @@ class LoggerTextIO(TextIO):
         except Exception:
             logger.debug("%s: stderr line hook failed", self.server_name, exc_info=True)
 
-    def write(self, s: str) -> int:  # type: ignore[override]
+    def write(self, s: str) -> int:
         """
         Write data to our buffer and log any complete lines.
         """
@@ -71,18 +69,18 @@ class LoggerTextIO(TextIO):
             self._emit_line(line)
 
         # Always write to the underlying buffer
-        return self._buffer.write(s)
+        return super().write(s)
 
     def flush(self) -> None:
         """Flush the internal buffer."""
-        self._buffer.flush()
+        super().flush()
 
     def close(self) -> None:
         """Close the stream."""
         # Log any remaining content in the line buffer
         if self._line_buffer:
             self._emit_line(self._line_buffer)
-        self._buffer.close()
+        super().close()
 
     def readable(self) -> bool:
         return False
@@ -124,6 +122,6 @@ def get_stderr_handler(
         server_name: The name of the server to include in logs
 
     Returns:
-        A TextIO object that can be used as stderr by MCP
+        A file-like object that can be used as stderr by MCP
     """
     return LoggerTextIO(server_name, on_line=on_line)

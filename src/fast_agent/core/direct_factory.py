@@ -75,6 +75,7 @@ class AgentBuildContext:
     active_agents: AgentDict
     model_factory_func: ModelFactoryFunctionProtocol
     session_history_enabled: bool
+    global_function_tools: Sequence[FunctionTool]
 
 
 @dataclass(frozen=True)
@@ -154,9 +155,8 @@ def _resolve_function_tools_with_globals(
     if config.function_tools is not None or agent_data.get("function_tools") is not None:
         return _load_configured_function_tools(config, agent_data)
 
-    global_tools = getattr(build_ctx.app_instance, "_registered_tools", None)
-    if global_tools:
-        return list(global_tools)
+    if build_ctx.global_function_tools:
+        return list(build_ctx.global_function_tools)
 
     return []
 
@@ -977,6 +977,7 @@ async def create_agents_by_type(
     agent_type: AgentType,
     model_factory_func: ModelFactoryFunctionProtocol,
     active_agents: AgentDict | None = None,
+    global_function_tools: Sequence[FunctionTool] = (),
     **kwargs: Any,
 ) -> AgentDict:
     """
@@ -1010,6 +1011,7 @@ async def create_agents_by_type(
         active_agents=active_agents,
         model_factory_func=model_factory_func,
         session_history_enabled=session_history_enabled,
+        global_function_tools=global_function_tools,
     )
 
     for name, agent_data in _iter_agents_of_type(agents_dict, agent_type):
@@ -1022,6 +1024,7 @@ async def active_agents_in_dependency_group(
     app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
+    global_function_tools: Sequence[FunctionTool],
     group: list[str],
     active_agents: AgentDict,
 ):
@@ -1043,6 +1046,7 @@ async def active_agents_in_dependency_group(
             agent_type,
             model_factory_func,
             active_agents,
+            global_function_tools,
         )
         active_agents.update(agents)
 
@@ -1051,6 +1055,7 @@ async def create_agents_in_dependency_order(
     app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
+    global_function_tools: Sequence[FunctionTool] = (),
     allow_cycles: bool = False,
 ) -> AgentDict:
     """
@@ -1076,6 +1081,7 @@ async def create_agents_in_dependency_order(
         app_instance,
         agents_dict,
         model_factory_func,
+        global_function_tools,
     )
 
     # Create agent proxies for each group in dependency order
@@ -1108,7 +1114,7 @@ async def create_basic_agents_in_dependency_order(
         _ContextCoreShim(context),
         agents_dict,
         model_factory_func,
-        allow_cycles,
+        allow_cycles=allow_cycles,
     )
 
 

@@ -228,7 +228,7 @@ def available_reasoning_values(spec: ReasoningEffortSpec | None) -> list[str]:
     if spec is None:
         return []
     if spec.kind == "effort":
-        values = list(spec.allowed_efforts or EFFORT_LEVELS)
+        values: list[str] = list(spec.allowed_efforts or EFFORT_LEVELS)
         if spec.allow_auto:
             if "auto" in values:
                 values = ["auto"] + [value for value in values if value != "auto"]

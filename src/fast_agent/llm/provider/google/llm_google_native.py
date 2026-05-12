@@ -576,11 +576,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 and bool(tools)
                 and self._resolve_structured_tool_policy(request_params) == "no_tools"
             )
-        available_tools: list[types.Tool] = (
-            self._converter.convert_to_google_tools(tools or [])
-            if tools and not suppress_tools
-            else []
-        )
+        available_tools: types.ToolListUnion = []
+        if tools and not suppress_tools:
+            available_tools.extend(self._converter.convert_to_google_tools(tools))
 
         # 2. Prepare generate_content arguments
         thinking_budget, thinking_level = self._resolve_thinking_config()
@@ -598,7 +596,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             if response_schema is not None:
                 generate_content_config.response_schema = response_schema
         if available_tools:
-            generate_content_config.tools = available_tools  # type: ignore[assignment]
+            generate_content_config.tools = available_tools
             generate_content_config.tool_config = types.ToolConfig(
                 function_calling_config=types.FunctionCallingConfig(
                     mode=types.FunctionCallingConfigMode.AUTO

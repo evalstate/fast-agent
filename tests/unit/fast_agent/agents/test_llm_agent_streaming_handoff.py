@@ -15,6 +15,7 @@ from fast_agent.constants import (
 )
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.ui.console_display import ConsoleDisplay
 
 
 class _FakeStreamHandle:
@@ -53,7 +54,7 @@ class _FakeStreamHandle:
         self.wait_for_drain_calls += 1
 
 
-class _FakeDisplay:
+class _FakeDisplay(ConsoleDisplay):
     def __init__(self, handle: _FakeStreamHandle) -> None:
         self._handle = handle
 
@@ -83,7 +84,7 @@ class _FakeLLM:
 class _StreamingHarnessAgent(LlmAgent):
     def __init__(self, *, handle: _FakeStreamHandle, response: PromptMessageExtended) -> None:
         super().__init__(AgentConfig("stream-handoff"))
-        self.display = _FakeDisplay(handle)  # type: ignore[assignment]
+        self.display = _FakeDisplay(handle)
         self._llm = cast("Any", _FakeLLM())
         self._response = response
         self.shown_messages: list[dict[str, Any]] = []

@@ -1150,6 +1150,10 @@ class _PlannedAcquireConnectionManager:
         self.release_keep_values.append(keep)
 
 
+def _set_ws_connection_manager(harness: Any, manager: object) -> None:
+    harness._ws_connections = manager
+
+
 def _ws_input_items(*texts: str) -> list[dict[str, Any]]:
     return [_build_input_message(text) for text in texts]
 
@@ -1395,7 +1399,7 @@ async def test_temporary_connection_has_isolated_planner_state() -> None:
     manager = _PlannedAcquireConnectionManager(
         [(temporary_connection, False), (reusable_connection, True)]
     )
-    harness._ws_connections = manager
+    _set_ws_connection_manager(harness, manager)
     params = RequestParams(model="gpt-5.3-codex")
 
     await harness._responses_completion_ws(
@@ -1659,7 +1663,7 @@ async def test_websocket_reestablishes_stale_reused_socket_once() -> None:
     )
     fresh = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
     sequence_manager = _SequenceConnectionManager([stale_reused, fresh])
-    harness._ws_connections = sequence_manager
+    _set_ws_connection_manager(harness, sequence_manager)
     params = RequestParams(model="gpt-5.3-codex")
     input_items = [
         {
@@ -1710,7 +1714,7 @@ async def test_websocket_reestablish_debug_status_includes_diagnostics() -> None
         last_used_monotonic=123.0,
     )
     fresh = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
-    harness._ws_connections = _SequenceConnectionManager([stale_reused, fresh])
+    _set_ws_connection_manager(harness, _SequenceConnectionManager([stale_reused, fresh]))
     params = RequestParams(model="gpt-5.3-codex")
 
     response, streamed_summary, normalized_input = await harness._responses_completion_ws(
@@ -1752,7 +1756,7 @@ async def test_websocket_retries_on_recoverable_server_error_codes(error_code: s
             (second_connection, False),
         ]
     )
-    harness._ws_connections = manager
+    _set_ws_connection_manager(harness, manager)
     harness.raise_stream_error_once = ResponsesWebSocketError(
         "recoverable websocket error",
         stream_started=False,

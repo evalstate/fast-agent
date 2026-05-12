@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shlex
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from acp.helpers import text_block, tool_content
 from acp.schema import (
@@ -23,6 +23,8 @@ from fast_agent.utils.slash_commands import split_subcommand_and_remainder
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
     from fast_agent.acp.slash_commands import SlashCommandHandler
+
+ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
 
 
 def _parse_mcp_server_name_argument(
@@ -67,7 +69,7 @@ async def _send_connect_tool_update(
     *,
     tool_call_id: str,
     title: str,
-    status: str,
+    status: ToolCallStatus,
     message: str | None = None,
 ) -> None:
     if handler._acp_context is None:
@@ -85,7 +87,7 @@ async def _send_connect_tool_update(
             ToolCallProgress(
                 tool_call_id=tool_call_id,
                 title=title,
-                status=status,  # type: ignore[arg-type]
+                status=status,
                 content=content,
                 session_update="tool_call_update",
             )

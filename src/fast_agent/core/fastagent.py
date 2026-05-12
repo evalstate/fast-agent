@@ -1461,19 +1461,23 @@ class FastAgent(DecoratorMixin):
             quiet_mode = True
             configure_console_stream("stderr")
 
-        cli_model_override = getattr(self.args, "model", None)
+        cli_model_arg = getattr(self.args, "model", None)
+        cli_model_override = cli_model_arg if isinstance(cli_model_arg, str) else None
         noenv_mode = bool(getattr(self.args, "noenv", False))
 
         cfg = self.context.config
-        model_source_override = getattr(self.args, "model_source_override", None)
+        model_source_override_arg = getattr(self.args, "model_source_override", None)
+        model_source_override = (
+            model_source_override_arg if isinstance(model_source_override_arg, str) else None
+        )
         model_source = model_source_override or get_default_model_source(
             config_default_model=cfg.default_model if cfg else None,
             cli_model=cli_model_override,
             model_references=cfg.model_references if cfg else None,
         )
         if cfg:
-            cfg.model_source = model_source  # type: ignore[attr-defined]
-            cfg.cli_model_override = cli_model_override  # type: ignore[attr-defined]
+            cfg.model_source = model_source
+            cfg.cli_model_override = cli_model_override
             if noenv_mode:
                 cfg.session_history = False
 
@@ -1593,11 +1597,11 @@ class FastAgent(DecoratorMixin):
         app_override: AgentApp | None = None,
     ) -> AgentInstance:
         async with runtime.instance_lock:
-            self.app._registered_tools = self._registered_tools  # type: ignore[attr-defined]
             agents_map = await create_agents_in_dependency_order(
                 self.app,
                 self.agents,
                 runtime.model_factory_func,
+                global_function_tools=self._registered_tools,
             )
             if not runtime.is_acp_server_mode:
                 validate_provider_keys_post_creation(agents_map)
@@ -1705,6 +1709,7 @@ class FastAgent(DecoratorMixin):
                 self.app,
                 self.agents,
                 model_factory_func,
+                self._registered_tools,
                 group_targets,
                 active_agents,
             )

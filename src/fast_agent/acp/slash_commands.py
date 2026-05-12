@@ -886,11 +886,19 @@ class SlashCommandHandler:
         tool_call_id: str,
         *,
         title: str,
-        status: str,
+        status: skills_slash_handlers.ToolCallStatus,
         message: str | None = None,
         start: bool = False,
     ) -> None:
-        await skills_slash_handlers.send_skills_update(self, agent, tool_call_id, title=title, status=status, message=message, start=start)
+        await skills_slash_handlers.send_skills_update(
+            self,
+            agent,
+            tool_call_id,
+            title=title,
+            status=status,
+            message=message,
+            start=start,
+        )
 
     async def _handle_save(self, arguments: str | None = None) -> str:
         return await history_slash_handlers.handle_save(self, arguments)

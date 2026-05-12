@@ -405,7 +405,10 @@ async def test_reload_agents_rehydrates_saved_session_not_unsaved_live_history(
 
 
 @pytest.mark.asyncio
-async def test_refresh_result_rehydrates_only_updated_agents_on_partial_refresh(tmp_path: Path) -> None:
+async def test_refresh_result_rehydrates_only_updated_agents_on_partial_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("", encoding="utf-8")
     fast = FastAgent(
@@ -421,11 +424,18 @@ async def test_refresh_result_rehydrates_only_updated_agents_on_partial_refresh(
         def __init__(self, name: str) -> None:
             self.name = name
 
-    def fake_hydrate_active_agents_from_session(agents):
+    from fast_agent.session.session_manager import Session, SessionInfo
+
+    async def fake_hydrate_active_agents_from_session(
+        agents: dict[str, AgentProtocol],
+    ) -> SessionHydrationResult:
         rehydrated_agent_sets.append(set(agents))
         now = datetime.now()
         return SessionHydrationResult(
-            session=None,  # type: ignore[arg-type]
+            session=Session(
+                SessionInfo(name="s-1", created_at=now, last_activity=now),
+                tmp_path,
+            ),
             snapshot=SessionSnapshot(
                 session_id="s-1",
                 created_at=now,
@@ -439,7 +449,11 @@ async def test_refresh_result_rehydrates_only_updated_agents_on_partial_refresh(
             active_agent="unchanged",
         )
 
-    fast._hydrate_active_agents_from_session = fake_hydrate_active_agents_from_session  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        fast,
+        "_hydrate_active_agents_from_session",
+        fake_hydrate_active_agents_from_session,
+    )
 
     changed_agent = cast("AgentProtocol", _Agent("changed"))
     unchanged_agent = cast("AgentProtocol", _Agent("unchanged"))

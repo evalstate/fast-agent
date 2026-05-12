@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, AsyncGenerator, Callable, TextIO
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from fast_agent.mcp.transport_tracking import ChannelEvent
+from fast_agent.mcp.transport_tracking import ChannelEvent, EventType
 
 if TYPE_CHECKING:
     from anyio.abc import ObjectReceiveStream, ObjectSendStream
@@ -28,14 +28,14 @@ async def tracking_stdio_client(
 ]:
     """Context manager for stdio client with basic connection tracking."""
 
-    def emit_channel_event(event_type: str, detail: str | None = None) -> None:
+    def emit_channel_event(event_type: EventType, detail: str | None = None) -> None:
         if channel_hook is None:
             return
         try:
             channel_hook(
                 ChannelEvent(
                     channel="stdio",
-                    event_type=event_type,  # type: ignore[arg-type]
+                    event_type=event_type,
                     detail=detail,
                 )
             )
