@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import re
@@ -46,21 +47,32 @@ BEDROCK_TO_MCP_STOP_REASON = {
 if TYPE_CHECKING:
     from mcp import ListToolsResult
 
+_boto3: Any | None
+_BOTOCORE_ERRORS: tuple[type[Exception], ...]
+_NO_CREDENTIALS_ERROR: type[Exception]
 try:
-    import boto3
+    _boto3 = importlib.import_module("boto3")
     from botocore.exceptions import (
         BotoCoreError,
         ClientError,
         NoCredentialsError,
     )
+
+    _BOTOCORE_ERRORS = (ClientError, BotoCoreError)
+    _NO_CREDENTIALS_ERROR = NoCredentialsError
 except ImportError:
-    boto3 = None  # type: ignore[assignment]
-    BotoCoreError = Exception  # type: ignore[assignment, misc]
-    ClientError = Exception  # type: ignore[assignment, misc]
-    NoCredentialsError = Exception  # type: ignore[assignment, misc]
+    _boto3 = None
+    _BOTOCORE_ERRORS = (Exception,)
+    _NO_CREDENTIALS_ERROR = Exception
 
 
 DEFAULT_BEDROCK_MODEL = "amazon.nova-lite-v1:0"
+
+
+def _require_boto3() -> Any:
+    if _boto3 is None:
+        raise ImportError("boto3 is required for Bedrock support. Install with: pip install boto3")
+    return _boto3
 
 
 # Reasoning effort to token budget mapping
@@ -213,10 +225,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
     def __init__(self, *args, **kwargs) -> None:
         """Initialize the Bedrock LLM with AWS credentials and region."""
-        if boto3 is None:
-            raise ImportError(
-                "boto3 is required for Bedrock support. Install with: pip install boto3"
-            )
+        _require_boto3()
 
         # Initialize logger
         self.logger = get_logger(__name__)
@@ -320,9 +329,10 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         """Get or create Bedrock client."""
         if self._bedrock_client is None:
             try:
+                boto3 = _require_boto3()
                 session = boto3.Session(profile_name=self.aws_profile)
                 self._bedrock_client = session.client("bedrock", region_name=self.aws_region)
-            except NoCredentialsError as e:
+            except _NO_CREDENTIALS_ERROR as e:
                 raise ProviderKeyError(
                     "AWS credentials not found",
                     "Please configure AWS credentials using AWS CLI, environment variables, or IAM roles.",
@@ -333,11 +343,12 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         """Get or create Bedrock Runtime client."""
         if self._bedrock_runtime_client is None:
             try:
+                boto3 = _require_boto3()
                 session = boto3.Session(profile_name=self.aws_profile)
                 self._bedrock_runtime_client = session.client(
                     "bedrock-runtime", region_name=self.aws_region
                 )
-            except NoCredentialsError as e:
+            except _NO_CREDENTIALS_ERROR as e:
                 raise ProviderKeyError(
                     "AWS credentials not found",
                     "Please configure AWS credentials using AWS CLI, environment variables, or IAM roles.",
@@ -1326,7 +1337,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         try:
             messages: list[BedrockMessageParam] = list(pre_messages) if pre_messages else []
             params = self.get_request_params(request_params)
-        except (ClientError, BotoCoreError) as e:
+        except _BOTOCORE_ERRORS as e:
             error_msg = str(e)
             if "UnauthorizedOperation" in error_msg or "AccessDenied" in error_msg:
                 raise ProviderKeyError(
@@ -1760,7 +1771,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         processed_response = await self._process_stream(
                             response, model
                         )
-                except (ClientError, BotoCoreError) as e:
+                except _BOTOCORE_ERRORS as e:
                     # Check if this is a reasoning-related error
                     if reasoning_budget > 0 and (
                         "reasoning" in str(e).lower() or "performance" in str(e).lower()
@@ -1823,7 +1834,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     caps.stream_with_tools = StreamPreference.STREAM_OK
                 self.capabilities[model] = caps
                 break
-            except (ClientError, BotoCoreError) as e:
+            except _BOTOCORE_ERRORS as e:
                 error_msg = str(e)
                 last_error_msg = error_msg
                 self.logger.debug(f"Bedrock API error (schema={schema_choice}): {error_msg}")
@@ -1841,7 +1852,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                             caps.schema = ToolSchemaType(schema_choice)
                         self.capabilities[model] = caps
                         break
-                    except (ClientError, BotoCoreError) as e_fallback:
+                    except _BOTOCORE_ERRORS as e_fallback:
                         last_error_msg = str(e_fallback)
                         self.logger.debug(
                             f"Bedrock API error after non-streaming fallback: {last_error_msg}"
@@ -1957,7 +1968,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                             caps.schema = ToolSchemaType(schema_choice)
                         self.capabilities[model] = caps
                         break
-                    except (ClientError, BotoCoreError) as e2:
+                    except _BOTOCORE_ERRORS as e2:
                         last_error_msg = str(e2)
                         self.logger.debug(
                             f"Bedrock API error after system inject fallback: {last_error_msg}"

@@ -1,3 +1,5 @@
+from typing import cast
+
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
@@ -18,7 +20,8 @@ def test_sanitizes_tool_use_ids_for_assistant_calls():
     assert converted["role"] == "assistant"
     content_blocks = list(converted["content"])
     assert isinstance(content_blocks[0], dict)
-    assert content_blocks[0]["id"] == expected
+    tool_use_block = cast("dict[str, object]", content_blocks[0])
+    assert tool_use_block["id"] == expected
 
 
 def test_sanitizes_tool_use_ids_for_tool_results():
@@ -34,4 +37,5 @@ def test_sanitizes_tool_use_ids_for_tool_results():
     assert converted["role"] == "user"
     content_blocks = list(converted["content"])
     assert isinstance(content_blocks[0], dict)
-    assert content_blocks[0]["tool_use_id"] == expected
+    tool_result_block = cast("dict[str, object]", content_blocks[0])
+    assert tool_result_block["tool_use_id"] == expected

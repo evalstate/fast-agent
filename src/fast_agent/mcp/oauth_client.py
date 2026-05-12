@@ -517,12 +517,13 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
                     )
 
                     if not self.context.client_info:
+                        client_metadata_url = self.context.client_metadata_url
                         if should_use_client_metadata_url(
-                            self.context.oauth_metadata, self.context.client_metadata_url
-                        ):
-                            logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
+                            self.context.oauth_metadata, client_metadata_url
+                        ) and client_metadata_url is not None:
+                            logger.debug(f"Using URL-based client ID (CIMD): {client_metadata_url}")
                             client_information = create_client_info_from_metadata_url(
-                                self.context.client_metadata_url,  # type: ignore[arg-type]
+                                client_metadata_url,
                                 redirect_uris=self.context.client_metadata.redirect_uris,
                             )
                             self.context.client_info = client_information

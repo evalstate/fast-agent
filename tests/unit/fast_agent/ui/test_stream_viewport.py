@@ -1,11 +1,12 @@
 from rich.console import Console
 
+from fast_agent.ui.markdown_truncator import MarkdownTruncator
 from fast_agent.ui.plain_text_truncator import PlainTextTruncator
 from fast_agent.ui.stream_segments import StreamSegment
 from fast_agent.ui.stream_viewport import StreamViewport
 
 
-class _FakeMarkdownTruncator:
+class _FakeMarkdownTruncator(MarkdownTruncator):
     def __init__(
         self,
         *,
@@ -13,22 +14,24 @@ class _FakeMarkdownTruncator:
         measured_heights: dict[str, int],
         truncated_text: str = "trimmed",
     ) -> None:
+        super().__init__()
         self._estimate_height = estimate_height
         self._measured_heights = measured_heights
         self._truncated_text = truncated_text
         self.measure_calls = 0
         self.truncate_calls = 0
 
-    def estimate_rendered_height(self, _text: str, _terminal_width: int) -> int:
+    def estimate_rendered_height(self, text: str, terminal_width: int) -> int:
+        del text, terminal_width
         return self._estimate_height
 
     def measure_rendered_height(
         self,
         text: str,
-        _console: Console,
+        console: Console,
         code_theme: str = "monokai",
     ) -> int:
-        del code_theme
+        del console, code_theme
         self.measure_calls += 1
         return self._measured_heights[text]
 
@@ -51,7 +54,7 @@ def test_markdown_viewport_measures_precisely_before_skipping_truncation() -> No
         measured_heights={"hello": 31, "trimmed": 10},
     )
     viewport = StreamViewport(
-        markdown_truncator=truncator,  # type: ignore[arg-type]
+        markdown_truncator=truncator,
         plain_truncator=PlainTextTruncator(),
     )
     console = Console(width=80)
@@ -76,7 +79,7 @@ def test_markdown_viewport_measures_precisely_near_budget() -> None:
         measured_heights={"hello": 12},
     )
     viewport = StreamViewport(
-        markdown_truncator=truncator,  # type: ignore[arg-type]
+        markdown_truncator=truncator,
         plain_truncator=PlainTextTruncator(),
     )
     console = Console(width=80)

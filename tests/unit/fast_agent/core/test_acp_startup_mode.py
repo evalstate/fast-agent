@@ -18,13 +18,23 @@ from fast_agent.core.fastagent import (
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 
 if TYPE_CHECKING:
-    from fast_agent.interfaces import AgentProtocol
+    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
 
 
 class _Agent:
     def __init__(self, name: str) -> None:
         self.name = name
         self.config = SimpleNamespace(default=True)
+
+
+def _unused_llm_factory(agent: AgentProtocol, **kwargs: object) -> FastAgentLLMProtocol:
+    del agent, kwargs
+    raise AssertionError("LLM factory should not be called by this test")
+
+
+def _unused_model_factory(model: str | None = None) -> LLMFactoryProtocol:
+    del model
+    return _unused_llm_factory
 
 
 def test_is_acp_server_mode_requires_server_flag_and_acp_transport() -> None:
@@ -75,7 +85,7 @@ async def test_runtime_callback_instances_inherit_mcp_runtime_callbacks(
     wrapper = AgentApp({"main": agent})
     state = ManagedRunState(
         runtime=RunRuntime(
-            model_factory_func=lambda model=None, request_params=None: None,
+            model_factory_func=_unused_model_factory,
             global_prompt_context=None,
             is_acp_server_mode=True,
             noenv_mode=False,
@@ -177,7 +187,7 @@ async def test_runtime_mcp_callbacks_bind_to_instance_agents_not_primary_state(
     wrapper = AgentApp({"main": primary_agent})
     state = ManagedRunState(
         runtime=RunRuntime(
-            model_factory_func=lambda model=None, request_params=None: None,
+            model_factory_func=_unused_model_factory,
             global_prompt_context=None,
             is_acp_server_mode=True,
             noenv_mode=False,

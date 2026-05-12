@@ -1,6 +1,8 @@
+import io
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from rich.console import Console
 
 from fast_agent.mcp.mcp_aggregator import ServerStatus
 from fast_agent.mcp.transport_tracking import ChannelSnapshot, TransportSnapshot
@@ -13,17 +15,19 @@ from fast_agent.ui.mcp_display import (
 )
 
 
-def _set_console_size(width: int = 100, height: int = 24) -> tuple[object | None, object | None]:
-    original_width = getattr(console.console, "_width", None)
-    original_height = getattr(console.console, "_height", None)
-    console.console._width = width
-    console.console._height = height
-    return original_width, original_height
+def _set_console_size(width: int = 100, height: int = 24) -> Console:
+    original_console = console.console
+    console.console = Console(
+        file=io.StringIO(),
+        force_terminal=True,
+        width=width,
+        height=height,
+    )
+    return original_console
 
 
-def _restore_console_size(original_width: object | None, original_height: object | None) -> None:
-    console.console._width = original_width
-    console.console._height = original_height
+def _restore_console_size(original_console: Console) -> None:
+    console.console = original_console
 
 
 def test_health_state_marks_stale_when_last_ping_exceeds_window():
@@ -124,13 +128,13 @@ def test_render_channel_summary_shows_health_row_and_errors() -> None:
         ),
     )
 
-    original_width, original_height = _set_console_size()
+    original_console = _set_console_size()
     try:
         with console.console.capture() as capture:
             _render_channel_summary(status, indent="  ", total_width=100)
         output = capture.get()
     finally:
-        _restore_console_size(original_width, original_height)
+        _restore_console_size(original_console)
 
     assert "HTTP" in output
     assert "GET (SSE)" in output
@@ -194,13 +198,13 @@ async def test_render_mcp_status_renders_server_details_and_calls() -> None:
         instruction="{{serverInstructions}}\nFollow the MCP status block.",
     )
 
-    original_width, original_height = _set_console_size(width=110)
+    original_console = _set_console_size(width=110)
     try:
         with console.console.capture() as capture:
             await render_mcp_status(agent, indent="  ")
         output = capture.get()
     finally:
-        _restore_console_size(original_width, original_height)
+        _restore_console_size(original_console)
 
     assert "demo-server" in output
     assert "Demo MCP Server" in output

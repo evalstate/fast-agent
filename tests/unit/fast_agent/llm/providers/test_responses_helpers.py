@@ -15,6 +15,7 @@ from mcp.types import (
     ResourceLink,
     TextContent,
     TextResourceContents,
+    Tool,
 )
 from openai import AsyncOpenAI
 from openai.types.responses import Response, ResponseFunctionToolCall
@@ -63,7 +64,10 @@ from fast_agent.mcp.provider_management import (
     ProviderManagedMCPAttachment,
     ProviderManagedMCPState,
 )
-from fast_agent.tools.apply_patch_tool import build_apply_patch_tool
+from fast_agent.tools.apply_patch_tool import (
+    OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY,
+    build_apply_patch_tool,
+)
 from fast_agent.types import COMMENTARY_PHASE
 
 
@@ -246,7 +250,8 @@ class _OpenResponsesCompletionHarness(OpenResponsesLLM):
 
 class _OutputHarness(ResponsesOutputMixin):
     def __init__(self, provider: Provider = Provider.RESPONSES) -> None:
-        self.logger = get_logger("test.responses.output")
+        self.logger: Any = get_logger("test.responses.output")
+        self.name = "assistant"
         self._tool_call_id_map = {}
         self._tool_name_map = {}
         self._tool_kind_map = {}
@@ -269,6 +274,9 @@ class _OutputHarness(ResponsesOutputMixin):
             suffix = tool_use_id[len("call_") :]
             return f"fc_{suffix}", tool_use_id
         return f"fc_{tool_use_id}", f"call_{tool_use_id}"
+
+    def set_logger(self, logger: Any) -> None:
+        self.logger = logger
 
 
 class _LoggerSpy:
@@ -477,6 +485,90 @@ def test_build_response_args_serializes_apply_patch_as_custom_tool() -> None:
     assert tool_payload["format"]["type"] == "grammar"
     assert tool_payload["format"]["syntax"] == "lark"
     assert "*** Begin Patch" in tool_payload["format"]["definition"]
+
+
+def test_build_response_args_serializes_explicit_custom_tool_meta() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
+    tool = Tool.model_validate(
+        {
+            "name": "edit_script",
+            "description": "Edit a script with a freeform patch.",
+            "inputSchema": {"type": "object"},
+            "_meta": {
+                OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY: {
+                    "type": "custom",
+                    "format": {
+                        "type": "grammar",
+                        "syntax": "lark",
+                        "definition": "start: /.+/",
+                    },
+                }
+            },
+        },
+    )
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "patch it"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5.4"),
+        tools=[tool],
+    )
+
+    tools_payload = args.get("tools")
+    assert isinstance(tools_payload, list)
+    assert tools_payload[0] == {
+        "type": "custom",
+        "name": "edit_script",
+        "description": "Edit a script with a freeform patch.",
+        "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: /.+/",
+        },
+    }
+
+
+def test_build_response_args_ignores_non_wire_custom_tool_meta_extra() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
+    tool = Tool.model_validate(
+        {
+            "name": "edit_script",
+            "description": "Edit a script with a freeform patch.",
+            "inputSchema": {"type": "object"},
+            "meta": {
+                OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY: {
+                    "type": "custom",
+                    "format": {
+                        "type": "grammar",
+                        "syntax": "lark",
+                        "definition": "start: /.+/",
+                    },
+                }
+            },
+        },
+    )
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "patch it"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5.4"),
+        tools=[tool],
+    )
+
+    tools_payload = args.get("tools")
+    assert isinstance(tools_payload, list)
+    assert tools_payload[0]["type"] == "function"
+    assert tools_payload[0]["name"] == "edit_script"
 
 
 def test_record_usage_uses_harness_provider() -> None:
@@ -1241,8 +1333,7 @@ def test_responses_filters_duplicate_tool_calls_across_turns():
 def test_responses_duplicate_tool_calls_emit_stop_progress_events() -> None:
     harness = _OutputHarness()
     logger_spy = _LoggerSpy()
-    harness.logger = logger_spy  # type: ignore[assignment]
-    harness.name = "assistant"  # type: ignore[attr-defined]
+    harness.set_logger(logger_spy)
 
     first_response = SimpleNamespace(
         model="gpt-test",

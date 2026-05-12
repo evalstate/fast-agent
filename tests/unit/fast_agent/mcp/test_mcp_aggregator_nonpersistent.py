@@ -8,7 +8,9 @@ from mcp.types import (
     ErrorData,
     Implementation,
     InitializeResult,
+    ListPromptsResult,
     ListToolsResult,
+    Prompt,
     PromptsCapability,
     ServerCapabilities,
     Tool,
@@ -421,8 +423,7 @@ async def test_get_capabilities_returns_none_when_initialize_raises(monkeypatch)
 
 def _make_mcp_error_none_code(message: str) -> McpError:
     """Build an McpError whose error code is None (simulates servers that omit it)."""
-    error_data = ErrorData(code=-1, message=message)
-    error_data.code = None  # type: ignore[assignment]
+    error_data = ErrorData.model_construct(code=None, message=message)
     return McpError(error_data)
 
 
@@ -740,3 +741,48 @@ async def test_attach_server_force_reconnect_refreshes_capabilities_cache() -> N
     assert result.prompts_added == ["new-prompt"]
     assert result.tools_total == 0
     assert result.prompts_total == 1
+
+
+@pytest.mark.asyncio
+async def test_list_prompts_does_not_cache_transient_list_failure() -> None:
+    context = _build_context({"alpha": MCPServerSettings(name="alpha", transport="stdio")})
+
+    class _PromptListAggregator(MCPAggregator):
+        calls = 0
+
+        async def get_capabilities(self, server_name):
+            assert server_name == "alpha"
+            return ServerCapabilities(prompts=PromptsCapability())
+
+        async def _execute_on_server(
+            self,
+            server_name,
+            operation_type,
+            operation_name,
+            method_name,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del operation_type, operation_name, method_args, progress_callback
+            assert server_name == "alpha"
+            assert method_name == "list_prompts"
+            self.calls += 1
+            if self.calls == 1:
+                return error_factory("temporary failure") if error_factory else None
+            return ListPromptsResult(prompts=[Prompt(name="available")])
+
+    aggregator = _PromptListAggregator(
+        server_names=["alpha"],
+        connection_persistence=False,
+        context=context,
+    )
+    aggregator.initialized = True
+
+    first = await aggregator.list_prompts(server_name="alpha")
+    assert first == {"alpha": []}
+    assert "alpha" not in aggregator._prompt_cache
+
+    second = await aggregator.list_prompts(server_name="alpha")
+    assert [prompt.name for prompt in second["alpha"]] == ["available"]
+    assert [prompt.name for prompt in aggregator._prompt_cache["alpha"]] == ["available"]

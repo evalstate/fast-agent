@@ -24,16 +24,14 @@ async def test_lookup_with_valid_model_and_providers() -> None:
                 InferenceProvider(
                     name="groq",
                     status=InferenceProviderStatus.LIVE,
-                    provider_id="moonshotai/kimi-k2-instruct-0905",
+                    providerId="moonshotai/kimi-k2-instruct-0905",
                     task="conversational",
-                    is_model_author=False,
                 ),
                 InferenceProvider(
                     name="together",
                     status=InferenceProviderStatus.LIVE,
-                    provider_id="moonshotai/Kimi-K2-Instruct-0905",
+                    providerId="moonshotai/Kimi-K2-Instruct-0905",
                     task="conversational",
-                    is_model_author=False,
                 ),
             ],
         )
@@ -126,23 +124,20 @@ async def test_lookup_result_format_provider_list() -> None:
             InferenceProvider(
                 name="groq",
                 status=InferenceProviderStatus.LIVE,
-                provider_id="test",
+                providerId="test",
                 task="conversational",
-                is_model_author=False,
             ),
             InferenceProvider(
                 name="together",
                 status=InferenceProviderStatus.LIVE,
-                provider_id="test",
+                providerId="test",
                 task="conversational",
-                is_model_author=False,
             ),
             InferenceProvider(
                 name="staging-provider",
                 status=InferenceProviderStatus.STAGING,
-                provider_id="test",
+                providerId="test",
                 task="conversational",
-                is_model_author=False,
             ),
         ],
     )
@@ -164,16 +159,14 @@ async def test_lookup_result_format_model_strings() -> None:
             InferenceProvider(
                 name="groq",
                 status=InferenceProviderStatus.LIVE,
-                provider_id="test",
+                providerId="test",
                 task="conversational",
-                is_model_author=False,
             ),
             InferenceProvider(
                 name="together",
                 status=InferenceProviderStatus.LIVE,
-                provider_id="test",
+                providerId="test",
                 task="conversational",
-                is_model_author=False,
             ),
         ],
     )

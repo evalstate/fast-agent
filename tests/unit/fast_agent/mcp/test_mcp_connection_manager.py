@@ -6,9 +6,12 @@ from contextlib import asynccontextmanager
 from typing import Any, cast
 
 import pytest
+from anyio import create_task_group
+from mcp import ClientSession
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.core.exceptions import ServerInitializationError
+from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
@@ -21,6 +24,7 @@ from fast_agent.mcp.mcp_connection_manager import (
     _server_lifecycle_task,
     _wait_for_initialized_with_startup_budget,
 )
+from fast_agent.mcp.oauth_client import OAuthEventHandler
 
 
 def test_prepare_headers_respects_user_authorization(monkeypatch):
@@ -231,6 +235,10 @@ def _make_server_connection() -> ServerConnection:
     )
 
 
+def _dummy_client_session_factory(*_args: Any, **_kwargs: Any) -> ClientSession:
+    return cast("ClientSession", object())
+
+
 @pytest.mark.asyncio
 async def test_startup_timeout_budget_excludes_oauth_wait_window() -> None:
     server_conn = _make_server_connection()
@@ -303,20 +311,32 @@ class _DummyStdioRegistry:
 
 
 @pytest.mark.asyncio
-async def test_get_server_cancellation_cleans_up_pending_connection() -> None:
+async def test_get_server_cancellation_cleans_up_pending_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
     server_conn = _make_server_connection()
 
-    async def _fake_launch_server(*_args, **_kwargs):
+    async def _fake_launch_server(
+        *,
+        server_name: str,
+        client_session_factory: ClientSessionFactory,
+        startup_timeout_seconds: float | None = None,
+        trigger_oauth: bool | None = None,
+        oauth_event_handler: OAuthEventHandler | None = None,
+        allow_oauth_paste_fallback: bool = True,
+    ) -> ServerConnection:
+        del server_name, client_session_factory, startup_timeout_seconds
+        del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         return server_conn
 
-    manager.launch_server = _fake_launch_server  # type: ignore[method-assign]
+    monkeypatch.setattr(manager, "launch_server", _fake_launch_server)
 
     task = asyncio.create_task(
         manager.get_server(
             "demo",
-            client_session_factory=lambda *_args, **_kwargs: object(),
+            client_session_factory=_dummy_client_session_factory,
             startup_timeout_seconds=10.0,
         )
     )
@@ -333,7 +353,9 @@ async def test_get_server_cancellation_cleans_up_pending_connection() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_server_startup_timeout_cancels_blocked_lifecycle() -> None:
+async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
     entered = asyncio.Event()
     cancelled = asyncio.Event()
@@ -358,21 +380,31 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle() -> None:
             url="http://127.0.0.1:9/mcp",
         ),
         transport_context_factory=HangingTransportContext,
-        client_session_factory=lambda *_args, **_kwargs: object(),
+        client_session_factory=_dummy_client_session_factory,
     )
 
-    async def _fake_launch_server(*_args, **_kwargs):
+    async def _fake_launch_server(
+        *,
+        server_name: str,
+        client_session_factory: ClientSessionFactory,
+        startup_timeout_seconds: float | None = None,
+        trigger_oauth: bool | None = None,
+        oauth_event_handler: OAuthEventHandler | None = None,
+        allow_oauth_paste_fallback: bool = True,
+    ) -> ServerConnection:
+        del server_name, client_session_factory, startup_timeout_seconds
+        del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         asyncio.create_task(_server_lifecycle_task(server_conn))
         await entered.wait()
         return server_conn
 
-    manager.launch_server = _fake_launch_server  # type: ignore[method-assign]
+    monkeypatch.setattr(manager, "launch_server", _fake_launch_server)
 
     with pytest.raises(ServerInitializationError):
         await manager.get_server(
             "demo",
-            client_session_factory=lambda *_args, **_kwargs: object(),
+            client_session_factory=_dummy_client_session_factory,
             startup_timeout_seconds=0.01,
         )
 
@@ -383,7 +415,9 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_server_retries_with_oauth_after_401_startup() -> None:
+async def test_get_server_retries_with_oauth_after_401_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
     unhealthy = _make_server_connection()
     unhealthy._error_occurred = True
@@ -394,25 +428,47 @@ async def test_get_server_retries_with_oauth_after_401_startup() -> None:
 
     calls: list[bool | None] = []
 
-    async def _fake_launch_and_wait_for_server(*_args, **kwargs):
-        trigger = kwargs.get("trigger_oauth")
+    async def _fake_launch_and_wait_for_server(
+        *,
+        server_name: str,
+        client_session_factory: ClientSessionFactory,
+        startup_timeout_seconds: float | None,
+        trigger_oauth: bool | None,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        timeout_action: str,
+    ) -> ServerConnection:
+        del server_name, client_session_factory, startup_timeout_seconds
+        del oauth_event_handler, allow_oauth_paste_fallback, timeout_action
+        trigger = trigger_oauth
         calls.append(trigger)
         manager._server_oauth_mode["demo"] = "force" if trigger is True else "auto"
         manager._server_oauth_active["demo"] = trigger is True
         return healthy if trigger is True else unhealthy
 
-    async def _fake_retry_server_with_oauth(*_args, **_kwargs):
+    async def _fake_retry_server_with_oauth(
+        *,
+        server_name: str,
+        server_conn: ServerConnection,
+        client_session_factory: ClientSessionFactory,
+        startup_timeout_seconds: float | None,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        timeout_action: str,
+    ) -> ServerConnection:
+        del server_name, server_conn, client_session_factory, startup_timeout_seconds
+        del oauth_event_handler, allow_oauth_paste_fallback, timeout_action
         calls.append(True)
         manager._server_oauth_mode["demo"] = "force"
         manager._server_oauth_active["demo"] = True
         return healthy
 
-    manager._launch_and_wait_for_server = _fake_launch_and_wait_for_server  # type: ignore[method-assign]
-    manager._retry_server_with_oauth = _fake_retry_server_with_oauth  # type: ignore[method-assign]
+    monkeypatch.setattr(manager, "_launch_and_wait_for_server", _fake_launch_and_wait_for_server)
+    monkeypatch.setattr(manager, "_retry_server_with_oauth", _fake_retry_server_with_oauth)
 
     server_conn = await manager.get_server(
         "demo",
-        client_session_factory=lambda *_args, **_kwargs: object(),
+        client_session_factory=_dummy_client_session_factory,
     )
 
     assert server_conn is healthy
@@ -451,7 +507,7 @@ async def test_get_server_formats_stdio_missing_executable_without_traceback(
         with pytest.raises(ServerInitializationError) as exc_info:
             await manager.get_server(
                 "demo",
-                client_session_factory=lambda *_args, **_kwargs: object(),
+                client_session_factory=_dummy_client_session_factory,
                 startup_timeout_seconds=1.0,
             )
 
@@ -497,7 +553,7 @@ async def test_get_server_formats_stdio_missing_cwd_without_traceback(
         with pytest.raises(ServerInitializationError) as exc_info:
             await manager.get_server(
                 "demo",
-                client_session_factory=lambda *_args, **_kwargs: object(),
+                client_session_factory=_dummy_client_session_factory,
                 startup_timeout_seconds=1.0,
             )
 
@@ -509,7 +565,9 @@ async def test_get_server_formats_stdio_missing_cwd_without_traceback(
 
 
 @pytest.mark.asyncio
-async def test_get_server_stdio_timeout_includes_recent_stderr() -> None:
+async def test_get_server_stdio_timeout_includes_recent_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = MCPServerSettings(
         name="demo",
         transport="stdio",
@@ -521,21 +579,31 @@ async def test_get_server_stdio_timeout_includes_recent_stderr() -> None:
         server_name="demo",
         server_config=config,
         transport_context_factory=lambda: cast("Any", object()),
-        client_session_factory=lambda *_args, **_kwargs: object(),
+        client_session_factory=_dummy_client_session_factory,
     )
     server_conn.record_stdio_stderr("npm notice downloading desktop-commander")
     server_conn.record_stdio_stderr("npm warn request took longer than expected")
 
-    async def _fake_launch_server(*_args, **_kwargs):
+    async def _fake_launch_server(
+        *,
+        server_name: str,
+        client_session_factory: ClientSessionFactory,
+        startup_timeout_seconds: float | None = None,
+        trigger_oauth: bool | None = None,
+        oauth_event_handler: OAuthEventHandler | None = None,
+        allow_oauth_paste_fallback: bool = True,
+    ) -> ServerConnection:
+        del server_name, client_session_factory, startup_timeout_seconds
+        del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         return server_conn
 
-    manager.launch_server = _fake_launch_server  # type: ignore[method-assign]
+    monkeypatch.setattr(manager, "launch_server", _fake_launch_server)
 
     with pytest.raises(ServerInitializationError) as exc_info:
         await manager.get_server(
             "demo",
-            client_session_factory=lambda *_args, **_kwargs: object(),
+            client_session_factory=_dummy_client_session_factory,
             startup_timeout_seconds=0.01,
         )
 
@@ -550,66 +618,56 @@ async def test_get_server_stdio_timeout_includes_recent_stderr() -> None:
 async def test_connection_manager_exit_skips_grace_sleep_without_running_servers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class _FakeTaskGroup:
-        def __init__(self) -> None:
-            self.exited = False
+    class _NoRunningServersManager(MCPConnectionManager):
+        async def disconnect_all(self) -> bool:
+            return False
 
-        async def __aexit__(self, exc_type, exc, tb) -> None:
-            del exc_type, exc, tb
-            self.exited = True
-
-    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
-    fake_task_group = _FakeTaskGroup()
+    manager = _NoRunningServersManager(server_registry=cast("Any", _DummyRegistry()))
+    task_group = create_task_group()
+    await task_group.__aenter__()
     manager._task_group_active = True
-    manager._task_group = fake_task_group
-    manager._tg = fake_task_group
-
-    async def _fake_disconnect_all() -> bool:
-        return False
+    manager._task_group = task_group
+    manager._tg = task_group
 
     async def _unexpected_sleep(_delay: float) -> None:
         raise AssertionError("shutdown grace sleep should be skipped")
 
-    manager.disconnect_all = _fake_disconnect_all  # type: ignore[method-assign]
     monkeypatch.setattr(asyncio, "sleep", _unexpected_sleep)
 
     await manager.__aexit__(None, None, None)
 
-    assert fake_task_group.exited is True
+    assert manager._task_group_active is False
+    assert manager._task_group is None
+    assert manager._tg is None
 
 
 @pytest.mark.asyncio
 async def test_connection_manager_exit_waits_briefly_after_requesting_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class _FakeTaskGroup:
-        def __init__(self) -> None:
-            self.exited = False
+    class _RunningServersManager(MCPConnectionManager):
+        async def disconnect_all(self) -> bool:
+            return True
 
-        async def __aexit__(self, exc_type, exc, tb) -> None:
-            del exc_type, exc, tb
-            self.exited = True
-
-    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
-    fake_task_group = _FakeTaskGroup()
+    manager = _RunningServersManager(server_registry=cast("Any", _DummyRegistry()))
+    task_group = create_task_group()
+    await task_group.__aenter__()
     manager._task_group_active = True
-    manager._task_group = fake_task_group
-    manager._tg = fake_task_group
+    manager._task_group = task_group
+    manager._tg = task_group
     sleep_calls: list[float] = []
-
-    async def _fake_disconnect_all() -> bool:
-        return True
 
     async def _fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
 
-    manager.disconnect_all = _fake_disconnect_all  # type: ignore[method-assign]
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     await manager.__aexit__(None, None, None)
 
     assert sleep_calls == [0.5]
-    assert fake_task_group.exited is True
+    assert manager._task_group_active is False
+    assert manager._task_group is None
+    assert manager._tg is None
 
 
 def test_is_oauth_timeout_message_requires_real_timeout_markers() -> None:

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from mcp.types import CallToolResult, ElicitRequestURLParams
@@ -28,7 +28,7 @@ async def test_forms_handler_defers_url_elicitation_to_result_payload(capsys) ->
         elicitationId="form-url-1",
     )
 
-    result = await forms_elicitation_handler(cast("Any", context), cast("Any", params))
+    result = await forms_elicitation_handler(context, params)
     assert result.action == "accept"
 
     captured = capsys.readouterr()

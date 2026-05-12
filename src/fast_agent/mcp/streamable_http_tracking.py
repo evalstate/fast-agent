@@ -29,7 +29,7 @@ from mcp.types import (
     ProgressNotification,
 )
 
-from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
+from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName, EventType
 
 if TYPE_CHECKING:
 
@@ -80,7 +80,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
     def _emit_channel_event(
         self,
         channel: ChannelName,
-        event_type: str,
+        event_type: EventType,
         *,
         message: JSONRPCMessage | None = None,
         raw_event: str | None = None,
@@ -93,7 +93,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             self._channel_hook(
                 ChannelEvent(
                     channel=channel,
-                    event_type=event_type,  # type: ignore[arg-type]
+                    event_type=event_type,
                     message=message,
                     raw_event=raw_event,
                     detail=detail,
@@ -344,9 +344,11 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             self._emit_channel_event("post-sse", "error", detail=str(exc))
 
         if last_event_id is not None:  # pragma: no branch
-            await self._handle_reconnection(ctx, "post-sse", last_event_id, retry_interval_ms)
+            await self._handle_reconnection_for_channel(
+                ctx, "post-sse", last_event_id, retry_interval_ms
+            )
 
-    async def _handle_reconnection(  # type: ignore[override]
+    async def _handle_reconnection_for_channel(
         self,
         ctx: RequestContext,
         channel: ChannelName,
@@ -401,7 +403,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                         await event_source.response.aclose()
                         return
 
-                await self._handle_reconnection(
+                await self._handle_reconnection_for_channel(
                     ctx,
                     channel,
                     reconnect_last_event_id,
@@ -411,7 +413,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         except Exception as exc:  # pragma: no cover
             logger.debug("Reconnection failed: %s", exc)
             self._emit_channel_event(channel, "error", detail=str(exc))
-            await self._handle_reconnection(
+            await self._handle_reconnection_for_channel(
                 ctx,
                 channel,
                 last_event_id,

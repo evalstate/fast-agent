@@ -10,7 +10,7 @@ import inspect
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 from fastmcp.tools import FunctionTool, ToolResult
 
@@ -20,6 +20,15 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.tools.function_tool_config import FunctionToolSpec
 
 logger = get_logger(__name__)
+
+
+class _SignatureWritable(Protocol):
+    __signature__: inspect.Signature
+
+
+def _set_signature(wrapper: Callable[..., Any], source: Callable[..., Any]) -> None:
+    signature_wrapper = cast("_SignatureWritable", wrapper)
+    signature_wrapper.__signature__ = inspect.signature(source)
 
 
 def _as_default_tool_result(raw: Any) -> ToolResult:
@@ -38,7 +47,7 @@ def _wrap_default_tool_result(fn: Callable[..., Any]) -> Callable[..., Any]:
             raw = await fn(*args, **kwargs)
             return _as_default_tool_result(raw)
 
-        async_wrapped.__signature__ = inspect.signature(fn)  # type: ignore[attr-defined]
+        _set_signature(async_wrapped, fn)
         return async_wrapped
 
     @wraps(fn)
@@ -53,7 +62,7 @@ def _wrap_default_tool_result(fn: Callable[..., Any]) -> Callable[..., Any]:
             return await_and_wrap()
         return _as_default_tool_result(raw)
 
-    sync_wrapped.__signature__ = inspect.signature(fn)  # type: ignore[attr-defined]
+    _set_signature(sync_wrapped, fn)
     return sync_wrapped
 
 

@@ -9,7 +9,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
 from mcp.types import BlobResourceContents, ReadResourceResult, TextResourceContents
 
@@ -105,6 +105,7 @@ class _SmartCardBundle:
     message_files: dict[str, list[Path]]
 
 
+@runtime_checkable
 class _McpCapableAgent(Protocol):
     async def attach_mcp_server(
         self,
@@ -157,14 +158,13 @@ class _SmartToolMcpManager:
         if agent is None:
             raise AgentConfigError("Unknown agent", f"Agent '{name}' is not loaded")
 
-        required = ("attach_mcp_server", "detach_mcp_server", "list_attached_mcp_servers")
-        if not all(callable(getattr(agent, attr, None)) for attr in required):
+        if not isinstance(agent, _McpCapableAgent):
             raise AgentConfigError(
                 "Agent does not support runtime MCP connection",
                 f"Agent '{name}' cannot attach MCP servers",
             )
 
-        return agent  # type: ignore[return-value]
+        return agent
 
     async def attach_mcp_server(
         self,
