@@ -56,7 +56,10 @@ async def test_uri_read_dispatches_to_aggregator() -> None:
     result = await reader.execute({"path": "skill://git-workflow/SKILL.md"})
 
     assert not result.isError
-    assert result.content[0].text == "# body"
+    # MCP-served content is wrapped with an untrusted-source marker per
+    # SEP §Security Implications. The body lives between the tags.
+    assert "# body" in result.content[0].text
+    assert "<untrusted-skill-content" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -77,7 +80,8 @@ async def test_uri_read_allows_descendant_of_skill_root() -> None:
     )
 
     assert not result.isError
-    assert result.content[0].text == "refs"
+    assert "refs" in result.content[0].text
+    assert "<untrusted-skill-content" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -408,7 +412,10 @@ async def test_archive_cache_serves_skill_md_locally() -> None:
     reader = SkillReader([manifest], logger=MagicMock(), aggregator=agg, archive_cache=cache)
     result = await reader.execute({"path": "skill://pdf-processing/SKILL.md"})
     assert not result.isError
-    assert result.content[0].text == "# pdf body"
+    assert "# pdf body" in result.content[0].text
+    # Archive-cached reads are MCP-served too — untrusted-content wrapper
+    # applies the same as the live aggregator path.
+    assert "<untrusted-skill-content" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -426,7 +433,8 @@ async def test_archive_cache_serves_supporting_file_locally() -> None:
     reader = SkillReader([manifest], logger=MagicMock(), aggregator=agg, archive_cache=cache)
     result = await reader.execute({"path": "skill://pdf-processing/references/FORMS.md"})
     assert not result.isError
-    assert result.content[0].text == "forms guide"
+    assert "forms guide" in result.content[0].text
+    assert "<untrusted-skill-content" in result.content[0].text
 
 
 @pytest.mark.asyncio
