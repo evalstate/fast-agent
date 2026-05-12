@@ -10,6 +10,7 @@ from rich import print as rich_print
 from fast_agent.command_actions import (
     PluginCommandActionContext,
     PluginCommandActionRegistry,
+    PluginRuntimeFacade,
 )
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import cards_manager as cards_handlers
@@ -1065,6 +1066,16 @@ async def _dispatch_plugin_command_payload(
             agent=cast("PluginCommandAgentProtocol", current_agent),
             settings=context.settings,
             session_cwd=shell_working_dir,
+            runtime=PluginRuntimeFacade(
+                current_agent_name=current_agent.name,
+                attach_mcp_server_callback=prompt_provider.attach_mcp_server,
+                detach_mcp_server_callback=prompt_provider.detach_mcp_server,
+                list_attached_mcp_servers_callback=prompt_provider.list_attached_mcp_servers,
+                list_configured_detached_mcp_servers_callback=(
+                    prompt_provider.list_configured_detached_mcp_servers
+                ),
+            ),
+            is_tui=True,
         )
         action_result = await registry.execute(command_name, plugin_context)
     except AgentConfigError as exc:

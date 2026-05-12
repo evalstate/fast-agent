@@ -1179,7 +1179,7 @@ def _dump_request_params(params: RequestParams | None) -> dict[str, Any] | None:
         return None
     dump = params.model_dump(
         exclude_defaults=True,
-        exclude={"messages", "systemPrompt", "use_history", "model"},
+        exclude={"messages", "systemPrompt", "use_history", "model", "batch_context"},
     )
     return dump or None
 

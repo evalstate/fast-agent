@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.command_actions.runtime import PluginRuntime
     from fast_agent.config import Settings
     from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol
@@ -97,6 +98,9 @@ class PluginCommandActionContext:
     agent: PluginCommandAgentProtocol
     settings: "Settings | None" = None
     session_cwd: Path | None = None
+    runtime: "PluginRuntime | None" = None
+    is_tui: bool = False
+    is_acp: bool = False
 
     @property
     def agent_name(self) -> str:

@@ -5,7 +5,11 @@ from mcp.types import CallToolRequestParams, CallToolResult, Tool
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
-from fast_agent.constants import FAST_AGENT_SYNTHETIC_FINAL_CHANNEL, FAST_AGENT_USAGE
+from fast_agent.constants import (
+    FAST_AGENT_SYNTHETIC_FINAL_CHANNEL,
+    FAST_AGENT_TIMING,
+    FAST_AGENT_USAGE,
+)
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
@@ -43,7 +47,10 @@ class ToolThenFinalizeLlm(PassthroughLLM):
                         params=CallToolRequestParams(name="passthrough_tool", arguments={}),
                     )
                 },
-                channels={FAST_AGENT_USAGE: [text_content('{"token_count": 12}')]},
+                channels={
+                    FAST_AGENT_TIMING: [text_content('{"duration_ms": 23.5}')],
+                    FAST_AGENT_USAGE: [text_content('{"token_count": 12}')],
+                },
             )
 
         return Prompt.assistant("postprocessed", stop_reason=LlmStopReason.END_TURN)
@@ -84,6 +91,7 @@ async def test_passthrough_skips_second_llm_call_and_synthesizes_terminal_assist
     assert result.stop_reason == LlmStopReason.END_TURN
     assert result.last_text() == "raw-result"
     assert FAST_AGENT_SYNTHETIC_FINAL_CHANNEL in (result.channels or {})
+    assert (result.channels or {}).get(FAST_AGENT_TIMING)
     assert (result.channels or {}).get(FAST_AGENT_USAGE)
 
 

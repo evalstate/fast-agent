@@ -3,11 +3,18 @@ from pydantic import BaseModel
 
 from fast_agent.batch.structured import (
     StructuredBatchOptions,
+    _extract_timing,
+    _extract_usage,
+    _row_call,
     load_json_schema,
     load_pydantic_model,
     load_schema_source,
     run_structured_batch,
 )
+from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_USAGE
+from fast_agent.llm.request_params import BatchRequestContext, RequestParams
+from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 class ImportedResult(BaseModel):
@@ -68,6 +75,49 @@ def test_load_pydantic_model_from_import_path():
     loaded = load_pydantic_model(f"{__name__}:ImportedResult")
 
     assert loaded is ImportedResult
+
+
+def test_extracts_timing_and_usage_channels() -> None:
+    response = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        channels={
+            FAST_AGENT_TIMING: [text_content('{"duration_ms": 12.5}')],
+            FAST_AGENT_USAGE: [text_content('{"summary": {"total_tokens": 42}}')],
+        },
+    )
+
+    assert _extract_timing(response) == {"duration_ms": 12.5}
+    assert _extract_usage(response) == {"summary": {"total_tokens": 42}}
+
+
+@pytest.mark.asyncio
+async def test_row_call_attaches_batch_context_to_request_params() -> None:
+    class Worker:
+        request_params: RequestParams | None = None
+
+        async def generate(
+            self,
+            rendered: str,
+            request_params: RequestParams,
+        ) -> PromptMessageExtended:
+            self.request_params = request_params
+            return PromptMessageExtended(role="assistant", content=[text_content(rendered)])
+
+    worker = Worker()
+    parsed, _response = await _row_call(
+        worker,
+        rendered="hello",
+        schema_source=None,
+        batch_context=BatchRequestContext(row_number=7, identity="row-7"),
+    )
+
+    assert parsed == "hello"
+    assert worker.request_params is not None
+    assert worker.request_params.batch_context == BatchRequestContext(
+        row_number=7,
+        identity="row-7",
+    )
 
 
 @pytest.mark.asyncio

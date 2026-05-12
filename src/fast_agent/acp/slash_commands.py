@@ -48,6 +48,7 @@ from fast_agent.acp.slash.handlers import tools as tools_slash_handlers
 from fast_agent.command_actions import (
     PluginCommandActionContext,
     PluginCommandActionRegistry,
+    PluginRuntimeFacade,
 )
 from fast_agent.command_actions.accessors import (
     plugin_command_base_path_for_provider,
@@ -69,6 +70,7 @@ from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
 if TYPE_CHECKING:
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.command_actions.models import PluginCommandAgentProtocol
+    from fast_agent.command_actions.runtime import AttachMcpServerCallback, DetachMcpServerCallback
     from fast_agent.commands.context import AgentProvider
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
@@ -770,6 +772,24 @@ class SlashCommandHandler:
                     agent=cast("PluginCommandAgentProtocol", agent),
                     settings=command_context.settings,
                     session_cwd=command_context.session_cwd,
+                    runtime=PluginRuntimeFacade(
+                        current_agent_name=agent.name,
+                        attach_mcp_server_callback=cast(
+                            "AttachMcpServerCallback | None",
+                            self._attach_mcp_server_callback,
+                        ),
+                        detach_mcp_server_callback=cast(
+                            "DetachMcpServerCallback | None",
+                            self._detach_mcp_server_callback,
+                        ),
+                        list_attached_mcp_servers_callback=(
+                            self._list_attached_mcp_servers_callback
+                        ),
+                        list_configured_detached_mcp_servers_callback=(
+                            self._list_configured_detached_mcp_servers_callback
+                        ),
+                    ),
+                    is_acp=True,
                 ),
             )
         except AgentConfigError as exc:

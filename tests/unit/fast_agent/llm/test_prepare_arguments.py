@@ -7,7 +7,7 @@ from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.request_params import BatchRequestContext, RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 
@@ -152,6 +152,17 @@ class TestRequestParamsInLLM:
 
         assert result["model"] == "test-model"
         assert "structured_schema" not in result
+
+    def test_batch_context_is_not_passed_through_to_provider_arguments(self):
+        llm = StubLLM()
+
+        result = llm.prepare_provider_arguments(
+            {"model": "test-model"},
+            RequestParams(batch_context=BatchRequestContext(row_number=3, identity="abc")),
+        )
+
+        assert result["model"] == "test-model"
+        assert "batch_context" not in result
 
     def test_service_tier_excluded_from_non_responses_provider_arguments(self):
         """Test that service_tier is kept off generic provider argument passthrough."""

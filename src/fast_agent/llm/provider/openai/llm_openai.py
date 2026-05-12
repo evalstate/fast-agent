@@ -43,11 +43,11 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.schema_sanitizer import (
-    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
 from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
+from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOutputMixin
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
@@ -75,6 +75,7 @@ DEFAULT_REASONING_EFFORT = "low"
 class OpenAILLM(
     OpenAIToolNotificationMixin,
     ResponsesFileMixin,
+    OpenAIStructuredOutputMixin,
     FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage],
 ):
     # Config section name override (falls back to provider value)
@@ -1181,52 +1182,6 @@ class OpenAILLM(
             converted_messages = [ChatCompletionUserMessageParam(role="user", content="")]
 
         return await self._openai_completion(converted_messages, req_params, tools)
-
-    def _prepare_structured_request(
-        self,
-        messages: list[PromptMessageExtended],
-        request_params: RequestParams,
-        tools: list[Tool] | None = None,
-    ) -> tuple[list[PromptMessageExtended], RequestParams]:
-        if not request_params.structured_schema or request_params.response_format:
-            return messages, request_params
-        if self._should_defer_structured_schema_for_tools(messages, request_params, tools):
-            return messages, request_params.model_copy(update={"structured_schema": None})
-        return messages, request_params.model_copy(
-            update={
-                "response_format": self.schema_to_response_format(
-                    request_params.structured_schema
-                )
-            }
-        )
-
-    async def _apply_prompt_provider_specific_structured_schema(
-        self,
-        multipart_messages: list["PromptMessageExtended"],
-        schema: dict[str, Any],
-        request_params: RequestParams | None = None,
-    ) -> PromptMessageExtended | tuple[Any | None, PromptMessageExtended]:
-        request_params = self.get_request_params(request_params)
-        if not request_params.response_format:
-            request_params.response_format = self.schema_to_response_format(schema)
-        return await super()._apply_prompt_provider_specific_structured_schema(
-            multipart_messages,
-            schema,
-            request_params,
-        )
-
-    def schema_to_response_format(
-        self,
-        schema: dict[str, Any],
-        *,
-        name: str = "structured_output",
-        strict: bool = True,
-    ) -> dict[str, Any]:
-        return FastAgentLLM.schema_to_response_format(
-            sanitize_response_format_schema(schema) if strict else schema,
-            name=name,
-            strict=strict,
-        )
 
     def _prepare_api_request(
         self,

@@ -230,6 +230,13 @@ def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
     assert generic_option.option_display_name == "Generic (ollama)"
 
 
+def test_build_snapshot_uses_xai_brand_casing() -> None:
+    snapshot = build_snapshot(config_payload={})
+    option = next(provider for provider in snapshot.providers if provider.option_key == Provider.XAI.config_name)
+
+    assert option.option_display_name == "xAI"
+
+
 def test_refer_to_docs_providers_show_docs_option() -> None:
     snapshot = build_snapshot(config_payload={})
     option = next(provider for provider in snapshot.providers if provider.provider == Provider.AZURE)
