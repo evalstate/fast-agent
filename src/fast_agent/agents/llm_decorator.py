@@ -72,6 +72,7 @@ from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
+from fast_agent.mcp.prompt_metadata import prompt_display_name
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 # Define a TypeVar for models
@@ -659,7 +660,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """
         # If a prompt template object is provided
         if isinstance(prompt, GetPromptResult):
-            namespaced_name = getattr(prompt, "namespaced_name", "template")
+            namespaced_name = prompt_display_name(prompt, "template")
             if as_template:
                 return await self.apply_prompt_template(prompt, namespaced_name)
 

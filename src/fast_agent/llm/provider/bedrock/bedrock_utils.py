@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from typing import Collection, Literal, TypedDict, cast
+import importlib
+from typing import Any, Collection, Literal, TypedDict, cast
 
 # Lightweight, runtime-only loader for AWS Bedrock models.
 # - Fetches once per process via boto3 (region from session; env override supported)
 # - Memory cache only; no disk persistence
 # - Provides filtering and optional prefixing (default 'bedrock.') for model IDs
 
+_boto3: Any | None
 try:
-    import boto3
+    _boto3 = importlib.import_module("boto3")
 except Exception:  # pragma: no cover - import error path
-    boto3 = None  # type: ignore[assignment]
+    _boto3 = None
 
 
 Modality = Literal["TEXT", "IMAGE", "VIDEO", "SPEECH", "EMBEDDING"]
@@ -41,11 +43,11 @@ def _resolve_region(region: str | None) -> str:
     env_region = os.getenv("BEDROCK_REGION")
     if env_region:
         return env_region
-    if boto3 is None:
+    if _boto3 is None:
         raise RuntimeError(
             "boto3 is required to load Bedrock models. Install boto3 or provide a static list."
         )
-    session = boto3.Session()
+    session = _boto3.Session()
     if not session.region_name:
         raise RuntimeError(
             "AWS region could not be resolved. Configure your AWS SSO/profile or set BEDROCK_REGION."
@@ -63,11 +65,11 @@ def _ensure_loaded(region: str | None = None) -> dict[str, ModelSummary]:
     if cache is not None:
         return cache
 
-    if boto3 is None:
+    if _boto3 is None:
         raise RuntimeError("boto3 is required to load Bedrock models. Install boto3.")
 
     try:
-        client = boto3.client("bedrock", region_name=resolved_region)
+        client = _boto3.client("bedrock", region_name=resolved_region)
         resp = client.list_foundation_models()
         summaries: list[ModelSummary] = resp.get("modelSummaries", [])
     except Exception as exc:  # keep error simple and actionable
@@ -202,8 +204,8 @@ def get_model_metadata(model_id: str, region: str | None = None) -> ModelSummary
 
 def list_providers(region: str | None = None) -> list[str]:
     cache = _ensure_loaded(region)
-    providers = {s.get("providerName") for s in cache.values() if s.get("providerName")}
-    return sorted(providers)  # type: ignore[arg-type]
+    providers = {provider for s in cache.values() if (provider := s.get("providerName"))}
+    return sorted(providers)
 
 
 __all__ = [

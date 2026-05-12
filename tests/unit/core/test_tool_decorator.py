@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pytest
 
@@ -11,7 +11,25 @@ from fast_agent.core.direct_decorators import DecoratorMixin
 from fast_agent.core.exceptions import AgentConfigError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from fastmcp.tools import FunctionTool
+
+
+class _FastToolMetadataWritable(Protocol):
+    _fast_tool_name: str
+    _fast_tool_description: str
+
+
+def _set_fast_tool_metadata(
+    func: Callable[..., Any],
+    *,
+    name: str,
+    description: str,
+) -> None:
+    metadata_func = cast("_FastToolMetadataWritable", func)
+    metadata_func._fast_tool_name = name
+    metadata_func._fast_tool_description = description
 
 
 class _FakeFastAgent(DecoratorMixin):
@@ -303,8 +321,7 @@ class TestAgentToolMetadataPassthrough:
             """Original doc."""
             return x
 
-        raw_fn._fast_tool_name = "custom"  # type: ignore[attr-defined]
-        raw_fn._fast_tool_description = "Custom desc"  # type: ignore[attr-defined]
+        _set_fast_tool_metadata(raw_fn, name="custom", description="Custom desc")
 
         tools = load_function_tools([raw_fn])
         assert len(tools) == 1

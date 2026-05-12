@@ -94,13 +94,8 @@ def extract_apply_patch_input(arguments: Mapping[str, Any] | None) -> str | None
     return stripped or None
 
 
-
 def get_openai_responses_custom_tool_payload(tool: Tool) -> dict[str, Any] | None:
-    meta_source = tool.model_dump(mode="json", by_alias=True, exclude_none=True).get("meta")
-    if not isinstance(meta_source, Mapping):
-        model_extra = getattr(tool, "model_extra", None)
-        if isinstance(model_extra, Mapping):
-            meta_source = model_extra.get("meta")
+    meta_source = tool.meta
     if not isinstance(meta_source, Mapping):
         return None
 

@@ -10,6 +10,7 @@ from fast_agent.cli.runtime.shell_cwd_policy import (
     effective_missing_shell_cwd_policy,
     resolve_missing_shell_cwd_policy,
 )
+from fast_agent.skills import SkillManifest
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_card_types import AgentCardData
@@ -111,7 +112,14 @@ def test_collect_shell_cwd_issues_respects_no_shell(tmp_path: Path) -> None:
             )
         },
     }
-    agents["skill"]["config"].skill_manifests = [object()]  # type: ignore[list-item]
+    agents["skill"]["config"].skill_manifests = [
+        SkillManifest(
+            name="skill",
+            description="test skill",
+            body="",
+            path=tmp_path / "SKILL.md",
+        )
+    ]
 
     assert (
         collect_shell_cwd_issues(

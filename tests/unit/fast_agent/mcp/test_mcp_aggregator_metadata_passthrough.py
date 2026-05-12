@@ -8,6 +8,7 @@ from mcp.shared.exceptions import McpError
 from mcp.types import CallToolResult, ErrorData, TextContent
 
 from fast_agent.llm.fastagent_llm import _mcp_metadata_var
+from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
 
 
@@ -62,7 +63,7 @@ class _RejectingSession(_RecordingSession):
         )
 
 
-class _InvalidationRecorder:
+class _InvalidationRecorder(ExperimentalSessionClient):
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str | None]] = []
 

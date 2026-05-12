@@ -64,6 +64,7 @@ from fast_agent.mcp.mcp_connection_manager import (
     _is_http_auth_challenge_error,
     _resolve_oauth_mode,
 )
+from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 from fast_agent.mcp.skybridge import (
     MCP_APP_MIME_TYPE,
     SKYBRIDGE_MIME_TYPE,
@@ -2375,8 +2376,8 @@ class MCPAggregator(ContextDependent):
                          for templating
         :param server_name: Optional name of the server to get the prompt from. If not provided
                           and prompt_name is not namespaced, will search all servers.
-        :return: GetPromptResult containing the prompt description and messages
-                 with a namespaced_name property for display purposes
+        :return: GetPromptResult containing the prompt description and messages, with
+                 fast-agent display metadata in ``meta``
         """
         if not self.initialized:
             await self.load_servers()
@@ -2449,11 +2450,11 @@ class MCPAggregator(ContextDependent):
 
             # Add namespaced name and source server to the result
             if result and result.messages:
-                result.namespaced_name = create_namespaced_name(server_name, local_prompt_name)
-
-                # Store the arguments in the result for display purposes
-                if arguments:
-                    result.arguments = arguments
+                result = with_prompt_metadata(
+                    result,
+                    namespaced_name=create_namespaced_name(server_name, local_prompt_name),
+                    arguments=arguments,
+                )
 
             return result
 
@@ -2501,11 +2502,11 @@ class MCPAggregator(ContextDependent):
                             f"Successfully retrieved prompt '{local_prompt_name}' from server '{s_name}'"
                         )
                         # Add namespaced name using the actual server where found
-                        result.namespaced_name = create_namespaced_name(s_name, local_prompt_name)
-
-                        # Store the arguments in the result for display purposes
-                        if arguments:
-                            result.arguments = arguments
+                        result = with_prompt_metadata(
+                            result,
+                            namespaced_name=create_namespaced_name(s_name, local_prompt_name),
+                            arguments=arguments,
+                        )
 
                         return result
 
@@ -2549,21 +2550,25 @@ class MCPAggregator(ContextDependent):
                             f"Found prompt '{local_prompt_name}' on server '{s_name}' (not in cache)"
                         )
                         # Add namespaced name using the actual server where found
-                        result.namespaced_name = create_namespaced_name(s_name, local_prompt_name)
-
-                        # Store the arguments in the result for display purposes
-                        if arguments:
-                            result.arguments = arguments
+                        result = with_prompt_metadata(
+                            result,
+                            namespaced_name=create_namespaced_name(s_name, local_prompt_name),
+                            arguments=arguments,
+                        )
 
                         # Update the cache - need to fetch the prompt object to store in cache
                         try:
-                            prompt_list_result: ListPromptsResult = await self._execute_on_server(
-                                server_name=s_name,
-                                operation_type="prompts/list",
-                                operation_name="",
-                                method_name="list_prompts",
-                                error_factory=lambda _: None,
+                            prompt_list_result: ListPromptsResult | None = (
+                                await self._execute_on_server(
+                                    server_name=s_name,
+                                    operation_type="prompts/list",
+                                    operation_name="",
+                                    method_name="list_prompts",
+                                    error_factory=lambda _: None,
+                                )
                             )
+                            if prompt_list_result is None:
+                                continue
 
                             prompts = prompt_list_result.prompts
                             matching_prompts = [p for p in prompts if p.name == local_prompt_name]
@@ -2631,13 +2636,16 @@ class MCPAggregator(ContextDependent):
                 return results
 
             # Fetch from server
-            result: ListPromptsResult = await self._execute_on_server(
+            result: ListPromptsResult | None = await self._execute_on_server(
                 server_name=server_name,
                 operation_type="prompts/list",
                 operation_name="",
                 method_name="list_prompts",
                 error_factory=lambda _: None,
             )
+            if result is None:
+                results[server_name] = []
+                return results
 
             # Get prompts from result
             prompts = result.prompts
@@ -2670,13 +2678,16 @@ class MCPAggregator(ContextDependent):
         # Fetch prompts from supported servers
         for s_name in supported_servers:
             try:
-                result: ListPromptsResult = await self._execute_on_server(
+                result: ListPromptsResult | None = await self._execute_on_server(
                     server_name=s_name,
                     operation_type="prompts/list",
                     operation_name="",
                     method_name="list_prompts",
                     error_factory=lambda _: None,
                 )
+                if result is None:
+                    results[s_name] = []
+                    continue
 
                 prompts = result.prompts
 
@@ -2904,7 +2915,7 @@ class MCPAggregator(ContextDependent):
             operation_name="",
             method_name="list_resource_templates",
             method_args={},
-            error_factory=lambda _: None,
+            error_factory=lambda _: ListResourceTemplatesResult(resourceTemplates=[]),
         )
 
         return result.resourceTemplates
