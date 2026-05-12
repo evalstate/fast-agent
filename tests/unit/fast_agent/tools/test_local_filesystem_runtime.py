@@ -273,9 +273,11 @@ def test_apply_patch_tool_schema_uses_input_field() -> None:
         "required": ["input"],
         "additionalProperties": False,
     }
+    assert tool.meta is not None
+    assert "fast-agent/openai.responses_custom_tool" in tool.meta
     tool_payload = tool.model_dump(mode="json", by_alias=True, exclude_none=True)
-    assert "meta" in tool_payload
-    assert "fast-agent/openai.responses_custom_tool" in tool_payload["meta"]
+    assert "_meta" in tool_payload
+    assert "fast-agent/openai.responses_custom_tool" in tool_payload["_meta"]
 
 
 @pytest.mark.asyncio
