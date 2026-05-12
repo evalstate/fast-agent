@@ -22,3 +22,15 @@ def with_prompt_metadata(
 def prompt_display_name(result: GetPromptResult, fallback: str) -> str:
     value = (result.meta or {}).get(_NAMESPACED_NAME_KEY)
     return value if isinstance(value, str) else fallback
+
+
+def prompt_arguments(result: GetPromptResult) -> dict[str, str] | None:
+    value = (result.meta or {}).get(_ARGUMENTS_KEY)
+    if not isinstance(value, dict):
+        return None
+    arguments: dict[str, str] = {}
+    for key, argument_value in value.items():
+        if not isinstance(key, str) or not isinstance(argument_value, str):
+            return None
+        arguments[key] = argument_value
+    return arguments or None

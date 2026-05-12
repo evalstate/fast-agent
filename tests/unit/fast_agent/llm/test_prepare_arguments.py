@@ -1,6 +1,7 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from mcp.types import GetPromptResult, PromptMessage, TextContent
 
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
@@ -8,6 +9,7 @@ from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 
 
 class StubLLM(FastAgentLLM):
@@ -32,6 +34,41 @@ class StubLLM(FastAgentLLM):
     ) -> list[Any]:
         """Convert messages to provider format - stub returns empty list"""
         return []
+
+
+class _PromptLoadedDisplay:
+    def __init__(self) -> None:
+        self.loaded: dict[str, Any] | None = None
+
+    async def show_prompt_loaded(self, **kwargs: Any) -> None:
+        self.loaded = dict(kwargs)
+
+
+@pytest.mark.asyncio
+async def test_apply_prompt_template_reads_arguments_from_prompt_metadata() -> None:
+    llm = StubLLM()
+    display = _PromptLoadedDisplay()
+    llm.display = cast("Any", display)
+    prompt = GetPromptResult(
+        description="Demo prompt",
+        messages=[
+            PromptMessage(
+                role="assistant",
+                content=TextContent(type="text", text="hello"),
+            )
+        ],
+    )
+    prompt = with_prompt_metadata(
+        prompt,
+        namespaced_name="server/demo",
+        arguments={"topic": "release notes"},
+    )
+
+    result = await llm.apply_prompt_template(prompt, "server/demo")
+
+    assert result == "hello"
+    assert display.loaded is not None
+    assert display.loaded["arguments"] == {"topic": "release notes"}
 
 
 class TestRequestParamsInLLM:

@@ -19,6 +19,8 @@ from mcp.shared.session import (
 )
 from mcp.types import (
     URL_ELICITATION_REQUIRED,
+    CallToolRequest,
+    CallToolRequestParams,
     CallToolResult,
     ClientCapabilities,
     ClientRequest,
@@ -995,12 +997,20 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         are properly detected and converted to ServerSessionTerminatedError.
         """
         merged_meta = self._merge_experimental_session_meta(meta)
-        return await super().call_tool(
-            name=name,
-            arguments=arguments,
-            read_timeout_seconds=read_timeout_seconds,
+        request_meta = RequestParams.Meta(**merged_meta) if merged_meta is not None else None
+        return await self.send_request(
+            ClientRequest(
+                CallToolRequest(
+                    params=CallToolRequestParams(
+                        name=name,
+                        arguments=arguments,
+                        _meta=request_meta,
+                    )
+                )
+            ),
+            CallToolResult,
+            request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
-            meta=merged_meta,
         )
 
     async def ping(self, read_timeout_seconds: timedelta | None = None) -> EmptyResult:
