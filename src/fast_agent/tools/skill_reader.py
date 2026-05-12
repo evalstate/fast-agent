@@ -193,6 +193,34 @@ class SkillReader:
                     best_server = manifest.server_name
         return best_server
 
+    @staticmethod
+    def _wrap_untrusted_mcp_content(
+        body: str, uri: str, server_name: str | None
+    ) -> str:
+        """Wrap MCP-served skill content with an untrusted-source marker.
+
+        SEP-2640 §Security Implications: "Hosts MUST treat MCP-served
+        skill content as untrusted model input, subject to the same
+        prompt-injection defenses applied to any server-provided text."
+        The wrapper is a thin defense layer that lets the model
+        distinguish skill bodies (which arrived from a connected MCP
+        server and should be treated as data, not directives) from text
+        the user typed or the host generated.
+
+        Filesystem skills are deliberately NOT wrapped — they were
+        installed by the user and inherit the user's trust level. The
+        wrapper is the one-bit signal distinguishing "I, the user, put
+        this here" from "this came over the wire from a server." The
+        preamble in `format_skills_for_prompt` teaches the model what
+        the wrapper means.
+        """
+        source = f"mcp-server: {server_name}" if server_name else "mcp-server: (unknown)"
+        return (
+            f'<untrusted-skill-content source="{source}" uri="{uri}">\n'
+            f"{body}\n"
+            f"</untrusted-skill-content>"
+        )
+
     def _read_from_archive_cache(self, uri: str) -> CallToolResult | None:
         """Return a CallToolResult if `uri` is served from an archive cache.
 
@@ -254,9 +282,16 @@ class SkillReader:
             "Read skill resource from archive cache",
             data={"uri": uri, "root": best_root, "bytes": len(data)},
         )
+        # Archive cache is server-provided content (unpacked from an MCP
+        # blob fetch). Apply the same untrusted-content wrapper as the
+        # live aggregator path — the cache is a perf layer, not a trust
+        # one. Server attribution comes from the manifest, not the cache.
+        wrapped = self._wrap_untrusted_mcp_content(
+            text, uri, self._find_server_for_uri(uri)
+        )
         return CallToolResult(
             isError=False,
-            content=[TextContent(type="text", text=text)],
+            content=[TextContent(type="text", text=wrapped)],
         )
 
     async def execute(self, arguments: dict[str, Any] | None = None) -> CallToolResult:
@@ -409,9 +444,16 @@ class SkillReader:
             "Read MCP skill resource",
             data={"uri": uri, "chars": sum(len(p) for p in text_parts)},
         )
+        # `server_name` is None on the unenumerated-URI fanout path —
+        # we don't know which server answered. The wrapper still fires;
+        # the model gets "mcp-server: (unknown)" in the source attribute,
+        # which is still better than no marker at all.
+        wrapped = self._wrap_untrusted_mcp_content(
+            "\n".join(text_parts), uri, server_name
+        )
         return CallToolResult(
             isError=False,
-            content=[TextContent(type="text", text="\n".join(text_parts))],
+            content=[TextContent(type="text", text=wrapped)],
         )
 
     async def _read_filesystem(self, path_str: str) -> CallToolResult:
