@@ -119,7 +119,7 @@ class StreamSegmentBuffer:
     def __init__(self, base_kind: SegmentKind) -> None:
         if base_kind not in ("markdown", "plain"):
             raise ValueError("base_kind must be 'markdown' or 'plain'")
-        self._base_kind = base_kind
+        self._base_kind: SegmentKind = base_kind
         self._segments: list[StreamSegment] = []
         self._pending_table_row = ""
         self._reasoning_separator_pending = False

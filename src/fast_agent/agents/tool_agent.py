@@ -939,6 +939,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         return CallToolResult(
             content=result.content,
             structuredContent=result.structured_content,
-            meta=result.meta,
+            _meta=result.meta,
             isError=False,
         )

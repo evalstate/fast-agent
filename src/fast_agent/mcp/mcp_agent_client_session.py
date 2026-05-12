@@ -19,8 +19,6 @@ from mcp.shared.session import (
 )
 from mcp.types import (
     URL_ELICITATION_REQUIRED,
-    CallToolRequest,
-    CallToolRequestParams,
     CallToolResult,
     ClientCapabilities,
     ClientRequest,
@@ -226,7 +224,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 elicitation_handler = forms_elicitation_handler
 
         # Determine effective elicitation mode for diagnostics
-        if self.server_config and getattr(self.server_config, "elicitation", None):
+        if self.server_config and self.server_config.elicitation is not None:
             self.effective_elicitation_mode = self.server_config.elicitation.mode or "forms"
         elif elicitation_handler is not None:
             # Use global config if available to distinguish auto-cancel
@@ -996,22 +994,13 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
         """
-        # Always create request ourselves to ensure we go through our send_request override
-        # This is critical for session terminated detection to work
         merged_meta = self._merge_experimental_session_meta(meta)
-        _meta: RequestParams.Meta | None = None
-        if merged_meta is not None:
-            _meta = RequestParams.Meta(**merged_meta)
-
-        # ty doesn't recognize _meta from pydantic alias - this matches SDK pattern
-        params = CallToolRequestParams(name=name, arguments=arguments, _meta=_meta)  # ty: ignore[unknown-argument]
-
-        request = CallToolRequest(method="tools/call", params=params)
-        return await self.send_request(
-            ClientRequest(request),
-            CallToolResult,
-            request_read_timeout_seconds=read_timeout_seconds,
+        return await super().call_tool(
+            name=name,
+            arguments=arguments,
+            read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
+            meta=merged_meta,
         )
 
     async def ping(self, read_timeout_seconds: timedelta | None = None) -> EmptyResult:
@@ -1024,7 +1013,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         )
 
     async def read_resource(
-        self, uri: AnyUrl | str, _meta: dict | None = None, **kwargs
+        self,
+        uri: AnyUrl | str,
+        *,
+        meta: dict[str, Any] | RequestParams.Meta | None = None,
     ) -> ReadResourceResult:
         """Read a resource with optional metadata support.
 
@@ -1037,25 +1029,20 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Always create request ourselves to ensure we go through our send_request override
         params = ReadResourceRequestParams(uri=uri_obj)
 
-        merged_meta = self._merge_experimental_session_meta(_meta)
+        supplied_meta = meta.model_dump() if isinstance(meta, RequestParams.Meta) else meta
+        merged_meta = self._merge_experimental_session_meta(supplied_meta)
         if merged_meta:
-            # Safe merge - preserve existing meta fields like progressToken
-            existing_meta = kwargs.get("meta")
-            if existing_meta:
-                meta_dict = (
-                    existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
-                )
-                meta_dict.update(merged_meta)
-                meta_obj = RequestParams.Meta(**meta_dict)
-            else:
-                meta_obj = RequestParams.Meta(**merged_meta)
-            params = ReadResourceRequestParams(uri=uri_obj, meta=meta_obj)
+            params = ReadResourceRequestParams(uri=uri_obj, _meta=RequestParams.Meta(**merged_meta))
 
         request = ReadResourceRequest(method="resources/read", params=params)
         return await self.send_request(ClientRequest(request), ReadResourceResult)
 
     async def get_prompt(
-        self, name: str, arguments: dict | None = None, _meta: dict | None = None, **kwargs
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        meta: dict[str, Any] | RequestParams.Meta | None = None,
     ) -> GetPromptResult:
         """Get a prompt with optional metadata support.
 
@@ -1065,19 +1052,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Always create request ourselves to ensure we go through our send_request override
         params = GetPromptRequestParams(name=name, arguments=arguments)
 
-        merged_meta = self._merge_experimental_session_meta(_meta)
+        supplied_meta = meta.model_dump() if isinstance(meta, RequestParams.Meta) else meta
+        merged_meta = self._merge_experimental_session_meta(supplied_meta)
         if merged_meta:
-            # Safe merge - preserve existing meta fields like progressToken
-            existing_meta = kwargs.get("meta")
-            if existing_meta:
-                meta_dict = (
-                    existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
-                )
-                meta_dict.update(merged_meta)
-                meta_obj = RequestParams.Meta(**meta_dict)
-            else:
-                meta_obj = RequestParams.Meta(**merged_meta)
-            params = GetPromptRequestParams(name=name, arguments=arguments, meta=meta_obj)
+            params = GetPromptRequestParams(
+                name=name,
+                arguments=arguments,
+                _meta=RequestParams.Meta(**merged_meta),
+            )
 
         request = GetPromptRequest(method="prompts/get", params=params)
         return await self.send_request(ClientRequest(request), GetPromptResult)

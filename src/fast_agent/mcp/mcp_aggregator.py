@@ -1682,12 +1682,7 @@ class MCPAggregator(ContextDependent):
                 # Prepare kwargs
                 kwargs = method_args or {}
                 if metadata:
-                    # call_tool expects `meta=` (matching MCP ClientSession API)
-                    # while read_resource/get_prompt use our local `_meta=` adapter.
-                    if method_name == "call_tool":
-                        kwargs["meta"] = metadata
-                    else:
-                        kwargs["_meta"] = metadata
+                    kwargs["meta"] = metadata
 
                 # For call_tool method, check if we need to add progress_callback
                 if method_name == "call_tool" and progress_callback:

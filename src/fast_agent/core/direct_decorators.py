@@ -49,13 +49,15 @@ from fast_agent.types import RequestParams
 # Type variables for the decorated function
 P = ParamSpec("P")  # Parameters
 R = TypeVar("R", covariant=True)  # Return type
+ToolP = ParamSpec("ToolP")
+ToolR = TypeVar("ToolR")
 
 
 class ScopedToolDecoratorProtocol(Protocol):
     """Protocol for per-agent ``.tool`` decorators."""
 
     @overload
-    def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]: ...
+    def __call__(self, fn: Callable[ToolP, ToolR], /) -> Callable[ToolP, ToolR]: ...
 
     @overload
     def __call__(
@@ -63,7 +65,7 @@ class ScopedToolDecoratorProtocol(Protocol):
         *,
         name: str | None = None,
         description: str | None = None,
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+    ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
 
 
 # Protocol for decorated agent functions
@@ -80,6 +82,21 @@ class DecoratedToolCapableAgentProtocol(DecoratedAgentProtocol[P, R], Protocol):
     """Protocol for decorated agent functions that expose ``.tool``."""
 
     tool: ScopedToolDecoratorProtocol
+
+
+def _attach_scoped_tool_decorator(
+    func: Callable[P, Coroutine[Any, Any, R]],
+    tool: ScopedToolDecoratorProtocol,
+) -> DecoratedToolCapableAgentProtocol[P, R]:
+    """Attach a typed per-agent tool decorator to an agent function.
+
+    Decorated Python functions have a writable ``__dict__`` at runtime. The
+    protocol return type makes the intentional ``.tool`` API visible to type
+    checkers and IDEs while preserving the original function object.
+    """
+    decorated = cast("DecoratedToolCapableAgentProtocol[P, R]", func)
+    decorated.tool = tool
+    return decorated
 
 
 # Protocol for orchestrator functions
@@ -290,12 +307,12 @@ def _decorator_impl(
             setattr(func, f"_{key}", value)
 
         @overload
-        def _agent_tool(fn: Callable[..., Any], /) -> Callable[..., Any]: ...
+        def _agent_tool(fn: Callable[ToolP, ToolR], /) -> Callable[ToolP, ToolR]: ...
 
         @overload
         def _agent_tool(
             *, name: str | None = None, description: str | None = None
-        ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+        ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
 
         def _agent_tool(
             fn: Callable[..., Any] | None = None,
@@ -338,7 +355,7 @@ def _decorator_impl(
             agent_type,
             custom_cls=extra_kwargs.get("agent_class") or extra_kwargs.get("cls"),
         ):
-            func.tool = _agent_tool  # type: ignore[attr-defined]
+            return _attach_scoped_tool_decorator(func, _agent_tool)
 
         return func
 
@@ -362,7 +379,7 @@ class DecoratorMixin:
     _registered_tools: "list[FunctionTool]"
 
     @overload
-    def tool(self, func: Callable[..., Any], /) -> Callable[..., Any]: ...
+    def tool(self, func: Callable[ToolP, ToolR]) -> Callable[ToolP, ToolR]: ...
 
     @overload
     def tool(
@@ -370,12 +387,11 @@ class DecoratorMixin:
         *,
         name: str | None = None,
         description: str | None = None,
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+    ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
 
     def tool(
         self,
         func: Callable[..., Any] | None = None,
-        /,
         *,
         name: str | None = None,
         description: str | None = None,

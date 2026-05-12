@@ -416,19 +416,23 @@ class _DiffLive(RenderHook):
 class NullStreamingHandle:
     """No-op streaming handle used when streaming is disabled."""
 
-    def update(self, _chunk: str) -> None:
+    def update(self, chunk: str) -> None:
+        del chunk
         return
 
-    def update_chunk(self, _chunk: StreamChunk) -> None:
+    def update_chunk(self, chunk: StreamChunk) -> None:
+        del chunk
         return
 
-    def finalize(self, _message: "PromptMessageExtended | str") -> None:
+    def finalize(self, message: "PromptMessageExtended | str") -> None:
+        del message
         return
 
     def close(self) -> None:
         return
 
-    def handle_tool_event(self, _event_type: str, info: dict[str, Any] | None = None) -> None:
+    def handle_tool_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
+        del event_type, info
         return
 
     def has_scrolled(self) -> bool:
@@ -699,7 +703,8 @@ class StreamingMessageHandle:
         if now - self._scroll_indicator_pending_since >= SCROLL_INDICATOR_DEBOUNCE_SECONDS:
             self._set_scroll_indicator_visible(True)
 
-    def finalize(self, _message: "PromptMessageExtended | str") -> None:
+    def finalize(self, message: "PromptMessageExtended | str") -> None:
+        del message
         if not self._active or self._finalized:
             return
 

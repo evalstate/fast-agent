@@ -587,7 +587,7 @@ def build_model_overlay_manifest_from_database(
     # Map ModelParameters fields that are supported by ModelOverlayMetadata
     json_mode: Literal["schema", "object"] | None = None
     if existing.json_mode in ("schema", "object"):
-        json_mode = existing.json_mode  # type: ignore[assignment]
+        json_mode = "schema" if existing.json_mode == "schema" else "object"
 
     metadata = ModelOverlayMetadata(
         context_window=existing.context_window,

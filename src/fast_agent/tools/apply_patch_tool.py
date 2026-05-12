@@ -53,7 +53,7 @@ def build_apply_patch_tool() -> Tool:
             "required": [APPLY_PATCH_INPUT_FIELD],
             "additionalProperties": False,
         },
-        meta={
+        _meta={
             OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY: {
                 "type": "custom",
                 "format": {

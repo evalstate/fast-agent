@@ -140,7 +140,7 @@ async def test_execute_on_server_uses_meta_for_call_tool() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_on_server_keeps__meta_for_read_resource() -> None:
+async def test_execute_on_server_uses_meta_for_read_resource() -> None:
     session = _RecordingSession()
     aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
     setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
@@ -165,8 +165,8 @@ async def test_execute_on_server_keeps__meta_for_read_resource() -> None:
 
     assert result == "ok-read"
     assert session.last_kwargs is not None
-    assert session.last_kwargs.get("_meta") == metadata
-    assert "meta" not in session.last_kwargs
+    assert session.last_kwargs.get("meta") == metadata
+    assert "_meta" not in session.last_kwargs
 
 
 @pytest.mark.asyncio
