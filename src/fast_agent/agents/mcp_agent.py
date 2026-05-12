@@ -72,7 +72,8 @@ from fast_agent.mcp.mcp_aggregator import (
     ServerStatus,
 )
 from fast_agent.mcp.mcp_skills_loader import (
-    INDEX_URI as SKILL_INDEX_URI,
+    INDEX_URI,
+    SkillTemplateEntry,
     load_mcp_skill_manifests,
     merge_filesystem_and_mcp_manifests,
 )
@@ -211,7 +212,7 @@ class McpAgent(ABC, ToolAgent):
         # Discovered `mcp-resource-template` entries (Feature 3). These
         # are not registered as concrete manifests until the user
         # resolves them via `/skills resolve`.
-        self._skill_template_entries: list = []
+        self._skill_template_entries: list[SkillTemplateEntry] = []
         # Servers we successfully subscribed to `skill://index.json` on.
         # Tracked so a re-subscribe attempt after server reconnect can be
         # idempotent and we don't double-register the notification hook.
@@ -708,7 +709,7 @@ class McpAgent(ABC, ToolAgent):
             if server_name in self._skill_subscribed_servers:
                 continue
             try:
-                ok = await agg.subscribe_to_resource(server_name, SKILL_INDEX_URI)
+                ok = await agg.subscribe_to_resource(server_name, INDEX_URI)
             except Exception:
                 ok = False
             if ok:
@@ -733,7 +734,7 @@ class McpAgent(ABC, ToolAgent):
             return
 
         uri = str(root.params.uri).rstrip("/")
-        if uri != SKILL_INDEX_URI.rstrip("/"):
+        if uri != INDEX_URI.rstrip("/"):
             return
 
         # Re-discover skills for this server in a background task — the
@@ -829,13 +830,13 @@ class McpAgent(ABC, ToolAgent):
             )
 
     @property
-    def skill_template_entries(self) -> list:
+    def skill_template_entries(self) -> list[SkillTemplateEntry]:
         """Discovered `mcp-resource-template` entries awaiting resolution."""
         return list(self._skill_template_entries)
 
     async def complete_skill_template_argument(
         self,
-        template,
+        template: SkillTemplateEntry,
         argument_name: str,
         value: str = "",
         context_args: dict[str, str] | None = None,
@@ -858,7 +859,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def register_resolved_skill_template(
         self,
-        template,
+        template: SkillTemplateEntry,
         variables: dict[str, str],
     ) -> "SkillManifest | None":
         """Expand `template` against `variables`, fetch the resulting SKILL.md,
