@@ -42,19 +42,22 @@ from fast_agent.core.function_tool_support import (
     decorator_supports_scoped_function_tools,
 )
 from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
+from fast_agent.io.source_resolver import read_text_source
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 
 # Type variables for the decorated function
 P = ParamSpec("P")  # Parameters
 R = TypeVar("R", covariant=True)  # Return type
+ToolP = ParamSpec("ToolP")
+ToolR = TypeVar("ToolR")
 
 
 class ScopedToolDecoratorProtocol(Protocol):
     """Protocol for per-agent ``.tool`` decorators."""
 
     @overload
-    def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]: ...
+    def __call__(self, fn: Callable[ToolP, ToolR], /) -> Callable[ToolP, ToolR]: ...
 
     @overload
     def __call__(
@@ -62,7 +65,7 @@ class ScopedToolDecoratorProtocol(Protocol):
         *,
         name: str | None = None,
         description: str | None = None,
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+    ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
 
 
 # Protocol for decorated agent functions
@@ -79,6 +82,21 @@ class DecoratedToolCapableAgentProtocol(DecoratedAgentProtocol[P, R], Protocol):
     """Protocol for decorated agent functions that expose ``.tool``."""
 
     tool: ScopedToolDecoratorProtocol
+
+
+def _attach_scoped_tool_decorator(
+    func: Callable[P, Coroutine[Any, Any, R]],
+    tool: ScopedToolDecoratorProtocol,
+) -> DecoratedToolCapableAgentProtocol[P, R]:
+    """Attach a typed per-agent tool decorator to an agent function.
+
+    Decorated Python functions have a writable ``__dict__`` at runtime. The
+    protocol return type makes the intentional ``.tool`` API visible to type
+    checkers and IDEs while preserving the original function object.
+    """
+    decorated = cast("DecoratedToolCapableAgentProtocol[P, R]", func)
+    decorated.tool = tool
+    return decorated
 
 
 # Protocol for orchestrator functions
@@ -128,27 +146,6 @@ class DecoratedMakerProtocol(DecoratedAgentProtocol[P, R], Protocol):
     _max_samples: int
 
 
-def _fetch_url_content(url: str) -> str:
-    """
-    Fetch content from a URL.
-
-    Args:
-        url: The URL to fetch content from
-
-    Returns:
-        The text content from the URL
-
-    Raises:
-        requests.RequestException: If the URL cannot be fetched
-        UnicodeDecodeError: If the content cannot be decoded as UTF-8
-    """
-    import requests
-
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()  # Raise exception for HTTP errors
-    return response.text
-
-
 def _apply_templates(text: str) -> str:
     """
     Apply template substitutions to instruction text.
@@ -156,6 +153,7 @@ def _apply_templates(text: str) -> str:
     Supported templates:
         {{currentDate}} - Current date in format "24 July 2025"
         {{url:https://...}} - Content fetched from the specified URL
+        {{url:hf://...}} - Content fetched from Hugging Face Hub
 
     Note: File templates ({{file:...}} and {{file_silent:...}}) are resolved later
     during runtime to ensure they're relative to the workspaceRoot.
@@ -180,11 +178,11 @@ def _apply_templates(text: str) -> str:
     text = text.replace("{{currentDate}}", current_date)
 
     # Apply {{url:...}} templates
-    url_pattern = re.compile(r"\{\{url:(https?://[^}]+)\}\}")
+    url_pattern = re.compile(r"\{\{url:((?:https?|hf)://[^}]+)\}\}")
 
     def replace_url(match):
         url = match.group(1)
-        return _fetch_url_content(url)
+        return read_text_source(url, label="URL template")
 
     text = url_pattern.sub(replace_url, text)
 
@@ -208,9 +206,9 @@ def _resolve_instruction(instruction: str | Path | AnyUrl) -> str:
         requests.RequestException: If the URL cannot be fetched
     """
     if isinstance(instruction, Path):
-        text = instruction.read_text(encoding="utf-8")
+        text = read_text_source(instruction, label="instruction")
     elif isinstance(instruction, AnyUrl):
-        text = _fetch_url_content(str(instruction))
+        text = read_text_source(str(instruction), label="instruction")
     else:
         text = instruction
 
@@ -309,12 +307,12 @@ def _decorator_impl(
             setattr(func, f"_{key}", value)
 
         @overload
-        def _agent_tool(fn: Callable[..., Any], /) -> Callable[..., Any]: ...
+        def _agent_tool(fn: Callable[ToolP, ToolR], /) -> Callable[ToolP, ToolR]: ...
 
         @overload
         def _agent_tool(
             *, name: str | None = None, description: str | None = None
-        ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+        ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
 
         def _agent_tool(
             fn: Callable[..., Any] | None = None,
@@ -357,7 +355,7 @@ def _decorator_impl(
             agent_type,
             custom_cls=extra_kwargs.get("agent_class") or extra_kwargs.get("cls"),
         ):
-            func.tool = _agent_tool  # type: ignore[attr-defined]
+            return _attach_scoped_tool_decorator(func, _agent_tool)
 
         return func
 
@@ -381,7 +379,7 @@ class DecoratorMixin:
     _registered_tools: "list[FunctionTool]"
 
     @overload
-    def tool(self, func: Callable[..., Any], /) -> Callable[..., Any]: ...
+    def tool(self, func: Callable[ToolP, ToolR]) -> Callable[ToolP, ToolR]: ...
 
     @overload
     def tool(
@@ -389,12 +387,11 @@ class DecoratorMixin:
         *,
         name: str | None = None,
         description: str | None = None,
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+    ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
 
     def tool(
         self,
         func: Callable[..., Any] | None = None,
-        /,
         *,
         name: str | None = None,
         description: str | None = None,

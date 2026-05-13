@@ -336,7 +336,7 @@ def session_info_from_snapshot(snapshot: SessionSnapshot) -> "SessionInfo":
     """Project a typed snapshot into the existing SessionInfo compatibility view."""
     from fast_agent.session.session_manager import SessionInfo
 
-    metadata: dict[str, JsonValue | str | bool] = dict(snapshot.metadata.extras)
+    metadata: dict[str, JsonValue] = dict(snapshot.metadata.extras)
     if snapshot.metadata.title is not None:
         metadata["title"] = snapshot.metadata.title
     if snapshot.metadata.label is not None:
@@ -355,7 +355,7 @@ def session_info_from_snapshot(snapshot: SessionSnapshot) -> "SessionInfo":
         metadata["acp_session_id"] = snapshot.continuation.lineage.acp_session_id
 
     history_files: list[str] = []
-    history_map: dict[str, str] = {}
+    history_map: dict[str, JsonValue] = {}
     for agent_name, agent_snapshot in snapshot.continuation.agents.items():
         history_file = agent_snapshot.history_file
         if history_file is None:

@@ -13,6 +13,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 import fast_agent.config as config_module
 from fast_agent.config import load_yaml_mapping
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.home import resolve_fast_agent_home
@@ -586,7 +587,7 @@ def build_model_overlay_manifest_from_database(
     # Map ModelParameters fields that are supported by ModelOverlayMetadata
     json_mode: Literal["schema", "object"] | None = None
     if existing.json_mode in ("schema", "object"):
-        json_mode = existing.json_mode  # type: ignore[assignment]
+        json_mode = "schema" if existing.json_mode == "schema" else "object"
 
     metadata = ModelOverlayMetadata(
         context_window=existing.context_window,
@@ -671,7 +672,12 @@ def _settings_environment_override(
 
     base_path = (start_path or Path.cwd()).resolve()
     if start_path is None and config_file is not None:
-        base_path = Path(config_file).expanduser().resolve().parent
+        config_parent = Path(config_file).expanduser().resolve().parent
+        base_path = (
+            config_parent.parent
+            if config_parent.name == DEFAULT_ENVIRONMENT_DIR
+            else config_parent
+        )
 
     return base_path, environment_dir
 

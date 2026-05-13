@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import shlex
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
+from urllib.parse import urlparse
 
 import typer
 
@@ -28,6 +28,8 @@ from .run_request import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fast_agent.llm.request_params import StructuredToolPolicy
 
 CARD_EXTENSIONS: Final[frozenset[str]] = frozenset({".md", ".markdown", ".yaml", ".yml"})
@@ -245,17 +247,21 @@ def resolve_instruction_option(
 
     if instruction:
         try:
-            from pydantic import AnyUrl
-
             from fast_agent.core.direct_decorators import _resolve_instruction
+            from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
 
-            if instruction.startswith(("http://", "https://")):
-                resolved_instruction = _resolve_instruction(AnyUrl(instruction))
-            else:
-                resolved_instruction = _resolve_instruction(Path(instruction))
-                instruction_path = Path(instruction)
-                if instruction_path.exists() and instruction_path.is_file():
-                    agent_name = instruction_path.stem
+            instruction_path = materialize_text_source(
+                instruction,
+                label="instruction",
+            )
+            resolved_instruction = _resolve_instruction(instruction_path)
+            parsed_instruction = urlparse(str(instruction))
+            if (
+                parsed_instruction.scheme not in REMOTE_TEXT_SCHEMES
+                and instruction_path.exists()
+                and instruction_path.is_file()
+            ):
+                agent_name = instruction_path.stem
         except Exception as exc:
             typer.echo(f"Error loading instruction from {instruction}: {exc}", err=True)
             raise typer.Exit(1) from exc

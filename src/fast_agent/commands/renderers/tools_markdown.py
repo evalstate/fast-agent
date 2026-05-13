@@ -6,7 +6,7 @@ import textwrap
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fast_agent.commands.tool_summaries import ToolSummary
+    from fast_agent.commands.tool_summaries import ProviderToolSummary, ToolSummary
 
 
 def _format_args(args: list[str] | None) -> str | None:
@@ -28,8 +28,21 @@ def _format_header(*, index: int, summary: "ToolSummary") -> str:
     return header
 
 
-def render_tools_markdown(summaries: list["ToolSummary"], *, heading: str) -> str:
+def _format_provider_tool(summary: "ProviderToolSummary") -> str:
+    state = "enabled" if summary.enabled else "disabled"
+    return f"- **{summary.name}** _(provider-hosted, {state})_ — {summary.description}"
+
+
+def render_tools_markdown(
+    summaries: list["ToolSummary"],
+    *,
+    heading: str,
+    provider_summaries: list["ProviderToolSummary"] | None = None,
+) -> str:
     lines = [f"# {heading}", ""]
+
+    if summaries:
+        lines.extend(["## MCP / local tools", ""])
 
     for index, summary in enumerate(summaries, start=1):
         lines.append(_format_header(index=index, summary=summary))
@@ -50,5 +63,11 @@ def render_tools_markdown(summaries: list["ToolSummary"], *, heading: str) -> st
             lines.append(f"    > **Template:** `{summary.template}`")
 
         lines.append("")
+
+    if provider_summaries:
+        if summaries:
+            lines.append("")
+        lines.extend(["## Provider-hosted tools", ""])
+        lines.extend(_format_provider_tool(summary) for summary in provider_summaries)
 
     return "\n".join(lines).rstrip()

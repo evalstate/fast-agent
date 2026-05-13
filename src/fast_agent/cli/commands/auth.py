@@ -30,7 +30,8 @@ app = typer.Typer(
     help=(
         "Manage OAuth tokens stored in the OS keyring for MCP HTTP/SSE servers "
         "(identity = base URL)."
-    )
+    ),
+    add_completion=False,
 )
 
 
@@ -89,7 +90,13 @@ def _servers_by_identity(settings: Settings) -> dict[str, list[str]]:
 @app.command()
 def status(
     target: str | None = typer.Argument(None, help="Identity (base URL) or server name"),
-    config_path: str | None = typer.Option(None, "--config-path", "-c"),
+    config_path: str | None = typer.Option(
+        None,
+        "--config-path",
+        "-c",
+        metavar="<path-or-uri>",
+        help="Path, HTTP(S) URL, file:// URI, or hf:// URI to config file",
+    ),
 ) -> None:
     """Show keyring backend and token status for configured MCP servers (identity = base URL)."""
     settings = get_settings_or_exit(config_path)
@@ -237,7 +244,13 @@ def clear(
         None, "--identity", help="Token identity (base URL) to clear"
     ),
     all: bool = typer.Option(False, "--all", help="Clear tokens for all identities in keyring"),
-    config_path: str | None = typer.Option(None, "--config-path", "-c"),
+    config_path: str | None = typer.Option(
+        None,
+        "--config-path",
+        "-c",
+        metavar="<path-or-uri>",
+        help="Path, HTTP(S) URL, file:// URI, or hf:// URI to config file",
+    ),
 ) -> None:
     """Clear stored OAuth tokens from the keyring by server name or identity (base URL)."""
     targets_identities: list[str] = []
@@ -273,7 +286,14 @@ def clear(
 
 @app.callback(invoke_without_command=True)
 def main(
-    ctx: typer.Context, config_path: str | None = typer.Option(None, "--config-path", "-c")
+    ctx: typer.Context,
+    config_path: str | None = typer.Option(
+        None,
+        "--config-path",
+        "-c",
+        metavar="<path-or-uri>",
+        help="Path, HTTP(S) URL, file:// URI, or hf:// URI to config file",
+    ),
 ) -> None:
     """Default to showing status if no subcommand is provided."""
     if ctx.invoked_subcommand is None:
@@ -370,7 +390,13 @@ def login(
     transport: str | None = typer.Option(
         None, "--transport", help="Transport for identity mode: http or sse"
     ),
-    config_path: str | None = typer.Option(None, "--config-path", "-c"),
+    config_path: str | None = typer.Option(
+        None,
+        "--config-path",
+        "-c",
+        metavar="<path-or-uri>",
+        help="Path, HTTP(S) URL, file:// URI, or hf:// URI to config file",
+    ),
 ) -> None:
     """Start OAuth flow and store tokens in the keyring for a server.
 

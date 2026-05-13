@@ -1511,6 +1511,12 @@ class Settings(BaseSettings):
     model_references: dict[str, dict[str, str]] = Field(default_factory=dict)
     """Model references grouped by namespace (e.g. $system.default)."""
 
+    model_source: str | None = None
+    """Where the default model was resolved from for the current run, if noteworthy."""
+
+    cli_model_override: str | None = None
+    """Model override supplied by the CLI for the current run, if any."""
+
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
 

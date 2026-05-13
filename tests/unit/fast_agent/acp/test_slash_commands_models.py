@@ -27,7 +27,7 @@ class _Agent:
 
 class _FastModeLlm:
     service_tier_supported = True
-    available_service_tiers = ("fast", "flex")
+    available_service_tiers: tuple[str, ...] = ("fast", "flex")
     task_budget_supported = False
 
     def __init__(self) -> None:
@@ -40,7 +40,7 @@ class _FastModeLlm:
         self.web_search_enabled = False
         self.web_fetch_enabled = False
         self.service_tier_supported = True
-        self.available_service_tiers = ("fast", "flex")
+        self.available_service_tiers: tuple[str, ...] = ("fast", "flex")
         self.task_budget_supported = False
         self.task_budget_tokens: int | None = None
         self.resolved_model = None
@@ -248,7 +248,7 @@ async def test_slash_command_model_task_budget() -> None:
 async def test_slash_command_model_fast_hint_omits_flex_for_codexresponses() -> None:
     app = _App()
     agent = _FastModeAgent()
-    agent.llm.provider = "codexresponses"
+    agent.llm.provider = Provider.CODEX_RESPONSES
     agent.llm.available_service_tiers = ("fast",)
     instance = AgentInstance(
         app=cast("AgentApp", app),

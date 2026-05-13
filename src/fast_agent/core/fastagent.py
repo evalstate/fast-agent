@@ -314,7 +314,7 @@ class FastAgent(DecoratorMixin):
                 "--card-tool",
                 action="append",
                 dest="card_tools",
-                help="Path or URL to an AgentCard file to load as a tool (repeatable)",
+                help="Path, HTTP(S) URL, file:// URI, or hf:// URI to an AgentCard file to load as a tool (repeatable)",
             )
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
@@ -516,6 +516,7 @@ class FastAgent(DecoratorMixin):
         but without relying on the global cache."""
 
         import fast_agent.config as _config_module
+        from fast_agent.io.source_resolver import materialize_text_source
 
         # Temporarily clear the global settings to ensure a fresh load
         old_settings = _config_module._settings
@@ -523,8 +524,13 @@ class FastAgent(DecoratorMixin):
 
         try:
             # Use get_settings to load config - this handles all paths and secrets merging
+            resolved_config_path = (
+                materialize_text_source(self.config_path, label="config file", suffix=".yaml")
+                if self.config_path is not None
+                else None
+            )
             settings = _config_module.get_settings(
-                self.config_path,
+                resolved_config_path,
                 env_dir=self._environment_dir_override,
                 noenv=bool(getattr(self.args, "noenv", False)),
             )
@@ -555,7 +561,7 @@ class FastAgent(DecoratorMixin):
 
     def load_agents(self, path: str | Path) -> list[str]:
         """
-        Load AgentCards from a file or directory and register them as agents.
+        Load AgentCards from a file, directory, or URI and register them as agents.
 
         Loading is idempotent for the provided path: any previously loaded agents
         from the same path that are no longer present are removed.
@@ -563,35 +569,38 @@ class FastAgent(DecoratorMixin):
         Returns:
             Sorted list of agent names loaded from the provided path.
         """
-        root = Path(path).expanduser().resolve()
+        from urllib.parse import urlparse
+
+        from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
+
+        source = str(path)
+        parsed = urlparse(source)
+        if parsed.scheme in REMOTE_TEXT_SCHEMES:
+            return self.load_agents_from_url(source)
+
+        root = (
+            materialize_text_source(source, label="AgentCard source")
+            if parsed.scheme == "file"
+            else Path(path)
+        ).expanduser().resolve()
         changed = self._load_agent_cards_from_root(root, incremental=False)
         if changed:
             self._agent_registry_version += 1
         return sorted(self._agent_card_roots.get(root, set()))
 
     def load_agents_from_url(self, url: str) -> list[str]:
-        """Load an AgentCard from a URL (markdown or YAML)."""
-        import tempfile
+        """Load an AgentCard from a remote URL or hf:// URI (markdown or YAML)."""
+        from urllib.parse import urlparse
 
         from fast_agent.core.agent_card_loader import load_agent_cards
-        from fast_agent.core.direct_decorators import _fetch_url_content
+        from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
 
-        content = _fetch_url_content(url)
+        parsed = urlparse(url)
+        if parsed.scheme not in REMOTE_TEXT_SCHEMES:
+            return self.load_agents(url)
 
-        # Determine extension from URL
-        suffix = ".md"
-        url_lower = url.lower()
-        if url_lower.endswith((".yaml", ".yml")):
-            suffix = ".yaml"
-        elif url_lower.endswith((".md", ".markdown")):
-            suffix = ".md"
-
-        # Write to temp file and parse
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=suffix, delete=False, encoding="utf-8"
-        ) as f:
-            f.write(content)
-            temp_path = Path(f.name)
+        suffix = Path(parsed.path).suffix or ".md"
+        temp_path = materialize_text_source(url, label="AgentCard URL", suffix=suffix)
 
         try:
             cards = load_agent_cards(temp_path)
@@ -1452,19 +1461,23 @@ class FastAgent(DecoratorMixin):
             quiet_mode = True
             configure_console_stream("stderr")
 
-        cli_model_override = getattr(self.args, "model", None)
+        cli_model_arg = getattr(self.args, "model", None)
+        cli_model_override = cli_model_arg if isinstance(cli_model_arg, str) else None
         noenv_mode = bool(getattr(self.args, "noenv", False))
 
         cfg = self.context.config
-        model_source_override = getattr(self.args, "model_source_override", None)
+        model_source_override_arg = getattr(self.args, "model_source_override", None)
+        model_source_override = (
+            model_source_override_arg if isinstance(model_source_override_arg, str) else None
+        )
         model_source = model_source_override or get_default_model_source(
             config_default_model=cfg.default_model if cfg else None,
             cli_model=cli_model_override,
             model_references=cfg.model_references if cfg else None,
         )
         if cfg:
-            cfg.model_source = model_source  # type: ignore[attr-defined]
-            cfg.cli_model_override = cli_model_override  # type: ignore[attr-defined]
+            cfg.model_source = model_source
+            cfg.cli_model_override = cli_model_override
             if noenv_mode:
                 cfg.session_history = False
 
@@ -1584,11 +1597,11 @@ class FastAgent(DecoratorMixin):
         app_override: AgentApp | None = None,
     ) -> AgentInstance:
         async with runtime.instance_lock:
-            self.app._registered_tools = self._registered_tools  # type: ignore[attr-defined]
             agents_map = await create_agents_in_dependency_order(
                 self.app,
                 self.agents,
                 runtime.model_factory_func,
+                global_function_tools=self._registered_tools,
             )
             if not runtime.is_acp_server_mode:
                 validate_provider_keys_post_creation(agents_map)
@@ -1696,6 +1709,7 @@ class FastAgent(DecoratorMixin):
                 self.app,
                 self.agents,
                 model_factory_func,
+                self._registered_tools,
                 group_targets,
                 active_agents,
             )
@@ -1927,10 +1941,7 @@ class FastAgent(DecoratorMixin):
         *,
         should_refresh: bool,
     ) -> tuple[list[str], list[str]]:
-        if source.startswith(("http://", "https://")):
-            loaded_names = self.load_agents_from_url(source)
-        else:
-            loaded_names = self.load_agents(source)
+        loaded_names = self.load_agents(source)
 
         added_names: list[str] = []
         if parent_name:
@@ -2236,10 +2247,7 @@ class FastAgent(DecoratorMixin):
         card_tool_agent_names: list[str] = []
         try:
             for card_source in card_tools:
-                if card_source.startswith(("http://", "https://")):
-                    names = self.load_agents_from_url(card_source)
-                else:
-                    names = self.load_agents(card_source)
+                names = self.load_agents(card_source)
                 card_tool_agent_names.extend(names)
         except AgentConfigError as exc:
             self._handle_error(exc)
@@ -2431,7 +2439,7 @@ class FastAgent(DecoratorMixin):
             return
 
         agent_name = getattr(self.args, "agent", None)
-        prompt: list[PromptMessageExtended] = load_prompt(Path(prompt_file))
+        prompt: list[PromptMessageExtended] = load_prompt(prompt_file)
         try:
             agent = self._get_selected_agent(state.wrapper, state.active_agents, agent_name)
             prompt_result = await agent.generate(prompt)

@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -144,14 +145,14 @@ class _StubLLM:
             self.default_request_params = self.default_request_params.model_copy(
                 update=sampling_overrides
             )
-        self.reasoning_effort_spec = ReasoningEffortSpec(
+        self.reasoning_effort_spec: ReasoningEffortSpec | None = ReasoningEffortSpec(
             kind="effort",
             allowed_efforts=["low", "medium", "high", "max"],
             allow_auto=True,
             default=ReasoningEffortSetting(kind="effort", value="auto"),
         )
         self.reasoning_effort = None
-        self.text_verbosity_spec = TextVerbositySpec()
+        self.text_verbosity_spec: TextVerbositySpec | None = TextVerbositySpec()
         self.text_verbosity = None
         self.configured_transport = "sse"
         self.active_transport = None
@@ -265,7 +266,7 @@ class _StubAgent:
         self.llm = llm
         self._llm = llm
         self.shell_runtime = _StubShellRuntime(shell_limit) if shell_limit is not None else None
-        self.config = type("Config", (), {"model": llm.model_name})()
+        self.config = SimpleNamespace(model=llm.model_name)
         self._set_model_error = set_model_error
 
     async def set_model(self, model: str | None) -> None:

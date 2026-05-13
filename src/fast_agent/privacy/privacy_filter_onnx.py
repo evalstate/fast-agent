@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
+from fast_agent.privacy.dependencies import (
+    PRIVACY_EXTRA_INSTALL_MESSAGE,
+    PRIVACY_EXTRA_REQUIREMENTS,
+    format_missing_privacy_dependencies,
+    missing_privacy_dependencies,
+)
 from fast_agent.privacy.model_resolver import (
     DEFAULT_PRIVACY_FILTER_REPO,
     DEFAULT_PRIVACY_FILTER_REVISION,
@@ -273,13 +279,25 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
 
     def _load_runtime(self) -> tuple[Any, Any, Any]:
         try:
-            np = import_module("numpy")
-            ort = import_module("onnxruntime")
-            tokenizers = import_module("tokenizers")
+            modules = {
+                module_name: import_module(module_name)
+                for module_name in PRIVACY_EXTRA_REQUIREMENTS
+            }
+            np = modules["numpy"]
+            ort = modules["onnxruntime"]
+            tokenizers = modules["tokenizers"]
         except Exception as exc:
+            missing = missing_privacy_dependencies()
+            message = (
+                format_missing_privacy_dependencies(missing)
+                if missing
+                else (
+                    "Privacy filtering requires optional dependencies, but one failed "
+                    f"to load. {PRIVACY_EXTRA_INSTALL_MESSAGE}"
+                )
+            )
             raise SessionExportPrivacyFilterError(
-                "Privacy filtering requires optional dependencies. "
-                "Install with `fast-agent-mcp[privacy]`."
+                message
             ) from exc
 
         # Only try to preload CUDA / cuDNN DLLs when CUDA is actually in play.

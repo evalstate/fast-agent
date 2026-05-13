@@ -27,7 +27,7 @@ if "a2a" not in sys.modules:
     a2a_types_module = types.ModuleType("a2a.types")
     setattr(a2a_types_module, "AgentCard", object)
     setattr(a2a_types_module, "AgentSkill", object)
-    a2a_module.types = a2a_types_module  # type: ignore[attr-defined]
+    setattr(a2a_module, "types", a2a_types_module)
     sys.modules["a2a"] = a2a_module
     sys.modules["a2a.types"] = a2a_types_module
 

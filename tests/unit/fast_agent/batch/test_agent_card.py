@@ -38,6 +38,16 @@ def test_single_runnable_agent_is_selected(tmp_path):
     assert selection.loaded_names == ["extractor"]
 
 
+def test_file_uri_agent_card_is_selected(tmp_path):
+    card = tmp_path / "extractor.md"
+    _card(card, name="extractor")
+
+    selection = load_batch_agent_card(_fast(tmp_path), card.as_uri(), None)
+
+    assert selection.target_name == "extractor"
+    assert selection.loaded_names == ["extractor"]
+
+
 def test_directory_default_agent_is_selected(tmp_path):
     cards = tmp_path / "cards"
     cards.mkdir()

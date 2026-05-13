@@ -138,6 +138,42 @@ def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) ->
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
+def test_overlay_group_curated_scope_includes_non_current_local_overlays(
+    tmp_path: Path,
+) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    overlays_dir = env_dir / "model-overlays"
+    overlays_dir.mkdir(parents=True)
+    (overlays_dir / "legacylocal.yaml").write_text(
+        "\n".join(
+            [
+                "name: legacylocal",
+                "provider: anthropic",
+                "model: claude-haiku-4-5",
+                "picker:",
+                "  current: false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    try:
+        snapshot = build_snapshot(config_payload={})
+        overlay_group = _overlay_group(snapshot)
+        overlay_options = model_options_for_option(snapshot, overlay_group, source="curated")
+        assert any(option.preset_token == "legacylocal" for option in overlay_options)
+    finally:
+        empty_env_dir = tmp_path / ".empty-fast-agent-legacy-overlays"
+        empty_env_dir.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, env_dir=empty_env_dir)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
 def test_build_snapshot_shows_empty_overlay_group_even_without_overlays(tmp_path: Path) -> None:
     empty_env_dir = tmp_path / ".fast-agent"
     empty_env_dir.mkdir(parents=True, exist_ok=True)
@@ -192,6 +228,13 @@ def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
 
     generic_option = next(provider for provider in snapshot.providers if provider.option_key == Provider.GENERIC.config_name)
     assert generic_option.option_display_name == "Generic (ollama)"
+
+
+def test_build_snapshot_uses_xai_brand_casing() -> None:
+    snapshot = build_snapshot(config_payload={})
+    option = next(provider for provider in snapshot.providers if provider.option_key == Provider.XAI.config_name)
+
+    assert option.option_display_name == "xAI"
 
 
 def test_refer_to_docs_providers_show_docs_option() -> None:
@@ -399,6 +442,51 @@ def test_build_snapshot_loads_overlays_for_explicit_env_config_path(tmp_path: Pa
         assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
     finally:
         reset_env_dir = tmp_path / ".empty-fast-agent-explicit-env-config"
+        reset_env_dir.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
+def test_build_snapshot_loads_overlays_when_settings_config_lives_in_env_dir(
+    tmp_path: Path,
+) -> None:
+    from fast_agent.config import Settings
+    from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
+
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    overlays_dir = env_dir / "model-overlays"
+    overlays_dir.mkdir(parents=True)
+    (overlays_dir / "haikutiny.yaml").write_text(
+        "\n".join(
+            [
+                "name: haikutiny",
+                "provider: anthropic",
+                "model: claude-haiku-4-5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_path = env_dir / "fast-agent.yaml"
+    config_path.write_text("default_model: sonnet\n", encoding="utf-8")
+    settings = Settings(environment_dir=None)
+    settings._config_file = str(config_path)
+    start_path = resolve_model_reference_start_path(settings=settings)
+
+    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    try:
+        snapshot = build_snapshot(
+            config_payload={"environment_dir": None},
+            start_path=start_path,
+        )
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
+    finally:
+        reset_env_dir = tmp_path / ".empty-fast-agent-settings-env-config"
         reset_env_dir.mkdir(parents=True, exist_ok=True)
         load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
         if previous_env_dir is None:

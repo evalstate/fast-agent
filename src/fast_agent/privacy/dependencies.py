@@ -10,6 +10,11 @@ PRIVACY_EXTRA_REQUIREMENTS = {
     "numpy": "numpy",
 }
 
+PRIVACY_EXTRA_INSTALL_MESSAGE = (
+    'Install fast-agent with the privacy extra, "fast-agent-mcp[privacy]", '
+    "in the environment where fast-agent runs."
+)
+
 
 def missing_privacy_dependencies() -> list[str]:
     """Return package names missing for privacy-filter inference."""
@@ -28,6 +33,5 @@ def format_missing_privacy_dependencies(packages: list[str]) -> str:
     return (
         "Privacy filtering requires optional dependencies that are not installed:\n"
         f"{package_lines}\n\n"
-        'Install them with:\n  uv pip install "fast-agent-mcp[privacy]"\n\n'
-        'or:\n  pip install "fast-agent-mcp[privacy]"'
+        f"{PRIVACY_EXTRA_INSTALL_MESSAGE}"
     )

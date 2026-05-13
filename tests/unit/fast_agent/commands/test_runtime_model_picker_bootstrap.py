@@ -19,6 +19,7 @@ import yaml
 
 from fast_agent.cli.runtime.agent_setup import (
     _emit_model_picker_keyring_notice,
+    _explicit_agent_cards_define_startup_model,
     _generic_model_prompt_default,
     _load_request_settings,
     _normalize_generic_model_spec,
@@ -132,6 +133,104 @@ def test_should_prompt_for_model_picker_when_cards_present() -> None:
         request,
         stdin_is_tty=True,
         stdout_is_tty=True,
+    )
+
+
+def test_explicit_remote_agent_card_model_suppresses_startup_model_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.io import source_resolver
+
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"
+        assert label == "AgentCard URL"
+        return "\n".join(
+            [
+                "---",
+                "type: agent",
+                "name: ai_news_summary",
+                "model: passthrough",
+                "---",
+                "Summarize news.",
+                "",
+            ]
+        )
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+    request = _make_request(
+        agent_cards=["hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"]
+    )
+
+    assert _explicit_agent_cards_define_startup_model(request) is True
+
+
+def test_explicit_remote_agent_card_without_model_keeps_startup_model_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.io import source_resolver
+
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"
+        assert label == "AgentCard URL"
+        return "\n".join(
+            [
+                "---",
+                "type: agent",
+                "name: ai_news_summary",
+                "---",
+                "Summarize news.",
+                "",
+            ]
+        )
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+    request = _make_request(
+        agent_cards=["hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"]
+    )
+
+    assert _explicit_agent_cards_define_startup_model(request) is False
+
+
+@pytest.mark.parametrize(
+    ("model_references", "expected"),
+    [
+        (None, False),
+        ({"system": {"fast": "passthrough"}}, True),
+    ],
+)
+def test_explicit_remote_agent_card_model_reference_only_suppresses_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+    model_references: dict[str, dict[str, str]] | None,
+    expected: bool,
+) -> None:
+    from fast_agent.io import source_resolver
+
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"
+        assert label == "AgentCard URL"
+        return "\n".join(
+            [
+                "---",
+                "type: agent",
+                "name: ai_news_summary",
+                "model: $system.fast",
+                "---",
+                "Summarize news.",
+                "",
+            ]
+        )
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+    request = _make_request(
+        agent_cards=["hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"]
+    )
+
+    assert (
+        _explicit_agent_cards_define_startup_model(
+            request,
+            model_references=model_references,
+        )
+        is expected
     )
 
 

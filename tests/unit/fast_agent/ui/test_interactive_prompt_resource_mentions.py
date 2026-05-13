@@ -34,9 +34,13 @@ class _MentionAgent:
         )
 
 
-class _LocalMentionAgent:
+class _LocalMentionAgent(_MentionAgent):
     def __init__(self) -> None:
         self.message_history = []
+
+    async def get_resource(self, resource_uri: str, namespace: str | None = None):
+        del resource_uri, namespace
+        raise AssertionError("local file mentions should not call agent resource lookup")
 
 
 class _MentionAgentApp:

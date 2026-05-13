@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from mcp.shared.exceptions import McpError
-from mcp.types import CallToolResult, ErrorData, TextContent
+from mcp.types import CallToolRequest, CallToolResult, ClientRequest, ErrorData, TextContent
 
 from fast_agent.llm.fastagent_llm import _mcp_metadata_var
+from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
+from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
 
 
@@ -62,7 +65,7 @@ class _RejectingSession(_RecordingSession):
         )
 
 
-class _InvalidationRecorder:
+class _InvalidationRecorder(ExperimentalSessionClient):
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str | None]] = []
 
@@ -109,6 +112,51 @@ class _ToolErrorResultSession(_RecordingSession):
         )
 
 
+class _RawCallToolSession(MCPAgentClientSession):
+    def __init__(self) -> None:
+        self._experimental_session_cookie = None
+        self.last_request: ClientRequest | None = None
+        self.last_timeout = None
+        self.last_progress_callback = None
+
+    async def send_request(
+        self,
+        request,
+        result_type,
+        request_read_timeout_seconds=None,
+        metadata=None,
+        progress_callback=None,
+    ):
+        del result_type, metadata
+        self.last_request = request
+        self.last_timeout = request_read_timeout_seconds
+        self.last_progress_callback = progress_callback
+        return CallToolResult(content=[TextContent(type="text", text="legacy result")])
+
+
+@pytest.mark.asyncio
+async def test_client_session_call_tool_uses_raw_request_path_with_meta() -> None:
+    session = _RawCallToolSession()
+    metadata = {"trace": {"id": "abc"}}
+
+    result = await session.call_tool(
+        name="legacy_tool",
+        arguments={"value": 1},
+        read_timeout_seconds=timedelta(seconds=3),
+        meta=metadata,
+    )
+
+    assert result.content == [TextContent(type="text", text="legacy result")]
+    assert session.last_timeout == timedelta(seconds=3)
+    assert session.last_request is not None
+    request = cast("CallToolRequest", session.last_request.root)
+    assert request.method == "tools/call"
+    assert request.params.name == "legacy_tool"
+    assert request.params.arguments == {"value": 1}
+    assert request.params.meta is not None
+    assert request.params.meta.model_dump(exclude_none=True) == metadata
+
+
 @pytest.mark.asyncio
 async def test_execute_on_server_uses_meta_for_call_tool() -> None:
     session = _RecordingSession()
@@ -140,7 +188,7 @@ async def test_execute_on_server_uses_meta_for_call_tool() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_on_server_keeps__meta_for_read_resource() -> None:
+async def test_execute_on_server_uses_meta_for_read_resource() -> None:
     session = _RecordingSession()
     aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
     setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
@@ -165,8 +213,8 @@ async def test_execute_on_server_keeps__meta_for_read_resource() -> None:
 
     assert result == "ok-read"
     assert session.last_kwargs is not None
-    assert session.last_kwargs.get("_meta") == metadata
-    assert "meta" not in session.last_kwargs
+    assert session.last_kwargs.get("meta") == metadata
+    assert "_meta" not in session.last_kwargs
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,8 @@ from uuid import uuid4
 
 import httpx
 
+from fast_agent.io.path_uri import file_uri_to_path
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, MutableMapping, Sequence
 
@@ -53,7 +55,11 @@ def candidate_marketplace_urls(url: str) -> list[str]:
 
     parsed = urlparse(normalized)
     if parsed.scheme in {"file", ""} and parsed.netloc == "":
-        path = Path(parsed.path).expanduser()
+        path = (
+            file_uri_to_path(parsed)
+            if parsed.scheme == "file"
+            else Path(parsed.path).expanduser()
+        )
         if path.exists() and path.is_dir():
             claude_plugin = path / ".claude-plugin" / "marketplace.json"
             if claude_plugin.exists():
@@ -145,7 +151,7 @@ def parse_ls_remote_commit(output: str) -> str | None:
 def load_local_marketplace_payload(url: str) -> Any | None:
     parsed = urlparse(url)
     if parsed.scheme == "file":
-        path = Path(parsed.path)
+        path = file_uri_to_path(parsed)
         return read_json_file(path)
     if parsed.scheme in {"http", "https"}:
         return None
@@ -163,7 +169,7 @@ def read_json_file(path: Path) -> Any:
 def resolve_local_repo(repo_url: str) -> Path | None:
     parsed = urlparse(repo_url)
     if parsed.scheme == "file":
-        repo_path = Path(parsed.path)
+        repo_path = file_uri_to_path(parsed)
     elif parsed.scheme in {"http", "https", "ssh"}:
         return None
     else:
@@ -183,7 +189,7 @@ def derive_local_repo_root(source_url: str) -> str | None:
         return None
 
     if parsed.scheme == "file":
-        path = Path(parsed.path)
+        path = file_uri_to_path(parsed)
     else:
         path = Path(source_url)
 

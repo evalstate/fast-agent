@@ -78,6 +78,7 @@ from fast_agent.mcp.mcp_skills_loader import (
     load_mcp_skill_manifests,
     merge_filesystem_and_mcp_manifests,
 )
+from fast_agent.mcp.prompt_metadata import prompt_display_name
 from fast_agent.mcp.provider_management import (
     ProviderManagedMCPState,
     build_provider_managed_mcp_state,
@@ -1582,7 +1583,7 @@ class McpAgent(ABC, ToolAgent):
                 return error_msg
 
             # Get the display name (namespaced version)
-            namespaced_name = getattr(prompt_result, "namespaced_name", prompt_name)
+            namespaced_name = prompt_display_name(prompt_result, prompt_name)
         else:
             # prompt is a GetPromptResult object
             prompt_result = prompt
@@ -1592,7 +1593,7 @@ class McpAgent(ABC, ToolAgent):
                 return error_msg
 
             # Use a reasonable display name
-            namespaced_name = getattr(prompt_result, "namespaced_name", "provided_prompt")
+            namespaced_name = prompt_display_name(prompt_result, "provided_prompt")
 
         self.logger.debug(f"Using prompt '{namespaced_name}'")
 

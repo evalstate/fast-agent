@@ -10,6 +10,7 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlparse
 
 import typer
 from prompt_toolkit import PromptSession
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
-from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
@@ -100,6 +101,71 @@ def _should_prompt_for_model_picker(
     if not _is_interactive_startup_notice_context(request):
         return False
     return stdin_is_tty and stdout_is_tty
+
+
+def _explicit_agent_cards_define_startup_model(
+    request: AgentRunRequest,
+    *,
+    model_references: Mapping[str, Mapping[str, str]] | None = None,
+) -> bool:
+    if not request.agent_cards or request.target_agent_name:
+        return False
+
+    try:
+        from fast_agent.core.agent_card_loader import load_agent_cards
+        from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
+    except Exception:
+        return False
+
+    loaded_cards = []
+    temp_paths: list[Path] = []
+    try:
+        for source in request.agent_cards:
+            parsed = urlparse(source)
+            if parsed.scheme in REMOTE_TEXT_SCHEMES:
+                suffix = Path(parsed.path).suffix or ".md"
+                path = materialize_text_source(source, label="AgentCard URL", suffix=suffix)
+                temp_paths.append(path)
+            else:
+                path = materialize_text_source(source, label="AgentCard source")
+            loaded_cards.extend(load_agent_cards(path))
+    except Exception:
+        return False
+    finally:
+        for path in temp_paths:
+            path.unlink(missing_ok=True)
+
+    runnable_configs = []
+    for card in loaded_cards:
+        if card.agent_data.get("tool_only", False):
+            continue
+        config = card.agent_data.get("config")
+        if config is None:
+            continue
+        runnable_configs.append(config)
+
+    if len(runnable_configs) != 1:
+        return False
+
+    model = runnable_configs[0].model
+    if not isinstance(model, str):
+        return False
+
+    model_spec = model.strip()
+    if not model_spec:
+        return False
+    if not model_spec.startswith("$"):
+        return True
+
+    try:
+        from fast_agent.core.model_resolution import resolve_model_reference
+
+        resolved_model = resolve_model_reference(model_spec, model_references)
+    except ModelConfigError:
+        return False
+
+    return bool(resolved_model.strip())
+
 
 
 def _resolve_model_without_hardcoded_default(
@@ -667,6 +733,32 @@ def _validate_target_agent_name(fast, request: AgentRunRequest) -> None:
     raise typer.Exit(1)
 
 
+def _select_loaded_card_agent(
+    fast,
+    request: AgentRunRequest,
+    loaded_agent_names: list[str],
+) -> str | None:
+    if request.target_agent_name and request.target_agent_name in fast.agents:
+        return request.target_agent_name
+    if request.agent_name and request.agent_name in fast.agents:
+        request.target_agent_name = request.agent_name
+        return request.agent_name
+
+    runnable_names: list[str] = []
+    for name in loaded_agent_names:
+        agent_data = fast.agents.get(name)
+        if not agent_data or agent_data.get("tool_only", False):
+            continue
+        runnable_names.append(name)
+
+    if len(runnable_names) != 1:
+        return None
+
+    selected_name = runnable_names[0]
+    request.target_agent_name = selected_name
+    return selected_name
+
+
 def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> None:
     if not request.server_list:
         return
@@ -916,7 +1008,7 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             }
     elif request.execution_mode == "one_shot_prompt_file":
         assert request.prompt_file is not None
-        prompt = load_prompt(Path(request.prompt_file))
+        prompt = load_prompt(request.prompt_file)
         agent_obj = agent_app._agent(request.target_agent_name)
         history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
         if structured_source is None:
@@ -960,16 +1052,24 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
     if request.model is None:
         settings = _load_request_settings(request)
+        startup_model_defined_by_card = _explicit_agent_cards_define_startup_model(
+            request,
+            model_references=getattr(settings, "model_references", None),
+        )
         _, explicit_source = _resolve_model_without_hardcoded_default(
             model=request.model,
             config_default_model=getattr(settings, "default_model", None),
             model_references=getattr(settings, "model_references", None),
         )
 
-        if explicit_source is None and _should_prompt_for_model_picker(
+        if (
+            explicit_source is None
+            and not startup_model_defined_by_card
+            and _should_prompt_for_model_picker(
             request,
             stdin_is_tty=sys.stdin.isatty(),
             stdout_is_tty=sys.stdout.isatty(),
+            )
         ):
             _emit_model_picker_keyring_notice(request)
             initial_provider, initial_model_spec = _resolve_model_picker_initial_selection(
@@ -987,7 +1087,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                 model_spec=request.model,
             )
             startup_model_source_override = "model picker"
-        elif explicit_source is None:
+        elif explicit_source is None and not startup_model_defined_by_card:
             _, initial_model_spec = _resolve_model_picker_initial_selection(
                 settings=settings,
             )
@@ -1073,12 +1173,10 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
     if request.agent_cards or request.card_tools:
         try:
+            loaded_agent_names: list[str] = []
             if request.agent_cards:
                 for card_source in request.agent_cards:
-                    if card_source.startswith(("http://", "https://")):
-                        fast.load_agents_from_url(card_source)
-                    else:
-                        fast.load_agents(card_source)
+                    loaded_agent_names.extend(fast.load_agents(card_source))
 
             has_explicit_default = False
             explicit_default_type: str | None = None
@@ -1103,7 +1201,15 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             elif request.force_smart and not smart_agent_enabled:
                 typer.echo(smart_unavailable_warning, err=True)
 
-            if not has_explicit_default:
+            selected_loaded_agent = _select_loaded_card_agent(
+                fast,
+                request,
+                loaded_agent_names,
+            )
+            if selected_loaded_agent:
+                fast.args.agent = selected_loaded_agent
+
+            if not has_explicit_default and selected_loaded_agent is None:
                 agent_decorator = fast.smart if smart_agent_enabled else fast.agent
 
                 @agent_decorator(
@@ -1119,10 +1225,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             tool_loaded_names: list[str] = []
             if request.card_tools:
                 for card_source in request.card_tools:
-                    if card_source.startswith(("http://", "https://")):
-                        tool_loaded_names.extend(fast.load_agents_from_url(card_source))
-                    else:
-                        tool_loaded_names.extend(fast.load_agents(card_source))
+                    tool_loaded_names.extend(fast.load_agents(card_source))
 
             if tool_loaded_names:
                 target_name = (
@@ -1231,7 +1334,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                     assert request.prompt_file is not None
                     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
-                    prompt = load_prompt(Path(request.prompt_file))
+                    prompt = load_prompt(request.prompt_file)
                     if request.target_agent_name:
                         agent_obj = agent._agent(request.target_agent_name)
                         history_before = [

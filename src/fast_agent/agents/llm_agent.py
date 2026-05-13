@@ -35,6 +35,10 @@ from fast_agent.history.tool_activities import (
 )
 from fast_agent.llm.model_display_name import resolve_llm_display_name
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationDisplayItem,
+    URLElicitationRequiredDisplayPayload,
+)
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.citation_display import (
@@ -52,6 +56,7 @@ from fast_agent.ui.message_display_helpers import (
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
 )
+from fast_agent.utils.type_narrowing import is_str_object_dict
 from fast_agent.workflow_telemetry import (
     NoOpWorkflowTelemetryProvider,
     WorkflowTelemetryProvider,
@@ -537,7 +542,7 @@ class LlmAgent(LlmDecorator):
         if not payload_blocks:
             return
 
-        payload_entries: list[dict[str, object]] = []
+        payload_entries: list[URLElicitationRequiredDisplayPayload] = []
         for block in payload_blocks:
             raw_text = get_text(block)
             if not raw_text:
@@ -548,9 +553,15 @@ class LlmAgent(LlmDecorator):
                 continue
 
             if isinstance(decoded, list):
-                payload_entries.extend(item for item in decoded if isinstance(item, dict))
+                payload_entries.extend(
+                    payload
+                    for item in decoded
+                    if (payload := self._url_elicitation_payload_from_json(item)) is not None
+                )
             elif isinstance(decoded, dict):
-                payload_entries.append(decoded)
+                payload = self._url_elicitation_payload_from_json(decoded)
+                if payload is not None:
+                    payload_entries.append(payload)
 
         for payload in payload_entries:
             self._display_single_url_elicitation_payload(payload, agent_name)
@@ -570,37 +581,28 @@ class LlmAgent(LlmDecorator):
 
     def _display_single_url_elicitation_payload(
         self,
-        payload: dict[str, object],
+        payload: URLElicitationRequiredDisplayPayload,
         agent_name: str | None,
     ) -> None:
         from fast_agent.ui import console
 
-        server_name = str(payload.get("server_name", "unknown"))
-        raw_elicitations = payload.get("elicitations")
-        raw_issues = payload.get("issues")
-
-        elicitations = (
-            [item for item in raw_elicitations if isinstance(item, dict)]
-            if isinstance(raw_elicitations, list)
-            else []
-        )
-        issues = [str(item) for item in raw_issues] if isinstance(raw_issues, list) else []
+        server_name = payload.server_name
+        elicitations = payload.elicitations
+        issues = payload.issues
 
         if elicitations:
             count = len(elicitations)
             for index, elicitation in enumerate(elicitations, start=1):
-                message = str(elicitation.get("message", "Authorization required."))
+                message = elicitation.message
                 if count > 1:
                     message = f"[{index}/{count}] {message}"
-                url = str(elicitation.get("url", ""))
-                elicitation_id = str(elicitation.get("elicitation_id", ""))
 
                 self.display.show_url_elicitation(
                     message=message,
-                    url=url,
+                    url=elicitation.url,
                     server_name=server_name,
                     agent_name=agent_name,
-                    elicitation_id=elicitation_id,
+                    elicitation_id=elicitation.elicitation_id,
                 )
 
         if issues:
@@ -632,6 +634,35 @@ class LlmAgent(LlmDecorator):
                     "No valid URL elicitations could be extracted from error.data."
                     "[/dim yellow]"
                 )
+
+    @staticmethod
+    def _url_elicitation_payload_from_json(
+        value: object,
+    ) -> URLElicitationRequiredDisplayPayload | None:
+        if not is_str_object_dict(value):
+            return None
+
+        raw_elicitations = value.get("elicitations")
+        if not isinstance(raw_elicitations, list):
+            return None
+
+        elicitations = [
+            URLElicitationDisplayItem(
+                message=str(item.get("message", "Authorization required.")),
+                url=str(item.get("url", "")),
+                elicitation_id=str(item.get("elicitation_id", "")),
+            )
+            for item in raw_elicitations
+            if is_str_object_dict(item)
+        ]
+        raw_issues = value.get("issues")
+        issues = [str(item) for item in raw_issues] if isinstance(raw_issues, list) else []
+        return URLElicitationRequiredDisplayPayload(
+            server_name=str(value.get("server_name", "unknown")),
+            request_method=str(value.get("request_method", "")),
+            elicitations=elicitations,
+            issues=issues,
+        )
 
     def _display_user_messages(
         self,

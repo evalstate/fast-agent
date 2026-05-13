@@ -140,6 +140,7 @@ def _build_run_request(
 app = typer.Typer(
     help="Expose fast-agent to clients over MCP (http or stdio) or ACP, without writing an agent.py file",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    add_completion=False,
 )
 
 

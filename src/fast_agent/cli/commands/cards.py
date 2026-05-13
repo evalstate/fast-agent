@@ -44,7 +44,7 @@ RegistryOption = Annotated[
     ),
 ]
 
-app = typer.Typer(help="Manage card packs (list/add/remove/update/publish).")
+app = typer.Typer(help="Manage card packs (list/add/remove/update/publish).", add_completion=False)
 
 
 def _resolve_registry_input(ctx: typer.Context, command_registry: str | None = None) -> str:

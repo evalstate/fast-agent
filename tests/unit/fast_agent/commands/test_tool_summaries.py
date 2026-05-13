@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mcp.types import Tool
 
-from fast_agent.commands.tool_summaries import build_tool_summaries
+from fast_agent.commands.tool_summaries import build_provider_tool_summaries, build_tool_summaries
 
 
 def _tool(
@@ -18,7 +18,7 @@ def _tool(
         name=name,
         title=None,
         description=description,
-        meta=meta or {},
+        _meta=meta or {},
         inputSchema=input_schema or {},
     )
 
@@ -60,6 +60,21 @@ class _AgentStub:
         return self._agent_backed_tools
 
 
+class _ProviderToolLlmStub:
+    web_search_supported = True
+    web_search_enabled = True
+    web_fetch_supported = True
+    web_fetch_enabled = False
+    x_search_supported = False
+    x_search_enabled = False
+
+
+class _ProviderToolAgentStub:
+    @property
+    def llm(self):
+        return _ProviderToolLlmStub()
+
+
 def test_build_tool_summaries_marks_smart_tools() -> None:
     agent = _AgentStub(smart_tool_names={"smart", "smart_with_resource"})
 
@@ -98,3 +113,11 @@ def test_build_tool_summaries_marks_mcp_app_tools() -> None:
 
     assert summaries[0].suffix == "(MCP App)"
     assert summaries[0].template == "ui://app"
+
+
+def test_build_provider_tool_summaries_lists_enabled_hosted_tools() -> None:
+    summaries = build_provider_tool_summaries(_ProviderToolAgentStub())
+
+    assert [(summary.name, summary.enabled) for summary in summaries] == [
+        ("web_search", True),
+    ]

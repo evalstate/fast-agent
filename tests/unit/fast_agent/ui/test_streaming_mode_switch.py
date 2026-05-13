@@ -12,23 +12,19 @@ from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandl
 from fast_agent.ui.stream_segments import StreamSegment, StreamSegmentAssembler, ToolCodePreview
 
 
-def _set_console_size(width: int = 80, height: int = 24) -> tuple[object | None, object | None]:
-    original_width = getattr(console.console, "_width", None)
-    original_height = getattr(console.console, "_height", None)
-    console.console._width = width
-    console.console._height = height
-    return original_width, original_height
+def _set_console_size(width: int = 80, height: int = 24) -> Console:
+    original_console = console.console
+    console.console = Console(
+        file=io.StringIO(),
+        force_terminal=True,
+        width=width,
+        height=height,
+    )
+    return original_console
 
 
-def _restore_console_size(original_width: object | None, original_height: object | None) -> None:
-    if original_width is None:
-        console.console._width = None
-    else:
-        console.console._width = original_width
-    if original_height is None:
-        console.console._height = None
-    else:
-        console.console._height = original_height
+def _restore_console_size(original_console: Console) -> None:
+    console.console = original_console
 
 
 def _make_handle(
@@ -118,20 +114,20 @@ def test_alt_screen_streaming_disables_preserve_final_frame(monkeypatch) -> None
 
 def test_markdown_stream_uses_one_column_safety_gutter() -> None:
     handle = _make_handle("markdown")
-    original_width, original_height = _set_console_size(width=80, height=24)
+    original_console = _set_console_size(width=80, height=24)
     try:
         assert handle._effective_stream_width() == 79
     finally:
-        _restore_console_size(original_width, original_height)
+        _restore_console_size(original_console)
 
 
 def test_plain_stream_does_not_use_width_gutter() -> None:
     handle = _make_handle("plain")
-    original_width, original_height = _set_console_size(width=80, height=24)
+    original_console = _set_console_size(width=80, height=24)
     try:
         assert handle._effective_stream_width() is None
     finally:
-        _restore_console_size(original_width, original_height)
+        _restore_console_size(original_console)
 
 
 def test_diff_live_updates_only_changed_tail_line() -> None:
@@ -790,7 +786,7 @@ def test_preserve_final_frame_finalize_omits_tail_padding_from_last_frame(monkey
     handle._live = cast("Any", fake_live)
     handle._live_started = True
 
-    original_width, original_height = _set_console_size(width=40, height=12)
+    original_console = _set_console_size(width=40, height=12)
     try:
         handle.finalize("short response")
         assert fake_live.renderable is not None
@@ -801,7 +797,7 @@ def test_preserve_final_frame_finalize_omits_tail_padding_from_last_frame(monkey
 
         assert rendered_text[-1] == "short response"
     finally:
-        _restore_console_size(original_width, original_height)
+        _restore_console_size(original_console)
 
 
 def test_scrolling_indicator_is_debounced_and_sticky() -> None:

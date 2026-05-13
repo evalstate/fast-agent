@@ -111,6 +111,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_TOOL_HANDLER = "tool_execution_handler"
     PARAM_LOOP_PROGRESS = "emit_loop_progress"
     PARAM_TOOL_RESULT_MODE = "tool_result_mode"
+    PARAM_BATCH_CONTEXT = "batch_context"
     PARAM_STREAMING_TIMEOUT = "streaming_timeout"
     PARAM_SERVICE_TIER = "service_tier"
     PARAM_STRUCTURED_SCHEMA = "structured_schema"
@@ -122,6 +123,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_TOOL_HANDLER,
         PARAM_LOOP_PROGRESS,
         PARAM_TOOL_RESULT_MODE,
+        PARAM_BATCH_CONTEXT,
         PARAM_STREAMING_TIMEOUT,
         PARAM_SERVICE_TIER,
         PARAM_STRUCTURED_SCHEMA,
@@ -1467,14 +1469,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             String representation of the assistant's response if generated,
             or the last assistant message in the prompt
         """
+        from fast_agent.mcp.prompt_metadata import prompt_arguments
         from fast_agent.types import PromptMessageExtended
 
         # Check if we have any messages
         if not prompt_result.messages:
             return "Prompt contains no messages"
 
-        # Extract arguments if they were stored in the result
-        arguments = getattr(prompt_result, "arguments", None)
+        arguments = prompt_arguments(prompt_result)
 
         # Display information about the loaded prompt
         await self.show_prompt_loaded(

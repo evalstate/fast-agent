@@ -5,9 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.commands.model_capabilities import (
+    resolve_web_fetch_enabled,
+    resolve_web_fetch_supported,
+    resolve_web_search_enabled,
+    resolve_web_search_supported,
+    resolve_x_search_enabled,
+    resolve_x_search_supported,
+)
 from fast_agent.interfaces import (
     AgentBackedToolProvider,
     CardToolProvider,
+    LlmCapableProtocol,
     SmartToolingCapable,
 )
 from fast_agent.mcp.common import is_namespaced_name
@@ -24,6 +33,42 @@ class ToolSummary:
     args: list[str] | None
     suffix: str | None
     template: str | None
+
+
+@dataclass(slots=True)
+class ProviderToolSummary:
+    name: str
+    enabled: bool
+    description: str
+
+
+def build_provider_tool_summaries(agent: object) -> list[ProviderToolSummary]:
+    llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
+    candidates = (
+        (
+            "web_search",
+            resolve_web_search_supported(llm),
+            resolve_web_search_enabled(llm),
+            "Provider-hosted web search tool.",
+        ),
+        (
+            "web_fetch",
+            resolve_web_fetch_supported(llm),
+            resolve_web_fetch_enabled(llm),
+            "Provider-hosted web fetch tool.",
+        ),
+        (
+            "x_search",
+            resolve_x_search_supported(llm),
+            resolve_x_search_enabled(llm),
+            "Provider-hosted X search tool.",
+        ),
+    )
+    return [
+        ProviderToolSummary(name=name, enabled=enabled, description=description)
+        for name, supported, enabled, description in candidates
+        if supported and enabled
+    ]
 
 
 def _format_tool_args(schema: dict[str, Any] | None) -> list[str] | None:

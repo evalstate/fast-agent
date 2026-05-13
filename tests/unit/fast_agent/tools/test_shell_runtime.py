@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -96,6 +97,25 @@ class RecordingFastLogger:
         self.error_calls.append((args, kwargs))
 
 
+class _TestShellRuntime(ShellRuntime):
+    def __init__(
+        self,
+        *,
+        runtime_info: Mapping[str, str | None],
+        working_directory: Path = Path("."),
+        **kwargs: Any,
+    ) -> None:
+        self._test_runtime_info = dict(runtime_info)
+        self._test_working_directory = working_directory
+        super().__init__(**kwargs)
+
+    def runtime_info(self) -> dict[str, str | None]:
+        return self._test_runtime_info
+
+    def working_directory(self) -> Path:
+        return self._test_working_directory
+
+
 @contextmanager
 def _no_progress():
     yield
@@ -105,9 +125,11 @@ def _setup_runtime(
     monkeypatch: pytest.MonkeyPatch, runtime_info: dict[str, str]
 ) -> tuple[ShellRuntime, DummyProcess, dict[str, Any]]:
     logger = logging.getLogger("shell-runtime-test")
-    runtime = ShellRuntime(activation_reason="test", logger=logger)
-    runtime.runtime_info = lambda: runtime_info  # type: ignore[assignment]
-    runtime.working_directory = lambda: Path(".")  # type: ignore[assignment]
+    runtime = _TestShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        runtime_info=runtime_info,
+    )
 
     dummy_process = DummyProcess()
     captured: dict[str, Any] = {}
@@ -619,14 +641,13 @@ async def test_execute_progress_only_mode_suppresses_live_console_output() -> No
 @pytest.mark.asyncio
 async def test_execute_emits_shell_lifecycle_progress_events(monkeypatch: pytest.MonkeyPatch) -> None:
     logger = RecordingFastLogger()
-    runtime = ShellRuntime(
+    runtime = _TestShellRuntime(
         activation_reason="test",
         logger=logger,
         timeout_seconds=10,
         agent_name="assistant",
+        runtime_info={"name": "bash", "path": "/bin/bash"},
     )
-    runtime.runtime_info = lambda: {"name": "bash", "path": "/bin/bash"}  # type: ignore[assignment]
-    runtime.working_directory = lambda: Path(".")  # type: ignore[assignment]
 
     process = DummyProcess()
     process.returncode = 0

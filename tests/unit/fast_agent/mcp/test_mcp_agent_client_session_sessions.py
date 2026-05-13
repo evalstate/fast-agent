@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp import ClientSession, ServerNotification
@@ -21,6 +21,12 @@ from mcp.types import (
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+
+if TYPE_CHECKING:
+    from datetime import timedelta
+
+    from mcp.shared.message import MessageMetadata
+    from mcp.shared.session import ProgressFnT, ReceiveResultT
 
 
 class _SessionPayload:
@@ -240,16 +246,27 @@ def test_maybe_advertise_experimental_session_capability_preserves_existing_sess
 @pytest.mark.asyncio
 async def test_maybe_establish_experimental_session_sends_create_request() -> None:
     class _RecordingSession(MCPAgentClientSession):
-        async def send_request(self, request, result_type, **kwargs):  # type: ignore[override]
-            del result_type, kwargs
+        async def send_request(
+            self,
+            request: ClientRequest,
+            result_type: type[ReceiveResultT],
+            request_read_timeout_seconds: timedelta | None = None,
+            metadata: MessageMetadata | None = None,
+            progress_callback: ProgressFnT | None = None,
+        ) -> ReceiveResultT:
+            del result_type, request_read_timeout_seconds, metadata, progress_callback
             self.recorded_request = request
-            return SimpleNamespace(
+            result = SimpleNamespace(
                 session=_SessionPayload(
                     {
                         "sessionId": "sess-created",
                         "state": "state-created",
                     }
                 )
+            )
+            return cast(
+                "ReceiveResultT",
+                result,
             )
 
     session = object.__new__(_RecordingSession)
@@ -304,8 +321,15 @@ async def test_experimental_session_list_returns_active_session_snapshot() -> No
 @pytest.mark.asyncio
 async def test_experimental_session_delete_includes_session_meta() -> None:
     class _RecordingSession(MCPAgentClientSession):
-        async def send_request(self, request, result_type, **kwargs):  # type: ignore[override]
-            del result_type, kwargs
+        async def send_request(
+            self,
+            request: ClientRequest,
+            result_type: type[ReceiveResultT],
+            request_read_timeout_seconds: timedelta | None = None,
+            metadata: MessageMetadata | None = None,
+            progress_callback: ProgressFnT | None = None,
+        ) -> ReceiveResultT:
+            del result_type, request_read_timeout_seconds, metadata, progress_callback
             method = getattr(request, "method", None)
             if method == "sessions/delete":
                 params = getattr(request, "params", None)
@@ -316,7 +340,7 @@ async def test_experimental_session_delete_includes_session_meta() -> None:
                         "sessionId": "sess-current"
                     }
                 }
-                return SimpleNamespace(deleted=True)
+                return cast("ReceiveResultT", SimpleNamespace(deleted=True))
             raise AssertionError(f"Unexpected method: {method}")
 
     session = object.__new__(_RecordingSession)
@@ -335,9 +359,16 @@ async def test_experimental_session_delete_includes_session_meta() -> None:
 @pytest.mark.asyncio
 async def test_experimental_session_create_replaces_existing_cookie() -> None:
     class _RecordingSession(MCPAgentClientSession):
-        async def send_request(self, request, result_type, **kwargs):  # type: ignore[override]
-            del request, result_type, kwargs
-            return SimpleNamespace(
+        async def send_request(
+            self,
+            request: ClientRequest,
+            result_type: type[ReceiveResultT],
+            request_read_timeout_seconds: timedelta | None = None,
+            metadata: MessageMetadata | None = None,
+            progress_callback: ProgressFnT | None = None,
+        ) -> ReceiveResultT:
+            del request, result_type, request_read_timeout_seconds, metadata, progress_callback
+            result = SimpleNamespace(
                 session=_SessionPayload(
                     {
                         "sessionId": "sess-new",
@@ -345,6 +376,10 @@ async def test_experimental_session_create_replaces_existing_cookie() -> None:
                         "state": "state-new",
                     }
                 )
+            )
+            return cast(
+                "ReceiveResultT",
+                result,
             )
 
     session = object.__new__(_RecordingSession)

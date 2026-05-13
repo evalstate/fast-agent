@@ -16,6 +16,7 @@ from fast_agent.ui.console import console as shared_console
 app = typer.Typer(
     help="Create fast-agent quickstarts",
     no_args_is_help=False,  # Allow showing our custom help instead
+    add_completion=False,
 )
 console = shared_console
 

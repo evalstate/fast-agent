@@ -23,6 +23,7 @@ from fast_agent.cli.runtime.agent_setup import (
     _resume_session_if_requested,
     _run_single_agent_cli_flow,
     _sanitize_result_suffix,
+    _select_loaded_card_agent,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
@@ -146,6 +147,31 @@ def _make_request(
 
 def test_build_result_file_with_suffix_without_extension() -> None:
     assert _build_result_file_with_suffix(Path("foo"), "haiku35") == Path("foo-haiku35")
+
+
+def test_select_loaded_card_agent_targets_single_runnable_card() -> None:
+    request = _make_request(result_file=None, message=None)
+    fast = SimpleNamespace(agents={"news": {"tool_only": False}})
+
+    selected = _select_loaded_card_agent(fast, request, ["news"])
+
+    assert selected == "news"
+    assert request.target_agent_name == "news"
+
+
+def test_select_loaded_card_agent_leaves_ambiguous_cards_unselected() -> None:
+    request = _make_request(result_file=None, message=None)
+    fast = SimpleNamespace(
+        agents={
+            "news": {"tool_only": False},
+            "summary": {"tool_only": False},
+        }
+    )
+
+    selected = _select_loaded_card_agent(fast, request, ["news", "summary"])
+
+    assert selected is None
+    assert request.target_agent_name is None
 
 
 def test_should_convert_keyboard_interrupt_to_task_cancel_only_for_interactive_repl() -> None:

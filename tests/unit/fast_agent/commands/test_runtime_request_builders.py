@@ -8,6 +8,7 @@ from fast_agent.cli.runtime.request_builders import (
     build_command_run_request,
     resolve_default_instruction,
     resolve_instance_scope,
+    resolve_instruction_option,
     resolve_smart_agent_enabled,
 )
 from fast_agent.constants import SMART_AGENT_INSTRUCTION
@@ -169,6 +170,82 @@ def test_build_command_run_request_resolves_defaults() -> None:
     assert request.agent_name == "agent"
     assert request.result_file == "out.json"
     assert request.execution_mode == "repl"
+
+
+def test_resolve_instruction_option_preserves_default_agent_name_for_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from fast_agent.core import direct_decorators
+    from fast_agent.io import source_resolver
+
+    materialized = tmp_path / "fast-agent-random.md"
+    materialized.write_text("remote instruction", encoding="utf-8")
+
+    def fake_materialize_text_source(source: str, *, label: str) -> Path:
+        assert source == "https://example.com/instructions.md"
+        assert label == "instruction"
+        return materialized
+
+    def fake_resolve_instruction(instruction_path: Path) -> str:
+        return instruction_path.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(source_resolver, "materialize_text_source", fake_materialize_text_source)
+    monkeypatch.setattr(direct_decorators, "_resolve_instruction", fake_resolve_instruction)
+
+    instruction, agent_name = resolve_instruction_option(
+        "https://example.com/instructions.md",
+        model=None,
+        mode="interactive",
+    )
+
+    assert instruction == "remote instruction"
+    assert agent_name == "agent"
+
+
+def test_resolve_instruction_option_preserves_default_agent_name_for_hf_uri(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from fast_agent.core import direct_decorators
+    from fast_agent.io import source_resolver
+
+    materialized = tmp_path / "fast-agent-random.md"
+    materialized.write_text("remote instruction", encoding="utf-8")
+
+    def fake_materialize_text_source(source: str, *, label: str) -> Path:
+        assert source == "hf://buckets/evalstate/home/instructions.md"
+        assert label == "instruction"
+        return materialized
+
+    def fake_resolve_instruction(instruction_path: Path) -> str:
+        return instruction_path.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(source_resolver, "materialize_text_source", fake_materialize_text_source)
+    monkeypatch.setattr(direct_decorators, "_resolve_instruction", fake_resolve_instruction)
+
+    instruction, agent_name = resolve_instruction_option(
+        "hf://buckets/evalstate/home/instructions.md",
+        model=None,
+        mode="interactive",
+    )
+
+    assert instruction == "remote instruction"
+    assert agent_name == "agent"
+
+
+def test_resolve_instruction_option_uses_local_file_stem_for_agent_name(tmp_path: Path) -> None:
+    instruction_path = tmp_path / "reviewer.md"
+    instruction_path.write_text("local instruction", encoding="utf-8")
+
+    instruction, agent_name = resolve_instruction_option(
+        str(instruction_path),
+        model=None,
+        mode="interactive",
+    )
+
+    assert instruction == "local instruction"
+    assert agent_name == "reviewer"
 
 
 def test_build_command_run_request_defaults_acp_instance_scope_to_connection() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from acp.helpers import text_block, tool_content
 from acp.schema import (
@@ -49,6 +49,8 @@ from fast_agent.skills.scope import (
     resolve_skill_directories,
     resolve_skills_management_scope,
 )
+
+ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
 
 
 def _skills_usage_text() -> str:
@@ -453,7 +455,7 @@ async def send_skills_update(
     tool_call_id: str,
     *,
     title: str,
-    status: str,
+    status: ToolCallStatus,
     message: str | None = None,
     start: bool = False,
 ) -> None:
@@ -483,7 +485,7 @@ async def send_skills_update(
             ToolCallProgress(
                 tool_call_id=tool_call_id,
                 title=title,
-                status=status,  # type: ignore[arg-type]
+                status=status,
                 content=content,
                 session_update="tool_call_update",
             )

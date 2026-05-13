@@ -134,6 +134,7 @@ STREAM_CAPTURE_DIR = Path("stream-debug")
 
 # Type alias for system field - can be string or list of text blocks with cache control
 SystemParam = Union[str, list[TextBlockParam]]
+CacheTTL = Literal["5m", "1h"]
 
 logger = get_logger(__name__)
 
@@ -725,9 +726,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 meta[ANTHROPIC_FILE_ID_META_KEY] = file_id
                 resource.meta = meta
 
-    def _get_cache_ttl(self) -> str:
+    def _get_cache_ttl(self) -> CacheTTL:
         """Get the cache TTL configuration ('5m' or '1h')."""
-        cache_ttl = "5m"  # Default to 5 minutes
+        cache_ttl: CacheTTL = "5m"  # Default to 5 minutes
         if self.context.config and self.context.config.anthropic:
             cache_ttl = self.context.config.anthropic.cache_ttl
         return cache_ttl
@@ -1079,7 +1080,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return 0
 
     @staticmethod
-    def _apply_cache_control_to_message(message: MessageParam, ttl: str = "5m") -> bool:
+    def _apply_cache_control_to_message(message: MessageParam, ttl: CacheTTL = "5m") -> bool:
         """Apply cache control to the last content block of a message."""
         if not is_str_object_dict(message) or "content" not in message:
             return False

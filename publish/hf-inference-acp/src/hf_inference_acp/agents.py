@@ -7,7 +7,7 @@ import shutil
 import uuid
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from acp.helpers import text_block, tool_content
 from acp.schema import (
@@ -41,6 +41,8 @@ from hf_inference_acp.hf_config import (
     update_model_in_config,
 )
 from hf_inference_acp.wizard.model_catalog import format_model_list_help
+
+ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
 
 logger = get_logger(__name__)
 
@@ -639,7 +641,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         async def _send_connect_update(
             *,
             title: str | None = None,
-            status: str | None = None,
+            status: ToolCallStatus | None = None,
             message: str | None = None,
         ) -> None:
             if not self.acp:
@@ -657,7 +659,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
                     ToolCallProgress(
                         tool_call_id=tool_call_id,
                         title=title,
-                        status=status,  # type: ignore[arg-type]
+                        status=status,
                         content=content,
                         session_update="tool_call_update",
                     )

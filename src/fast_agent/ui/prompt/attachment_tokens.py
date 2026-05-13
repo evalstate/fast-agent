@@ -6,7 +6,8 @@ import os
 import re
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
-from urllib.request import url2pathname
+
+from fast_agent.io.path_uri import file_uri_to_path
 
 FILE_MENTION_SERVER = "file"
 URL_MENTION_SERVER = "url"
@@ -31,12 +32,9 @@ def normalize_local_attachment_reference(
         parsed = urlparse(path_value)
         if parsed.scheme.lower() != "file":
             raise ValueError(f"Unsupported attachment URI scheme: {parsed.scheme}")
-        uri_path = parsed.path
-        if parsed.netloc and parsed.netloc.lower() != "localhost":
-            uri_path = f"//{parsed.netloc}{uri_path}"
-        if not uri_path:
+        if not parsed.path:
             raise ValueError("Attachment URI path is empty")
-        resolved_path = Path(url2pathname(uri_path))
+        resolved_path = file_uri_to_path(parsed)
     else:
         resolved_path = Path(os.path.expanduser(path_value))
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -43,9 +44,11 @@ def load_plugin_command_action_function(
         )
 
     module = importlib.util.module_from_spec(import_spec)
+    sys.modules[module_name] = module
     try:
         import_spec.loader.exec_module(module)
     except Exception as exc:  # noqa: BLE001
+        sys.modules.pop(module_name, None)
         raise AgentConfigError(
             f"Failed to import command action module for '{spec}'",
             str(exc),

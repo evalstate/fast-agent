@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from prompt_toolkit import PromptSession
+
 from fast_agent.ui.prompt import input as prompt_input
 
 
@@ -16,7 +21,7 @@ class _FakeSession:
 def test_build_prompt_text_resolver_omits_default_agent_name() -> None:
     session = _FakeSession()
     resolver = prompt_input._build_prompt_text_resolver(
-        session_factory=lambda: session,
+        session_factory=lambda: cast("PromptSession[Any]", session),
         agent_name="dev",
         default_agent_name="dev",
         show_default=False,
@@ -30,7 +35,7 @@ def test_build_prompt_text_resolver_omits_default_agent_name() -> None:
 def test_build_prompt_text_resolver_shows_named_non_default_agent() -> None:
     session = _FakeSession()
     resolver = prompt_input._build_prompt_text_resolver(
-        session_factory=lambda: session,
+        session_factory=lambda: cast("PromptSession[Any]", session),
         agent_name="review",
         default_agent_name="dev",
         show_default=False,

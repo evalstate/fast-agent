@@ -21,7 +21,7 @@ from fast_agent.home import (
 from fast_agent.human_input.form_fields import FormSchema, boolean, integer, string
 from fast_agent.human_input.simple_form import form_sync
 
-app = typer.Typer(help="Configure fast-agent settings interactively.")
+app = typer.Typer(help="Configure fast-agent settings interactively.", add_completion=False)
 
 # Use round-trip mode to preserve comments and formatting
 _yaml = YAML()
