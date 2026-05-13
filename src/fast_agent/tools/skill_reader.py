@@ -57,12 +57,9 @@ class SkillReader:
         self._aggregator = aggregator
         self._archive_cache: dict[str, dict[str, bytes]] = dict(archive_cache or {})
 
-        # Build set of allowed filesystem skill directories (for path reads)
         self._allowed_directories: set[Path] = set()
-        # Build set of allowed URI roots (for URI reads). A read is allowed
-        # if the requested URI begins with one of these roots — same trust
-        # boundary as the filesystem allowed-directories check. Any scheme
-        # is accepted per the SEP (`skill://`, `github://`, `repo://`, ...).
+        # Allowed URI roots — any scheme per SEP (`skill://`, `github://`, ...). A read is
+        # admitted if its URI is prefix-matched by one of these roots.
         self._allowed_uri_roots: set[str] = set()
         for manifest in skill_manifests:
             if manifest.path:
@@ -154,13 +151,10 @@ class SkillReader:
         if "?" in uri or "#" in uri:
             return False
         lowered = uri.lower()
-        # Defense in depth: even if a manifest somehow registered a `file://`
-        # root, refuse to honor it here. The loader already rejects `file://`
-        # entries; this is the fallback trust-boundary check.
+        # Defense in depth: the loader rejects `file://` entries; refuse here too.
         if lowered.startswith("file://"):
             return False
-        # Check each path segment (after the scheme) for raw or
-        # percent-encoded traversal markers.
+        # Reject raw or percent-encoded traversal markers in any path segment.
         scheme_sep = lowered.find("://")
         tail = lowered[scheme_sep + 3 :] if scheme_sep != -1 else lowered
         for segment in tail.split("/"):
@@ -170,10 +164,8 @@ class SkillReader:
         for root in self._allowed_uri_roots:
             if uri == root or uri.startswith(f"{root}/"):
                 return True
-        # Unenumerated skill URI (SEP-2640 §Discovery). Admit `skill://`
-        # only — for any other scheme, the host's evidence that this is
-        # actually a skill comes from the index, which by definition we
-        # haven't seen for this URI.
+        # Unenumerated URI per SEP-2640 §Discovery. Admit `skill://` only — for any
+        # other scheme, the only evidence it's a skill is the (missing) index entry.
         if lowered.startswith("skill://"):
             return True
         return False
@@ -241,9 +233,8 @@ class SkillReader:
             return None
 
         files = self._archive_cache[best_root]
-        # `<file-path>` is the URI tail past the root + separator.
         if uri == best_root:
-            file_path = "SKILL.md"  # accessing the root itself reads SKILL.md
+            file_path = "SKILL.md"  # the bare root URI reads SKILL.md
         else:
             file_path = uri[len(best_root) + 1 :]
 
@@ -262,9 +253,7 @@ class SkillReader:
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
-            # Mirror the binary-rejection branch of the aggregator path:
-            # read_skill exists to load skill *text*. A binary supporting
-            # file (e.g. an image asset) has no text the model can act on.
+            # read_skill returns text only — binary supporting files have no text content.
             return CallToolResult(
                 isError=True,
                 content=[
@@ -282,10 +271,8 @@ class SkillReader:
             "Read skill resource from archive cache",
             data={"uri": uri, "root": best_root, "bytes": len(data)},
         )
-        # Archive cache is server-provided content (unpacked from an MCP
-        # blob fetch). Apply the same untrusted-content wrapper as the
-        # live aggregator path — the cache is a perf layer, not a trust
-        # one. Server attribution comes from the manifest, not the cache.
+        # Cache is a perf layer, not a trust one — wrap as untrusted just like the
+        # live aggregator path.
         wrapped = self._wrap_untrusted_mcp_content(
             text, uri, self._find_server_for_uri(uri)
         )
@@ -314,9 +301,7 @@ class SkillReader:
         return await self._read_filesystem(target)
 
     async def _read_mcp_uri(self, uri: str) -> CallToolResult:
-        # Trust-boundary check first: enforced regardless of whether the
-        # URI is served from the archive cache or via the aggregator. The
-        # cache is a performance/atomicity layer, not a permissions one.
+        # Trust-boundary check applies to cache hits and aggregator fetches alike.
         if not self._is_uri_allowed(uri):
             return CallToolResult(
                 isError=True,
@@ -328,10 +313,7 @@ class SkillReader:
                 ],
             )
 
-        # Archive-backed skills are unpacked at discovery; serve their
-        # supporting files from memory rather than round-tripping. The
-        # SKILL.md inside an archive is also cached, so the very first
-        # `read_skill skill://<root>/SKILL.md` is served locally.
+        # Archive-backed skills are unpacked at discovery; serve from memory if cached.
         cached = self._read_from_archive_cache(uri)
         if cached is not None:
             return cached
@@ -352,21 +334,10 @@ class SkillReader:
 
         server_name = self._find_server_for_uri(uri)
         if server_name is None:
-            # Unenumerated `skill://` URI per SEP-2640 §Discovery: the
-            # host MUST support loading by URI even when the URI never
-            # appeared in any index. We call the aggregator without a
-            # `server_name`, which fans out across connected servers
-            # (first to respond wins). This is the documented ambiguity
-            # the SEP example calls out: "two connected servers may both
-            # serve skill://refunds/SKILL.md" — fast-agent's fallthrough
-            # picks the first responder. If you have a non-enumerated
-            # skill on a specific server, name it: server_name disambig
-            # ates and matches the SEP's read_resource(server, uri) shape.
-            #
-            # Trust posture: `_is_uri_allowed` already required either a
-            # discovered manifest root OR `skill://` scheme. For a
-            # non-`skill://` scheme without a matching root we'd already
-            # have rejected before reaching here.
+            # Unenumerated `skill://` URI per SEP-2640 §Discovery: fan out across
+            # connected servers (first responder wins; ambiguous if multiple servers
+            # claim the same URI). `_is_uri_allowed` already restricted this path to
+            # the `skill://` scheme.
             self._logger.debug(
                 "Reading unenumerated skill URI via aggregator fanout",
                 data={"uri": uri},
@@ -413,10 +384,6 @@ class SkillReader:
 
         if not text_parts:
             if binary_mimes:
-                # read_skill exists to load skill *text* (SKILL.md, references,
-                # scripts). A blob-only resource has no text the model can act
-                # on — return an error rather than synthesizing a fake text
-                # placeholder the model would treat as content.
                 mimes = ", ".join(sorted(set(binary_mimes)))
                 return CallToolResult(
                     isError=True,
@@ -444,10 +411,8 @@ class SkillReader:
             "Read MCP skill resource",
             data={"uri": uri, "chars": sum(len(p) for p in text_parts)},
         )
-        # `server_name` is None on the unenumerated-URI fanout path —
-        # we don't know which server answered. The wrapper still fires;
-        # the model gets "mcp-server: (unknown)" in the source attribute,
-        # which is still better than no marker at all.
+        # `server_name` may be None on the unenumerated-URI fanout path; the wrapper
+        # still fires with "mcp-server: (unknown)".
         wrapped = self._wrap_untrusted_mcp_content(
             "\n".join(text_parts), uri, server_name
         )
@@ -550,12 +515,7 @@ def _looks_like_uri(value: str) -> bool:
     sep = value.find("://")
     if sep <= 0:
         return False
-    # The scheme part must be a plain identifier (alpha + a few specials per
-    # RFC 3986). Reject Windows drive paths like `C://...` is not an issue
-    # since drive letters are single chars (`C:\\` not `C://`), but an
-    # over-eager `://` substring on something like `https//x` shouldn't match
-    # either — `find` returns -1 for that. This guard is defensive: only
-    # treat as a URI if the scheme contains alphanumerics/+/-/.
+    # RFC 3986 scheme chars only — guards against schemes like Windows drive paths.
     scheme = value[:sep]
     if not scheme or not all(c.isalnum() or c in "+-." for c in scheme):
         return False

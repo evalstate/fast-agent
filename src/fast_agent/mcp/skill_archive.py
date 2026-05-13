@@ -27,9 +27,7 @@ from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Sized for typical skills: a SKILL.md is short, supporting files
-# (references, scripts, small assets) cap at a few MB total. A skill
-# materially larger than this is a smell, not a feature.
+# Sized for typical skills (short SKILL.md + a few MB of supporting files).
 MAX_ARCHIVE_UNPACKED_BYTES = 8 * 1024 * 1024  # 8 MiB total
 MAX_SKILL_FILE_BYTES = 1 * 1024 * 1024  # 1 MiB per file
 MAX_ARCHIVE_MEMBERS = 1024
@@ -188,9 +186,8 @@ def _unpack_zip(blob: bytes, url: str) -> dict[str, bytes] | None:
                     data={"url": url, "member": name},
                 )
                 return None
-            # ZipInfo.file_size is the *declared* uncompressed size — trust
-            # it for the up-front cap (decompression-bomb defense), then
-            # verify against the actual read length below.
+            # Declared size is checked up front (decompression-bomb defense);
+            # actual read length is verified below.
             if info.file_size > MAX_SKILL_FILE_BYTES:
                 logger.warning(
                     "Skill archive (zip) member declared size exceeds per-file limit",
@@ -246,22 +243,14 @@ def _is_safe_relative_path(name: str) -> bool:
     """
     if not name or "\x00" in name:
         return False
-    # Reject absolute paths (Unix `/`, Windows `\\` or `C:\\`, UNC, etc.)
+    # Absolute paths: Unix `/`, Windows `\\` / `C:\\`, UNC.
     if name.startswith("/") or name.startswith("\\"):
         return False
     if len(name) >= 2 and name[1] == ":":  # drive letter
         return False
-    # Normalize backslashes to forward slashes for segment inspection.
     normalized = name.replace("\\", "/")
     for segment in normalized.split("/"):
         if segment in ("", ".", ".."):
-            # Empty segment is from a leading slash or doubled slash;
-            # `.` and `..` are traversal markers.
-            if segment == "":
-                # Allow nothing — if we got here, the leading-/ check
-                # above was bypassed somehow; treat empty segments as
-                # unsafe to avoid `foo//bar` ambiguity.
-                return False
             return False
     return True
 

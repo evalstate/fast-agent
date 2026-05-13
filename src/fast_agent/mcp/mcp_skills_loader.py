@@ -29,27 +29,17 @@ logger = get_logger(__name__)
 
 INDEX_URI = "skill://index.json"
 
-# Soft ceilings on server-returned text to keep a hostile or misbehaving
-# server from pinning megabytes of memory per discovery pass. An index
-# listing thousands of skills still fits comfortably under 1MB; a single
-# SKILL.md is conventionally a short instruction document.
+# Soft ceilings on server-returned bytes: bound memory against a misbehaving server.
 MAX_INDEX_BYTES = 1_048_576  # 1 MiB
 MAX_SKILL_MD_BYTES = 262_144  # 256 KiB
 
-# Schema versions of the Agent Skills discovery index this host knows how to
-# parse. Per SEP-2640: clients SHOULD match `$schema` against known URIs
-# before processing. An unknown schema does not abort parsing — we proceed
-# best-effort so a newer index that adds fields stays readable for the
-# entries we still recognize — but it does emit a warning so the operator
-# knows the host may be missing functionality the server expects.
+# Per SEP-2640: clients SHOULD match `$schema` against known URIs before processing.
+# Unknown schema parses best-effort with a warning rather than aborting.
 KNOWN_INDEX_SCHEMAS = frozenset(
     {"https://schemas.agentskills.io/discovery/0.2.0/schema.json"}
 )
 
-# Maximum size of an archive blob we'll fetch from a server. Distinct from
-# the per-archive *unpacked* limit enforced by skill_archive — this is the
-# wire-bytes ceiling. A skill that needs >4 MiB compressed should be
-# distributed as individual files so the host can stage progressively.
+# Wire-bytes ceiling for archive blobs — distinct from the unpacked-size cap in skill_archive.
 MAX_ARCHIVE_BLOB_BYTES = 4 * 1024 * 1024  # 4 MiB
 
 ARCHIVE_SUFFIXES = (".tar.gz", ".tgz", ".zip")
@@ -75,9 +65,6 @@ class SkillTemplateEntry:
         """Return RFC 6570 variable names (just simple `{var}` form)."""
         import re
 
-        # The SEP example only uses simple expansion (`{product}`), so a
-        # full RFC 6570 parser is overkill. Accept letters/digits/_-. in
-        # variable names per RFC 6570 §2.3.
         return re.findall(r"\{([A-Za-z0-9_.\-]+)\}", self.url_template)
 
 
@@ -96,8 +83,6 @@ def expand_uri_template(template: str, values: dict[str, str]) -> str:
         name = match.group(1)
         if name not in values:
             raise KeyError(f"template variable not provided: {name}")
-        # `quote` with `safe=""` percent-encodes `/` and other reserved
-        # characters. RFC 6570 simple expansion does exactly this.
         return quote(values[name], safe="")
 
     return re.sub(r"\{([A-Za-z0-9_.\-]+)\}", _sub, template)
@@ -211,10 +196,7 @@ async def load_mcp_skill_manifests(
                     )
                     continue
                 if url.lower().startswith("file://"):
-                    # Same trust rationale as concrete entries: a
-                    # `file://` root delegates content authority to the
-                    # local filesystem, which collapses the per-server
-                    # boundary the SEP relies on.
+                    # See `_load_concrete_entry` for the `file://` trust rationale.
                     logger.warning(
                         "Rejecting `file://` skill template URI",
                         data={"server": server_name, "url": url},
@@ -238,9 +220,6 @@ async def load_mcp_skill_manifests(
                 if pair is not None:
                     manifest, files = pair
                     result.manifests.append(manifest)
-                    # Cache key is the skill's root URI (post-strip), so
-                    # the reader's per-segment lookup matches without
-                    # round-tripping back through the archive URL.
                     root_uri = manifest.uri.removesuffix("/SKILL.md")
                     result.archive_cache[root_uri] = files
                 continue
@@ -363,13 +342,9 @@ async def _load_concrete_entry(
         )
         return None
 
-    # Reject `file://` skill URIs: the trust model for Skills-over-MCP is
-    # "the MCP server is the authority for content under its published
-    # roots". A `file://` root collapses that to "whatever the server's
-    # process can read from disk" — something the user thought they were
-    # delegating through MCP ends up reading the local filesystem without
-    # the usual ACP / filesystem-runtime path guardrails. Keep the root
-    # out of the reader's allow-list entirely.
+    # Reject `file://` skill URIs: Skills-over-MCP delegates content authority to
+    # the publishing server, but `file://` collapses that to the server process's
+    # local disk view — bypassing the ACP / filesystem-runtime path guardrails.
     if url.lower().startswith("file://"):
         logger.warning(
             "Rejecting `file://` skill URI: not allowed for Skills-over-MCP",
@@ -415,12 +390,9 @@ async def _load_concrete_entry(
         )
         return None
 
-    # SEP: the final segment of <skill-path> MUST equal the frontmatter name.
-    # A URI with no skill-path segment (e.g. `skill://SKILL.md`) is rejected
-    # outright: stripping `/SKILL.md` would yield `skill:/`, which the reader
-    # would seed into its allowed-roots set and then admit every `skill://...`
-    # URI via the `startswith(root + "/")` check — the trust boundary must
-    # not rely on server-published URIs being well-formed.
+    # A URI with no skill-path segment (e.g. `skill://SKILL.md`) is rejected: stripping
+    # `/SKILL.md` would leave `skill:/` in the reader's allowed-roots set and admit every
+    # `skill://...` URI via the prefix check.
     url_name = skill_name_from_uri(url)
     if not url_name:
         logger.warning(
@@ -429,8 +401,7 @@ async def _load_concrete_entry(
         )
         return None
     if url_name != manifest.name:
-        # If index or URI disagree with the frontmatter, frontmatter wins — the
-        # spec says the skill's identity is its `name` field — but log it.
+        # Frontmatter `name` is the spec's source of truth; log the mismatch.
         logger.warning(
             "MCP skill URI final segment differs from frontmatter name",
             data={
@@ -513,10 +484,8 @@ async def _load_archive_entry(
         )
         return None
 
-    # Same `file://` rejection as concrete entries: the SEP's trust model
-    # delegates content authority to the MCP server, so a local-disk root
-    # is not admissible regardless of distribution mechanism.
     if url.lower().startswith("file://"):
+        # See `_load_concrete_entry` for the `file://` trust rationale.
         logger.warning(
             "Rejecting `file://` skill archive URI",
             data={"server": server_name, "url": url},
@@ -563,12 +532,10 @@ async def _load_archive_entry(
 
     files = unpack_skill_archive(blob, mime_type, url)
     if files is None:
-        # skill_archive already logged the specific safety failure.
         return None
 
     skill_md_bytes = files.get("SKILL.md")
     if skill_md_bytes is None:
-        # unpack_skill_archive enforces this, but guard defensively.
         logger.warning(
             "Unpacked skill archive missing SKILL.md",
             data={"server": server_name, "url": url},
@@ -592,10 +559,7 @@ async def _load_archive_entry(
         )
         return None
 
-    # Sanity check: archive URL final segment (post-suffix-strip) should
-    # equal the frontmatter name. We do not enforce — the SEP says the
-    # frontmatter `name` is the source of truth — but a mismatch is worth
-    # surfacing as a warning so the operator can fix the index.
+    # Frontmatter `name` is authoritative; a URL/name mismatch is a smell, not an error.
     archive_url_name = skill_root.rsplit("/", 1)[-1]
     if archive_url_name != parsed.name:
         logger.warning(
