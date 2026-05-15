@@ -642,6 +642,7 @@ class ModelFactory:
         "gemini25pro": "gemini-2.5-pro",
         "gemini3": "gemini-3-pro-preview",
         "gemini3.1": "gemini-3.1-pro-preview",
+        "gemini31pro": "gemini-3.1-pro-preview",
         "gemini3.1flashlite": "gemini-3.1-flash-lite-preview",
         "gemini3flash": "gemini-3-flash-preview",
         "grok": "xai.grok-4.3",
@@ -661,11 +662,11 @@ class ModelFactory:
         "glm51": "hf.zai-org/GLM-5.1:together",
         "glm5": "hf.zai-org/GLM-5:novita",
         "glm": "hf.zai-org/GLM-5.1:together",
-        "deepseek": "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+        "deepseek": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-        "deepseek4": "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
-        "deepseek4pro": "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
-        "deepseekv4pro": "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+        "deepseek4": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "deepseek4pro": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "deepseekv4pro": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
         "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "kimi26instant": (
             "hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"

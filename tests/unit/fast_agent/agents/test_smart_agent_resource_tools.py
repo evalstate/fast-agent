@@ -84,7 +84,7 @@ def test_enable_smart_tooling_registers_minimal_visible_tools() -> None:
     assert "create_agent_card" not in names
     assert "mcp_connect" not in names
     assert "list_resources" not in names
-    assert "attach_resource" not in names
+    assert "attach_media" not in names
 
     smart_tool = next(tool for tool in harness.tools if tool.name == "smart")
     smart_description = str(smart_tool.description or "")

@@ -7,13 +7,14 @@ from dataclasses import asdict
 from typing import Any, Callable, Dict, List, Mapping, Sequence
 
 from fastmcp.tools import FunctionTool, ToolResult
-from mcp.types import CallToolResult, ListToolsResult, Tool
+from mcp.types import CallToolResult, ContentBlock, ListToolsResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_TOOL_METADATA,
     HUMAN_INPUT_TOOL_NAME,
     should_parallelize_tool_calls,
@@ -607,6 +608,10 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
     def _should_display_user_message(self, message: PromptMessageExtended) -> bool:
         return not message.tool_results
 
+    def _consume_pending_media_attachments(self) -> list[ContentBlock]:
+        """Return pending media blocks to send as the next user input."""
+        return []
+
     # we take care of tool results, so skip displaying them
     def show_user_message(self, message: PromptMessageExtended) -> None:
         if message.tool_results:
@@ -810,8 +815,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
 
-        channels = None
-        content = []
+        channels: dict[str, Sequence[ContentBlock]] | None = None
+        content: list[ContentBlock] = []
         if tool_loop_error:
             content.append(text_content(tool_loop_error))
             channels = {
@@ -845,6 +850,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             channels[FAST_AGENT_URL_ELICITATION_CHANNEL] = [
                 TextContent(type="text", text=json.dumps(deferred_url_elicitations))
             ]
+
+        pending_media = self._consume_pending_media_attachments()
+        if pending_media:
+            if channels is None:
+                channels = {}
+            channels[FAST_AGENT_PENDING_MEDIA_ATTACHMENTS] = pending_media
 
         return PromptMessageExtended(
             role="user",

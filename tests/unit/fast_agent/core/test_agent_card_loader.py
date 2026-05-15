@@ -99,6 +99,31 @@ def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     assert config.mcp_connect[1].auth == {"oauth": False}
 
 
+def test_load_agent_card_rejects_skill_manifest_with_clear_error(tmp_path: Path) -> None:
+    skill_path = tmp_path / "SKILL.md"
+    skill_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "name: sample-skill",
+                "description: Skill description",
+                "metadata:",
+                "  source: test",
+                "---",
+                "Skill body",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError) as exc_info:
+        load_agent_cards(skill_path)
+
+    message = str(exc_info.value)
+    assert "Agent Skill manifest, not an AgentCard" in message
+    assert "read_text_file/read_skill" in message
+
+
 def test_load_agent_card_parses_provider_managed_mcp_connect_entries(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

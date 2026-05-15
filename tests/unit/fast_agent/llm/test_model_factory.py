@@ -679,6 +679,10 @@ def test_gemini31_alias_resolves_to_google_31_preview():
     assert config.provider == Provider.GOOGLE
     assert config.model_name == "gemini-3.1-pro-preview"
 
+    config = ModelFactory.parse_model_string("gemini31pro")
+    assert config.provider == Provider.GOOGLE
+    assert config.model_name == "gemini-3.1-pro-preview"
+
 
 def test_gemini31_flash_lite_alias_resolves_to_google_preview():
     config = ModelFactory.parse_model_string("gemini3.1flashlite")
@@ -705,13 +709,13 @@ def test_grok_aliases_resolve_to_xai_grok_43():
 def test_deepseek_alias_resolves_to_hf_deepseek_v4_pro():
     config = ModelFactory.parse_model_string("deepseek")
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:fireworks-ai"
+    assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
 
 
 def test_deepseek4_alias_resolves_to_hf_deepseek_v4_pro():
     config = ModelFactory.parse_model_string("deepseek4")
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:fireworks-ai"
+    assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
 
 
 def test_hf_routed_gpt_oss_alias_resolves_model_metadata():

@@ -585,6 +585,12 @@ class ModelDatabase:
         reasoning="google_thinking",
         reasoning_effort_spec=GOOGLE_THINKING_EFFORT_SPEC,
         default_provider=Provider.GOOGLE,
+        model_specific=(
+            "You have multimodal capabilities. When attachment/resource tools are available, "
+            "you can inspect supported images, PDFs, audio, and video inputs. "
+            "Gemini models are capable of handling YouTube video links when attached as video "
+            "resource links."
+        ),
     )
 
     GEMINI_STANDARD_STRUCTURED = ModelParameters(
@@ -595,6 +601,12 @@ class ModelDatabase:
         reasoning="google_thinking",
         reasoning_effort_spec=GOOGLE_THINKING_EFFORT_SPEC,
         default_provider=Provider.GOOGLE,
+        model_specific=(
+            "You have multimodal capabilities. When attachment/resource tools are available, "
+            "you can inspect supported images, PDFs, audio, and video inputs. "
+            "Gemini models are capable of handling YouTube video links when attached as video "
+            "resource links."
+        ),
     )
 
     GEMINI_2_FLASH = ModelParameters(
@@ -603,6 +615,12 @@ class ModelDatabase:
         tokenizes=GOOGLE_MULTIMODAL,
         json_mode="schema",
         default_provider=Provider.GOOGLE,
+        model_specific=(
+            "You have multimodal capabilities. When attachment/resource tools are available, "
+            "you can inspect supported images, PDFs, audio, and video inputs. "
+            "Gemini models are capable of handling YouTube video links when attached as video "
+            "resource links."
+        ),
     )
 
     KIMI_MOONSHOT_INSTRUCT = ModelParameters(

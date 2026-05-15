@@ -19,6 +19,7 @@ from tests.support.command_surface import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_dispatch_session_flow_updates_session_state(tmp_path: Path) -> None:
@@ -104,6 +105,61 @@ async def test_dispatch_history_rewind_updates_history_and_prefills_buffer() -> 
     assert agent.message_history[0].first_text() == "first question"
     assert agent.message_history[1].first_text() == "first answer"
     assert any("History rewound" in message for message in agent.display.messages)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dispatch_history_save_writes_file_in_noenv(tmp_path: Path) -> None:
+    target = tmp_path / "history.json"
+    agent = CommandSurfaceAgent(
+        name="main",
+        message_history=[
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="save this")],
+            ),
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text="saved")],
+            ),
+        ],
+    )
+    provider = CommandSurfaceProvider({"main": agent}, noenv_mode=True)
+    owner = CommandSurfaceOwner(agent_types=provider.agent_types())
+
+    result = await dispatch_tui_command(
+        f"/history save {target}",
+        owner=owner,
+        prompt_provider=provider,
+    )
+
+    assert result.handled is True
+    assert target.exists()
+    assert any(f"History saved to {target}" in message for message in agent.display.messages)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dispatch_history_load_restores_file_without_session(tmp_path: Path) -> None:
+    target = tmp_path / "history.json"
+    source = CommandSurfaceAgent(
+        name="main",
+        message_history=[
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="reload this")],
+            )
+        ],
+    )
+    provider = CommandSurfaceProvider({"main": source}, noenv_mode=True)
+    owner = CommandSurfaceOwner(agent_types=provider.agent_types())
+    await dispatch_tui_command(f"/history save {target}", owner=owner, prompt_provider=provider)
+
+    source.clear()
+    await dispatch_tui_command(f"/history load {target}", owner=owner, prompt_provider=provider)
+
+    assert [message.first_text() for message in source.message_history] == ["reload this"]
+    assert any(f"Loaded 1 messages from {target}" in message for message in source.display.messages)
 
 
 @pytest.mark.integration

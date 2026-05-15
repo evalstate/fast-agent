@@ -18,6 +18,7 @@ from mcp.types import CallToolResult, ContentBlock, ListToolsResult, TextContent
 from fast_agent.constants import (
     DEFAULT_MAX_ITERATIONS,
     FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_SYNTHETIC_FINAL_CHANNEL,
     FAST_AGENT_TIMING,
     FAST_AGENT_USAGE,
@@ -582,12 +583,23 @@ class ToolRunner:
         return self._pending_tool_request is not None
 
     def _stage_tool_response(self, tool_message: PromptMessageExtended) -> None:
+        staged_messages = [tool_message]
+        channels = tool_message.channels
+        if channels and FAST_AGENT_PENDING_MEDIA_ATTACHMENTS in channels:
+            pending_media = channels[FAST_AGENT_PENDING_MEDIA_ATTACHMENTS]
+            visible_channels = dict(channels)
+            del visible_channels[FAST_AGENT_PENDING_MEDIA_ATTACHMENTS]
+            staged_messages = [
+                tool_message.model_copy(update={"channels": visible_channels or None}),
+                PromptMessageExtended(role="user", content=list(pending_media)),
+            ]
+
         if self._use_history_enabled():
-            self._delta_messages = [tool_message]
+            self._delta_messages = staged_messages
         else:
             if self._last_message is not None:
                 self._delta_messages.append(self._last_message)
-            self._delta_messages.append(tool_message)
+            self._delta_messages.extend(staged_messages)
 
     def _should_start_deferred_structured_finalization(
         self,

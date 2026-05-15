@@ -173,26 +173,31 @@ class GoogleConverter:
                                 data=pdf_bytes,
                             )
                         )
-                    elif part_content.resource.mimeType and part_content.resource.mimeType.startswith(
-                        "video/"
+                    elif part_content.resource.mimeType and (
+                        part_content.resource.mimeType.startswith("video/")
+                        or part_content.resource.mimeType.startswith("audio/")
                     ):
-                        # Handle video content
+                        # Handle embedded audio/video content.
                         if isinstance(part_content.resource, BlobResourceContents):
-                            video_bytes = base64.b64decode(part_content.resource.blob)
+                            media_bytes = base64.b64decode(part_content.resource.blob)
                             parts.append(
                                 types.Part.from_bytes(
                                     mime_type=part_content.resource.mimeType,
-                                    data=video_bytes,
+                                    data=media_bytes,
                                 )
                             )
                         else:
-                            # Handle non-blob video resources (YouTube URLs, File API URIs, etc.)
-                            # Google supports YouTube URLs and File API URIs directly via file_data
+                            # Handle non-blob media resources (YouTube URLs, File API URIs, etc.)
+                            # Google supports media URLs and File API URIs directly via file_data
                             uri_str = getattr(part_content.resource, "uri", None)
-                            mime_str = getattr(part_content.resource, "mimeType", "video/mp4")
-                            
+                            mime_str = getattr(
+                                part_content.resource,
+                                "mimeType",
+                                "application/octet-stream",
+                            )
+
                             if uri_str:
-                                # Use file_data for YouTube URLs and File API URIs
+                                # Use file_data for media URLs and File API URIs
                                 # Google accepts: YouTube URLs, gs:// URIs, and uploaded file URIs
                                 parts.append(
                                     types.Part.from_uri(
@@ -354,6 +359,26 @@ class GoogleConverter:
                             )
                         except Exception as e:
                             textual_outputs.append(f"[Error processing PDF from tool result: {e}]")
+                    elif (
+                        item.resource.mimeType
+                        and (
+                            item.resource.mimeType.startswith("video/")
+                            or item.resource.mimeType.startswith("audio/")
+                        )
+                        and isinstance(item.resource, BlobResourceContents)
+                    ):
+                        try:
+                            media_bytes = base64.b64decode(item.resource.blob)
+                            media_parts.append(
+                                types.Part.from_bytes(
+                                    data=media_bytes,
+                                    mime_type=item.resource.mimeType,
+                                )
+                            )
+                        except Exception as e:
+                            textual_outputs.append(
+                                f"[Error processing media from tool result: {e}]"
+                            )
                     else:
                         # Check if the resource itself has text content
                         # Try to get text from TextResourceContents directly

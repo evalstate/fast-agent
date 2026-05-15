@@ -599,6 +599,34 @@ class TestOpenAIToolConverter(unittest.TestCase):
         self.assertEqual(user_msg["role"], "user")
         self.assertEqual(content_parts(user_msg)[0]["type"], "image_url")
 
+    def test_tool_result_resource_link_pdf_becomes_user_file_message(self):
+        """PDF ResourceLinks in tool results use OpenAI's internal file_url shape."""
+        resource_link = ResourceLink(
+            uri=AnyUrl("https://example.com/report.pdf"),
+            type="resource_link",
+            mimeType="application/pdf",
+            name="report.pdf",
+        )
+        tool_result = CallToolResult(
+            content=[TextContent(type="text", text="attached"), resource_link],
+            isError=False,
+        )
+
+        converted = OpenAIConverter.convert_tool_result_to_openai(
+            tool_result=tool_result,
+            tool_call_id="call_pdf",
+        )
+
+        assert isinstance(converted, tuple)
+        tool_msg, user_messages = converted
+        tool_msg = cast("ChatCompletionToolMessageParam", tool_msg)
+        user_msg = cast("ChatCompletionUserMessageParam", user_messages[0])
+
+        self.assertEqual(tool_msg["content"], "attached")
+        self.assertEqual(content_parts(user_msg)[0]["type"], "file")
+        self.assertEqual(file_part(user_msg)["filename"], "report.pdf")
+        self.assertEqual(file_part(user_msg)["file_url"], "https://example.com/report.pdf")
+
     def test_empty_schema_behavior(self):
         """Test adjustment of parameters for empty schema."""
         inputSchema = {
