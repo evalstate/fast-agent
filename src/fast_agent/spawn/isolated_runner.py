@@ -38,6 +38,16 @@ from fast_agent.spawn.spawn_events import emit_event
 logger = logging.getLogger(__name__)
 
 
+# Keep-alive listen timeout. Each tick: wake-signal channel listens for this
+# many seconds, then falls through to poll the inbox for messages whose
+# signal was dropped (e.g. producer sent ``wake`` before this consumer's
+# AgentChannel socket was bound). Lower = faster recovery from signal loss
+# but more idle CPU wake-ups; higher = lighter idle load but slower
+# fallback. 30s balances both — verified against the 1h2m Sasha hang
+# regression (signal lost during initial ``agent.send``).
+KEEP_ALIVE_TIMEOUT_S = 30.0
+
+
 def _install_termination_cleanup(
     run_id: str,
     agent_name: str,
@@ -663,7 +673,10 @@ async def run_child_agent(
                         channel_sock_path=channel.socket_path,
                     )
 
-                    logger.info("📡 %s entering keep-alive mode (timeout=30s)", agent_name)
+                    logger.info(
+                        "📡 %s entering keep-alive mode (timeout=%.1fs)",
+                        agent_name, KEEP_ALIVE_TIMEOUT_S,
+                    )
 
                 # Initial task is the first "pending" item. After it runs,
                 # subsequent iterations drain the inbox.
@@ -759,7 +772,7 @@ async def run_child_agent(
                         # connect timeout, future sender forgetting to
                         # call auto_wake). Loop returns to step 3 on
                         # either signal or timeout.
-                        signal = await channel.listen(timeout=30.0)
+                        signal = await channel.listen(timeout=KEEP_ALIVE_TIMEOUT_S)
                         last_was_timeout = (signal is None)
                         if signal:
                             logger.info(
