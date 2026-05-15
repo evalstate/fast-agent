@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import atexit
 import json
 import logging
 import os
 import shutil
+import signal as _signal
 import sys
 import tempfile
 import time
@@ -34,6 +36,73 @@ from fast_agent.spawn.runtime_paths import get_runtime_paths
 from fast_agent.spawn.spawn_events import emit_event
 
 logger = logging.getLogger(__name__)
+
+
+def _install_termination_cleanup(
+    run_id: str,
+    agent_name: str,
+    channel_sock_path: Path | None,
+) -> None:
+    """Install atexit + SIGTERM hooks so abnormal exits still:
+
+    * Emit a final ``killed`` event so the bridge / DB status flips
+      away from ``running``.
+    * Unlink the agent's own channel socket file so the next instance
+      doesn't find a stale orphan (which would otherwise fool
+      ``send_signal`` into a wasted connect attempt).
+
+    Limitations:
+      - SIGKILL bypasses everything Python can install. There is no
+        defense; the parent backend's escalation from SIGTERM → SIGKILL
+        (after a 5s grace) will leak a sock file. The DB-level
+        observability fix (Obs-1, compute effective status from
+        liveness probe) compensates for that worst case.
+    """
+    cleaned = {"done": False}  # idempotency latch (atexit + signal both fire)
+
+    def _cleanup() -> None:
+        if cleaned["done"]:
+            return
+        cleaned["done"] = True
+
+        # Best-effort: emit final lifecycle event. If the bridge socket
+        # has died (R1/R2 race) this will silently no-op — that's fine,
+        # Obs-1 reconciliation picks it up via the snapshot-trigger
+        # / liveness-probe path.
+        try:
+            emit_event(
+                "killed",
+                run_id,
+                agent_name,
+                message="Subprocess exiting (SIGTERM or shutdown)",
+            )
+        except Exception:
+            pass
+
+        # Best-effort: unlink our own channel sock so the next spawn
+        # of this agent name doesn't trip over a stale file.
+        if channel_sock_path is not None:
+            try:
+                if channel_sock_path.exists():
+                    channel_sock_path.unlink()
+            except OSError:
+                pass
+
+    atexit.register(_cleanup)
+
+    def _sigterm_handler(signum, frame):  # noqa: ARG001 — signature fixed
+        # Convert SIGTERM → SystemExit so atexit fires. Default Python
+        # behavior is to terminate without running atexit, which leaves
+        # the channel sock file orphan and the DB status stuck at
+        # "running" forever — exactly the bug this hook prevents.
+        sys.exit(0)
+
+    try:
+        _signal.signal(_signal.SIGTERM, _sigterm_handler)
+    except (ValueError, OSError):
+        # Not on main thread, or platform doesn't support signal.signal —
+        # atexit alone still handles normal exit / SystemExit paths.
+        pass
 
 
 def build_child_system_prompt(
@@ -542,45 +611,27 @@ async def run_child_agent(
                             exc,
                         )
 
-                try:
-                    response = await agent.send(task)
-                except Exception as _send_exc:
-                    import sys, traceback
-                    logger.error(
-                        "[AGENT.SEND CRASH] agent=%s error=%s",
-                        agent_name, _send_exc,
-                    )
-                    traceback.print_exc(file=sys.stderr)
-                    sys.stderr.flush()
-                    raise
-
-                # ── Save context window after task completion ──
-                await _save_agent_context_snapshot(
-                    agent, event_run_id, agent_name, "task_complete"
-                )
-
-                # ── Keep-alive: wait for inbox messages via AgentChannel ──
-                import sys as _sys
+                # ── Unified inbox-driven lifetime loop ──
+                # The agent's lifetime is a single loop over a persistent
+                # inbox queue. Wake signal is an *optimization* to skip
+                # polling — never a source of truth. State of "is there
+                # work?" lives in the inbox file; we drain it on every
+                # iteration so a race-lost signal cannot strand a message.
+                #
+                # See ROOT_CAUSE.md (or git blame) for the 1h2m hang that
+                # motivated this refactor: producer fired wake while the
+                # consumer was still in its first agent.send, sock not yet
+                # bound — signal dropped silently, inbox sat unread until
+                # an external poke arrived an hour later.
                 _team_name_env = os.environ.get("TEAM_MY_NAME", "")
                 _team_ws_env = os.environ.get("TEAM_WORKSPACE", "")
                 is_team_agent = bool(_team_name_env and _team_ws_env)
-                logger.info(
-                    "[KEEP-ALIVE CHECK] agent=%s TEAM_MY_NAME=%r TEAM_WORKSPACE=%r is_team_agent=%s",
-                    agent_name, _team_name_env, _team_ws_env, is_team_agent,
-                )
-                # Force flush to stderr so subprocess output is captured
-                print(
-                    f"[KEEP-ALIVE CHECK] TEAM_MY_NAME={_team_name_env!r} "
-                    f"TEAM_WORKSPACE={_team_ws_env!r} is_team={is_team_agent}",
-                    file=_sys.stderr, flush=True,
-                )
 
+                channel = None
+                bus = None
                 if is_team_agent:
                     from fast_agent.spawn.agent_channel import AgentChannel
                     from fast_agent.spawn.message_bus import MessageBus
-
-                    channel = AgentChannel(agent_name)
-                    await channel.start_server()
 
                     # Resolve messages dir for inbox reads
                     _msgs_dir = os.environ.get("TEAM_MESSAGES_DIR", "")
@@ -594,34 +645,96 @@ async def run_child_agent(
                                     break
                                 _cur = _cur.parent
 
-                    emit_event("idle", event_run_id, agent_name)
-                    logger.info("📡 %s entering keep-alive mode (no timeout)", agent_name)
+                    channel = AgentChannel(agent_name)
+                    await channel.start_server()
+                    if _msgs_dir:
+                        bus = MessageBus(messages_dir=_msgs_dir)
 
-                    try:
-                        while True:
-                            signal = await channel.listen(timeout=None)
-                            if signal is None:
-                                # channel closed externally
-                                logger.info("📡 %s channel closed — exiting", agent_name)
-                                break
+                    # Install SIGTERM / atexit hooks so an abnormal
+                    # shutdown (backend restart, timeout cancel) still
+                    # emits a terminal lifecycle event and unlinks our
+                    # own channel sock. Without this, the path-aware
+                    # signal handler bug surfaces as: DB status stuck
+                    # on "running" + orphan sock file fooling future
+                    # send_signal() calls into spurious connect attempts.
+                    _install_termination_cleanup(
+                        run_id=event_run_id,
+                        agent_name=agent_name,
+                        channel_sock_path=channel.socket_path,
+                    )
 
-                            logger.info(
-                                "📬 %s woke up on signal '%s'",
+                    logger.info("📡 %s entering keep-alive mode (timeout=30s)", agent_name)
+
+                # Initial task is the first "pending" item. After it runs,
+                # subsequent iterations drain the inbox.
+                pending: str | None = task
+                pending_msg_count = 0
+                is_first_iter = True
+                last_was_timeout = False
+                response = None
+
+                try:
+                    while True:
+                        # 1) Process pending input (initial task OR inbox batch)
+                        if pending is not None:
+                            if not is_first_iter:
+                                emit_event(
+                                    "resumed",
+                                    event_run_id,
+                                    agent_name,
+                                    message_count=pending_msg_count,
+                                )
+
+                            try:
+                                response = await agent.send(pending)
+                            except Exception as _send_exc:
+                                import sys, traceback
+                                logger.error(
+                                    "[AGENT.SEND CRASH] agent=%s error=%s",
+                                    agent_name, _send_exc,
+                                )
+                                traceback.print_exc(file=sys.stderr)
+                                sys.stderr.flush()
+                                raise
+
+                            await _save_agent_context_snapshot(
+                                agent,
+                                event_run_id,
                                 agent_name,
-                                signal,
+                                "task_complete" if is_first_iter else "idle",
                             )
 
-                            # Read inbox
-                            if _msgs_dir:
-                                bus = MessageBus(messages_dir=_msgs_dir)
-                                unread = bus.read_unread(agent_name)
-                            else:
-                                unread = []
+                            pending = None
+                            pending_msg_count = 0
 
-                            if not unread:
-                                continue
+                            if is_team_agent:
+                                emit_event("idle", event_run_id, agent_name)
 
-                            # Format inbox messages as follow-up
+                            is_first_iter = False
+
+                        # 2) Non-team agent: one-shot, exit after initial task
+                        if not is_team_agent:
+                            break
+
+                        # 3) Drain inbox — the race-safe entry point. Catches
+                        # messages that arrived during agent.send (when sock
+                        # was not yet listening), and post-wake messages.
+                        unread = bus.read_unread(agent_name) if bus else []
+                        if unread:
+                            # If we got here via timeout (not signal), the
+                            # producer's wake signal was lost — surface so
+                            # ops can investigate. Inbox-poll fallback
+                            # recovered the message regardless.
+                            if last_was_timeout:
+                                logger.error(
+                                    "wake_signal_missed agent=%s pending=%d — "
+                                    "inbox-poll fallback recovered after 30s. "
+                                    "Producer likely crashed mid-send, skipped "
+                                    "auto_wake_if_idle, or signal delivery failed.",
+                                    agent_name, len(unread),
+                                )
+                            last_was_timeout = False
+
                             inbox_lines = [
                                 f"\n━━━ 📬 NEW MESSAGES ({len(unread)} unread) ━━━\n"
                             ]
@@ -631,32 +744,30 @@ async def run_child_agent(
                                     f"  {msg.content}\n"
                                 )
                                 bus.mark_done(agent_name, msg.message_id)
-
                             inbox_lines.append(
                                 "→ Handle these messages: take action and/or reply.\n"
                                 "━━━━━━━━━━━━━━━━━━━━\n"
                             )
-                            follow_up = "\n".join(inbox_lines)
+                            pending = "\n".join(inbox_lines)
+                            pending_msg_count = len(unread)
+                            continue
 
-                            emit_event(
-                                "resumed",
-                                event_run_id,
-                                agent_name,
-                                message_count=len(unread),
+                        # 4) Empty inbox — sleep waiting for wake signal.
+                        # Timeout is a safety net for the rare cases where
+                        # the signal is lost (producer SIGKILL between
+                        # bus.send and auto_wake_if_idle, send_signal
+                        # connect timeout, future sender forgetting to
+                        # call auto_wake). Loop returns to step 3 on
+                        # either signal or timeout.
+                        signal = await channel.listen(timeout=30.0)
+                        last_was_timeout = (signal is None)
+                        if signal:
+                            logger.info(
+                                "📬 %s woke up on signal '%s'",
+                                agent_name, signal,
                             )
-                            response = await agent.send(follow_up)
-
-                            # ── Save context window after keep-alive response ──
-                            await _save_agent_context_snapshot(
-                                agent, event_run_id, agent_name, "idle"
-                            )
-
-                            emit_event(
-                                "idle",
-                                event_run_id,
-                                agent_name,
-                            )
-                    finally:
+                finally:
+                    if channel is not None:
                         await channel.stop()
 
                 return response
@@ -846,6 +957,38 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
 
     _tool_start_times: dict[str, float] = {}
 
+    # ── message_turn: stream child_agent.message_history deltas ──
+    # Cursor lives in this closure; it survives across turns of the same
+    # subprocess. The socket payload is FULL (untruncated). The parent-
+    # process bridge applies size capping before SSE broadcast.
+    _msg_cursor = {"v": 0}
+
+    def _emit_message_turn_delta() -> None:
+        try:
+            history = list(getattr(child_agent, "message_history", None) or [])
+        except Exception:
+            return
+        cur = _msg_cursor["v"]
+        if cur > len(history):
+            cur = 0  # history was cleared
+        if cur >= len(history):
+            return
+        for idx in range(cur, len(history)):
+            msg = history[idx]
+            try:
+                payload = msg.model_dump(mode="json", exclude_none=True)
+            except Exception:
+                continue
+            emit_event(
+                "message_turn",
+                run_id,
+                role,
+                turn_idx=idx,
+                msg_role=payload.get("role"),
+                message=payload,
+            )
+        _msg_cursor["v"] = len(history)
+
     async def before_tool_call(runner: Any, request: Any) -> None:
         # File-based debug — does this hook fire?
         try:
@@ -923,6 +1066,9 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
                 is_error=is_error,
             )
         _tool_start_times.clear()
+
+        # Stream the new tool_result turn appended to message_history.
+        _emit_message_turn_delta()
 
     # ── Centralized activity hooks: thinking + response ──────────────
 
@@ -1003,6 +1149,9 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
                 reasoning=reasoning_text,
                 stop_reason=stop_reason,
             )
+
+        # Stream the new assistant turn appended to message_history.
+        _emit_message_turn_delta()
 
         # ── Emit token_usage event for cost tracking ──
         try:

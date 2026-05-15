@@ -206,10 +206,14 @@ def _notify_meeting_ended(
 # ───────────────────────────────────────────────────────────────────
 
 
+AGENDA_MAX_LEN = 120
+
+
 @mcp.tool()
 async def create_meeting(
     agenda: str,
     participants: str,
+    description: str = "",
     max_rounds: int = 3,
     my_name: str = "",
     workspace_dir: str = "",
@@ -220,22 +224,36 @@ async def create_meeting(
     All participants are auto-joined and the first speaker is notified immediately.
     No need for participants to call join_meeting.
 
+    YOU (the creator) are AUTO-INCLUDED as the first speaker. You don't need
+    to repeat your own name in ``participants`` — just list the OTHERS you
+    want at the table. As organizer you kick off the meeting and get a turn
+    each round (typically to issue [DECISION] VERDICT to end it).
+
     Use meetings for: kickoff, design review, code review, blocker resolution.
     Use post_message for: task assignments, status updates, async notifications.
 
     Args:
-        agenda: Short title for this meeting (max 120 chars). Displayed as the
-                meeting title in the dashboard. Keep it concise, e.g.
-                "Sprint 1 kickoff" or "Blocker review cho SCRUM-5".
-                Do NOT put detailed discussion points here.
-        participants: Comma-separated AGENT NAMES in speaking order.
-                      E.g. "Agent C - PM, Agent D - BA, Agent E - SA"
+        agenda: Short title (max 120 chars — STRICTLY ENFORCED, longer
+                input is truncated). This is the meeting title shown in the
+                dashboard. Examples: "Sprint 1 kickoff", "Blocker review
+                cho SCRUM-5". Do NOT paste full project briefs here — use
+                ``description`` for long-form context.
+        participants: Comma-separated AGENT NAMES of the OTHERS to invite,
+                      in speaking order after you. You are inserted at the
+                      front automatically. E.g. "Devon [BA], Reese [Dev],
+                      Devon [QE]" — final order will be ``[YOU, BA, Dev, QE]``.
+                      Including yourself in this list is harmless (deduped).
+        description: OPTIONAL long-form context (project brief, links,
+                     deliverables, etc.). No length limit — render as
+                     markdown in dashboard. Put ALL the long stuff here,
+                     not in agenda. Empty by default.
         max_rounds: Maximum conversation rounds (default 3).
         my_name: YOUR agent name (auto-detected from env).
         workspace_dir: Workspace path (auto-detected from env).
 
     Returns:
-        JSON with meeting_id and config.
+        JSON with meeting_id, config, and a ``warning`` field if any input
+        was truncated.
     """
     if not workspace_dir:
         workspace_dir = os.environ.get(
@@ -244,23 +262,48 @@ async def create_meeting(
         )
     my_name = my_name or _get_my_name()
     participant_list = [p.strip() for p in participants.split(",") if p.strip()]
+    # The creator is the meeting chair — auto-prepend so they speak first
+    # and get a turn each round (typically to issue the verdict).
+    if my_name and my_name not in participant_list:
+        participant_list.insert(0, my_name)
     if len(participant_list) < 2:
-        return json.dumps({"error": "Need at least 2 participants"})
+        return json.dumps({"error": "Need at least 2 participants (including yourself)"})
+
+    # Enforce agenda length so a wall-of-text doesn't break the dashboard
+    # title (incident b61af7db: PM stuffed a 50-line markdown brief into
+    # agenda). Caller still gets full info via the warning.
+    agenda_warning = ""
+    if len(agenda) > AGENDA_MAX_LEN:
+        original_len = len(agenda)
+        agenda = agenda[:AGENDA_MAX_LEN].rstrip() + "…"
+        agenda_warning = (
+            f"agenda truncated from {original_len} to {AGENDA_MAX_LEN} chars — "
+            f"move long-form context into the 'description' parameter"
+        )
+        logger.warning(
+            "Meeting create: agenda truncated %d→%d chars (move to description). Original prefix: %r",
+            original_len, AGENDA_MAX_LEN, agenda[:60],
+        )
 
     # Short 8-char meeting ID for easy identification
     meeting_id = uuid.uuid4().hex[:8]
 
+    # ``config`` holds write-once setup metadata. Anything that mutates
+    # during the meeting (participants, max_rounds, turn pointers, etc.)
+    # lives in ``state`` so all writes funnel through ``update_state``
+    # under a single ``acquire_lock`` — no dual-write deadlock window.
     config = {
         "meeting_id": meeting_id,
         "agenda": agenda,
-        "participants": participant_list,
-        "max_rounds": max_rounds,
+        "description": description,
         "created_by": my_name,
         "created_at": datetime.now().isoformat(),
     }
 
     # Auto-join ALL participants immediately — no join_meeting step
     state: dict[str, Any] = {
+        "participants": participant_list,         # mutable: add/leave_meeting
+        "max_rounds": max_rounds,                 # mutable: extended on FAIL verdict
         "current_turn": 0,
         "current_round": 1,
         "joined": list(participant_list),  # Everyone auto-joined
@@ -295,16 +338,17 @@ async def create_meeting(
 
     logger.info("Meeting created: %s — %s (auto-joined %d)",
                 meeting_id, agenda, len(participant_list))
-    return json.dumps(
-        {
-            "meeting_id": meeting_id,
-            "agenda": agenda,
-            "participants": participant_list,
-            "max_rounds": max_rounds,
-            "status": "started",
-            "note": "All participants auto-joined. First speaker notified.",
-        }
-    )
+    response = {
+        "meeting_id": meeting_id,
+        "agenda": agenda,
+        "participants": participant_list,
+        "max_rounds": max_rounds,
+        "status": "started",
+        "note": "All participants auto-joined. First speaker notified.",
+    }
+    if agenda_warning:
+        response["warning"] = agenda_warning
+    return json.dumps(response)
 
 
 # ── REMOVED TOOLS ──
@@ -343,8 +387,6 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
     config = _storage.get_config(meeting_id) or {}
-    participants: list[str] = config.get("participants", [])
-    max_rounds = config.get("max_rounds", 3)
 
     # Collect hooks to fire AFTER releasing the lock (emit_event opens a
     # new connection which would deadlock against BEGIN IMMEDIATE).
@@ -353,12 +395,19 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
     turn_entry: dict = {}
     next_speaker: str = ""
     current_round: int = 1
+    # Captured inside the lock for outside-lock notifications.
+    participants: list[str] = []
 
     with _storage.acquire_lock(meeting_id) as conn:
         state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
+
+        # Mutable meeting metadata lives in state (post-B1 refactor) so
+        # all writes funnel through update_state under this single lock.
+        participants = state.get("participants", [])
+        max_rounds = state.get("max_rounds", 3)
 
         current_turn = state.get("current_turn", 0)
         current_speaker = participants[current_turn] if current_turn < len(participants) else None
@@ -402,9 +451,9 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                 remaining = max_rounds - state.get("current_round", 1)
                 if remaining < 3:
                     new_max = max_rounds + 3
-                    config["max_rounds"] = new_max
-                    _storage.update_config(meeting_id, config)
+                    state["max_rounds"] = new_max
                     max_rounds = new_max
+                    # state is written below via update_state(_conn=conn) — single write path.
                     _audit(
                         meeting_id,
                         f"Extended max_rounds to {new_max} after FAIL verdict",
@@ -585,20 +634,22 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
     config = _storage.get_config(meeting_id) or {}
-    participants: list[str] = config.get("participants", [])
-    max_rounds = config.get("max_rounds", 3)
 
     deferred_hooks: list[tuple] = []
     result_json: str | None = None
     turn_entry: dict = {}
     next_speaker: str = ""
     current_round: int = 1
+    participants: list[str] = []  # captured in lock for outside-lock notifications
 
     with _storage.acquire_lock(meeting_id) as conn:
         state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
+
+        participants = state.get("participants", [])
+        max_rounds = state.get("max_rounds", 3)
 
         current_turn = state.get("current_turn", 0)
         current_speaker = participants[current_turn] if current_turn < len(participants) else None
@@ -714,7 +765,7 @@ async def get_meeting_status(meeting_id: str) -> str:
 
     config = _storage.get_config(meeting_id) or {}
     state = _storage.get_state(meeting_id) or {}
-    participants: list[str] = config.get("participants", [])
+    participants: list[str] = state.get("participants", [])
     current_turn = state.get("current_turn", 0)
     transcript = _storage.get_transcript(meeting_id)
 
@@ -730,7 +781,7 @@ async def get_meeting_status(meeting_id: str) -> str:
             "outcome": state.get("outcome"),
             "started": state.get("started", False),
             "current_round": state.get("current_round", 1),
-            "max_rounds": config.get("max_rounds", 3),
+            "max_rounds": state.get("max_rounds", 3),
             "current_speaker": current_speaker,
             "participants": participants,
             "joined": state.get("joined", []),
@@ -755,29 +806,29 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
     if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
+    config = _storage.get_config(meeting_id) or {}
+
+    # Mutate participants and auto-join in a SINGLE lock pass — both fields
+    # live in state_json now so one update_state writes everything.
     with _storage.acquire_lock(meeting_id) as conn:
-        config = _storage.get_config(meeting_id) or {}
         state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         if state.get("ended"):
             return json.dumps({"error": ("Cannot add participant — meeting already ended")})
 
-        participants: list[str] = config.get("participants", [])
+        participants: list[str] = state.get("participants", [])
         if agent_name in participants:
             return json.dumps({"status": "already_participant", "agent_name": agent_name})
 
         participants.append(agent_name)
-        config["participants"] = participants
-        _storage.update_config(meeting_id, config)
+        state["participants"] = participants
 
-    # Auto-join the new participant and notify
-    with _storage.acquire_lock(meeting_id) as conn:
-        state_join = _storage.get_state(meeting_id, _conn=conn) or {}
-        joined = state_join.get("joined", [])
+        joined = state.get("joined", [])
         if agent_name not in joined:
             joined.append(agent_name)
-            state_join["joined"] = joined
-            _storage.update_state(meeting_id, state_join, _conn=conn)
+            state["joined"] = joined
+
+        _storage.update_state(meeting_id, state, _conn=conn)
 
     bus = _get_bus()
     if bus:
@@ -816,21 +867,33 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
 async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "") -> str:
     """Leave a meeting. Your turns will be skipped.
 
+    🛑 **You CANNOT leave when it's currently your turn**. Meetings are
+    synchronous turn-based — bailing mid-turn strands the next speaker
+    and is the failure pattern that hung incident b61af7db. If you're
+    the current speaker, choose one instead:
+
+    * ``speak(...)`` — say what you intended to do then advance.
+    * ``speak("[DECISION] VERDICT: PASS — ...")`` — close the meeting if
+      you're the chair and discussion is done.
+    * ``skip_turn(...)`` — advance to the next speaker without speaking.
+
+    Once the turn is no longer yours, ``leave_meeting`` is allowed.
+
     Args:
         meeting_id: The meeting to leave.
         agent_name: YOUR agent name. Auto-detected if empty.
         reason: Why you're leaving.
 
     Returns:
-        JSON confirming you've left.
+        JSON confirming you've left, or an error with ``next_action``
+        guidance if you tried to leave on your own turn.
     """
     agent_name = agent_name or _get_my_name()
 
     if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    config = _storage.get_config(meeting_id) or {}
-    participants: list[str] = config.get("participants", [])
+    participants: list[str] = []
 
     with _storage.acquire_lock(meeting_id) as conn:
         state = _storage.get_state(meeting_id, _conn=conn) or {}
@@ -838,14 +901,38 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
 
+        participants = state.get("participants", [])
         if agent_name not in participants:
             return json.dumps({"error": f"'{agent_name}' not in meeting"})
 
         current_turn = state.get("current_turn", 0)
+        current_speaker = (
+            participants[current_turn] if current_turn < len(participants) else None
+        )
+        # R3 guard: refuse to leave mid-turn. The b61af7db incident hung
+        # for 24h because BA's LLM tried `leave_meeting` instead of
+        # `speak()` to "go work on Jira". Force the LLM back into the
+        # protocol — speak / verdict / skip — so the next speaker is
+        # always cued correctly.
+        if current_speaker == agent_name:
+            return json.dumps({
+                "error": (
+                    "Cannot leave_meeting while it's your turn. Other "
+                    "participants are blocked waiting for you to act."
+                ),
+                "current_speaker": agent_name,
+                "round": state.get("current_round", 1),
+                "max_rounds": state.get("max_rounds", 0),
+                "next_action": "Use speak(...) to contribute, "
+                               "speak('[DECISION] VERDICT: PASS — ...') "
+                               "to close the meeting, or skip_turn(...) "
+                               "to pass without speaking. Then "
+                               "leave_meeting is allowed.",
+            })
+
         my_index = participants.index(agent_name)
         participants.remove(agent_name)
-        config["participants"] = participants
-        _storage.update_config(meeting_id, config)
+        state["participants"] = participants
 
         if my_index < current_turn:
             state["current_turn"] = current_turn - 1

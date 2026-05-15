@@ -55,12 +55,17 @@ class MeetingStorage(Protocol):
         """Return the full transcript (list of turn entries)."""
         ...
 
-    def update_config(self, meeting_id: str, config: dict) -> None:
-        """Overwrite the meeting config."""
-        ...
-
     def update_state(self, meeting_id: str, state: dict) -> None:
-        """Overwrite the meeting state."""
+        """Overwrite the meeting state.
+
+        Note: ``config_json`` is intentionally write-once (set during
+        ``create_meeting``). All MUTABLE meeting data — participants,
+        max_rounds, current_turn, current_round, joined, ended, outcome,
+        read_cursors — lives in ``state_json``. This single-bucket-for-
+        mutable-data design eliminates the dual-write deadlock that
+        existed when ``participants``/``max_rounds`` were updated through
+        a separate ``update_config`` path inside ``acquire_lock``.
+        """
         ...
 
     def append_transcript(self, meeting_id: str, entry: dict) -> None:
@@ -169,11 +174,6 @@ class JsonFileMeetingStorage:
             return []
         raw = self._read_json(d / "transcript.json")
         return raw if isinstance(raw, list) else []
-
-    def update_config(self, meeting_id: str, config: dict) -> None:
-        self._write_json(
-            self._meeting_dir(meeting_id) / "config.json", config
-        )
 
     def update_state(self, meeting_id: str, state: dict) -> None:
         self._write_json(
@@ -356,17 +356,6 @@ class SqliteMeetingStorage:
         finally:
             if not _conn:
                 conn.close()
-
-    def update_config(self, meeting_id: str, config: dict) -> None:
-        conn = self._conn()
-        try:
-            conn.execute(
-                "UPDATE meetings SET config_json = ? WHERE meeting_id = ?",
-                (json.dumps(config, ensure_ascii=False), meeting_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
 
     def update_state(self, meeting_id: str, state: dict, _conn=None) -> None:
         conn = _conn or self._conn()

@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1126,18 +1127,69 @@ def get_team_status(session_id: str = "") -> str:
     if not session:
         return json.dumps({"error": f"Team session '{session_id}' not found."})
 
-    # Sync session agent statuses from registry (session may be stale)
-    _done_statuses = {"completed", "idle", "error", "timeout", "cancelled"}
-    for role, info in session.agents.items():
-        run_id = info.get("run_id", "")
-        if run_id:
-            record = _registry.get_latest(run_id)
-            if record:
-                info["status"] = record.status
-                if record.result:
-                    info["result"] = record.result
+    # Sync session agent statuses from registry (session may be stale).
+    # Fail-loud rule: an agent whose registry status is ``running`` (i.e.
+    # an LLM/tool call is in flight) but has had no activity in
+    # ``_STUCK_THRESHOLD_SEC`` is surfaced as ``status="stuck"`` —
+    # that's a genuine hang the orchestrator should resume or kill.
+    #
+    # ``idle`` is NEVER reclassified as stuck. Resumable agents
+    # legitimately go idle between turns and stay parked for hours
+    # waiting for inbox messages — flagging them all as stuck (the
+    # 2026-05-14 over-eager initial version) made the dashboard show
+    # the whole team as "stuck" right after kickoff. Devon-style
+    # failures (turn ends idle but produced no useful result) are
+    # detected on the READ paths (``get_team_result`` /
+    # notification body) where empty ``spawn_registry.result`` already
+    # raises ``error_state``; no need to muddy the status field too.
+    _terminal_done = {"completed", "idle", "error", "timeout", "cancelled"}
+    _STUCK_THRESHOLD_SEC = 30
+    _now = time.time()
 
-    agents = session.get_roster()
+    for _role, info in session.agents.items():
+        run_id = info.get("run_id", "")
+        if not run_id:
+            continue
+        record = _registry.get_latest(run_id)
+        if not record:
+            continue
+
+        info["status"] = record.status
+        if record.result:
+            info["result"] = record.result
+
+        last_active = getattr(record, "last_active_at", None)
+        if last_active is None:
+            info["last_active_at"] = None
+            info["last_active_age_sec"] = None
+            continue
+
+        info["last_active_at"] = last_active
+        age_sec = max(0, int(_now - last_active))
+        info["last_active_age_sec"] = age_sec
+        # Only ``running`` triggers stuck — idle is normal park state.
+        if record.status == "running" and age_sec > _STUCK_THRESHOLD_SEC:
+            info["raw_status"] = record.status
+            info["status"] = "stuck"
+            info["stuck_seconds"] = age_sec
+
+    # Build the response roster — get_roster() omits stuck fields, so
+    # we hand-roll the dict to surface the fail-loud signals.
+    agents: dict[str, dict[str, Any]] = {}
+    for name, info in session.agents.items():
+        entry = {
+            "run_id": info.get("run_id", ""),
+            "agent_name": name,
+            "role": info.get("role", ""),
+            "status": info.get("status", "unknown"),
+        }
+        if "raw_status" in info:
+            entry["raw_status"] = info["raw_status"]
+        if "stuck_seconds" in info:
+            entry["stuck_seconds"] = info["stuck_seconds"]
+        if "last_active_age_sec" in info:
+            entry["last_active_age_sec"] = info["last_active_age_sec"]
+        agents[name] = entry
 
     # Separate spawned vs available (not yet spawned)
     spawned = {k: v for k, v in session.agents.items()
@@ -1147,17 +1199,28 @@ def get_team_status(session_id: str = "") -> str:
 
     total_spawned = len(spawned)
     done = sum(1 for a in spawned.values()
-               if a.get("status") in _done_statuses)
+               if a.get("status") in _terminal_done)
     errored = sum(1 for a in spawned.values()
                   if a.get("status") == "error")
+    stuck = sum(1 for a in spawned.values()
+                if a.get("status") == "stuck")
 
-    # Determine sprint status
+    # Sprint-level status. "completed" is reserved for the case where
+    # every spawned agent reached a terminal state without anyone
+    # being stuck — otherwise PM (or Jarvis) might mistake "everyone
+    # idle, some are stuck waiting for input" for "we're done".
     if total_spawned == 0:
         sprint_status = "not_started"
+    elif stuck > 0:
+        sprint_status = "stuck"
     elif done == total_spawned:
         sprint_status = "completed"
     else:
         sprint_status = "running"
+
+    progress = f"{done}/{total_spawned} agents done, {errored} errors"
+    if stuck:
+        progress += f", {stuck} stuck"
 
     return json.dumps(
         {
@@ -1165,7 +1228,7 @@ def get_team_status(session_id: str = "") -> str:
             "template": session.template.get("name", "unknown"),
             "workspace": str(session.workspace),
             "sprint_status": sprint_status,
-            "progress": f"{done}/{total_spawned} agents done, {errored} errors",
+            "progress": progress,
             "agents": agents,
             "available_roles": [k for k in available],
         }
@@ -1204,17 +1267,54 @@ def get_team_result(session_id: str) -> str:
             "result": info.get("result", "")[:3000],
         }
 
+    # Fail loud: surface the orchestrator's empty result so Jarvis can
+    # report the bug instead of silently saying "team done". We pick the
+    # same orchestrator the notification path picks (pm/orchestrator role,
+    # else first spawned) so both surfaces report the same agent.
+    orch_name = ""
+    orch_result = ""
+    orch_role = ""
+    for role, info in session.agents.items():
+        rl = (info.get("role") or role or "").lower()
+        if "pm" in rl or "orchestrator" in rl:
+            orch_name = info.get("agent_name") or role
+            orch_result = info.get("result", "") or ""
+            orch_role = rl
+            break
+    if not orch_name:
+        first = next(iter(session.agents.values()), None)
+        if first:
+            orch_name = first.get("agent_name") or "?"
+            orch_result = first.get("result", "") or ""
+
+    error_state: dict[str, Any] = {}
+    if orch_name and not orch_result.strip():
+        error_state = {
+            "code": "orchestrator_result_missing",
+            "orchestrator": orch_name,
+            "role": orch_role,
+            "detail": (
+                "spawn_registry.result was empty for the orchestrator. The "
+                "per-turn save_agent_context hook should mirror the last "
+                "assistant text into spawn_registry.result; if you see this "
+                "error, that hook did not fire or the agent's last turn was "
+                "tool-call only. Inspect agent_context_snapshots for the "
+                "latest assistant text manually."
+            ),
+        }
+
     ws_summary = get_workspace_summary(session.workspace)
 
-    return json.dumps(
-        {
-            "session_id": session_id,
-            "template": session.template.get("name", "unknown"),
-            "workspace": str(session.workspace),
-            "workspace_contents": ws_summary.get("directories", {}),
-            "agents": agents_results,
-        }
-    )
+    payload: dict[str, Any] = {
+        "session_id": session_id,
+        "template": session.template.get("name", "unknown"),
+        "workspace": str(session.workspace),
+        "workspace_contents": ws_summary.get("directories", {}),
+        "agents": agents_results,
+    }
+    if error_state:
+        payload["error_state"] = error_state
+    return json.dumps(payload)
 
 
 @mcp.tool()

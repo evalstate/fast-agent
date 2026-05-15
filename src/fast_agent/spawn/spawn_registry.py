@@ -67,6 +67,13 @@ class SpawnRecord:
     pid: int | None = None
     started_at: float = field(default_factory=time.time)
     completed_at: float | None = None
+    # Updated by SpawnProgressBridge whenever the agent emits a thinking/
+    # response/tool_call/tool_result event. Lets ``get_team_status``
+    # distinguish "actively working" from "idle waiting on inbox" — the
+    # visibility gap exposed by incident b61af7db (PM idled out after
+    # observing identical ``running`` snapshots without knowing if the
+    # team was making progress).
+    last_active_at: float | None = None
     result: str = ""
     error: str = ""
     servers: list[str] = field(default_factory=list)
