@@ -1375,7 +1375,14 @@ async def send_team_message(
         context={"session_id": session_id},
     )
 
-    # Auto-wake PM if idle
+    # Auto-wake PM if idle. The call signature MUST match
+    # ``_check_and_resume_on_inbox`` exactly — passing an unexpected
+    # ``project_dir`` kwarg here used to raise TypeError that the
+    # broad except swallowed, so PM was NEVER woken from this path
+    # (the warning "Failed to auto-wake PM: got an unexpected keyword
+    # argument 'project_dir'" was the only trail). Use env_vars from
+    # the spawn record so the reader can locate the session-scoped
+    # ``TEAM_MESSAGES_DIR``.
     woke = False
     if pm_run_id:
         record = _registry.get_latest(pm_run_id)
@@ -1383,9 +1390,14 @@ async def send_team_message(
             try:
                 await _check_and_resume_on_inbox(
                     run_id=pm_run_id,
+                    agent_name=pm_agent_name,
                     registry=_registry,
                     display_manager=_display,
-                    project_dir=str(_PROJECT_DIR),
+                    env_vars=(
+                        record.original_config.get("env_vars")
+                        if record.original_config
+                        else None
+                    ),
                 )
                 woke = True
             except Exception as e:

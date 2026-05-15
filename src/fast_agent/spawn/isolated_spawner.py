@@ -676,6 +676,17 @@ async def _check_and_resume_on_inbox(
     # meeting waited on ``Adrian [BA]`` forever.
     from pathlib import Path
     messages_dir: Path | None = None
+    record = registry.get(run_id) if run_id else None
+
+    # SSoT fallback: callers (e.g. send_to_pm in agent_spawner_server)
+    # historically forgot to pass ``env_vars`` from the spawn record. The
+    # canonical structured env lives in ``record.original_config["env_vars"]``
+    # — if the parameter is empty, hydrate from there. This avoids the
+    # legacy regex-on-context-text path being load-bearing for team agents.
+    if not env_vars and record and record.original_config:
+        stored = record.original_config.get("env_vars") or {}
+        if stored.get("TEAM_MESSAGES_DIR") or stored.get("TEAM_WORKSPACE"):
+            env_vars = stored
 
     # 1. Prefer TEAM_MESSAGES_DIR (session-scoped, matches writer contract).
     if env_vars:
@@ -687,11 +698,27 @@ async def _check_and_resume_on_inbox(
             else:
                 logger.warning(
                     "[AUTO-RESUME] %s: TEAM_MESSAGES_DIR=%r is set but path "
-                    "does not exist — falling back to TEAM_WORKSPACE walk-up",
+                    "does not exist — trying session_id-derived path next",
                     agent_name, explicit,
                 )
 
-    # 2. Fallback: walk up TEAM_WORKSPACE to ``.runtime/state/messages``.
+    # 2. Canonical derivation from record.session_id + project_dir. This is
+    #    the SSoT for team agents — session_id is the durable team identity
+    #    and ``.runtime/state/messages/{session_id}/`` is deterministic
+    #    regardless of whether env_vars went stale (workspace moved /
+    #    cleaned, ``TEAM_MESSAGES_DIR`` not propagated by an older caller).
+    if not messages_dir and record and record.session_id:
+        project_dir_cfg = ""
+        if record.original_config:
+            project_dir_cfg = record.original_config.get("project_dir", "")
+        if not project_dir_cfg and env_vars:
+            project_dir_cfg = env_vars.get("SPAWN_PROJECT_DIR", "")
+        if project_dir_cfg:
+            cand = Path(project_dir_cfg) / ".runtime" / "state" / "messages" / record.session_id
+            if cand.exists():
+                messages_dir = cand
+
+    # 3. Fallback: walk up TEAM_WORKSPACE to ``.runtime/state/messages``.
     #    Note this path is NOT session-scoped — it only works when the
     #    sender also writes there (i.e. no TEAM_MESSAGES_DIR in their env
     #    either). Kept for backwards compatibility with non-team agents.
@@ -700,23 +727,32 @@ async def _check_and_resume_on_inbox(
         if env_vars:
             workspace_dir = env_vars.get("TEAM_WORKSPACE", "")
 
-        if not workspace_dir:
-            record = registry.get(run_id)
-            if record and record.original_config:
-                ctx = record.original_config.get("context", "")
-                for line in ctx.split("\n"):
-                    if "Shared Workspace" in line or "workspaces/" in line:
-                        import re
-                        match = re.search(r"(/\S+workspaces/\S+)", line)
-                        if match:
-                            workspace_dir = match.group(1)
-                            break
+        if not workspace_dir and record and record.original_config:
+            # LAST RESORT: regex-parse the free-text ``context`` field.
+            # This is a code-smell path that fires only when env_vars
+            # AND session_id both fail — log loud so we notice.
+            ctx = record.original_config.get("context", "")
+            for line in ctx.split("\n"):
+                if "Shared Workspace" in line or "workspaces/" in line:
+                    import re
+                    match = re.search(r"(/\S+workspaces/\S+)", line)
+                    if match:
+                        workspace_dir = match.group(1)
+                        logger.warning(
+                            "[AUTO-RESUME] %s: resolved workspace via "
+                            "context-text regex (%r) — structured env_vars "
+                            "and session_id both missing. Spawn record may "
+                            "be from a legacy code path; consider re-spawning.",
+                            agent_name, workspace_dir,
+                        )
+                        break
 
         if not workspace_dir:
             logger.warning(
-                "[AUTO-RESUME] %s: no TEAM_MESSAGES_DIR, no TEAM_WORKSPACE, "
-                "no workspace path in original_config.context — cannot locate "
-                "inbox to check. Agent will NOT be respawned.", agent_name,
+                "[AUTO-RESUME] %s: no TEAM_MESSAGES_DIR (param or stored), "
+                "no session_id-derived path, no TEAM_WORKSPACE, no workspace "
+                "in original_config.context — cannot locate inbox to check. "
+                "Agent will NOT be respawned.", agent_name,
             )
             return
 
