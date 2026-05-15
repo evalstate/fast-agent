@@ -642,6 +642,10 @@ async def _check_and_resume_on_inbox(
     context.
     """
     if not agent_name or not registry:
+        logger.warning(
+            "[AUTO-RESUME] Skipped %r: missing agent_name=%r or registry=%r",
+            agent_name, agent_name, bool(registry),
+        )
         return
 
     # Guard: skip if agent already has a running instance
@@ -652,37 +656,120 @@ async def _check_and_resume_on_inbox(
         )
         return
 
-    # Determine messages dir from env or registry
-    workspace_dir = ""
-    if env_vars:
-        workspace_dir = env_vars.get("TEAM_WORKSPACE", "")
+    # ── Resolve messages_dir — MUST match the WRITE path contract ──
+    #
+    # ``_team_helpers.get_bus()`` (the writer side, called from
+    # meeting_room / email MCP servers) prefers ``TEAM_MESSAGES_DIR``
+    # for session-scoped inbox folder (e.g. ``.../state/messages/{session_id}/``)
+    # and only falls back to the parent ``.runtime/state/messages`` when
+    # no session env is set.
+    #
+    # The READ path here MUST follow the same precedence — otherwise a
+    # message written to the session-scoped folder is invisible to the
+    # auto-resume reader, ``bus.read_unread`` returns empty, the function
+    # exits silently, and the agent never wakes. That was the
+    # 2026-05-15 ``5612e8f3`` retro-meeting deadlock: PM created the
+    # meeting, ``_notify_meeting_started`` wrote 6 inboxes correctly into
+    # ``state/messages/1cccf5c0/``, ``_auto_wake_if_idle`` fired for each
+    # dead member, but this function read from ``state/messages/``
+    # (no session segment) → 0 unread → silent exit → no respawn → the
+    # meeting waited on ``Adrian [BA]`` forever.
+    from pathlib import Path
+    messages_dir: Path | None = None
+    record = registry.get(run_id) if run_id else None
 
-    if not workspace_dir:
-        record = registry.get(run_id)
-        if record and record.original_config:
+    # SSoT fallback: callers (e.g. send_to_pm in agent_spawner_server)
+    # historically forgot to pass ``env_vars`` from the spawn record. The
+    # canonical structured env lives in ``record.original_config["env_vars"]``
+    # — if the parameter is empty, hydrate from there. This avoids the
+    # legacy regex-on-context-text path being load-bearing for team agents.
+    if not env_vars and record and record.original_config:
+        stored = record.original_config.get("env_vars") or {}
+        if stored.get("TEAM_MESSAGES_DIR") or stored.get("TEAM_WORKSPACE"):
+            env_vars = stored
+
+    # 1. Prefer TEAM_MESSAGES_DIR (session-scoped, matches writer contract).
+    if env_vars:
+        explicit = env_vars.get("TEAM_MESSAGES_DIR", "")
+        if explicit:
+            cand = Path(explicit)
+            if cand.exists():
+                messages_dir = cand
+            else:
+                logger.warning(
+                    "[AUTO-RESUME] %s: TEAM_MESSAGES_DIR=%r is set but path "
+                    "does not exist — trying session_id-derived path next",
+                    agent_name, explicit,
+                )
+
+    # 2. Canonical derivation from record.session_id + project_dir. This is
+    #    the SSoT for team agents — session_id is the durable team identity
+    #    and ``.runtime/state/messages/{session_id}/`` is deterministic
+    #    regardless of whether env_vars went stale (workspace moved /
+    #    cleaned, ``TEAM_MESSAGES_DIR`` not propagated by an older caller).
+    if not messages_dir and record and record.session_id:
+        project_dir_cfg = ""
+        if record.original_config:
+            project_dir_cfg = record.original_config.get("project_dir", "")
+        if not project_dir_cfg and env_vars:
+            project_dir_cfg = env_vars.get("SPAWN_PROJECT_DIR", "")
+        if project_dir_cfg:
+            cand = Path(project_dir_cfg) / ".runtime" / "state" / "messages" / record.session_id
+            if cand.exists():
+                messages_dir = cand
+
+    # 3. Fallback: walk up TEAM_WORKSPACE to ``.runtime/state/messages``.
+    #    Note this path is NOT session-scoped — it only works when the
+    #    sender also writes there (i.e. no TEAM_MESSAGES_DIR in their env
+    #    either). Kept for backwards compatibility with non-team agents.
+    if not messages_dir:
+        workspace_dir = ""
+        if env_vars:
+            workspace_dir = env_vars.get("TEAM_WORKSPACE", "")
+
+        if not workspace_dir and record and record.original_config:
+            # LAST RESORT: regex-parse the free-text ``context`` field.
+            # This is a code-smell path that fires only when env_vars
+            # AND session_id both fail — log loud so we notice.
             ctx = record.original_config.get("context", "")
-            # Try to extract workspace path from context
             for line in ctx.split("\n"):
                 if "Shared Workspace" in line or "workspaces/" in line:
                     import re
                     match = re.search(r"(/\S+workspaces/\S+)", line)
                     if match:
                         workspace_dir = match.group(1)
+                        logger.warning(
+                            "[AUTO-RESUME] %s: resolved workspace via "
+                            "context-text regex (%r) — structured env_vars "
+                            "and session_id both missing. Spawn record may "
+                            "be from a legacy code path; consider re-spawning.",
+                            agent_name, workspace_dir,
+                        )
                         break
 
-    if not workspace_dir:
-        return
+        if not workspace_dir:
+            logger.warning(
+                "[AUTO-RESUME] %s: no TEAM_MESSAGES_DIR (param or stored), "
+                "no session_id-derived path, no TEAM_WORKSPACE, no workspace "
+                "in original_config.context — cannot locate inbox to check. "
+                "Agent will NOT be respawned.", agent_name,
+            )
+            return
 
-    from pathlib import Path
-    # Walk up to find .runtime root
-    cur = Path(workspace_dir)
-    messages_dir = None
-    while cur != cur.parent:
-        if cur.name == ".runtime":
-            messages_dir = cur / "state" / "messages"
-            break
-        cur = cur.parent
+        cur = Path(workspace_dir)
+        while cur != cur.parent:
+            if cur.name == ".runtime":
+                messages_dir = cur / "state" / "messages"
+                break
+            cur = cur.parent
+
     if not messages_dir or not messages_dir.exists():
+        logger.warning(
+            "[AUTO-RESUME] %s: resolved messages_dir=%r does not exist — "
+            "agent will NOT be respawned (likely env_vars stale or workspace "
+            "moved). Verify TEAM_MESSAGES_DIR in spawn_registry.original_config.",
+            agent_name, str(messages_dir) if messages_dir else None,
+        )
         return
 
     from fast_agent.spawn.message_bus import MessageBus
@@ -690,6 +777,10 @@ async def _check_and_resume_on_inbox(
     unread = bus.read_unread(agent_name)
 
     if not unread:
+        logger.info(
+            "[AUTO-RESUME] %s: 0 unread messages at %s — nothing to resume for",
+            agent_name, str(messages_dir),
+        )
         return
 
     logger.info(

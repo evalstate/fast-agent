@@ -956,10 +956,22 @@ class MCPConnectionManager(ContextDependent):
                     k: v for k, v in _os.environ.items()
                     if k.startswith("SPAWN_") or k in ("VIRTUAL_ENV",)
                 }
+                # Expand ``${VAR}`` / ``$VAR`` in config.env values using the
+                # parent process environment — matches shell + docker-compose
+                # semantics. Without this, a YAML line like
+                #   JARVIS_RUNTIME_RPC_SOCKET: "${JARVIS_RUNTIME_RPC_SOCKET}"
+                # is passed LITERALLY to the subprocess, which then tries to
+                # connect to a file path named ``${JARVIS_RUNTIME_RPC_SOCKET}``
+                # and fails with ENOENT. Blocked approval / skill_server /
+                # mcp_admin and any MCP using env-token injection.
+                _config_env = {
+                    k: (_os.path.expandvars(v) if isinstance(v, str) else v)
+                    for k, v in (config.env or {}).items()
+                }
                 server_params = StdioServerParameters(
                     command=config.command,
                     args=config.args if config.args is not None else [],
-                    env={**get_default_environment(), **_parent_extras, **(config.env or {})},
+                    env={**get_default_environment(), **_parent_extras, **_config_env},
                     cwd=config.cwd,
                 )
                 # Create custom error handler to ensure all output is captured

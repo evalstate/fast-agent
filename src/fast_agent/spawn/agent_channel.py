@@ -238,11 +238,28 @@ class AgentChannel:
         agent_name: str,
         channel_dir: Path | None = None,
     ) -> bool:
-        """Check if an agent's channel is active (socket exists).
+        """Probe whether an agent's keep-alive listener is actually accepting.
 
-        This is a quick check — it only verifies the socket file
-        exists, not that the server is actively listening.
+        File-existence alone is a false-positive trap: a SIGKILL'd or
+        crashed subprocess leaves the sock file behind, so callers that
+        gate on liveness (``auto_wake_if_idle`` skip-respawn,
+        ``_compute_effective_status``) would treat dead processes as
+        alive. We attempt a short non-blocking connect — only a live
+        ``listen()`` accepts it.
         """
         cdir = _get_sock_dir(channel_dir)
         sock_path = cdir / f"{_sanitize_name(agent_name)}.sock"
-        return sock_path.exists()
+        if not sock_path.exists():
+            return False
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        try:
+            s.connect(str(sock_path))
+            return True
+        except (ConnectionRefusedError, FileNotFoundError, OSError):
+            return False
+        finally:
+            try:
+                s.close()
+            except OSError:
+                pass

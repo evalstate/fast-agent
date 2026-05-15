@@ -32,10 +32,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# In-memory cache: session_id → TeamSession
-_team_sessions: dict[str, TeamSession] = {}
-
-# SQLite store — lazily initialised on first use
+# SQLite store — lazily initialised on first use. There is intentionally
+# no in-memory session cache: TeamSession state mutates across
+# processes (parent server + child PM subprocess both spawn agents and
+# upsert), and any local cache went stale the moment the other side
+# wrote. SQLite + WAL is the only source of truth — every read goes
+# straight to the store.
 _team_store: TeamSessionStore | None = None
 
 
@@ -78,10 +80,15 @@ def _generate_unique_agent_name(
     except Exception:
         active_names = set()
 
-    # Also check names already used in current in-memory team sessions
-    for session in _team_sessions.values():
-        for agent_info in session.agents.values():
-            active_names.add(agent_info.get("agent_name", ""))
+    # Also check names already used in stored team sessions (DB-backed
+    # cross-process — covers sessions spawned by sibling subprocesses
+    # that this process never touched in memory).
+    try:
+        for data in _get_store().list_all():
+            for agent_info in (data.get("agents") or {}).values():
+                active_names.add(agent_info.get("agent_name", ""))
+    except Exception:
+        pass
 
     available = [
         n for n in _AGENT_NAME_POOL
@@ -460,7 +467,10 @@ async def spawn_team(
         team_name=team_name,
         conversation_id=conversation_id,
     )
-    _team_sessions[session_id] = session
+    # Persist immediately so any cross-process reader (child spawner,
+    # bridge, dashboard) sees the session from the moment it exists.
+    # The final upsert below captures the post-pre-register state.
+    _get_store().upsert(session_id, session.to_dict())
 
     roles = template.get("roles", {})
     orchestrator_role = template.get("orchestrator", "")
@@ -737,32 +747,61 @@ async def spawn_team_members_for_session(
 
 
 def get_team_session(session_id: str) -> TeamSession | None:
-    """Get a team session by ID.
+    """Get a team session by ID — always reads SQLite.
 
-    Checks in-memory cache first, then SQLite. Invalid/corrupt records
-    are deleted from the store rather than returned.
+    There is no in-memory cache. Each call returns a fresh TeamSession
+    instance deserialised from the store; callers who mutate
+    ``session.agents`` MUST follow with ``_get_store().upsert(...)`` to
+    persist (the existing spawn flows already do this at the end of
+    each batch).
+
+    Returns ``None`` when the store has no record. Corrupt rows are
+    deleted so the next call sees a clean miss.
     """
-    if session_id in _team_sessions:
-        return _team_sessions[session_id]
-
     data = _get_store().get(session_id)
     if not data:
         return None
     try:
-        session = TeamSession.from_dict(data)
+        return TeamSession.from_dict(data)
     except (KeyError, TypeError) as e:
         logger.warning("Corrupt team session '%s' deleted from store: %s", session_id, e)
         _get_store().delete(session_id)
         return None
 
-    _team_sessions[session_id] = session
-    return session
+
+def delete_team_session(session_id: str) -> bool:
+    """Remove a team session from SQLite.
+
+    ``TeamSessionStore`` is the single source of truth — consumers that
+    need to drop a session MUST go through this function so cleanup
+    stays centralised.
+
+    Returns True if a row was removed from SQLite.
+    """
+    store = _get_store()
+    existed = store.get(session_id) is not None
+    store.delete(session_id)
+    return existed
+
+
+def delete_team_sessions_by_team_name(team_name: str) -> int:
+    """Remove every team session whose stored ``team_name`` matches.
+
+    Iterates the SoT (``TeamSessionStore.list_all``) and deletes matches.
+    Used by the ``DELETE /api/teams/{name}`` route to drop any sessions
+    that belonged to a disbanded team. Returns the number of rows deleted.
+    """
+    store = _get_store()
+    deleted = 0
+    for data in store.list_all():
+        if data.get("team_name") == team_name:
+            sid = data.get("session_id")
+            if sid:
+                store.delete(sid)
+                deleted += 1
+    return deleted
 
 
 def list_team_sessions() -> list[dict[str, Any]]:
-    """List all team sessions from SQLite, merged with in-memory cache."""
-    stored = {d["session_id"]: d for d in _get_store().list_all() if "session_id" in d}
-    # In-memory sessions are always authoritative (may have unsaved state)
-    for session in _team_sessions.values():
-        stored[session.session_id] = session.to_dict()
-    return list(stored.values())
+    """List all team sessions from SQLite (the only source of truth)."""
+    return [d for d in _get_store().list_all() if "session_id" in d]
