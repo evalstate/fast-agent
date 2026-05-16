@@ -262,9 +262,112 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.NOUS: (
+            # Curated models from inference-api.nousresearch.com
+            # (matches Hermes Agent's curated list — 24 models)
+            CatalogModelEntry(
+                alias="opus47",
+                model="nous.anthropic/claude-opus-4.7",
+            ),
+            CatalogModelEntry(
+                alias="opus46",
+                model="nous.anthropic/claude-opus-4.6",
+            ),
+            CatalogModelEntry(
+                alias="sonnet46",
+                model="nous.anthropic/claude-sonnet-4.6",
+            ),
+            CatalogModelEntry(
+                alias="kimi26",
+                model="nous.moonshotai/kimi-k2.6",
+            ),
+            CatalogModelEntry(
+                alias="qwen36p",
+                model="nous.qwen/qwen3.6-plus",
+            ),
+            CatalogModelEntry(
+                alias="haiku45",
+                model="nous.anthropic/claude-haiku-4.5",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="gpt55",
+                model="nous.openai/gpt-5.5",
+            ),
+            CatalogModelEntry(
+                alias="gpt55pro",
+                model="nous.openai/gpt-5.5-pro",
+            ),
+            CatalogModelEntry(
+                alias="gpt54mini",
+                model="nous.openai/gpt-5.4-mini",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="gpt54nano",
+                model="nous.openai/gpt-5.4-nano",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="gpt53codex",
+                model="nous.openai/gpt-5.3-codex",
+            ),
+            CatalogModelEntry(
+                alias="mimo25pro",
+                model="nous.xiaomi/mimo-v2.5-pro",
+            ),
+            CatalogModelEntry(
+                alias="hy3",
+                model="nous.tencent/hy3-preview",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="gem3pro",
+                model="nous.google/gemini-3-pro-preview",
+            ),
+            CatalogModelEntry(
+                alias="gem3flash",
+                model="nous.google/gemini-3-flash-preview",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="gem31pro",
+                model="nous.google/gemini-3.1-pro-preview",
+            ),
+            CatalogModelEntry(
+                alias="gem31fl",
+                model="nous.google/gemini-3.1-flash-lite-preview",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="qwen36b",
+                model="nous.qwen/qwen3.6-35b-a3b",
+                fast=True,
+            ),
             CatalogModelEntry(
                 alias="step35",
                 model="nous.stepfun/step-3.5-flash",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="minimax27",
+                model="nous.minimax/minimax-m2.7",
+            ),
+            CatalogModelEntry(
+                alias="glm51",
+                model="nous.z-ai/glm-5.1",
+            ),
+            CatalogModelEntry(
+                alias="grok43",
+                model="nous.x-ai/grok-4.3",
+            ),
+            CatalogModelEntry(
+                alias="nemotron3",
+                model="nous.nvidia/nemotron-3-super-120b-a12b",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="dsv4pro",
+                model="nous.deepseek/deepseek-v4-pro",
             ),
         ),
     }
