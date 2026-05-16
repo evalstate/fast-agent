@@ -587,6 +587,13 @@ class ModelDatabase:
         json_mode="object",
         default_provider=Provider.NOUS,
     )
+    STEPFUN_STEP_35_FLASH = ModelParameters(
+        context_window=128000,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        default_provider=Provider.NOUS,
+    )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
         context_window=65536,
