@@ -22,6 +22,7 @@ from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.mcp.mcp_aggregator import NamespacedTool
@@ -103,6 +104,10 @@ class StubLLM:
         )
         self.instruction = ""
         self.default_request_params = RequestParams()
+
+    @property
+    def model_info(self) -> ModelInfo | None:
+        return ModelInfo.from_name(self.model_name)
 
 
 def _stub_llm_factory(model_name: str):

@@ -217,6 +217,14 @@ class ShellSettings(BaseModel):
             "when shell runtime is enabled"
         ),
     )
+    enable_attach_media: Literal["auto", "on", "off"] = Field(
+        default="auto",
+        description=(
+            "Expose attach_media when shell runtime is enabled. 'auto' exposes it only "
+            "for models with non-text attachment support; 'on' exposes it with call-time "
+            "validation; 'off' disables it."
+        ),
+    )
     write_text_file_mode: Literal["auto", "on", "off", "apply_patch"] | None = Field(
         default=None,
         description=(
@@ -228,6 +236,16 @@ class ShellSettings(BaseModel):
         ),
     )
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_deprecated_attach_resource(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "enable_attach_media" not in data:
+            old_value = data.get("enable_attach_resource")
+            if old_value is not None:
+                data = dict(data)
+                data["enable_attach_media"] = old_value
+        return data
 
     @field_validator("timeout_seconds", mode="before")
     @classmethod

@@ -1,14 +1,17 @@
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, Tool
+from mcp.types import CallToolRequestParams, ContentBlock, ImageContent, Tool
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
+from fast_agent.constants import FAST_AGENT_PENDING_MEDIA_ATTACHMENTS
 from fast_agent.core.prompt import Prompt
 from fast_agent.hooks import show_hook_message
 from fast_agent.llm.internal.passthrough import PassthroughLLM
+from fast_agent.llm.model_info import ModelInfo
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -23,6 +26,10 @@ def tool_one() -> int:
 
 def tool_two() -> int:
     return 2
+
+
+def stage_media() -> str:
+    return "staged"
 
 
 class TwoStepToolUseLlm(PassthroughLLM):
@@ -98,6 +105,61 @@ class HookedToolAgent(ToolAgent):
         )
 
 
+class MediaStagingLlm(PassthroughLLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.calls: list[list[tuple[str, list[str], list[str]]]] = []
+        self._turn = 0
+
+    @property
+    def model_info(self) -> ModelInfo:
+        return ModelInfo(
+            name="media-test",
+            provider=Provider.GENERIC,
+            context_window=None,
+            max_output_tokens=None,
+            tokenizes=["image/png"],
+            json_mode=None,
+            reasoning=None,
+        )
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self._turn += 1
+        self.calls.append(
+            [
+                (
+                    msg.role,
+                    [block.type for block in (msg.content or [])],
+                    sorted((msg.channels or {}).keys()),
+                )
+                for msg in multipart_messages
+            ]
+        )
+        if self._turn == 1:
+            return Prompt.assistant(
+                "use tool",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "id_stage_media": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="stage_media", arguments={}),
+                    )
+                },
+            )
+        return Prompt.assistant("done", stop_reason=LlmStopReason.END_TURN)
+
+
+class MediaStagingToolAgent(ToolAgent):
+    def _consume_pending_media_attachments(self) -> list[ContentBlock]:
+        return [ImageContent(type="image", data="abcd", mimeType="image/png")]
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_tool_runner_hooks_fire_and_can_inject_messages():
@@ -118,6 +180,23 @@ async def test_tool_runner_hooks_fire_and_can_inject_messages():
         "before_llm_call:1",
         f"after_llm_call:{LlmStopReason.END_TURN}",
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tool_runner_stages_pending_media_as_followup_user_message():
+    llm = MediaStagingLlm()
+    agent = MediaStagingToolAgent(AgentConfig("media"), [stage_media])
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+
+    assert result.last_text() == "done"
+    assert len(llm.calls) == 2
+    second_call = llm.calls[1]
+    assert all(FAST_AGENT_PENDING_MEDIA_ATTACHMENTS not in channels for _, _, channels in second_call)
+    assert second_call[-1][0] == "user"
+    assert second_call[-1][1] == ["image"]
 
 
 # Track tool invocations globally for the regression test

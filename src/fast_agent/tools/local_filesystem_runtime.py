@@ -12,13 +12,19 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp.types import CallToolResult, ContentBlock, TextContent, Tool
 
 from fast_agent.patch.engine import apply_patch as run_apply_patch
 from fast_agent.patch.errors import ApplyPatchError
 from fast_agent.tools.apply_patch_tool import (
     build_apply_patch_tool,
     extract_apply_patch_input,
+)
+from fast_agent.tools.attach_media import (
+    DEFAULT_ATTACH_MEDIA_MAX_BYTES,
+    build_attach_media,
+    model_supports_attach_media,
+    supported_attach_media_mime_types,
 )
 from fast_agent.tools.edit_file_engine import (
     edit_file as run_edit_file,
@@ -31,6 +37,7 @@ from fast_agent.tools.edit_file_tool import (
     extract_edit_file_input,
 )
 from fast_agent.tools.filesystem_tool_definitions import (
+    build_attach_media_tool,
     build_read_text_file_tool,
     build_write_text_file_tool,
 )
@@ -38,6 +45,7 @@ from fast_agent.tools.filesystem_tool_definitions import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from fast_agent.llm.model_info import ModelInfo
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
     from fast_agent.types import RequestParams
 
@@ -54,6 +62,11 @@ class LocalFilesystemRuntime:
         enable_write: bool = True,
         enable_apply_patch: bool = False,
         enable_edit_file: bool = False,
+        enable_attach_media: str | None = "auto",
+        enable_attach_resource: str | None = None,
+        attach_media_max_bytes: int = DEFAULT_ATTACH_MEDIA_MAX_BYTES,
+        attach_resource_max_bytes: int | None = None,
+        model_info: "ModelInfo | None" = None,
         tool_handler_resolver: "Callable[[RequestParams | None], ToolExecutionHandler | None]"
         | None = None,
     ) -> None:
@@ -63,12 +76,27 @@ class LocalFilesystemRuntime:
         self._enable_write = enable_write
         self._enable_apply_patch = enable_apply_patch
         self._enable_edit_file = enable_edit_file
+        self._enable_attach_media = (
+            enable_attach_resource if enable_attach_resource is not None else enable_attach_media
+        )
+        if self._enable_attach_media is None:
+            self._enable_attach_media = "auto"
+        self._attach_media_max_bytes = (
+            attach_resource_max_bytes
+            if attach_resource_max_bytes is not None
+            else attach_media_max_bytes
+        )
+        self._model_info = model_info
         self._tool_handler_resolver = tool_handler_resolver
 
         self._read_tool = build_read_text_file_tool()
         self._write_tool = build_write_text_file_tool()
         self._apply_patch_tool = build_apply_patch_tool()
         self._edit_file_tool = build_edit_file_tool()
+        self._pending_media_attachments: list[ContentBlock] = []
+        self._attach_media_tool = build_attach_media_tool(
+            supported_attach_media_mime_types(self._model_info)
+        )
 
     @property
     def tools(self) -> list[Tool]:
@@ -82,6 +110,8 @@ class LocalFilesystemRuntime:
             tools.append(self._apply_patch_tool)
         if self._enable_edit_file:
             tools.append(self._edit_file_tool)
+        if self._attach_media_enabled():
+            tools.append(self._attach_media_tool)
         return tools
 
     def set_enabled_tools(
@@ -91,6 +121,8 @@ class LocalFilesystemRuntime:
         enable_write: bool,
         enable_apply_patch: bool,
         enable_edit_file: bool | None = None,
+        enable_attach_media: str | None = None,
+        enable_attach_resource: str | None = None,
     ) -> None:
         """Update enabled filesystem tool flags."""
         self._enable_read = enable_read
@@ -98,6 +130,18 @@ class LocalFilesystemRuntime:
         self._enable_apply_patch = enable_apply_patch
         if enable_edit_file is not None:
             self._enable_edit_file = enable_edit_file
+        resolved_attach_media = (
+            enable_attach_resource if enable_attach_resource is not None else enable_attach_media
+        )
+        if resolved_attach_media is not None:
+            self._enable_attach_media = resolved_attach_media
+
+    def set_model_info(self, model_info: "ModelInfo | None") -> None:
+        """Update model capability metadata used by attach_media."""
+        self._model_info = model_info
+        self._attach_media_tool = build_attach_media_tool(
+            supported_attach_media_mime_types(self._model_info)
+        )
 
     def set_working_directory(self, working_directory: Path | None) -> None:
         """Update the base directory used for relative file paths."""
@@ -142,7 +186,16 @@ class LocalFilesystemRuntime:
             return self._enable_apply_patch
         if tool_name == "edit_file":
             return self._enable_edit_file
+        if tool_name == "attach_media":
+            return self._attach_media_enabled()
         return False
+
+    def _attach_media_enabled(self) -> bool:
+        if self._enable_attach_media == "off":
+            return False
+        if self._enable_attach_media == "on":
+            return True
+        return model_supports_attach_media(self._model_info)
 
     async def call_tool(
         self,
@@ -183,6 +236,14 @@ class LocalFilesystemRuntime:
                 tool_use_id,
                 request_params,
                 self.edit_file,
+            )
+        if name == "attach_media" and self._attach_media_enabled():
+            return await self._call_with_tracking(
+                "attach_media",
+                arguments,
+                tool_use_id,
+                request_params,
+                self.attach_media,
             )
 
         return CallToolResult(
@@ -366,6 +427,95 @@ class LocalFilesystemRuntime:
             isError=False,
         )
 
+    def consume_pending_media_attachments(self) -> list[ContentBlock]:
+        """Return and clear media blocks staged by attach_media."""
+        pending = self._pending_media_attachments
+        self._pending_media_attachments = []
+        return pending
+
+    async def attach_media(
+        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
+    ) -> CallToolResult:
+        """Stage a local file or provider-fetchable URI as model input."""
+        del tool_use_id
+
+        if not isinstance(arguments, dict):
+            return CallToolResult(
+                content=[TextContent(type="text", text="Error: arguments must be a dict")],
+                isError=True,
+            )
+
+        source_value = arguments.get("source")
+        if not isinstance(source_value, str) or not source_value.strip():
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text="Error: 'source' argument is required and must be a string",
+                    )
+                ],
+                isError=True,
+            )
+
+        mime_type = arguments.get("mime_type")
+        if mime_type is not None and not isinstance(mime_type, str):
+            return CallToolResult(
+                content=[TextContent(type="text", text="Error: 'mime_type' must be a string")],
+                isError=True,
+            )
+
+        name = arguments.get("name")
+        if name is not None and not isinstance(name, str):
+            return CallToolResult(
+                content=[TextContent(type="text", text="Error: 'name' must be a string")],
+                isError=True,
+            )
+
+        description = arguments.get("description")
+        if description is not None and not isinstance(description, str):
+            return CallToolResult(
+                content=[TextContent(type="text", text="Error: 'description' must be a string")],
+                isError=True,
+            )
+
+        try:
+            attached = build_attach_media(
+                source_value,
+                base_directory=self._base_directory(),
+                mime_type=mime_type,
+                name=name,
+                description=description,
+                model_info=self._model_info,
+                max_bytes=self._attach_media_max_bytes,
+            )
+        except Exception as exc:
+            self._logger.error(f"Error attaching resource: {exc}")
+            return CallToolResult(
+                content=[TextContent(type="text", text=str(exc))],
+                isError=True,
+            )
+
+        mode = "linked" if attached.linked else "embedded"
+        self._pending_media_attachments.append(attached.block)
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        f"Staged {attached.display_name} as {mode} "
+                        f"{attached.mime_type} media input for the next model call."
+                    ),
+                )
+            ],
+            isError=False,
+        )
+
+    async def attach_resource(
+        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
+    ) -> CallToolResult:
+        """Deprecated compatibility wrapper for attach_media."""
+        return await self.attach_media(arguments, tool_use_id)
+
     async def apply_patch(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
     ) -> CallToolResult:
@@ -462,6 +612,8 @@ class LocalFilesystemRuntime:
             tools.append("apply_patch")
         if self._enable_edit_file:
             tools.append("edit_file")
+        if self._attach_media_enabled():
+            tools.append("attach_media")
 
         return {
             "type": "local_filesystem",

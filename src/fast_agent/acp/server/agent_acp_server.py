@@ -663,19 +663,23 @@ class AgentACPServer(ACPAgent):
 
     async def list_sessions(
         self,
+        additional_directories: list[str] | None = None,
         cursor: str | None = None,
         cwd: str | None = None,
         **kwargs: Any,
     ) -> ListSessionsResponse:
+        _ = additional_directories
         return await self._session_store.list_sessions(cursor=cursor, cwd=cwd, **kwargs)
 
     async def load_session(
         self,
         cwd: str,
         session_id: str,
+        additional_directories: list[str] | None = None,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
+        _ = additional_directories
         return await self._session_store.load_session(
             cwd=cwd,
             session_id=session_id,
@@ -687,9 +691,11 @@ class AgentACPServer(ACPAgent):
         self,
         cwd: str,
         session_id: str,
+        additional_directories: list[str] | None = None,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
         **kwargs: Any,
     ) -> ResumeSessionResponse:
+        _ = additional_directories
         return await self._session_store.resume_session(
             cwd=cwd,
             session_id=session_id,
@@ -700,6 +706,7 @@ class AgentACPServer(ACPAgent):
     async def new_session(
         self,
         cwd: str,
+        additional_directories: list[str] | None = None,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
         **kwargs: Any,
     ) -> NewSessionResponse:
@@ -708,6 +715,7 @@ class AgentACPServer(ACPAgent):
 
         Creates a new ACP session with its own dedicated agent instance.
         """
+        _ = additional_directories
         request_cwd = self._resolve_request_cwd(
             cwd=cwd,
             request_name="session/new",

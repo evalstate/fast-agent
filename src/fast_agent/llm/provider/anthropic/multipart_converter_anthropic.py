@@ -789,6 +789,9 @@ class AnthropicConverter:
                         item, document_mode=document_mode
                     )
                     tool_result_blocks.append(block)
+                elif isinstance(item, ResourceLink):
+                    block = AnthropicConverter._convert_resource_link(item, document_mode=True)
+                    tool_result_blocks.append(block)
 
             # Create the tool result block if we have content
             if tool_result_blocks:

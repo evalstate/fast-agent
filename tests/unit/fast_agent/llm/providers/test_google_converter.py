@@ -153,6 +153,33 @@ def test_convert_mixed_content_video_text():
     assert parts[1].text == "Describe this video"
 
 
+def test_convert_audio_blob_resource():
+    converter = GoogleConverter()
+
+    audio_bytes = b"audio_data"
+    encoded_audio = base64.b64encode(audio_bytes).decode("utf-8")
+    audio_resource = EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri=AnyUrl("file:///audio.mp3"),
+            mimeType="audio/mpeg",
+            blob=encoded_audio,
+        ),
+    )
+
+    contents = converter.convert_to_google_content(
+        [PromptMessageExtended(role="user", content=[audio_resource])]
+    )
+
+    assert len(contents) == 1
+    parts = contents[0].parts
+    assert parts is not None
+    assert len(parts) == 1
+    assert parts[0].inline_data is not None
+    assert parts[0].inline_data.mime_type == "audio/mpeg"
+    assert parts[0].inline_data.data == audio_bytes
+
+
 def test_convert_youtube_url_video():
     converter = GoogleConverter()
 
@@ -311,6 +338,62 @@ def test_convert_resource_link_in_tool_result():
     assert media_parts[0].file_data is not None
     assert media_parts[0].file_data.file_uri == "https://storage.example.com/output.mp4"
     assert media_parts[0].file_data.mime_type == "video/mp4"
+
+
+def test_convert_video_blob_in_tool_result():
+    """Test embedded video blobs in tool results become inline media parts."""
+    converter = GoogleConverter()
+
+    video_bytes = b"video_data"
+    encoded_video = base64.b64encode(video_bytes).decode("utf-8")
+    resource = EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri=AnyUrl("file:///video.mp4"),
+            mimeType="video/mp4",
+            blob=encoded_video,
+        ),
+    )
+    result = CallToolResult(content=[resource], isError=False)
+
+    contents = converter.convert_function_results_to_google([("attach_media", result)])
+
+    assert len(contents) == 1
+    parts = contents[0].parts
+    assert parts is not None
+    media_parts = [part for part in parts if part.inline_data is not None]
+    assert len(media_parts) == 1
+    assert media_parts[0].inline_data is not None
+    assert media_parts[0].inline_data.mime_type == "video/mp4"
+    assert media_parts[0].inline_data.data == video_bytes
+
+
+def test_convert_audio_blob_in_tool_result():
+    """Test embedded audio blobs in tool results become inline media parts."""
+    converter = GoogleConverter()
+
+    audio_bytes = b"audio_data"
+    encoded_audio = base64.b64encode(audio_bytes).decode("utf-8")
+    resource = EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri=AnyUrl("file:///audio.mp3"),
+            mimeType="audio/mpeg",
+            blob=encoded_audio,
+        ),
+    )
+    result = CallToolResult(content=[resource], isError=False)
+
+    contents = converter.convert_function_results_to_google([("attach_media", result)])
+
+    assert len(contents) == 1
+    parts = contents[0].parts
+    assert parts is not None
+    media_parts = [part for part in parts if part.inline_data is not None]
+    assert len(media_parts) == 1
+    assert media_parts[0].inline_data is not None
+    assert media_parts[0].inline_data.mime_type == "audio/mpeg"
+    assert media_parts[0].inline_data.data == audio_bytes
 
 
 def test_convert_resource_link_text_in_tool_result():

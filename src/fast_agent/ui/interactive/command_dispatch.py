@@ -53,6 +53,7 @@ from fast_agent.ui.command_payloads import (
     ListSkillsCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
+    LoadHistoryCommand,
     LoadPromptCommand,
     McpConnectCommand,
     McpDisconnectCommand,
@@ -71,6 +72,7 @@ from fast_agent.ui.command_payloads import (
     PinSessionCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
+    SaveHistoryCommand,
     SelectPromptCommand,
     ShellCommand,
     ShowHistoryCommand,
@@ -393,6 +395,26 @@ async def _dispatch_history_payload(
             history = list(target.message_history)
             usage = target.usage_accumulator
             display_history_show(target_name, history, usage)
+            return result
+        case SaveHistoryCommand(filename=filename):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await history_handlers.handle_history_save(
+                context,
+                agent_name=agent,
+                filename=filename,
+                send_func=None,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case LoadHistoryCommand(filename=filename, error=error):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await history_handlers.handle_history_load(
+                context,
+                agent_name=agent,
+                filename=filename,
+                error=error,
+            )
+            await emit_command_outcome(context, outcome)
             return result
         case HistoryRewindCommand(turn_index=turn_index, error=error):
             context = build_command_context(prompt_provider, agent)

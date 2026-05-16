@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.tool_runner import ToolRunnerHooks
     from fast_agent.hooks.lifecycle_hook_loader import AgentLifecycleHooks
 
-from a2a.types import AgentCard
+from a2a.types import AgentCard, AgentInterface
 from mcp import ListToolsResult, Tool
 from mcp.types import (
     CallToolResult,
@@ -1446,7 +1446,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             skills=[],
             name=self._name,
             description=self.config.description or self.instruction,
-            url=f"fast-agent://agents/{self._name}/",
+            supported_interfaces=[
+                AgentInterface(
+                    url=f"fast-agent://agents/{self._name}/",
+                    protocol_binding="fast-agent",
+                )
+            ],
             version="0.1",
             capabilities=DEFAULT_CAPABILITIES,
             # TODO -- get these from the _llm
