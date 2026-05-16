@@ -261,6 +261,12 @@ class ModelSelectionCatalog:
                 model="playback",
             ),
         ),
+        Provider.NOUS: (
+            CatalogModelEntry(
+                alias="step35",
+                model="nous.stepfun/step-3.5-flash",
+            ),
+        ),
     }
 
     @staticmethod
