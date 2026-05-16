@@ -3,7 +3,7 @@
 Mirrors the Hermes Nous Portal provider in /hermes-agent/plugins/model-providers/nous/.
 Key differences from raw OpenAI:
   - Nous Portal product-attribution tags injected into ``extra_body`` on every call
-  - Base URL defaults to ``https://inference.nousresearch.com/v1``
+  - Base URL defaults to ``https://inference-api.nousresearch.com/v1``
   - Auth via NOUS_API_KEY env var or ``nous.api_key`` in fast-agent config
 
 Usage::
@@ -25,7 +25,7 @@ from fast_agent.types import RequestParams
 # Constants
 # ---------------------------------------------------------------------------
 
-NOUS_BASE_URL = "https://inference.nousresearch.com/v1"
+NOUS_BASE_URL = "https://inference-api.nousresearch.com/v1"
 NOUS_DEFAULT_MODEL = "hermes-3-405b"
 
 
