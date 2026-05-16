@@ -1,11 +1,20 @@
 import asyncio
 import json
 import sys
+from io import BytesIO
 
 from typer.testing import CliRunner
 
 from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
 from fast_agent.cli.main import app
+
+
+class FakeHfFileSystem:
+    def __init__(self, files: dict[str, bytes]) -> None:
+        self.files = files
+
+    def open(self, path: str, mode: str = "rb") -> BytesIO:
+        return BytesIO(self.files[path])
 
 
 def test_batch_run_direct_mode_with_passthrough(tmp_path):
@@ -98,6 +107,93 @@ def test_batch_run_without_schema_writes_text_result(tmp_path):
     assert record["result"] == "Plain 1 2"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["output_mode"] == "text"
+
+
+def test_batch_run_accepts_hf_input_uri(monkeypatch, tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    source = "hf://datasets/evalstate/example/data/train.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    schema_path = tmp_path / "schema.json"
+    template_path = tmp_path / "row.md"
+    filesystem = FakeHfFileSystem({source: b'{"id":"1","x":2}\n'})
+    monkeypatch.setattr("fast_agent.batch.input._default_hf_filesystem", lambda: filesystem)
+
+    schema_path.write_text('{"type":"object"}', encoding="utf-8")
+    template_path.write_text("{{row_json}}", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            source,
+            "--output",
+            str(output_path),
+            "--schema",
+            str(schema_path),
+            "--template",
+            str(template_path),
+            "--model",
+            "passthrough",
+            "--id-field",
+            "id",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    record = json.loads(output_path.read_text(encoding="utf-8"))
+    assert record["result"] == {"id": "1", "x": 2}
+
+
+def test_batch_run_accepts_parquet_input(monkeypatch, tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.parquet"
+    output_path = tmp_path / "out.jsonl"
+    schema_path = tmp_path / "schema.json"
+    template_path = tmp_path / "row.md"
+
+    input_path.write_bytes(b"not real parquet")
+    schema_path.write_text('{"type":"object"}', encoding="utf-8")
+    template_path.write_text("{{row_json}}", encoding="utf-8")
+    monkeypatch.setattr(
+        "fast_agent.batch.input._read_parquet_records",
+        lambda sources, *, offset, limit: [{"id": "1", "x": 2}],
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--schema",
+            str(schema_path),
+            "--template",
+            str(template_path),
+            "--model",
+            "passthrough",
+            "--id-field",
+            "id",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    record = json.loads(output_path.read_text(encoding="utf-8"))
+    assert record["result"] == {"id": "1", "x": 2}
 
 
 def test_batch_run_parallel_merges_shard_outputs(tmp_path):

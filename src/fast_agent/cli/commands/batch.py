@@ -51,7 +51,12 @@ def _run_async(coro):
 @app.command("run")
 def run(
     ctx: typer.Context,
-    input_path: Path = typer.Option(..., "--input", "-i", help="Input .jsonl or .csv file"),
+    input_path: str = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        help="Input .jsonl/.csv/.parquet path or hf:// URI to a Hugging Face dataset",
+    ),
     output_path: Path = typer.Option(..., "--output", "-o", help="Output JSONL file"),
     schema_path: Path | None = typer.Option(
         None,
