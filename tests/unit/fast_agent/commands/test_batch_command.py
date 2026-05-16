@@ -1,8 +1,10 @@
+import asyncio
 import json
 import sys
 
 from typer.testing import CliRunner
 
+from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
 from fast_agent.cli.main import app
 
 
@@ -96,6 +98,178 @@ def test_batch_run_without_schema_writes_text_result(tmp_path):
     assert record["result"] == "Plain 1 2"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["output_mode"] == "text"
+
+
+def test_batch_run_parallel_merges_shard_outputs(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    summary_path = tmp_path / "summary.json"
+    work_dir = tmp_path / "work"
+    template_path = tmp_path / "row.md"
+    schema_path = tmp_path / "schema.json"
+
+    input_path.write_text(
+        "\n".join(json.dumps({"id": str(index), "x": index}) for index in range(4)) + "\n",
+        encoding="utf-8",
+    )
+    template_path.write_text("{{row_json}}", encoding="utf-8")
+    schema_path.write_text('{"type":"object"}', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--template",
+            str(template_path),
+            "--schema",
+            str(schema_path),
+            "--model",
+            "passthrough",
+            "--id-field",
+            "id",
+            "--parallel",
+            "2",
+            "--work-dir",
+            str(work_dir),
+            "--summary-output",
+            str(summary_path),
+            "--keep-temp",
+            "--no-progress",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["id"] for record in records] == ["0", "1", "2", "3"]
+    assert [record["result"]["x"] for record in records] == [0, 1, 2, 3]
+    assert (work_dir / "part-000.jsonl").exists()
+    assert (work_dir / "part-001.jsonl").exists()
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["parallel"] == 2
+    assert summary["selected_rows"] == 4
+    assert summary["processed_rows"] == 4
+    assert summary["failed_rows"] == 0
+
+
+def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    summary_path = tmp_path / "summary.json"
+    work_dir = tmp_path / "work"
+    template_path = tmp_path / "row.md"
+    schema_path = tmp_path / "schema.json"
+
+    input_path.write_text(
+        "\n".join(json.dumps({"id": str(index), "x": index}) for index in range(6)) + "\n",
+        encoding="utf-8",
+    )
+    template_path.write_text("{{row_json}}", encoding="utf-8")
+    schema_path.write_text('{"type":"object"}', encoding="utf-8")
+
+    asyncio.run(
+        run_parallel_structured_batch(
+            StructuredBatchOptions(
+                input_path=input_path,
+                output_path=output_path,
+                schema_path=schema_path,
+                template_path=template_path,
+                model="passthrough",
+                limit=4,
+                offset=1,
+                id_field="id",
+                summary_output_path=summary_path,
+                final_summary=False,
+                environment_dir=env_dir,
+                parallel=2,
+                work_dir=work_dir,
+                keep_temp=True,
+                progress=False,
+            )
+        )
+    )
+    output_path.unlink()
+
+    asyncio.run(
+        run_parallel_structured_batch(
+            StructuredBatchOptions(
+                input_path=input_path,
+                output_path=output_path,
+                schema_path=schema_path,
+                template_path=template_path,
+                model="passthrough",
+                limit=6,
+                offset=0,
+                resume=True,
+                id_field="id",
+                summary_output_path=summary_path,
+                final_summary=False,
+                environment_dir=env_dir,
+                parallel=4,
+                work_dir=work_dir,
+                keep_temp=True,
+                progress=False,
+            )
+        )
+    )
+
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["id"] for record in records] == ["1", "2", "3", "4"]
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["parallel"] == 2
+    assert summary["selected_rows"] == 4
+
+
+def test_batch_run_parallel_rejects_final_output_inside_work_dir(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    work_dir = tmp_path / "work"
+    output_path = work_dir / "out.jsonl"
+    template_path = tmp_path / "row.md"
+
+    input_path.write_text('{"id":"1","x":2}\n{"id":"2","x":3}\n', encoding="utf-8")
+    template_path.write_text("{{row_json}}", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--template",
+            str(template_path),
+            "--model",
+            "passthrough",
+            "--parallel",
+            "2",
+            "--work-dir",
+            str(work_dir),
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--output must be outside --work-dir for parallel batches" in result.output
+    assert not output_path.exists()
 
 
 def test_batch_run_export_traces_writes_row_trace_and_manifest(tmp_path):

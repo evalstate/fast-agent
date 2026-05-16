@@ -8,7 +8,11 @@ from pathlib import Path
 
 import typer
 
-from fast_agent.batch.structured import StructuredBatchOptions, run_structured_batch
+from fast_agent.batch.structured import (
+    StructuredBatchOptions,
+    run_parallel_structured_batch,
+    run_structured_batch,
+)
 from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.utils.async_utils import configure_uvloop
@@ -27,6 +31,11 @@ def main(ctx: typer.Context) -> None:
 def _validate_non_negative(value: int | None, name: str) -> None:
     if value is not None and value < 0:
         raise typer.BadParameter(f"{name} must be non-negative")
+
+
+def _validate_positive(value: int | None, name: str) -> None:
+    if value is not None and value <= 0:
+        raise typer.BadParameter(f"{name} must be greater than zero")
 
 
 def _fail_validation(message: str) -> None:
@@ -133,6 +142,31 @@ def run(
         "--hf-dataset-path",
         help="Path or prefix inside the Hugging Face dataset for exported traces",
     ),
+    parallel: int | None = typer.Option(
+        None,
+        "--parallel",
+        help="Run this many local shard workers and merge their outputs",
+    ),
+    work_dir: Path | None = typer.Option(
+        None,
+        "--work-dir",
+        help="Directory for parallel shard outputs and resume manifests",
+    ),
+    keep_temp: bool = typer.Option(
+        False,
+        "--keep-temp/--no-keep-temp",
+        help="Keep parallel shard outputs after a successful merge",
+    ),
+    progress_every: int | None = typer.Option(
+        None,
+        "--progress-every",
+        help="Print progress every N processed rows per worker",
+    ),
+    progress: bool = typer.Option(
+        True,
+        "--progress/--no-progress",
+        help="Print batch progress messages to stderr",
+    ),
     final_summary: bool = typer.Option(
         True,
         "--final-summary/--no-final-summary",
@@ -149,6 +183,8 @@ def run(
         (max_errors, "--max-errors"),
     ):
         _validate_non_negative(value, name)
+    for value, name in ((parallel, "--parallel"), (progress_every, "--progress-every")):
+        _validate_positive(value, name)
 
     if resume and overwrite:
         _fail_validation("--resume and --overwrite cannot be used together")
@@ -166,6 +202,7 @@ def run(
     context = ensure_context_object(ctx)
     env_dir = context.get("env_dir")
     environment_dir = env_dir if isinstance(env_dir, Path) else None
+    progress_enabled = progress and ((parallel is not None and parallel > 1) or progress_every is not None)
 
     options = StructuredBatchOptions(
         input_path=input_path,
@@ -190,6 +227,11 @@ def run(
         export_traces_path=export_traces_path,
         hf_dataset=hf_dataset,
         hf_dataset_path=hf_dataset_path,
+        parallel=parallel,
+        work_dir=work_dir,
+        keep_temp=keep_temp,
+        progress_every=progress_every,
+        progress=progress_enabled,
         final_summary=final_summary,
         environment_dir=environment_dir,
         shell_runtime=shell_runtime,
@@ -198,7 +240,10 @@ def run(
     )
 
     try:
-        summary = _run_async(run_structured_batch(options))
+        if parallel is not None and parallel > 1:
+            summary = _run_async(run_parallel_structured_batch(options))
+        else:
+            summary = _run_async(run_structured_batch(options))
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc

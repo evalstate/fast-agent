@@ -25,7 +25,7 @@ from typing import (
 )
 
 import mcp
-from a2a.types import AgentCard, AgentSkill
+from a2a.types import AgentCard, AgentInterface, AgentSkill
 from mcp.types import (
     CallToolResult,
     ContentBlock,
@@ -506,6 +506,12 @@ class McpAgent(ABC, ToolAgent):
                 return fallback
         return None
 
+    def _consume_pending_media_attachments(self) -> list[ContentBlock]:
+        local_runtime = self._local_filesystem_runtime()
+        if local_runtime is None:
+            return []
+        return local_runtime.consume_pending_media_attachments()
+
     @property
     def has_filesystem_read_text_file_tool(self) -> bool:
         """Whether the active filesystem runtime currently exposes read_text_file."""
@@ -958,6 +964,12 @@ class McpAgent(ABC, ToolAgent):
             return True
         return self._context.config.shell_execution.enable_read_text_file
 
+    def _shell_attach_media_mode(self) -> Literal["auto", "on", "off"]:
+        """Return whether shell-enabled agents should expose local attach_media."""
+        if not self._context or not self._context.config:
+            return "auto"
+        return self._context.config.shell_execution.enable_attach_media
+
     def _resolve_shell_edit_tool_mode(self) -> Literal["write_text_file", "apply_patch", "off"]:
         """Return which shell edit tool should be exposed for the current model/config."""
         default_mode: Literal["write_text_file", "apply_patch"]
@@ -1023,16 +1035,20 @@ class McpAgent(ABC, ToolAgent):
         enable_write = edit_mode == "write_text_file"
         enable_apply_patch = edit_mode == "apply_patch"
         enable_edit_file = edit_mode == "write_text_file"
+        enable_attach_media = self._shell_attach_media_mode()
+        model_info = self.llm.model_info if self.llm else None
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is not None:
             if working_directory is not None:
                 local_runtime.set_working_directory(working_directory)
+            local_runtime.set_model_info(model_info)
             local_runtime.set_tool_handler_resolver(self._get_tool_handler)
             local_runtime.set_enabled_tools(
                 enable_read=enable_read,
                 enable_write=enable_write,
                 enable_apply_patch=enable_apply_patch,
                 enable_edit_file=enable_edit_file,
+                enable_attach_media=enable_attach_media,
             )
             return
 
@@ -1046,6 +1062,8 @@ class McpAgent(ABC, ToolAgent):
             enable_write=enable_write,
             enable_apply_patch=enable_apply_patch,
             enable_edit_file=enable_edit_file,
+            enable_attach_media=enable_attach_media,
+            model_info=model_info,
             tool_handler_resolver=self._get_tool_handler,
         )
         if self._filesystem_runtime is None:
@@ -1062,6 +1080,7 @@ class McpAgent(ABC, ToolAgent):
             write_enabled=enable_write,
             apply_patch_enabled=enable_apply_patch,
             edit_file_enabled=enable_edit_file,
+            attach_media_enabled=enable_attach_media,
         )
 
     def _shell_output_limit_overridden(self) -> bool:
@@ -1089,11 +1108,13 @@ class McpAgent(ABC, ToolAgent):
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is not None:
             edit_mode = self._resolve_shell_edit_tool_mode()
+            local_runtime.set_model_info(llm.model_info)
             local_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
                 enable_write=edit_mode == "write_text_file",
                 enable_apply_patch=edit_mode == "apply_patch",
                 enable_edit_file=edit_mode == "write_text_file",
+                enable_attach_media=self._shell_attach_media_mode(),
             )
 
         if self._shell_runtime is None:
@@ -2342,7 +2363,12 @@ class McpAgent(ABC, ToolAgent):
             skills=skills,
             name=self._name,
             description=self.config.description or self.instruction,
-            url=f"fast-agent://agents/{self._name}/",
+            supported_interfaces=[
+                AgentInterface(
+                    url=f"fast-agent://agents/{self._name}/",
+                    protocol_binding="fast-agent",
+                )
+            ],
             version="0.1",
             capabilities=DEFAULT_CAPABILITIES,
             default_input_modes=["text/plain"],

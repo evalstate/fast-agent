@@ -1592,7 +1592,8 @@ def _enable_smart_tooling(agent: _SmartToolingAgent) -> None:
         description=(
             "Run subagent tasks from a definition in a file or directory. Subagents are defined with "
             "AgentCards. Use action=`run` to load a subagent and send it a message. Optionally supply "
-            "`mcp_connect` targets. Use action=`validate` to check card file validity without running them"
+            "`mcp_connect` targets. Use action=`validate` to check card file validity without running them. "
+            "Do not pass Agent Skill SKILL.md files here; inspect skills with read_text_file/read_skill."
         ),
     )
     slash_command_tool = build_default_function_tool(

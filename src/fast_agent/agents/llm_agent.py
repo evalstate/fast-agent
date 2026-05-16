@@ -70,9 +70,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-DEFAULT_CAPABILITIES = AgentCapabilities(
-    streaming=False, push_notifications=False, state_transition_history=False
-)
+DEFAULT_CAPABILITIES = AgentCapabilities(streaming=False, push_notifications=False)
 
 
 class LlmAgent(LlmDecorator):

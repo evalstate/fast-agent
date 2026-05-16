@@ -386,6 +386,35 @@ def test_convert_tool_results_prefers_structured_content_and_keeps_attachments()
     ]
 
 
+def test_convert_tool_results_resource_link_pdf_becomes_user_input_file() -> None:
+    harness = _ContentHarness()
+    resource = ResourceLink(
+        type="resource_link",
+        uri=AnyUrl("https://example.com/report.pdf"),
+        mimeType="application/pdf",
+        name="report.pdf",
+    )
+    result = SimpleNamespace(
+        content=[TextContent(type="text", text="attached"), resource],
+        isError=False,
+    )
+
+    items = harness._convert_tool_results({"call_1": result})
+
+    assert items[0]["type"] == "function_call_output"
+    assert items[0]["output"].splitlines()[0] == "attached"
+    assert items[1] == {
+        "type": "message",
+        "role": "user",
+        "content": [
+            {
+                "type": "input_file",
+                "file_url": "https://example.com/report.pdf",
+            }
+        ],
+    }
+
+
 def test_convert_tool_calls_keeps_namespaced_apply_patch_as_function_call() -> None:
     harness = _ContentHarness()
     harness._tool_kind_map["call_patch"] = "function"

@@ -33,6 +33,8 @@ FAST_AGENT_TOOL_METADATA = "fast-agent-tool-metadata"
 FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
 FAST_AGENT_USAGE = "fast-agent-usage"
 FAST_AGENT_SYNTHETIC_FINAL_CHANNEL = "fast-agent-synthetic-final"
+FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"
+"""Content blocks staged by attach_media for injection as user input on the next LLM call."""
 
 FORCE_SEQUENTIAL_TOOL_CALLS = False
 """Force tool execution to run sequentially even when multiple tool calls are present."""

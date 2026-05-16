@@ -815,3 +815,17 @@ def test_model_specific_defaults_for_gpt_53_plus_family():
         assert ModelDatabase.get_model_specific(model_name) == expected
 
     assert ModelDatabase.get_model_specific("gpt-5.2") == ""
+
+
+def test_gemini_model_specific_mentions_youtube_capability():
+    for model_name in (
+        "gemini-2.0-flash",
+        "gemini-2.5-pro",
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview",
+    ):
+        model_specific = ModelDatabase.get_model_specific(model_name)
+        assert "YouTube" in model_specific
+        assert "capable" in model_specific
+        assert "free" not in model_specific.lower()
+        assert ModelDatabase.supports_mime(model_name, "video/mp4")

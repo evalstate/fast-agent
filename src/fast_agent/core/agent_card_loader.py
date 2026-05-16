@@ -77,6 +77,11 @@ def load_agent_cards(path: Path) -> list[LoadedAgentCard]:
 
     if path.suffix.lower() not in {".md", ".markdown", ".yaml", ".yml"}:
         raise AgentConfigError(f"Unsupported AgentCard file extension: {path}")
+    if path.name == "SKILL.md":
+        raise AgentConfigError(
+            "SKILL.md is an Agent Skill manifest, not an AgentCard",
+            "Use read_text_file/read_skill to inspect skill instructions, or use /skills to manage skills.",
+        )
     if path.suffix.lower() in {".md", ".markdown"} and not _markdown_has_frontmatter(path):
         raise AgentConfigError(
             "AgentCard markdown files must include frontmatter",
@@ -100,6 +105,12 @@ def _ensure_unique_names(cards: Iterable[LoadedAgentCard], path: Path) -> None:
 
 
 def _load_agent_card_file(path: Path) -> list[LoadedAgentCard]:
+    if path.name == "SKILL.md":
+        raise AgentConfigError(
+            "SKILL.md is an Agent Skill manifest, not an AgentCard",
+            "Use read_text_file/read_skill to inspect skill instructions, or use /skills to manage skills.",
+        )
+
     suffix = path.suffix.lower()
     if suffix in {".yaml", ".yml"}:
         raw = _load_yaml_card(path)

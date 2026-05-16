@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import shutil
+import sys
+import time
+import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, TypeAlias, cast
 
 from pydantic import BaseModel
@@ -33,8 +39,6 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.session.trace_export_errors import SessionExportUploadError
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from fast_agent.core.fastagent import FastAgent
     from fast_agent.interfaces import AgentProtocol
 
@@ -68,6 +72,30 @@ class StructuredBatchOptions:
     export_traces_path: Path | None = None
     hf_dataset: str | None = None
     hf_dataset_path: str | None = None
+    parallel: int | None = None
+    work_dir: Path | None = None
+    keep_temp: bool = False
+    progress_every: int | None = None
+    progress: bool = True
+    progress_label: str | None = None
+
+
+@dataclass(frozen=True)
+class BatchShard:
+    index: int
+    offset: int
+    limit: int
+    output_path: Path
+    error_output_path: Path | None
+    telemetry_output_path: Path | None
+    summary_output_path: Path
+
+
+@dataclass(frozen=True)
+class ParallelManifest:
+    input_rows: int
+    selected_rows: int
+    shards: list[BatchShard]
 
 
 SchemaSource: TypeAlias = StructuredSchemaSource
@@ -185,6 +213,27 @@ def _write_optional_telemetry(
     )
 
 
+def _emit_progress(options: StructuredBatchOptions, message: str) -> None:
+    if not options.progress:
+        return
+    label = f"{options.progress_label} " if options.progress_label else ""
+    print(f"batch: {label}{message}", file=sys.stderr, flush=True)
+
+
+def _emit_row_progress(options: StructuredBatchOptions, summary: BatchSummary) -> None:
+    every = options.progress_every
+    if every is None or every <= 0 or summary.processed_rows % every != 0:
+        return
+    _emit_progress(
+        options,
+        (
+            f"processed={summary.processed_rows} "
+            f"failed={summary.failed_rows} "
+            f"skipped={summary.skipped_rows}"
+        ),
+    )
+
+
 def _prepare_output_files(options: StructuredBatchOptions) -> None:
     if options.resume and options.overwrite:
         raise ValueError("--resume and --overwrite cannot be used together")
@@ -275,6 +324,10 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
             "hf_dataset_path": options.hf_dataset_path,
         },
     )
+    _emit_progress(
+        options,
+        f"start selected_rows={len(selected)} output={options.output_path}",
+    )
 
     from fast_agent import FastAgent
 
@@ -343,6 +396,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                             )
                             summary.processed_rows += 1
                             summary.failed_rows += 1
+                            _emit_row_progress(options, summary)
                             if trace_recorder is not None:
                                 trace_recorder.record_row_without_trace(
                                     row_number=candidate.row_number,
@@ -399,6 +453,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                                 )
                                 summary.processed_rows += 1
                                 summary.failed_rows += 1
+                                _emit_row_progress(options, summary)
                                 if trace_recorder is not None:
                                     trace_recorder.finish_row(
                                         ok=False,
@@ -426,6 +481,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                                 usage=usage,
                             )
                             summary.processed_rows += 1
+                            _emit_row_progress(options, summary)
                             if trace_recorder is not None:
                                 trace_recorder.finish_row(ok=True, response=response)
                         except Exception as exc:
@@ -447,6 +503,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
                             )
                             summary.processed_rows += 1
                             summary.failed_rows += 1
+                            _emit_row_progress(options, summary)
                             if trace_recorder is not None:
                                 trace_recorder.finish_row(
                                     ok=False,
@@ -480,7 +537,548 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+    _emit_progress(
+        options,
+        (
+            "complete "
+            f"processed={payload['processed_rows']} "
+            f"failed={payload['failed_rows']} "
+            f"skipped={payload['skipped_rows']}"
+        ),
+    )
     return payload
+
+
+async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict[str, Any]:
+    """Run a batch job across local shard workers and merge their JSONL outputs."""
+    parallel = options.parallel or 1
+    if parallel <= 1:
+        return await run_structured_batch(options)
+
+    _validate_parallel_options(options, parallel)
+    work_dir = _resolve_parallel_work_dir(options)
+    _validate_parallel_final_outputs_outside_work_dir(options, work_dir)
+    _prepare_parallel_output_files(options)
+
+    all_candidates = list(iter_input_rows(options.input_path))
+    selected = select_rows(
+        all_candidates,
+        offset=options.offset,
+        sample=options.sample,
+        seed=options.seed,
+        limit=options.limit,
+    )
+    started_at = utc_now_iso()
+    started_monotonic = time.monotonic()
+    _prepare_parallel_work_dir(work_dir, resume=options.resume, overwrite=options.overwrite)
+
+    if options.resume:
+        manifest = _load_parallel_manifest(options, work_dir, input_rows=len(all_candidates))
+        shards = manifest.shards
+        selected_rows = manifest.selected_rows
+    else:
+        selected_rows = len(selected)
+
+    if not selected_rows:
+        _write_empty_parallel_outputs(options)
+        payload = _empty_parallel_summary(options, started_at, len(all_candidates), work_dir)
+        _write_parallel_summary(options, payload)
+        _cleanup_parallel_work_dir(options, work_dir)
+        return payload
+
+    if not options.resume:
+        shards = _plan_parallel_shards(options, work_dir, selected_rows, parallel)
+        _write_parallel_manifest(options, work_dir, shards, len(all_candidates), selected_rows)
+    _emit_progress(
+        options,
+        f"planned {len(shards)} shards for {selected_rows} selected rows work_dir={work_dir}",
+    )
+
+    shard_tasks = []
+    for shard in shards:
+        _emit_progress(
+            options,
+            (
+                f"shard {shard.index} start offset={shard.offset} "
+                f"limit={shard.limit} output={shard.output_path}"
+            ),
+        )
+        shard_tasks.append(run_structured_batch(_shard_options(options, shard)))
+
+    try:
+        shard_summaries = await asyncio.gather(*shard_tasks)
+    except Exception:
+        _emit_progress(options, f"failed; kept shard outputs in {work_dir}")
+        raise
+
+    _emit_progress(options, f"merging {len(shards)} shards into {options.output_path}")
+    _merge_jsonl_shards([shard.output_path for shard in shards], options.output_path, work_dir)
+    if options.error_output_path is not None:
+        _merge_jsonl_shards(
+            [shard.error_output_path for shard in shards if shard.error_output_path is not None],
+            options.error_output_path,
+            work_dir,
+        )
+    if options.telemetry_output_path is not None:
+        _merge_jsonl_shards(
+            [
+                shard.telemetry_output_path
+                for shard in shards
+                if shard.telemetry_output_path is not None
+            ],
+            options.telemetry_output_path,
+            work_dir,
+        )
+
+    payload = _merge_parallel_summaries(
+        options=options,
+        started_at=started_at,
+        completed_at=utc_now_iso(),
+        duration_ms=round((time.monotonic() - started_monotonic) * 1000, 2),
+        input_rows=len(all_candidates),
+        selected_rows=selected_rows,
+        work_dir=work_dir,
+        shards=shards,
+        shard_summaries=shard_summaries,
+    )
+    _write_parallel_summary(options, payload)
+    _emit_progress(
+        options,
+        (
+            "complete "
+            f"processed={payload['processed_rows']} "
+            f"failed={payload['failed_rows']} "
+            f"skipped={payload['skipped_rows']}"
+        ),
+    )
+    _cleanup_parallel_work_dir(options, work_dir)
+    return payload
+
+
+def _validate_parallel_options(options: StructuredBatchOptions, parallel: int) -> None:
+    if parallel < 1:
+        raise ValueError("--parallel must be greater than zero")
+    if options.resume and options.work_dir is None:
+        raise ValueError("--parallel --resume requires --work-dir from the interrupted run")
+    if options.sample is not None:
+        raise ValueError("--parallel cannot be used with --sample yet")
+    if options.max_errors is not None:
+        raise ValueError("--parallel cannot be used with --max-errors yet")
+    if options.export_traces_path is not None:
+        raise ValueError("--parallel cannot be used with --export-traces yet")
+
+
+def _prepare_parallel_output_files(options: StructuredBatchOptions) -> None:
+    if options.resume and options.overwrite:
+        raise ValueError("--resume and --overwrite cannot be used together")
+    _reject_duplicate_output_paths(options)
+    if options.output_path.exists():
+        if options.resume and not options.overwrite:
+            raise ValueError(
+                "--parallel --resume resumes shard work directories, not an existing final output; "
+                "move the output file or use --overwrite"
+            )
+        if not options.overwrite:
+            raise ValueError(
+                f"Output file {options.output_path} already exists; use --resume or --overwrite"
+            )
+    for path in (
+        options.output_path,
+        options.error_output_path,
+        options.telemetry_output_path,
+        options.summary_output_path,
+    ):
+        if path is not None:
+            ensure_parent(path)
+
+
+def _resolve_parallel_work_dir(options: StructuredBatchOptions) -> Path:
+    if options.work_dir is not None:
+        return options.work_dir
+    run_id = f"{utc_now_iso().replace(':', '').replace('-', '')}-{uuid.uuid4().hex[:8]}"
+    return options.output_path.parent / f".{options.output_path.name}.batch" / run_id
+
+
+def _validate_parallel_final_outputs_outside_work_dir(
+    options: StructuredBatchOptions,
+    work_dir: Path,
+) -> None:
+    work_dir_path = work_dir.resolve()
+    final_paths = (
+        ("--output", options.output_path),
+        ("--error-output", options.error_output_path),
+        ("--telemetry-output", options.telemetry_output_path),
+        ("--summary-output", options.summary_output_path),
+    )
+    for option_name, path in final_paths:
+        if path is not None and path.resolve().is_relative_to(work_dir_path):
+            raise ValueError(f"{option_name} must be outside --work-dir for parallel batches")
+
+
+def _prepare_parallel_work_dir(work_dir: Path, *, resume: bool, overwrite: bool) -> None:
+    if resume:
+        if not work_dir.exists():
+            raise ValueError(f"Work directory {work_dir} does not exist")
+        if not (work_dir / "manifest.json").exists():
+            raise ValueError(f"Work directory {work_dir} does not contain manifest.json")
+        return
+    if work_dir.exists() and any(work_dir.iterdir()):
+        if not overwrite:
+            raise ValueError(f"Work directory {work_dir} already exists; use --resume or --overwrite")
+        shutil.rmtree(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _plan_parallel_shards(
+    options: StructuredBatchOptions,
+    work_dir: Path,
+    selected_rows: int,
+    parallel: int,
+) -> list[BatchShard]:
+    shard_count = min(parallel, selected_rows)
+    base = selected_rows // shard_count
+    remainder = selected_rows % shard_count
+    global_offset = options.offset or 0
+    relative_offset = 0
+    width = max(3, len(str(shard_count - 1)))
+    shards: list[BatchShard] = []
+    for index in range(shard_count):
+        limit = base + (1 if index < remainder else 0)
+        suffix = f"part-{index:0{width}d}"
+        shards.append(
+            BatchShard(
+                index=index,
+                offset=global_offset + relative_offset,
+                limit=limit,
+                output_path=work_dir / f"{suffix}.jsonl",
+                error_output_path=(
+                    work_dir / f"errors.{suffix}.jsonl"
+                    if options.error_output_path is not None
+                    else None
+                ),
+                telemetry_output_path=(
+                    work_dir / f"telemetry.{suffix}.jsonl"
+                    if options.telemetry_output_path is not None
+                    else None
+                ),
+                summary_output_path=work_dir / f"summary.{suffix}.json",
+            )
+        )
+        relative_offset += limit
+    return shards
+
+
+def _shard_options(options: StructuredBatchOptions, shard: BatchShard) -> StructuredBatchOptions:
+    return replace(
+        options,
+        output_path=shard.output_path,
+        offset=shard.offset,
+        limit=shard.limit,
+        sample=None,
+        seed=None,
+        resume=options.resume,
+        overwrite=not options.resume,
+        error_output_path=shard.error_output_path,
+        telemetry_output_path=shard.telemetry_output_path,
+        summary_output_path=shard.summary_output_path,
+        final_summary=False,
+        parallel=None,
+        work_dir=None,
+        keep_temp=True,
+        progress_label=f"shard {shard.index}",
+    )
+
+
+def _write_parallel_manifest(
+    options: StructuredBatchOptions,
+    work_dir: Path,
+    shards: list[BatchShard],
+    input_rows: int,
+    selected_rows: int,
+) -> None:
+    manifest = {
+        "input": str(options.input_path),
+        "output": str(options.output_path),
+        "parallel": options.parallel,
+        "input_rows": input_rows,
+        "selected_rows": selected_rows,
+        "created_at": utc_now_iso(),
+        "shards": [
+            {
+                "index": shard.index,
+                "offset": shard.offset,
+                "limit": shard.limit,
+                "output": str(shard.output_path),
+                "error_output": str(shard.error_output_path)
+                if shard.error_output_path is not None
+                else None,
+                "telemetry_output": str(shard.telemetry_output_path)
+                if shard.telemetry_output_path is not None
+                else None,
+                "summary_output": str(shard.summary_output_path),
+            }
+            for shard in shards
+        ],
+    }
+    (work_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _load_parallel_manifest(
+    options: StructuredBatchOptions,
+    work_dir: Path,
+    *,
+    input_rows: int,
+) -> ParallelManifest:
+    manifest_path = work_dir / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Work directory {work_dir} contains invalid manifest.json") from exc
+
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Work directory {work_dir} contains invalid manifest.json")
+    manifest_mapping = cast("Mapping[str, object]", manifest)
+
+    manifest_input = manifest_mapping.get("input")
+    if not isinstance(manifest_input, str) or Path(manifest_input).resolve() != options.input_path.resolve():
+        raise ValueError("--parallel --resume input does not match the saved manifest")
+
+    manifest_input_rows = manifest_mapping.get("input_rows")
+    if not isinstance(manifest_input_rows, int) or manifest_input_rows != input_rows:
+        raise ValueError("--parallel --resume input row count does not match the saved manifest")
+
+    manifest_selected_rows = manifest_mapping.get("selected_rows")
+    if not isinstance(manifest_selected_rows, int) or manifest_selected_rows < 0:
+        raise ValueError("Saved parallel manifest has invalid selected_rows")
+
+    manifest_shards = manifest_mapping.get("shards")
+    if not isinstance(manifest_shards, list):
+        raise ValueError("Saved parallel manifest has invalid shards")
+
+    shards = [_load_parallel_manifest_shard(item) for item in manifest_shards]
+    if sum(shard.limit for shard in shards) != manifest_selected_rows:
+        raise ValueError("Saved parallel manifest shard limits do not match selected_rows")
+
+    return ParallelManifest(
+        input_rows=manifest_input_rows,
+        selected_rows=manifest_selected_rows,
+        shards=shards,
+    )
+
+
+def _load_parallel_manifest_shard(item: object) -> BatchShard:
+    if not isinstance(item, dict):
+        raise ValueError("Saved parallel manifest has invalid shard entries")
+    shard = cast("Mapping[str, object]", item)
+
+    index = shard.get("index")
+    offset = shard.get("offset")
+    limit = shard.get("limit")
+    output = shard.get("output")
+    summary_output = shard.get("summary_output")
+    error_output = shard.get("error_output")
+    telemetry_output = shard.get("telemetry_output")
+
+    if not isinstance(index, int) or index < 0:
+        raise ValueError("Saved parallel manifest has invalid shard index")
+    if not isinstance(offset, int) or offset < 0:
+        raise ValueError("Saved parallel manifest has invalid shard offset")
+    if not isinstance(limit, int) or limit < 1:
+        raise ValueError("Saved parallel manifest has invalid shard limit")
+    if not isinstance(output, str):
+        raise ValueError("Saved parallel manifest has invalid shard output")
+    if not isinstance(summary_output, str):
+        raise ValueError("Saved parallel manifest has invalid shard summary_output")
+    if error_output is not None and not isinstance(error_output, str):
+        raise ValueError("Saved parallel manifest has invalid shard error_output")
+    if telemetry_output is not None and not isinstance(telemetry_output, str):
+        raise ValueError("Saved parallel manifest has invalid shard telemetry_output")
+
+    return BatchShard(
+        index=index,
+        offset=offset,
+        limit=limit,
+        output_path=Path(output),
+        error_output_path=Path(error_output) if error_output is not None else None,
+        telemetry_output_path=Path(telemetry_output) if telemetry_output is not None else None,
+        summary_output_path=Path(summary_output),
+    )
+
+
+def _merge_jsonl_shards(source_paths: list[Path], output_path: Path, work_dir: Path) -> None:
+    ensure_parent(output_path)
+    tmp_path = work_dir / f"{output_path.name}.tmp"
+    with tmp_path.open("w", encoding="utf-8") as output_handle:
+        for source_path in source_paths:
+            if not source_path.exists():
+                raise ValueError(f"Shard output missing: {source_path}")
+            with source_path.open("r", encoding="utf-8") as input_handle:
+                shutil.copyfileobj(input_handle, output_handle)
+    tmp_path.replace(output_path)
+
+
+def _merge_parallel_summaries(
+    *,
+    options: StructuredBatchOptions,
+    started_at: str,
+    completed_at: str,
+    duration_ms: float,
+    input_rows: int,
+    selected_rows: int,
+    work_dir: Path,
+    shards: list[BatchShard],
+    shard_summaries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    schema_source = load_schema_source(options)
+    payload: dict[str, Any] = {
+        "model": options.model,
+        "input": str(options.input_path),
+        "output": str(options.output_path),
+        "schema": str(options.schema_path) if options.schema_path is not None else None,
+        "schema_model": options.schema_model,
+        "instruction": str(options.instruction_path) if options.instruction_path else None,
+        "agent_card": options.agent_card_source,
+        "agent": _first_summary_value(shard_summaries, "agent"),
+        "template": str(options.template_path) if options.template_path else "<default>",
+        "shell_runtime": options.shell_runtime,
+        "output_mode": "structured" if schema_source is not None else "text",
+        "export_traces": None,
+        "hf_dataset": None,
+        "hf_dataset_path": None,
+        "parallel": len(shards),
+        "work_dir": str(work_dir),
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "input_rows": input_rows,
+        "selected_rows": selected_rows,
+        "processed_rows": sum(_summary_int(summary, "processed_rows") for summary in shard_summaries),
+        "skipped_rows": sum(_summary_int(summary, "skipped_rows") for summary in shard_summaries),
+        "failed_rows": sum(_summary_int(summary, "failed_rows") for summary in shard_summaries),
+        "duration_ms": duration_ms,
+        "timing_ms": _merge_timing_summaries(shard_summaries),
+        "shards": [
+            {
+                "index": shard.index,
+                "offset": shard.offset,
+                "limit": shard.limit,
+                "output": str(shard.output_path),
+            }
+            for shard in shards
+        ],
+    }
+    return payload
+
+
+def _empty_parallel_summary(
+    options: StructuredBatchOptions,
+    started_at: str,
+    input_rows: int,
+    work_dir: Path,
+) -> dict[str, Any]:
+    completed_at = utc_now_iso()
+    return {
+        "model": options.model,
+        "input": str(options.input_path),
+        "output": str(options.output_path),
+        "schema": str(options.schema_path) if options.schema_path is not None else None,
+        "schema_model": options.schema_model,
+        "instruction": str(options.instruction_path) if options.instruction_path else None,
+        "agent_card": options.agent_card_source,
+        "agent": None,
+        "template": str(options.template_path) if options.template_path else "<default>",
+        "shell_runtime": options.shell_runtime,
+        "output_mode": "structured"
+        if options.schema_path is not None or options.schema_model is not None
+        else "text",
+        "export_traces": None,
+        "hf_dataset": None,
+        "hf_dataset_path": None,
+        "parallel": options.parallel,
+        "work_dir": str(work_dir),
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "input_rows": input_rows,
+        "selected_rows": 0,
+        "processed_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "duration_ms": 0,
+        "timing_ms": {
+            "duration": {"count": 0},
+            "ttft": {"count": 0},
+            "time_to_response": {"count": 0},
+        },
+        "shards": [],
+    }
+
+
+def _write_empty_parallel_outputs(options: StructuredBatchOptions) -> None:
+    for path in (options.output_path, options.error_output_path, options.telemetry_output_path):
+        if path is not None:
+            ensure_parent(path)
+            path.write_text("", encoding="utf-8")
+
+
+def _write_parallel_summary(options: StructuredBatchOptions, payload: dict[str, Any]) -> None:
+    if options.summary_output_path is not None:
+        options.summary_output_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+
+def _cleanup_parallel_work_dir(options: StructuredBatchOptions, work_dir: Path) -> None:
+    if options.keep_temp:
+        return
+    shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _first_summary_value(summaries: list[dict[str, Any]], key: str) -> Any:
+    for summary in summaries:
+        value = summary.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _summary_int(summary: dict[str, Any], key: str) -> int:
+    value = summary.get(key)
+    return value if isinstance(value, int) else 0
+
+
+def _merge_timing_summaries(summaries: list[dict[str, Any]]) -> dict[str, dict[str, float | int]]:
+    return {
+        key: _merge_timing_key(summaries, key)
+        for key in ("duration", "ttft", "time_to_response")
+    }
+
+
+def _merge_timing_key(summaries: list[dict[str, Any]], key: str) -> dict[str, float | int]:
+    parts: list[dict[str, Any]] = []
+    for summary in summaries:
+        timing = summary.get("timing_ms")
+        if not isinstance(timing, dict):
+            continue
+        part = timing.get(key)
+        if isinstance(part, dict) and isinstance(part.get("count"), int) and part["count"] > 0:
+            parts.append(part)
+    if not parts:
+        return {"count": 0}
+    count = sum(cast("int", part["count"]) for part in parts)
+    weighted_mean = sum(cast("float", part.get("mean", 0.0)) * part["count"] for part in parts) / count
+    weighted_median = (
+        sum(cast("float", part.get("median", 0.0)) * part["count"] for part in parts) / count
+    )
+    return {
+        "count": count,
+        "min": min(cast("float", part.get("min", 0.0)) for part in parts),
+        "mean": weighted_mean,
+        "median": weighted_median,
+        "max": max(cast("float", part.get("max", 0.0)) for part in parts),
+    }
 
 
 def _configure_trace_recorder(

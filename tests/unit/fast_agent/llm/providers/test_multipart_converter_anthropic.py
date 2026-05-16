@@ -541,6 +541,62 @@ class TestAnthropicToolConverter(unittest.TestCase):
         self.assertEqual(len(block_content(content_blocks(anthropic_msg)[0])), 1)
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["type"], "document")
 
+    def test_tool_result_image_resource_link_conversion(self):
+        """Image ResourceLinks in tool results become Anthropic URL image blocks."""
+        resource = ResourceLink(
+            type="resource_link",
+            uri=AnyUrl("https://example.com/image.jpg"),
+            mimeType="image/jpeg",
+            name="image.jpg",
+        )
+        tool_result = CallToolResult(content=[resource], isError=False)
+
+        anthropic_msg = AnthropicConverter.create_tool_results_message(
+            [(self.tool_use_id, tool_result)]
+        )
+
+        inner = block_content(content_blocks(anthropic_msg)[0])
+        self.assertEqual(inner[0]["type"], "image")
+        self.assertEqual(block_source(inner[0])["type"], "url")
+        self.assertEqual(block_source(inner[0])["url"], "https://example.com/image.jpg")
+
+    def test_tool_result_pdf_resource_link_conversion(self):
+        """PDF ResourceLinks in tool results become Anthropic URL document blocks."""
+        resource = ResourceLink(
+            type="resource_link",
+            uri=AnyUrl("https://example.com/document.pdf"),
+            mimeType="application/pdf",
+            name="document.pdf",
+        )
+        tool_result = CallToolResult(content=[resource], isError=False)
+
+        anthropic_msg = AnthropicConverter.create_tool_results_message(
+            [(self.tool_use_id, tool_result)]
+        )
+
+        inner = block_content(content_blocks(anthropic_msg)[0])
+        self.assertEqual(inner[0]["type"], "document")
+        self.assertEqual(block_source(inner[0])["type"], "url")
+        self.assertEqual(block_source(inner[0])["url"], "https://example.com/document.pdf")
+
+    def test_tool_result_unsupported_resource_link_falls_back_to_text(self):
+        """Unsupported ResourceLinks in tool results remain visible as text."""
+        resource = ResourceLink(
+            type="resource_link",
+            uri=AnyUrl("https://example.com/archive.zip"),
+            mimeType="application/zip",
+            name="archive.zip",
+        )
+        tool_result = CallToolResult(content=[resource], isError=False)
+
+        anthropic_msg = AnthropicConverter.create_tool_results_message(
+            [(self.tool_use_id, tool_result)]
+        )
+
+        inner = block_content(content_blocks(anthropic_msg)[0])
+        self.assertEqual(inner[0]["type"], "text")
+        self.assertIn("https://example.com/archive.zip", str(inner[0]["text"]))
+
     def test_create_tool_results_message(self):
         """Test creation of user message with multiple tool results."""
         # Create two tool results
