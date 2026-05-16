@@ -37,6 +37,7 @@ class Provider(Enum):
     XAI = ("xai", "xAI")  # For xAI Grok models via the Responses API
     BEDROCK = ("bedrock", "Bedrock")
     GROQ = ("groq", "Groq")
+    NOUS = ("nous", "Nous Portal")  # Nous Research Portal
     CODEX_RESPONSES = ("codexresponses", "Codex Responses")
     RESPONSES = ("responses", "Responses")
     OPENRESPONSES = ("openresponses", "OpenResponses")
