@@ -1,6 +1,13 @@
 ---
 title: Model Features and History Saving
+social:
+  title: Models and History
+  tagline: Configure model behavior and save conversation history for repeatable runs.
+  description: Configure model behavior and save conversation history for repeatable
+    runs.
+  alt: fast-agent social card — Models and History
 ---
+
 
 # Model Features and History Saving
 

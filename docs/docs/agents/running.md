@@ -1,3 +1,11 @@
+---
+social:
+  title: Deploy and Run Agents
+  tagline: Run agents locally, from scripts, or as reusable command-line workflows.
+  description: Run agents locally, from scripts, or as reusable command-line workflows.
+  alt: fast-agent social card — Deploy and Run Agents
+---
+
 # Deploy and Run 
 
 **fast-agent** provides flexible deployment options to meet a variety of use cases, from interactive development to production server deployments.

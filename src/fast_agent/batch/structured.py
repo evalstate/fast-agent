@@ -63,6 +63,7 @@ class StructuredBatchOptions:
     limit: int | None = None
     offset: int | None = None
     sample: int | None = None
+    sql: str | None = None
     seed: int | None = None
     resume: bool = False
     overwrite: bool = False
@@ -127,6 +128,13 @@ def load_schema_source(options: StructuredBatchOptions) -> SchemaSource | None:
         raise ValueError("--hf-dataset-path requires --hf-dataset")
     if options.hf_dataset is not None and options.export_traces_path is None:
         raise ValueError("--hf-dataset requires --export-traces")
+    if options.sql is not None:
+        if not is_parquet_input_source(options.input_path):
+            raise ValueError("--sql is only supported for parquet input")
+        if options.limit is not None or options.offset is not None or options.sample is not None:
+            raise ValueError("--sql cannot be used with --limit, --offset, or --sample")
+        if options.parallel is not None and options.parallel > 1:
+            raise ValueError("--sql cannot be used with --parallel")
     if options.schema_model is not None:
         return load_pydantic_model(options.schema_model)
     if options.schema_path is not None:
@@ -243,7 +251,8 @@ def _emit_row_progress(options: StructuredBatchOptions, summary: BatchSummary) -
 
 def _can_push_down_input_selection(options: StructuredBatchOptions) -> bool:
     return (
-        options.sample is None
+        options.sql is None
+        and options.sample is None
         and not options.resume
         and is_parquet_input_source(options.input_path)
         and (options.offset is not None or options.limit is not None)
@@ -251,6 +260,9 @@ def _can_push_down_input_selection(options: StructuredBatchOptions) -> bool:
 
 
 def _load_input_candidates(options: StructuredBatchOptions) -> tuple[int, list[RowCandidate]]:
+    if options.sql is not None:
+        selected = list(iter_input_rows(options.input_path, sql=options.sql))
+        return len(selected), selected
     if _can_push_down_input_selection(options):
         selected = list(
             iter_input_rows(
@@ -352,6 +364,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
         metadata={
             "model": options.model,
             "input": str(options.input_path),
+            "sql": options.sql,
             "output": str(options.output_path),
             "schema": str(options.schema_path) if options.schema_path is not None else None,
             "schema_model": options.schema_model,

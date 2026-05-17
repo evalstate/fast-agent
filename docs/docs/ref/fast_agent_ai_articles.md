@@ -1,3 +1,11 @@
+---
+social:
+  title: Authoritative Articles
+  tagline: Reference articles and blog posts for fast-agent and MCP workflows.
+  description: Reference articles and blog posts for fast-agent and MCP workflows.
+  alt: fast-agent social card — Authoritative Articles
+---
+
 # fast-agent.ai Authoritative Articles & Blog Posts
 
 ## Authoritative Articles & Blog Posts

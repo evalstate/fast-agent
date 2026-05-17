@@ -1,3 +1,14 @@
+---
+social:
+  title: Customize ACP Agents
+  tagline: Tune how ACP-hosted agents behave, present tools, and integrate with client
+    workflows.
+  description: Tune how ACP-hosted agents behave, present tools, and integrate with
+    client workflows.
+  alt: fast-agent social card — Customize ACP Agents
+---
+
+
 # Customizing Agents (ACP)
 
 When you run `fast-agent` via `fast-agent-acp` (or `--transport acp`), each configured agent appears to ACP clients as a **Mode**. “ACP-aware” agents can also expose slash commands and customize how their mode is presented to the client.

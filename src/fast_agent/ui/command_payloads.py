@@ -167,6 +167,13 @@ class CardsCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class PluginsCommand(CommandBase):
+    action: str
+    argument: str | None
+    kind: Literal["plugins_command"] = "plugins_command"
+
+
+@dataclass(frozen=True, slots=True)
 class ModelsCommand(CommandBase):
     action: str
     argument: str | None
@@ -428,6 +435,7 @@ CommandPayload = (
     | ClearCommand
     | SkillsCommand
     | CardsCommand
+    | PluginsCommand
     | ModelsCommand
     | SelectPromptCommand
     | SwitchAgentCommand

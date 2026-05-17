@@ -94,13 +94,20 @@ def iter_hf_rows(
     filesystem: HfInputFileSystem | None = None,
     offset: int | None = None,
     limit: int | None = None,
+    sql: str | None = None,
 ) -> Iterable[RowCandidate]:
     """Yield input rows from a Hugging Face Hub file addressed by an hf:// URI."""
     fs = filesystem if filesystem is not None else _default_hf_filesystem()
-    source = _resolve_hf_input_source(source, fs)
+    if sql is not None and urlparse(source).netloc == "datasets" and not Path(urlparse(source).path).suffix:
+        parquet_urls = _list_hf_dataset_parquet_urls(source)
+        if not parquet_urls:
+            raise ValueError(f"Hugging Face dataset input {source} has no matching parquet files")
+        source = parquet_urls[0] if len(parquet_urls) == 1 else _parquet_sources_token(parquet_urls)
+    else:
+        source = _resolve_hf_input_source(source, fs)
     parquet_sources = _parquet_sources_from_token(source)
     if parquet_sources is not None:
-        yield from iter_parquet_rows(parquet_sources, offset=offset, limit=limit)
+        yield from iter_parquet_rows(parquet_sources, offset=offset, limit=limit, sql=sql)
         return
 
     suffix = Path(urlparse(source).path).suffix.lower()
@@ -109,10 +116,13 @@ def iter_hf_rows(
 
     if suffix == ".parquet":
         if source.startswith("http://") or source.startswith("https://"):
-            yield from iter_parquet_rows([source], offset=offset, limit=limit)
+            yield from iter_parquet_rows([source], offset=offset, limit=limit, sql=sql)
         else:
-            yield from _iter_hf_parquet_file_rows(source, fs, offset=offset, limit=limit)
+            yield from _iter_hf_parquet_file_rows(source, fs, offset=offset, limit=limit, sql=sql)
         return
+
+    if sql is not None:
+        raise ValueError("--sql is only supported for parquet input")
 
     try:
         with fs.open(source, "rb") as binary_handle:
@@ -134,19 +144,26 @@ def iter_input_rows(
     *,
     offset: int | None = None,
     limit: int | None = None,
+    sql: str | None = None,
 ) -> Iterable[RowCandidate]:
     source_text = str(source)
     if urlparse(source_text).scheme == "hf":
-        return iter_hf_rows(source_text, offset=offset, limit=limit)
+        return iter_hf_rows(source_text, offset=offset, limit=limit, sql=sql)
 
     path = Path(source).expanduser()
     suffix = path.suffix.lower()
     if suffix == ".jsonl":
+        if sql is not None:
+            raise ValueError("--sql is only supported for parquet input")
         return iter_jsonl_rows(path)
     if suffix == ".csv":
+        if sql is not None:
+            raise ValueError("--sql is only supported for parquet input")
         return iter_csv_rows(path)
     if suffix == ".parquet":
-        return iter_parquet_rows([str(path)], offset=offset, limit=limit)
+        return iter_parquet_rows([str(path)], offset=offset, limit=limit, sql=sql)
+    if sql is not None:
+        raise ValueError("--sql is only supported for parquet input")
     raise ValueError(_unsupported_input_format(source_text))
 
 
@@ -166,11 +183,12 @@ def iter_parquet_rows(
     *,
     offset: int | None = None,
     limit: int | None = None,
+    sql: str | None = None,
 ) -> Iterable[RowCandidate]:
     """Yield rows from one or more parquet files using optional DuckDB support."""
-    start = 1 + (offset or 0)
+    start = 1 if sql is not None else 1 + (offset or 0)
     for row_number, row in enumerate(
-        _read_parquet_records(sources, offset=offset, limit=limit),
+        _read_parquet_records(sources, offset=offset, limit=limit, sql=sql),
         start=start,
     ):
         yield RowCandidate(row_number=row_number, row=_json_safe_row(row))
@@ -312,12 +330,13 @@ def _iter_hf_parquet_file_rows(
     *,
     offset: int | None = None,
     limit: int | None = None,
+    sql: str | None = None,
 ) -> Iterable[RowCandidate]:
     with tempfile.NamedTemporaryFile(suffix=".parquet", prefix="fast-agent-batch-") as temp_file:
         with filesystem.open(source, "rb") as source_handle:
             shutil.copyfileobj(source_handle, temp_file)
         temp_file.flush()
-        yield from iter_parquet_rows([temp_file.name], offset=offset, limit=limit)
+        yield from iter_parquet_rows([temp_file.name], offset=offset, limit=limit, sql=sql)
 
 
 def _read_parquet_records(
@@ -325,13 +344,19 @@ def _read_parquet_records(
     *,
     offset: int | None = None,
     limit: int | None = None,
+    sql: str | None = None,
 ) -> list[dict[str, Any]]:
     if not sources:
         return []
     try:
-        return _read_parquet_records_with_python_duckdb(sources, offset=offset, limit=limit)
+        return _read_parquet_records_with_python_duckdb(
+            sources,
+            offset=offset,
+            limit=limit,
+            sql=sql,
+        )
     except ImportError:
-        return _read_parquet_records_with_duckdb_cli(sources, offset=offset, limit=limit)
+        return _read_parquet_records_with_duckdb_cli(sources, offset=offset, limit=limit, sql=sql)
 
 
 def _count_parquet_records(sources: list[str]) -> int:
@@ -348,6 +373,7 @@ def _read_parquet_records_with_python_duckdb(
     *,
     offset: int | None = None,
     limit: int | None = None,
+    sql: str | None = None,
 ) -> list[dict[str, Any]]:
     try:
         duckdb = importlib.import_module("duckdb")
@@ -358,7 +384,11 @@ def _read_parquet_records_with_python_duckdb(
     try:
         for statement in _duckdb_secret_statements():
             connection.execute(statement)
-        relation = connection.sql(_parquet_query(sources, offset=offset, limit=limit))
+        if sql is not None:
+            connection.execute(_parquet_view_query(sources))
+            relation = connection.sql(_normalize_user_sql(sql))
+        else:
+            relation = connection.sql(_parquet_query(sources, offset=offset, limit=limit))
         columns = tuple(column[0] for column in relation.description)
         rows = tuple(tuple(row) for row in relation.fetchall())
         return [dict(zip(columns, row)) for row in rows]
@@ -389,6 +419,7 @@ def _read_parquet_records_with_duckdb_cli(
     *,
     offset: int | None = None,
     limit: int | None = None,
+    sql: str | None = None,
 ) -> list[dict[str, Any]]:
     duckdb_binary = shutil.which("duckdb")
     if duckdb_binary is None:
@@ -396,11 +427,14 @@ def _read_parquet_records_with_duckdb_cli(
             "Parquet input requires DuckDB. Install the `duckdb` Python package, "
             "install the DuckDB CLI, or install fast-agent-mcp[batch-parquet]."
         )
-    rows = _run_duckdb_cli_json(_parquet_query(sources, offset=offset, limit=limit))
+    if sql is not None:
+        rows = _run_duckdb_cli_json(_normalize_user_sql(sql), setup_queries=[_parquet_view_query(sources)])
+    else:
+        rows = _run_duckdb_cli_json(_parquet_query(sources, offset=offset, limit=limit))
     return rows
 
 
-def _run_duckdb_cli_json(query: str) -> list[dict[str, Any]]:
+def _run_duckdb_cli_json(query: str, *, setup_queries: list[str] | None = None) -> list[dict[str, Any]]:
     duckdb_binary = shutil.which("duckdb")
     if duckdb_binary is None:
         raise ValueError(
@@ -413,6 +447,7 @@ def _run_duckdb_cli_json(query: str) -> list[dict[str, Any]]:
         if secret_statements
         else []
     )
+    setup.extend(f"{setup_query};" for setup_query in setup_queries or [])
     result = subprocess.run(
         [duckdb_binary, "-json"],
         input="\n".join([*setup, query + ";"]),
@@ -453,6 +488,21 @@ def _parquet_query(
         query += f" LIMIT {limit}"
     if offset is not None and offset > 0:
         query += f" OFFSET {offset}"
+    return query
+
+
+def _parquet_view_query(sources: list[str]) -> str:
+    source_list = ", ".join(_sql_string_literal(source) for source in sources)
+    return f"CREATE OR REPLACE VIEW input AS SELECT * FROM read_parquet([{source_list}], union_by_name=true)"
+
+
+def _normalize_user_sql(sql: str) -> str:
+    query = sql.strip()
+    if query.endswith(";"):
+        query = query[:-1].strip()
+    first_token = query.split(maxsplit=1)[0].lower() if query else ""
+    if first_token not in {"select", "with"}:
+        raise ValueError("--sql must be a SELECT query")
     return query
 
 

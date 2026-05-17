@@ -1,3 +1,13 @@
+---
+social:
+  title: Agent Workflows
+  tagline: Compose agents into orchestrated workflows with routing, chaining, and
+    parallel execution.
+  description: Compose agents into orchestrated workflows with routing, chaining,
+    and parallel execution.
+  alt: fast-agent social card — Agent Workflows
+---
+
 # Workflows
 
 Workflows let you compose multiple agents into a single higher-level capability (e.g. chaining steps, routing, or adding reliability via voting). They can be used alongside MCP servers defined in `fast-agent.yaml`.

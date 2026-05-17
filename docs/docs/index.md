@@ -1,11 +1,18 @@
 ---
-title: "fast-agent - Code, Build and Evaluate Agents"
+title: fast-agent - Code, Build and Evaluate Agents
 hide:
-  - navigation
-  - toc
-  - edit
-  - view
+- navigation
+- toc
+- edit
+- view
+social:
+  title: fast-agent
+  tagline: Simple, extendable agents.
+  description: MCP-native agents, workflows, and servers.
+  alt: fast-agent — MCP-native agents, workflows, and servers
+  variant: hero
 ---
+
 
 <section class="fa-hero fa-hero--home">
   <div>
@@ -73,9 +80,9 @@ hide:
     <a href="models/">Model features</a>
   </article>
   <article class="fa-card">
-    <h3>MCP and ACP Support</h3>
+    <h3>MCP and ACP</h3>
     <p>
-      Attach MCP servers from config or the command line. Deploy Agents via ACP or MCP. Comprehensive support and transport diagnostics. 
+      Attach MCP servers from config or command line. Deploy Agents via ACP or MCP. Comprehensive support and transport diagnostics. 
     </p>
     <a href="mcp/">ACP guide</a> <br />
     <a href="mcp/">MCP guide</a> 
@@ -85,12 +92,12 @@ hide:
     <p>
        Write plugins and hooks with simple Python, or use directly from the API. Distribute and update configurations with Card Packs. 
     </p>
-    <a href="agents/workflows/">Workflow docs</a>
+    <a href="agents/plugins/">Plugin docs</a>
   </article>
   <article class="fa-card">
     <h3>Control your context</h3>
     <p>
-      Template based <a href="agents/instructions">System Prompts</a>. Install and update Agent Skills, or use template based prompt files.
+      Template based <a href="agents/instructions">System Prompts</a>. Install and update Agent Skills, prompt files or Agent definitions.
     </p>
     <a href="agents/skills/">Agent Skills</a>
   </article>

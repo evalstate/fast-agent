@@ -1,3 +1,13 @@
+---
+social:
+  title: Agent Skills
+  tagline: Package reusable capabilities and domain knowledge for agents to load on
+    demand.
+  description: Package reusable capabilities and domain knowledge for agents to load
+    on demand.
+  alt: fast-agent social card — Agent Skills
+---
+
 # Agent Skills
 
 **`fast-agent`** supports Agent Skills, and by default searches the directories listed in `DEFAULT_SKILLS_PATHS`:

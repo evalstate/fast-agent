@@ -1,3 +1,11 @@
+---
+social:
+  title: Run an MCP Server
+  tagline: Expose fast-agent capabilities through an MCP server.
+  description: Expose fast-agent capabilities through an MCP server.
+  alt: fast-agent social card — Run an MCP Server
+---
+
 ### Running as an MCP Server
 
 **`fast-agent`** Can deploy any configured agents over MCP, letting external MCP clients connect via STDIO, SSE, or HTTP. 

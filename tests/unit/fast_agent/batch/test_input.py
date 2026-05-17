@@ -124,10 +124,12 @@ def test_parquet_rows_are_read_with_duckdb(monkeypatch):
         *,
         offset: int | None,
         limit: int | None,
+        sql: str | None,
     ) -> list[dict[str, object]]:
         captured["sources"] = sources
         captured["offset"] = [str(offset)]
         captured["limit"] = [str(limit)]
+        captured["sql"] = [str(sql)]
         return [{"id": "1", "score": 0.5}, {"id": "2", "score": 1}]
 
     monkeypatch.setattr("fast_agent.batch.input._read_parquet_records", fake_read_parquet_records)
@@ -137,27 +139,30 @@ def test_parquet_rows_are_read_with_duckdb(monkeypatch):
     assert captured["sources"] == ["rows.parquet"]
     assert captured["offset"] == ["None"]
     assert captured["limit"] == ["None"]
+    assert captured["sql"] == ["None"]
     assert [row.row for row in rows] == [{"id": "1", "score": 0.5}, {"id": "2", "score": 1}]
 
 
 def test_parquet_rows_push_down_offset_and_limit(monkeypatch):
-    captured: dict[str, int | None] = {}
+    captured: dict[str, int | str | None] = {}
 
     def fake_read_parquet_records(
         sources: list[str],
         *,
         offset: int | None,
         limit: int | None,
+        sql: str | None,
     ) -> list[dict[str, object]]:
         captured["offset"] = offset
         captured["limit"] = limit
+        captured["sql"] = sql
         return [{"id": "3"}, {"id": "4"}]
 
     monkeypatch.setattr("fast_agent.batch.input._read_parquet_records", fake_read_parquet_records)
 
     rows = list(iter_parquet_rows(["rows.parquet"], offset=2, limit=2))
 
-    assert captured == {"offset": 2, "limit": 2}
+    assert captured == {"offset": 2, "limit": 2, "sql": None}
     assert [row.row_number for row in rows] == [3, 4]
 
 
@@ -167,10 +172,40 @@ def test_parquet_query_includes_offset_and_limit():
     )
 
 
+def test_parquet_rows_accept_sql(monkeypatch):
+    captured: dict[str, str | None] = {}
+
+    def fake_read_parquet_records(
+        sources: list[str],
+        *,
+        offset: int | None,
+        limit: int | None,
+        sql: str | None,
+    ) -> list[dict[str, object]]:
+        captured["sql"] = sql
+        return [{"id": "2"}]
+
+    monkeypatch.setattr("fast_agent.batch.input._read_parquet_records", fake_read_parquet_records)
+
+    rows = list(iter_parquet_rows(["rows.parquet"], sql="SELECT * FROM input WHERE id = '2'"))
+
+    assert captured["sql"] == "SELECT * FROM input WHERE id = '2'"
+    assert [row.row_number for row in rows] == [1]
+    assert [row.row for row in rows] == [{"id": "2"}]
+
+
+def test_sql_is_rejected_for_jsonl_input(tmp_path):
+    input_path = tmp_path / "rows.jsonl"
+    input_path.write_text('{"id":"1"}\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="only supported for parquet"):
+        list(iter_input_rows(input_path, sql="SELECT * FROM input"))
+
+
 def test_parquet_rows_are_json_safe_for_templates(monkeypatch):
     monkeypatch.setattr(
         "fast_agent.batch.input._read_parquet_records",
-        lambda sources, *, offset, limit: [
+        lambda sources, *, offset, limit, sql: [
             {"created": date(2026, 5, 16), "amount": Decimal("12.34")}
         ],
     )
@@ -198,7 +233,7 @@ def test_local_parquet_routes_to_duckdb_reader(monkeypatch, tmp_path):
     path.write_bytes(b"not real parquet")
     monkeypatch.setattr(
         "fast_agent.batch.input._read_parquet_records",
-        lambda sources, *, offset, limit: [{"source": sources[0]}],
+        lambda sources, *, offset, limit, sql: [{"source": sources[0]}],
     )
 
     rows = list(iter_input_rows(path))
@@ -216,6 +251,7 @@ def test_hf_parquet_file_uri_materializes_and_reads_with_duckdb(monkeypatch):
         *,
         offset: int | None,
         limit: int | None,
+        sql: str | None,
     ) -> list[dict[str, object]]:
         captured["sources"] = sources
         captured["offset"] = [str(offset)]
@@ -245,7 +281,9 @@ def test_hf_dataset_uri_uses_parquet_listing_when_no_jsonl_or_csv(monkeypatch):
     )
     monkeypatch.setattr(
         "fast_agent.batch.input._read_parquet_records",
-        lambda sources, *, offset, limit: [{"sources": sources, "offset": offset, "limit": limit}],
+        lambda sources, *, offset, limit, sql: [
+            {"sources": sources, "offset": offset, "limit": limit, "sql": sql}
+        ],
     )
 
     rows = list(iter_hf_rows(source, filesystem=filesystem))
@@ -257,6 +295,28 @@ def test_hf_dataset_uri_uses_parquet_listing_when_no_jsonl_or_csv(monkeypatch):
         ],
         "offset": None,
         "limit": None,
+        "sql": None,
+    }
+
+
+def test_hf_dataset_sql_uses_parquet_listing_even_with_csv(monkeypatch):
+    source = "hf://datasets/evalstate/example"
+    filesystem = FakeHfFileSystem({"hf://datasets/evalstate/example/data/train.csv": b"id\n1\n"})
+    monkeypatch.setattr(
+        "fast_agent.batch.input._list_hf_dataset_parquet_urls",
+        lambda value: ["https://example.com/train.parquet"],
+    )
+    monkeypatch.setattr(
+        "fast_agent.batch.input._read_parquet_records",
+        lambda sources, *, offset, limit, sql: [{"sources": sources, "sql": sql}],
+    )
+
+    rows = list(iter_hf_rows(source, filesystem=filesystem, sql="SELECT * FROM input"))
+
+    assert filesystem.opened == []
+    assert rows[0].row == {
+        "sources": ["https://example.com/train.parquet"],
+        "sql": "SELECT * FROM input",
     }
 
 
@@ -273,7 +333,7 @@ def test_hf_dataset_uri_passes_config_and_split_to_parquet_listing(monkeypatch):
     )
     monkeypatch.setattr(
         "fast_agent.batch.input._read_parquet_records",
-        lambda sources, *, offset, limit: [{"ok": True}],
+        lambda sources, *, offset, limit, sql: [{"ok": True}],
     )
 
     rows = list(

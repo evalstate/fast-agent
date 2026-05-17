@@ -1,6 +1,12 @@
 ---
 title: mcp-ui and fast-agent
+social:
+  title: MCP UI
+  tagline: Render MCP UI resources and interactive surfaces in fast-agent.
+  description: Render MCP UI resources and interactive surfaces in fast-agent.
+  alt: fast-agent social card — MCP UI
 ---
+
 
 ## Using mcp-ui and `fast-agent`
 

@@ -1,7 +1,14 @@
 ---
 title: Quick Start - State Transfer with MCP
-description: Guided demonstration of using MCP Prompts to transfer conversation state between two agents
+description: Guided demonstration of using MCP Prompts to transfer conversation state
+  between two agents
+social:
+  title: MCP State Transfer
+  tagline: Move conversation state between agents using MCP prompts.
+  description: Move conversation state between agents using MCP prompts.
+  alt: fast-agent social card — MCP State Transfer
 ---
+
 
 # Quick Start: State Transfer with MCP
 

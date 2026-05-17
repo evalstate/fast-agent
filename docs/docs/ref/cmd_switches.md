@@ -1,7 +1,13 @@
 ---
 title: Command Line Options
 description: Command line option reference for fast-agent MCP applications
+social:
+  title: Command Line Options
+  tagline: Reference every fast-agent command-line switch and runtime option.
+  description: Reference every fast-agent command-line switch and runtime option.
+  alt: fast-agent social card — Command Line Options
 ---
+
 
 # Command Line Options
 

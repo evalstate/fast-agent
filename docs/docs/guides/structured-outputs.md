@@ -1,6 +1,12 @@
 ---
 description: How to use Structured Outputs with fast-agent
+social:
+  title: Structured Outputs
+  tagline: Constrain model responses to schemas your application can trust.
+  description: Constrain model responses to schemas your application can trust.
+  alt: fast-agent social card — Structured Outputs
 ---
+
 
 # Using Structured Outputs
 

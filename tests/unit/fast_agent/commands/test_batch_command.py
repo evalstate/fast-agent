@@ -164,7 +164,7 @@ def test_batch_run_accepts_parquet_input(monkeypatch, tmp_path):
     template_path.write_text("{{row_json}}", encoding="utf-8")
     monkeypatch.setattr(
         "fast_agent.batch.input._read_parquet_records",
-        lambda sources, *, offset, limit: [{"id": "1", "x": 2}],
+        lambda sources, *, offset, limit, sql: [{"id": "1", "x": 2}],
     )
 
     result = CliRunner().invoke(
@@ -575,6 +575,34 @@ def test_batch_run_rejects_agent_without_agent_card(tmp_path):
 
     assert result.exit_code != 0
     assert "--agent requires --agent-card" in result.output
+
+
+def test_batch_run_rejects_sql_with_limit(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(tmp_path / "rows.parquet"),
+            "--output",
+            str(tmp_path / "out.jsonl"),
+            "--sql",
+            "SELECT * FROM input",
+            "--limit",
+            "1",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--sql cannot be used with --limit, --offset, or --sample" in result.output
 
 
 def test_batch_run_accepts_shell_runtime_flag(tmp_path):

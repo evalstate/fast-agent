@@ -1,3 +1,11 @@
+---
+social:
+  title: MCP Resources
+  tagline: Read, attach, and pass MCP resources through agent conversations.
+  description: Read, attach, and pass MCP resources through agent conversations.
+  alt: fast-agent social card — MCP Resources
+---
+
 Below are some recommended resources for developing with the Model Context Protocol (MCP):
 
 | Resource | Description |

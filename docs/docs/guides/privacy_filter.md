@@ -1,7 +1,14 @@
 ---
 title: OpenAI Privacy Filter session export
-description: Redact text content in fast-agent session exports before writing locally or uploading to Hugging Face datasets. Powered by openai/privacy-filter models.
+description: Redact text content in fast-agent session exports before writing locally
+  or uploading to Hugging Face datasets. Powered by openai/privacy-filter models.
+social:
+  title: Privacy-filtered exports
+  tagline: Redact sensitive trace content before saving locally or uploading datasets.
+  description: Redact sensitive trace content before saving locally or uploading datasets.
+  alt: fast-agent social card — Privacy-filtered exports
 ---
+
 
 # OpenAI Privacy Filter Session Export
 

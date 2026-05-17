@@ -19,6 +19,7 @@ from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import models_manager as models_manager_handlers
+from fast_agent.commands.handlers import plugins as plugins_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.handlers import session_export as session_export_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
@@ -70,6 +71,7 @@ from fast_agent.ui.command_payloads import (
     ModelWebSearchCommand,
     ModelXSearchCommand,
     PinSessionCommand,
+    PluginsCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -314,6 +316,16 @@ async def _dispatch_catalog_payload(
         case CardsCommand(action=action, argument=argument):
             context = build_command_context(prompt_provider, agent)
             outcome = await cards_handlers.handle_cards_command(
+                context,
+                agent_name=agent,
+                action=action,
+                argument=argument,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case PluginsCommand(action=action, argument=argument):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await plugins_handlers.handle_plugins_command(
                 context,
                 agent_name=agent,
                 action=action,

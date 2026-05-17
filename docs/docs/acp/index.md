@@ -1,3 +1,12 @@
+---
+social:
+  tagline: Use fast-agent with ACP-compatible editors and agent clients.
+  title: Agent Client Protocol
+  description: Use fast-agent with ACP-compatible editors and agent clients.
+  alt: fast-agent social card — Agent Client Protocol
+---
+
+
 # Agent Client Protocol
 
 **`fast-agent`** has comprehensive support for Zed Industries [Agent Client Protocol](https://zed.dev/acp). 

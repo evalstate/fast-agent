@@ -1,3 +1,11 @@
+---
+social:
+  title: Getting Started
+  tagline: Install fast-agent and run your first MCP-native agent workflow.
+  description: Install fast-agent and run your first MCP-native agent workflow.
+  alt: fast-agent social card — Getting Started
+---
+
 # Getting Started
 
 ## Install or upgrade

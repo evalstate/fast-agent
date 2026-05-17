@@ -1,7 +1,13 @@
 ---
 title: Azure OpenAI Configuration Example
 description: Example configuration for using Azure OpenAI Service with fast-agent
+social:
+  title: Azure OpenAI Configuration
+  tagline: Configure fast-agent to use Azure OpenAI Service deployments.
+  description: Configure fast-agent to use Azure OpenAI Service deployments.
+  alt: fast-agent social card — Azure OpenAI Configuration
 ---
+
 
 # Azure OpenAI Configuration Example
 

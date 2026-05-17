@@ -1,3 +1,11 @@
+---
+social:
+  title: Prompting Agents
+  tagline: Send structured prompts, files, and resource content to agents.
+  description: Send structured prompts, files, and resource content to agents.
+  alt: fast-agent social card — Prompting Agents
+---
+
 # Prompting Agents
 
 **fast-agent** provides a flexible MCP based API for sending messages to agents, with convenience methods for handling Files, Prompts and Resources.

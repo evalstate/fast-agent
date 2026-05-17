@@ -82,11 +82,6 @@ markdown_extensions:
       alternate_style: true
 
 plugins:
-  - social:
-      cards_layout_options:
-        background_color: "#0b0c0f"
-        color: "#f0ece2"
-        font_family: JetBrains Mono
   - search
   - mkdocs-video:
       is_video: True

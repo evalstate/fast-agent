@@ -1,3 +1,11 @@
+---
+social:
+  title: Batch Processing
+  tagline: Run repeatable batch jobs through fast-agent workflows.
+  description: Run repeatable batch jobs through fast-agent workflows.
+  alt: fast-agent social card — Batch Processing
+---
+
 # Batch Processing
 
 `fast-agent batch run` processes row-oriented inputs and writes one JSONL envelope per row.
@@ -38,6 +46,21 @@ Classify this record:
 ```
 
 For CSV input, all values are strings because they come from CSV fields. JSONL preserves the JSON value types. Parquet scalar values are normalized for JSON output and templates; dates/times become ISO strings, decimals become strings, and bytes are decoded as UTF-8 with replacement for invalid bytes.
+
+### Parquet SQL selection
+
+For parquet input, `--sql` can define the rows processed by the batch run. The query is a DuckDB `SELECT` query over a view named `input`:
+
+```bash
+uv run fast-agent batch run \
+  --input rows.parquet \
+  --output out.jsonl \
+  --sql "SELECT id, text FROM input WHERE split = 'eval'"
+```
+
+`--sql` is intentionally limited to parquet input. It cannot be combined with `--limit`, `--offset`, `--sample`, or `--parallel`; put filtering, ordering, and limits directly in the SQL query.
+
+When `--sql` is used, output `row_number` values are result ordinals from the SQL result set, not stable original parquet row positions. Prefer `--id-field` with a stable identifier column when using SQL selection, especially with `--resume`.
 
 ## Hugging Face Output
 

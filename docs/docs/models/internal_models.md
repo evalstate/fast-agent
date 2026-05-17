@@ -1,3 +1,11 @@
+---
+social:
+  title: Internal Models
+  tagline: Use built-in model aliases and internal model definitions effectively.
+  description: Use built-in model aliases and internal model definitions effectively.
+  alt: fast-agent social card — Internal Models
+---
+
 **fast-agent** comes with two internal models to aid development and testing: `passthrough` and `playback`.
 
 ## Passthrough

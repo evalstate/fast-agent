@@ -8,14 +8,19 @@ to CLI or slash-command presentation details.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fast_agent.cards import manager
+from fast_agent.config import get_settings
+from fast_agent.home import PREFERRED_CONFIG_FILENAME
+from fast_agent.plugins import operations as plugin_ops
+from fast_agent.plugins.configuration import enable_plugin_in_config, get_marketplace_url
+from fast_agent.plugins.manifest import load_plugin_manifest
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
 
     from fast_agent.cards.manager import (
         CardPackInstallResult,
@@ -145,17 +150,125 @@ async def install_selected_pack(
     *,
     environment_paths: EnvironmentPaths,
     force: bool,
+    marketplace_source: str | None = None,
 ) -> CardPackInstallRecord:
+    install_pack = replace(pack, source_url=marketplace_source) if marketplace_source else pack
     install_result = await manager.install_marketplace_card_pack(
-        pack,
+        install_pack,
         environment_paths=environment_paths,
         force=force,
     )
+    try:
+        await _ensure_required_pack_plugins(
+            install_result.pack_dir,
+            environment_paths=environment_paths,
+            plugin_registry=marketplace_source or pack.source_url,
+        )
+    except Exception:
+        manager.remove_local_card_pack(
+            install_result.pack_dir.name,
+            environment_paths=environment_paths,
+        )
+        raise
     return CardPackInstallRecord(
-        pack=pack,
+        pack=install_pack,
         install_result=install_result,
         readme=manager.load_card_pack_readme(install_result.pack_dir),
     )
+
+
+async def _ensure_required_pack_plugins(
+    pack_dir: Path,
+    *,
+    environment_paths: EnvironmentPaths,
+    plugin_registry: str | None = None,
+) -> None:
+    manifest = manager.load_card_pack_manifest(pack_dir)
+    if not manifest.plugins_required:
+        return
+
+    installed = plugin_ops.list_local_plugins(destination_root=environment_paths.plugins)
+    installed_names = {entry.name for entry in installed}
+    missing_plugins = [name for name in manifest.plugins_required if name not in installed_names]
+
+    marketplace_plugins = []
+    if missing_plugins:
+        settings = get_settings()
+        marketplace_url = plugin_registry or get_marketplace_url(settings)
+        marketplace_plugins, _ = await plugin_ops.fetch_marketplace_plugins_with_source(
+            marketplace_url
+        )
+
+    settings = get_settings()
+    config_path = (
+        Path(settings._config_file)
+        if settings._config_file
+        else environment_paths.root / PREFERRED_CONFIG_FILENAME
+    )
+
+    for plugin_name in manifest.plugins_required:
+        enabled_name = plugin_name
+        if plugin_name not in installed_names:
+            selected = plugin_ops.select_plugin_by_name_or_index(marketplace_plugins, plugin_name)
+            if selected is None:
+                raise CardPackLookupError(
+                    f"Required plugin not found in plugin registry: {plugin_name}"
+                )
+            plugin_dir = environment_paths.plugins / selected.install_dir_name
+            if not (plugin_dir / "plugin.yaml").is_file():
+                plugin_dir = plugin_ops.install_marketplace_plugin_sync(
+                    selected,
+                    destination_root=environment_paths.plugins,
+                )
+            enabled_name = load_plugin_manifest(plugin_dir).name
+        enable_plugin_in_config(config_path, enabled_name)
+
+
+def _ensure_required_pack_plugins_sync(
+    pack_dir: Path,
+    *,
+    environment_paths: EnvironmentPaths,
+    plugin_registry: str | None = None,
+) -> None:
+    manifest = manager.load_card_pack_manifest(pack_dir)
+    if not manifest.plugins_required:
+        return
+
+    installed = plugin_ops.list_local_plugins(destination_root=environment_paths.plugins)
+    installed_names = {entry.name for entry in installed}
+    missing_plugins = [name for name in manifest.plugins_required if name not in installed_names]
+
+    marketplace_plugins = []
+    if missing_plugins:
+        settings = get_settings()
+        marketplace_url = plugin_registry or get_marketplace_url(settings)
+        marketplace_plugins, _ = plugin_ops.fetch_marketplace_plugins_with_source_sync(
+            marketplace_url
+        )
+
+    settings = get_settings()
+    config_path = (
+        Path(settings._config_file)
+        if settings._config_file
+        else environment_paths.root / PREFERRED_CONFIG_FILENAME
+    )
+
+    for plugin_name in manifest.plugins_required:
+        enabled_name = plugin_name
+        if plugin_name not in installed_names:
+            selected = plugin_ops.select_plugin_by_name_or_index(marketplace_plugins, plugin_name)
+            if selected is None:
+                raise CardPackLookupError(
+                    f"Required plugin not found in plugin registry: {plugin_name}"
+                )
+            plugin_dir = environment_paths.plugins / selected.install_dir_name
+            if not (plugin_dir / "plugin.yaml").is_file():
+                plugin_dir = plugin_ops.install_marketplace_plugin_sync(
+                    selected,
+                    destination_root=environment_paths.plugins,
+                )
+            enabled_name = load_plugin_manifest(plugin_dir).name
+        enable_plugin_in_config(config_path, enabled_name)
 
 
 async def install_pack(
@@ -171,6 +284,7 @@ async def install_pack(
         selected,
         environment_paths=environment_paths,
         force=force,
+        marketplace_source=marketplace.source,
     )
 
 
@@ -292,6 +406,14 @@ def apply_update_plan(
         environment_paths=environment_paths,
         force=force,
     )
+    for update in applied:
+        if update.status == "updated":
+            plugin_registry = update.managed_source.source_url if update.managed_source else None
+            _ensure_required_pack_plugins_sync(
+                update.pack_dir,
+                environment_paths=environment_paths,
+                plugin_registry=plugin_registry,
+            )
     readmes = [
         _build_readme_record(update.name, update.pack_dir)
         for update in applied

@@ -1,3 +1,11 @@
+---
+social:
+  title: Files and Resources
+  tagline: Attach files, MCP resources, and prompt files directly to agent conversations.
+  description: Attach files, MCP resources, and prompt files directly to agent conversations.
+  alt: fast-agent social card — Files and Resources
+---
+
 # Files and Resources
 
 ## Attaching Files

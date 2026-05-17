@@ -1,6 +1,12 @@
 ---
 title: Configuring Servers
+social:
+  title: Configure MCP Servers
+  tagline: Connect local and remote MCP servers to fast-agent.
+  description: Connect local and remote MCP servers to fast-agent.
+  alt: fast-agent social card — Configure MCP Servers
 ---
+
 
 MCP Servers are configured in the `fast-agent.yaml` file. Secrets can be kept in `fast-agent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files).
 

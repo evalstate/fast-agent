@@ -256,6 +256,7 @@ def cards_add(
                 card_service.select_marketplace_pack(marketplace.packs, selector),
                 environment_paths=env_paths,
                 force=force,
+                marketplace_source=marketplace.source,
             )
         )
     except card_service.CardPackLookupError as exc:

@@ -1,7 +1,13 @@
 ---
 title: Configuration Reference
 description: Complete reference for fast-agent configuration settings
+social:
+  title: Configuration Reference
+  tagline: Understand every setting in fast-agent configuration files.
+  description: Understand every setting in fast-agent configuration files.
+  alt: fast-agent social card — Configuration Reference
 ---
+
 
 # Configuration Reference
 
@@ -543,6 +549,13 @@ plugins:
 | `enabled` | Plugin names to load from the active environment's `plugins/` directory | `[]` |
 | `marketplace_url` | Single plugin registry for `fast-agent plugins add` | fast-agent card-packs registry |
 | `marketplace_urls` | Ordered plugin registries | fast-agent card-packs registry |
+
+Plugin registries configure direct plugin operations such as
+`fast-agent plugins add` and `fast-agent plugins update`. Required plugins for a
+card pack are resolved from the marketplace that supplied that pack, not
+necessarily from these plugin registry settings. If you publish a custom card
+pack that declares `plugins.required`, include matching `command_plugins`
+entries in the same marketplace file as the pack.
 
 When `FAST_AGENT_HOME` is set, plugin names enabled in
 `$FAST_AGENT_HOME/fast-agent.yaml` are merged with the active project config.

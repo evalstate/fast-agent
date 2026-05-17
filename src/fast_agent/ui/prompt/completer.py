@@ -114,6 +114,11 @@ class AgentCompleter(Completer):
                 "Manage card packs "
                 "(/cards, /cards add, /cards remove, /cards update, /cards publish, /cards registry)"
             ),
+            "plugins": (
+                "Manage command plugins "
+                "(/plugins, /plugins available, /plugins add, "
+                "/plugins remove, /plugins update, /plugins registry, /plugins help)"
+            ),
             "prompt": "Load a Prompt File or use MCP Prompt",
             "attach": "Stage file path or remote URL attachment token(s) for the next prompt",
             "system": "Show the current system prompt",
@@ -641,6 +646,58 @@ class AgentCompleter(Completer):
             partial,
             configured_urls=configured_urls,
             display_formatter=format_marketplace_display_url,
+        )
+
+    def _complete_local_plugin_names(
+        self,
+        partial: str,
+        *,
+        managed_only: bool = False,
+        include_indices: bool = True,
+    ):
+        """Generate completions for installed plugins."""
+        from fast_agent.paths import resolve_environment_paths
+        from fast_agent.plugins.operations import list_local_plugins
+
+        env_paths = resolve_environment_paths(get_settings())
+        plugins = list_local_plugins(destination_root=env_paths.plugins)
+        if not plugins:
+            return
+
+        partial_lower = partial.lower()
+        include_numbers = include_indices and (not partial or partial.isdigit())
+        for entry in plugins:
+            if managed_only and entry.source is None:
+                continue
+
+            name = entry.name
+            if name and (not partial or name.lower().startswith(partial_lower)):
+                yield Completion(
+                    name,
+                    start_position=-len(partial),
+                    display=name,
+                    display_meta="managed plugin" if entry.source else "local plugin",
+                )
+
+            if include_numbers:
+                index_text = str(entry.index)
+                if not partial or index_text.startswith(partial):
+                    yield Completion(
+                        index_text,
+                        start_position=-len(partial),
+                        display=index_text,
+                        display_meta=name,
+                    )
+
+    def _complete_plugin_registries(self, partial: str):
+        """Generate completions for configured plugin registries."""
+        from fast_agent.plugins.configuration import resolve_registries
+
+        configured_urls = resolve_registries(get_settings())
+        yield from self._complete_registry_urls(
+            partial,
+            configured_urls=configured_urls,
+            display_formatter=lambda value: value,
         )
 
     def _complete_executables(self, partial: str, max_results: int = 100):

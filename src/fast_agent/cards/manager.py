@@ -138,6 +138,8 @@ class CardPackManifest:
     files: tuple[str, ...]
     model_references_required: tuple[str, ...] = ()
     model_references_recommended: tuple[str, ...] = ()
+    plugins_required: tuple[str, ...] = ()
+    plugins_recommended: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -197,6 +199,7 @@ class _CardPackManifestModel(BaseModel):
     install: _InstallModel = Field(default_factory=_InstallModel)
     model_references_required: list[str] = Field(default_factory=list)
     model_references_recommended: list[str] = Field(default_factory=list)
+    plugins: dict[str, list[str]] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -501,7 +504,7 @@ def load_card_pack_manifest(pack_root: Path) -> CardPackManifest:
         data = {}
 
     model = _CardPackManifestModel.model_validate(data)
-    if model.schema_version != 1:
+    if model.schema_version not in {1, 2}:
         raise ValueError(f"Unsupported card pack schema_version: {model.schema_version}")
 
     agent_cards = tuple(_validate_manifest_install_path(entry) for entry in model.install.agent_cards)
@@ -518,7 +521,24 @@ def load_card_pack_manifest(pack_root: Path) -> CardPackManifest:
         files=files,
         model_references_required=tuple(model.model_references_required),
         model_references_recommended=tuple(model.model_references_recommended),
+        plugins_required=tuple(_validate_plugin_refs(model.plugins.get("required", []))),
+        plugins_recommended=tuple(_validate_plugin_refs(model.plugins.get("recommended", []))),
     )
+
+
+def _validate_plugin_refs(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("card pack plugins.required/recommended must be lists")
+    refs: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("card pack plugin references must be non-empty strings")
+        cleaned = item.strip()
+        if cleaned not in refs:
+            refs.append(cleaned)
+    return refs
 
 
 async def fetch_marketplace_card_packs(url: str) -> list[MarketplaceCardPack]:

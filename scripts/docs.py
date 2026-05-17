@@ -5,6 +5,12 @@ Documentation generation and serving utilities.
 Usage:
     uv run scripts/docs.py install    # Install/sync dev dependencies
     uv run scripts/docs.py generate   # Generate reference docs from source
+    uv run scripts/docs.py social [--page path.md]
+                                      # Generate committed Open Graph card PNGs
+    uv run scripts/docs.py social-contact-sheet
+                                      # Generate social card review sheet
+    uv run scripts/docs.py social-variants
+                                      # Generate CRT social card variant previews
     uv run scripts/docs.py serve      # Run Zensical dev server
     uv run scripts/docs.py build      # Build static site
     uv run scripts/docs.py screenshot # Capture local and live docs screenshots
@@ -37,12 +43,49 @@ def install() -> int:
 def generate() -> int:
     """Generate reference documentation from fast-agent source."""
     print("Generating reference docs...")
+    scripts = [
+        DOCS_DIR / "generate_reference_docs.py",
+        DOCS_DIR / "generate_plugin_api_docs.py",
+    ]
+    for script in scripts:
+        result = subprocess.run([sys.executable, str(script)], cwd=ROOT)
+        if result.returncode != 0:
+            return result.returncode
+    print(f"Generated docs in {DOCS_DIR / 'docs' / '_generated'}")
+    return 0
+
+
+def social(args: list[str]) -> int:
+    """Generate per-page Open Graph card PNGs using google-chrome."""
+    print("Generating docs social cards...", flush=True)
+    result = subprocess.run([sys.executable, str(DOCS_DIR / "generate_social_cards.py"), *args], cwd=ROOT)
+    return result.returncode
+
+
+def check_social() -> int:
+    """Verify committed Open Graph card PNGs exist for every docs page."""
     result = subprocess.run(
-        [sys.executable, str(DOCS_DIR / "generate_reference_docs.py")],
+        [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), "--check"],
         cwd=ROOT,
     )
-    if result.returncode == 0:
-        print(f"Generated docs in {DOCS_DIR / 'docs' / '_generated'}")
+    return result.returncode
+
+
+def social_contact_sheet() -> int:
+    """Generate the social card HTML review sheet from existing PNGs."""
+    result = subprocess.run(
+        [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), "--contact-sheet"],
+        cwd=ROOT,
+    )
+    return result.returncode
+
+
+def social_variants() -> int:
+    """Generate local HTML previews for CRT card design variants."""
+    result = subprocess.run(
+        [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), "--variant-previews"],
+        cwd=ROOT,
+    )
     return result.returncode
 
 
@@ -57,6 +100,9 @@ def serve() -> int:
 def build() -> int:
     """Build static documentation site."""
     print(f"Building static site from {DOCS_DIR}...")
+    result = check_social()
+    if result != 0:
+        return result
     result = _run_docs_tool("zensical", "build", "--strict")
     if result.returncode == 0:
         print(f"Built site in {DOCS_DIR / 'site'}")
@@ -126,6 +172,14 @@ def main() -> int:
         return install()
     elif command == "generate":
         return generate()
+    elif command == "social":
+        return social(sys.argv[2:])
+    elif command == "check-social":
+        return check_social()
+    elif command == "social-contact-sheet":
+        return social_contact_sheet()
+    elif command == "social-variants":
+        return social_variants()
     elif command == "serve":
         return serve()
     elif command == "build":

@@ -1,7 +1,13 @@
 ---
 title: Code with Hugging Face
 description: An introduction to using `fast-agent`
+social:
+  title: Code with Hugging Face
+  tagline: Build coding workflows with fast-agent and Hugging Face developer tools.
+  description: Build coding workflows with fast-agent and Hugging Face developer tools.
+  alt: fast-agent social card — Code with Hugging Face
 ---
+
 
 # Code with HF Inference Providers and llama.cpp
 

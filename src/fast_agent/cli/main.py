@@ -25,6 +25,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "scaffold": "fast_agent.cli.commands.setup:app",
     "check": "fast_agent.cli.commands.check_config:app",
     "cards": "fast_agent.cli.commands.cards:app",
+    "plugins": "fast_agent.cli.commands.plugins:app",
     "skills": "fast_agent.cli.commands.skills:app",
     "config": "fast_agent.cli.commands.config:app",
     "model": "fast_agent.cli.commands.model:app",
@@ -98,6 +99,7 @@ def show_welcome(update_notice: str | None = None) -> None:
     table.add_row("[bold]export[/bold]", "Export a persisted session trace")
     table.add_row("check", "Show current configuration")
     table.add_row("cards", "Manage card packs (list/add/remove/update/publish)")
+    table.add_row("plugins", "Manage command plugins (list/add/remove/update)")
     table.add_row("skills", "Manage skills (list/available/search/add/remove/update)")
     table.add_row("config", "Configure settings interactively (shell, model)")
     table.add_row("auth", "Manage OAuth tokens in the OS keyring for MCP servers")

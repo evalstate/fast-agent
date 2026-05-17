@@ -1,3 +1,11 @@
+---
+social:
+  title: Docs Automation
+  tagline: Generate reference docs, social cards, screenshots, and site builds.
+  description: Generate reference docs, social cards, screenshots, and site builds.
+  alt: fast-agent social card — Docs Automation
+---
+
 # Docs Automation
 
 The docs live in this repository, so pages can include source examples directly and generated
@@ -7,13 +15,15 @@ content can be refreshed from the codebase.
 
 ```bash
 uv run scripts/docs.py generate
+uv run scripts/docs.py social
 uv run scripts/docs.py build
 uv run scripts/docs.py screenshot
 uv run scripts/docs.py assess
 ```
 
 - `generate` refreshes `_generated/` from the Python source tree.
-- `build` runs a strict Zensical build.
+- `social` renders per-page Open Graph PNGs from HTML using `google-chrome`.
+- `build` verifies the committed social PNGs exist, then runs a strict Zensical build.
 - `screenshot` captures the built local site and the live site for visual comparison with
   `google-chrome`.
 - `assess` runs deterministic screenshot checks for capture dimensions, blank or unstyled pages,
@@ -37,6 +47,22 @@ in a terminal.
 Example output:
 
 ![Terminal capture](terminal-fast-agent-go.svg)
+
+## Social Cards
+
+Every Markdown page gets a committed 1200×630 PNG under `docs/assets/social/`. Zensical doesn't
+currently emit MkDocs Material social-card metadata, so `overrides/main.html` points Open Graph and
+Twitter metadata at those page-specific images.
+
+Regenerate cards locally after adding or renaming docs pages:
+
+```bash
+uv run scripts/docs.py social
+```
+
+The script renders a designed HTML card with `google-chrome`, then optimizes the PNG. The normal
+docs build does not require Chrome; it only fails if an expected image is missing, which catches
+Cloudflare Pages builds where a new page was committed without its card.
 
 ## Visual Assessment
 
@@ -81,6 +107,13 @@ Provider prose can live next to provider implementation code:
 `docs/generate_reference_docs.py` copies those files into `_generated/provider_overview_*.md`.
 The public provider page includes the generated snippets, so feature prose can be reviewed beside
 the implementation it describes.
+
+## Plugin API Reference
+
+`docs/generate_plugin_api_docs.py` reads the plugin command dataclasses and runtime protocol from
+`src/fast_agent/command_actions/`, writes `_generated/plugin_api.md`, and the plugins guide includes
+that snippet. This keeps handler signatures, context fields, result fields, and runtime methods
+aligned with the implementation.
 
 ## Proposed Next Automations
 

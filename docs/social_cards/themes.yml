@@ -1,0 +1,40 @@
+default:
+  accent: "#f5a400"
+  accent_soft: "#ffc649"
+  badge: "DOCS"
+  motif: "protocol-grid"
+  background: "glyph"
+  bg_intensity: 12
+
+sections:
+  acp:
+    badge: "ACP"
+    motif: "protocol-lines"
+  agents:
+    badge: "AGENTS"
+    motif: "workflow"
+  getting_started:
+    badge: "START"
+    motif: "terminal"
+  guides:
+    badge: "GUIDE"
+    motif: "terminal"
+  mcp:
+    badge: "MCP"
+    motif: "protocol-lines"
+  models:
+    badge: "MODELS"
+    motif: "model-orbits"
+  ref:
+    badge: "REFERENCE"
+    motif: "index"
+  welcome:
+    badge: "FAST-AGENT"
+
+pages:
+  index.md:
+    badge: "FAST-AGENT"
+    description: "MCP-native agents, workflows, and servers."
+    tagline: "Simple, extendable agents."
+    variant: "hero"
+    bg_intensity: 7

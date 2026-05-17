@@ -1,3 +1,14 @@
+---
+social:
+  tagline: ''
+  title: Define Agents
+  description: Configure fast-agent agents with instructions, models, servers, and
+    tools.
+  alt: fast-agent social card — Define Agents
+---
+
+
+
 # Defining Agents
 
 ## Basic Agents

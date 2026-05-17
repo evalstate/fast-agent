@@ -1,3 +1,11 @@
+---
+social:
+  title: LLM Providers
+  tagline: Configure providers, authentication, and model aliases for fast-agent.
+  description: Configure providers, authentication, and model aliases for fast-agent.
+  alt: fast-agent social card — LLM Providers
+---
+
 
 For each model provider, you can configure parameters either through environment variables or in your `fast-agent.yaml` file.
 

@@ -1,6 +1,12 @@
 ---
 title: OpenAI Apps SDK
+social:
+  title: OpenAI Apps SDK
+  tagline: Bridge fast-agent MCP servers into OpenAI Apps SDK integrations.
+  description: Bridge fast-agent MCP servers into OpenAI Apps SDK integrations.
+  alt: fast-agent social card — OpenAI Apps SDK
 ---
+
 
 ## Overview
 

@@ -108,6 +108,11 @@ def run(
     limit: int | None = typer.Option(None, "--limit", help="Maximum selected rows to process"),
     offset: int | None = typer.Option(None, "--offset", help="Rows to skip before sampling"),
     sample: int | None = typer.Option(None, "--sample", help="Deterministic sample size"),
+    sql: str | None = typer.Option(
+        None,
+        "--sql",
+        help="DuckDB SELECT query over parquet input view named input",
+    ),
     seed: int | None = typer.Option(None, "--seed", help="Deterministic sampling seed"),
     resume: bool = typer.Option(False, "--resume", help="Append missing/retried rows"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Replace existing output"),
@@ -203,6 +208,10 @@ def run(
         _fail_validation("--hf-dataset-path requires --hf-dataset")
     if hf_dataset is not None and export_traces_path is None:
         _fail_validation("--hf-dataset requires --export-traces")
+    if sql is not None and (limit is not None or offset is not None or sample is not None):
+        _fail_validation("--sql cannot be used with --limit, --offset, or --sample")
+    if sql is not None and parallel is not None and parallel > 1:
+        _fail_validation("--sql cannot be used with --parallel")
 
     context = ensure_context_object(ctx)
     env_dir = context.get("env_dir")
@@ -221,6 +230,7 @@ def run(
         limit=limit,
         offset=offset,
         sample=sample,
+        sql=sql,
         seed=seed,
         resume=resume,
         overwrite=overwrite,

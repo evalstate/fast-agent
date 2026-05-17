@@ -1,7 +1,13 @@
 ---
 title: Model Overlays
 description: Working with local model overlays in fast-agent
+social:
+  title: Model Overlays
+  tagline: Create local model overlays for aliases, defaults, and provider metadata.
+  description: Create local model overlays for aliases, defaults, and provider metadata.
+  alt: fast-agent social card — Model Overlays
 ---
+
 
 # Model Overlays
 

@@ -1,3 +1,11 @@
+---
+social:
+  title: Command Plugins
+  tagline: Add custom slash commands and workflow actions to fast-agent.
+  description: Add custom slash commands and workflow actions to fast-agent.
+  alt: fast-agent social card — Command Plugins
+---
+
 # Command Plugins
 
 Command plugins package reusable slash commands such as `/find`, `/peek`, or
@@ -34,6 +42,10 @@ Use `--registry` to point at a local or remote marketplace:
 ```bash
 fast-agent plugins --registry ./marketplace.json add agent-finder
 ```
+
+Plugin registries are used for direct plugin installs and updates. Card-pack
+dependencies use the card-pack registry that supplied the selected pack; see
+[Card Packs](#card-packs) for the coupling rule.
 
 ## Global Plugins
 
@@ -122,6 +134,15 @@ A local marketplace can live at the repository root:
 
 ```json
 {
+  "entries": [
+    {
+      "name": "my-pack",
+      "description": "My local card pack.",
+      "kind": "card",
+      "repo_url": ".",
+      "repo_path": "packs/my-pack"
+    }
+  ],
   "command_plugins": [
     {
       "name": "my-plugin",
@@ -144,60 +165,7 @@ For publication, add the plugin directory under the card-packs repository's
 
 ## Handler API
 
-Handlers are async Python callables with this signature:
-
-```python
-async def handler(
-    ctx: PluginCommandActionContext,
-) -> PluginCommandActionResult | str | None:
-    ...
-```
-
-Returning a plain string is shorthand for `PluginCommandActionResult(message=...)`.
-Return `None` for no visible output.
-
-The main result fields are:
-
-| Field | Effect |
-|-------|--------|
-| `message` | Plain text shown in the command output. |
-| `markdown` | Markdown output rendered by the UI. |
-| `buffer_prefill` | Draft text inserted into the user's input buffer. |
-| `switch_agent` | Switch the active TUI agent after the command. |
-| `refresh_agents` | Refresh agent/card state after the command. |
-
-The main context fields and helpers are:
-
-| API | Description |
-|-----|-------------|
-| `ctx.command_name` | Slash command name being executed. |
-| `ctx.arguments` | Raw text after the slash command. |
-| `ctx.agent_name` | Active agent name. |
-| `ctx.message_history` | Current agent message history. |
-| `ctx.load_message_history(messages)` | Replace the active agent's message history. |
-| `ctx.get_agent(name)` | Look up another registered agent. |
-| `ctx.settings` | Resolved fast-agent settings, when available. |
-| `ctx.session_cwd` | Working directory for the interactive session, when available. |
-| `ctx.runtime` | Optional live-runtime capabilities. |
-| `ctx.is_tui` / `ctx.is_acp` | Surface flags for UI-specific behavior. |
-| `ctx.mark_user_adjusted(message, note=...)` | Mark a message as user-adjusted in the audit channel. |
-
-Runtime capabilities are optional because not every surface can support live
-changes:
-
-```python
-if ctx.runtime is not None:
-    attached = await ctx.runtime.list_attached_mcp_servers()
-```
-
-The runtime API currently includes:
-
-| API | Description |
-|-----|-------------|
-| `list_attached_mcp_servers(agent_name=None)` | List attached runtime MCP servers. |
-| `list_configured_detached_mcp_servers(agent_name=None)` | List configured but detached MCP servers. |
-| `attach_mcp_server(server_name=..., agent_name=None, server_config=None, options=None)` | Attach an MCP server and refresh instructions. |
-| `detach_mcp_server(server_name=..., agent_name=None)` | Detach an MCP server and refresh instructions. |
+--8<-- "_generated/plugin_api.md"
 
 ## Card Packs
 
@@ -221,3 +189,28 @@ plugins:
 
 Required plugins are installed and enabled when the pack is installed.
 Recommended plugins are discoverable metadata for users and future tooling.
+
+Required plugins are resolved from the same marketplace that supplied the
+selected card pack. This keeps private/custom registries self-contained:
+
+```bash
+fast-agent cards --registry ./my-packs.json add codex
+```
+
+If `./my-packs.json` contains the `codex` entry above, it should also contain a
+matching `command_plugins` entry for `edit-assistant`. `fast-agent` will use
+that registry for the pack's required plugins during install and update, even if
+your normal plugin registry points somewhere else.
+
+You can still keep a separate plugin registry for ad hoc plugin installs:
+
+```yaml
+plugins:
+  marketplace_urls:
+    - ./my-plugins.json
+```
+
+That registry is used by `fast-agent plugins add ...`. It is not the dependency
+source of truth for a card pack installed from another registry. The simple rule
+is: if a pack declares `plugins.required`, publish matching `command_plugins`
+entries alongside that pack in the same marketplace file.

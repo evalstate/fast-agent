@@ -1,6 +1,12 @@
 ---
 title: Models Reference
+social:
+  title: Models Reference
+  tagline: Browse supported model aliases, providers, and request capabilities.
+  description: Browse supported model aliases, providers, and request capabilities.
+  alt: fast-agent social card — Models Reference
 ---
+
 
 # Models Reference
 

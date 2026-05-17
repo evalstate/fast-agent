@@ -1,3 +1,11 @@
+---
+social:
+  title: MCP OAuth
+  tagline: Authenticate MCP servers with OAuth and store tokens securely.
+  description: Authenticate MCP servers with OAuth and store tokens securely.
+  alt: fast-agent social card — MCP OAuth
+---
+
 Adds OAuth v2.1 to HTTP/SSE MCP servers (STDIO excluded).
 
 - Uses PKCE and prints a clickable authorization link (no auto‑open).

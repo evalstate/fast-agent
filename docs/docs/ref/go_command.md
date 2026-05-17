@@ -1,7 +1,14 @@
 ---
 title: fast-agent go command
-description: Describes how to use the fast-agent go command to quickly connect to and test MCP Servers, including STDIO, SSE and Streaming support.
+description: Describes how to use the fast-agent go command to quickly connect to
+  and test MCP Servers, including STDIO, SSE and Streaming support.
+social:
+  title: fast-agent go
+  tagline: Quickly connect to MCP servers over STDIO, SSE, and streaming transports.
+  description: Quickly connect to MCP servers over STDIO, SSE, and streaming transports.
+  alt: fast-agent social card — fast-agent go
 ---
+
 
 ## `fast-agent go` command
 

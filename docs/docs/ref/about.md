@@ -1,7 +1,13 @@
 ---
 title: About `fast-agent`
 description: Legal and Contact information for fast-agent / llmindset.co.uk
+social:
+  title: About fast-agent
+  tagline: Legal, contact, and project information for fast-agent.
+  description: Legal, contact, and project information for fast-agent.
+  alt: fast-agent social card — About fast-agent
 ---
+
 
 # Legal and Contact Information
 

@@ -1,7 +1,13 @@
 ---
 title: Quick Start - MCP Elicitations
 description: Guided demonstration of using MCP Elicitations
+social:
+  title: MCP Elicitations
+  tagline: Collect structured user input from MCP servers inside agent workflows.
+  description: Collect structured user input from MCP servers inside agent workflows.
+  alt: fast-agent social card — MCP Elicitations
 ---
+
 
 # Quick Start: MCP Elicitations
 

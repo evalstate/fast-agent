@@ -1,7 +1,13 @@
 ---
 title: Code with OpenAI Codex
 description: An introduction to using `fast-agent` with the `codex` pack
+social:
+  title: Code with OpenAI Codex
+  tagline: Use the Codex pack to bring coding agents into fast-agent workflows.
+  description: Use the Codex pack to bring coding agents into fast-agent workflows.
+  alt: fast-agent social card — Code with OpenAI Codex
 ---
+
 
 # Code with Codex
 

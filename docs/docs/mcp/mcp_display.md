@@ -1,3 +1,11 @@
+---
+social:
+  title: MCP Display
+  tagline: Control how MCP tool calls, resources, and messages appear in the terminal.
+  description: Control how MCP tool calls, resources, and messages appear in the terminal.
+  alt: fast-agent social card — MCP Display
+---
+
 
 Detailed information about the MCP Server connection can be displayed with the `/mcp` command.
 

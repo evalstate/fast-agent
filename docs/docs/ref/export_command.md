@@ -1,7 +1,14 @@
 ---
 title: fast-agent export command
-description: Export persisted fast-agent session traces locally or to Hugging Face datasets.
+description: Export persisted fast-agent session traces locally or to Hugging Face
+  datasets.
+social:
+  title: Export Sessions
+  tagline: Export persisted session traces locally or to Hugging Face datasets.
+  description: Export persisted session traces locally or to Hugging Face datasets.
+  alt: fast-agent social card — Export Sessions
 ---
+
 
 # `fast-agent export` command
 

@@ -1,3 +1,11 @@
+---
+social:
+  title: System Prompts
+  tagline: Shape agent behavior with reusable instructions and prompt files.
+  description: Shape agent behavior with reusable instructions and prompt files.
+  alt: fast-agent social card — System Prompts
+---
+
 # System Prompts
 
 Agents can have their System Instructions set and customised in a number of flexible ways. The default System Prompt caters for Agent Skills, MCP Server Instructions, `AGENTS.md` and Shell access.

@@ -1,7 +1,14 @@
 ---
 title: Open Telemetry Support for fast-agent
-description: Reference for setting up Open Telemetry with fast-agent, providing observability to MCP tool calls and LLM interactions. 
+description: Reference for setting up Open Telemetry with fast-agent, providing observability
+  to MCP tool calls and LLM interactions.
+social:
+  title: OpenTelemetry
+  tagline: Trace MCP tool calls and model interactions with OpenTelemetry.
+  description: Trace MCP tool calls and model interactions with OpenTelemetry.
+  alt: fast-agent social card — OpenTelemetry
 ---
+
 
 ## Getting Started
 

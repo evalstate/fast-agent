@@ -1,3 +1,11 @@
+---
+social:
+  title: Tool Runner
+  tagline: Expose tools through a focused agent for safe, direct tool execution.
+  description: Expose tools through a focused agent for safe, direct tool execution.
+  alt: fast-agent social card — Tool Runner
+---
+
 # Tool Runner
 
 Tool Runner is the internal loop that powers tool calling for `ToolAgent` and MCP agents. It:

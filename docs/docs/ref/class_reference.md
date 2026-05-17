@@ -1,7 +1,14 @@
 ---
 title: FastAgent Class Reference
-description: Detailed reference documentation for programmatic usage of the FastAgent class
+description: Detailed reference documentation for programmatic usage of the FastAgent
+  class
+social:
+  title: FastAgent Class Reference
+  tagline: Program fast-agent directly with the FastAgent Python API.
+  description: Program fast-agent directly with the FastAgent Python API.
+  alt: fast-agent social card — FastAgent Class Reference
 ---
+
 
 # fast-agent Class Reference
 
