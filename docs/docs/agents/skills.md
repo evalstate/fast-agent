@@ -14,8 +14,9 @@ When valid SKILL.md files are found:
 
 ## Skill Marketplace
 
-fast-agent can install skills from online registries. By default, two registries are configured:
+fast-agent can install skills from online registries. By default, three registries are configured:
 
+- [fast-agent Skills](https://github.com/fast-agent-ai/skills)
 - [HuggingFace Skills](https://github.com/huggingface/skills)
 - [Anthropic Skills](https://github.com/anthropics/skills)
 

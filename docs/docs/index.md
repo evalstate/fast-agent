@@ -18,7 +18,7 @@ hide:
       Simple extendable agents. Excellent provider and local model support. Flexible context management. Terminal native and scriptable.
     </p>
     <div class="fa-hero__actions">
-      <a class="fa-btn fa-btn--primary" href="#try-it-now">Try it now</a>
+      <a class="fa-btn fa-btn--primary" href="guides/codex/">Try it now</a>
       <a class="fa-btn" href="agents/defining/">Build an agent</a>
       <a class="fa-btn" href="ref/go_command/">Explore the CLI</a>
     </div>
@@ -66,34 +66,32 @@ hide:
 
 <section class="fa-grid fa-grid--4">
   <article class="fa-card">
-    <h3>Test model behavior quickly</h3>
+    <h3>Extensive Model Support</h3>
     <p>
-      Switch between Anthropic, OpenAI, Responsesz, Google, Hugging Face, Groq, xAI, Bedrock, and local
-      OpenAI-compatible endpoints. Built-in playback and passthrough models make app tests practical.
+      Native provider support for Anthropic, Google and OpenAI compatible endpoints. <br />Auto configuration for <b>llama.cpp</b> hosted models. <br />
     </p>
     <a href="models/">Model features</a>
   </article>
   <article class="fa-card">
-    <h3>Use MCP without ceremony</h3>
+    <h3>MCP and ACP Support</h3>
     <p>
-      Attach local or remote MCP servers from config or the command line. Use Elicitations,
-      Sampling, Resources, Prompts, OAuth, UI resources, and transport diagnostics from one client.
+      Attach MCP servers from config or the command line. Deploy Agents via ACP or MCP. Comprehensive support and transport diagnostics. 
     </p>
-    <a href="mcp/">MCP guide</a>
+    <a href="mcp/">ACP guide</a> <br />
+    <a href="mcp/">MCP guide</a> 
   </article>
   <article class="fa-card">
-    <h3>Compose workflow patterns</h3>
+    <h3>Plugin and Extend</h3>
     <p>
-      Chain agents, run parallel checks, route work, orchestrate subtasks, evaluate outputs, or use
-      MAKER to turn classifier examples into reliable structured decisions.
+       Write plugins and hooks with simple Python, or use directly from the API. Distribute and update configurations with Card Packs. 
     </p>
     <a href="agents/workflows/">Workflow docs</a>
   </article>
   <article class="fa-card">
-    <h3>Ship beyond the terminal</h3>
+    <h3>Control your context</h3>
     <p>
-      Run the same agent definitions interactively, expose them as MCP servers, or connect them to
-      ACP clients with slash commands, file access, and permission-aware tools.
+      Template based <a href="agents/instructions">System Prompts</a>. Agent Skills and Manage skills with 
+.
     </p>
     <a href="acp/">ACP docs</a>
   </article>

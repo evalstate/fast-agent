@@ -928,6 +928,12 @@ table.fa-table {
 
 /* ── SIDEBAR NAV ──────────────────────────────────────────────────── */
 .md-nav { font-family: var(--mono); font-size: var(--t-small); color: var(--fg-1); }
+.md-nav--primary,
+.md-nav--primary .md-nav__link,
+.md-nav--primary .md-nav__link .md-ellipsis { font-size: 13.5px; }
+.md-nav--secondary,
+.md-nav--secondary .md-nav__link,
+.md-nav--secondary .md-nav__link .md-ellipsis { font-size: 12px; }
 .md-nav__title {
   color: var(--fg-2);
   font-size: var(--t-micro);
@@ -936,6 +942,7 @@ table.fa-table {
   font-weight: var(--w-3);
   font-family: var(--mono);
 }
+.md-nav--secondary .md-nav__title { font-size: 11px; }
 .md-nav__link {
   color: var(--fg-1);
   border: 0;
@@ -1126,7 +1133,7 @@ table.fa-table {
   border-left: 3px solid var(--a-0);
   border-radius: var(--r-1);
   box-shadow: none;
-  font-size: var(--t-body);
+  font-size: 15.5px;
   color: var(--fg-1);
 }
 .md-typeset .admonition > .admonition-title,
@@ -1137,8 +1144,9 @@ table.fa-table {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--a-0);
-  font-size: var(--t-small);
+  font-size: 13px;
   padding: var(--sp-3) var(--sp-5);
+  padding-left: calc(var(--sp-5) + 1.65rem);
   margin: 0;
 }
 .md-typeset .admonition-title::before,

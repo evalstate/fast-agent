@@ -148,7 +148,32 @@ mcp:
 ```
 
 
+## Elicitations
+
+Elicitations are configured by specifying a strategy for the MCP Server. The handler can be overriden with a custom handler in the Agent definition.
+
+```yaml title="fast-agent.yaml"
+mcp:
+  server_four:
+    transport: "http"
+    url: "http://localhost:8000/mcp"
+    elicitation:
+      mode: "forms"
+```
+
+`mode` can be one of:
+
+- **`forms`** (default). Displays a form to respond to elicitations.
+- **`auto_cancel`** The elicitation capability is advertised to the Server, but all solicitations are automatically cancelled.
+- **`none`** No elicitation capability is advertised to the Server.
+
+
 ## Roots
+
+!!! warning
+
+    Roots are [being deprecated](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) in future versions of MCP. They will remain supported in fast-agent.
+
 
 **fast-agent** supports MCP Roots. Roots are configured on a per-server basis:
 
@@ -171,6 +196,10 @@ The data analysis example (`fast-agent quickstart data-analysis` has a working e
 
 ## Sampling
 
+!!! warning
+
+    Sampling is [being deprecated](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) in future versions of MCP. 
+
 Sampling is configured by specifying a sampling model for the MCP Server.
 
 ```yaml title="fast-agent.yaml"
@@ -183,25 +212,6 @@ mcp:
 ```
 
 Read more about The model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
-
-## Elicitations
-
-Elicitations are configured by specifying a strategy for the MCP Server. The handler can be overriden with a custom handler in the Agent definition.
-
-```yaml title="fast-agent.yaml"
-mcp:
-  server_four:
-    transport: "http"
-    url: "http://localhost:8000/mcp"
-    elicitation:
-      mode: "forms"
-```
-
-`mode` can be one of:
-
-- **`forms`** (default). Displays a form to respond to elicitations.
-- **`auto_cancel`** The elicitation capability is advertised to the Server, but all solicitations are automatically cancelled.
-- **`none`** No elicitation capability is advertised to the Server.
 
 ## Experimental Session Capability (client-first demos)
 

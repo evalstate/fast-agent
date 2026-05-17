@@ -125,6 +125,7 @@ nav:
       - agents/tool_runner.md
       - System Prompts: agents/instructions.md
       - agents/skills.md
+      - Command Plugins: agents/plugins.md
   - Models:
       - Model Features: models/index.md
       - Model Overlays: models/model_overlays.md

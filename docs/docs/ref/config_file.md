@@ -525,6 +525,33 @@ skills:
 
 See [Agent Skills](../agents/skills/) for more information on using skills.
 
+## Command Plugin Configuration
+
+Enable installed command plugins and configure plugin registries:
+
+```yaml
+plugins:
+  enabled:
+    - agent-finder
+    - edit-assistant
+  marketplace_urls:
+    - "https://github.com/fast-agent-ai/card-packs"
+```
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `enabled` | Plugin names to load from the active environment's `plugins/` directory | `[]` |
+| `marketplace_url` | Single plugin registry for `fast-agent plugins add` | fast-agent card-packs registry |
+| `marketplace_urls` | Ordered plugin registries | fast-agent card-packs registry |
+
+When `FAST_AGENT_HOME` is set, plugin names enabled in
+`$FAST_AGENT_HOME/fast-agent.yaml` are merged with the active project config.
+Only the home file's `plugins` block is layered in: home-enabled plugins load
+from `$FAST_AGENT_HOME/plugins`, and project-enabled plugins load from the
+active environment's `plugins/` directory.
+See [Command Plugins](../agents/plugins/) for install, update, and card-pack
+usage.
+
 ## OpenTelemetry Settings
 
 ```yaml
