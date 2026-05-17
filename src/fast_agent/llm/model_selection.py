@@ -345,7 +345,7 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="step35",
+                alias="nous-step35",
                 model="nous.stepfun/step-3.5-flash",
                 fast=True,
             ),
