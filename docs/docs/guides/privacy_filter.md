@@ -305,5 +305,5 @@ used, known limitations, and redaction counts:
 
 ## Related reference
 
-- [`fast-agent export`](../ref/export_command.md)
+- [`fast-agent export`](../ref/export_command/)
 - [Hugging Face Agent Trace Viewer](https://huggingface.co/changelog/agent-trace-viewer)

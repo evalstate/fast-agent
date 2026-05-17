@@ -1,8 +1,8 @@
 /* ─────────────────────────────────────────────────────────────
    fast-agent design system · v1.0
    Foundations, components, patterns — all in one stylesheet.
-   Loaded by both the design-system.html reference page AND the
-   demo docs page; ready to drop into MkDocs as a single import.
+   Loaded by both the design-system reference page and the
+   Zensical docs site.
    ───────────────────────────────────────────────────────────── */
 
 /* ── TOKENS ────────────────────────────────────────────────── */
@@ -103,7 +103,7 @@
   --shadow-terminal: 0 18px 44px rgba(0,0,0,0.34), 0 0 36px rgba(245,164,0,0.08);
 }
 
-/* Light mode mapping (Material/Zensical uses `default` for light mode) */
+/* Light mode mapping (Zensical uses `default` for light mode) */
 [data-md-color-scheme="default"] {
   --s-0:  #f6f3eb;
   --s-1:  #ffffff;
@@ -181,7 +181,7 @@ hr { border: 0; border-top: var(--bw) solid var(--b-1); margin: var(--sp-7) 0; }
 }
 .fa-eyebrow::before { content: "❯"; color: var(--a-0); font-weight: var(--w-3); }
 
-/* ── HEADER (custom, replaces Material's blue gradient) ──── */
+/* ── HEADER (custom) ───────────────────────────────────── */
 
 .fa-header {
   position: sticky; top: 0; z-index: 50;
@@ -459,6 +459,7 @@ table.fa-table {
   max-width: 50ch;
 }
 .fa-hero__actions { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: var(--sp-6); }
+.fa-hero__actions + .fa-term { margin-top: var(--sp-6); }
 @media (max-width: 820px) { .fa-hero { grid-template-columns: 1fr; gap: var(--sp-6); padding-top: var(--sp-9); } }
 
 /* ── TERMINAL BLOCK ──────────────────────────────────────── */
@@ -836,12 +837,12 @@ table.fa-table {
 
 
 /* ════════════════════════════════════════════════════════════════════
-   MATERIAL FOR MKDOCS · THEME OVERLAY
-   Loaded after the base system above. Restyles Material's default
+   ZENSICAL · THEME OVERLAY
+   Loaded after the base system above. Restyles generated
    HTML output (.md-* classes) to match the fast-agent design system.
    ════════════════════════════════════════════════════════════════════ */
 
-/* Map Material's CSS vars to ours */
+/* Map theme CSS vars to ours */
 :root,
 [data-md-color-scheme="slate"],
 [data-md-color-scheme="default"] {
@@ -1043,21 +1044,45 @@ table.fa-table {
 .md-typeset .highlight { margin: var(--sp-5) 0; }
 .md-typeset .highlight > .filename,
 .md-typeset .highlight > span.filename {
+  display: block;
   background: var(--s-2) !important;
   color: var(--fg-1) !important;
   font-family: var(--mono);
   font-size: var(--t-micro);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   border: var(--bw) solid var(--b-1);
   border-bottom: 0;
   border-radius: var(--r-2) var(--r-2) 0 0;
   padding: var(--sp-2) var(--sp-3) !important;
   position: relative;
 }
+.md-typeset .highlight > .filename + pre,
+.md-typeset .highlight > .filename + .highlight {
+  margin-top: 0;
+}
 .md-typeset .highlight > .filename + pre > code,
 .md-typeset .highlight > .filename + .highlight > pre > code {
   border-radius: 0 0 var(--r-2) var(--r-2);
+}
+.md-typeset .highlighttable pre {
+  margin: 0;
+}
+.md-typeset .highlighttable .linenodiv pre {
+  background: transparent !important;
+  color: var(--md-default-fg-color--light) !important;
+}
+.md-typeset .highlighttable .linenodiv a {
+  border-bottom: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.md-typeset .highlighttable .code > div > pre > code {
+  background: var(--md-code-bg-color) !important;
+  border: 0;
+  border-radius: 0 var(--r-2) var(--r-2) 0;
+  color: var(--md-code-fg-color) !important;
+  font-size: 0.85em;
+  line-height: 1.4;
+  padding: 0.7720588235em 1.1764705882em !important;
 }
 
 /* Syntax highlighting · pygments tokens · amber palette */
@@ -1087,21 +1112,12 @@ table.fa-table {
 .md-typeset .highlight .mi, .md-typeset .highlight .mf,
 .md-typeset .highlight .mh, .md-typeset .highlight .mb { color: var(--info) !important; }
 
-/* Line numbers gutter */
-.md-typeset .highlighttable .linenodiv pre {
-  background: var(--s-2) !important;
-  color: var(--fg-3) !important;
-  border: var(--bw) solid var(--b-1);
-  border-right: 0;
-  border-radius: var(--r-2) 0 0 var(--r-2);
-}
-
 /* Copy button */
 .md-clipboard { color: var(--fg-2); }
 .md-clipboard:hover { color: var(--a-0); }
 .md-clipboard::after { background-color: currentColor; }
 
-/* Copy-to-clipboard confirmation snackbar. Material defaults the text to
+/* Copy-to-clipboard confirmation snackbar. The default theme sets the text to
    `--md-default-bg-color`, which becomes low contrast against amber in light
    mode. Use the explicit on-accent token instead. */
 .md-dialog {
@@ -1115,7 +1131,7 @@ table.fa-table {
   font-weight: var(--w-3);
 }
 
-/* Tooltips/popovers should use surface tokens, not Material defaults. */
+/* Tooltips/popovers should use surface tokens, not theme defaults. */
 .md-tooltip {
   background-color: var(--s-2);
   border: var(--bw) solid var(--b-1);

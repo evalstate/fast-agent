@@ -103,35 +103,6 @@ social:
   </article>
 </section>
 
-<!--
-<section class="fa-split">
-  <div>
-    <p class="fa-kicker">Developer loop</p>
-    <h2>Keep the agent close while you build</h2>
-    <p>
-      `fast-agent go` lets you inspect an MCP server, try a model, load a card pack, compare
-      prompts, and iterate before writing application code. When the shape is right, scaffold a
-      project or move the same configuration into a Python workflow.
-    </p>
-  </div>
-  <div class="fa-steps">
-    <a class="fa-step" href="ref/go_command/"><h3>Probe with `fast-agent go`</h3></a>
-    <a class="fa-step" href="agents/skills/"><h3>Add focused Agent Skills</h3></a>
-    <a class="fa-step" href="agents/workflows/"><h3>Compose workflows</h3></a>
-    <a class="fa-step" href="mcp/mcp-server/"><h3>Serve as MCP</h3></a>
-  </div>
-      <div class="fa-band" style="margin-top: var(--sp-7);">
-      <div>
-        <h2 style="font-size: var(--t-h2);">Next: the theme overlay</h2>
-        <p>I'll build the MkDocs <code>overrides/</code> theme overlay next — header replacement, custom admonition mappings, code-block restyling, page templates. Plus a worked demo doc page rendered through it.</p>
-      </div>
-      <div>
-        <a class="fa-btn fa-btn--primary fa-btn--lg" href="fast-agent.ai integration.html">See integration v1 →</a>
-      </div>
-
-</section>
--->
-
 <!-- 
 
 <section class="fa-proof">

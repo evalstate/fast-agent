@@ -15,12 +15,11 @@ GENERATED_DIR = DOCS_ROOT / "docs" / "_generated"
 
 def _find_fast_agent_repo() -> Path:
     """
-    Locate a local fast-agent repo checkout.
+    Locate the local fast-agent repo checkout.
 
     Search order:
     1. FAST_AGENT_REPO_PATH environment variable
-    2. Parent directory (when docs is a submodule inside fast-agent)
-    3. Sibling directory (when docs is a separate checkout next to fast-agent)
+    2. Parent directory (the normal in-repo `docs/` layout)
     """
     candidates: list[Path] = []
 
@@ -28,10 +27,8 @@ def _find_fast_agent_repo() -> Path:
     if repo_override:
         candidates.append(Path(repo_override))
 
-    # Check if we're a submodule inside fast-agent (docs/ inside the repo)
+    # Normal layout: fast-agent/docs/generate_reference_docs.py
     candidates.append(DOCS_ROOT.parent)
-    # Check sibling directory (traditional layout)
-    candidates.append(DOCS_ROOT.parent / "fast-agent")
 
     for candidate in candidates:
         candidate = candidate.resolve()
@@ -630,7 +627,7 @@ def main() -> int:
     # - See docs/docs/ref/generated_docs.md for contributor-facing instructions.
     # - Typical invocation from the fast-agent repo root:
     #     uv run python docs/generate_reference_docs.py
-    # - Use FAST_AGENT_REPO_PATH when running from a separate docs checkout.
+    # - FAST_AGENT_REPO_PATH is available for unusual local checkouts.
 
     # Alias tables are generated from source (AST) so they work even when fast_agent runtime deps
     # aren't installed in the docs environment.
