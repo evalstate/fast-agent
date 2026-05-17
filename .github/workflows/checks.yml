@@ -17,7 +17,7 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Install the project
         run: |
@@ -39,7 +39,7 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Install the project
         run: |
@@ -67,7 +67,7 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Install the project
         run: |
@@ -141,7 +141,14 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
+
+      - name: Install the project
+        run: |
+          uv sync --locked --group dev
+
+      - name: Run plugin CLI env smoke test
+        run: FAST_AGENT_BIN="$PWD/.venv/bin/fast-agent" bash scripts/test_plugins_cli_env.sh
 
       - name: Run package install test
         run: bash scripts/test_package_install.sh

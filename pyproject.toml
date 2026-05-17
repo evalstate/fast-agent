@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.7.4"
+version = "0.7.5"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -65,6 +65,12 @@ tensorzero = [
 ]
 textual = [
     "textual>=6.2.1",
+]
+batch-parquet = [
+    "duckdb>=1.4",
+]
+parquet = [
+    "duckdb>=1.4",
 ]
 privacy = [
     "onnxruntime>=1.25",
@@ -139,6 +145,10 @@ dev = [
     "pytest-asyncio>=0.21.1",
     "pytest-cov>=6.1.1",
     "ipdb>=0.13.13",
+    "mkdocs-llmstxt==0.1.0",
+    "mkdocs-video>=1.5.0",
+    "pillow>=12.1.1",
+    "zensical>=0.0.40,<0.1",
 ]
 
 [project.scripts]

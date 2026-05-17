@@ -634,6 +634,88 @@ def _cards_command_completions(
         return _cards_publish_completions(completer, argument, results)
     return results
 
+
+def _plugins_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    if not text_lower.startswith("/plugins "):
+        return None
+
+    remainder = text[len("/plugins ") :] or ""
+    parts = remainder.split(maxsplit=1)
+    subcommands = {
+        "list": "List installed plugins",
+        "available": "Browse marketplace plugins",
+        "add": "Install and enable a plugin",
+        "remove": "Remove an installed plugin",
+        "update": "Check or apply plugin updates",
+        "registry": "Set plugin registry",
+        "help": "Show plugins command usage",
+    }
+    results = list(completer._complete_subcommands(parts, remainder, subcommands))
+    if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+        return results
+
+    subcmd = parts[0].lower()
+    argument = parts[1] if len(parts) > 1 else ""
+    if subcmd in {"add", "install"}:
+        if not argument:
+            results.extend(_signature_hints("marketplace plugin"))
+        return results
+    if subcmd in {"remove", "rm", "delete", "uninstall"}:
+        name_completions = list(completer._complete_local_plugin_names(argument))
+        if name_completions:
+            results.extend(name_completions)
+        elif not argument:
+            results.extend(_signature_hints("installed plugin"))
+        return results
+    if subcmd in {"update", "refresh", "upgrade"}:
+        if "all".startswith(argument.lower()):
+            results.append(
+                Completion(
+                    "all",
+                    start_position=-len(argument),
+                    display="all",
+                    display_meta="update all managed plugins",
+                )
+            )
+        if "--force".startswith(argument.lower()):
+            results.append(
+                Completion(
+                    "--force",
+                    start_position=-len(argument),
+                    display="--force",
+                    display_meta="overwrite local modifications",
+                )
+            )
+        if "--yes".startswith(argument.lower()):
+            results.append(
+                Completion(
+                    "--yes",
+                    start_position=-len(argument),
+                    display="--yes",
+                    display_meta="confirm multi-plugin apply",
+                )
+            )
+        results.extend(
+            list(
+                completer._complete_local_plugin_names(
+                    argument,
+                    managed_only=True,
+                    include_indices=False,
+                )
+            )
+        )
+        return results
+    if subcmd in {"registry", "marketplace", "source"}:
+        results.extend(list(completer._complete_plugin_registries(argument)))
+        results.extend(list(completer._complete_registry_paths(argument)))
+        return results
+    return results
+
+
 def _model_references_completions(
     completer: "AgentCompleter",
     argument: str,
@@ -1154,6 +1236,10 @@ def command_completions(
     cards_result = _cards_command_completions(completer, text, text_lower)
     if cards_result is not None:
         return cards_result
+
+    plugins_result = _plugins_command_completions(completer, text, text_lower)
+    if plugins_result is not None:
+        return plugins_result
 
     model_result = _model_command_completions(completer, text, text_lower)
     if model_result is not None:

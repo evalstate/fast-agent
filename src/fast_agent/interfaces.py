@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from fast_agent.context import Context
     from fast_agent.llm.model_info import ModelInfo
     from fast_agent.llm.resolved_model import ResolvedModelSpec
+    from fast_agent.mcp.provider_management import ProviderManagedMCPState
 
 __all__ = [
     "FastAgentLLMProtocol",
@@ -224,6 +225,11 @@ class FastAgentLLMProtocol(Protocol):
 
     @property
     def service_tier(self) -> Literal["fast", "flex"] | None: ...
+
+    @property
+    def provider_managed_mcp_state(self) -> "ProviderManagedMCPState": ...
+
+    def set_provider_managed_mcp_state(self, state: "ProviderManagedMCPState") -> None: ...
 
 
 @runtime_checkable

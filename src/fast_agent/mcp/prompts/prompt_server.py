@@ -31,7 +31,11 @@ from fast_agent.mcp.prompts.prompt_constants import (
 from fast_agent.mcp.prompts.prompt_constants import (
     USER_DELIMITER as DEFAULT_USER_DELIMITER,
 )
-from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources, load_prompt
+from fast_agent.mcp.prompts.prompt_load import (
+    create_messages_with_resources,
+    load_prompt,
+    prompt_file_template_variables,
+)
 from fast_agent.mcp.prompts.prompt_template import PromptMetadata, PromptTemplateLoader
 from fast_agent.types import PromptMessageExtended
 from fast_agent.utils.async_utils import run_sync
@@ -154,17 +158,16 @@ def _prompt_messages_for_template(
 def _build_dynamic_prompt_handler(
     *,
     metadata: PromptMetadata,
-    template: Any,
-    prompt_files: list[Path],
     template_vars: list[str],
     template_var_aliases: dict[str, str],
+    render_context: Callable[[dict[str, str]], list[Message]],
 ) -> PromptHandler:
     async def handler(**kwargs: str) -> list[Message]:
         missing = [var for var in template_vars if template_var_aliases[var] not in kwargs]
         if missing:
             raise ValueError(f"Missing required template variables: {', '.join(missing)}")
         context = {var: kwargs[template_var_aliases[var]] for var in template_vars}
-        return _prompt_messages_for_template(template, prompt_files, context)
+        return render_context(context)
 
     handler.__name__ = metadata.name
     handler.__annotations__ = {template_var_aliases[var]: str for var in template_vars}
@@ -271,20 +274,40 @@ def register_prompt(file_path: Path, config: PromptConfig | None = None) -> None
     try:
         file_str = str(file_path).lower()
         if file_str.endswith(".json"):
+            template_vars = sorted(prompt_file_template_variables(file_path))
             metadata = _unique_prompt_name(
                 PromptMetadata(
                     name=file_path.stem,
                     description=f"JSON prompt: {file_path.stem}",
-                    template_variables=set(),
+                    template_variables=set(template_vars),
                     resource_paths=[],
                     file_path=file_path,
                 )
             )
 
-            async def json_prompt_handler() -> list[Message]:
-                return convert_to_fastmcp_messages(load_prompt(file_path))
+            if template_vars:
+                template_var_aliases = _template_var_aliases(template_vars)
+                json_prompt_handler = _build_dynamic_prompt_handler(
+                    metadata=metadata,
+                    template_vars=template_vars,
+                    template_var_aliases=template_var_aliases,
+                    render_context=lambda context: convert_to_fastmcp_messages(
+                        load_prompt(file_path, arguments=context)
+                    ),
+                )
+                prompt = _build_dynamic_prompt(
+                    metadata=metadata,
+                    handler=json_prompt_handler,
+                    template_var_aliases=template_var_aliases,
+                )
+            else:
 
-            _register_prompt_handler(metadata=metadata, handler=json_prompt_handler)
+                async def json_prompt_handler() -> list[Message]:
+                    return convert_to_fastmcp_messages(load_prompt(file_path))
+
+                prompt = None
+
+            _register_prompt_handler(metadata=metadata, handler=json_prompt_handler, prompt=prompt)
             logger.info(f"Registered JSON prompt: {metadata.name} ({file_path})")
             return
 
@@ -305,10 +328,13 @@ def register_prompt(file_path: Path, config: PromptConfig | None = None) -> None
             template_var_aliases = _template_var_aliases(template_vars)
             handler = _build_dynamic_prompt_handler(
                 metadata=metadata,
-                template=template,
-                prompt_files=config_values["prompt_files"],
                 template_vars=template_vars,
                 template_var_aliases=template_var_aliases,
+                render_context=lambda context: _prompt_messages_for_template(
+                    template,
+                    config_values["prompt_files"],
+                    context,
+                ),
             )
             prompt = _build_dynamic_prompt(
                 metadata=metadata,

@@ -179,7 +179,7 @@ The parent LLM can now naturally call researcher and writer as tools.
 References
 ----------
 - Design doc: ``agetns_as_tools_plan_scratch.md`` (repo root).
-- Docs: [`evalstate/fast-agent-docs`](https://github.com/evalstate/fast-agent-docs) (Agents-as-Tools section).
+- Docs: `docs/agents/workflows.md` (Agents-as-Tools section).
 - OpenAI Agents SDK: <https://openai.github.io/openai-agents-python/tools>
 - GitHub Issue: [#458](https://github.com/evalstate/fast-agent/issues/458)
 """

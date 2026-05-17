@@ -92,19 +92,8 @@ Recent features include:
 
 > [!IMPORTANT]
 >
-> Documentation is included as a submodule. When cloning, use `--recurse-submodules` to get everything:
->
-> ```bash
-> git clone --recurse-submodules https://github.com/evalstate/fast-agent.git
-> ```
->
-> Or if you've already cloned:
->
-> ```bash
-> git submodule update --init --recursive
-> ```
->
-> The documentation source is also available at: https://github.com/evalstate/fast-agent-docs
+> Documentation is included in this repository under `docs/`. Use the docs helper script from the
+> repository root to install, generate, build, serve, screenshot, and assess the site.
 
 ### Agent Application Development
 
@@ -691,7 +680,7 @@ mcp:
 
 ## Documentation
 
-The documentation site is included as a submodule in `docs/`. To work with the docs locally:
+The documentation site lives in `docs/`. To work with the docs locally:
 
 ```bash
 # Install docs dependencies (first time only)
@@ -702,6 +691,10 @@ uv run scripts/docs.py generate
 
 # Run the dev server (http://127.0.0.1:8000)
 uv run scripts/docs.py serve
+
+# Capture and assess screenshots of the built docs
+uv run scripts/docs.py screenshot
+uv run scripts/docs.py assess
 
 # Or generate and serve in one command
 uv run scripts/docs.py all

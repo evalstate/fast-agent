@@ -22,6 +22,10 @@ from fast_agent.cards.manager import (
 from fast_agent.commands.command_catalog import suggest_command_action
 from fast_agent.commands.handlers._marketplace_argument_parsing import parse_update_argument
 from fast_agent.commands.handlers._text_formatting import append_heading, append_wrapped_text
+from fast_agent.commands.handlers.plugins import (
+    _config_path_for_settings,
+    _refresh_provider_plugins,
+)
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.paths import resolve_environment_paths
 
@@ -523,6 +527,7 @@ async def handle_add_card_pack(
             card_service.select_marketplace_pack(marketplace.packs, selection),
             environment_paths=env_paths,
             force=False,
+            marketplace_source=marketplace.source,
         )
     except card_service.CardPackLookupError as exc:
         outcome.add_message(str(exc), channel="error")
@@ -530,6 +535,7 @@ async def handle_add_card_pack(
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(f"Failed to install card pack: {exc}", channel="error")
         return outcome
+    _refresh_provider_plugins(ctx, _config_path_for_settings(ctx))
 
     outcome.add_message(
         _format_install_result(
@@ -749,6 +755,7 @@ async def handle_update_card_pack(
         environment_paths=env_paths,
         force=force,
     )
+    _refresh_provider_plugins(ctx, _config_path_for_settings(ctx))
     outcome.add_message(
         _format_update_results(applied.applied, title="Card pack update results:"),
         right_info="cards",

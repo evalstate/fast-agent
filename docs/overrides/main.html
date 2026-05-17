@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{# Announce banner — preserved from existing main.html #}
+{% block announce %}
+Featured on <strong><a href="https://www.pulsemcp.com/posts/newsletter-cursor-10b-levels-flies-mcp-hype#featured">PulseMCP</a></strong> — browse curated MCP Servers for your Agents <u><a href="https://www.pulsemcp.com/servers">here</a></u>.
+{% endblock %}
+
+{# Inject Google Fonts so JetBrains Mono is available even before the CSS loads it #}
+{% block extrahead %}
+  {{ super() }}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  {# Open Graph + Twitter — Zensical doesn't emit MkDocs Material's social metadata. #}
+  {% set social_meta = page.meta.social if page and page.meta and page.meta.social else {} %}
+  {% set social_title = social_meta.title if social_meta and social_meta.title else (page.meta.title if page and page.meta and page.meta.title else (page.title | striptags if page and page.title else config.site_name)) %}
+  {% set social_description = social_meta.description if social_meta and social_meta.description else (page.meta.description if page and page.meta and page.meta.description else config.site_description) %}
+  {% set social_alt = social_meta.alt if social_meta and social_meta.alt else "fast-agent — MCP-native agents, workflows, and servers" %}
+  {% set social_slug = page.url | trim("/") if page and page.url else "" %}
+  {% set social_card = "index.png" if not social_slug else social_slug ~ ".png" %}
+  {% set social_image = config.site_url ~ "assets/social/" ~ social_card %}
+  <meta property="og:type" content="{{ 'website' if page and page.url in ['', 'index.html'] else 'article' }}">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{{ social_title }}">
+  {% if social_description %}
+  <meta property="og:description" content="{{ social_description }}">
+  {% endif %}
+  {% if page and page.canonical_url %}
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  {% endif %}
+  <meta property="og:image" content="{{ social_image }}">
+  <meta property="og:image:secure_url" content="{{ social_image }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ social_alt }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ social_title }}">
+  {% if social_description %}
+  <meta name="twitter:description" content="{{ social_description }}">
+  {% endif %}
+  <meta name="twitter:image" content="{{ social_image }}">
+
+  {% if page and page.url in ["", "index.html"] %}
+    <style>
+      .md-content__inner > .md-content__button {
+        display: none;
+      }
+      .md-content__inner > h1#__skip {
+        display: none;
+      }
+    </style>
+  {% endif %}
+{% endblock %}

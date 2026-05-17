@@ -1,11 +1,19 @@
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from mcp.types import PromptMessage, TextContent
+from mcp.types import (
+    ContentBlock,
+    EmbeddedResource,
+    PromptMessage,
+    TextContent,
+    TextResourceContents,
+)
 
 from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.template_render import extract_template_variables, render_template_text
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.io.source_resolver import materialize_text_source
 from fast_agent.llm.provider_types import Provider
@@ -101,7 +109,76 @@ def create_resource_message(
         return PromptMessage(role=role, content=embedded_resource)
 
 
-def load_prompt(file: Path | str) -> list[PromptMessageExtended]:
+def _render_text_content(content: TextContent, arguments: Mapping[str, str]) -> TextContent:
+    rendered = render_template_text(content.text, arguments).text
+    if rendered == content.text:
+        return content
+    return content.model_copy(update={"text": rendered})
+
+
+def _render_embedded_text_resource(
+    content: EmbeddedResource, arguments: Mapping[str, str]
+) -> EmbeddedResource:
+    resource = content.resource
+    if not isinstance(resource, TextResourceContents):
+        return content
+    rendered = render_template_text(resource.text, arguments).text
+    if rendered == resource.text:
+        return content
+    return content.model_copy(update={"resource": resource.model_copy(update={"text": rendered})})
+
+
+def _render_message_templates(
+    messages: list[PromptMessageExtended], arguments: Mapping[str, str]
+) -> list[PromptMessageExtended]:
+    rendered_messages: list[PromptMessageExtended] = []
+    for message in messages:
+        content: list[ContentBlock] = []
+        changed = False
+        for item in message.content:
+            rendered_item = item
+            if isinstance(item, TextContent):
+                rendered_item = _render_text_content(item, arguments)
+            elif isinstance(item, EmbeddedResource):
+                rendered_item = _render_embedded_text_resource(item, arguments)
+            changed = changed or rendered_item is not item
+            content.append(rendered_item)
+        rendered_messages.append(
+            message.model_copy(update={"content": content}) if changed else message
+        )
+    return rendered_messages
+
+
+def _message_template_variables(messages: list[PromptMessageExtended]) -> set[str]:
+    variables: set[str] = set()
+    for message in messages:
+        for item in message.content:
+            if isinstance(item, TextContent):
+                variables.update(extract_template_variables(item.text))
+            elif isinstance(item, EmbeddedResource) and isinstance(item.resource, TextResourceContents):
+                variables.update(extract_template_variables(item.resource.text))
+    return variables
+
+
+def prompt_file_template_variables(file: Path | str) -> set[str]:
+    """Return value-only ``{{placeholder}}`` names from a prompt file."""
+    file = materialize_text_source(file, label="prompt file")
+    path_str = str(file).lower()
+
+    if path_str.endswith(".json"):
+        from fast_agent.mcp.prompt_serialization import load_messages
+
+        return _message_template_variables(load_messages(str(file)))
+
+    from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
+
+    return PromptTemplateLoader().load_from_file(file).template_variables
+
+
+def load_prompt(
+    file: Path | str,
+    arguments: Mapping[str, str] | None = None,
+) -> list[PromptMessageExtended]:
     """
     Load a prompt from a file and return as PromptMessageExtended objects.
 
@@ -111,6 +188,7 @@ def load_prompt(file: Path | str) -> list[PromptMessageExtended]:
 
     Args:
         file: Path to the prompt file (Path object or string)
+        arguments: Optional values for ``{{placeholder}}`` substitutions
 
     Returns:
         List of PromptMessageExtended objects with full conversation state
@@ -125,17 +203,23 @@ def load_prompt(file: Path | str) -> list[PromptMessageExtended]:
         # JSON files use the serialization module directly
         from fast_agent.mcp.prompt_serialization import load_messages
 
-        return load_messages(str(file))
+        messages = load_messages(str(file))
+        return _render_message_templates(messages, arguments) if arguments else messages
     else:
         # Non-JSON files need template processing for resource loading
         from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
         loader = PromptTemplateLoader()
         template = loader.load_from_file(file)
+        content_sections = (
+            template.apply_substitutions(dict(arguments))
+            if arguments
+            else template.content_sections
+        )
 
-        # Render the template without arguments to get the messages
+        # Render the template to get the messages
         messages = create_messages_with_resources(
-            template.content_sections,
+            content_sections,
             [file],  # Pass the file path for resource resolution
         )
 

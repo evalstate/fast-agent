@@ -1,0 +1,157 @@
+site_name: fast-agent documentation
+site_url: https://fast-agent.ai/
+site_description: MCP-native agents, workflows, and servers
+theme:
+  name: material
+  custom_dir: overrides
+  logo: assets/brand/fast-agent-icon.svg
+  favicon: assets/brand/fast-agent-icon.svg
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.expand
+    - navigation.path
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+    - announce.dismiss
+    - search.highlight
+    - search.suggest
+    - content.tabs.link
+
+  # Default to slate (dark) — the design system is dark-first.
+  # Light mode mirrors via [data-md-color-scheme="default"] in CSS.
+  palette:
+    # Default scheme — match system preference, fall through to slate
+    - media: "(prefers-color-scheme)"
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+extra_css:
+  - stylesheets/fast-agent.css
+
+repo_url: https://github.com/evalstate/fast-agent
+repo_name: evalstate/fast-agent
+
+markdown_extensions:
+  - attr_list
+  - admonition
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path:
+        - docs
+        - ..
+      check_paths: true
+  - pymdownx.superfences
+  - md_in_html
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:zensical.extensions.emoji.twemoji
+      emoji_generator: !!python/name:zensical.extensions.emoji.to_svg
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocs-video:
+      is_video: True
+      video_loop: True
+  - llmstxt:
+      files:
+        - output: llms.txt
+          inputs:
+            - agents/*.md
+            - models/*.md
+            - mcp/*.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/xg5cJ7ndN6
+    - icon: fontawesome/brands/x-twitter
+      link: https://x.com/llmindsetuk
+    - icon: fontawesome/brands/github
+      link: https://github.com/evalstate
+
+copyright: © 2025-2026 llmindset.co.uk
+
+nav:
+  - fast-agent: index.md
+  - Guides:
+      - guides/codex.md
+      - guides/hf-dev.md
+      - Privacy Filter: guides/privacy_filter.md
+      - guides/structured-outputs.md
+  - Agents:
+      - agents/defining.md
+      - Workflows: agents/workflows.md
+      - agents/running.md
+      - agents/prompting.md
+      - agents/tool_runner.md
+      - System Prompts: agents/instructions.md
+      - agents/skills.md
+      - Command Plugins: agents/plugins.md
+  - Models:
+      - Model Features: models/index.md
+      - Model Overlays: models/model_overlays.md
+      - Providers and Models: models/llm_providers.md
+      - Models Reference: models/models_reference.md
+      - Internal Models: models/internal_models.md
+  - ACP:
+      - Using as an Agent: acp/index.md
+      - Customizing Agents: acp/customizing_agents.md
+  - MCP:
+      - Configuring Servers: mcp/index.md
+      - Deploying as an MCP Server: mcp/mcp-server.md
+      - Inspecting Servers: mcp/mcp_display.md
+      - Quickstart - Elicitations: mcp/elicitations.md
+      - Quickstart - State Transfer: mcp/state_transfer.md
+      - mcp/openai-apps-sdk.md
+      - mcp/mcp-ui.md
+      - MCP Server OAuth: mcp/mcp-oauth.md
+      - mcp/types.md
+      - mcp/resources.md
+  - Reference:
+      - fast-agent go: ref/go_command.md
+      - Export Command: ref/export_command.md
+      - Batch Processing: ref/batch.md
+      - AgentCards and ToolCards: ref/agent_cards.md
+      - Config File: ref/config_file.md
+      - Command Line: ref/cmd_switches.md
+      - Generated Docs: ref/generated_docs.md
+      - Docs Automation: ref/docs_automation.md
+      - Class Reference: ref/class_reference.md
+      - Open Telemetry: ref/open_telemetry.md
+      - Azure Configuration: ref/azure-config.md
+      - Articles & Blog Posts: ref/fast_agent_ai_articles.md
+      - About: ref/about.md

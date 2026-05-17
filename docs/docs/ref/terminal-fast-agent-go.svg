@@ -1,0 +1,66 @@
+<svg width="960" class="rich-terminal" viewBox="0 0 1092 123.19999999999999" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .terminal-2436169121-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .terminal-2436169121-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .terminal-2436169121-r1 { fill: #9cdcfe;font-weight: bold }
+.terminal-2436169121-r2 { fill: #c5c8c6 }
+    </style>
+
+    <defs>
+    <clipPath id="terminal-2436169121-clip-terminal">
+      <rect x="0" y="0" width="1072.6" height="72.19999999999999" />
+    </clipPath>
+    <clipPath id="terminal-2436169121-line-0">
+    <rect x="0" y="1.5" width="1073.6" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2436169121-line-1">
+    <rect x="0" y="25.9" width="1073.6" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="1090" height="121.2" rx="8"/><text class="terminal-2436169121-title" fill="#c5c8c6" text-anchor="middle" x="545" y="27">fast-agent&#160;terminal&#160;capture</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#terminal-2436169121-clip-terminal)">
+    
+    <g class="terminal-2436169121-matrix">
+    <text class="terminal-2436169121-r1" x="0" y="20" textLength="1049.2" clip-path="url(#terminal-2436169121-line-0)">$&#160;printf&#160;&#x27;fast-agent&#160;go&#160;--url&#160;https://hf.co/mcp&#160;--model&#160;kimi\nconnected:&#160;Hugging&#160;Face&#160;</text><text class="terminal-2436169121-r2" x="1073.6" y="20" textLength="12.2" clip-path="url(#terminal-2436169121-line-0)">
+</text><text class="terminal-2436169121-r1" x="0" y="44.4" textLength="573.4" clip-path="url(#terminal-2436169121-line-1)">MCP&#160;server\nready:&#160;interactive&#160;agent&#160;session\n&#x27;</text><text class="terminal-2436169121-r2" x="1073.6" y="44.4" textLength="12.2" clip-path="url(#terminal-2436169121-line-1)">
+</text><text class="terminal-2436169121-r2" x="0" y="68.8" textLength="878.4" clip-path="url(#terminal-2436169121-line-2)">Script&#160;started&#160;on&#160;2026-05-16&#160;12:46:13+01:00&#160;[&lt;not&#160;executed&#160;on&#160;terminal&gt;]</text><text class="terminal-2436169121-r2" x="878.4" y="68.8" textLength="195.2" clip-path="url(#terminal-2436169121-line-2)">fast-agent&#160;go&#160;--</text>
+    </g>
+    </g>
+</svg>
