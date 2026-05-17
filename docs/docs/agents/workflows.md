@@ -1,14 +1,14 @@
 # Workflows
 
-Workflows let you compose multiple agents into a single higher-level capability (e.g. chaining steps, routing, or adding reliability via voting). They can be used alongside MCP servers defined in `fastagent.config.yaml`.
+Workflows let you compose multiple agents into a single higher-level capability (e.g. chaining steps, routing, or adding reliability via voting). They can be used alongside MCP servers defined in `fast-agent.yaml`.
 
 ## Workflows and MCP Servers
 
 To generate examples use `fast-agent quickstart workflow`.
 
-Agents can use MCP Servers defined in `fastagent.config.yaml`:
+Agents can use MCP Servers defined in `fast-agent.yaml`:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 # Example of a STDIO sever named "fetch"
 mcp:
   servers:
@@ -21,7 +21,7 @@ mcp:
 @fast.agent(
     "url_fetcher",
     "Given a URL, provide a complete and comprehensive summary",
-    servers=["fetch"],  # Name of an MCP Server defined in fastagent.config.yaml
+    servers=["fetch"],  # Name of an MCP Server defined in fast-agent.yaml
 )
 @fast.agent(
     "social_media",

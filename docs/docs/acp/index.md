@@ -117,7 +117,7 @@ The same option is available when using the generic server command:
 fast-agent serve --transport acp -x --prefer-local-shell
 ```
 
-You can also make this the default in `fastagent.config.yaml`:
+You can also make this the default in `fast-agent.yaml`:
 
 ```yaml
 shell_execution:

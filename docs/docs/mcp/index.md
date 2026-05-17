@@ -2,7 +2,7 @@
 title: Configuring Servers
 ---
 
-MCP Servers are configured in the `fastagent.config.yaml` file. Secrets can be kept in `fastagent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files). 
+MCP Servers are configured in the `fast-agent.yaml` file. Secrets can be kept in `fast-agent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files).
 
 `mcp.servers.<name>` supports canonical server blocks and shorthand `target` entries:
 
@@ -39,7 +39,7 @@ fast-agent CLI flags like `--auth`/`--oauth` inside `target`; use `headers` and
 
 AgentCards can also declare runtime MCP targets directly with `mcp_connect`.
 This is useful when a card depends on MCP servers that are not predeclared in
-`fastagent.config.yaml`.
+`fast-agent.yaml`.
 
 ```yaml
 mcp_connect:
@@ -57,14 +57,14 @@ mcp_connect:
 
 ## Adding a STDIO Server
 
-The below shows an example of configuring an MCP Server named `server_one`. 
+The below shows an example of configuring an MCP Server named `server_one`.
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 mcp:
 # name used in agent servers array
   server_one:
     # command to run
-    command: "npx" 
+    command: "npx"
     # list of arguments for the command
     args: ["@modelcontextprotocol/server-brave-search"]
     # key/value pairs of environment variables
@@ -86,7 +86,7 @@ This MCP Server can then be used with an agent as follows:
 
 To use remote MCP Servers, specify the either `http` or `sse` transport and the endpoint URL and headers:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 mcp:
 # name used in agent servers array
   server_two:
@@ -96,7 +96,7 @@ mcp:
     # timeout in seconds to use for sse sessions (optional)
     read_transport_sse_timeout_seconds: 300
     # request headers for connection
-    headers: 
+    headers:
           Authorization: "Bearer <secret>"
 
 # name used in agent servers array
@@ -109,7 +109,7 @@ mcp:
 
 ## MCP Filtering
 
-Agents and Workflows supporting the `servers` parameter have the ability to filter the tools, resources and prompts available to the agent.  This can greatly reduce the amount of context generated for the agents - which can both increase the accuracy of the responses and reduce costs due to the lower token count of the context.  
+Agents and Workflows supporting the `servers` parameter have the ability to filter the tools, resources and prompts available to the agent.  This can greatly reduce the amount of context generated for the agents - which can both increase the accuracy of the responses and reduce costs due to the lower token count of the context.
 
 The default behavior is to include all tools, prompts and resources from the configured MCP servers, but this can be overridden by the `tools`, `prompts` and `resources` parameters.  These parameters accept a Dict, where the key of the dict in the name of the server to filter, and the value is a list of the tool names, resource names and prompt names respectively.
 
@@ -137,7 +137,7 @@ For example:
 
 **`fast-agent`** can be used the specify the Implementation details sent to the MCP Server, enabling testing Servers that adapt their configuration based on the client connection. By default **`fast-agent`** uses the `fast-agent-mcp` and it's current version number.
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 mcp:
   server_one:
     transport: "http"
@@ -152,13 +152,13 @@ mcp:
 
 **fast-agent** supports MCP Roots. Roots are configured on a per-server basis:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 mcp:
   server_three:
     transport: "http"
     url: "http://localhost:8000/mcp"
     roots:
-       uri: "file://...." 
+       uri: "file://...."
        name: Optional Name
        server_uri_alias: # optional
 ```
@@ -171,15 +171,15 @@ The data analysis example (`fast-agent quickstart data-analysis` has a working e
 
 ## Sampling
 
-Sampling is configured by specifying a sampling model for the MCP Server. 
+Sampling is configured by specifying a sampling model for the MCP Server.
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 mcp:
   server_four:
     transport: "http"
     url: "http://localhost:8000/mcp"
     sampling:
-      model: "provider.model.<reasoning_effort>"        
+      model: "provider.model.<reasoning_effort>"
 ```
 
 Read more about The model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
@@ -188,13 +188,13 @@ Read more about The model string and settings [here](../models/). Sampling reque
 
 Elicitations are configured by specifying a strategy for the MCP Server. The handler can be overriden with a custom handler in the Agent definition.
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 mcp:
   server_four:
     transport: "http"
     url: "http://localhost:8000/mcp"
     elicitation:
-      mode: "forms"         
+      mode: "forms"
 ```
 
 `mode` can be one of:
@@ -211,7 +211,7 @@ initialize response.
 
 To demonstrate a client-first negotiation style, enable per-server advertising:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 mcp:
   server_five:
     transport: "http"

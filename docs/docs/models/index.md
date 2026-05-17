@@ -13,7 +13,7 @@ Model specifications in fast-agent follow this precedence order (highest to lowe
 
 1. Explicitly set in agent decorators
 1. Command line arguments with `--model` flag
-1. Default model in `fastagent.config.yaml`
+1. Default model in `fast-agent.yaml`
 1. `FAST_AGENT_MODEL` environment variable
 1. System default (`gpt-5-mini?reasoning=low`)
 
@@ -83,7 +83,7 @@ You can also create local **model overlays**. These are environment-local named 
 bundle endpoint settings, auth, request defaults, and local metadata under a short token such as
 `qwen-local`. See [Model Overlays](model_overlays/).
 
-You can also define your own namespaced **model references** in `fastagent.config.yaml` and
+You can also define your own namespaced **model references** in `fast-agent.yaml` and
 reference them with exact tokens like `$system.fast`.
 
 If a configured model reference cannot be resolved, fast-agent logs a warning and automatically falls back
@@ -91,7 +91,7 @@ to the next lower-precedence model source.
 
 ### Default Configuration
 
-You can set a default model for your application in your `fastagent.config.yaml`:
+You can set a default model for your application in your `fast-agent.yaml`:
 
 ```yaml
 default_model: "openai.gpt-4o" # Default model for all agents

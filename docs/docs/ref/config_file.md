@@ -5,13 +5,13 @@ description: Complete reference for fast-agent configuration settings
 
 # Configuration Reference
 
-**fast-agent** can be configured through the `fastagent.config.yaml` file, which should be placed in your project's root directory. For sensitive information, you can use `fastagent.secrets.yaml` with the same structure - values from both files will be merged, with secrets taking precedence.
+**fast-agent** can be configured through the `fast-agent.yaml` file. Place it in the active fast-agent home (by default `./.fast-agent`) or pass an explicit path with `--config-path` (`-c`). For sensitive information, you can use `fast-agent.secrets.yaml` with the same structure - values from both files will be merged, with secrets taking precedence.
 
 Configuration can also be provided through environment variables, with the naming pattern `SECTION__SUBSECTION__PROPERTY` (note the double underscores).
 
 ## Configuration File Location
 
-fast-agent automatically searches for configuration files in the current working directory and its parent directories. You can also specify a configuration file path with the `--config-path` (`-c`) command-line argument.
+fast-agent loads configuration from the active fast-agent home first, then from the current working directory if no home config exists. The home is selected by `--env`, `FAST_AGENT_HOME`, legacy `ENVIRONMENT_DIR`, or the default `./.fast-agent`. You can also specify a configuration file path or URI with the `--config-path` (`-c`) command-line argument.
 
 ## General Settings
 
@@ -653,7 +653,7 @@ LOGGER__LEVEL=debug
 
 Environment variables take precedence over values in the configuration files. For nested arrays or complex structures, use the YAML configuration file.
 
-The `fastagent.config.yaml` file supports referencing environment variables inline using the `${ENV_VAR}` syntax. When the configuration is loaded, any value specified as `${ENV_VAR}` will be automatically replaced with the value of the corresponding environment variable. This allows you to securely inject sensitive or environment-specific values into your configuration files without hardcoding them.
+The `fast-agent.yaml` file supports referencing environment variables inline using the `${ENV_VAR}` syntax. When the configuration is loaded, any value specified as `${ENV_VAR}` will be automatically replaced with the value of the corresponding environment variable. This allows you to securely inject sensitive or environment-specific values into your configuration files without hardcoding them.
 
 For example:
 

@@ -15,7 +15,7 @@ This example shows how to configure fast-agent to use Azure OpenAI Service with 
 
 ## Configuration File
 
-Below is a sample `fastagent.config.yaml` file with all three authentication methods. Choose the one that fits your needs:
+Below is a sample `fast-agent.yaml` file with all three authentication methods. Choose the one that fits your needs:
 
 ```yaml
 # OPTION 1: Using resource_name and api_key (standard method)

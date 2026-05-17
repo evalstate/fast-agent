@@ -121,7 +121,7 @@ if __name__ == "__main__":
 <!--
 ### Connecting to MCP Servers
 
-Connect to MCP servers from other FastAgent applications  by configuring them in your `fastagent.config.yaml`:
+Connect to MCP servers from other FastAgent applications  by configuring them in your `fast-agent.yaml`:
 
 ```yaml
 mcp:

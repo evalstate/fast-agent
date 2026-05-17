@@ -297,7 +297,7 @@ result: PromptMessageExtended = await agent.generate(prompt)
 
 Prompt files can also be served using the inbuilt `prompt-server`. The `prompt-server` command is installed with `fast-agent` making it convenient to set up and use:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 mcp:
   servers:
     prompts:

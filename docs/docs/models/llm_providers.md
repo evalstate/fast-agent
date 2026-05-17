@@ -1,5 +1,5 @@
 
-For each model provider, you can configure parameters either through environment variables or in your `fastagent.config.yaml` file.
+For each model provider, you can configure parameters either through environment variables or in your `fast-agent.yaml` file.
 
 Be sure to run `fast-agent check` to troubleshoot API Key issues:
 
@@ -7,7 +7,7 @@ Be sure to run `fast-agent check` to troubleshoot API Key issues:
 
 ## Common Configuration Format
 
-In your `fastagent.config.yaml`:
+In your `fast-agent.yaml`:
 
 ```yaml
 <provider>:
@@ -375,7 +375,7 @@ fast-agent --model kimi:together # provider can be specified with alias
 **Examples:**
 
 ```yaml
-# fastagent.config.yaml
+# fast-agent.yaml
 mcp:
   servers:
     huggingface:

@@ -68,7 +68,7 @@ This allows you to configure some `mcp-ui` settings, or configure servers to use
 
 The following options are available:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 # mcp-ui config options
 
 # Base directory for fast-agent runtime data
@@ -94,7 +94,7 @@ mcp:
 
 Some MCP Servers adjust their tools or behaviour based on the connecting client (for exampling enabling mcp-ui). You can specify the name and version to present to the MCP Server:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
   servers:
       example:
         transport: http

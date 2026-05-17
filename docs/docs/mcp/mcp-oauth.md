@@ -91,7 +91,7 @@ Notes:
 
 - Immediate 401 with no link
   - Ensure you are running the updated CLI (editable install or latest tool).
-  - Some servers require explicit scope; add `auth.scope` to that server in `fastagent.config.yaml`.
+  - Some servers require explicit scope; add `auth.scope` to that server in `fast-agent.yaml`.
 
 - Link opens but no callback received
   - Confirm `http://localhost:3030/callback` is reachable (firewall/port in use).

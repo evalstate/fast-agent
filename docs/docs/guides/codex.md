@@ -29,7 +29,7 @@ present. Customise the agent by editing `.fast-agent/agent-cards/dev.md`.
 
 When `apply_patch` tool calls are previewed in the console, large patches are
 collapsed with a `(+N more lines)` tail. You can tune or disable that limit via
-`logger.apply_patch_preview_max_lines` in `fastagent.config.yaml`, or interactively
+`logger.apply_patch_preview_max_lines` in `fast-agent.yaml`, or interactively
 with `fast-agent config display`.
 
 Use `/skills` to discover, add, remove and update skills. Use `/connect` to

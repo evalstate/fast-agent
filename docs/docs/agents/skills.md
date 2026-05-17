@@ -73,7 +73,7 @@ Switch registries by number or provide a custom URL:
 
 ## Configuration
 
-Configure skill directories and registries in `fastagent.config.yaml`:
+Configure skill directories and registries in `fast-agent.yaml`:
 
 ```yaml
 skills:

@@ -28,7 +28,7 @@ Shows activity from the Streamable HTTP GET and POST handlers for the MCP Server
 
 ### Configuration
 
-The activity timeline shown in the transport section can be tailored in `fastagent.config.yaml` via the `mcp_timeline` block:
+The activity timeline shown in the transport section can be tailored in `fast-agent.yaml` via the `mcp_timeline` block:
 
 ```yaml
 mcp_timeline:

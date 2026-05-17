@@ -132,7 +132,7 @@ Note that Elicitations are now _enabled by default_ in **fast-agent**, and can b
 
 You can configure the Elicitation mode to `forms` (the default),`auto-cancel` or `none`. 
 
-```yaml title="fastagent.config.yaml" linenums="19" hl_lines="10"
+```yaml title="fast-agent.yaml" linenums="19" hl_lines="10"
 mcp:
   servers:
     # Elicitation test servers for different modes

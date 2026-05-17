@@ -49,7 +49,7 @@ tool_only: true
 ## Runtime MCP targets (`mcp_connect`)
 
 Use `mcp_connect` when a card needs MCP servers that are **not** preconfigured
-under `mcp.servers` in `fastagent.config.yaml`.
+under `mcp.servers` in `fast-agent.yaml`.
 
 ```yaml
 mcp_connect:

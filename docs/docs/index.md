@@ -29,13 +29,13 @@ hide:
       <strong>~/projects/fast-agent</strong>
     </div>
     <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
-<span class="fa-good">ready</span>  interactive agent with shell tools
+<span class="fa-good">ready</span> Start an interactive session with shell tools
 
-<span class="fa-muted">$</span> fast-agent go --url https://hf.co/mcp --model kimi
-<span class="fa-good">connected</span>  Hugging Face MCP server
+<span class="fa-muted">$</span>uv tool install -U fast-agent-mcp
+<span class="fa-good">install</span> Install the latest version of fast-agent
 
 <span class="fa-muted">$</span> fast-agent go --pack analyst --model haiku
-<span class="fa-good">loaded</span>  reusable agent card pack</code></pre>
+<span class="fa-good">install</span>  reusable agent card pack</code></pre>
   </div>
 </section>
 
@@ -43,6 +43,20 @@ hide:
   <div>
     <h2>Get started now</h2>
   </div>
+  <div class="fa-term" aria-label="fast-agent terminal quickstart">
+    <div class="fa-term__bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <strong>~/projects/fast-agent</strong>
+    </div>
+    <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
+<span class="fa-good">ready</span> Start an interactive agent with shell tools
+
+<span class="fa-muted">$</span> fast-agent --url https://hf.co/mcp --auth $HF_TOKEN
+<span class="fa-good">connected</span> Quick connect to an MCP Server
+
+<span class="fa-muted">$</span> fast-agent go --pack analyst --model haiku
+<span class="fa-good">install</span>  reusable agent card pack</code></pre>
+  </div>  
   <pre><code>uvx fast-agent-mcp@latest -x</code></pre>
 </section>
 

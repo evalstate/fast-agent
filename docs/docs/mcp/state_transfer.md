@@ -1,15 +1,15 @@
 ---
 title: Quick Start - State Transfer with MCP
-description: Guided demonstration of using MCP Prompts to transfer conversation state between two agents 
+description: Guided demonstration of using MCP Prompts to transfer conversation state between two agents
 ---
 
 # Quick Start: State Transfer with MCP
 
-In this quick start, we'll demonstrate how **fast-agent** can transfer state between two agents using MCP Prompts. 
+In this quick start, we'll demonstrate how **fast-agent** can transfer state between two agents using MCP Prompts.
 
 ![Welcome Image](./pics/opening_small.png){: align=right }
 
-First, we'll start `agent_one` as an MCP Server, and send it some messages with the MCP Inspector tool. 
+First, we'll start `agent_one` as an MCP Server, and send it some messages with the MCP Inspector tool.
 
 Next, we'll run `agent_two` and transfer the conversation from `agent_one` using an MCP Prompt.
 
@@ -17,7 +17,7 @@ Finally, we'll take a look at **fast-agent**'s `prompt-server` and how it can as
 
 <!-- PICTURE OF INSPECTOR OR IMAGE HERE. -->
 
-You'll need API Keys to connect to a [supported model](../models/llm_providers/), or use Ollama's [OpenAI compatibility](https://github.com/ollama/ollama/blob/main/docs/openai.md) mode to use local models. 
+You'll need API Keys to connect to a [supported model](../models/llm_providers/), or use Ollama's [OpenAI compatibility](https://github.com/ollama/ollama/blob/main/docs/openai.md) mode to use local models.
 
 The quick start also uses the MCP Inspector - check [here](https://modelcontextprotocol.io/docs/tools/inspector) for installation instructions.
 
@@ -56,9 +56,9 @@ The quick start also uses the MCP Inspector - check [here](https://modelcontextp
     fast-agent quickstart state-transfer
     ```
 
-Change to the state-transfer directory (`cd state-transfer`), rename `fastagent.secrets.yaml.example` to `fastagent.secrets.yaml` and enter the API Keys for the providers you wish to use. 
+Change to the state-transfer directory (`cd state-transfer`), rename `fast-agent.secrets.yaml.example` to `fast-agent.secrets.yaml` and enter the API Keys for the providers you wish to use.
 
-The supplied `fastagent.config.yaml` file contains a default of `gpt-4.1` - edit this if you wish. 
+The supplied `fast-agent.yaml` file contains a default of `gpt-4.1` - edit this if you wish.
 
 Finally, run `uv run agent_one.py` and send a test message to make sure that everything working. Enter `stop` to return to the command line.
 
@@ -81,13 +81,13 @@ To start `"agent_one"` as an MCP Server, run the following command:
     uv run agent_one.py --transport http --port 8001
     ```
 
-The agent is now available as an MCP Server. 
+The agent is now available as an MCP Server.
 
 <!-- PICTURE OF STARTED SERVER HERE -->
 
 !!! note
 
-    This example starts the server on port 8001. To use a different port, update the URLs in `fastagent.config.yaml` and the MCP Inspector.
+    This example starts the server on port 8001. To use a different port, update the URLs in `fast-agent.yaml` and the MCP Inspector.
 
 ## Step 3: Connect and chat with **agent one**
 
@@ -112,11 +112,11 @@ Choose the "Streamable HTTP" transport type, and the url `http://localhost:8001/
 
 The conversation history can be viewed from the `prompts` tab. Use the `agent_one_history` prompt to view it.
 
-Disconnect the Inspector, then press `ctrl+c` in the command window to stop the process. 
+Disconnect the Inspector, then press `ctrl+c` in the command window to stop the process.
 
 ## Step 4: Transfer the conversation to **agent two**
 
-We can now transfer and continue the conversation with `agent_two`. 
+We can now transfer and continue the conversation with `agent_two`.
 
 Run `agent_two` with the following command:
 
@@ -145,7 +145,7 @@ You can now continue the chat with `agent_two` (potentially using different Mode
 
 **fast-agent** uses the following configuration file to connect to the `agent_one` MCP Server:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 # MCP Servers
 mcp:
     servers:
@@ -171,7 +171,7 @@ async def main():
 
 ## Step 5: Save/Reload the conversation
 
-**fast-agent** gives you the ability to save and reload conversations. 
+**fast-agent** gives you the ability to save and reload conversations.
 
 Enter `***SAVE_HISTORY history.json` in the `agent_two` chat to save the conversation history as a JSON `{"messages": [...]}` container (fast-agent/MCP compatible).
 
@@ -179,9 +179,9 @@ You can also save it in a text format for easier editing.
 
 ![Prompt Picker](./pics/prompt_picker.png)
 
-By using the supplied MCP `prompt-server`, we can reload the saved prompt and apply it to our agent. Add the following to your `fastagent.config.yaml` file:
+By using the supplied MCP `prompt-server`, we can reload the saved prompt and apply it to our agent. Add the following to your `fast-agent.yaml` file:
 
-```yaml title="fastagent.config.yaml" linenums="23" hl_lines="4-6"
+```yaml title="fast-agent.yaml" linenums="23" hl_lines="4-6"
 # MCP Servers
 mcp:
     servers:
@@ -204,7 +204,7 @@ And then update `agent_two.py` to use the new server:
 
 ```
 
-Run `uv run agent_two.py`, and you can then use the `/prompts` command to load the earlier conversation history, and continue where you left off. 
+Run `uv run agent_two.py`, and you can then use the `/prompts` command to load the earlier conversation history, and continue where you left off.
 
 Note that Prompts can contain any of the MCP Content types, so Images, Audio and other Embedded Resources can be included.
 

@@ -29,9 +29,9 @@ Run `docker-compose up` to download and start the server. Navigate to `http://lo
 
 ## Configure fast-agent
 
-Next, update your `fastagent.config.yaml` to enable telemetry:
+Next, update your `fast-agent.yaml` to enable telemetry:
 
-```yaml title="fastagent.config.yaml"
+```yaml title="fast-agent.yaml"
 otel:
   enabled: true
   otlp_endpoint: "http://localhost:4318/v1/traces"  # This is the default value
