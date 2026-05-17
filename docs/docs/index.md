@@ -29,15 +29,17 @@ hide:
       <strong>~/projects/fast-agent</strong>
     </div>
     <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
-<span class="fa-good">ready</span> Start an interactive session with shell tools
+<span class="fa-good">start</span> an interactive session with shell tools
 
 <span class="fa-muted">$</span>uv tool install -U fast-agent-mcp
-<span class="fa-good">install</span> Install the latest version of fast-agent
+<span class="fa-good">install</span> the latest version of fast-agent
 
-<span class="fa-muted">$</span> fast-agent go --pack analyst --model haiku
-<span class="fa-good">install</span>  reusable agent card pack</code></pre>
+<span class="fa-muted">$</span> fast-agent --pack codex 
+<span class="fa-good">code</span> download configuration to use codex</code></pre>
   </div>
 </section>
+
+<!--
 
 <section id="try-it-now" class="fa-band fa-band--start">
   <div>
@@ -60,11 +62,13 @@ hide:
   <pre><code>uvx fast-agent-mcp@latest -x</code></pre>
 </section>
 
+-->
+
 <section class="fa-grid fa-grid--4">
   <article class="fa-card">
     <h3>Test model behavior quickly</h3>
     <p>
-      Switch among Anthropic, OpenAI, Responses, Google, Hugging Face, Groq, xAI, Bedrock, and local
+      Switch between Anthropic, OpenAI, Responses, Google, Hugging Face, Groq, xAI, Bedrock, and local
       OpenAI-compatible endpoints. Built-in playback and passthrough models make app tests practical.
     </p>
     <a href="models/">Model features</a>
@@ -95,6 +99,7 @@ hide:
   </article>
 </section>
 
+<!--
 <section class="fa-split">
   <div>
     <p class="fa-kicker">Developer loop</p>
@@ -121,6 +126,7 @@ hide:
       </div>
 
 </section>
+-->
 
 <!-- 
 
