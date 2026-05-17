@@ -68,7 +68,7 @@ hide:
   <article class="fa-card">
     <h3>Test model behavior quickly</h3>
     <p>
-      Switch between Anthropic, OpenAI, Responses, Google, Hugging Face, Groq, xAI, Bedrock, and local
+      Switch between Anthropic, OpenAI, Responsesz, Google, Hugging Face, Groq, xAI, Bedrock, and local
       OpenAI-compatible endpoints. Built-in playback and passthrough models make app tests practical.
     </p>
     <a href="models/">Model features</a>
