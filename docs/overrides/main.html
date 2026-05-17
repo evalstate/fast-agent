@@ -12,7 +12,7 @@ Featured on <strong><a href="https://www.pulsemcp.com/posts/newsletter-cursor-10
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  {# Open Graph + Twitter — Zensical doesn't emit MkDocs Material's social metadata. #}
+  {# Open Graph + Twitter metadata for committed per-page social cards. #}
   {% set social_meta = page.meta.social if page and page.meta and page.meta.social else {} %}
   {% set social_title = social_meta.title if social_meta and social_meta.title else (page.meta.title if page and page.meta and page.meta.title else (page.title | striptags if page and page.title else config.site_name)) %}
   {% set social_description = social_meta.description if social_meta and social_meta.description else (page.meta.description if page and page.meta and page.meta.description else config.site_description) %}

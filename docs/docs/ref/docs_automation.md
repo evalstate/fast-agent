@@ -27,7 +27,7 @@ uv run scripts/docs.py assess
 - `screenshot` captures the built local site and the live site for visual comparison with
   `google-chrome`.
 - `assess` runs deterministic screenshot checks for capture dimensions, blank or unstyled pages,
-  the blue home-page header, and visible dark terminal areas.
+  the designed home-page header, and visible terminal areas.
 
 ## Terminal Captures
 
@@ -50,9 +50,8 @@ Example output:
 
 ## Social Cards
 
-Every Markdown page gets a committed 1200×630 PNG under `docs/assets/social/`. Zensical doesn't
-currently emit MkDocs Material social-card metadata, so `overrides/main.html` points Open Graph and
-Twitter metadata at those page-specific images.
+Every Markdown page gets a committed 1200×630 PNG under `docs/assets/social/`. `overrides/main.html`
+points Open Graph and Twitter metadata at those page-specific images.
 
 Regenerate cards locally after adding or renaming docs pages:
 

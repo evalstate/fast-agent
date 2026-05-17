@@ -256,8 +256,8 @@ def render_prompt(screenshots: list[Path], deterministic: dict[str, Any]) -> str
         json.dumps(deterministic, indent=2),
         "",
         "Rubric:",
-        "- The home page should feel like a polished developer product, not a raw MkDocs index.",
-        "- Confirm the blue brand header is visible and visually integrated with the first viewport.",
+        "- The home page should feel like a polished developer product, not a raw generated index.",
+        "- Confirm the custom brand header is visible and visually integrated with the first viewport.",
         "- Confirm there are no raw Markdown artifacts such as literal `## Getting Started` text.",
         "- Check terminal examples and generated terminal captures for readable command text, "
         "prompt styling, and sufficient contrast.",

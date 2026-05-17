@@ -18,10 +18,11 @@ From the `fast-agent` repo root:
 uv run scripts/docs.py generate
 ```
 
-If you are working from a separate docs checkout, point generation at the local `fast-agent` source:
+The generator assumes the normal in-repo `docs/` layout. If you need to run it from an unusual
+checkout, point generation at the local `fast-agent` source:
 
 ```bash
 FAST_AGENT_REPO_PATH=../fast-agent uv run python generate_reference_docs.py
 ```
 
-Generated files are written to `docs/_generated/` and included in pages via MkDocs `pymdownx.snippets`.
+Generated files are written to `docs/_generated/` and included in pages via `pymdownx.snippets`.
