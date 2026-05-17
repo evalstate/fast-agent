@@ -264,83 +264,83 @@ class ModelSelectionCatalog:
         Provider.NOUS: (
             # Curated models from inference-api.nousresearch.com
             # (matches Hermes Agent's curated list — 24 models)
-            # Aliases use n- prefix to avoid conflict with native provider presets
+            # Aliases use nous- prefix to avoid conflict with native provider presets
             CatalogModelEntry(
-                alias="n-opus47",
+                alias="nous-opus47",
                 model="nous.anthropic/claude-opus-4.7",
             ),
             CatalogModelEntry(
-                alias="n-opus46",
+                alias="nous-opus46",
                 model="nous.anthropic/claude-opus-4.6",
             ),
             CatalogModelEntry(
-                alias="n-sonnet46",
+                alias="nous-sonnet46",
                 model="nous.anthropic/claude-sonnet-4.6",
             ),
             CatalogModelEntry(
-                alias="n-kimi26",
+                alias="nous-kimi26",
                 model="nous.moonshotai/kimi-k2.6",
             ),
             CatalogModelEntry(
-                alias="n-qwen36p",
+                alias="nous-qwen36p",
                 model="nous.qwen/qwen3.6-plus",
             ),
             CatalogModelEntry(
-                alias="n-haiku45",
+                alias="nous-haiku45",
                 model="nous.anthropic/claude-haiku-4.5",
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="n-gpt55",
+                alias="nous-gpt55",
                 model="nous.openai/gpt-5.5",
             ),
             CatalogModelEntry(
-                alias="n-gpt55pro",
+                alias="nous-gpt55pro",
                 model="nous.openai/gpt-5.5-pro",
             ),
             CatalogModelEntry(
-                alias="n-gpt54mini",
+                alias="nous-gpt54mini",
                 model="nous.openai/gpt-5.4-mini",
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="n-gpt54nano",
+                alias="nous-gpt54nano",
                 model="nous.openai/gpt-5.4-nano",
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="n-gpt53cx",
+                alias="nous-gpt53cx",
                 model="nous.openai/gpt-5.3-codex",
             ),
             CatalogModelEntry(
-                alias="n-mimo25p",
+                alias="nous-mimo25p",
                 model="nous.xiaomi/mimo-v2.5-pro",
             ),
             CatalogModelEntry(
-                alias="n-hy3",
+                alias="nous-hy3",
                 model="nous.tencent/hy3-preview",
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="n-gem3pro",
+                alias="nous-gem3pro",
                 model="nous.google/gemini-3-pro-preview",
             ),
             CatalogModelEntry(
-                alias="n-gem3fl",
+                alias="nous-gem3fl",
                 model="nous.google/gemini-3-flash-preview",
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="n-gem31p",
+                alias="nous-gem31p",
                 model="nous.google/gemini-3.1-pro-preview",
             ),
             CatalogModelEntry(
-                alias="n-gem31fl",
+                alias="nous-gem31fl",
                 model="nous.google/gemini-3.1-flash-lite-preview",
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="n-qwen36b",
+                alias="nous-qwen36b",
                 model="nous.qwen/qwen3.6-35b-a3b",
                 fast=True,
             ),
@@ -350,24 +350,24 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="n-mm27",
+                alias="nous-mm27",
                 model="nous.minimax/minimax-m2.7",
             ),
             CatalogModelEntry(
-                alias="n-glm51",
+                alias="nous-glm51",
                 model="nous.z-ai/glm-5.1",
             ),
             CatalogModelEntry(
-                alias="n-grok43",
+                alias="nous-grok43",
                 model="nous.x-ai/grok-4.3",
             ),
             CatalogModelEntry(
-                alias="n-nemo3",
+                alias="nous-nemo3",
                 model="nous.nvidia/nemotron-3-super-120b-a12b",
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="n-dsv4p",
+                alias="nous-dsv4p",
                 model="nous.deepseek/deepseek-v4-pro",
             ),
         ),
