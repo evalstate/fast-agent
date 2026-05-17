@@ -90,10 +90,9 @@ hide:
   <article class="fa-card">
     <h3>Control your context</h3>
     <p>
-      Template based <a href="agents/instructions">System Prompts</a>. Agent Skills and Manage skills with 
-.
+      Template based <a href="agents/instructions">System Prompts</a>. Install and update Agent Skills, or use template based prompt files.
     </p>
-    <a href="acp/">ACP docs</a>
+    <a href="agents/skills/">Agent Skills</a>
   </article>
 </section>
 
