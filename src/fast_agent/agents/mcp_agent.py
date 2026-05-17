@@ -21,7 +21,6 @@ from typing import (
     Sequence,
     TypeVar,
     Union,
-    cast,
 )
 
 import mcp
@@ -792,8 +791,7 @@ class McpAgent(ABC, ToolAgent):
                     "Provider-managed MCP is only supported for Anthropic Messages "
                     "and the OpenAI Responses provider."
                 )
-            if hasattr(llm, "set_provider_managed_mcp_state"):
-                cast("Any", llm).set_provider_managed_mcp_state(self._provider_managed_mcp_state)
+            llm.set_provider_managed_mcp_state(self._provider_managed_mcp_state)
 
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is not None:

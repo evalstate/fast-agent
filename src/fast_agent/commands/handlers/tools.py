@@ -75,7 +75,7 @@ def _append_provider_tool_section(
     if not provider_summaries:
         return
 
-    content.append("Provider-hosted tools", style="bold")
+    content.append("Provider-managed / hosted tools", style="bold")
     content.append("\n\n")
 
     for summary in provider_summaries:
@@ -83,7 +83,7 @@ def _append_provider_tool_section(
         line = Text()
         line.append("  • ", style="dim cyan")
         line.append(summary.name, style="bright_blue bold")
-        line.append(f" (provider-hosted, {state})", style="dim cyan")
+        line.append(f" ({summary.suffix}, {state})", style="dim cyan")
         line.append(f" {summary.description}", style="white")
         content.append_text(line)
         content.append("\n")

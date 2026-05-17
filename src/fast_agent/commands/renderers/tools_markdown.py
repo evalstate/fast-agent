@@ -29,8 +29,11 @@ def _format_header(*, index: int, summary: "ToolSummary") -> str:
 
 
 def _format_provider_tool(summary: "ProviderToolSummary") -> str:
-    state = "enabled" if summary.enabled else "disabled"
-    return f"- **{summary.name}** _(provider-hosted, {state})_ — {summary.description}"
+    if summary.enabled is None:
+        state = "Unknown"
+    else:
+        state = "enabled" if summary.enabled else "disabled"
+    return f"- **{summary.name}** _({summary.suffix}, {state})_ — {summary.description}"
 
 
 def render_tools_markdown(
@@ -67,7 +70,7 @@ def render_tools_markdown(
     if provider_summaries:
         if summaries:
             lines.append("")
-        lines.extend(["## Provider-hosted tools", ""])
+        lines.extend(["## Provider-managed / hosted tools", ""])
         lines.extend(_format_provider_tool(summary) for summary in provider_summaries)
 
     return "\n".join(lines).rstrip()

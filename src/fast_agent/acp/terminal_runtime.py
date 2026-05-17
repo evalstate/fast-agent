@@ -15,6 +15,7 @@ from mcp.types import CallToolResult, Tool
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, TERMINAL_BYTES_PER_TOKEN
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.tools.tool_sources import set_tool_source
 from fast_agent.utils.commandline import split_commandline
 
 if TYPE_CHECKING:
@@ -109,45 +110,48 @@ class ACPTerminalRuntime:
         self._permission_handler = permission_handler
 
         # Tool definition for LLM
-        self._tool = Tool(
-            name="execute",
-            description="Execute a shell command.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The command to execute. For simple commands, provide "
-                        "the executable here and use args for arguments. Shell operators "
-                        "(pipes, redirects, &&, etc.) may be included and will be run via "
-                        "a shell wrapper automatically. Do not include your own shell prefix "
-                        "(bash -c, etc.).",
+        self._tool = set_tool_source(
+            Tool(
+                name="execute",
+                description="Execute a shell command.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The command to execute. For simple commands, provide "
+                            "the executable here and use args for arguments. Shell operators "
+                            "(pipes, redirects, &&, etc.) may be included and will be run via "
+                            "a shell wrapper automatically. Do not include your own shell prefix "
+                            "(bash -c, etc.).",
+                        },
+                        "args": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional array of command arguments. When provided, "
+                            "command is treated as the executable path/name and args are passed "
+                            "through directly.",
+                        },
+                        "env": {
+                            "type": "object",
+                            "description": "Optional environment variables as key-value pairs.",
+                            "additionalProperties": {"type": "string"},
+                        },
+                        "cwd": {
+                            "type": "string",
+                            "description": "Optional absolute path for working directory.",
+                        },
+                        # Do not allow model to handle this for the moment.
+                        # "outputByteLimit": {
+                        #     "type": "integer",
+                        #     "description": "Maximum bytes of output to retain.  (prevents unbounded buffers).",
+                        # },
                     },
-                    "args": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Optional array of command arguments. When provided, "
-                        "command is treated as the executable path/name and args are passed "
-                        "through directly.",
-                    },
-                    "env": {
-                        "type": "object",
-                        "description": "Optional environment variables as key-value pairs.",
-                        "additionalProperties": {"type": "string"},
-                    },
-                    "cwd": {
-                        "type": "string",
-                        "description": "Optional absolute path for working directory.",
-                    },
-                    # Do not allow model to handle this for the moment.
-                    # "outputByteLimit": {
-                    #     "type": "integer",
-                    #     "description": "Maximum bytes of output to retain.  (prevents unbounded buffers).",
-                    # },
+                    "required": ["command"],
+                    "additionalProperties": False,
                 },
-                "required": ["command"],
-                "additionalProperties": False,
-            },
+            ),
+            "acp_terminal",
         )
 
         self.logger.info(
