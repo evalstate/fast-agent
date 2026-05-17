@@ -263,8 +263,29 @@ class ModelSelectionCatalog:
         ),
         Provider.NOUS: (
             # Curated models from inference-api.nousresearch.com
-            # (matches Hermes Agent's curated list — 24 models)
+            # Native Nous models first, then third-party via Portal gateway
             # Aliases use nous- prefix to avoid conflict with native provider presets
+            CatalogModelEntry(
+                alias="nous-h4-405b",
+                model="nous.nousresearch/hermes-4-405b",
+            ),
+            CatalogModelEntry(
+                alias="nous-h4-70b",
+                model="nous.nousresearch/hermes-4-70b",
+            ),
+            CatalogModelEntry(
+                alias="nous-h3-405b",
+                model="nous.nousresearch/hermes-3-llama-3.1-405b",
+            ),
+            CatalogModelEntry(
+                alias="nous-h3-70b",
+                model="nous.nousresearch/hermes-3-llama-3.1-70b",
+            ),
+            CatalogModelEntry(
+                alias="nous-h2-8b",
+                model="nous.nousresearch/hermes-2-pro-llama-3-8b",
+                fast=True,
+            ),
             CatalogModelEntry(
                 alias="nous-opus47",
                 model="nous.anthropic/claude-opus-4.7",
