@@ -1,28 +1,32 @@
 ---
-title: "fast-agent - MCP native agents and workflows"
+title: "fast-agent - Code, Build and Evaluate Agents"
 hide:
   - navigation
   - toc
+  - edit
+  - view
 ---
 
-<section class="fa-hero">
-  <div class="fa-hero__copy">
-    <p class="fa-kicker">MCP-native agents, workflows, and servers</p>
-    <h1><span class="fa-prompt">❯</span> fast-agent</h1>
+<section class="fa-hero fa-hero--home">
+  <div>
+  <p class="fa-kicker">Coding Agent and Development Toolkit</p> 
+    <span class="fa-hero__brand" aria-label="fast-agent">
+      <img class="fa-hero__wordmark fa-hero__wordmark--dark" src="assets/brand/fast-agent-anim-dark.svg" alt="fast-agent">
+      <img class="fa-hero__wordmark fa-hero__wordmark--light" src="assets/brand/fast-agent-anim-light.svg" alt="fast-agent">
+    </span>
     <p class="fa-lede">
-      Build useful agent applications from the terminal, connect them to MCP servers, test them
-      across models, and ship the same work as CLI, MCP, or ACP experiences.
+      Simple extendable agents. Excellent provider and local model support. Flexible context management. Terminal native and scriptable.
     </p>
-    <div class="fa-actions">
-      <a class="fa-button fa-button--primary" href="#try-it-now">Try it now</a>
-      <a class="fa-button" href="agents/defining/">Build an agent</a>
-      <a class="fa-button" href="ref/go_command/">Explore the CLI</a>
+    <div class="fa-hero__actions">
+      <a class="fa-btn fa-btn--primary" href="#try-it-now">Try it now</a>
+      <a class="fa-btn" href="agents/defining/">Build an agent</a>
+      <a class="fa-btn" href="ref/go_command/">Explore the CLI</a>
     </div>
   </div>
-  <div class="fa-terminal" aria-label="fast-agent terminal quickstart">
-    <div class="fa-terminal__bar">
-      <span></span><span></span><span></span>
-      <strong>terminal</strong>
+  <div class="fa-term" aria-label="fast-agent terminal quickstart">
+    <div class="fa-term__bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <strong>~/projects/fast-agent</strong>
     </div>
     <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
 <span class="fa-good">ready</span>  interactive agent with shell tools
@@ -35,45 +39,40 @@ hide:
   </div>
 </section>
 
-<section id="try-it-now" class="fa-band">
+<section id="try-it-now" class="fa-band fa-band--start">
   <div>
-    <p class="fa-kicker">Zero setup path</p>
-    <h2>Start from `uvx`, graduate to real applications</h2>
+    <h2>Get started now</h2>
   </div>
-  <div class="fa-command-row">
-    <code>uvx fast-agent-mcp@latest -x</code>
-    <code>uvx fast-agent-mcp@latest --pack hf-dev</code>
-    <code>uvx fast-agent-mcp@latest --pack codex</code>
-  </div>
+  <pre><code>uvx fast-agent-mcp@latest -x</code></pre>
 </section>
 
-<section class="fa-feature-grid">
-  <article>
-    <h2>Use MCP without ceremony</h2>
-    <p>
-      Attach local or remote MCP servers from config or the command line. Use Elicitations,
-      Sampling, Resources, Prompts, OAuth, UI resources, and transport diagnostics from one client.
-    </p>
-    <a href="mcp/">MCP guide</a>
-  </article>
-  <article>
-    <h2>Compose workflow patterns</h2>
-    <p>
-      Chain agents, run parallel checks, route work, orchestrate subtasks, evaluate outputs, or use
-      MAKER to turn classifier examples into reliable structured decisions.
-    </p>
-    <a href="agents/workflows/">Workflow docs</a>
-  </article>
-  <article>
-    <h2>Test model behavior quickly</h2>
+<section class="fa-grid fa-grid--4">
+  <article class="fa-card">
+    <h3>Test model behavior quickly</h3>
     <p>
       Switch among Anthropic, OpenAI, Responses, Google, Hugging Face, Groq, xAI, Bedrock, and local
       OpenAI-compatible endpoints. Built-in playback and passthrough models make app tests practical.
     </p>
     <a href="models/">Model features</a>
   </article>
-  <article>
-    <h2>Ship beyond the terminal</h2>
+  <article class="fa-card">
+    <h3>Use MCP without ceremony</h3>
+    <p>
+      Attach local or remote MCP servers from config or the command line. Use Elicitations,
+      Sampling, Resources, Prompts, OAuth, UI resources, and transport diagnostics from one client.
+    </p>
+    <a href="mcp/">MCP guide</a>
+  </article>
+  <article class="fa-card">
+    <h3>Compose workflow patterns</h3>
+    <p>
+      Chain agents, run parallel checks, route work, orchestrate subtasks, evaluate outputs, or use
+      MAKER to turn classifier examples into reliable structured decisions.
+    </p>
+    <a href="agents/workflows/">Workflow docs</a>
+  </article>
+  <article class="fa-card">
+    <h3>Ship beyond the terminal</h3>
     <p>
       Run the same agent definitions interactively, expose them as MCP servers, or connect them to
       ACP clients with slash commands, file access, and permission-aware tools.
@@ -93,20 +92,32 @@ hide:
     </p>
   </div>
   <div class="fa-steps">
-    <a href="ref/go_command/"><span>1</span> Probe with `fast-agent go`</a>
-    <a href="agents/skills/"><span>2</span> Add focused Agent Skills</a>
-    <a href="agents/workflows/"><span>3</span> Compose workflows</a>
-    <a href="mcp/mcp-server/"><span>4</span> Serve as MCP</a>
+    <a class="fa-step" href="ref/go_command/"><h3>Probe with `fast-agent go`</h3></a>
+    <a class="fa-step" href="agents/skills/"><h3>Add focused Agent Skills</h3></a>
+    <a class="fa-step" href="agents/workflows/"><h3>Compose workflows</h3></a>
+    <a class="fa-step" href="mcp/mcp-server/"><h3>Serve as MCP</h3></a>
   </div>
+      <div class="fa-band" style="margin-top: var(--sp-7);">
+      <div>
+        <h2 style="font-size: var(--t-h2);">Next: the theme overlay</h2>
+        <p>I'll build the MkDocs <code>overrides/</code> theme overlay next — header replacement, custom admonition mappings, code-block restyling, page templates. Plus a worked demo doc page rendered through it.</p>
+      </div>
+      <div>
+        <a class="fa-btn fa-btn--primary fa-btn--lg" href="fast-agent.ai integration.html">See integration v1 →</a>
+      </div>
+
 </section>
+
+<!-- 
 
 <section class="fa-proof">
   <h2>Why people try fast-agent first</h2>
-  <div class="fa-proof__grid">
-    <p><strong>Simple commands.</strong> `uvx`, `fast-agent go`, and card packs make first contact fast.</p>
-    <p><strong>MCP depth.</strong> The docs and tests cover advanced MCP behavior, not only tool calls.</p>
-    <p><strong>Reusable definitions.</strong> Agent cards, workflows, skills, and config files stay editable.</p>
-    <p><strong>Real deployment paths.</strong> Use the same work from CLI, Python, MCP, and ACP surfaces.</p>
+  <div class="fa-grid fa-grid--4">
+    <p class="fa-card"><strong>Simple commands.</strong> `uvx`, `fast-agent go`, and card packs make first contact fast.</p>
+    <p class="fa-card"><strong>MCP depth.</strong> The docs and tests cover advanced MCP behavior, not only tool calls.</p>
+    <p class="fa-card"><strong>Reusable definitions.</strong> Agent cards, workflows, skills, and config files stay editable.</p>
+    <p class="fa-card"><strong>Real deployment paths.</strong> Use the same work from CLI, Python, MCP, and ACP surfaces.</p>
   </div>
 </section>
 
+-->

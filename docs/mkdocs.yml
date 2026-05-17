@@ -1,7 +1,11 @@
 site_name: fast-agent documentation
-site_url: https://fast-agent.ai
+site_url: https://fast-agent.ai/
+site_description: MCP-native agents, workflows, and servers
 theme:
   name: material
+  custom_dir: overrides
+  logo: assets/brand/fast-agent-icon.svg
+  favicon: assets/brand/fast-agent-icon.svg
   icon:
     repo: fontawesome/brands/github
   features:
@@ -22,32 +26,37 @@ theme:
     - search.highlight
     - search.suggest
     - content.tabs.link
-  custom_dir: overrides
 
+  # Default to slate (dark) — the design system is dark-first.
+  # Light mode mirrors via [data-md-color-scheme="default"] in CSS.
   palette:
-    # Palette toggle for automatic mode
+    # Default scheme — match system preference, fall through to slate
     - media: "(prefers-color-scheme)"
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-auto
         name: Switch to light mode
 
-    # Palette toggle for light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
 
-    # Palette toggle for dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: blue
-      accent: amber
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
+
 extra_css:
   - stylesheets/fast-agent.css
+
 repo_url: https://github.com/evalstate/fast-agent
 repo_name: evalstate/fast-agent
 
@@ -73,7 +82,11 @@ markdown_extensions:
       alternate_style: true
 
 plugins:
-  - social
+  - social:
+      cards_layout_options:
+        background_color: "#0b0c0f"
+        color: "#f0ece2"
+        font_family: JetBrains Mono
   - search
   - mkdocs-video:
       is_video: True
@@ -85,6 +98,7 @@ plugins:
             - agents/*.md
             - models/*.md
             - mcp/*.md
+
 extra:
   social:
     - icon: fontawesome/brands/discord
@@ -93,12 +107,16 @@ extra:
       link: https://x.com/llmindsetuk
     - icon: fontawesome/brands/github
       link: https://github.com/evalstate
-copyright: © 2025 llmindset.co.uk
+
+copyright: © 2025-2026 llmindset.co.uk
 
 nav:
   - fast-agent: index.md
-#  - Getting Started:
-#    - Installation: getting_started/installation.md
+  - Guides:
+      - guides/codex.md
+      - guides/hf-dev.md
+      - Privacy Filter: guides/privacy_filter.md
+      - guides/structured-outputs.md
   - Agents:
       - agents/defining.md
       - Workflows: agents/workflows.md
@@ -124,11 +142,12 @@ nav:
       - Quickstart - State Transfer: mcp/state_transfer.md
       - mcp/openai-apps-sdk.md
       - mcp/mcp-ui.md
-      - MCP Server OAuth: mcp/mcp-oauth.md 
+      - MCP Server OAuth: mcp/mcp-oauth.md
       - mcp/types.md
       - mcp/resources.md
   - Reference:
       - fast-agent go: ref/go_command.md
+      - Export Command: ref/export_command.md
       - Batch Processing: ref/batch.md
       - AgentCards and ToolCards: ref/agent_cards.md
       - Config File: ref/config_file.md

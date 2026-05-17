@@ -1,5 +1,30 @@
 {% extends "base.html" %}
 
+{# Announce banner — preserved from existing main.html #}
 {% block announce %}
-Featured on <strong><a style="color: white;" href="https://www.pulsemcp.com/posts/newsletter-cursor-10b-levels-flies-mcp-hype#featured">PulseMCP</a></strong> - browse curated MCP Servers for your Agents <u><a href="https://www.pulsemcp.com/servers" style="color: white;">here</a></u>.  
+Featured on <strong><a href="https://www.pulsemcp.com/posts/newsletter-cursor-10b-levels-flies-mcp-hype#featured">PulseMCP</a></strong> — browse curated MCP Servers for your Agents <u><a href="https://www.pulsemcp.com/servers">here</a></u>.
+{% endblock %}
+
+{# Inject Google Fonts so JetBrains Mono is available even before the CSS loads it #}
+{% block extrahead %}
+  {{ super() }}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  {# Open Graph + Twitter — wire the social card SVG #}
+  <meta property="og:image" content="{{ config.site_url }}assets/brand/fast-agent-social.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{{ config.site_url }}assets/brand/fast-agent-social.svg">
+
+  {% if page and page.url in ["", "index.html"] %}
+    <style>
+      .md-content__inner > .md-content__button {
+        display: none;
+      }
+      .md-content__inner > h1#__skip {
+        display: none;
+      }
+    </style>
+  {% endif %}
 {% endblock %}
