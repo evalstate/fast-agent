@@ -12,7 +12,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent"
 ]
-requires-python = ">=3.13.5,<3.15"
+requires-python = ">=3.13.3,<3.15"
 dependencies = [
     "fastapi==0.136.1",
     "fastmcp==3.3.1",
