@@ -1,30 +1,35 @@
 ---
 title: Batch Processing
-description: A practical guide to running repeatable batch jobs with fast-agent.
+description: Run repeatable, resumable LLM workflows over datasets with fast-agent.
 social:
   title: Batch Processing
-  tagline: Turn rows into prompts and run them efficiently through fast-agent.
-  description: Turn rows into prompts and run them efficiently through fast-agent.
-  alt: fast-agent social card — Batch Processing with fast-agent
+  tagline: Efficient LLM processing of datasets.
+  description: Efficient LLM processing of datasets.
+  alt: fast-agent social card — Batch Processing
 ---
 
-# Batch Processing with fast-agent
+# Batch Processing
 
-Use batch processing when you need to conduct the same activity over many input
-records: classification, extraction, evaluation, enrichment, rewriting, or any
-other repeatable LLM workflow.
+Use batch processing when you have a dataset of records and want to run the
+same LLM workflow over each one: classify examples, extract fields, evaluate
+outputs, enrich metadata, rewrite text, or run experiments at scale.
 
-With **fast-agent**, each row is turned into a prompt, sent to a model or
-AgentCard worker, and written as one JSONL result envelope. It is designed for
-repeatable jobs where you want stable inputs, stable prompts, observable
-outputs, and a clear way to retry incomplete work.
+With **fast-agent**, each row is rendered into a prompt, combined with a stable
+system instruction, sent to a model or AgentCard worker, and written as one
+JSONL result envelope. Runs are built for practical iteration: stable inputs,
+reusable prompts, efficient provider features, observable outputs, and resumable
+retries when work is interrupted.
 
 ```bash
 fast-agent batch run \
   --input rows.jsonl \
   --output results.jsonl \
-  --model "responses.gpt-5.5"
+  --limit 10 \
+  --model "responses.gpt-5.4-mini?reasoning=low"
 ```
+
+Use `--limit` while developing your instruction and template, then remove it
+when you are ready to run against the full input.
 
 If you do not provide a template, fast-agent sends the whole input row as JSON:
 
@@ -39,18 +44,9 @@ start the batch.
 
 ## Why use fast-agent for batches?
 
-Batch jobs benefit from the same runtime features as interactive fast-agent
+Batch jobs benefit from the same runtime features as other **fast-agent**
 sessions:
 
-- **Prompt caching** where providers support it. Repeated system prompts, tools,
-  and template content can be reused efficiently across rows.
-- **WebSocket transport** for supported providers. OpenAI Responses models can
-  use `transport=ws` or `transport=auto` to reduce request overhead.
-- **OpenAI service tiers**. For supported OpenAI API keys and models, use
-  `service_tier=flex` when cost-sensitive throughput is more important than
-  lowest latency.
-- **Agent reuse**. The batch worker can be a direct model call, a custom system
-  prompt, or a full AgentCard with tools and workflow configuration.
 - **Parallel local workers**. Use `--parallel` to shard the selected input rows,
   run several workers concurrently, and merge the shard outputs into the final
   JSONL file.
@@ -59,6 +55,15 @@ sessions:
   continued instead of started from scratch.
 - **Operational visibility**. Optional progress, telemetry JSONL, error JSONL,
   and summary JSON make long-running jobs easier to monitor and audit.
+- **OpenAI service tiers**. For supported OpenAI API keys and models, use
+  `service_tier=flex` when cost-sensitive throughput is more important than
+  lowest latency.
+- **WebSocket transport** for supported providers. OpenAI and Grok models
+  use WebSockets to reduce request overhead (disable with `transport=sse`).
+- **Prompt caching** where providers support it. Repeated system prompts, tools,
+  and template content can be reused efficiently across rows.
+- **Agent reuse**. The batch worker can be a direct model call, a custom system
+  prompt, or a full AgentCard with tools and workflow configuration.
 
 For example, a cost-sensitive OpenAI Responses batch can use:
 
@@ -66,7 +71,7 @@ For example, a cost-sensitive OpenAI Responses batch can use:
 fast-agent batch run \
   --input rows.jsonl \
   --output results.jsonl \
-  --model "responses.gpt-5.5?service_tier=flex&transport=auto"
+  --model "responses.gpt-5.4-mini?service_tier=flex"
 ```
 
 ## 1. Create input data
@@ -111,7 +116,8 @@ also be copied to a separate error file with `--error-output`.
 
 ## 2. Add a system prompt
 
-Use `--instruction` to provide the system prompt for the batch worker:
+Use `--instruction` to provide the [system prompt](../agents/instructions.md)
+for the batch worker:
 
 ```text title="sentiment-instructions.md"
 You classify customer reviews.
@@ -402,6 +408,10 @@ Supported local and Hugging Face input formats are `.jsonl`, `.csv`, and
 local parquet files can also use DuckDB SQL selection:
 
 ```bash
+uv tool install 'fast-agent-mcp[batch-parquet]'
+```
+
+```bash
 fast-agent batch run \
   --input rows.parquet \
   --output results.jsonl \
@@ -411,44 +421,86 @@ fast-agent batch run \
 
 ## A complete small example
 
-```bash
-cat > reviews.jsonl <<'EOF'
-{"id": "r1", "review": "The battery lasts all day.", "product": "phone"}
-{"id": "r2", "review": "Arrived late and the box was damaged.", "product": "speaker"}
-EOF
+This example asks the model to search the web for three competitive products
+for each input product, then returns structured manufacturer and product names.
 
-cat > instructions.md <<'EOF'
-You classify customer reviews.
-Return JSON that matches the supplied schema.
-EOF
+=== "bash"
 
-cat > template.md <<'EOF'
-Classify this customer review.
+    ```bash
+    fast-agent batch run \
+      --input products.jsonl \
+      --output competitive-products.jsonl \
+      --instruction instructions.md \
+      --template template.md \
+      --schema competitive-products.schema.json \
+      --id-field id \
+      --parallel 2 \
+      --model "responses.gpt-5.4-mini?web_search=on&service_tier=flex"
+    ```
 
-Product: {{product}}
-Review: {{review}}
-EOF
+=== "products.jsonl"
 
-cat > sentiment.schema.json <<'EOF'
-{
-  "type": "object",
-  "properties": {
-    "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
-    "reason": {"type": "string"}
-  },
-  "required": ["sentiment", "reason"],
-  "additionalProperties": false
-}
-EOF
+    ```json title="products.jsonl"
+    {"id": "p1", "manufacturer": "Anker", "product": "PowerCore 10000 portable charger"}
+    {"id": "p2", "manufacturer": "Sony", "product": "WH-1000XM5 headphones"}
+    ```
 
-fast-agent batch run \
-  --input reviews.jsonl \
-  --output review-results.jsonl \
-  --instruction instructions.md \
-  --template template.md \
-  --schema sentiment.schema.json \
-  --parallel 2 \
-  --model "responses.gpt-5.5?service_tier=flex&transport=auto"
+=== "instructions.md"
+
+    ```text title="instructions.md"
+    You are a product research assistant.
+
+    Use web search to identify competitive products.
+    Return plain manufacturer and product names without citations or links.
+    Return JSON that matches the supplied schema.
+    ```
+
+=== "template.md"
+
+    ```text title="template.md"
+    Find 3 competitive products for this product.
+
+    Manufacturer: {{manufacturer}}
+    Product: {{product}}
+
+    For each competitor, capture the manufacturer and product name.
+    ```
+
+=== "competitive-products.schema.json"
+
+    ```json title="competitive-products.schema.json"
+    {
+      "type": "object",
+      "properties": {
+        "competitors": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "properties": {
+              "manufacturer": {
+                "type": "string"
+              },
+              "product": {
+                "type": "string"
+              }
+            },
+            "required": ["manufacturer", "product"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["competitors"],
+      "additionalProperties": false
+    }
+    ```
+
+The output is one JSONL envelope per input row:
+
+```json title="competitive-products.jsonl"
+{"id":"p1","row_number":1,"ok":true,"result":{"competitors":[{"manufacturer":"Belkin","product":"BoostCharge Power Bank 10K with Display"},{"manufacturer":"UGREEN","product":"Uno Power Bank 10000mAh 30W"},{"manufacturer":"Baseus","product":"Airpow Power Bank 20W 10000mAh"}]},"error":null}
+{"id":"p2","row_number":2,"ok":true,"result":{"competitors":[{"manufacturer":"Bose","product":"QuietComfort Ultra Headphones"},{"manufacturer":"Apple","product":"AirPods Max"},{"manufacturer":"Sennheiser","product":"MOMENTUM 4 Wireless"}]},"error":null}
 ```
 
 For the full option reference, see [Batch Processing](../ref/batch.md).

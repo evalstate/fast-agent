@@ -22,7 +22,7 @@ When running a **fast-agent** application (typically `uv run agent.py`), you hav
 | `--model MODEL` | Override the default model for the agent | `--model gpt-4o` |
 | `--agent AGENT` | Specify which agent to use (default: "default") | `--agent researcher` |
 | `-m, --message MESSAGE` | Send a single message to the agent and exit | `--message "Hello world"` |
-| `-p, --prompt-file FILE` | Load and apply a prompt file | `--prompt-file conversation.txt` |
+| `-p, --prompt-file <path-or-uri>` | Load and apply a prompt file from a path, HTTP(S) URL, `file://` URI, or `hf://` URI | `--prompt-file conversation.txt` |
 | `--quiet` | Disable progress display, tool and message logging | `--quiet` |
 | `--version` | Show version and exit | `--version` |
 | `--server` | Deprecated alias for server mode; use `--transport` instead | `--server` |
@@ -51,6 +51,9 @@ uv run agent.py --agent summarizer --message "Summarize this document"
 
 # Apply a prompt file
 uv run agent.py --prompt-file my_conversation.txt
+
+# Apply a prompt file from Hugging Face Hub generic storage
+uv run agent.py --prompt-file hf://buckets/evalstate/home/demo.md
 
 # Run as an HTTP server on port 8080
 uv run agent.py --transport http --port 8080

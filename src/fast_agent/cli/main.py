@@ -42,7 +42,8 @@ class LazyGroup(TyperGroup):
     lazy_subcommands: dict[str, str] = {}
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        normalize_resume_flag_args(args)
+        if _first_root_command(args) == "go":
+            normalize_resume_flag_args(args)
         return super().parse_args(ctx, args)
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -66,6 +67,25 @@ app = typer.Typer(
     add_completion=False,  # We'll add this later when we have more commands
 )
 LazyGroup.lazy_subcommands = LAZY_SUBCOMMANDS
+
+
+def _first_root_command(args: list[str]) -> str | None:
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            return args[index + 1] if index + 1 < len(args) else None
+        if arg in {"--env"}:
+            index += 2
+            continue
+        if arg.startswith("--env="):
+            index += 1
+            continue
+        if arg.startswith("-") and arg != "-":
+            index += 1
+            continue
+        return arg
+    return None
 
 # Shared application context
 application = Application()

@@ -19,7 +19,8 @@ The following variables are available in System Prompt templates:
 | <nobr>`{{internal:resource_id}}`</nobr> | Loads packaged internal markdown resources | Examples: `{{internal:smart_prompt}}`, `{{internal:smart_agent_cards}}` |
 | <nobr>`{{file:path}}`</nobr> | Reads and embeds local file contents (errors if file missing) |  **Must be a relative path** (resolved relative to `workspaceRoot`) |
 | <nobr>`{{file_silent:path}}`</nobr> | Reads and embeds local file contents (empty if file missing) |  **Must be a relative path** (resolved relative to `workspaceRoot`) |
-| <nobr>`{{url:https://...}}`</nobr> | Fetches and embeds content from a URL |
+| <nobr>`{{url:https://...}}`</nobr> | Fetches and embeds content from an HTTP(S) URL |
+| <nobr>`{{url:hf://...}}`</nobr> | Fetches and embeds text content from Hugging Face Hub |
 | <nobr>`{{serverInstructions}}`</nobr> | MCP server instructions with available tools |  Warning displayed in `/mcp` if Instructions are present and template variable missing |
 | <nobr>`{{agentSkills}}`</nobr> | Agent skill manifests with descriptions |  |
 | <nobr>`{{workspaceRoot}}`</nobr> | Current working directory / workspace root | Set by Client in ACP Mode |
@@ -76,7 +77,7 @@ Always confirm before destructive operations.
 
 When defining an Agent, you can load the instruction as either a `String`, `Path` or `AnyUrl`.
 
-Instructions support embedding the current date, as well as content from other URLs. This is really helpful if you want to refer to files on GitHub, or assemble useful prompts/content in Gists etc.
+Instructions support embedding the current date, as well as content from other URLs and `hf://` URIs. This is really helpful if you want to refer to files on GitHub, assemble useful prompts/content in Gists, or reuse prompt assets stored in Hugging Face Hub.
 
 ```python title="Simple String"
 @fast.agent(name="example",
@@ -109,6 +110,15 @@ to and quoting the schema where necessary.
 """)
 ```
 
+```python title="With Hugging Face Hub content"
+@fast.agent(name="hf-prompt",
+    instruction="""
+Use the following shared guidance:
+
+{{url:hf://buckets/evalstate/home/demo.md}}
+""")
+```
+
 You can store the prompt in an external file for easy editing - including template variables:
 
 ```python title="From file"
@@ -130,7 +140,7 @@ Your knowledge cut-off is December 2024, todays date is {{currentDate}}
 
 ```
 
-Or you can load the prompt directly from a URL:
+Or you can load the prompt directly from an HTTP(S) URL or `hf://` URI:
 
 ```python title="From URL"
 from pydantic import AnyUrl
