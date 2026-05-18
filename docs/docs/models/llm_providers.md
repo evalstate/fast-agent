@@ -151,6 +151,22 @@ Version policy is model-aware:
 - Other supported Anthropic models use legacy versions
   (`web_search_20250305`, `web_fetch_20250910`).
 
+**Provider-managed remote MCP:**
+
+The direct `anthropic` provider supports provider-managed remote MCP servers
+declared with `management: provider` under `mcp.servers` or card `mcp_connect`
+entries.
+
+- Supported on `anthropic`
+- Not supported on `anthropic-vertex`
+- Server must be a remote `http`/`sse` URL
+- Use `access_token` for bearer auth if required
+
+See [Configuration Reference](../ref/config_file/#mcp-server-configuration)
+for the MCP server schema and
+[AgentCards and ToolCards](../ref/agent_cards/#runtime-mcp-targets-mcp_connect)
+for card-scoped runtime targets.
+
 
 **Model Name Aliases:**
 
@@ -224,6 +240,25 @@ Per-run override via model string is also supported:
 Websocket transport is available for all models used through the `responses` provider. When
 websocket transport is active, follow-up turns may be sent incrementally for efficiency.
 
+**Provider-managed remote MCP and connectors:**
+
+The OpenAI `responses` provider supports provider-managed remote MCP servers and
+OpenAI hosted connectors declared with `management: provider` under
+`mcp.servers` or card `mcp_connect` entries.
+
+- Remote MCP servers must be remote `http`/`sse` URLs.
+- Connector entries use `connector_id` instead of `url`.
+- Set exactly one of `url` or `connector_id`.
+- Use `access_token` for bearer auth / connector authorization.
+- `defer_loading: true` enables server-side lazy tool loading.
+- Not supported by `codexresponses`, Codex OAuth aliases, `openresponses`, or
+  generic `openai` chat-completions models.
+
+See [Configuration Reference](../ref/config_file/#mcp-server-configuration)
+for the MCP server schema and
+[AgentCards and ToolCards](../ref/agent_cards/#runtime-mcp-targets-mcp_connect)
+for card-scoped runtime targets.
+
 
 ## Codex (OAuth Responses)
 
@@ -266,6 +301,9 @@ codexresponses:
 - Tokens are stored in your OS keyring via `fast-agent auth codexplan`.
 - `codexplan` maps to `codexresponses.gpt-5.3-codex` and `codexplan52` maps to
   `codexresponses.gpt-5.2-codex`; both use the same stored OAuth token.
+- Provider-managed MCP is **not** supported with `codexresponses`, including
+  Codex OAuth aliases such as `codexplan`, `codexplan52`, and `codexspark`.
+  Use `responses` instead when you need `management: provider`.
 - To remove tokens, use: `fast-agent auth codex-clear`.
 - `fast-agent check` and `fast-agent auth` show Codex OAuth status.
 - Encrypted reasoning is not transferable between API keys/credentials. Remove reasoning traces if transporting between sessions (use the bundled session skill).
@@ -310,6 +348,9 @@ openresponses:
 **Model Name Format:**
 
 Use `openresponses.<model_name>` to specify models, where `<model_name>` is the model identifier supported by your Open Responses endpoint.
+
+Provider-managed MCP is not supported by `openresponses`. Use the OpenAI
+`responses` provider when you need `management: provider`.
 
 ## Hugging Face
 

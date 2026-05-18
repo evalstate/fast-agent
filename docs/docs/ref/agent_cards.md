@@ -75,6 +75,51 @@ mcp_connect:
 - `headers` (optional): structured HTTP headers.
 - `auth` (optional): structured auth settings (for example `oauth: true`).
 
+For provider-managed remote MCP, use:
+
+```yaml
+mcp_connect:
+  - target: "https://huggingface.co/mcp"
+    name: "huggingface"
+    management: provider
+    access_token: "${HF_TOKEN}"
+    description: "Hugging Face MCP"
+```
+
+- `management: provider` delegates remote MCP execution to the LLM provider.
+- `target` must be a URL-based remote server when `management: provider` is used.
+- `access_token` is the bearer token for the remote MCP server.
+- `description` is optional provider-facing metadata.
+- `defer_loading` is an OpenAI Responses hint for lazy remote tool loading.
+- Do not use `headers` or `auth` with provider-managed entries; use `access_token` instead.
+
+Provider-managed card targets are supported only for agents using:
+
+- `anthropic`
+- `responses`
+
+They are not supported for `codexresponses`, Codex OAuth aliases, `openresponses`,
+`anthropic-vertex`, or other providers.
+
+OpenAI Responses connectors can also be declared as structured provider-managed
+card entries. Use `connector_id` instead of `target`:
+
+```yaml
+mcp_connect:
+  - name: dropbox
+    management: provider
+    connector_id: connector_dropbox
+    access_token: "${DROPBOX_OAUTH_ACCESS_TOKEN}"
+    description: "Dropbox connector"
+    defer_loading: true
+```
+
+Connector-backed entries are supported only by the OpenAI `responses` provider.
+They require `access_token`; omit `target`, `transport`, `headers`, and `auth`.
+
+For provider-managed servers, use exact tool names in `tools.<server_name>`.
+Wildcard tool filters, prompt filters, and resource filters are not supported.
+
 `target` is a pure target string. Do not embed fast-agent CLI flags (like
 `--auth` or `--oauth`) in card targets. Use `headers`/`auth` fields instead.
 

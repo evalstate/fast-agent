@@ -61,6 +61,70 @@ mcp_connect:
 `mcp.servers` remains the place for reusable, preconfigured aliases.
 `mcp_connect` is card-scoped runtime declaration.
 
+## Provider-managed MCP
+
+For remote HTTP/SSE MCP servers, you can ask the model provider to manage the
+connection natively instead of having fast-agent connect to the server locally.
+
+```yaml title="fast-agent.yaml"
+mcp:
+  servers:
+    huggingface:
+      management: provider
+      transport: "http"
+      url: "https://huggingface.co/mcp"
+      access_token: "${HF_TOKEN}"
+      description: "Hugging Face MCP"
+```
+
+AgentCards can use the same mode in `mcp_connect`:
+
+```yaml
+mcp_connect:
+  - target: "https://huggingface.co/mcp"
+    name: "huggingface"
+    management: provider
+    access_token: "${HF_TOKEN}"
+```
+
+Use provider-managed MCP when you want the upstream model API to handle remote
+tool discovery and execution itself.
+
+Notes:
+
+- Supported providers: `anthropic` and OpenAI `responses`.
+- Not supported with `codexresponses` / Codex OAuth aliases such as
+  `codexplan`, `codexplan52`, and `codexspark`.
+- Not supported with `openresponses`, `openai`, `anthropic-vertex`, or other
+  client-managed providers.
+- Provider-managed remote MCP is URL-only: use remote `http`/`sse` servers, not
+  stdio/package targets.
+- Use `access_token` for bearer auth. Provider-managed remote MCP does not use
+  arbitrary local `headers` / `auth` settings.
+- Tool filters must use exact tool names. Wildcards, prompt filters, and
+  resource filters are not supported for provider-managed attachments.
+
+### OpenAI Responses connectors
+
+The OpenAI `responses` provider can also manage OpenAI hosted connectors through
+the same `management: provider` lane. Configure exactly one of `url` or
+`connector_id`:
+
+```yaml title="fast-agent.yaml"
+mcp:
+  servers:
+    dropbox:
+      management: provider
+      connector_id: connector_dropbox
+      access_token: "${DROPBOX_OAUTH_ACCESS_TOKEN}"
+      description: "Dropbox connector"
+      defer_loading: true
+```
+
+For connector-backed entries, omit `transport` and `url`. `access_token` is
+required. `defer_loading: true` enables server-side lazy tool loading for
+Responses provider-managed remote MCP and connectors.
+
 ## Adding a STDIO Server
 
 The below shows an example of configuring an MCP Server named `server_one`.

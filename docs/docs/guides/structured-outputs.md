@@ -18,7 +18,7 @@ The best technique for producing an output is automatically used depending on th
 
 **`fast-agent`** generates Structured Outputs from the CLI by specifying either a JSON Schema or Pydantic Model. 
 
-Use the `--json-schema` option to supply a schema, and prompt with `--message <TEXT>` or `--prompt-file <PATH>`.
+Use the `--json-schema` option to supply a schema path or URI, and prompt with `--message <TEXT>` or `--prompt-file <PATH_OR_URI>`.
 
 === "bash"
 

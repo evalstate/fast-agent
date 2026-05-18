@@ -92,4 +92,4 @@ Notes:
 - Uploads require `huggingface_hub`. The dataset repo is created automatically if it
   does not already exist.
 
-For the full CLI reference, see [fast-agent export](../ref/export_command.md).
+For the full CLI reference, see [fast-agent export](../ref/export_command/).

@@ -86,7 +86,33 @@ The `fast-agent go` command lets you run an interactive agent directly without c
 
 For ephemeral runs with no implicit environment-side effects, use `--noenv` (alias `--no-env`).
 
+For machine-readable one-shot JSON output, use:
+
+```bash
+fast-agent go --noenv --message "..." --json-schema ./schema.json
+```
+
+This validates the response locally and writes only JSON to stdout.
+
 For card-based loading and the distinction between `--agent-cards` and `--card-tool`, see [AgentCards and ToolCards](agent_cards/).
+
+## fast-agent export Command
+
+Use `fast-agent export` to list persisted sessions or export one as a Codex-style
+JSONL trace.
+
+```bash
+# List recent sessions
+fast-agent export --list
+
+# Export locally
+fast-agent export latest --output trace.jsonl
+
+# Upload to a Hugging Face dataset
+fast-agent export latest --hf-dataset your-name/fast-agent-traces
+```
+
+See the full reference [here](export_command/).
 
 ## fast-agent check Command
 
