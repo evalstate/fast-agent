@@ -66,6 +66,182 @@ def test_batch_run_direct_mode_with_passthrough(tmp_path):
     }
 
 
+def test_batch_run_missing_input_reports_error_without_traceback(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "missing.jsonl"
+    output_path = tmp_path / "out.jsonl"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert f"Error: Input file not found: {input_path}" in result.output
+    assert "Traceback" not in result.output
+    assert not output_path.exists()
+
+
+def test_batch_run_parallel_missing_parquet_input_reports_error_without_traceback(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "missing.parquet"
+    output_path = tmp_path / "out.jsonl"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--parallel",
+            "2",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert f"Error: Input file not found: {input_path}" in result.output
+    assert "Traceback" not in result.output
+    assert not output_path.exists()
+
+
+def test_batch_run_missing_template_reports_error_without_traceback(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    template_path = tmp_path / "missing.md"
+    output_path = tmp_path / "out.jsonl"
+    input_path.write_text('{"id":"1","x":2}\n', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--template",
+            str(template_path),
+            "--model",
+            "passthrough",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert f"Error: File not found: {template_path}" in result.output
+    assert "Traceback" not in result.output
+    assert not output_path.exists()
+
+
+def test_batch_run_accepts_inline_prompt_template(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    summary_path = tmp_path / "summary.json"
+    input_path.write_text('{"id":"1","product":"battery"}\n', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--prompt",
+            "Classify this {{product}} into A, B, or C",
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--include-input",
+            "--summary-output",
+            str(summary_path),
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    record = json.loads(output_path.read_text(encoding="utf-8"))
+    assert record == {
+        "id": 1,
+        "row_number": 1,
+        "ok": True,
+        "result": "Classify this battery into A, B, or C",
+        "error": None,
+        "input": {"id": "1", "product": "battery"},
+    }
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["input"] == str(input_path)
+    assert summary["selected_rows"] == 1
+
+
+def test_batch_run_rejects_prompt_and_template_together(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    template_path = tmp_path / "row.md"
+    input_path.write_text('{"id":"1","x":2}\n', encoding="utf-8")
+    template_path.write_text("{{x}}", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--prompt",
+            "prompt",
+            "--template",
+            str(template_path),
+            "--output",
+            str(tmp_path / "out.jsonl"),
+            "--model",
+            "passthrough",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--prompt and --template cannot be used together" in result.output
+
+
 def test_batch_run_without_schema_writes_text_result(tmp_path):
     env_dir = tmp_path / "env"
     env_dir.mkdir()

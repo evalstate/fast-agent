@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completion
 from prompt_toolkit.keys import Keys
@@ -12,6 +13,7 @@ from fast_agent.ui.prompt.keybindings import (
     _accept_completion,
     _cycle_completion,
     create_keybindings,
+    paste_clipboard_image_attachment_into_buffer,
 )
 
 
@@ -155,3 +157,40 @@ def test_ctrl_c_binding_exits_with_prompt_input_interrupt() -> None:
     binding.handler(SimpleNamespace(current_buffer=Buffer(), app=app))
 
     assert isinstance(app.exception, PromptInputInterrupt)
+
+
+@pytest.mark.asyncio
+async def test_alt_v_pastes_clipboard_image_as_attachment(monkeypatch, tmp_path) -> None:
+    image_path = tmp_path / "clipboard.png"
+    image_path.write_bytes(b"png")
+    buffer = Buffer()
+    buffer.text = "describe this"
+
+    class _PastedImage:
+        path = image_path
+        width = 12
+        height = 34
+
+    async def fake_to_thread(*_args: Any, **_kwargs: Any) -> _PastedImage:
+        return _PastedImage()
+
+    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.asyncio.to_thread", fake_to_thread)
+    await paste_clipboard_image_attachment_into_buffer(buffer)
+
+    assert buffer.text.startswith("describe this ^file:")
+    assert str(image_path) in buffer.text
+    assert buffer.cursor_position == len(buffer.text)
+
+
+def test_clipboard_image_bindings_are_registered() -> None:
+    kb = create_keybindings(enable_clipboard_image_paste=True)
+
+    assert any(item.keys == (Keys.Escape, Keys.ControlV) for item in kb.bindings)
+    assert any(item.keys == (Keys.Escape, "v") for item in kb.bindings)
+
+
+def test_clipboard_image_bindings_are_not_registered_without_vision_support() -> None:
+    kb = create_keybindings(enable_clipboard_image_paste=False)
+
+    assert not any(item.keys == (Keys.Escape, Keys.ControlV) for item in kb.bindings)
+    assert not any(item.keys == (Keys.Escape, "v") for item in kb.bindings)

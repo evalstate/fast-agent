@@ -12,6 +12,7 @@ nav = [
     { "Core Concepts" = "guides/core-concepts.md" },
     "guides/codex.md",
     "guides/hf-dev.md",
+    "guides/batch-processing.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
     "guides/structured-outputs.md",
   ] },

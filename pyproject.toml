@@ -38,6 +38,7 @@ dependencies = [
     "email-validator==2.2.0",
     "pyperclip==1.11.0",
     "keyring==25.7.0",
+    "pillow>=12.1.1",
     "python-frontmatter==1.1.0",
     "watchfiles==1.1.1",
     "agent-client-protocol==0.10.0",
@@ -147,7 +148,6 @@ dev = [
     "ipdb>=0.13.13",
     "mkdocs-llmstxt==0.1.0",
     "mkdocs-video>=1.5.0",
-    "pillow>=12.1.1",
     "zensical>=0.0.40,<0.1",
 ]
 

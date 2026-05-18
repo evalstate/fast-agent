@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 class StructuredBatchOptions:
     input_path: str | Path
     output_path: Path
+    prompt_template: str | None = None
     schema_path: Path | None = None
     schema_model: str | None = None
     template_path: Path | None = None
@@ -140,13 +141,6 @@ def load_schema_source(options: StructuredBatchOptions) -> SchemaSource | None:
     if options.schema_path is not None:
         return load_json_schema(options.schema_path)
     return None
-
-
-def load_text_file(path: Path, label: str) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ValueError(f"Could not read {label} file {path}: {exc}") from exc
 
 
 def _identity_for_candidate(candidate: RowCandidate, id_field: str | None) -> tuple[str | int, RowError | None]:
@@ -340,13 +334,13 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
 
     schema_source = load_schema_source(options)
     template = (
-        load_text_file(options.template_path, "template")
+        options.template_path.read_text(encoding="utf-8")
         if options.template_path is not None
-        else DEFAULT_ROW_TEMPLATE
+        else options.prompt_template if options.prompt_template is not None else DEFAULT_ROW_TEMPLATE
     )
     if options.agent_card_source is None:
         instruction: str | None = (
-            load_text_file(options.instruction_path, "instruction")
+            options.instruction_path.read_text(encoding="utf-8")
             if options.instruction_path is not None
             else resolve_default_instruction(options.model, "interactive")
         )

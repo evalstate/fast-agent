@@ -540,22 +540,30 @@ def test_plugins_update_reinstalls_managed_plugin(tmp_path: Path) -> None:
         update_global_settings(old_settings)
 
 
-def test_plugin_global_install_requires_fast_agent_home(tmp_path: Path, monkeypatch) -> None:
+def test_plugin_global_install_defaults_to_user_fast_agent_home(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
     _write_plugin(repo, "finder")
     _commit_all(repo, "initial")
     marketplace_path = tmp_path / "marketplace.json"
     _write_marketplace(marketplace_path, repo)
+    user_home = tmp_path / "user-home"
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.setenv("HOME", user_home.as_posix())
 
     result = CliRunner().invoke(
         plugins_command.app,
         ["--registry", marketplace_path.as_posix(), "add", "finder", "--global"],
     )
 
-    assert result.exit_code == 1
-    assert "FAST_AGENT_HOME is not set" in result.output
+    assert result.exit_code == 0, result.output
+    assert (user_home / ".fast-agent" / "plugins" / "finder" / "plugin.yaml").exists()
+    assert "finder" in (user_home / ".fast-agent" / "fast-agent.yaml").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_card_pack_schema_v2_installs_required_plugins(tmp_path: Path) -> None:

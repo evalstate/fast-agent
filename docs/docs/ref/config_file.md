@@ -542,6 +542,10 @@ plugins:
     - edit-assistant
   marketplace_urls:
     - "https://github.com/fast-agent-ai/card-packs"
+  config:
+    agent-finder:
+      page_size: 10
+      prompt_when_multiple: true
 ```
 
 | Setting | Description | Default |
@@ -549,6 +553,7 @@ plugins:
 | `enabled` | Plugin names to load from the active environment's `plugins/` directory | `[]` |
 | `marketplace_url` | Single plugin registry for `fast-agent plugins add` | fast-agent card-packs registry |
 | `marketplace_urls` | Ordered plugin registries | fast-agent card-packs registry |
+| `config` | Namespaced plugin-specific configuration, keyed by plugin name | `{}` |
 
 Plugin registries configure direct plugin operations such as
 `fast-agent plugins add` and `fast-agent plugins update`. Required plugins for a
@@ -557,11 +562,19 @@ necessarily from these plugin registry settings. If you publish a custom card
 pack that declares `plugins.required`, include matching `command_plugins`
 entries in the same marketplace file as the pack.
 
-When `FAST_AGENT_HOME` is set, plugin names enabled in
-`$FAST_AGENT_HOME/fast-agent.yaml` are merged with the active project config.
-Only the home file's `plugins` block is layered in: home-enabled plugins load
-from `$FAST_AGENT_HOME/plugins`, and project-enabled plugins load from the
-active environment's `plugins/` directory.
+Plugin-specific settings belong under `plugins.config.<plugin-name>`. The shape
+inside each plugin's namespace is owned by that plugin.
+
+Global plugins are layered separately from the active environment. When
+`FAST_AGENT_HOME` is set, plugin names enabled in
+`$FAST_AGENT_HOME/fast-agent.yaml` are merged with the active project config,
+including when `--env <dir>` selects a different active environment. If
+`FAST_AGENT_HOME` is not set, `~/.fast-agent/fast-agent.yaml` is used as the
+global plugin layer when it exists. Only the global file's `plugins` block is
+layered in: global plugins load from the global `plugins/` directory, and
+project-enabled plugins load from the active environment's `plugins/`
+directory. Project plugin commands override global commands with the same name,
+and inline `commands:` entries override both.
 See [Command Plugins](../agents/plugins/) for install, update, and card-pack
 usage.
 

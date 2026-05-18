@@ -34,6 +34,7 @@ async def test_input_startup_shows_home_summary_without_shell(
         shell_context=prompt_input.ShellInputContext(enabled=False),
         shell_agent=None,
         agent_provider=cast("AgentApp", provider),
+        supports_clipboard_image_paste=False,
     )
 
     assert calls == [provider]

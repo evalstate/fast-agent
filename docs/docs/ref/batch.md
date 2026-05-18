@@ -21,6 +21,19 @@ uv run fast-agent batch run \
   --model passthrough
 ```
 
+Use `--prompt` for a short inline row prompt template:
+
+```bash
+uv run fast-agent batch run \
+  --input rows.jsonl \
+  --prompt "Classify this {{product}} into A, B, or C." \
+  --output out.jsonl \
+  --model passthrough
+```
+
+`--prompt` and `--template` are mutually exclusive. Use `--template` when the
+row prompt is easier to maintain in a file.
+
 Supported input formats:
 
 | Source | Supported formats | Notes |

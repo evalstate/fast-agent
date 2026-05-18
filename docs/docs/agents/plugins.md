@@ -49,24 +49,46 @@ dependencies use the card-pack registry that supplied the selected pack; see
 
 ## Global Plugins
 
-Global plugin installs write to `FAST_AGENT_HOME` and enable the plugin in
-`$FAST_AGENT_HOME/fast-agent.yaml`:
+Global plugin installs write to `FAST_AGENT_HOME` when it is set; otherwise
+they use `~/.fast-agent`. The plugin is enabled in that directory's
+`fast-agent.yaml`:
 
 ```bash
 FAST_AGENT_HOME=~/.fast-agent fast-agent plugins add agent-finder --global
 ```
 
 When `FAST_AGENT_HOME` is set, plugin names from
-`$FAST_AGENT_HOME/fast-agent.yaml` are merged with the project configuration.
+`$FAST_AGENT_HOME/fast-agent.yaml` are merged with the active environment,
+including when you run with `--env <dir>`. If `FAST_AGENT_HOME` is not set,
+`~/.fast-agent/fast-agent.yaml` is used as the global plugin layer when it
+exists.
+
 Only the global file's `plugins` block is merged; other settings still come
-from the normal active config. Global plugins are loaded from
-`$FAST_AGENT_HOME/plugins`, while project plugins are loaded from the active
+from the normal active config. Global plugins are loaded from the global
+`plugins/` directory, while project plugins are loaded from the active
 environment's `plugins/` directory. This allows a central set of slash commands
 to be available across projects while still letting each project enable
 additional plugins.
 
-If `FAST_AGENT_HOME` is not set, `--global` exits with a warning instead of
-guessing a location.
+Project plugin commands override global commands with the same name. Inline
+`commands:` entries in the active config override both.
+
+Plugin-specific configuration can be stored under `plugins.config`:
+
+```yaml
+plugins:
+  enabled:
+    - agent-finder
+  config:
+    agent-finder:
+      urls:
+        - https://evalstate-hf-agentfinder.hf.space/search
+      page_size: 10
+      prompt_when_multiple: true
+```
+
+Plugins can read their namespaced configuration from
+`ctx.settings.plugins.config` and fall back to defaults when it is missing.
 
 ## Plugin Manifests
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 
 import typer
 
@@ -43,6 +44,22 @@ def _fail_validation(message: str) -> None:
     raise typer.Exit(2)
 
 
+def _fail_runtime(message: str) -> None:
+    typer.echo(f"Error: {message}", err=True)
+    raise typer.Exit(1)
+
+
+def _validate_local_input_exists(input_path: str) -> None:
+    parsed = urlparse(input_path)
+    if parsed.scheme:
+        return
+    path = Path(input_path).expanduser()
+    if not path.exists():
+        _fail_runtime(f"Input file not found: {input_path}")
+    if not path.is_file():
+        _fail_runtime(f"Input path is not a file: {input_path}")
+
+
 def _run_async(coro):
     configure_uvloop()
     return asyncio.run(coro)
@@ -56,6 +73,12 @@ def run(
         "--input",
         "-i",
         help="Input .jsonl/.csv/.parquet path or hf:// URI to a Hugging Face dataset",
+    ),
+    prompt: str | None = typer.Option(
+        None,
+        "--prompt",
+        "-p",
+        help="Inline row prompt template; mutually exclusive with --template",
     ),
     output_path: Path = typer.Option(..., "--output", "-o", help="Output JSONL file"),
     schema_path: Path | None = typer.Option(
@@ -196,6 +219,8 @@ def run(
     for value, name in ((parallel, "--parallel"), (progress_every, "--progress-every")):
         _validate_positive(value, name)
 
+    if prompt is not None and template_path is not None:
+        _fail_validation("--prompt and --template cannot be used together")
     if resume and overwrite:
         _fail_validation("--resume and --overwrite cannot be used together")
     if instruction_path is not None and agent_card_source is not None:
@@ -212,6 +237,7 @@ def run(
         _fail_validation("--sql cannot be used with --limit, --offset, or --sample")
     if sql is not None and parallel is not None and parallel > 1:
         _fail_validation("--sql cannot be used with --parallel")
+    _validate_local_input_exists(input_path)
 
     context = ensure_context_object(ctx)
     env_dir = context.get("env_dir")
@@ -221,6 +247,7 @@ def run(
     options = StructuredBatchOptions(
         input_path=input_path,
         output_path=output_path,
+        prompt_template=prompt,
         schema_path=schema_path,
         schema_model=schema_model,
         template_path=template_path,
@@ -261,6 +288,12 @@ def run(
             summary = _run_async(run_structured_batch(options))
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except FileNotFoundError as exc:
+        typer.echo(f"Error: File not found: {exc.filename or input_path}", err=True)
+        raise typer.Exit(1) from exc
+    except OSError as exc:
+        typer.echo(f"Error: File error: {exc}", err=True)
         raise typer.Exit(1) from exc
 
     if final_summary:

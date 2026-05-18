@@ -168,7 +168,7 @@ def plugins_add(
     ctx: typer.Context,
     selector: Annotated[str | None, typer.Argument(help="Plugin name or marketplace index.", show_default=False)] = None,
     registry: RegistryOption = None,
-    global_install: Annotated[bool, typer.Option("--global", help="Install and enable in FAST_AGENT_HOME.")] = False,
+    global_install: Annotated[bool, typer.Option("--global", help="Install and enable globally (FAST_AGENT_HOME, or ~/.fast-agent).")] = False,
     force: Annotated[bool, typer.Option("--force", help="Replace an existing plugin.")] = False,
 ) -> None:
     """Install and enable a command plugin."""
@@ -214,7 +214,7 @@ def plugins_add(
 def plugins_remove(
     ctx: typer.Context,
     selector: Annotated[str | None, typer.Argument(help="Installed plugin name or index.", show_default=False)] = None,
-    global_remove: Annotated[bool, typer.Option("--global", help="Remove from FAST_AGENT_HOME.")] = False,
+    global_remove: Annotated[bool, typer.Option("--global", help="Remove globally (FAST_AGENT_HOME, or ~/.fast-agent).")] = False,
 ) -> None:
     """Remove an installed plugin."""
     destination_root, config_path = _target_install_context(ctx, global_install=global_remove)
@@ -261,14 +261,27 @@ def plugins_update(
 
 def _target_install_context(ctx: typer.Context, *, global_install: bool) -> tuple[Path, Path]:
     if global_install:
-        home = os.getenv("FAST_AGENT_HOME")
-        if not home:
-            typer.echo("FAST_AGENT_HOME is not set; cannot use --global plugin install.", err=True)
-            raise typer.Exit(1)
-        root = Path(home).expanduser().resolve()
+        root = _global_plugin_root()
         return root / "plugins", root / PREFERRED_CONFIG_FILENAME
 
     settings = _settings(ctx)
     env_paths = resolve_environment_paths(settings)
     config_path = Path(settings._config_file) if settings._config_file else env_paths.root / PREFERRED_CONFIG_FILENAME
     return env_paths.plugins, config_path
+
+
+def _global_plugin_root() -> Path:
+    configured = os.getenv("FAST_AGENT_HOME")
+    if configured:
+        root = Path(configured).expanduser()
+        if not root.is_absolute():
+            root = Path.cwd() / root
+        return root.resolve()
+    try:
+        return (Path.home() / ".fast-agent").resolve()
+    except RuntimeError as exc:
+        typer.echo(
+            "FAST_AGENT_HOME is not set and the user home directory could not be resolved.",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
