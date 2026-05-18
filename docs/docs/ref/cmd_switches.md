@@ -22,7 +22,7 @@ When running a **fast-agent** application (typically `uv run agent.py`), you hav
 | `--model MODEL` | Override the default model for the agent | `--model gpt-4o` |
 | `--agent AGENT` | Specify which agent to use (default: "default") | `--agent researcher` |
 | `-m, --message MESSAGE` | Send a single message to the agent and exit | `--message "Hello world"` |
-| `-p, --prompt-file FILE` | Load and apply a prompt file | `--prompt-file conversation.txt` |
+| `-p, --prompt-file <path-or-uri>` | Load and apply a prompt file from a path, HTTP(S) URL, `file://` URI, or `hf://` URI | `--prompt-file conversation.txt` |
 | `--quiet` | Disable progress display, tool and message logging | `--quiet` |
 | `--version` | Show version and exit | `--version` |
 | `--server` | Deprecated alias for server mode; use `--transport` instead | `--server` |
@@ -51,6 +51,9 @@ uv run agent.py --agent summarizer --message "Summarize this document"
 
 # Apply a prompt file
 uv run agent.py --prompt-file my_conversation.txt
+
+# Apply a prompt file from Hugging Face Hub generic storage
+uv run agent.py --prompt-file hf://buckets/evalstate/home/demo.md
 
 # Run as an HTTP server on port 8080
 uv run agent.py --transport http --port 8080
@@ -83,7 +86,33 @@ The `fast-agent go` command lets you run an interactive agent directly without c
 
 For ephemeral runs with no implicit environment-side effects, use `--noenv` (alias `--no-env`).
 
+For machine-readable one-shot JSON output, use:
+
+```bash
+fast-agent go --noenv --message "..." --json-schema ./schema.json
+```
+
+This validates the response locally and writes only JSON to stdout.
+
 For card-based loading and the distinction between `--agent-cards` and `--card-tool`, see [AgentCards and ToolCards](agent_cards/).
+
+## fast-agent export Command
+
+Use `fast-agent export` to list persisted sessions or export one as a Codex-style
+JSONL trace.
+
+```bash
+# List recent sessions
+fast-agent export --list
+
+# Export locally
+fast-agent export latest --output trace.jsonl
+
+# Upload to a Hugging Face dataset
+fast-agent export latest --hf-dataset your-name/fast-agent-traces
+```
+
+See the full reference [here](export_command/).
 
 ## fast-agent check Command
 

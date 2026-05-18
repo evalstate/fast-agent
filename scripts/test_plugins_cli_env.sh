@@ -8,6 +8,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PACK_REPO="$WORK_DIR/card-packs-local"
 PROJECT_DIR="$WORK_DIR/project"
 PROJECT_ENV="$PROJECT_DIR/.fast-agent"
+USER_HOME="$WORK_DIR/user-home"
 GLOBAL_HOME="$WORK_DIR/global-home"
 
 run_fast_agent() {
@@ -26,7 +27,7 @@ git_init() {
   git -C "$1" config user.name "Test User"
 }
 
-mkdir -p "$PACK_REPO" "$PROJECT_DIR" "$GLOBAL_HOME"
+mkdir -p "$PACK_REPO" "$PROJECT_DIR" "$USER_HOME" "$GLOBAL_HOME"
 git_init "$PACK_REPO"
 
 mkdir -p "$PACK_REPO/plugins/finder"
@@ -127,14 +128,10 @@ YAML
 (
   cd "$PROJECT_DIR"
 
-  if (unset FAST_AGENT_HOME; run_fast_agent plugins --registry "$PACK_REPO/marketplace.json" add finder --global) >"$WORK_DIR/global.err" 2>&1; then
-    echo "Expected --global install without FAST_AGENT_HOME to fail"
-    exit 1
-  fi
-  grep -q "FAST_AGENT_HOME is not set" "$WORK_DIR/global.err" || {
-    cat "$WORK_DIR/global.err"
-    exit 1
-  }
+  unset FAST_AGENT_HOME
+  HOME="$USER_HOME" run_fast_agent plugins --registry "$PACK_REPO/marketplace.json" add finder --global
+  test -f "$USER_HOME/.fast-agent/plugins/finder/plugin.yaml"
+  grep -q "finder" "$USER_HOME/.fast-agent/fast-agent.yaml"
 
   run_fast_agent plugins --registry "$PACK_REPO/marketplace.json" add finder
   test -f "$PROJECT_ENV/plugins/finder/plugin.yaml"
@@ -187,7 +184,10 @@ git -C "$PACK_REPO" commit -m "update finder plugin" >/dev/null
 (
   cd "$PROJECT_DIR"
   run_fast_agent plugins update > "$WORK_DIR/plugins.update"
-  grep -q "plugin content changed" "$WORK_DIR/plugins.update"
+  grep -q "update available" "$WORK_DIR/plugins.update" || {
+    cat "$WORK_DIR/plugins.update"
+    exit 1
+  }
   run_fast_agent plugins update finder
   grep -q "finder v2" "$PROJECT_ENV/plugins/finder/commands.py"
 )

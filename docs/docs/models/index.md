@@ -36,13 +36,13 @@ Full alias tables and model capabilities are generated from the source tree to r
 
 These providers have native fast-agent support and provider-specific feature handling.
 
-| Provider | Start with | Main features |
-| --- | --- | --- |
-| OpenAI Responses | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex` | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers |
-| Anthropic | `sonnet`, `opus`, `opus47`, `haiku` | Claude 4.x, prompt caching, reasoning budgets/adaptive thinking, structured outputs, `web_search`, `web_fetch`, long context, task budget where supported |
-| Google | `gemini`, `gemini3`, `gemini3.1`, `gemini3flash` | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments |
-| xAI | `grok`, `grok4`, `grok-4.3` | Grok via Responses-compatible API, structured outputs, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports |
-| Hugging Face | `kimi`, `kimi26`, `deepseek`, `glm`, `minimax`, `qwen35`, `gpt-oss` | Inference Providers routing, explicit provider suffixes, curated aliases, structured/tool-use tested aliases, reasoning toggles where supported |
+| Provider         | Start with                                                          | Main features                                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI Responses | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex`                    | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers, connectors (e.g. GMail, Dropbox etc) |
+| Anthropic        | `sonnet`, `opus`, `opus47`, `haiku`                                 | Claude 4.x, prompt caching, reasoning budgets/adaptive thinking, structured outputs, `web_search`, `web_fetch`, long context, task budget where supported      |
+| Google           | `gemini`, `gemini3`, `gemini3.1`, `gemini3flash`                    | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments                            |
+| xAI              | `grok`, `grok4`, `grok-4.3`                                         | Grok via Responses-compatible API, structured outputs, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                  |
+| Hugging Face     | `kimi`, `kimi26`, `deepseek`, `glm`, `minimax`, `qwen35`, `gpt-oss` | Inference Providers routing, explicit provider suffixes, curated aliases, structured/tool-use tested aliases, reasoning toggles where supported                |
 
 ### OpenAI Responses
 

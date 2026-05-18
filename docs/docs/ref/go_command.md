@@ -24,24 +24,25 @@ fast-agent go [OPTIONS]
 ### Options
 
 - `--name TEXT`: Name for the agent (default: "fast-agent")
-- `--instruction`, `-i <path or url>`: File name or URL for [System Prompt](../agents/instructions/)
-- `--config-path`, `-c <path>`: Path to config file
+- `--instruction`, `-i <path or uri>`: File name, HTTP(S) URL, `file://` URI, or `hf://` URI for [System Prompt](../agents/instructions/)
+- `--config-path`, `-c <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to config file
 - `--servers <server1>,<server2>`: Comma-separated list of server names to enable from config
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--model`, `--models <model_string>`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--model`, `--models <model1>,<model2>,...`: Run one agent per model in parallel and print a side-by-side comparison of responses
 - `--pack`, `--card-pack <name>`: Ensure a named card pack is installed in the selected environment before starting
-- `--pack-registry <path or url>`: Marketplace file or URL used to resolve `--pack` when it is not already installed
-- `--agent-cards`, `--card <path or url>`: Load AgentCards as runnable agents (repeatable)
-- `--card-tool <path or url>`: Load AgentCards and attach them as tools to the selected/default agent (repeatable)
+- `--pack-registry <path or uri>`: Marketplace file path, HTTP(S) URL, `file://` URI, or `hf://` URI used to resolve `--pack` when it is not already installed
+- `--agent-cards`, `--card <path or uri>`: Load AgentCards as runnable agents from a path, HTTP(S) URL, `file://` URI, or `hf://` URI (repeatable)
+- `--card-tool <path or uri>`: Load AgentCards from a path, HTTP(S) URL, `file://` URI, or `hf://` URI and attach them as tools to the selected/default agent (repeatable)
 - `--agent <name>`: Target a specific loaded agent by name for `--message`, `--prompt-file`, and initial interactive mode
 - `--message`, `-m TEXT`: Message to send to the agent (skips interactive mode)
+- `--json-schema <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a JSON Schema file used for one-shot structured output
 - `--env <path>`: Override the base `.fast-agent` environment directory (where default `agent-cards/` and `tool-cards/` are discovered)
 - `--noenv`, `--no-env`: Run in ephemeral mode (disable implicit environment card loading, session persistence/resume, and permission-store side effects)
 - `--resume <id|latest>`: Resume the latest session (or a specific session id)
 - `--smart`: Prefer a smart default agent when fast-agent creates the default agent
-- `--prompt-file`, `-p <path>`: Path to a prompt file to use (either text or JSON)
+- `--prompt-file`, `-p <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a prompt file to use (either text or JSON)
 - `--skills-dir`, `--skills <path>`: Override the default skills directory
 - `--stdio "<command> <options>"`: Run the command to attach a STDIO server (enclose arguments in quotes)
 - `--npx "@package/name <options>"`: Run an NPX package as a STDIO server (enclose arguments in quotes)
@@ -94,6 +95,12 @@ fast-agent --npx @modelcontextprotocol/server-everything
 # Non-interactive mode with a single message
 fast-agent go --message="What is the weather today?" --model=haiku
 
+# Machine-readable structured one-shot output
+fast-agent go --noenv --model haiku --message "What is the weather in London?" --json-schema ./schema.json
+
+# Use a prompt stored in Hugging Face Hub generic storage
+fast-agent go --prompt-file hf://buckets/evalstate/home/demo.md --model=haiku
+
 # Target one specific loaded agent when multiple agents are available
 fast-agent go --agent-cards ./agents --agent researcher
 
@@ -113,6 +120,35 @@ fast-agent go --skills ~/my-skills/
 fast-agent go -x
 
 ```
+
+### Machine-readable JSON output
+
+Use `--json-schema` when you need a strict scripting/automation contract from `fast-agent go`.
+
+Rules:
+
+- `--json-schema` must be combined with exactly one of:
+  - `--message`
+  - `--prompt-file`
+- stdout contains only the final validated JSON document
+- errors and diagnostics go to stderr
+- this mode is not supported with multi-model fan-out
+
+Recommended automation pattern:
+
+- use `--noenv` to avoid implicit environment-side effects
+- keep input one-shot with `--message` or `--prompt-file`
+- provide a schema file that describes the exact payload you want
+
+```bash
+fast-agent go \
+  --noenv \
+  --model sonnet \
+  --message "What is the weather in London?" \
+  --json-schema ./schema.json
+```
+
+When you need exact JSON on stdout, prefer this mode over parsing chat output or exported histories.
 
 ### Comparison mode (multiple models)
 

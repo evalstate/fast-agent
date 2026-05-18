@@ -450,6 +450,88 @@ precedence over derived values.
 (`--auth`, `--oauth`, `--timeout`, etc.) inside `target`; use structured fields
 like `headers` and `auth` instead.
 
+### Provider-managed remote MCP
+
+Use `management: provider` when you want the model provider to execute a remote
+MCP server directly instead of having fast-agent connect to it as a local MCP
+client.
+
+```yaml
+mcp:
+  servers:
+    stripe:
+      management: provider
+      transport: "http"
+      url: "https://mcp.stripe.com"
+      access_token: "${STRIPE_TOKEN}"
+      description: "Stripe official MCP"
+      defer_loading: true  # OpenAI Responses hint; ignored by Anthropic
+```
+
+Provider-managed remote MCP is supported only for:
+
+- `anthropic`
+- `responses`
+
+It is not available for `codexresponses`, Codex OAuth aliases, `openresponses`,
+`openai`, `google`, `anthropic-vertex`, or other providers.
+
+Rules for provider-managed remote MCP servers:
+
+- Must be URL-based remote servers (`http` or `sse`)
+- `url` is required unless using an OpenAI Responses connector
+- Use `access_token` for bearer auth when needed
+- `command`, `args`, `env`, `cwd`, `headers`, `auth`, and `roots` are not supported
+- `defer_loading` is only used by the OpenAI `responses` provider
+
+When a provider-managed server is attached to an agent/card:
+
+- `tools.<server_name>` must use exact tool names only
+- wildcard tool filters are not supported
+- `prompts.<server_name>` and `resources.<server_name>` filters are not supported
+
+```yaml
+mcp:
+  servers:
+    stripe:
+      management: provider
+      transport: "http"
+      url: "https://mcp.stripe.com"
+      access_token: "${STRIPE_TOKEN}"
+
+agents:
+  billing:
+    model: "responses.gpt-5-mini"
+    servers: ["stripe"]
+    tools:
+      stripe: ["customers_create", "customers_retrieve"]
+```
+
+### OpenAI Responses connectors
+
+The OpenAI `responses` provider can also manage OpenAI hosted connectors. Use
+`connector_id` instead of `url`:
+
+```yaml
+mcp:
+  servers:
+    dropbox:
+      management: provider
+      connector_id: connector_dropbox
+      access_token: "${DROPBOX_OAUTH_ACCESS_TOKEN}"
+      description: "Dropbox connector"
+      defer_loading: true
+```
+
+Connector rules:
+
+- Supported only by the OpenAI `responses` provider
+- Set exactly one of `url` or `connector_id`
+- `connector_id` must be one of the connector IDs supported by the installed OpenAI SDK
+- `access_token` is required
+- Omit `transport`, `url`, `command`, `args`, `env`, `cwd`, `headers`, `auth`, and `roots`
+- `defer_loading: true` enables server-side lazy tool loading
+
 ```yaml
 mcp:
   servers:

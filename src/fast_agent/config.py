@@ -1510,21 +1510,45 @@ def _merge_home_plugin_settings(
     return merged
 
 
-def _resolve_global_plugin_home(*, noenv: bool) -> Path | None:
+def _expand_user_path(path: Path, *, home: Path) -> Path:
+    text = str(path)
+    if text == "~":
+        return home
+    if text.startswith("~/"):
+        return home / text[2:]
+    return path
+
+
+def resolve_global_plugin_home_path(
+    *,
+    fast_agent_home: str | None,
+    home: Path,
+    cwd: Path,
+    noenv: bool = False,
+) -> Path | None:
     if noenv:
         return None
 
-    configured = os.getenv("FAST_AGENT_HOME")
-    if configured:
-        path = Path(configured).expanduser()
+    if fast_agent_home:
+        path = _expand_user_path(Path(fast_agent_home), home=home)
         if not path.is_absolute():
-            path = Path.cwd() / path
+            path = cwd / path
         return path.resolve()
 
+    return (home / ".fast-agent").resolve()
+
+
+def _resolve_global_plugin_home(*, noenv: bool) -> Path | None:
     try:
-        return (Path.home() / ".fast-agent").resolve()
+        home = Path.home()
     except RuntimeError:
         return None
+    return resolve_global_plugin_home_path(
+        fast_agent_home=os.getenv("FAST_AGENT_HOME"),
+        home=home,
+        cwd=Path.cwd(),
+        noenv=noenv,
+    )
 
 
 def load_layered_model_settings(
@@ -1706,6 +1730,7 @@ class Settings(BaseSettings):
     _fast_agent_home_source: str | None = PrivateAttr(default=None)
     _fast_agent_global_plugin_home: str | None = PrivateAttr(default=None)
     _fast_agent_noenv: bool = PrivateAttr(default=False)
+    _fast_agent_settings_source: Literal["manual", "discovered"] = PrivateAttr(default="manual")
 
     @field_validator("commands", mode="before")
     @classmethod
@@ -1761,6 +1786,9 @@ def _cached_settings_match_environment_request(
     env_dir: str | Path | None,
     noenv: bool,
 ) -> bool:
+    if settings._fast_agent_settings_source == "manual":
+        return not noenv and env_dir is None
+
     if noenv:
         return settings._fast_agent_noenv
 
@@ -1895,6 +1923,7 @@ def get_settings(
         str(global_plugin_home) if global_plugin_home is not None else None
     )
     _settings._fast_agent_noenv = noenv
+    _settings._fast_agent_settings_source = "discovered"
     current_theme_file = getattr(_settings.logger, "theme_file", None)
     if current_theme_file is not None:
         for source_path, source_mapping in reversed(config_sources):
@@ -2037,4 +2066,5 @@ def update_global_settings(settings: Settings) -> None:
     work correctly without needing to pass settings around explicitly.
     """
     global _settings
+    settings._fast_agent_settings_source = "manual"
     _settings = settings

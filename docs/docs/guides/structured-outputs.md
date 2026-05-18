@@ -8,7 +8,7 @@ social:
 ---
 
 
-# Using Structured Outputs
+# Structured Outputs
 
 **`fast-agent`** supports structured JSON generation using Schemas or Pydantic Models. 
 
@@ -18,7 +18,7 @@ The best technique for producing an output is automatically used depending on th
 
 **`fast-agent`** generates Structured Outputs from the CLI by specifying either a JSON Schema or Pydantic Model. 
 
-Use the `--json-schema` option to supply a schema, and prompt with `--message <TEXT>` or `--prompt-file <PATH>`.
+Use the `--json-schema` option to supply a schema path or URI, and prompt with `--message <TEXT>` or `--prompt-file <PATH_OR_URI>`.
 
 === "bash"
 
@@ -280,12 +280,12 @@ For models that don't support both in a single turn, the default is to disable t
 
 This can be overridden by setting the `structured-tool-policy`. The policy can be set through a command line flag, or on RequestParams. Available policies are:
 
-| Policy | Behaviour |
-|--------|-----------|
-| `auto`  | Use configuration in the Model Database |
-| `no_tools` | Do not send Tool Definitions when producing a Structured Output |
-| `always` | Force sending Tool Definitions when producing a Structured Output |  
-| `defer` | Use a two-phase call; first call with Tools, second to create Structured Output |
+| Policy     | Behaviour                                                                       |
+| ---------- | ------------------------------------------------------------------------------- |
+| `auto`     | Use configuration in the Model Database                                         |
+| `no_tools` | Do not send Tool Definitions when producing a Structured Output                 |
+| `always`   | Force sending Tool Definitions when producing a Structured Output               |
+| `defer`    | Use a two-phase call; first call with Tools, second to create Structured Output |
 
 To set with the CLI, use `--structured-tool-policy` alongside `--json-schema`:
 
@@ -308,17 +308,17 @@ NB: `--shell` exposes the local shell tool.
 
 The following models are recommended for single-pass Tools + Structured output.
 
-| provider | model alias | resolved model | policy | pass | fail | failure rate |
-|---|---|---|---:|---:|---:|---:|
-| Anthropic | `haiku` | `claude-haiku-4-5` | `auto` | 10 | 0 | 0% |
-| Anthropic | `opus46` | `claude-opus-4-6` | `auto` | 10 | 0 | 0% |
-| Anthropic | `opus` | `claude-opus-4-7` | `auto` | 10 | 0 | 0% |
-| OpenAI | `gpt55` | `gpt-5.5` | `auto` | 10 | 0 | 0% |
-| OpenAI | `gpt54` | `gpt-5.4` | `auto` | 10 | 0 | 0% |
-| OpenAI | `gpt54-mini` | `gpt-5.4-mini` | `auto` | 10 | 0 | 0% |
-| OpenAI | `codex` | `gpt-5.3-codex` | `auto` | 10 | 0 | 0% |
-| xAI | `grok` | `grok-4.3` | `auto` | 10 | 0 | 0% |
-| Google | `gemini3flash` | `gemini-3-flash-preview` | `auto` | 10 | 0 | 0% |
+| provider  | model alias    | resolved model           | policy | pass | fail | failure rate |
+| --------- | -------------- | ------------------------ | -----: | ---: | ---: | -----------: |
+| Anthropic | `haiku`        | `claude-haiku-4-5`       | `auto` |   10 |    0 |           0% |
+| Anthropic | `opus46`       | `claude-opus-4-6`        | `auto` |   10 |    0 |           0% |
+| Anthropic | `opus`         | `claude-opus-4-7`        | `auto` |   10 |    0 |           0% |
+| OpenAI    | `gpt55`        | `gpt-5.5`                | `auto` |   10 |    0 |           0% |
+| OpenAI    | `gpt54`        | `gpt-5.4`                | `auto` |   10 |    0 |           0% |
+| OpenAI    | `gpt54-mini`   | `gpt-5.4-mini`           | `auto` |   10 |    0 |           0% |
+| OpenAI    | `codex`        | `gpt-5.3-codex`          | `auto` |   10 |    0 |           0% |
+| xAI       | `grok`         | `grok-4.3`               | `auto` |   10 |    0 |           0% |
+| Google    | `gemini3flash` | `gemini-3-flash-preview` | `auto` |   10 |    0 |           0% |
 
 `claude-sonnet-4-6`, `gemini-3.1-flash-lite-preview` and `gemini-3.1-pro-preview` show elevated failure rates, so conduct your testing with your own schemas before finalizing a policy.
 
