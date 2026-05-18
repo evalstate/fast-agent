@@ -13,8 +13,8 @@ nav = [
     "guides/codex.md",
     "guides/hf-dev.md",
     "guides/batch-processing.md",
-    { "Privacy Filter" = "guides/privacy_filter.md" },
     "guides/structured-outputs.md",
+    { "Privacy Filter" = "guides/privacy_filter.md" },
   ] },
   { "Agents" = [
     "agents/defining.md",

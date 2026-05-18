@@ -1,8 +1,8 @@
 ---
-title: Batch Processing with fast-agent
+title: Batch Processing
 description: A practical guide to running repeatable batch jobs with fast-agent.
 social:
-  title: Batch Processing with fast-agent
+  title: Batch Processing
   tagline: Turn rows into prompts and run them efficiently through fast-agent.
   description: Turn rows into prompts and run them efficiently through fast-agent.
   alt: fast-agent social card — Batch Processing with fast-agent
@@ -240,7 +240,7 @@ fast-agent batch run \
   --model "responses.gpt-5.5"
 ```
 
-See [Using Structured Outputs](structured-outputs.md) for more schema options.
+See [Structured Outputs](structured-outputs.md) for more schema options.
 
 ## 5. Parallelize the run
 

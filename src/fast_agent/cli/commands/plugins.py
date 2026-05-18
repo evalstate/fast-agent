@@ -22,6 +22,7 @@ from fast_agent.cli.display import (
     print_hint,
     print_update_table,
 )
+from fast_agent.config import resolve_global_plugin_home_path
 from fast_agent.home import PREFERRED_CONFIG_FILENAME
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.plugins import operations as plugin_ops
@@ -271,17 +272,19 @@ def _target_install_context(ctx: typer.Context, *, global_install: bool) -> tupl
 
 
 def _global_plugin_root() -> Path:
-    configured = os.getenv("FAST_AGENT_HOME")
-    if configured:
-        root = Path(configured).expanduser()
-        if not root.is_absolute():
-            root = Path.cwd() / root
-        return root.resolve()
     try:
-        return (Path.home() / ".fast-agent").resolve()
+        root = resolve_global_plugin_home_path(
+            fast_agent_home=os.getenv("FAST_AGENT_HOME"),
+            home=Path.home(),
+            cwd=Path.cwd(),
+        )
     except RuntimeError as exc:
         typer.echo(
             "FAST_AGENT_HOME is not set and the user home directory could not be resolved.",
             err=True,
         )
         raise typer.Exit(1) from exc
+    if root is None:
+        typer.echo("Global plugin installs are disabled in noenv mode.", err=True)
+        raise typer.Exit(1)
+    return root
