@@ -55,6 +55,11 @@ sessions:
   continued instead of started from scratch.
 - **Operational visibility**. Optional progress, telemetry JSONL, error JSONL,
   and summary JSON make long-running jobs easier to monitor and audit.
+- **Agent reuse**. The batch worker can be a direct model call, a custom system
+  prompt, or a full AgentCard with tools and workflow configuration. Inspect agent
+  behaviour interactively before committing to large runs.
+- **Tool Routing**. **`fast-agent`** makes it simple to simulate or stub tool calls, 
+  or bypass LLM processing of results, making it ideal for GEPA optimization scenarios.  
 - **OpenAI service tiers**. For supported OpenAI API keys and models, use
   `service_tier=flex` when cost-sensitive throughput is more important than
   lowest latency.
@@ -62,8 +67,6 @@ sessions:
   use WebSockets to reduce request overhead (disable with `transport=sse`).
 - **Prompt caching** where providers support it. Repeated system prompts, tools,
   and template content can be reused efficiently across rows.
-- **Agent reuse**. The batch worker can be a direct model call, a custom system
-  prompt, or a full AgentCard with tools and workflow configuration.
 
 For example, a cost-sensitive OpenAI Responses batch can use:
 

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO, Protocol
+from typing import TYPE_CHECKING, BinaryIO, Protocol
 from urllib.parse import ParseResult, urlparse
 
 import requests
 
 from fast_agent.io.path_uri import file_uri_to_path
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 REMOTE_TEXT_SCHEMES = frozenset({"http", "https", "hf"})
 
@@ -65,6 +69,24 @@ def materialize_text_source(
     ) as temp_file:
         temp_file.write(text)
         return Path(temp_file.name)
+
+
+@contextmanager
+def materialized_text_source(
+    source: str | Path,
+    *,
+    label: str = "source",
+    suffix: str | None = None,
+) -> "Iterator[Path]":
+    """Yield a local path for a text source and clean up remote temp files."""
+    source_text = str(source)
+    parsed = urlparse(source_text)
+    path = materialize_text_source(source, label=label, suffix=suffix)
+    try:
+        yield path
+    finally:
+        if parsed.scheme in REMOTE_TEXT_SCHEMES:
+            path.unlink(missing_ok=True)
 
 
 def _path_from_source(source: str, parsed: ParseResult) -> Path:

@@ -81,34 +81,38 @@ def run(
         help="Inline row prompt template; mutually exclusive with --template",
     ),
     output_path: Path = typer.Option(..., "--output", "-o", help="Output JSONL file"),
-    schema_path: Path | None = typer.Option(
+    schema_source: str | None = typer.Option(
         None,
         "--schema",
-        help="Optional JSON Schema file for structured results",
+        metavar="<path-or-uri>",
+        help="Optional JSON Schema file or URI for structured results",
     ),
     schema_model: str | None = typer.Option(
         None,
         "--schema-model",
         help="Optional Pydantic BaseModel import path for structured results",
     ),
-    template_path: Path | None = typer.Option(
+    template_source: str | None = typer.Option(
         None,
         "--template",
-        help="Row prompt template file; defaults to dumping the full row JSON",
+        metavar="<path-or-uri>",
+        help="Row prompt template file or URI; defaults to dumping the full row JSON",
     ),
-    instruction_path: Path | None = typer.Option(
+    instruction_source: str | None = typer.Option(
         None,
         "--instruction",
+        metavar="<path-or-uri>",
         help=(
-            "System instruction file for direct mode; defaults to fast-agent's "
+            "System instruction file or URI for direct mode; defaults to fast-agent's "
             "standard instruction. Mutually exclusive with --agent-card"
         ),
     ),
     agent_card_source: str | None = typer.Option(
         None,
         "--agent-card",
+        metavar="<path-or-uri>",
         help=(
-            "AgentCard file, directory, or URL defining the batch worker. "
+            "AgentCard file, directory, or URI defining the batch worker. "
             "Mutually exclusive with --instruction"
         ),
     ),
@@ -219,15 +223,15 @@ def run(
     for value, name in ((parallel, "--parallel"), (progress_every, "--progress-every")):
         _validate_positive(value, name)
 
-    if prompt is not None and template_path is not None:
+    if prompt is not None and template_source is not None:
         _fail_validation("--prompt and --template cannot be used together")
     if resume and overwrite:
         _fail_validation("--resume and --overwrite cannot be used together")
-    if instruction_path is not None and agent_card_source is not None:
+    if instruction_source is not None and agent_card_source is not None:
         _fail_validation("--agent-card and --instruction cannot be used together")
     if agent_name is not None and agent_card_source is None:
         _fail_validation("--agent requires --agent-card")
-    if schema_path is not None and schema_model is not None:
+    if schema_source is not None and schema_model is not None:
         _fail_validation("--schema and --schema-model cannot be used together")
     if hf_dataset_path is not None and hf_dataset is None:
         _fail_validation("--hf-dataset-path requires --hf-dataset")
@@ -248,10 +252,10 @@ def run(
         input_path=input_path,
         output_path=output_path,
         prompt_template=prompt,
-        schema_path=schema_path,
+        schema_source=schema_source,
         schema_model=schema_model,
-        template_path=template_path,
-        instruction_path=instruction_path,
+        template_source=template_source,
+        instruction_source=instruction_source,
         model=model,
         include_input=include_input,
         limit=limit,

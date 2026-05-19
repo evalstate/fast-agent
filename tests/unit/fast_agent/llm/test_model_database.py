@@ -134,7 +134,7 @@ def test_google_native_catalog_uses_schema_mode() -> None:
 def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
     gemini_models = {model for model, _ in _google_native_catalog_entries()}
 
-    assert {"gemini-2.5-flash", "gemini-2.5-pro"} <= gemini_models
+    assert {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash"} <= gemini_models
     assert not {
         model
         for model in gemini_models
@@ -146,6 +146,28 @@ def test_google_native_schema_tool_policy_matches_catalog_entries() -> None:
     policies = {params.structured_tool_policy for _, params in _google_native_catalog_entries()}
 
     assert policies == {None, "no_tools"}
+
+
+def test_gemini35_flash_specs_match_api_guide() -> None:
+    params = ModelDatabase.get_model_params("gemini-3.5-flash")
+
+    assert params is not None
+    assert params.context_window == 1_048_576
+    assert params.max_output_tokens == 65_536
+    assert params.fast is True
+    assert params.structured_tool_policy is None
+    assert params.reasoning == "google_thinking"
+    assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.default is not None
+    assert params.reasoning_effort_spec.default.kind == "effort"
+    assert params.reasoning_effort_spec.default.value == "medium"
+
+
+def test_gemini31_pro_allows_tools_with_structured_output() -> None:
+    params = ModelDatabase.get_model_params("gemini-3.1-pro-preview")
+
+    assert params is not None
+    assert params.structured_tool_policy is None
 
 
 def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -> None:
@@ -821,6 +843,7 @@ def test_gemini_model_specific_mentions_youtube_capability():
     for model_name in (
         "gemini-2.0-flash",
         "gemini-2.5-pro",
+        "gemini-3.5-flash",
         "gemini-3-pro-preview",
         "gemini-3-flash-preview",
     ):

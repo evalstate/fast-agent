@@ -176,22 +176,23 @@ def test_resolve_instruction_option_preserves_default_agent_name_for_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from fast_agent.core import direct_decorators
+    from fast_agent.core import instruction_source
     from fast_agent.io import source_resolver
 
     materialized = tmp_path / "fast-agent-random.md"
     materialized.write_text("remote instruction", encoding="utf-8")
 
-    def fake_materialize_text_source(source: str, *, label: str) -> Path:
+    def fake_materialize_text_source(source: str, *, label: str, suffix: str | None = None) -> Path:
         assert source == "https://example.com/instructions.md"
         assert label == "instruction"
+        assert suffix is None
         return materialized
 
     def fake_resolve_instruction(instruction_path: Path) -> str:
         return instruction_path.read_text(encoding="utf-8")
 
     monkeypatch.setattr(source_resolver, "materialize_text_source", fake_materialize_text_source)
-    monkeypatch.setattr(direct_decorators, "_resolve_instruction", fake_resolve_instruction)
+    monkeypatch.setattr(instruction_source, "_resolve_instruction", fake_resolve_instruction)
 
     instruction, agent_name = resolve_instruction_option(
         "https://example.com/instructions.md",
@@ -207,22 +208,23 @@ def test_resolve_instruction_option_preserves_default_agent_name_for_hf_uri(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from fast_agent.core import direct_decorators
+    from fast_agent.core import instruction_source
     from fast_agent.io import source_resolver
 
     materialized = tmp_path / "fast-agent-random.md"
     materialized.write_text("remote instruction", encoding="utf-8")
 
-    def fake_materialize_text_source(source: str, *, label: str) -> Path:
+    def fake_materialize_text_source(source: str, *, label: str, suffix: str | None = None) -> Path:
         assert source == "hf://buckets/evalstate/home/instructions.md"
         assert label == "instruction"
+        assert suffix is None
         return materialized
 
     def fake_resolve_instruction(instruction_path: Path) -> str:
         return instruction_path.read_text(encoding="utf-8")
 
     monkeypatch.setattr(source_resolver, "materialize_text_source", fake_materialize_text_source)
-    monkeypatch.setattr(direct_decorators, "_resolve_instruction", fake_resolve_instruction)
+    monkeypatch.setattr(instruction_source, "_resolve_instruction", fake_resolve_instruction)
 
     instruction, agent_name = resolve_instruction_option(
         "hf://buckets/evalstate/home/instructions.md",

@@ -33,17 +33,17 @@ class TestOpenAIToolConverter(unittest.TestCase):
 
         # Convert directly to OpenAI tool message
         converted: list[Content] = self.converter.convert_function_results_to_google(
-            [("test", tool_result)]
+            [("test", None, tool_result)]
         )
         assert 1 == len(converted)
-        assert "tool" == converted[0].role
+        assert "user" == converted[0].role
         parts = converted[0].parts
         assert parts is not None
         fn_resp = parts[0].function_response
         assert fn_resp is not None
         response = fn_resp.response
         assert isinstance(response, dict)
-        assert self.sample_text == response["text_content"]
+        assert self.sample_text == response["result"]
 
     def test_multiple_tool_results_with_mixed_content(self):
         """Test conversion of multiple tool results with different content types."""
@@ -60,28 +60,46 @@ class TestOpenAIToolConverter(unittest.TestCase):
             isError=False,
         )
 
-        # Create tool call IDs
+        # Create tool names/ids
+        tool_name1 = "text_tool"
+        tool_name2 = "image_tool"
         tool_call_id1 = "call_text_only"
         tool_call_id2 = "call_with_image"
 
-        # Create a list of (tool_call_id, result) tuples
-        results = [(tool_call_id1, text_result), (tool_call_id2, image_result)]
+        results: list[tuple[str, str | None, CallToolResult]] = [
+            (tool_name1, tool_call_id1, text_result),
+            (tool_name2, tool_call_id2, image_result),
+        ]
 
         # Convert to OpenAI tool messages
         converted: list[Content] = self.converter.convert_function_results_to_google(results)
 
         # Assertions
-        assert 2 == len(converted)
-        first_parts = converted[0].parts
-        assert first_parts is not None
-        assert 1 == len(first_parts)  # Text Only
-        second_parts = converted[1].parts
-        assert second_parts is not None
-        second_fn_resp = second_parts[0].function_response
-        assert second_fn_resp is not None
-        second_response = second_fn_resp.response
+        assert 1 == len(converted)
+        content = converted[0]
+        assert content.role == "user"
+        parts = content.parts
+        assert parts is not None
+        assert 2 == len(parts)
+
+        # First function response part (Text Only)
+        fn_resp1 = parts[0].function_response
+        assert fn_resp1 is not None
+        assert fn_resp1.id == tool_call_id1
+        assert fn_resp1.name == tool_name1
+        assert isinstance(fn_resp1.response, dict)
+        assert fn_resp1.response["result"] == "Text-only result"
+
+        # Second function response part (With image)
+        fn_resp2 = parts[1].function_response
+        assert fn_resp2 is not None
+        assert fn_resp2.id == tool_call_id2
+        assert fn_resp2.name == tool_name2
+        second_response = fn_resp2.response
         assert isinstance(second_response, dict)
-        assert 2 == len(second_response)  # Text and Image
+        assert second_response["result"] == "Here's the image:"
+        assert fn_resp2.parts is not None
+        assert len(fn_resp2.parts) == 1
 
 
 #        assert self.sample_text == converted[0].parts[0].function_response.response["text"][0]

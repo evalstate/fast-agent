@@ -246,6 +246,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
 
+    GOOGLE_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["none", "low", "medium", "high"],
@@ -576,7 +582,7 @@ class ModelDatabase:
         reasoning="tags",
     )
 
-    GEMINI_STANDARD = ModelParameters(
+    GEMINI_25_STANDARD = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65_536,
         tokenizes=GOOGLE_MULTIMODAL,
@@ -593,13 +599,17 @@ class ModelDatabase:
         ),
     )
 
+    GEMINI_STANDARD = GEMINI_25_STANDARD.model_copy(
+        update={"reasoning_effort_spec": GOOGLE_THINKING_LEVEL_SPEC}
+    )
+
     GEMINI_STANDARD_STRUCTURED = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65_536,
         tokenizes=GOOGLE_MULTIMODAL,
         json_mode="schema",
         reasoning="google_thinking",
-        reasoning_effort_spec=GOOGLE_THINKING_EFFORT_SPEC,
+        reasoning_effort_spec=GOOGLE_THINKING_LEVEL_SPEC,
         default_provider=Provider.GOOGLE,
         model_specific=(
             "You have multimodal capabilities. When attachment/resource tools are available, "
@@ -927,11 +937,12 @@ class ModelDatabase:
         "deepseek-chat": _with_fast(DEEPSEEK_CHAT_STANDARD),
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
-        "gemini-2.5-pro": GEMINI_STANDARD,
-        "gemini-2.5-flash": _with_fast(GEMINI_STANDARD),
+        "gemini-2.5-pro": GEMINI_25_STANDARD,
+        "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
+        "gemini-3.5-flash": _with_fast(GEMINI_STANDARD_STRUCTURED),
         "gemini-3-pro-preview": GEMINI_STANDARD,
         "gemini-3-flash-preview": GEMINI_STANDARD_STRUCTURED,
-        "gemini-3.1-pro-preview": GEMINI_STANDARD,
+        "gemini-3.1-pro-preview": GEMINI_STANDARD_STRUCTURED,
         "gemini-3.1-flash-lite-preview": _with_fast(GEMINI_STANDARD),
         # xAI Grok Models
         "grok": GROK_43,

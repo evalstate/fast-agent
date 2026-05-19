@@ -17,11 +17,17 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.provider.google.google_converter import GoogleConverter
+from fast_agent.llm.provider.google._stream_capture import (
+    save_stream_chunk,
+    save_stream_request,
+    stream_capture_filename,
+)
+from fast_agent.llm.provider.google.google_converter import GoogleConverter, GoogleToolResult
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     format_reasoning_setting,
@@ -56,8 +62,19 @@ class _GoogleTextTimelineEntry:
 
 
 @dataclass(slots=True)
+class _GoogleReasoningTimelineEntry:
+    text: str
+    thought_signature: bytes | None = None
+
+
+@dataclass(slots=True)
 class _GoogleToolTimelineEntry:
     tool_use_id: str
+
+
+@dataclass(slots=True)
+class _GoogleSignatureTimelineEntry:
+    thought_signature: bytes
 
 
 @dataclass(slots=True)
@@ -65,9 +82,16 @@ class _GoogleToolBuffer:
     tool_use_id: str
     name: str
     buffer: str = ""
+    provider_call_id: str | None = None
+    thought_signature: bytes | None = None
 
 
-GoogleTimelineEntry = _GoogleTextTimelineEntry | _GoogleToolTimelineEntry
+GoogleTimelineEntry = (
+    _GoogleTextTimelineEntry
+    | _GoogleReasoningTimelineEntry
+    | _GoogleToolTimelineEntry
+    | _GoogleSignatureTimelineEntry
+)
 
 
 class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
@@ -260,7 +284,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             model=chosen_model,
             systemPrompt=self.instruction,  # System instruction will be mapped in _google_completion
             parallel_tool_calls=True,  # Assume parallel tool calls are supported by default with native API
-            max_iterations=20,
+            max_iterations=DEFAULT_MAX_ITERATIONS,
             use_history=True,
             # Pick a safe default per model (e.g. gemini-2.0-flash is limited to 8192).
             maxTokens=max_tokens,
@@ -276,6 +300,15 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         client: genai.Client,
     ) -> types.GenerateContentResponse | None:
         """Stream Gemini responses and return the final aggregated completion."""
+        capture_base = stream_capture_filename(self.chat_turn())
+        save_stream_request(
+            capture_base,
+            {
+                "model": model,
+                "contents": contents,
+                "config": config,
+            },
+        )
         try:
             response_stream = await client.aio.models.generate_content_stream(
                 model=model,
@@ -294,7 +327,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             )
             return None
 
-        return await self._consume_google_stream(response_stream, model=model)
+        return await self._consume_google_stream(
+            response_stream,
+            model=model,
+            capture_base=capture_base,
+        )
 
     @staticmethod
     def _append_google_text_timeline(
@@ -307,6 +344,28 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             timeline[-1].text += text
             return
         timeline.append(_GoogleTextTimelineEntry(text=text))
+
+    @staticmethod
+    def _append_google_reasoning_timeline(
+        timeline: list[GoogleTimelineEntry],
+        text: str,
+        thought_signature: bytes | None = None,
+    ) -> None:
+        if not text:
+            return
+        if (
+            timeline
+            and isinstance(timeline[-1], _GoogleReasoningTimelineEntry)
+            and timeline[-1].thought_signature == thought_signature
+        ):
+            timeline[-1].text += text
+            return
+        timeline.append(
+            _GoogleReasoningTimelineEntry(
+                text=text,
+                thought_signature=thought_signature,
+            )
+        )
 
     @staticmethod
     def _serialize_google_tool_args(args: object) -> str:
@@ -323,14 +382,21 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         timeline: list[GoogleTimelineEntry],
         tool_index: int,
         tool_name: str,
+        provider_call_id: str | None = None,
+        thought_signature: bytes | None = None,
     ) -> _GoogleToolBuffer:
-        tool_use_id = f"tool_{self.chat_turn()}_{tool_index}"
+        tool_use_id = provider_call_id or f"tool_{self.chat_turn()}_{tool_index}"
         state = tracker.register(
             tool_use_id=tool_use_id,
             name=tool_name,
             index=tool_index,
         )
-        buffer = _GoogleToolBuffer(tool_use_id=state.tool_use_id, name=state.name)
+        buffer = _GoogleToolBuffer(
+            tool_use_id=state.tool_use_id,
+            name=state.name,
+            provider_call_id=tool_use_id,
+            thought_signature=thought_signature,
+        )
         tool_buffers[state.tool_use_id] = buffer
         self._notify_tool_stream_listeners(
             "start",
@@ -378,6 +444,18 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             if isinstance(entry, _GoogleTextTimelineEntry):
                 final_parts.append(types.Part.from_text(text=entry.text))
                 continue
+            if isinstance(entry, _GoogleReasoningTimelineEntry):
+                final_parts.append(
+                    types.Part(
+                        text=entry.text,
+                        thought=True,
+                        thought_signature=entry.thought_signature,
+                    )
+                )
+                continue
+            if isinstance(entry, _GoogleSignatureTimelineEntry):
+                final_parts.append(types.Part(text="", thought_signature=entry.thought_signature))
+                continue
 
             tool_buffer = tool_buffers.get(entry.tool_use_id)
             if tool_buffer is None:
@@ -387,9 +465,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             except json.JSONDecodeError:
                 args_obj = {"__raw": tool_buffer.buffer}
             final_parts.append(
-                types.Part.from_function_call(
-                    name=str(tool_buffer.name or "tool"),
-                    args=args_obj,
+                types.Part(
+                    function_call=types.FunctionCall(
+                        id=tool_buffer.provider_call_id or tool_buffer.tool_use_id,
+                        name=str(tool_buffer.name or "tool"),
+                        args=args_obj,
+                    ),
+                    thought_signature=tool_buffer.thought_signature,
                 )
             )
 
@@ -418,6 +500,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         response_stream,
         *,
         model: str,
+        capture_base=None,
     ) -> types.GenerateContentResponse | None:
         """Consume the async streaming iterator and aggregate the final response."""
         estimated_tokens = 0
@@ -432,6 +515,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         try:
             # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
             async for chunk in response_stream:
+                save_stream_chunk(capture_base, chunk)
                 last_chunk = chunk
                 if getattr(chunk, "usage_metadata", None):
                     usage_metadata = chunk.usage_metadata
@@ -452,6 +536,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                 self._notify_stream_listeners(
                                     StreamChunk(text=text, is_reasoning=True)
                                 )
+                                self._append_google_reasoning_timeline(
+                                    timeline,
+                                    text,
+                                    cast("bytes | None", part.thought_signature),
+                                )
                             else:
                                 self._append_google_text_timeline(timeline, text)
                                 estimated_tokens = self._emit_stream_text_delta(
@@ -464,6 +553,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                         function_call = part.function_call
                         name = getattr(function_call, "name", None) or "tool"
                         args = getattr(function_call, "args", None) or {}
+                        provider_call_id = getattr(function_call, "id", None)
+                        thought_signature = cast("bytes | None", part.thought_signature)
 
                         if active_tool_index is None:
                             active_tool_index = tool_counter
@@ -474,6 +565,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                 timeline=timeline,
                                 tool_index=active_tool_index,
                                 tool_name=name,
+                                provider_call_id=provider_call_id,
+                                thought_signature=thought_signature,
                             )
                         state = tracker.resolve_open(index=active_tool_index)
                         if state is None:
@@ -483,8 +576,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                             tool_buffer = _GoogleToolBuffer(
                                 tool_use_id=state.tool_use_id,
                                 name=state.name,
+                                thought_signature=thought_signature,
                             )
                             tool_buffers[state.tool_use_id] = tool_buffer
+                        if thought_signature is not None:
+                            tool_buffer.thought_signature = thought_signature
 
                         serialized_args = self._serialize_google_tool_args(args)
                         previous = tool_buffer.buffer
@@ -505,6 +601,18 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                     "chunk": delta,
                                 },
                             )
+
+                    thought_signature = cast("bytes | None", part.thought_signature)
+                    if (
+                        thought_signature is not None
+                        and not getattr(part, "function_call", None)
+                        and not getattr(part, "text", None)
+                    ):
+                        timeline.append(
+                            _GoogleSignatureTimelineEntry(
+                                thought_signature=thought_signature,
+                            )
+                        )
 
                 finish_reason = getattr(candidate, "finish_reason", None)
                 if finish_reason:
@@ -664,6 +772,18 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             model_response_content_parts = self._converter.convert_from_google_content(
                 candidate_content
             )
+        provider_tool_calls: list[tuple[str, str, dict[str, Any]]] = []
+        if candidate_content is not None and candidate_content.parts is not None:
+            for content_part in candidate_content.parts:
+                function_call = content_part.function_call
+                if function_call is None:
+                    continue
+                tool_name = function_call.name or "unknown_function"
+                tool_args = function_call.args or {}
+                tool_call_id = function_call.id or secrets.token_hex(3)[:5]
+                if function_call.id is None:
+                    function_call.id = tool_call_id
+                provider_tool_calls.append((tool_call_id, tool_name, dict(tool_args)))
         stop_reason = LlmStopReason.END_TURN
         tool_calls: dict[str, CallToolRequest] | None = None
         # Add model's response to the working conversation history for this turn
@@ -680,8 +800,14 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 assistant_message_parts.append(
                     part
                 )  # Collect text for potential assistant message display
-            elif isinstance(part, CallToolRequestParams):
+            elif isinstance(part, CallToolRequestParams) and not provider_tool_calls:
                 tool_calls_to_execute.append(part)  # Collect tool calls to execute
+
+        if provider_tool_calls:
+            tool_calls_to_execute = [
+                CallToolRequestParams(name=name, arguments=args)
+                for _, name, args in provider_tool_calls
+            ]
 
         if not responses and (response_schema or response_mime_type):
             structured_text = self._extract_structured_response_text(api_response)
@@ -691,11 +817,14 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if tool_calls_to_execute:
             stop_reason = LlmStopReason.TOOL_USE
             tool_calls = {}
-            for tool_call_params in tool_calls_to_execute:
+            for index, tool_call_params in enumerate(tool_calls_to_execute):
                 # Convert to CallToolRequest and execute
                 tool_call_request = CallToolRequest(method="tools/call", params=tool_call_params)
-                hex_string = secrets.token_hex(3)[:5]
-                tool_calls[hex_string] = tool_call_request
+                if provider_tool_calls:
+                    tool_call_id = provider_tool_calls[index][0]
+                else:
+                    tool_call_id = secrets.token_hex(3)[:5]
+                tool_calls[tool_call_id] = tool_call_request
 
             self.logger.debug("Tool call results processed.")
         else:
@@ -706,9 +835,30 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         self.history.set(conversation_history)
 
         self._log_chat_finished(model=model_name)  # Use resolved model name
-        return Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
+        assistant = Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
+        reasoning_blocks = self._extract_reasoning_blocks(candidate_content)
+        if reasoning_blocks:
+            channels = dict(assistant.channels or {})
+            channels[REASONING] = reasoning_blocks
+            assistant.channels = channels
+        return assistant
 
     #        return responses  # Return the accumulated responses (fast-agent content types)
+
+    @staticmethod
+    def _extract_reasoning_blocks(content: types.Content | None) -> list[TextContent]:
+        if content is None or content.parts is None:
+            return []
+
+        reasoning_segments: list[str] = []
+        for part in content.parts:
+            if getattr(part, "thought", False) and part.text:
+                reasoning_segments.append(part.text)
+
+        reasoning_text = "".join(reasoning_segments).strip()
+        if not reasoning_text:
+            return []
+        return [TextContent(type="text", text=reasoning_text)]
 
     @staticmethod
     def _extract_structured_response_text(
@@ -782,10 +932,10 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                             pass
                     break
 
-            tool_results_pairs = []
+            tool_results_pairs: list[GoogleToolResult] = []
             for call_id, result in last_message.tool_results.items():
                 tool_name = id_to_name.get(call_id, "tool")
-                tool_results_pairs.append((tool_name, result))
+                tool_results_pairs.append((tool_name, call_id, result))
 
             if tool_results_pairs:
                 turn_messages.extend(
@@ -803,7 +953,19 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             turn_messages.append(types.Content(role="user", parts=[types.Part.from_text(text="")]))
 
         conversation_history: list[types.Content] = []
-        if request_params.use_history and len(multipart_messages) > 1:
+        provider_history = self.history.get()
+        if request_params.use_history and provider_history and len(multipart_messages) > 1:
+            conversation_history.extend(provider_history)
+            # Convert and append any new user/tool messages that came after the last assistant turn
+            last_assistant_index = -1
+            for idx, msg in enumerate(multipart_messages):
+                if msg.role == "assistant":
+                    last_assistant_index = idx
+            
+            new_messages = multipart_messages[last_assistant_index + 1 : -1]
+            if new_messages:
+                conversation_history.extend(self._convert_to_provider_format(new_messages))
+        elif request_params.use_history and len(multipart_messages) > 1:
             conversation_history.extend(self._convert_to_provider_format(multipart_messages[:-1]))
         conversation_history.extend(turn_messages)
 
@@ -829,7 +991,35 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         Returns:
             List of Google types.Content objects
         """
-        return self._converter.convert_to_google_content(messages)
+        # Build mapping of tool call ID to tool name from all assistant messages in the history
+        id_to_name: dict[str, str] = {}
+        for msg in messages:
+            if msg.role == "assistant" and msg.tool_calls:
+                for call_id, call in msg.tool_calls.items():
+                    try:
+                        id_to_name[call_id] = call.params.name
+                    except Exception:
+                        pass
+
+        converted: list[types.Content] = []
+        for msg in messages:
+            if msg.tool_results:
+                tool_results_pairs: list[GoogleToolResult] = []
+                for call_id, result in msg.tool_results.items():
+                    tool_name = id_to_name.get(call_id, "tool")
+                    tool_results_pairs.append((tool_name, call_id, result))
+
+                if tool_results_pairs:
+                    converted.extend(
+                        self._converter.convert_function_results_to_google(tool_results_pairs)
+                    )
+                # If there is also direct content in this message, convert and append it
+                if msg.content:
+                    converted.extend(self._converter.convert_to_google_content([msg]))
+            else:
+                converted.extend(self._converter.convert_to_google_content([msg]))
+
+        return converted
 
     def _map_finish_reason(self, finish_reason: object) -> LlmStopReason:
         """Map Google finish reasons to LlmStopReason robustly."""
