@@ -85,6 +85,7 @@ def _google_chunk(
     *,
     text: str | None = None,
     thought: bool | None = None,
+    thought_signature: bytes | None = None,
     function_call: dict[str, Any] | None = None,
     finish_reason: str | None = None,
 ) -> google_types.GenerateContentResponse:
@@ -93,6 +94,8 @@ def _google_chunk(
         part["text"] = text
     if thought is not None:
         part["thought"] = thought
+    if thought_signature is not None:
+        part["thought_signature"] = thought_signature
     if function_call is not None:
         part["function_call"] = function_call
     return google_types.GenerateContentResponse.model_validate(
@@ -200,8 +203,10 @@ async def test_google_stream_reasoning_emits_stream_events_without_text_tool_eve
     content = candidates[0].content
     assert content is not None
     parts = content.parts or []
-    assert len(parts) == 1
-    assert parts[0].text == "answer"
+    assert len(parts) == 2
+    assert parts[0].text == "thinking"
+    assert parts[0].thought is True
+    assert parts[1].text == "answer"
 
 
 @pytest.mark.unit
@@ -211,13 +216,17 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
     stream = _SyntheticGoogleStream(
         [
             _google_chunk(
+                thought_signature=b"sig",
                 function_call={
+                    "id": "call_weather",
                     "name": "weather",
                     "args": {"city": "P"},
                 }
             ),
             _google_chunk(
+                thought_signature=b"sig",
                 function_call={
+                    "id": "call_weather",
                     "name": "weather",
                     "args": {"city": "Paris"},
                 },
@@ -235,13 +244,13 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
     assert harness.tool_events == [
         {
             "event_type": "start",
-            "payload": {"tool_name": "weather", "tool_use_id": "tool_1_0", "index": 0},
+            "payload": {"tool_name": "weather", "tool_use_id": "call_weather", "index": 0},
         },
         {
             "event_type": "delta",
             "payload": {
                 "tool_name": "weather",
-                "tool_use_id": "tool_1_0",
+                "tool_use_id": "call_weather",
                 "index": 0,
                 "chunk": '{"city":"P"}',
             },
@@ -250,14 +259,14 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
             "event_type": "delta",
             "payload": {
                 "tool_name": "weather",
-                "tool_use_id": "tool_1_0",
+                "tool_use_id": "call_weather",
                 "index": 0,
                 "chunk": '{"city":"Paris"}',
             },
         },
         {
             "event_type": "stop",
-            "payload": {"tool_name": "weather", "tool_use_id": "tool_1_0", "index": 0},
+            "payload": {"tool_name": "weather", "tool_use_id": "call_weather", "index": 0},
         },
     ]
     assert final_response is not None
@@ -270,3 +279,5 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
     assert parts[0].function_call is not None
     assert parts[0].function_call.name == "weather"
     assert parts[0].function_call.args == {"city": "Paris"}
+    assert parts[0].function_call.id == "call_weather"
+    assert parts[0].thought_signature == b"sig"

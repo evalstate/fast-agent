@@ -15,7 +15,7 @@ from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.template_render import extract_template_variables, render_template_text
 from fast_agent.interfaces import AgentProtocol
-from fast_agent.io.source_resolver import materialize_text_source
+from fast_agent.io.source_resolver import materialized_text_source
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp import mime_utils, resource_utils
@@ -162,17 +162,17 @@ def _message_template_variables(messages: list[PromptMessageExtended]) -> set[st
 
 def prompt_file_template_variables(file: Path | str) -> set[str]:
     """Return value-only ``{{placeholder}}`` names from a prompt file."""
-    file = materialize_text_source(file, label="prompt file")
-    path_str = str(file).lower()
+    with materialized_text_source(file, label="prompt file") as source_file:
+        path_str = str(source_file).lower()
 
-    if path_str.endswith(".json"):
-        from fast_agent.mcp.prompt_serialization import load_messages
+        if path_str.endswith(".json"):
+            from fast_agent.mcp.prompt_serialization import load_messages
 
-        return _message_template_variables(load_messages(str(file)))
+            return _message_template_variables(load_messages(str(source_file)))
 
-    from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
+        from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
-    return PromptTemplateLoader().load_from_file(file).template_variables
+        return PromptTemplateLoader().load_from_file(source_file).template_variables
 
 
 def load_prompt(
@@ -193,24 +193,21 @@ def load_prompt(
     Returns:
         List of PromptMessageExtended objects with full conversation state
     """
-    if isinstance(file, str):
-        file = materialize_text_source(file, label="prompt file")
-    else:
-        file = materialize_text_source(file, label="prompt file")
-    path_str = str(file).lower()
+    with materialized_text_source(file, label="prompt file") as source_file:
+        path_str = str(source_file).lower()
 
-    if path_str.endswith(".json"):
-        # JSON files use the serialization module directly
-        from fast_agent.mcp.prompt_serialization import load_messages
+        if path_str.endswith(".json"):
+            # JSON files use the serialization module directly
+            from fast_agent.mcp.prompt_serialization import load_messages
 
-        messages = load_messages(str(file))
-        return _render_message_templates(messages, arguments) if arguments else messages
-    else:
+            messages = load_messages(str(source_file))
+            return _render_message_templates(messages, arguments) if arguments else messages
+
         # Non-JSON files need template processing for resource loading
         from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
         loader = PromptTemplateLoader()
-        template = loader.load_from_file(file)
+        template = loader.load_from_file(source_file)
         content_sections = (
             template.apply_substitutions(dict(arguments))
             if arguments
@@ -220,7 +217,7 @@ def load_prompt(
         # Render the template to get the messages
         messages = create_messages_with_resources(
             content_sections,
-            [file],  # Pass the file path for resource resolution
+            [source_file],  # Pass the file path for resource resolution
         )
 
         # Convert to PromptMessageExtended

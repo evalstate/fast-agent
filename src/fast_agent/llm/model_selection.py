@@ -95,6 +95,12 @@ class ModelSelectionCatalog:
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
+                alias="gemini35flash",
+                display_label="Gemini 3.5 Flash",
+                model="google.gemini-3.5-flash",
+                fast=True,
+            ),
+            CatalogModelEntry(
                 alias="gemini3.1",
                 display_label="Gemini 3.1 Pro",
                 model="google.gemini-3.1-pro-preview",
@@ -106,10 +112,9 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="gemini3-flash",
+                alias="gemini3flash",
                 display_label="Gemini 3 Flash",
                 model="google.gemini-3-flash-preview",
-                fast=True,
             ),
         ),
         Provider.XAI: (

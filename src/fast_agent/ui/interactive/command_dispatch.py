@@ -747,18 +747,20 @@ async def _dispatch_session_payload(
                 outcome.add_message(render_session_export_help_markdown(), render_markdown=True)
                 await emit_command_outcome(context, outcome)
                 return result
-            manager = context.resolve_session_manager()
-            current_session = manager.current_session
-            current_session_id = current_session.info.name if current_session is not None else None
-            if target is None and current_session_id is None:
-                outcome = CommandOutcome()
-                outcome.add_message(
-                    "No active session to export.",
-                    channel="error",
-                    right_info="session",
-                )
-                await emit_command_outcome(context, outcome)
-                return result
+            current_session_id = None
+            if not context.noenv:
+                manager = context.resolve_session_manager()
+                current_session = manager.current_session
+                current_session_id = current_session.info.name if current_session is not None else None
+                if target is None and current_session_id is None:
+                    outcome = CommandOutcome()
+                    outcome.add_message(
+                        "No active session to export.",
+                        channel="error",
+                        right_info="session",
+                    )
+                    await emit_command_outcome(context, outcome)
+                    return result
             resolved_agent_name = agent_name
             if resolved_agent_name is None and should_default_export_agent(
                 target,

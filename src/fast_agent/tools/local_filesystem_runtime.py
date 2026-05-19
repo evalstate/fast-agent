@@ -95,8 +95,17 @@ class LocalFilesystemRuntime:
         self._apply_patch_tool = set_tool_source(build_apply_patch_tool(), "shell")
         self._edit_file_tool = set_tool_source(build_edit_file_tool(), "shell")
         self._pending_media_attachments: list[ContentBlock] = []
+
+        is_google = False
+        if self._model_info is not None:
+            provider_val = getattr(self._model_info.provider, "config_name", None) or getattr(self._model_info.provider, "value", None)
+            is_google = provider_val == "google" or "gemini" in (self._model_info.name or "").lower()
+
         self._attach_media_tool = set_tool_source(
-            build_attach_media_tool(supported_attach_media_mime_types(self._model_info)),
+            build_attach_media_tool(
+                supported_attach_media_mime_types(self._model_info),
+                is_google=is_google,
+            ),
             "shell",
         )
 
@@ -141,8 +150,16 @@ class LocalFilesystemRuntime:
     def set_model_info(self, model_info: "ModelInfo | None") -> None:
         """Update model capability metadata used by attach_media."""
         self._model_info = model_info
+        is_google = False
+        if self._model_info is not None:
+            provider_val = getattr(self._model_info.provider, "config_name", None) or getattr(self._model_info.provider, "value", None)
+            is_google = provider_val == "google" or "gemini" in (self._model_info.name or "").lower()
+
         self._attach_media_tool = set_tool_source(
-            build_attach_media_tool(supported_attach_media_mime_types(self._model_info)),
+            build_attach_media_tool(
+                supported_attach_media_mime_types(self._model_info),
+                is_google=is_google,
+            ),
             "shell",
         )
 

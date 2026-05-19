@@ -36,6 +36,8 @@ from fast_agent.batch.template import DEFAULT_ROW_TEMPLATE, render_row_template
 from fast_agent.batch.traces import BatchTraceOptions, BatchTraceRecorder
 from fast_agent.cli.runtime.request_builders import resolve_default_instruction
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_USAGE
+from fast_agent.core.instruction_source import resolve_instruction_source
+from fast_agent.io.source_resolver import read_text_source
 from fast_agent.llm.request_params import BatchRequestContext, RequestParams
 from fast_agent.llm.structured_schema import (
     StructuredSchemaSource,
@@ -55,10 +57,10 @@ class StructuredBatchOptions:
     input_path: str | Path
     output_path: Path
     prompt_template: str | None = None
-    schema_path: Path | None = None
+    schema_source: str | Path | None = None
     schema_model: str | None = None
-    template_path: Path | None = None
-    instruction_path: Path | None = None
+    template_source: str | Path | None = None
+    instruction_source: str | Path | None = None
     model: str | None = None
     include_input: bool = False
     limit: int | None = None
@@ -107,23 +109,27 @@ class ParallelManifest:
     shards: list[BatchShard]
 
 
-SchemaSource: TypeAlias = StructuredSchemaSource
+LoadedSchemaSource: TypeAlias = StructuredSchemaSource
 
 
 def utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def load_json_schema(path: Path) -> dict[str, Any]:
+def load_json_schema(path: str | Path) -> dict[str, Any]:
     return load_json_schema_file(path)
 
 
-def load_schema_source(options: StructuredBatchOptions) -> SchemaSource | None:
-    if options.agent_card_source is not None and options.instruction_path is not None:
+def load_text_template(path: str | Path) -> str:
+    return read_text_source(path, label="batch template")
+
+
+def load_schema_source(options: StructuredBatchOptions) -> LoadedSchemaSource | None:
+    if options.agent_card_source is not None and options.instruction_source is not None:
         raise ValueError("--agent-card and --instruction cannot be used together")
     if options.agent_name is not None and options.agent_card_source is None:
         raise ValueError("--agent requires --agent-card")
-    if options.schema_path is not None and options.schema_model is not None:
+    if options.schema_source is not None and options.schema_model is not None:
         raise ValueError("--schema and --schema-model cannot be used together")
     if options.hf_dataset_path is not None and options.hf_dataset is None:
         raise ValueError("--hf-dataset-path requires --hf-dataset")
@@ -138,8 +144,8 @@ def load_schema_source(options: StructuredBatchOptions) -> SchemaSource | None:
             raise ValueError("--sql cannot be used with --parallel")
     if options.schema_model is not None:
         return load_pydantic_model(options.schema_model)
-    if options.schema_path is not None:
-        return load_json_schema(options.schema_path)
+    if options.schema_source is not None:
+        return load_json_schema(options.schema_source)
     return None
 
 
@@ -334,14 +340,14 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
 
     schema_source = load_schema_source(options)
     template = (
-        options.template_path.read_text(encoding="utf-8")
-        if options.template_path is not None
+        load_text_template(options.template_source)
+        if options.template_source is not None
         else options.prompt_template if options.prompt_template is not None else DEFAULT_ROW_TEMPLATE
     )
     if options.agent_card_source is None:
         instruction: str | None = (
-            options.instruction_path.read_text(encoding="utf-8")
-            if options.instruction_path is not None
+            resolve_instruction_source(options.instruction_source)
+            if options.instruction_source is not None
             else resolve_default_instruction(options.model, "interactive")
         )
     else:
@@ -360,12 +366,12 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
             "input": str(options.input_path),
             "sql": options.sql,
             "output": str(options.output_path),
-            "schema": str(options.schema_path) if options.schema_path is not None else None,
+            "schema": str(options.schema_source) if options.schema_source is not None else None,
             "schema_model": options.schema_model,
-            "instruction": str(options.instruction_path) if options.instruction_path else None,
+            "instruction": str(options.instruction_source) if options.instruction_source else None,
             "agent_card": options.agent_card_source,
             "agent": None,
-            "template": str(options.template_path) if options.template_path else "<default>",
+            "template": str(options.template_source) if options.template_source else "<default>",
             "shell_runtime": options.shell_runtime,
             "output_mode": "structured" if schema_source is not None else "text",
             "export_traces": str(options.export_traces_path) if options.export_traces_path else None,
@@ -984,12 +990,12 @@ def _merge_parallel_summaries(
         "model": options.model,
         "input": str(options.input_path),
         "output": str(options.output_path),
-        "schema": str(options.schema_path) if options.schema_path is not None else None,
+        "schema": str(options.schema_source) if options.schema_source is not None else None,
         "schema_model": options.schema_model,
-        "instruction": str(options.instruction_path) if options.instruction_path else None,
+        "instruction": str(options.instruction_source) if options.instruction_source else None,
         "agent_card": options.agent_card_source,
         "agent": _first_summary_value(shard_summaries, "agent"),
-        "template": str(options.template_path) if options.template_path else "<default>",
+        "template": str(options.template_source) if options.template_source else "<default>",
         "shell_runtime": options.shell_runtime,
         "output_mode": "structured" if schema_source is not None else "text",
         "export_traces": None,
@@ -1030,15 +1036,15 @@ def _empty_parallel_summary(
         "model": options.model,
         "input": str(options.input_path),
         "output": str(options.output_path),
-        "schema": str(options.schema_path) if options.schema_path is not None else None,
+        "schema": str(options.schema_source) if options.schema_source is not None else None,
         "schema_model": options.schema_model,
-        "instruction": str(options.instruction_path) if options.instruction_path else None,
+        "instruction": str(options.instruction_source) if options.instruction_source else None,
         "agent_card": options.agent_card_source,
         "agent": None,
-        "template": str(options.template_path) if options.template_path else "<default>",
+        "template": str(options.template_source) if options.template_source else "<default>",
         "shell_runtime": options.shell_runtime,
         "output_mode": "structured"
-        if options.schema_path is not None or options.schema_model is not None
+        if options.schema_source is not None or options.schema_model is not None
         else "text",
         "export_traces": None,
         "hf_dataset": None,
@@ -1185,7 +1191,7 @@ async def _row_call(
     worker: Any,
     *,
     rendered: str,
-    schema_source: SchemaSource | None,
+    schema_source: LoadedSchemaSource | None,
     batch_context: BatchRequestContext,
 ) -> tuple[Any | None, Any]:
     request_params = RequestParams(use_history=False, batch_context=batch_context)

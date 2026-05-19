@@ -28,22 +28,23 @@ def test_convert_function_results_to_google_text_only():
         content=[TextContent(type="text", text="Weather is sunny")], isError=False
     )
 
-    contents = converter.convert_function_results_to_google([("weather", result)])
+    contents = converter.convert_function_results_to_google([("weather", "call_123", result)])
 
-    # One google Content with role 'tool'
+    # One google Content with user role, per Gemini function-response protocol.
     assert isinstance(contents, list)
     assert len(contents) == 1
     content = contents[0]
     assert isinstance(content, types.Content)
-    assert content.role == "tool"
+    assert content.role == "user"
     parts = content.parts
     assert parts is not None
     # First part should be a function response named 'weather'
     fn_resp = parts[0].function_response
     assert fn_resp is not None
     assert fn_resp.name == "weather"
+    assert fn_resp.id == "call_123"
     assert isinstance(fn_resp.response, dict)
-    assert fn_resp.response.get("tool_name") == "weather"
+    assert fn_resp.response.get("result") == "Weather is sunny"
 
 
 def test_clean_schema_for_google_const_string_to_enum():
@@ -321,19 +322,21 @@ def test_convert_resource_link_in_tool_result():
 
     result = CallToolResult(content=[link], isError=False)
 
-    contents = converter.convert_function_results_to_google([("video_generator", result)])
+    contents = converter.convert_function_results_to_google([("video_generator", None, result)])
 
     assert len(contents) == 1
     content = contents[0]
-    assert content.role == "tool"
+    assert content.role == "user"
 
-    # Should have function response part and media part
+    # Media must live inside the function response, not alongside it.
     parts = content.parts
     assert parts is not None
-    assert len(parts) >= 1
+    assert len(parts) == 1
 
-    # Check for the media part (video)
-    media_parts = [p for p in parts if p.file_data is not None]
+    fn_resp = parts[0].function_response
+    assert fn_resp is not None
+    response_parts = fn_resp.parts or []
+    media_parts = [p for p in response_parts if p.file_data is not None]
     assert len(media_parts) == 1
     assert media_parts[0].file_data is not None
     assert media_parts[0].file_data.file_uri == "https://storage.example.com/output.mp4"
@@ -356,12 +359,15 @@ def test_convert_video_blob_in_tool_result():
     )
     result = CallToolResult(content=[resource], isError=False)
 
-    contents = converter.convert_function_results_to_google([("attach_media", result)])
+    contents = converter.convert_function_results_to_google([("attach_media", None, result)])
 
     assert len(contents) == 1
     parts = contents[0].parts
     assert parts is not None
-    media_parts = [part for part in parts if part.inline_data is not None]
+    fn_resp = parts[0].function_response
+    assert fn_resp is not None
+    response_parts = fn_resp.parts or []
+    media_parts = [part for part in response_parts if part.inline_data is not None]
     assert len(media_parts) == 1
     assert media_parts[0].inline_data is not None
     assert media_parts[0].inline_data.mime_type == "video/mp4"
@@ -384,12 +390,15 @@ def test_convert_audio_blob_in_tool_result():
     )
     result = CallToolResult(content=[resource], isError=False)
 
-    contents = converter.convert_function_results_to_google([("attach_media", result)])
+    contents = converter.convert_function_results_to_google([("attach_media", None, result)])
 
     assert len(contents) == 1
     parts = contents[0].parts
     assert parts is not None
-    media_parts = [part for part in parts if part.inline_data is not None]
+    fn_resp = parts[0].function_response
+    assert fn_resp is not None
+    response_parts = fn_resp.parts or []
+    media_parts = [part for part in response_parts if part.inline_data is not None]
     assert len(media_parts) == 1
     assert media_parts[0].inline_data is not None
     assert media_parts[0].inline_data.mime_type == "audio/mpeg"
@@ -409,11 +418,11 @@ def test_convert_resource_link_text_in_tool_result():
 
     result = CallToolResult(content=[link], isError=False)
 
-    contents = converter.convert_function_results_to_google([("config_reader", result)])
+    contents = converter.convert_function_results_to_google([("config_reader", None, result)])
 
     assert len(contents) == 1
     content = contents[0]
-    assert content.role == "tool"
+    assert content.role == "user"
 
     # Should have function response part with text content
     parts = content.parts
@@ -422,5 +431,67 @@ def test_convert_resource_link_text_in_tool_result():
     assert fn_resp is not None
     response = fn_resp.response
     assert isinstance(response, dict)
-    assert "text_content" in response
-    assert "config_file" in response["text_content"]
+    assert "result" in response
+    assert "config_file" in response["result"]
+
+
+def test_gemini3_removes_sampling_parameters_and_budget():
+    """Test that temperature, top_p, top_k, and raw thinking_budget are stripped/handled for Gemini 3.x."""
+    from fast_agent.types import RequestParams
+
+    converter = GoogleConverter()
+    params = RequestParams(
+        model="gemini-3.5-flash",
+        temperature=0.7,
+        top_k=40,
+        top_p=0.9,
+    )
+    # Generate content config with thinking_budget set
+    config = converter.convert_request_params_to_google_config(
+        params,
+        thinking_budget=5000,
+    )
+
+    # Temperature, top_p, and top_k must be stripped as per Gemini 3.5 API guidance.
+    assert config.temperature is None
+    assert config.top_p is None
+    assert config.top_k is None
+
+    # raw thinking_budget must be omitted, and mapped to thinking_level MEDIUM instead.
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == "MEDIUM"
+    assert config.thinking_config.thinking_budget is None
+
+
+def test_convert_multiple_function_results_into_single_content():
+    """Test that multiple tool results are combined into a single Content object."""
+    converter = GoogleConverter()
+
+    result1 = CallToolResult(content=[TextContent(type="text", text="Output 1")], isError=False)
+    result2 = CallToolResult(content=[TextContent(type="text", text="Output 2")], isError=False)
+
+    contents = converter.convert_function_results_to_google([
+        ("tool_one", "id_1", result1),
+        ("tool_two", "id_2", result2),
+    ])
+
+    assert isinstance(contents, list)
+    assert len(contents) == 1
+    content = contents[0]
+    assert content.role == "user"
+    assert content.parts is not None
+    assert len(content.parts) == 2
+
+    part1 = content.parts[0].function_response
+    assert part1 is not None
+    assert part1.name == "tool_one"
+    assert part1.id == "id_1"
+    assert isinstance(part1.response, dict)
+    assert part1.response.get("result") == "Output 1"
+
+    part2 = content.parts[1].function_response
+    assert part2 is not None
+    assert part2.name == "tool_two"
+    assert part2.id == "id_2"
+    assert isinstance(part2.response, dict)
+    assert part2.response.get("result") == "Output 2"

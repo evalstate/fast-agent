@@ -56,6 +56,8 @@ def _format_client_info(client_info: Mapping[str, str]) -> str | None:
 def load_skills_for_context(
     workspace_root: str | None,
     skills_directory_override: str | Path | Sequence[str | Path] | None = None,
+    *,
+    noenv: bool = False,
 ) -> list["SkillManifest"]:
     """
     Load skill manifests from the workspace root or override directory.
@@ -96,7 +98,9 @@ def load_skills_for_context(
         settings = get_settings()
         settings_for_skills = (
             settings
-            if settings.environment_dir is not None or settings._fast_agent_home_source != "default"
+            if noenv
+            or settings.environment_dir is not None
+            or settings._fast_agent_home_source != "default"
             else None
         )
         override_dirs = default_skill_paths(
@@ -117,6 +121,8 @@ def enrich_with_environment_context(
     cwd: str | None,
     client_info: Mapping[str, str] | None,
     skills_directory_override: str | Path | Sequence[str | Path] | None = None,
+    *,
+    noenv: bool = False,
 ) -> None:
     """
     Populate the provided context mapping with environment details used for template replacement.
@@ -129,12 +135,13 @@ def enrich_with_environment_context(
     """
     if cwd:
         context["workspaceRoot"] = cwd
-        from fast_agent.paths import resolve_environment_paths
+        if not noenv:
+            from fast_agent.paths import resolve_environment_paths
 
-        env_paths = resolve_environment_paths(cwd=Path(cwd))
-        context["environmentDir"] = str(env_paths.root)
-        context["environmentAgentCardsDir"] = str(env_paths.agent_cards)
-        context["environmentToolCardsDir"] = str(env_paths.tool_cards)
+            env_paths = resolve_environment_paths(cwd=Path(cwd))
+            context["environmentDir"] = str(env_paths.root)
+            context["environmentAgentCardsDir"] = str(env_paths.agent_cards)
+            context["environmentToolCardsDir"] = str(env_paths.tool_cards)
 
     server_platform = platform.platform()
     python_version = platform.python_version()
@@ -149,7 +156,7 @@ def enrich_with_environment_context(
     if cwd:
         from fast_agent.skills.registry import format_skills_for_prompt
 
-        skill_manifests = load_skills_for_context(cwd, skills_directory_override)
+        skill_manifests = load_skills_for_context(cwd, skills_directory_override, noenv=noenv)
         skills_text = format_skills_for_prompt(skill_manifests, read_tool_name="read_text_file")
         context["agentSkills"] = skills_text
 

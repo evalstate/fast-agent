@@ -5,6 +5,7 @@ from io import BytesIO
 
 from typer.testing import CliRunner
 
+import fast_agent.io.source_resolver as source_resolver
 from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
 from fast_agent.cli.main import app
 
@@ -206,6 +207,62 @@ def test_batch_run_accepts_inline_prompt_template(tmp_path):
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["input"] == str(input_path)
     assert summary["selected_rows"] == 1
+
+
+def test_batch_run_accepts_remote_template_instruction_and_schema(tmp_path, monkeypatch):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    summary_path = tmp_path / "summary.json"
+    input_path.write_text('{"id":"1","x":2}\n', encoding="utf-8")
+
+    sources = {
+        "hf://datasets/evalstate/batch-demo/schema.json": '{"type":"object"}',
+        "hf://datasets/evalstate/batch-demo/instructions.md": "Return the input as JSON.",
+        "hf://datasets/evalstate/batch-demo/template.md": "{{row_json}}",
+    }
+
+    def fake_read_hf_text_source(source: str, *, label: str) -> str:
+        assert label in {"JSON schema file", "instruction", "batch template"}
+        return sources[source]
+
+    monkeypatch.setattr(source_resolver, "_read_hf_text_source", fake_read_hf_text_source)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--schema",
+            "hf://datasets/evalstate/batch-demo/schema.json",
+            "--instruction",
+            "hf://datasets/evalstate/batch-demo/instructions.md",
+            "--template",
+            "hf://datasets/evalstate/batch-demo/template.md",
+            "--model",
+            "passthrough",
+            "--summary-output",
+            str(summary_path),
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    record = json.loads(output_path.read_text(encoding="utf-8"))
+    assert record["result"] == {"id": "1", "x": 2}
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["schema"] == "hf://datasets/evalstate/batch-demo/schema.json"
+    assert summary["instruction"] == "hf://datasets/evalstate/batch-demo/instructions.md"
+    assert summary["template"] == "hf://datasets/evalstate/batch-demo/template.md"
 
 
 def test_batch_run_rejects_prompt_and_template_together(tmp_path):
@@ -456,8 +513,8 @@ def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
             StructuredBatchOptions(
                 input_path=input_path,
                 output_path=output_path,
-                schema_path=schema_path,
-                template_path=template_path,
+                schema_source=schema_path,
+                template_source=template_path,
                 model="passthrough",
                 limit=4,
                 offset=1,
@@ -479,8 +536,8 @@ def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
             StructuredBatchOptions(
                 input_path=input_path,
                 output_path=output_path,
-                schema_path=schema_path,
-                template_path=template_path,
+                schema_source=schema_path,
+                template_source=template_path,
                 model="passthrough",
                 limit=6,
                 offset=0,

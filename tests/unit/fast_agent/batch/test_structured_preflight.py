@@ -39,7 +39,7 @@ async def test_resume_and_overwrite_are_mutually_exclusive(tmp_path):
     options = StructuredBatchOptions(
         input_path=input_path,
         output_path=tmp_path / "out.jsonl",
-        schema_path=schema,
+        schema_source=schema,
         resume=True,
         overwrite=True,
     )
@@ -54,7 +54,7 @@ def test_schema_file_and_schema_model_are_mutually_exclusive(tmp_path):
     options = StructuredBatchOptions(
         input_path=tmp_path / "rows.jsonl",
         output_path=tmp_path / "out.jsonl",
-        schema_path=schema,
+        schema_source=schema,
         schema_model="example:Result",
     )
 
@@ -197,7 +197,7 @@ async def test_optional_output_paths_cannot_match_primary_output(
     options = StructuredBatchOptions(
         input_path=input_path,
         output_path=output_path,
-        schema_path=schema,
+        schema_source=schema,
         **{duplicate_field: output_path},
     )
 
@@ -217,7 +217,7 @@ async def test_optional_output_paths_cannot_match_each_other_after_resolution(tm
     options = StructuredBatchOptions(
         input_path=input_path,
         output_path=tmp_path / "out.jsonl",
-        schema_path=schema,
+        schema_source=schema,
         error_output_path=error_output,
         telemetry_output_path=telemetry_link,
     )

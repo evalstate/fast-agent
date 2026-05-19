@@ -529,3 +529,42 @@ async def test_apply_patch_invalid_args_returns_error() -> None:
         assert result.content is not None
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text.startswith("Error:")
+
+
+def test_attach_media_tool_description_conditional() -> None:
+    # Google/Gemini
+    google_runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        model_info=ModelInfo(
+            name="gemini-test",
+            provider=Provider.GOOGLE,
+            context_window=None,
+            max_output_tokens=None,
+            tokenizes=["image/png"],
+            json_mode=None,
+            reasoning=None,
+        ),
+    )
+    google_tool = _tool_by_name(google_runtime, "attach_media")
+    assert google_tool is not None
+    assert "Gemini YouTube links" in google_tool.description
+
+    # OpenAI (Non-Google)
+    openai_runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        model_info=ModelInfo(
+            name="gpt-4o",
+            provider=Provider.OPENAI,
+            context_window=None,
+            max_output_tokens=None,
+            tokenizes=["image/png"],
+            json_mode=None,
+            reasoning=None,
+        ),
+    )
+    openai_tool = _tool_by_name(openai_runtime, "attach_media")
+    assert openai_tool is not None
+    assert "Gemini YouTube links" not in openai_tool.description
+

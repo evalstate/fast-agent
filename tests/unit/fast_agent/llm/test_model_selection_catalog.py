@@ -265,6 +265,17 @@ def test_suggestions_for_providers_returns_curated_and_fast_models() -> None:
     assert suggestion.all_models
 
 
+def test_google_picker_lists_gemini35_flash_first() -> None:
+    entries = ModelSelectionCatalog.list_entries(Provider.GOOGLE)
+    current_entries = [entry for entry in entries if entry.current]
+
+    assert current_entries
+    first = current_entries[0]
+    assert first.alias == "gemini35flash"
+    assert first.model == "google.gemini-3.5-flash"
+    assert first.fast is True
+
+
 def test_suggestions_include_legacy_aliases_when_configured() -> None:
     suggestions = ModelSelectionCatalog.suggestions_for_providers([Provider.HUGGINGFACE])
 
