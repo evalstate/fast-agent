@@ -50,6 +50,11 @@ sessions:
 - **Parallel local workers**. Use `--parallel` to shard the selected input rows,
   run several workers concurrently, and merge the shard outputs into the final
   JSONL file.
+- **Efficient provider execution**. Stable instructions, tools, schemas, and
+  templates can benefit from provider prompt caching where supported; OpenAI
+  Responses models can use `service_tier=flex` for cost-sensitive throughput;
+  and OpenAI and Grok models use WebSocket transport to reduce
+  per-request connection overhead.
 - **Resumable outputs**. Use `--resume` to append only rows whose successful
   result is not already present, so interrupted or partially failed jobs can be
   continued instead of started from scratch.
@@ -60,15 +65,9 @@ sessions:
   behaviour interactively before committing to large runs.
 - **Tool Routing**. **`fast-agent`** makes it simple to simulate or stub tool calls, 
   or bypass LLM processing of results, making it ideal for GEPA optimization scenarios.  
-- **OpenAI service tiers**. For supported OpenAI API keys and models, use
-  `service_tier=flex` when cost-sensitive throughput is more important than
-  lowest latency.
-- **WebSocket transport** for supported providers. OpenAI and Grok models
-  use WebSockets to reduce request overhead (disable with `transport=sse`).
-- **Prompt caching** where providers support it. Repeated system prompts, tools,
-  and template content can be reused efficiently across rows.
 
-For example, a cost-sensitive OpenAI Responses batch can use:
+For example, a cost-sensitive OpenAI Responses batch can use the flex service
+tier:
 
 ```bash
 fast-agent batch run \
@@ -422,7 +421,65 @@ fast-agent batch run \
   --model "responses.gpt-5.5"
 ```
 
-## A complete small example
+## Example 1: Zero Install Hugging Face Analysis
+
+You can also run a small demo directly from a Hugging Face dataset repository.
+This uses `uvx`, a JSONL input file, a row template, and an AgentCard stored in
+the same dataset repo. The card connects the worker to the Hugging Face MCP
+server so a model such as Kimi can answer with current Hugging Face context
+rather than relying only on its training data.
+
+```bash
+uvx fast-agent-mcp@latest batch run \
+  --input hf://datasets/evalstate/fast-agent-batch-demo/hf-research-questions.jsonl \
+  --output hf-research-results.jsonl \
+  --agent-card hf://datasets/evalstate/fast-agent-batch-demo/hf-research-agent.md \
+  --template hf://datasets/evalstate/fast-agent-batch-demo/hf-research-template.md \
+  --limit 3 \
+  --id-field id \
+  --model kimi26instant
+```
+
+The dataset repo contains ordinary text artifacts:
+
+```json title="hf-research-questions.jsonl"
+{"id":"hf1","task":"Find a compact sentiment-analysis dataset suitable for a quick batch classification demo."}
+{"id":"hf2","task":"Find a small text-generation model with recent activity and summarize why it is a useful baseline."}
+{"id":"hf3","task":"Find a dataset for evaluating retrieval-augmented question answering and note the likely split to try first."}
+```
+
+```md title="hf-research-template.md"
+Research this Hugging Face task:
+
+{{task}}
+
+Return a concise recommendation with the repository id, what you found, and one
+practical next step.
+```
+
+The AgentCard declares the Hugging Face MCP server as a runtime connection:
+
+```yaml title="hf-research-agent.md"
+---
+name: hf_researcher
+description: Research Hugging Face models and datasets for batch rows.
+mcp_connect:
+  - target: "https://huggingface.co/mcp?login"
+    name: huggingface
+---
+You are a concise Hugging Face research assistant.
+
+Use the Hugging Face MCP server when you need current model or dataset
+information. Prefer concrete repository ids and keep each answer short enough to
+fit in a JSONL result record.
+```
+
+`hf://` sources work for inputs, AgentCards, prompt templates, instructions, and
+JSON Schemas. Use JSONL or CSV for no-install demos; dataset-level parquet input
+can require DuckDB.
+
+
+## Example 2: Competitive Analysis with Web Search
 
 This example asks the model to search the web for three competitive products
 for each input product, then returns structured manufacturer and product names.
@@ -507,3 +564,5 @@ The output is one JSONL envelope per input row:
 ```
 
 For the full option reference, see [Batch Processing](../ref/batch.md).
+
+

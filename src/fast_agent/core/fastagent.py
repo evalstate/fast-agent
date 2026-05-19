@@ -1558,7 +1558,7 @@ class FastAgent(DecoratorMixin):
         return model_factory_func
 
     def _build_global_prompt_context(
-        self, *, apply_global_prompt_context: bool
+        self, *, apply_global_prompt_context: bool, noenv_mode: bool
     ) -> dict[str, str] | None:
         """Build environment-derived prompt variables for non-ACP runs."""
         if not apply_global_prompt_context:
@@ -1575,6 +1575,7 @@ class FastAgent(DecoratorMixin):
             str(Path.cwd()),
             client_info,
             self._skills_directory_override,
+            noenv=noenv_mode,
         )
         return context_variables or None
 
@@ -1583,7 +1584,8 @@ class FastAgent(DecoratorMixin):
         return RunRuntime(
             model_factory_func=self._build_model_factory_func(settings.cli_model_override),
             global_prompt_context=self._build_global_prompt_context(
-                apply_global_prompt_context=not settings.is_acp_server_mode
+                apply_global_prompt_context=not settings.is_acp_server_mode,
+                noenv_mode=settings.noenv_mode,
             ),
             is_acp_server_mode=settings.is_acp_server_mode,
             noenv_mode=settings.noenv_mode,

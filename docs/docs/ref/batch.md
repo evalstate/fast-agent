@@ -32,7 +32,9 @@ uv run fast-agent batch run \
 ```
 
 `--prompt` and `--template` are mutually exclusive. Use `--template` when the
-row prompt is easier to maintain in a file.
+row prompt is easier to maintain in a file or URI. `--template`,
+`--instruction`, and `--schema` accept local paths, HTTP(S) URLs, `file://`
+URIs, and `hf://` URIs.
 
 Supported input formats:
 
@@ -96,12 +98,12 @@ Appending and de-duplicating result rows into a Hugging Face dataset is not impl
 | Option                     | Description                                                                                           |
 | -------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `--model`, `-m`            | Model override for direct mode or the selected AgentCard worker.                                      |
-| `--instruction PATH`       | System instruction file for direct mode. Mutually exclusive with `--agent-card`.                      |
-| `--agent-card PATH_OR_URL` | AgentCard file, directory, or URL defining the batch worker. Mutually exclusive with `--instruction`. |
+| `--instruction PATH_OR_URI` | System instruction file or URI for direct mode. Mutually exclusive with `--agent-card`.               |
+| `--agent-card PATH_OR_URI` | AgentCard file, directory, or URI defining the batch worker. Mutually exclusive with `--instruction`. |
 | `--agent NAME`             | Agent name to run when `--agent-card` loads multiple runnable agents.                                 |
 | `--prompt`, `-p TEXT`      | Inline row prompt template. Mutually exclusive with `--template`.                                     |
-| `--template PATH`          | Row prompt template file. Defaults to sending the full row JSON.                                      |
-| `--schema PATH`            | JSON Schema file for structured results. Mutually exclusive with `--schema-model`.                    |
+| `--template PATH_OR_URI`   | Row prompt template file or URI. Defaults to sending the full row JSON.                               |
+| `--schema PATH_OR_URI`     | JSON Schema file or URI for structured results. Mutually exclusive with `--schema-model`.             |
 | `--schema-model IMPORT`    | Pydantic `BaseModel` import path for structured results. Mutually exclusive with `--schema`.          |
 | `--shell`, `-x`            | Enable a local shell runtime and expose the execute tool.                                             |
 

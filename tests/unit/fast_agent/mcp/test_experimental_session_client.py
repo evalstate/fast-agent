@@ -10,6 +10,7 @@ from fast_agent.mcp.experimental_session_client import (
     ExperimentalSessionClient,
     InMemorySessionCookieStore,
     JsonFileSessionCookieStore,
+    default_session_cookie_store,
 )
 from fast_agent.mcp.mcp_aggregator import ServerStatus
 
@@ -238,6 +239,22 @@ def test_json_file_cookie_store_tolerates_invalid_json(tmp_path: Path) -> None:
     store = JsonFileSessionCookieStore(jar)
 
     assert store.load() == {}
+
+
+def test_default_cookie_store_is_in_memory_when_noenv() -> None:
+    from fast_agent.config import Settings, get_settings, update_global_settings
+
+    settings = Settings()
+    settings._fast_agent_noenv = True
+    previous_settings = get_settings()
+
+    try:
+        update_global_settings(settings)
+        store = default_session_cookie_store()
+    finally:
+        update_global_settings(previous_settings)
+
+    assert isinstance(store, InMemorySessionCookieStore)
 
 
 def test_bootstrap_cookie_for_server_prefers_identity_record() -> None:

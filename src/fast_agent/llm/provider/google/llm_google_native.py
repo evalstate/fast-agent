@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -38,6 +39,9 @@ from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
+
+# Suppress noisy internal warnings and AFC logs from the Google GenAI SDK
+logging.getLogger("google_genai").setLevel(logging.ERROR)
 
 # Define default model and potentially other Google-specific defaults
 DEFAULT_GOOGLE_MODEL = "gemini3"
@@ -101,10 +105,37 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
     def __init__(self, **kwargs) -> None:
         kwargs.pop("provider", None)
+        web_search_override = kwargs.pop("web_search", None)
+        self._web_search_override: bool | None = (
+            bool(web_search_override) if isinstance(web_search_override, bool) else None
+        )
         super().__init__(provider=Provider.GOOGLE, **kwargs)
         # Initialize the converter
         self._converter = GoogleConverter()
         self._init_reasoning(kwargs)
+
+    @property
+    def web_search_supported(self) -> bool:
+        """Whether provider-side web search is supported by this model/provider."""
+        if self._resolved_model_spec is None:
+            return False
+        params = self._resolved_model_spec.model_params
+        return bool(params and getattr(params, "google_search_supported", False))
+
+    @property
+    def web_search_enabled(self) -> bool:
+        """Whether provider-side web search is enabled for this LLM instance."""
+        if not self.web_search_supported:
+            return False
+        return self._web_search_override if self._web_search_override is not None else False
+
+    def set_web_search_enabled(self, value: bool | None) -> None:
+        if value is None:
+            self._web_search_override = None
+            return
+        if not self.web_search_supported:
+            raise ValueError("Current model does not support web search configuration.")
+        self._web_search_override = value
 
     def _init_reasoning(self, kwargs: dict) -> None:
         """Wire up reasoning/thinking from kwargs or config."""
@@ -688,6 +719,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if tools and not suppress_tools:
             available_tools.extend(self._converter.convert_to_google_tools(tools))
 
+        if self.web_search_enabled:
+            available_tools.append(
+                types.Tool(
+                    google_search=types.GoogleSearch()
+                )
+            )
+
         # 2. Prepare generate_content arguments
         thinking_budget, thinking_level = self._resolve_thinking_config()
         generate_content_config = self._converter.convert_request_params_to_google_config(
@@ -705,11 +743,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 generate_content_config.response_schema = response_schema
         if available_tools:
             generate_content_config.tools = available_tools
-            generate_content_config.tool_config = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(
-                    mode=types.FunctionCallingConfigMode.AUTO
+            if tools and not suppress_tools:
+                generate_content_config.tool_config = types.ToolConfig(
+                    function_calling_config=types.FunctionCallingConfig(
+                        mode=types.FunctionCallingConfigMode.AUTO,
+                    ),
+                    include_server_side_tool_invocations=bool(self.web_search_enabled),
                 )
-            )
 
         # 3. Call the google.genai API
         client = self._initialize_google_client()
@@ -772,6 +812,25 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             model_response_content_parts = self._converter.convert_from_google_content(
                 candidate_content
             )
+
+        # Check if we have grounding metadata and text parts to format citations
+        grounding_metadata = getattr(candidate, "grounding_metadata", None)
+        if grounding_metadata:
+            text_parts = [p for p in model_response_content_parts if isinstance(p, TextContent)]
+            if text_parts:
+                combined_text = "".join(p.text for p in text_parts)
+                cited_text = self._apply_citations(combined_text, grounding_metadata)
+
+                new_parts = []
+                replaced = False
+                for p in model_response_content_parts:
+                    if isinstance(p, TextContent):
+                        if not replaced:
+                            new_parts.append(TextContent(type="text", text=cited_text))
+                            replaced = True
+                    else:
+                        new_parts.append(p)
+                model_response_content_parts = new_parts
         provider_tool_calls: list[tuple[str, str, dict[str, Any]]] = []
         if candidate_content is not None and candidate_content.parts is not None:
             for content_part in candidate_content.parts:
@@ -1145,3 +1204,52 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             response_schema=response_schema,
         )
         return self._structured_schema_from_multipart(assistant_msg, schema)
+
+    def _apply_citations(self, text: str, grounding_metadata: Any) -> str:
+        """Apply citations and footnotes using grounding metadata."""
+        supports = getattr(grounding_metadata, "grounding_supports", None)
+        chunks = getattr(grounding_metadata, "grounding_chunks", None)
+        if not supports or not chunks:
+            return text
+
+        try:
+            # Sort supports by end_index in descending order to avoid shifting issues when inserting.
+            # Support segment indices can use either end_index (SDK object attribute) or endIndex (JSON/dict key).
+            def get_end_index(support_item: Any) -> int:
+                segment = getattr(support_item, "segment", None)
+                if segment is None:
+                    return 0
+                val = getattr(segment, "end_index", None)
+                if val is None:
+                    val = getattr(segment, "endIndex", None)
+                return int(val) if val is not None else 0
+
+            sorted_supports = sorted(supports, key=get_end_index, reverse=True)
+
+            for support in sorted_supports:
+                end_index = get_end_index(support)
+                if not end_index:
+                    continue
+
+                indices = getattr(support, "grounding_chunk_indices", None)
+                if not indices:
+                    indices = getattr(support, "groundingChunkIndices", None)
+
+                if indices:
+                    citation_links = []
+                    for i in indices:
+                        if i < len(chunks):
+                            chunk = chunks[i]
+                            web = getattr(chunk, "web", None)
+                            uri = getattr(web, "uri", None) if web else None
+                            if uri:
+                                citation_links.append(f"[{i + 1}]({uri})")
+
+                    if citation_links:
+                        # Append a space before citations for clean display
+                        citation_string = " " + ", ".join(citation_links)
+                        text = text[:end_index] + citation_string + text[end_index:]
+        except Exception as e:
+            self.logger.warning(f"Failed to process Google Search grounding metadata citations: {e}")
+
+        return text

@@ -696,7 +696,7 @@ def test_gemini25_alias_resolves_to_current_google_flash():
     assert config.model_name == "gemini-2.5-flash"
 
 
-@pytest.mark.parametrize("alias", ["gemini35", "gemini35flash", "gemini3.5flash", "gemini3flash"])
+@pytest.mark.parametrize("alias", ["gemini35", "gemini35flash", "gemini3.5flash"])
 def test_gemini35_flash_aliases_resolve_to_current_google_flash(alias: str):
     config = ModelFactory.parse_model_string(alias)
     assert config.provider == Provider.GOOGLE

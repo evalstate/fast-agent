@@ -81,6 +81,9 @@ class ModelParameters(BaseModel):
     anthropic_task_budget_supported: bool = False
     """Whether Anthropic task_budget output_config is supported for this model."""
 
+    google_search_supported: bool = False
+    """Whether Grounding with Google Search is supported for this model."""
+
     default_temperature: float | None = None
     """Optional default sampling temperature for this model."""
 
@@ -591,6 +594,7 @@ class ModelDatabase:
         reasoning="google_thinking",
         reasoning_effort_spec=GOOGLE_THINKING_EFFORT_SPEC,
         default_provider=Provider.GOOGLE,
+        google_search_supported=True,
         model_specific=(
             "You have multimodal capabilities. When attachment/resource tools are available, "
             "you can inspect supported images, PDFs, audio, and video inputs. "
@@ -611,6 +615,7 @@ class ModelDatabase:
         reasoning="google_thinking",
         reasoning_effort_spec=GOOGLE_THINKING_LEVEL_SPEC,
         default_provider=Provider.GOOGLE,
+        google_search_supported=True,
         model_specific=(
             "You have multimodal capabilities. When attachment/resource tools are available, "
             "you can inspect supported images, PDFs, audio, and video inputs. "
@@ -625,6 +630,7 @@ class ModelDatabase:
         tokenizes=GOOGLE_MULTIMODAL,
         json_mode="schema",
         default_provider=Provider.GOOGLE,
+        google_search_supported=True,
         model_specific=(
             "You have multimodal capabilities. When attachment/resource tools are available, "
             "you can inspect supported images, PDFs, audio, and video inputs. "
