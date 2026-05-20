@@ -27,6 +27,7 @@ from a2a.types import (
     TaskStatus,
 )
 from fastapi import FastAPI
+from google.protobuf.json_format import ParseDict
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -34,15 +35,23 @@ if TYPE_CHECKING:
     from a2a.server.agent_execution.context import RequestContext
     from a2a.server.events.event_queue import EventQueue
 
+def _data_part(value: dict[str, object]) -> Part:
+    part = Part()
+    ParseDict(value, part.data)
+    return part
+
+
 @dataclass(frozen=True)
 class A2ATestServer:
     base_url: str
     card: AgentCard
+    executor: EchoAgentExecutor
 
 
 class EchoAgentExecutor(AgentExecutor):
     def __init__(self) -> None:
         self.seen_queries: list[str] = []
+        self.seen_part_kinds: list[list[str]] = []
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         updater = TaskUpdater(
@@ -76,9 +85,45 @@ class EchoAgentExecutor(AgentExecutor):
 
         query = context.get_user_input()
         self.seen_queries.append(query)
+        self.seen_part_kinds.append([part.WhichOneof("content") or "unknown" for part in context.message.parts])
+
+        if "stream" in query:
+            await updater.add_artifact(
+                parts=[Part(text="stream chunk one")],
+                name="stream",
+                last_chunk=False,
+            )
+            await asyncio.sleep(0.01)
+            await updater.add_artifact(
+                parts=[Part(text="stream chunk two")],
+                name="stream",
+                last_chunk=True,
+            )
+            await updater.complete()
+            return
+
+        if "respond with files" in query:
+            await updater.add_artifact(
+                parts=[
+                    Part(text="file response"),
+                    Part(
+                        url="https://example.com/report.pdf",
+                        media_type="application/pdf",
+                        filename="report.pdf",
+                    ),
+                    _data_part({"ok": True, "count": 2}),
+                    Part(raw=b"abc", media_type="text/plain", filename="note.txt"),
+                ],
+                name="files",
+                last_chunk=True,
+            )
+            await updater.complete()
+            return
+
         await asyncio.sleep(0.01)
+        summary = ",".join(self.seen_part_kinds[-1])
         await updater.add_artifact(
-            parts=[Part(text=f"echo: {query}")],
+            parts=[Part(text=f"echo: {query} [{summary}]")],
             name="response",
             last_chunk=True,
         )
@@ -122,8 +167,9 @@ async def a2a_test_server(unused_tcp_port: int, wait_for_port) -> AsyncIterator[
             ),
         ],
     )
+    executor = EchoAgentExecutor()
     request_handler = DefaultRequestHandler(
-        agent_executor=EchoAgentExecutor(),
+        agent_executor=executor,
         task_store=InMemoryTaskStore(),
         agent_card=card,
     )
@@ -140,7 +186,7 @@ async def a2a_test_server(unused_tcp_port: int, wait_for_port) -> AsyncIterator[
     await wait_for_port(host, port, timeout=5.0)
 
     try:
-        yield A2ATestServer(base_url=base_url, card=card)
+        yield A2ATestServer(base_url=base_url, card=card, executor=executor)
     finally:
         server.should_exit = True
         await asyncio.wait_for(task, timeout=5.0)

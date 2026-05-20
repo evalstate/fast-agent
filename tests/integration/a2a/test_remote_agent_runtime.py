@@ -48,3 +48,94 @@ async def test_a2a_remote_agent_sends_text_over_supported_transports(
 ) -> None:
     agent = await _send_text(a2a_test_server.base_url, transport)
     await agent.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_emits_stream_chunks(a2a_test_server) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_stream", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    chunks: list[str] = []
+    agent.add_stream_listener(lambda chunk: chunks.append(chunk.text))
+    await agent.initialize()
+    try:
+        response = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="please stream")],
+                )
+            ]
+        )
+    finally:
+        await agent.shutdown()
+
+    assert "stream chunk one" in response.all_text()
+    assert "stream chunk two" in response.all_text()
+    assert chunks == ["stream chunk one", "stream chunk two"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_renders_file_url_data_and_raw_parts(a2a_test_server) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_files", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    await agent.initialize()
+    try:
+        response = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="respond with files")],
+                )
+            ]
+        )
+    finally:
+        await agent.shutdown()
+
+    text = response.all_text()
+    assert "file response" in text
+    assert "[report.pdf](https://example.com/report.pdf) (application/pdf)" in text
+    assert '"ok": true' in text
+    assert '"count": 2.0' in text
+    assert "[note.txt: 3 bytes text/plain]" in text
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_sends_url_and_raw_parts(a2a_test_server) -> None:
+    from mcp.types import ImageContent, ResourceLink
+    from pydantic import AnyUrl
+
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_attachments", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    await agent.initialize()
+    try:
+        response = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[
+                        TextContent(type="text", text="inspect attachment"),
+                        ResourceLink(
+                            type="resource_link",
+                            name="report.pdf",
+                            uri=AnyUrl("https://example.com/report.pdf"),
+                            mimeType="application/pdf",
+                        ),
+                        ImageContent(type="image", data="YWJj", mimeType="image/png"),
+                    ],
+                )
+            ]
+        )
+    finally:
+        await agent.shutdown()
+
+    assert "echo: inspect attachment [text,url,raw]" in response.all_text()
+    assert a2a_test_server.executor.seen_part_kinds[-1] == ["text", "url", "raw"]
