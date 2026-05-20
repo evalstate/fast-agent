@@ -44,12 +44,20 @@ The deterministic A2A integration suite exercises:
 
 - JSON-RPC and HTTP+JSON client/server calls;
 - generated `context_id` continuity across turns;
+- fresh A2A context/task state for `use_history=False` turns, except while
+  continuing an `INPUT_REQUIRED` task;
+- A2A server `shared`, `connection`, and `request` instance scopes;
+- AgentCard skill advertisement and skill routing via message metadata;
 - streaming artifact updates delivered to the fast-agent client stream listener;
 - artifact replacement and append semantics on the client;
 - `TASK_STATE_INPUT_REQUIRED` preservation and follow-up completion;
 - raw non-image file preservation into fast-agent blob resources and back to
   A2A raw parts;
-- cancellation and protocol error paths via SDK-backed handlers.
+- raw image and audio input mapping;
+- cancellation, task retrieval/listing after cancellation, and protocol error
+  paths via SDK-backed handlers.
 
-Live provider smoke testing has also verified that a `codexresponses.gpt-5.4-mini`
-fast-agent A2A server streams incremental chunks to the fast-agent A2A client.
+For provider smoke testing, run a fast-agent A2A server with
+`codexresponses.gpt-5.4-mini` and connect to it with the fast-agent A2A client.
+The expected behavior is incremental streaming chunks delivered to client stream
+listeners before the final task completion event.
