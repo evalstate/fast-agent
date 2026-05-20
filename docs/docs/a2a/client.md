@@ -36,6 +36,47 @@ Supported HTTP transports:
 
 gRPC is not part of fast-agent's A2A support target.
 
+### CLI Recording
+
+This recording shows the expected shape of a streamed remote A2A response from
+the deterministic fake server.
+
+<div class="a2a-terminal-demo">
+  <link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">
+  <link rel="stylesheet" href="../../assets/vendor/asciinema-player/catppuccin.css">
+  <div id="a2a-client-cli-player"></div>
+</div>
+
+<script src="../../assets/vendor/asciinema-player/asciinema-player.min.js"></script>
+<script>
+  (function () {
+    function renderClientCliCast() {
+      var target = document.getElementById("a2a-client-cli-player");
+      if (!target || !window.AsciinemaPlayer || target.dataset.loaded === "true") {
+        return;
+      }
+      target.dataset.loaded = "true";
+      window.AsciinemaPlayer.create("../../assets/a2a/a2a-client-cli.cast", target, {
+        cols: 96,
+        rows: 18,
+        preload: true,
+        speed: 1,
+        idleTimeLimit: 1,
+        fit: "width",
+        theme: "fast-agent-dark"
+      });
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", renderClientCliCast);
+    } else {
+      renderClientCliCast();
+    }
+    if (window.document$ && window.document$.subscribe) {
+      window.document$.subscribe(renderClientCliCast);
+    }
+  })();
+</script>
+
 ## AgentCard
 
 Use a checked-in AgentCard when the remote A2A agent should be reusable:
@@ -105,6 +146,45 @@ When a remote A2A task reaches `TASK_STATE_INPUT_REQUIRED`, fast-agent:
 - sends the next user message back to the same task.
 
 Use `/a2a reset` to clear the pending task and start a fresh remote context.
+
+### Turn Continuation Recording
+
+This recording shows the task id being retained only while the remote task is in
+`TASK_STATE_INPUT_REQUIRED`; after the follow-up completes, the task id is
+cleared and the context id remains available for future turns.
+
+<div class="a2a-terminal-demo">
+  <div id="a2a-client-input-required-player"></div>
+</div>
+
+<script>
+  (function () {
+    function renderClientInputRequiredCast() {
+      var target = document.getElementById("a2a-client-input-required-player");
+      if (!target || !window.AsciinemaPlayer || target.dataset.loaded === "true") {
+        return;
+      }
+      target.dataset.loaded = "true";
+      window.AsciinemaPlayer.create("../../assets/a2a/a2a-client-input-required.cast", target, {
+        cols: 96,
+        rows: 18,
+        preload: true,
+        speed: 1,
+        idleTimeLimit: 1,
+        fit: "width",
+        theme: "fast-agent-dark"
+      });
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", renderClientInputRequiredCast);
+    } else {
+      renderClientInputRequiredCast();
+    }
+    if (window.document$ && window.document$.subscribe) {
+      window.document$.subscribe(renderClientInputRequiredCast);
+    }
+  })();
+</script>
 
 ## Attachments
 

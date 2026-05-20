@@ -32,10 +32,55 @@ The server exposes:
 The AgentCard advertises `JSONRPC` and `HTTP+JSON` with protocol version `1.0`.
 gRPC is intentionally not advertised.
 
-When the server binds to the wildcard host `0.0.0.0`, the AgentCard advertises
-`127.0.0.1` instead of `0.0.0.0`, because `0.0.0.0` is a bind address rather
-than a client-routable interface URL. For remote clients on another machine, bind
-with a concrete hostname or address that those clients can reach.
+When the server binds to a wildcard host such as `0.0.0.0` or `::`, the served
+AgentCard builds interface URLs from the incoming AgentCard request host. This
+keeps cards fetched from another machine routable to the server instead of
+advertising the bind wildcard or the server's loopback address.
+
+## Card Recording
+
+This recording shows the expected shape when a wildcard-bound server is fetched
+through a routable hostname. The JSON-RPC and HTTP+JSON interfaces use the
+request hostname in the served card.
+
+<div class="a2a-terminal-demo">
+  <link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">
+  <link rel="stylesheet" href="../../assets/vendor/asciinema-player/catppuccin.css">
+  <div id="a2a-server-card-player"></div>
+</div>
+
+<script src="../../assets/vendor/asciinema-player/asciinema-player.min.js"></script>
+<script>
+  (function () {
+    function renderServerCardCast() {
+      var target = document.getElementById("a2a-server-card-player");
+      if (!target || !window.AsciinemaPlayer || target.dataset.loaded === "true") {
+        return;
+      }
+      target.dataset.loaded = "true";
+      window.AsciinemaPlayer.create("../../assets/a2a/a2a-server-card.cast", target, {
+        cols: 104,
+        rows: 20,
+        preload: true,
+        speed: 1,
+        idleTimeLimit: 1,
+        fit: "width",
+        theme: "fast-agent-dark"
+      });
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", renderServerCardCast);
+    } else {
+      renderServerCardCast();
+    }
+    if (window.document$ && window.document$.subscribe) {
+      window.document$.subscribe(renderServerCardCast);
+    }
+  })();
+</script>
+
+For static deployment checks, bind with the concrete hostname or address that
+remote clients should use.
 
 ## Runtime Wiring
 
@@ -99,6 +144,10 @@ session key:
 - same interrupted `task_id` and `context_id`: continue an `INPUT_REQUIRED`
   task.
 
+The `context_id` selects the server-side fast-agent instance. The agent's
+history setting controls how much prior conversation is sent to the model; it
+does not change the A2A session key.
+
 The current server uses in-memory A2A task storage and in-memory fast-agent
 context instances. Restarting the process loses A2A task state and session
 continuity.
@@ -140,6 +189,14 @@ The server maps common fast-agent outcomes into A2A states:
 Transport validation errors, task lookup errors, non-cancelable tasks, and
 unsupported push notification operations are handled by the A2A SDK request
 handler.
+
+## File Parts
+
+Incoming raw image parts become `ImageContent`. Other raw file parts become
+`EmbeddedResource` values with `BlobResourceContents`, preserving the base64 file
+payload, MIME type, and filename-like attachment URI for the fast-agent agent.
+When a fast-agent response includes a blob resource, the server emits it back to
+A2A clients as a raw file part.
 
 See [Protocol Compliance](protocol-compliance.md) for the full supported surface
 and known gaps.

@@ -7,11 +7,18 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 import pytest_asyncio
 import uvicorn
-from mcp.types import TextContent
+from a2a.types import Message, Part, Role
+from fastapi.testclient import TestClient
+from mcp.types import BlobResourceContents, EmbeddedResource, TextContent
+from pydantic import AnyUrl
 
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
-from fast_agent.a2a.server import AgentA2AServer
+from fast_agent.a2a.server import (
+    AgentA2AServer,
+    _parts_from_prompt_message,
+    _prompt_from_a2a_message,
+)
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
@@ -397,11 +404,70 @@ def test_fast_agent_a2a_server_does_not_advertise_wildcard_bind_host() -> None:
         port=41241,
     )
 
-    urls = {interface.url for interface in server.agent_card.supported_interfaces}
-    assert urls == {
-        "http://127.0.0.1:41241/a2a/jsonrpc",
-        "http://127.0.0.1:41241/a2a/rest",
+    static_urls = {interface.url for interface in server.agent_card.supported_interfaces}
+    assert static_urls == {
+        "http://localhost:41241/a2a/jsonrpc",
+        "http://localhost:41241/a2a/rest",
     }
+
+    client = TestClient(server.asgi_app(), base_url="http://agent.example:41241")
+    response = client.get("/.well-known/agent-card.json")
+    response.raise_for_status()
+
+    urls = {interface["url"] for interface in response.json()["supportedInterfaces"]}
+    assert urls == {
+        "http://agent.example:41241/a2a/jsonrpc",
+        "http://agent.example:41241/a2a/rest",
+    }
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_preserves_raw_file_input_parts() -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="file-input",
+            parts=[
+                Part(
+                    raw=b"%PDF test bytes",
+                    media_type="application/pdf",
+                    filename="report.pdf",
+                )
+            ],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, EmbeddedResource)
+    assert isinstance(content.resource, BlobResourceContents)
+    assert str(content.resource.uri) == "attachment:///report.pdf"
+    assert content.resource.mimeType == "application/pdf"
+    assert content.resource.blob == "JVBERiB0ZXN0IGJ5dGVz"
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_emits_blob_resources_as_raw_file_parts() -> None:
+    parts = _parts_from_prompt_message(
+        PromptMessageExtended(
+            role="assistant",
+            content=[
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(
+                        uri=AnyUrl("attachment:///report.pdf"),
+                        mimeType="application/pdf",
+                        blob="JVBERiB0ZXN0IGJ5dGVz",
+                    ),
+                )
+            ],
+        )
+    )
+
+    assert len(parts) == 1
+    assert parts[0].raw == b"%PDF test bytes"
+    assert parts[0].media_type == "application/pdf"
+    assert parts[0].filename == "report.pdf"
 
 
 @pytest.mark.integration

@@ -37,6 +37,19 @@ def test_a2a_cast_asset_is_present() -> None:
     assert '"version"' in first_line
 
 
+def test_a2a_client_server_cast_assets_are_present() -> None:
+    assets = ROOT / "docs" / "docs" / "assets" / "a2a"
+    for filename in [
+        "a2a-client-cli.cast",
+        "a2a-client-input-required.cast",
+        "a2a-server-card.cast",
+    ]:
+        asset = assets / filename
+        assert asset.is_file()
+        first_line = asset.read_text(encoding="utf-8").splitlines()[0]
+        assert '"version"' in first_line
+
+
 def test_a2a_getting_started_embeds_asciinema_player() -> None:
     page = ROOT / "docs" / "docs" / "a2a" / "getting-started.md"
     text = page.read_text(encoding="utf-8")
@@ -51,6 +64,16 @@ def test_a2a_getting_started_embeds_asciinema_player() -> None:
     assert 'data-a2a-terminal-theme="light"' in text
     assert 'data-a2a-terminal-theme="dark"' in text
     assert "rows: 27" in text
+
+
+def test_a2a_client_server_pages_embed_recordings() -> None:
+    client = (ROOT / "docs" / "docs" / "a2a" / "client.md").read_text(encoding="utf-8")
+    server = (ROOT / "docs" / "docs" / "a2a" / "server.md").read_text(encoding="utf-8")
+    assert "a2a-client-cli.cast" in client
+    assert "a2a-client-input-required.cast" in client
+    assert "AsciinemaPlayer.create" in client
+    assert "a2a-server-card.cast" in server
+    assert "AsciinemaPlayer.create" in server
 
 
 def test_asciinema_player_vendor_assets_are_present() -> None:

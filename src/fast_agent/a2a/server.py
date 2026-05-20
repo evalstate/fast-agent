@@ -5,13 +5,17 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import copy
 import json
 from importlib.metadata import version as get_version
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from urllib.parse import quote, unquote, urlparse
 
 import uvicorn
 from a2a.server.agent_execution.agent_executor import AgentExecutor
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.request_handlers.response_helpers import agent_card_to_dict
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, create_rest_routes
 from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
 from a2a.server.tasks.task_updater import TaskUpdater
@@ -29,8 +33,16 @@ from a2a.types import (
 )
 from fastapi import FastAPI
 from google.protobuf.json_format import MessageToDict
-from mcp.types import ImageContent, ResourceLink, TextContent
+from mcp.types import (
+    BlobResourceContents,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+)
 from pydantic import AnyUrl
+from starlette.responses import JSONResponse
 
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
@@ -42,6 +54,7 @@ if TYPE_CHECKING:
 
     from a2a.server.agent_execution.context import RequestContext
     from a2a.server.events.event_queue import EventQueue
+    from starlette.requests import Request
 
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.interfaces import AgentProtocol
@@ -332,7 +345,7 @@ class AgentA2AServer:
 
     def asgi_app(self) -> FastAPI:
         app = FastAPI(title=self.agent_card.name)
-        app.routes.extend(create_agent_card_routes(agent_card=self.agent_card))
+        app.routes.extend(_agent_card_routes(self.agent_card, host=self._host, port=self._port))
         app.routes.extend(
             create_jsonrpc_routes(request_handler=self.request_handler, rpc_url="/a2a/jsonrpc")
         )
@@ -375,7 +388,7 @@ def _build_agent_card(
     host: str,
     port: int,
 ) -> AgentCard:
-    base_url = f"http://{_advertised_host(host)}:{port}"
+    base_url = _base_url(host=host, port=port)
     skills = [
         _agent_skill_from_fast_agent(agent_name, agent)
         for agent_name, agent in primary_instance.agents.items()
@@ -404,10 +417,45 @@ def _build_agent_card(
     )
 
 
-def _advertised_host(bind_host: str) -> str:
-    if bind_host in {"0.0.0.0", "::", ""}:
-        return "127.0.0.1"
+def _agent_card_routes(agent_card: AgentCard, *, host: str, port: int) -> list[Any]:
+    if not _is_wildcard_host(host):
+        return create_agent_card_routes(agent_card=agent_card)
+
+    from starlette.routing import Route
+
+    async def _get_agent_card(request: "Request") -> JSONResponse:
+        base_url = str(request.base_url).rstrip("/")
+        return JSONResponse(agent_card_to_dict(_agent_card_with_base_url(agent_card, base_url)))
+
+    return [
+        Route("/.well-known/agent-card.json", endpoint=_get_agent_card, methods=["GET"]),
+    ]
+
+
+def _agent_card_with_base_url(agent_card: AgentCard, base_url: str) -> AgentCard:
+    card = copy.deepcopy(agent_card)
+    for interface in card.supported_interfaces:
+        if interface.protocol_binding == "JSONRPC":
+            interface.url = f"{base_url}/a2a/jsonrpc"
+        if interface.protocol_binding == "HTTP+JSON":
+            interface.url = f"{base_url}/a2a/rest"
+    return card
+
+
+def _base_url(*, host: str, port: int) -> str:
+    return f"http://{_url_host(host)}:{port}"
+
+
+def _url_host(bind_host: str) -> str:
+    if _is_wildcard_host(bind_host):
+        return "localhost"
+    if ":" in bind_host and not bind_host.startswith("["):
+        return f"[{bind_host}]"
     return bind_host
+
+
+def _is_wildcard_host(bind_host: str) -> bool:
+    return bind_host in {"0.0.0.0", "::", ""}
 
 
 def _agent_skill_from_fast_agent(agent_name: str, agent: AgentProtocol) -> AgentSkill:
@@ -462,7 +510,16 @@ def _content_from_part(part: Part) -> list[Any]:
         if part.media_type.startswith("image/"):
             return [ImageContent(type="image", data=data, mimeType=part.media_type)]
         label = part.filename or "attachment"
-        return [TextContent(type="text", text=f"[{label}: {len(part.raw)} bytes]")]
+        return [
+            EmbeddedResource(
+                type="resource",
+                resource=BlobResourceContents(
+                    uri=AnyUrl(f"attachment:///{quote(label)}"),
+                    mimeType=part.media_type or "application/octet-stream",
+                    blob=data,
+                ),
+            )
+        ]
     if part.HasField("data"):
         data = MessageToDict(part).get("data", {})
         return [TextContent(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
@@ -480,6 +537,20 @@ def _parts_from_prompt_message(message: PromptMessageExtended) -> list[Part]:
                 Part(raw=base64.b64decode(content.data), media_type=content.mimeType)
             )
             continue
+        if isinstance(content, EmbeddedResource):
+            resource = content.resource
+            if isinstance(resource, BlobResourceContents):
+                parts.append(
+                    Part(
+                        raw=base64.b64decode(resource.blob),
+                        media_type=resource.mimeType or "",
+                        filename=_filename_from_uri(str(resource.uri)),
+                    )
+                )
+                continue
+            if isinstance(resource, TextResourceContents):
+                parts.append(Part(text=resource.text))
+            continue
         if isinstance(content, ResourceLink):
             parts.append(
                 Part(
@@ -491,3 +562,9 @@ def _parts_from_prompt_message(message: PromptMessageExtended) -> list[Part]:
     if not parts:
         parts.append(Part(text=message.all_text()))
     return parts
+
+
+def _filename_from_uri(uri: str) -> str:
+    parsed = urlparse(uri)
+    name = PurePosixPath(unquote(parsed.path)).name
+    return name or parsed.netloc or "attachment"

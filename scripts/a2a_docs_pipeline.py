@@ -170,6 +170,9 @@ def check() -> None:
             missing_or_changed.append(str(path.relative_to(ROOT)))
     required_assets = [
         ASSETS / "a2a-streaming-files.cast",
+        ASSETS / "a2a-client-cli.cast",
+        ASSETS / "a2a-client-input-required.cast",
+        ASSETS / "a2a-server-card.cast",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.css",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "catppuccin.css",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.min.js",
@@ -191,6 +194,21 @@ def check() -> None:
     ]:
         if required_text not in page_text:
             missing_or_changed.append(f"{page.relative_to(ROOT)} missing {required_text}")
+
+    page_assets = {
+        DOCS_A2A / "client.md": [
+            "../../assets/a2a/a2a-client-cli.cast",
+            "../../assets/a2a/a2a-client-input-required.cast",
+        ],
+        DOCS_A2A / "server.md": ["../../assets/a2a/a2a-server-card.cast"],
+    }
+    for asset_page, required_texts in page_assets.items():
+        asset_page_text = asset_page.read_text(encoding="utf-8") if asset_page.exists() else ""
+        for required_text in required_texts:
+            if required_text not in asset_page_text:
+                missing_or_changed.append(
+                    f"{asset_page.relative_to(ROOT)} missing {required_text}"
+                )
 
     if missing_or_changed:
         raise SystemExit(

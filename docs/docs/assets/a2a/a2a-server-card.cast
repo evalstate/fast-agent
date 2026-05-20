@@ -1,0 +1,6 @@
+{"version": 2, "width": 104, "height": 20, "timestamp": 1779385202, "idle_time_limit": 1.0, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}, "title": "fast-agent A2A server card and transports"}
+[0.1, "o", "\u001b[1;36m$ uv run fast-agent serve --transport a2a --host 0.0.0.0 --port 41241 --agent-cards ./agents\u001b[0m\r\n"]
+[0.8, "o", "fast-agent A2A server listening on http://0.0.0.0:41241\r\n"]
+[1.4, "o", "\u001b[1;36m$ curl -s http://a2a.example.test:41241/.well-known/agent-card.json | jq '.supportedInterfaces'\u001b[0m\r\n"]
+[2.0, "o", "[\r\n  {\r\n    \"protocolBinding\": \"JSONRPC\",\r\n    \"url\": \"http://a2a.example.test:41241/a2a/jsonrpc\"\r\n  },\r\n  {\r\n    \"protocolBinding\": \"HTTP+JSON\",\r\n    \"url\": \"http://a2a.example.test:41241/a2a/rest\"\r\n  }\r\n]\r\n"]
+[3.0, "o", "\u001b[1;32mThe served card uses the hostname from the incoming card request.\u001b[0m\r\n"]

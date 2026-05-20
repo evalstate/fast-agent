@@ -1,0 +1,8 @@
+{"version": 2, "width": 96, "height": 18, "timestamp": 1779385201, "idle_time_limit": 1.0, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}, "title": "fast-agent A2A input-required continuation"}
+[0.1, "o", "\u001b[1;35mfast-agent ▸\u001b[0m need input\r\n"]
+[0.8, "o", "A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value.\r\n"]
+[1.2, "o", "\u001b[2m/a2a status remote\u001b[0m\r\n"]
+[1.6, "o", "Context: 7b7c8d9e\r\nTask: task-input-001\r\nLast state: TASK_STATE_INPUT_REQUIRED\r\nTransport: JSONRPC\r\n"]
+[2.2, "o", "\u001b[1;35mfast-agent ▸\u001b[0m blue\r\n"]
+[2.8, "o", "input received: blue\r\n"]
+[3.2, "o", "\u001b[2mTask cleared after completion; context preserved for the next turn.\u001b[0m\r\n"]

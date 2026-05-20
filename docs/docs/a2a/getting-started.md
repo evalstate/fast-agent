@@ -112,7 +112,9 @@ Current rendering behavior:
 - text parts render as normal assistant text;
 - URL parts render as Markdown links;
 - data parts render as fenced JSON;
-- raw bytes render as a safe filename/media-type/byte-count placeholder.
+- raw non-image bytes are preserved as blob resources when received by an A2A
+  server, and remote raw response bytes render as a safe
+  filename/media-type/byte-count placeholder in the fast-agent client.
 
 ## 4. Continue an `INPUT_REQUIRED` task
 
@@ -248,7 +250,7 @@ shape used by normal fast-agent agents:
 - text parts become `TextContent`;
 - URL parts become `ResourceLink` where the URL is valid;
 - raw image bytes become `ImageContent`;
-- other raw bytes are represented as a safe text placeholder;
+- other raw bytes become `EmbeddedResource` values with `BlobResourceContents`;
 - data parts become formatted JSON text.
 
 Responses are mapped back to A2A artifact parts and completed with
