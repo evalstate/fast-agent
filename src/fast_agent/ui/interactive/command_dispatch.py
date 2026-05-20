@@ -400,13 +400,27 @@ async def _dispatch_a2a_payload(
             for name in names:
                 rich_print(f"  • {name}")
             return result
-        case "status" | "card" | "reset":
+        case "status" | "card" | "reset" | "transport":
             target = payload.argument or agent
             remote_agent = owner._get_agent_or_warn(prompt_provider, target)
             if remote_agent is None:
                 return result
             if not isinstance(remote_agent, A2ARemoteAgent):
                 rich_print(f"[red]Agent '{target}' is not an A2A agent.[/red]")
+                return result
+            if payload.action == "transport":
+                diagnostics = remote_agent.diagnostics()
+                rich_print(f"[bold]A2A transport: {target}[/bold]")
+                rich_print(f"  Requested: {diagnostics.transport or 'auto'}")
+                rich_print(f"  Selected client: {diagnostics.selected_transport_class or 'uninitialized'}")
+                card = remote_agent.remote_card
+                if card is not None:
+                    rich_print("  Advertised interfaces:")
+                    for interface in card.supported_interfaces:
+                        rich_print(
+                            f"    • {interface.protocol_binding} "
+                            f"{interface.protocol_version}: {interface.url}"
+                        )
                 return result
             if payload.action == "reset":
                 remote_agent.reset_a2a_state()
@@ -421,6 +435,7 @@ async def _dispatch_a2a_payload(
                 rich_print(f"  Context: {diagnostics.context_id}")
                 rich_print(f"  Task: {diagnostics.current_task_id or '-'}")
                 rich_print(f"  Last state: {diagnostics.last_task_state or '-'}")
+                rich_print(f"  Client transport: {diagnostics.selected_transport_class or '-'}")
                 return result
             card = remote_agent.remote_card
             if card is None:

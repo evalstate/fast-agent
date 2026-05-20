@@ -73,6 +73,7 @@ class A2ADiagnostics:
     context_id: str
     current_task_id: str | None
     last_task_state: str | None
+    selected_transport_class: str | None
 
 
 class A2ARemoteAgent(LlmDecorator):
@@ -156,6 +157,7 @@ class A2ARemoteAgent(LlmDecorator):
             context_id=self.context_id,
             current_task_id=self.current_task_id,
             last_task_state=self.last_task_state,
+            selected_transport_class=self._selected_transport_class(),
         )
 
     async def generate_impl(
@@ -219,6 +221,14 @@ class A2ARemoteAgent(LlmDecorator):
 
     def _transport_label(self) -> str:
         return f"A2A · {self.a2a_config.transport}" if self.a2a_config.transport else "A2A"
+
+    def _selected_transport_class(self) -> str | None:
+        if self._client is None:
+            return None
+        transport = getattr(self._client, "_transport", None)
+        if transport is None:
+            return self._client.__class__.__name__
+        return transport.__class__.__name__
 
     def _log_a2a_progress(self, action: ProgressAction, *, details: str = "") -> None:
         logger.debug(

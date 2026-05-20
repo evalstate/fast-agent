@@ -34,6 +34,8 @@ fast-agent go [OPTIONS]
 - `--pack`, `--card-pack <name>`: Ensure a named card pack is installed in the selected environment before starting
 - `--pack-registry <path or uri>`: Marketplace file path, HTTP(S) URL, `file://` URI, or `hf://` URI used to resolve `--pack` when it is not already installed
 - `--agent-cards`, `--card <path or uri>`: Load AgentCards as runnable agents from a path, HTTP(S) URL, `file://` URI, or `hf://` URI (repeatable)
+- `--a2a <url>`: Connect to a remote A2A agent by base URL or direct AgentCard URL (repeatable); creates temporary `a2a_remote` AgentCards for the run
+- `--a2a-transport <transport>`: Preferred transport for `--a2a`; accepts `JSONRPC`, `HTTP+JSON`, or `GRPC` plus aliases such as `rest` and `json-rpc`
 - `--card-tool <path or uri>`: Load AgentCards from a path, HTTP(S) URL, `file://` URI, or `hf://` URI and attach them as tools to the selected/default agent (repeatable)
 - `--agent <name>`: Target a specific loaded agent by name for `--message`, `--prompt-file`, and initial interactive mode
 - `--message`, `-m TEXT`: Message to send to the agent (skips interactive mode)
@@ -85,6 +87,9 @@ fast-agent go --servers=fetch,filesystem --model=haiku
 
 # Directly connecting to HTTP/SSE servers via URLs
 fast-agent go --url=http://localhost:8001/mcp,http://api.example.com/sse
+
+# Connect to a remote A2A agent without writing an AgentCard
+fast-agent go --a2a http://127.0.0.1:41241 --a2a-transport JSONRPC --message hello
 
 # Connecting to an authenticated API endpoint
 fast-agent go --url=https://api.example.com/mcp --auth=YOUR_API_TOKEN
@@ -176,6 +181,31 @@ fast-agent go --models sonnet,gpt-5-mini.low --agent sonnet --message "Summarize
   from the file name (for example `research.md` -> `research`). `--agent` still takes precedence
   for explicit targeting.
 - Explicit targeting can include tool-only agents when needed for testing.
+
+### A2A quick connect
+
+Use `--a2a` when you want a temporary client-only connection to a remote A2A
+agent without creating an AgentCard file. The value should usually be the remote
+agent base URL:
+
+```bash
+fast-agent go --a2a http://127.0.0.1:41241 --a2a-transport HTTP+JSON
+```
+
+Direct card URLs are also accepted and normalized:
+
+```bash
+fast-agent go --a2a http://127.0.0.1:41241/.well-known/agent-card.json
+```
+
+The generated temporary agent names are `a2a_remote`, `a2a_remote_2`, and so on.
+If a single `--a2a` URL is provided and `--agent` is omitted, fast-agent targets
+that temporary A2A agent automatically. For persistent configuration, write an
+AgentCard with `type: a2a` instead.
+
+Inside the TUI, `/a2a connect <url> [--transport ...] [--name ...]` performs the
+same kind of runtime connection. `/a2a status`, `/a2a card`, `/a2a list`, and
+`/a2a reset` provide diagnostics for connected A2A agents.
 
 ### AgentCards vs ToolCards
 

@@ -31,3 +31,10 @@ def test_parse_a2a_unknown_action_reports_error() -> None:
     assert result.action == "wat"
     assert result.argument == "remote"
     assert result.error == "Unknown /a2a action: wat"
+
+
+def test_parse_a2a_transport_target() -> None:
+    result = parse_special_input("/a2a transport remote")
+    assert isinstance(result, A2ACommand)
+    assert result.action == "transport"
+    assert result.argument == "remote"
