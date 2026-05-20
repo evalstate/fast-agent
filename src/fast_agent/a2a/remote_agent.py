@@ -65,6 +65,7 @@ _ERROR_STATES = {
 logger = get_logger(__name__)
 
 SUPPORTED_A2A_HTTP_TRANSPORTS = ["JSONRPC", "HTTP+JSON"]
+_INPUT_REQUIRED_STATE = "TASK_STATE_INPUT_REQUIRED"
 
 
 @dataclass(frozen=True)
@@ -200,7 +201,7 @@ class A2ARemoteAgent(LlmDecorator):
             response_text = f"A2A task {result.state}: {response_text}"
         stop_reason = (
             LlmStopReason.PAUSE
-            if result.state == "TASK_STATE_INPUT_REQUIRED"
+            if result.state == _INPUT_REQUIRED_STATE
             else LlmStopReason.END_TURN
         )
         assistant_message = PromptMessageExtended(
@@ -270,10 +271,12 @@ class A2ARemoteAgent(LlmDecorator):
                 continue
 
             if event.HasField("task"):
-                self.current_task_id = event.task.id
-                self.context_id = event.task.context_id
                 state = TaskState.Name(event.task.status.state)
-                self.last_task_state = state
+                self._advance_task_state(
+                    state=state,
+                    task_id=event.task.id,
+                    context_id=event.task.context_id,
+                )
                 self._log_a2a_progress(ProgressAction.UPDATED, details=state)
                 for artifact in event.task.artifacts:
                     _replace_artifact_text(artifact_order, artifact_texts, artifact, _parts_text(artifact.parts))
@@ -282,13 +285,12 @@ class A2ARemoteAgent(LlmDecorator):
             if event.HasField("status_update"):
                 status = event.status_update.status
                 state = TaskState.Name(status.state)
-                self.last_task_state = state
+                self._advance_task_state(
+                    state=state,
+                    task_id=event.status_update.task_id,
+                    context_id=event.status_update.context_id,
+                )
                 self._log_a2a_progress(ProgressAction.UPDATED, details=state)
-                self.context_id = event.status_update.context_id
-                if state == "TASK_STATE_INPUT_REQUIRED":
-                    self.current_task_id = event.status_update.task_id
-                if state in _TERMINAL_STATES and state != "TASK_STATE_INPUT_REQUIRED":
-                    self.current_task_id = None
                 if status.HasField("message"):
                     status_text = _parts_text(status.message.parts) or status_text
                 continue
@@ -328,6 +330,17 @@ class A2ARemoteAgent(LlmDecorator):
         chunk = StreamChunk(text=text)
         for listener in list(self._stream_listeners):
             listener(chunk)
+
+    def _advance_task_state(self, *, state: str, task_id: str, context_id: str) -> None:
+        self.last_task_state = state
+        self.context_id = context_id
+        if state == _INPUT_REQUIRED_STATE:
+            self.current_task_id = task_id
+            return
+        if state in _TERMINAL_STATES:
+            self.current_task_id = None
+            return
+        self.current_task_id = task_id
 
 
 @dataclass(frozen=True)
