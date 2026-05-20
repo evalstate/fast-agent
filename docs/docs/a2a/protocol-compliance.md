@@ -9,7 +9,7 @@ client stack and intentionally excludes gRPC.
 
 | Area | Status | Notes |
 |---|---|---|
-| Agent discovery | Supported | `fast-agent serve --transport a2a` serves an AgentCard at `/.well-known/agent-card.json`. The card declares `JSONRPC` and `HTTP+JSON` interfaces with protocol version `1.0`. |
+| Agent discovery | Supported | `fast-agent serve a2a` serves an AgentCard at `/.well-known/agent-card.json`. The card declares `JSONRPC` and `HTTP+JSON` interfaces with protocol version `1.0`. `fast-agent serve --transport a2a` remains supported. |
 | JSON-RPC transport | Supported | Client and server use the SDK JSON-RPC binding. |
 | HTTP+JSON transport | Supported | Client and server use the SDK REST binding. The server exposes the REST binding under `/a2a/rest`. |
 | Streaming task updates | Supported | fast-agent stream listeners are bridged to A2A `TaskArtifactUpdateEvent` events. The client preserves artifact order and honors the A2A `append` flag. |
@@ -19,6 +19,7 @@ client stack and intentionally excludes gRPC.
 | Text parts | Supported | A2A text parts map to `TextContent`; fast-agent text output maps back to A2A text parts. |
 | URL parts | Supported | A2A URL parts map to `ResourceLink`; fast-agent resource links map back to A2A URL parts. |
 | Image raw parts | Supported | Raw image bytes map to `ImageContent`; image output maps back to A2A raw parts. |
+| Binary non-image raw parts | Supported | Inbound raw non-image bytes map to `EmbeddedResource` with `BlobResourceContents`; blob resources map back to A2A raw file parts. |
 | Structured data parts | Partial | Inbound A2A data parts are rendered into formatted JSON text for the fast-agent prompt. |
 | Error states | Supported through SDK plus fast-agent mappings | Provider credential failures map to `TASK_STATE_AUTH_REQUIRED`; uncaught execution failures map to `TASK_STATE_FAILED`; cancellation maps to `TASK_STATE_CANCELED`. Transport and validation errors are handled by the SDK bindings. |
 
@@ -30,8 +31,7 @@ client stack and intentionally excludes gRPC.
 | Push notifications | Not implemented. | The AgentCard advertises `pushNotifications=false`; SDK push configuration methods return the protocol's not-supported error. Streaming and polling remain available. |
 | Extended AgentCard | Not implemented. | The server publishes the public AgentCard only and does not configure `extendedAgentCard`. |
 | Authentication/security schemes on served AgentCards | Partial. | Remote clients can pass headers when connecting to other A2A agents. Serving fast-agent over A2A does not yet expose configurable A2A security schemes or enforce transport-level client auth. In-task provider auth failures are reported as `AUTH_REQUIRED`. |
-| Binary non-image payloads | Partial. | Inbound raw non-image bytes are represented as a safe text placeholder with filename and byte count rather than being exposed as a first-class binary prompt attachment. |
-| Audio payloads on the server | Partial. | The client can send audio as raw parts, but the server currently treats non-image raw bytes as placeholders. |
+| Typed audio content on the server | Partial. | The client can send `AudioContent` as raw A2A parts. The server preserves inbound audio bytes as blob resources rather than mapping them to a dedicated fast-agent `AudioContent` object. |
 | Structured data output | Partial. | fast-agent responses are mapped from existing `PromptMessageExtended` content types. Arbitrary structured JSON output is not emitted as A2A `data` parts unless represented by a future fast-agent content type. |
 | Persistent task/session storage | In-memory only. | The server uses the SDK `InMemoryTaskStore` and fast-agent in-memory context instances. Restarting the server loses A2A task state and context-bound fast-agent sessions. |
 | Idempotent `messageId` handling | Not implemented in fast-agent layer. | The SDK validates request shape, but fast-agent does not deduplicate repeated `messageId` values. |
@@ -47,6 +47,8 @@ The deterministic A2A integration suite exercises:
 - streaming artifact updates delivered to the fast-agent client stream listener;
 - artifact replacement and append semantics on the client;
 - `TASK_STATE_INPUT_REQUIRED` preservation and follow-up completion;
+- raw non-image file preservation into fast-agent blob resources and back to
+  A2A raw parts;
 - cancellation and protocol error paths via SDK-backed handlers.
 
 Live provider smoke testing has also verified that a `codexresponses.gpt-5.4-mini`
