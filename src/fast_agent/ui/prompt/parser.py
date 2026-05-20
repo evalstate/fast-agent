@@ -19,6 +19,7 @@ from fast_agent.commands.shared_command_intents import (
 )
 from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.ui.command_payloads import (
+    A2ACommand,
     AgentCommand,
     AttachCommand,
     CardsCommand,
@@ -67,6 +68,7 @@ from fast_agent.ui.command_payloads import (
     SkillsCommand,
     SwitchAgentCommand,
     TitleSessionCommand,
+    ToggleTraceCommand,
     UnknownCommand,
 )
 from fast_agent.utils.commandline import split_commandline
@@ -606,6 +608,17 @@ def _parse_slash_alias_command(
     return None
 
 
+def _parse_a2a_command(remainder: str) -> CommandPayload:
+    if not remainder:
+        return A2ACommand(action="status", argument=None)
+    tokens = remainder.split(maxsplit=1)
+    action = tokens[0].lower()
+    argument = tokens[1].strip() if len(tokens) > 1 else None
+    if action in {"list", "status", "card", "reset", "connect"}:
+        return A2ACommand(action=action, argument=argument)
+    return A2ACommand(action=action, argument=argument, error=f"Unknown /a2a action: {action}")
+
+
 def _parse_slash_command(cmd_line: str) -> str | CommandPayload:
     cmd_parts = cmd_line[1:].strip().split(maxsplit=1)
     cmd = cmd_parts[0].lower()
@@ -627,6 +640,7 @@ def _parse_slash_command(cmd_line: str) -> str | CommandPayload:
         return simple_factory()
 
     command_parsers: dict[str, Callable[[str], CommandPayload]] = {
+        "a2a": _parse_a2a_command,
         "history": _parse_history_command,
         "session": _parse_session_command,
         "card": _parse_card_command,
@@ -652,6 +666,9 @@ def _parse_slash_command(cmd_line: str) -> str | CommandPayload:
 def parse_special_input(text: str) -> str | CommandPayload:
     stripped = text.lstrip()
     cmd_line = stripped.splitlines()[0] if stripped.startswith("/") else text
+
+    if text.strip() == "***TRACE":
+        return ToggleTraceCommand()
 
     if cmd_line and cmd_line.startswith("/"):
         if cmd_line == "/":

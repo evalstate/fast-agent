@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Callable, cast
 
 from rich import print as rich_print
 
+from fast_agent.a2a.remote_agent import A2ARemoteAgent
+from fast_agent.agents.agent_types import AgentType
 from fast_agent.command_actions import (
     PluginCommandActionContext,
     PluginCommandActionRegistry,
@@ -31,8 +33,10 @@ from fast_agent.commands.session_export_help import render_session_export_help_m
 from fast_agent.commands.shared_command_intents import should_default_export_agent
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.trace import toggle_llm_trace
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
+    A2ACommand,
     AgentCommand,
     AttachCommand,
     CardsCommand,
@@ -85,6 +89,7 @@ from fast_agent.ui.command_payloads import (
     SkillsCommand,
     SwitchAgentCommand,
     TitleSessionCommand,
+    ToggleTraceCommand,
     UnknownCommand,
 )
 from fast_agent.ui.history_display import display_history_show
@@ -171,6 +176,12 @@ async def _dispatch_local_ui_payload(
     match payload:
         case InterruptCommand():
             raise KeyboardInterrupt()
+        case ToggleTraceCommand():
+            enabled = toggle_llm_trace()
+            state = "enabled" if enabled else "disabled"
+            style = "red" if enabled else "yellow"
+            rich_print(f"[{style}]LLM trace {state}[/{style}]")
+            return result
         case SwitchAgentCommand(agent_name=new_agent):
             if new_agent in available_agents_set:
                 result.next_agent = new_agent
@@ -345,6 +356,80 @@ async def _dispatch_catalog_payload(
             return result
         case _:
             return None
+
+
+async def _dispatch_a2a_payload(
+    owner: "InteractivePrompt",
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+    available_agents_set: set[str],
+) -> DispatchResult | None:
+    if not isinstance(payload, A2ACommand):
+        return None
+
+    result = DispatchResult(handled=True)
+    if payload.error:
+        rich_print(f"[red]{payload.error}[/red]")
+        return result
+
+    match payload.action:
+        case "list":
+            names = sorted(
+                name
+                for name in available_agents_set
+                if owner.agent_types.get(name) == AgentType.A2A
+            )
+            if not names:
+                rich_print("[yellow]No A2A agents are currently registered.[/yellow]")
+                return result
+            rich_print("[bold]A2A agents[/bold]")
+            for name in names:
+                rich_print(f"  • {name}")
+            return result
+        case "status" | "card" | "reset":
+            target = payload.argument or agent
+            remote_agent = owner._get_agent_or_warn(prompt_provider, target)
+            if remote_agent is None:
+                return result
+            if not isinstance(remote_agent, A2ARemoteAgent):
+                rich_print(f"[red]Agent '{target}' is not an A2A agent.[/red]")
+                return result
+            if payload.action == "reset":
+                remote_agent.reset_a2a_state()
+                rich_print(f"[green]Reset A2A state for {target}.[/green]")
+                return result
+            if payload.action == "status":
+                diagnostics = remote_agent.diagnostics()
+                rich_print(f"[bold]A2A status: {target}[/bold]")
+                rich_print(f"  URL: {diagnostics.url}")
+                rich_print(f"  Transport: {diagnostics.transport or 'auto'}")
+                rich_print(f"  Remote: {diagnostics.remote_name or 'unresolved'}")
+                rich_print(f"  Context: {diagnostics.context_id}")
+                rich_print(f"  Task: {diagnostics.current_task_id or '-'}")
+                rich_print(f"  Last state: {diagnostics.last_task_state or '-'}")
+                return result
+            card = remote_agent.remote_card
+            if card is None:
+                rich_print(f"[yellow]Agent '{target}' has not resolved a remote card yet.[/yellow]")
+                return result
+            rich_print(f"[bold]A2A card: {card.name}[/bold]")
+            rich_print(f"  Description: {card.description}")
+            rich_print(f"  Version: {card.version}")
+            rich_print("  Interfaces:")
+            for interface in card.supported_interfaces:
+                rich_print(
+                    f"    • {interface.protocol_binding} "
+                    f"{interface.protocol_version}: {interface.url}"
+                )
+            return result
+        case "connect":
+            rich_print("[yellow]/a2a connect is planned; use an AgentCard for now.[/yellow]")
+            return result
+        case _:
+            rich_print(f"[red]Unknown /a2a action: {payload.action}[/red]")
+            return result
 
 
 async def _dispatch_display_payload(
@@ -983,6 +1068,16 @@ async def dispatch_command_payload(
     )
     if catalog_result is not None:
         return catalog_result
+
+    a2a_result = await _dispatch_a2a_payload(
+        owner,
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+        available_agents_set=available_agents_set,
+    )
+    if a2a_result is not None:
+        return a2a_result
 
     display_result = await _dispatch_display_payload(
         payload,
