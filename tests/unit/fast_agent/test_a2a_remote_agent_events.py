@@ -4,10 +4,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 from a2a.types import Artifact, Part, StreamResponse, Task, TaskState, TaskStatus
+from google.protobuf.json_format import MessageToDict
+from mcp.types import EmbeddedResource, TextResourceContents
+from pydantic import AnyUrl
 
 from fast_agent.a2a.config import A2AAgentConfig
-from fast_agent.a2a.remote_agent import A2ARemoteAgent
+from fast_agent.a2a.remote_agent import A2ARemoteAgent, _parts_from_messages
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -96,3 +100,28 @@ def test_a2a_remote_agent_keeps_input_required_task_for_no_history_follow_up() -
     assert agent.context_id == "ctx-input"
     assert agent.current_task_id == "task-input"
     assert agent.last_task_state == "TASK_STATE_INPUT_REQUIRED"
+
+
+def test_a2a_remote_agent_sends_json_text_resources_as_data_parts() -> None:
+    parts = _parts_from_messages(
+        [
+            PromptMessageExtended(
+                role="user",
+                content=[
+                    EmbeddedResource(
+                        type="resource",
+                        resource=TextResourceContents(
+                            uri=AnyUrl("resource:///query.json"),
+                            mimeType="application/json",
+                            text='{"format": "markdown", "limit": 5}',
+                        ),
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert len(parts) == 1
+    assert parts[0].HasField("data")
+    assert parts[0].media_type == "application/json"
+    assert MessageToDict(parts[0])["data"] == {"format": "markdown", "limit": 5.0}

@@ -21,7 +21,14 @@ from a2a.types import (
     TaskState,
 )
 from fastapi.testclient import TestClient
-from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
+from google.protobuf.json_format import MessageToDict
+from mcp.types import (
+    BlobResourceContents,
+    EmbeddedResource,
+    ImageContent,
+    TextContent,
+    TextResourceContents,
+)
 from pydantic import AnyUrl
 
 from fast_agent.a2a.config import A2AAgentConfig
@@ -478,21 +485,25 @@ async def test_fast_agent_a2a_server_serves_jsonrpc_agent_with_context_sessions(
     assert list(skills["worker"].tags) == ["fast-agent", "basic"]
     assert list(fast_agent_a2a_server.server.agent_card.default_input_modes) == [
         "text/plain",
+        "application/json",
         "application/octet-stream",
         "image/*",
     ]
     assert list(fast_agent_a2a_server.server.agent_card.default_output_modes) == [
         "text/plain",
+        "application/json",
         "application/octet-stream",
         "image/*",
     ]
     assert list(skills["worker"].input_modes) == [
         "text/plain",
+        "application/json",
         "application/octet-stream",
         "image/*",
     ]
     assert list(skills["worker"].output_modes) == [
         "text/plain",
+        "application/json",
         "application/octet-stream",
         "image/*",
     ]
@@ -1046,6 +1057,32 @@ def test_fast_agent_a2a_server_emits_blob_resources_as_raw_file_parts() -> None:
     assert parts[0].raw == b"%PDF test bytes"
     assert parts[0].media_type == "application/pdf"
     assert parts[0].filename == "report.pdf"
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_emits_json_text_resources_as_data_parts() -> None:
+    parts = _parts_from_prompt_message(
+        PromptMessageExtended(
+            role="assistant",
+            content=[
+                EmbeddedResource(
+                    type="resource",
+                    resource=TextResourceContents(
+                        uri=AnyUrl("resource:///tickets.json"),
+                        mimeType="application/json",
+                        text='{"tickets": [{"id": "REQ123", "status": "open"}]}',
+                    ),
+                )
+            ],
+        )
+    )
+
+    assert len(parts) == 1
+    assert parts[0].HasField("data")
+    assert parts[0].media_type == "application/json"
+    assert MessageToDict(parts[0])["data"] == {
+        "tickets": [{"id": "REQ123", "status": "open"}]
+    }
 
 
 @pytest.mark.integration

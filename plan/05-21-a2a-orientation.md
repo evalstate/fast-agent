@@ -223,6 +223,15 @@ blue
 - `docs/docs/assets/a2a/a2a-streaming-files.cast`
   - Embedded asciinema recording for the A2A TUI flow.
 
+- Requested follow-up recording:
+  - Add one docs asciinema cast that shows a real LLM-backed fast-agent A2A
+    server streaming to a fast-agent A2A client.
+  - Preferred scenario: serve an agent using `codexresponses.gpt-5.4-mini`
+    with access to the Hugging Face MCP server, then ask for a markdown
+    response about currently trending models.
+  - This should be labeled as a provider/network smoke recording, separate from
+    the deterministic fake-server recordings used for repeatable tests.
+
 - `/home/ssmith/plan/records/a2a-streaming-files-input-required.cast`
   - Local copy of the latest generated recording.
 

@@ -101,6 +101,7 @@ streaming: true
 polling: false
 accepted_output_modes:
   - text/plain
+  - application/json
   - image/*
 headers:
   Authorization: "Bearer ${A2A_TOKEN}"
@@ -201,6 +202,7 @@ The A2A client maps fast-agent prompt content to A2A parts:
 | `ResourceLink` | `Part(url=...)` |
 | `ImageContent` | `Part(raw=..., mediaType=image/...)` |
 | `AudioContent` | `Part(raw=..., mediaType=audio/...)` |
+| `EmbeddedResource` with JSON `TextResourceContents` | `Part(data=...)` |
 
 Remote URL, data, raw, and text response parts are rendered into fast-agent
 assistant output. See [Protocol Compliance](protocol-compliance.md) for current

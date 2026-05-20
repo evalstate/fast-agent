@@ -54,7 +54,7 @@ A2AAgentConfig(
     transport="JSONRPC",
     streaming=True,
     polling=False,
-    accepted_output_modes=["text/plain", "image/*"],
+    accepted_output_modes=["text/plain", "application/json", "image/*"],
     headers={"Authorization": "Bearer ..."},
     relative_card_path="/.well-known/agent-card.json",
 )
@@ -198,3 +198,27 @@ Inbound A2A parts are converted to fast-agent prompt content:
 
 fast-agent responses are converted back to A2A artifact parts using the content
 types available in `PromptMessageExtended`.
+
+For structured JSON, A2A supports JSON-compatible `data` parts and also permits
+JSON returned as text artifacts. fast-agent keeps model text as text, but maps an
+`EmbeddedResource` containing `TextResourceContents` with
+`mimeType="application/json"` to an A2A `data` part:
+
+```python
+from mcp.types import EmbeddedResource, TextResourceContents
+from pydantic import AnyUrl
+
+PromptMessageExtended(
+    role="assistant",
+    content=[
+        EmbeddedResource(
+            type="resource",
+            resource=TextResourceContents(
+                uri=AnyUrl("resource:///tickets.json"),
+                mimeType="application/json",
+                text='{"tickets": [{"id": "REQ123", "status": "open"}]}',
+            ),
+        )
+    ],
+)
+```

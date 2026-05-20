@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from a2a.client import A2ACardResolver, ClientConfig, create_client
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
-from google.protobuf.json_format import MessageToDict
+from google.protobuf.json_format import MessageToDict, ParseDict
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
@@ -398,6 +398,10 @@ def _parts_from_messages(messages: Sequence[PromptMessageExtended]) -> list[Part
                     )
                     continue
                 if isinstance(resource, TextResourceContents):
+                    data_part = _json_data_part(resource.text, media_type=resource.mimeType)
+                    if data_part is not None:
+                        parts.append(data_part)
+                        continue
                     parts.append(
                         Part(
                             text=resource.text,
@@ -500,3 +504,15 @@ def _state_message(state: str | None) -> str:
     if state == "TASK_STATE_COMPLETED":
         return "A2A task completed without text output."
     return "A2A task ended without text output."
+
+
+def _json_data_part(text: str, *, media_type: str | None) -> Part | None:
+    if media_type != "application/json":
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    part = Part(media_type=media_type)
+    ParseDict(data, part.data)
+    return part

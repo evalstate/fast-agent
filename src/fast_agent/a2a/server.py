@@ -32,7 +32,7 @@ from a2a.types import (
     TaskStatus,
 )
 from fastapi import FastAPI
-from google.protobuf.json_format import MessageToDict
+from google.protobuf.json_format import MessageToDict, ParseDict
 from mcp.types import (
     BlobResourceContents,
     EmbeddedResource,
@@ -69,8 +69,8 @@ class _StreamListenerCapable(Protocol):
 
 logger = get_logger(__name__)
 
-A2A_INPUT_MODES = ["text/plain", "application/octet-stream", "image/*"]
-A2A_OUTPUT_MODES = ["text/plain", "application/octet-stream", "image/*"]
+A2A_INPUT_MODES = ["text/plain", "application/json", "application/octet-stream", "image/*"]
+A2A_OUTPUT_MODES = ["text/plain", "application/json", "application/octet-stream", "image/*"]
 
 
 def _fast_agent_version() -> str:
@@ -577,6 +577,10 @@ def _parts_from_prompt_message(message: PromptMessageExtended) -> list[Part]:
                 )
                 continue
             if isinstance(resource, TextResourceContents):
+                data_part = _json_data_part(resource.text, media_type=resource.mimeType)
+                if data_part is not None:
+                    parts.append(data_part)
+                    continue
                 parts.append(Part(text=resource.text))
             continue
         if isinstance(content, ResourceLink):
@@ -596,3 +600,15 @@ def _filename_from_uri(uri: str) -> str:
     parsed = urlparse(uri)
     name = PurePosixPath(unquote(parsed.path)).name
     return name or parsed.netloc or "attachment"
+
+
+def _json_data_part(text: str, *, media_type: str | None) -> Part | None:
+    if media_type != "application/json":
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    part = Part(media_type=media_type)
+    ParseDict(data, part.data)
+    return part

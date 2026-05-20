@@ -107,8 +107,8 @@ agent:
   "description": "Research and summarize source material.",
   "tags": ["fast-agent", "basic"],
   "examples": ["Hello"],
-  "inputModes": ["text/plain", "application/octet-stream", "image/*"],
-  "outputModes": ["text/plain", "application/octet-stream", "image/*"]
+  "inputModes": ["text/plain", "application/json", "application/octet-stream", "image/*"],
+  "outputModes": ["text/plain", "application/json", "application/octet-stream", "image/*"]
 }
 ```
 
@@ -205,6 +205,15 @@ Incoming raw image parts become `ImageContent`. Other raw file parts become
 payload, MIME type, and filename-like attachment URI for the fast-agent agent.
 When a fast-agent response includes a blob resource, the server emits it back to
 A2A clients as a raw file part.
+
+## Structured JSON
+
+A2A supports structured JSON exchange through JSON-compatible data content and
+also allows JSON to be returned as text artifacts. fast-agent does not parse
+ordinary model text and guess that it should become protocol data. Instead, it
+maps `TextResourceContents` with `mimeType="application/json"` to A2A data
+parts. This gives API users and structured-output wrappers an explicit path to
+return protocol-level JSON while preserving normal markdown/text responses.
 
 See [Protocol Compliance](protocol-compliance.md) for the full supported surface
 and known gaps.
