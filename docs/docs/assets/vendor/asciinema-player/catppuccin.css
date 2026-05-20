@@ -40,3 +40,27 @@
   --term-color-14: #94e2d5;
   --term-color-15: #a6adc8;
 }
+
+.a2a-terminal-theme-switch {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.a2a-terminal-theme-switch button {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 999px;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color--light);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+  padding: 0.15rem 0.55rem;
+}
+
+.a2a-terminal-theme-switch button[aria-pressed] {
+  border-color: var(--md-accent-fg-color);
+  background: var(--md-accent-fg-color--transparent);
+  color: var(--md-accent-fg-color);
+}

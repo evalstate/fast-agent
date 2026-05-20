@@ -47,6 +47,10 @@ def test_a2a_getting_started_embeds_asciinema_player() -> None:
     assert "../../assets/vendor/asciinema-player/asciinema-player.min.js" in text
     assert "catppuccin-mocha" in text
     assert "catppuccin-latte" in text
+    assert 'data-a2a-terminal-theme="auto"' in text
+    assert 'data-a2a-terminal-theme="light"' in text
+    assert 'data-a2a-terminal-theme="dark"' in text
+    assert "rows: 27" in text
 
 
 def test_asciinema_player_vendor_assets_are_present() -> None:
@@ -61,9 +65,16 @@ def test_asciinema_player_vendor_assets_are_present() -> None:
     catppuccin_text = catppuccin.read_text(encoding="utf-8")
     assert "asciinema-player-theme-catppuccin-mocha" in catppuccin_text
     assert "asciinema-player-theme-catppuccin-latte" in catppuccin_text
+    assert "a2a-terminal-theme-switch" in catppuccin_text
     assert "AsciinemaPlayer" in js.read_text(encoding="utf-8")[:200]
 
 
 def test_a2a_cast_contains_ansi_escape_sequences() -> None:
     asset = ROOT / "docs" / "docs" / "assets" / "a2a" / "a2a-streaming-files.cast"
     assert "\\u001b[" in asset.read_text(encoding="utf-8")
+
+
+def test_a2a_cast_uses_compact_rows() -> None:
+    asset = ROOT / "docs" / "docs" / "assets" / "a2a" / "a2a-streaming-files.cast"
+    first_line = asset.read_text(encoding="utf-8").splitlines()[0]
+    assert '"height": 27' in first_line

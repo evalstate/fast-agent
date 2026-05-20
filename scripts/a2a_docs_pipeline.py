@@ -209,7 +209,7 @@ ROOT={ROOT}
 BASE_URL={BASE_URL}
 
 tmux kill-session -t "$SESSION" 2>/dev/null || true
-tmux new-session -d -s "$SESSION" -x 104 -y 34 \
+tmux new-session -d -s "$SESSION" -x 104 -y 27 \
   "cd '$ROOT' && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_MODEL=passthrough uv run fast-agent -x --a2a '$BASE_URL' --a2a-transport JSONRPC"
 tmux set-option -t "$SESSION" status off >/dev/null
 
@@ -239,7 +239,7 @@ tmux attach-session -t "$SESSION" || true
             "--cols",
             "104",
             "--rows",
-            "34",
+            "27",
             "--idle-time-limit",
             "1.3",
             "-t",

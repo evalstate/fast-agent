@@ -132,32 +132,70 @@ be downloaded for local replay.
 <div class="a2a-terminal-demo">
   <link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">
   <link rel="stylesheet" href="../../assets/vendor/asciinema-player/catppuccin.css">
+  <div class="a2a-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-a2a-terminal-theme="auto">Auto</button>
+    <button type="button" data-a2a-terminal-theme="light">Light</button>
+    <button type="button" data-a2a-terminal-theme="dark">Dark</button>
+  </div>
   <div id="a2a-streaming-files-player"></div>
 </div>
 
 <script src="../../assets/vendor/asciinema-player/asciinema-player.min.js"></script>
 <script>
   (function () {
-    function currentTheme() {
+    var override = "auto";
+
+    function siteTheme() {
       var scheme = document.documentElement.getAttribute("data-md-color-scheme");
       if (scheme === "slate") {
-        return "catppuccin-mocha";
+        return "dark";
       }
       if (scheme === "default") {
-        return "catppuccin-latte";
+        return "light";
       }
       return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "catppuccin-mocha"
-        : "catppuccin-latte";
+        ? "dark"
+        : "light";
     }
 
-    function renderA2ACast() {
+    function selectedMode() {
+      return override === "auto" ? siteTheme() : override;
+    }
+
+    function currentTheme() {
+      return selectedMode() === "dark" ? "catppuccin-mocha" : "catppuccin-latte";
+    }
+
+    function updateButtons() {
+      document.querySelectorAll("[data-a2a-terminal-theme]").forEach(function (button) {
+        var active = button.getAttribute("data-a2a-terminal-theme") === override;
+        button.toggleAttribute("aria-pressed", active);
+      });
+    }
+
+    function bindButtons() {
+      document.querySelectorAll("[data-a2a-terminal-theme]").forEach(function (button) {
+        if (button.dataset.bound === "true") {
+          return;
+        }
+        button.dataset.bound = "true";
+        button.addEventListener("click", function () {
+          override = button.getAttribute("data-a2a-terminal-theme") || "auto";
+          updateButtons();
+          renderA2ACast(true);
+        });
+      });
+      updateButtons();
+    }
+
+    function renderA2ACast(force) {
       var target = document.getElementById("a2a-streaming-files-player");
       if (!target || !window.AsciinemaPlayer) {
         return;
       }
+      bindButtons();
       var theme = currentTheme();
-      if (target.dataset.loaded === "true" && target.dataset.theme === theme) {
+      if (!force && target.dataset.loaded === "true" && target.dataset.theme === theme) {
         return;
       }
       target.dataset.loaded = "true";
@@ -168,7 +206,7 @@ be downloaded for local replay.
         target,
         {
           cols: 104,
-          rows: 34,
+          rows: 27,
           preload: true,
           poster: "npt:0:03",
           speed: 1,
@@ -180,14 +218,14 @@ be downloaded for local replay.
     }
 
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", renderA2ACast);
+      document.addEventListener("DOMContentLoaded", function () { renderA2ACast(false); });
     } else {
-      renderA2ACast();
+      renderA2ACast(false);
     }
     if (window.document$ && window.document$.subscribe) {
-      window.document$.subscribe(renderA2ACast);
+      window.document$.subscribe(function () { renderA2ACast(false); });
     }
-    new MutationObserver(renderA2ACast).observe(document.documentElement, {
+    new MutationObserver(function () { renderA2ACast(false); }).observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["data-md-color-scheme"]
     });
