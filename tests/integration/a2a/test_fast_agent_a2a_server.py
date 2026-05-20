@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+import httpx
 import pytest
 import pytest_asyncio
 import uvicorn
-from a2a.types import Message, Part, Role
+from a2a.client import ClientConfig, create_client
+from a2a.types import CancelTaskRequest, Message, Part, Role, SendMessageRequest, TaskState
 from fastapi.testclient import TestClient
 from mcp.types import BlobResourceContents, EmbeddedResource, TextContent
 from pydantic import AnyUrl
@@ -215,6 +218,26 @@ class NoHistoryRecordingAgent(RecordingAgent):
             self.message_history.append(prompt)
             self.message_history.append(response)
         return response
+
+
+class CancellableRecordingAgent(RecordingAgent):
+    def __init__(self, name: str = "worker") -> None:
+        super().__init__(name=name)
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def generate(self, messages: Any, request_params: Any = None) -> PromptMessageExtended:
+        del messages, request_params
+        self.started.set()
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+        return PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="not cancelled")],
+        )
 
 
 @dataclass(frozen=True)
@@ -485,6 +508,94 @@ async def test_fast_agent_a2a_server_context_does_not_force_agent_history(
     assert first.all_text() == "server history 0: first"
     assert second.all_text() == "server history 0: second"
     assert len(created_agents) == 1
+    assert disposed
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_cancel_task_cancels_running_agent(
+    unused_tcp_port: int,
+    wait_for_port,
+) -> None:
+    host = "127.0.0.1"
+    port = unused_tcp_port
+    created_agents: list[CancellableRecordingAgent] = []
+    disposed: list[AgentInstance] = []
+
+    async def create_instance() -> AgentInstance:
+        agent = CancellableRecordingAgent(name="worker")
+        created_agents.append(agent)
+        return _instance(agent)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        disposed.append(instance)
+        await instance.shutdown()
+
+    server = AgentA2AServer(
+        primary_instance=_instance(CancellableRecordingAgent(name="worker")),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent cancellation test server",
+        host=host,
+        port=port,
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    server_task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    http_client = httpx.AsyncClient()
+    client = await create_client(
+        f"http://{host}:{port}",
+        client_config=ClientConfig(
+            httpx_client=http_client,
+            supported_protocol_bindings=["JSONRPC"],
+        ),
+    )
+    events: list[Any] = []
+    stream_error: BaseException | None = None
+
+    async def consume_stream() -> None:
+        nonlocal stream_error
+        try:
+            async for event in client.send_message(
+                SendMessageRequest(
+                    message=Message(
+                        role=Role.ROLE_USER,
+                        message_id="cancel-me",
+                        parts=[Part(text="please wait")],
+                    )
+                )
+            ):
+                events.append(event)
+        except BaseException as exc:
+            stream_error = exc
+
+    stream_task = asyncio.create_task(consume_stream())
+    try:
+        deadline = asyncio.get_running_loop().time() + 5
+        while not created_agents and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+        assert created_agents
+        await asyncio.wait_for(created_agents[0].started.wait(), timeout=5)
+        task_id = next(event.task.id for event in events if event.HasField("task"))
+
+        cancelled = await client.cancel_task(CancelTaskRequest(id=task_id))
+
+        assert cancelled.status.state == TaskState.TASK_STATE_CANCELED
+        await asyncio.wait_for(created_agents[0].cancelled.wait(), timeout=5)
+    finally:
+        stream_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await stream_task
+        await client.close()
+        await http_client.aclose()
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(server_task, timeout=5.0)
+        await server.executor.shutdown()
+
+    assert stream_error is None or isinstance(stream_error, asyncio.CancelledError)
     assert disposed
 
 
