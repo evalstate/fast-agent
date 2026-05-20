@@ -159,9 +159,28 @@ def _is_smart_agent(agent: object | None) -> bool:
     return normalized == AgentType.SMART
 
 
+def _is_a2a_agent(agent: object | None) -> bool:
+    """Return True when the provided agent instance is a remote A2A agent."""
+    if agent is None:
+        return False
+    agent_type = getattr(agent, "agent_type", None)
+    normalized = getattr(agent_type, "value", agent_type)
+    if isinstance(normalized, str):
+        return normalized.lower() == AgentType.A2A.value
+    return normalized == AgentType.A2A
+
+
 def _format_toolbar_agent_identity(
     agent_name: str, toolbar_color: str, agent: object | None
 ) -> str:
-    """Render toolbar agent identity, suffixing [S] for smart agents."""
-    label = f"{agent_name}[S]" if _is_smart_agent(agent) else agent_name
-    return f"<style fg='{toolbar_color}' bg='ansiblack'> {label} </style>"
+    """Render toolbar agent identity, suffixing special agent kinds."""
+    if _is_a2a_agent(agent):
+        label = f"{agent_name}[A2A]"
+        color = "ansimagenta"
+    elif _is_smart_agent(agent):
+        label = f"{agent_name}[S]"
+        color = toolbar_color
+    else:
+        label = agent_name
+        color = toolbar_color
+    return f"<style fg='{color}' bg='ansiblack'> {label} </style>"

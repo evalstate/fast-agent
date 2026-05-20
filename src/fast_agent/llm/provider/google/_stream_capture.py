@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 import json
-import os
 import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.trace import llm_trace_enabled
 
 _logger = get_logger(__name__)
 
-STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
 STREAM_CAPTURE_DIR = Path("stream-debug")
 
 
 def stream_capture_filename(turn: int) -> Path | None:
-    if not STREAM_CAPTURE_ENABLED:
+    if not llm_trace_enabled():
         return None
     STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

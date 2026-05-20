@@ -1242,7 +1242,9 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                 if not target_name:
                     target_name = fast.get_default_agent_name()
                 if target_name:
-                    fast.attach_agent_tools(target_name, tool_loaded_names)
+                    target_data = fast.agents.get(target_name)
+                    if target_data and target_data.get("type") in ("basic", "smart", "custom"):
+                        fast.attach_agent_tools(target_name, tool_loaded_names)
 
             _validate_target_agent_name(fast, request)
             _apply_shell_cwd_policy_preflight(fast, request)

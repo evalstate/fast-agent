@@ -1,3 +1,4 @@
+import json
 import types
 from typing import TYPE_CHECKING, cast
 
@@ -10,7 +11,10 @@ from pydantic import BaseModel
 from fast_agent.config import GoogleSettings, Settings
 from fast_agent.constants import REASONING
 from fast_agent.context import Context
-from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
+from fast_agent.llm.provider.google.llm_google_native import (
+    GOOGLE_DIAGNOSTICS_CHANNEL,
+    GoogleNativeLLM,
+)
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -575,3 +579,12 @@ async def test_google_thought_parts_are_preserved_as_reasoning_channel() -> None
     assert len(reasoning) == 1
     assert isinstance(reasoning[0], TextContent)
     assert reasoning[0].text == "private analysis"
+    diagnostics = response.channels[GOOGLE_DIAGNOSTICS_CHANNEL]
+    assert len(diagnostics) == 1
+    assert isinstance(diagnostics[0], TextContent)
+    payload = json.loads(diagnostics[0].text)
+    assert payload["transport"] == "google-genai"
+    assert payload["request_type"] == "models.generate_content"
+    assert payload["streaming"] is False
+    assert payload["model"] == "gemini-3.5-flash"
+    assert payload["phase_ms"]["total"] >= 0

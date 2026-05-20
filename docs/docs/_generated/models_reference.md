@@ -36,10 +36,11 @@
 | `gemini25` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini25.auto` | — | — |
 | `gemini25pro` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini25pro.auto` | — | — |
 | `gemini2` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | — | — | — |
-| `gemini3.1flashlite` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini3.1flashlite.auto` | — | — |
-| `gemini3` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini3.auto` | — | — |
-| `gemini3flash` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini3flash.auto` | — | — |
-| `gemini` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini.auto` | — | — |
+| `gemini3.1flashlite` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3.1flashlite.medium` | — | — |
+| `gemini35` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini35.medium` | — | — |
+| `gemini3` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3.medium` | — | — |
+| `gemini3flash` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3flash.medium` | — | — |
+| `gemini` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini.medium` | — | — |
 | `groq.deepseek-r1-distill-llama-70b` | `groq` | Text | `json` (object) | — | — | — |
 | `groq.qwen/qwen3-32b` | `groq` | Text | `json` (object) | — | — | — |
 | `moonshotai/kimi-k2-instruct-0905` | `groq` | Text | `json` (schema) | — | — | — |

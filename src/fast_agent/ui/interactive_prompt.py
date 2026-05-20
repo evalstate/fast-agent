@@ -937,6 +937,7 @@ class InteractivePrompt:
         prompt_payload: str | PromptMessageExtended,
         prompt_provider: "AgentApp",
         agent_name: str,
+        display: "ConsoleDisplay",
         runtime_state: PromptLoopRuntimeState,
     ) -> PromptLoopResult | None:
         emit_prompt_mark("C")
@@ -1119,6 +1120,7 @@ class InteractivePrompt:
                 prompt_payload=prompt_payload,
                 prompt_provider=prompt_provider,
                 agent_name=agent_state.current_agent,
+                display=display,
                 runtime_state=runtime_state,
             )
             if send_result is None:

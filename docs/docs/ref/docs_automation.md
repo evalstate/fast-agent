@@ -29,6 +29,11 @@ uv run scripts/docs.py assess
 - `assess` runs deterministic screenshot checks for capture dimensions, blank or unstyled pages,
   the designed home-page header, and visible terminal areas.
 
+CI runs `generate`, fails if `_generation_warnings.md` is produced, verifies the committed
+`docs/_generated/` snippets are up to date, then runs the strict docs build. Because the docs job is
+part of the shared checks workflow, it gates pull requests, `main`, and tag-triggered PyPI
+publishing.
+
 ## Terminal Captures
 
 Use `scripts/docs_terminal_capture.py` to run a command and write a terminal-style SVG that can be
@@ -116,8 +121,8 @@ aligned with the implementation.
 
 ## Proposed Next Automations
 
-- Add a CI docs job that runs `uv run scripts/docs.py generate`, fails if generated files changed,
-  then runs `uv run scripts/docs.py build` and `uv run scripts/docs.py assess`.
+- Consider adding `uv run scripts/docs.py assess` to CI after the deterministic screenshot flow is
+  stable in hosted runners.
 - Add a snippet verifier that scans docs for `--8<--` includes and confirms every referenced file
   exists under an allowed root.
 - Add example smoke tests for docs-included examples so pages cannot point at broken sample code.

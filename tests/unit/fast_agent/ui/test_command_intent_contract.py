@@ -12,6 +12,7 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     McpSessionCommand,
     ShowHistoryCommand,
+    ToggleTraceCommand,
     UnknownCommand,
 )
 from fast_agent.ui.prompt import parse_special_input
@@ -152,6 +153,11 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
             "/does-not-exist",
             UnknownCommand(command="/does-not-exist"),
             id="unknown-command-fallback",
+        ),
+        pytest.param(
+            "***TRACE",
+            ToggleTraceCommand(),
+            id="hidden-trace-toggle",
         ),
     ],
 )

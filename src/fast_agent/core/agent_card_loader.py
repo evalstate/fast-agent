@@ -11,6 +11,7 @@ from typing import Any
 import frontmatter
 import yaml
 
+from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.agents.agent_types import (
     AgentConfig,
     AgentType,
@@ -453,6 +454,7 @@ def _build_agent_data(
         trim_tool_history=trim_tool_history,
         mcp_connect=mcp_connect,
         source_path=path,
+        agent_type=agent_type,
     )
 
     if request_params is not None:
@@ -534,6 +536,23 @@ def _build_agent_data(
         if red_flag is not None:
             red_flag = _ensure_int(red_flag, "red_flag_max_length", path)
         agent_data["red_flag_max_length"] = red_flag
+    elif type_key == "a2a":
+        transport = raw.get("transport")
+        if transport is not None:
+            transport = _ensure_a2a_transport(transport, path)
+        agent_data["a2a"] = A2AAgentConfig(
+            url=_ensure_str(raw.get("url"), "url", path),
+            transport=transport,
+            streaming=_ensure_bool(raw.get("streaming"), "streaming", path, default=True),
+            polling=_ensure_bool(raw.get("polling"), "polling", path, default=False),
+            accepted_output_modes=_ensure_str_list(
+                raw.get("accepted_output_modes", []), "accepted_output_modes", path
+            ),
+            headers=_ensure_headers_map(raw.get("headers"), "headers", path) or {},
+            relative_card_path=_ensure_optional_str(
+                raw.get("relative_card_path"), "relative_card_path", path
+            ),
+        )
 
     return agent_data
 
@@ -570,6 +589,15 @@ def _ensure_optional_str(value: Any, field: str, path: Path) -> str | None:
     if not isinstance(value, str) or not value.strip():
         raise AgentConfigError(f"'{field}' must be a non-empty string in {path}")
     return value.strip()
+
+
+def _ensure_a2a_transport(value: Any, path: Path) -> str:
+    transport = _ensure_str(value, "transport", path)
+    if transport not in {"JSONRPC", "HTTP+JSON", "GRPC"}:
+        raise AgentConfigError(
+            f"'transport' must be one of JSONRPC, HTTP+JSON, GRPC in {path}"
+        )
+    return transport
 
 
 def _ensure_str_list(value: Any, field: str, path: Path) -> list[str]:
@@ -1155,6 +1183,30 @@ def _serialize_maker_fields(
         card["red_flag_max_length"] = red_flag
 
 
+def _serialize_a2a_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    a2a_config = agent_data.get("a2a")
+    if not isinstance(a2a_config, A2AAgentConfig):
+        raise AgentConfigError("A2A agent is missing A2A configuration")
+
+    card["url"] = a2a_config.url
+    if a2a_config.transport:
+        card["transport"] = a2a_config.transport
+    if not a2a_config.streaming:
+        card["streaming"] = False
+    if a2a_config.polling:
+        card["polling"] = True
+    if a2a_config.accepted_output_modes:
+        card["accepted_output_modes"] = list(a2a_config.accepted_output_modes)
+    if a2a_config.headers:
+        card["headers"] = dict(a2a_config.headers)
+    if a2a_config.relative_card_path:
+        card["relative_card_path"] = a2a_config.relative_card_path
+
+
 _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
     "agent": _serialize_agent_like_fields,
     "smart": _serialize_agent_like_fields,
@@ -1165,6 +1217,7 @@ _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
     "orchestrator": _serialize_orchestrator_fields,
     "iterative_planner": _serialize_iterative_planner_fields,
     "MAKER": _serialize_maker_fields,
+    "a2a": _serialize_a2a_fields,
 }
 
 
