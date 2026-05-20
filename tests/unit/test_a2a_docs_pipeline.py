@@ -45,8 +45,8 @@ def test_a2a_getting_started_embeds_asciinema_player() -> None:
     assert "../../assets/vendor/asciinema-player/asciinema-player.css" in text
     assert "../../assets/vendor/asciinema-player/catppuccin.css" in text
     assert "../../assets/vendor/asciinema-player/asciinema-player.min.js" in text
-    assert "catppuccin-mocha" in text
-    assert "catppuccin-latte" in text
+    assert "fast-agent-dark" in text
+    assert "fast-agent-light" in text
     assert 'data-a2a-terminal-theme="auto"' in text
     assert 'data-a2a-terminal-theme="light"' in text
     assert 'data-a2a-terminal-theme="dark"' in text
@@ -63,8 +63,8 @@ def test_asciinema_player_vendor_assets_are_present() -> None:
     assert js.is_file()
     assert "ap-wrapper" in css.read_text(encoding="utf-8")
     catppuccin_text = catppuccin.read_text(encoding="utf-8")
-    assert "asciinema-player-theme-catppuccin-mocha" in catppuccin_text
-    assert "asciinema-player-theme-catppuccin-latte" in catppuccin_text
+    assert "asciinema-player-theme-fast-agent-dark" in catppuccin_text
+    assert "asciinema-player-theme-fast-agent-light" in catppuccin_text
     assert "a2a-terminal-theme-switch" in catppuccin_text
     assert "AsciinemaPlayer" in js.read_text(encoding="utf-8")[:200]
 

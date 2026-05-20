@@ -178,8 +178,8 @@ def check() -> None:
         "../../assets/vendor/asciinema-player/asciinema-player.css",
         "../../assets/vendor/asciinema-player/catppuccin.css",
         "../../assets/vendor/asciinema-player/asciinema-player.min.js",
-        "catppuccin-mocha",
-        "catppuccin-latte",
+        "fast-agent-dark",
+        "fast-agent-light",
     ]:
         if required_text not in page_text:
             missing_or_changed.append(f"{page.relative_to(ROOT)} missing {required_text}")

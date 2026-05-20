@@ -163,7 +163,7 @@ be downloaded for local replay.
     }
 
     function currentTheme() {
-      return selectedMode() === "dark" ? "catppuccin-mocha" : "catppuccin-latte";
+      return selectedMode() === "dark" ? "fast-agent-dark" : "fast-agent-light";
     }
 
     function updateButtons() {

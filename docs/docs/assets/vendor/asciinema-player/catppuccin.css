@@ -1,44 +1,54 @@
-/* Catppuccin terminal palettes for asciinema-player. */
-.asciinema-player-theme-catppuccin-latte {
-  --term-color-foreground: #4c4f69;
-  --term-color-background: #eff1f5;
-  --term-color-0: #5c5f77;
-  --term-color-1: #d20f39;
-  --term-color-2: #40a02b;
-  --term-color-3: #df8e1d;
-  --term-color-4: #1e66f5;
-  --term-color-5: #ea76cb;
+/* fast-agent terminal palettes for asciinema-player.
+   These themes intentionally mirror docs/docs/stylesheets/fast-agent.css tokens
+   instead of using the stock asciinema palettes, so recordings feel native in
+   both Zensical light and dark modes. */
+.asciinema-player-theme-fast-agent-light {
+  --term-color-foreground: var(--fg-0, #1c1a16);
+  --term-color-background: var(--s-0, #f6f3eb);
+  --term-color-0: #4a463d;
+  --term-color-1: var(--no, #b84a3c);
+  --term-color-2: var(--ok, #1f7d50);
+  --term-color-3: var(--a-0, #b67500);
+  --term-color-4: var(--info, #2c63b0);
+  --term-color-5: #8a5fbf;
   --term-color-6: #179299;
-  --term-color-7: #acb0be;
-  --term-color-8: #6c6f85;
-  --term-color-9: #d20f39;
-  --term-color-10: #40a02b;
-  --term-color-11: #df8e1d;
-  --term-color-12: #1e66f5;
-  --term-color-13: #ea76cb;
+  --term-color-7: var(--s-1, #ffffff);
+  --term-color-8: var(--fg-2, #756e5e);
+  --term-color-9: var(--no, #b84a3c);
+  --term-color-10: var(--ok, #1f7d50);
+  --term-color-11: var(--a-hi, #d28a00);
+  --term-color-12: var(--info, #2c63b0);
+  --term-color-13: #8a5fbf;
   --term-color-14: #179299;
-  --term-color-15: #bcc0cc;
+  --term-color-15: #ffffff;
 }
 
-.asciinema-player-theme-catppuccin-mocha {
-  --term-color-foreground: #cdd6f4;
-  --term-color-background: #1e1e2e;
-  --term-color-0: #45475a;
-  --term-color-1: #f38ba8;
-  --term-color-2: #a6e3a1;
-  --term-color-3: #f9e2af;
-  --term-color-4: #89b4fa;
-  --term-color-5: #f5c2e7;
-  --term-color-6: #94e2d5;
-  --term-color-7: #bac2de;
-  --term-color-8: #585b70;
-  --term-color-9: #f38ba8;
-  --term-color-10: #a6e3a1;
-  --term-color-11: #f9e2af;
-  --term-color-12: #89b4fa;
-  --term-color-13: #f5c2e7;
-  --term-color-14: #94e2d5;
-  --term-color-15: #a6adc8;
+.asciinema-player-theme-fast-agent-dark {
+  --term-color-foreground: var(--fg-0, #f0ece2);
+  --term-color-background: var(--s-0, #0b0c0f);
+  --term-color-0: var(--s-1, #14161b);
+  --term-color-1: var(--no, #f06b5a);
+  --term-color-2: var(--ok, #6ad19c);
+  --term-color-3: var(--a-0, #f5a400);
+  --term-color-4: var(--info, #6aa3f7);
+  --term-color-5: #c586f7;
+  --term-color-6: #6ad1c8;
+  --term-color-7: var(--fg-1, #b9b3a5);
+  --term-color-8: var(--fg-2, #7d786d);
+  --term-color-9: var(--no, #f06b5a);
+  --term-color-10: var(--ok, #6ad19c);
+  --term-color-11: var(--a-hi, #ffc649);
+  --term-color-12: var(--info, #6aa3f7);
+  --term-color-13: #d5a6ff;
+  --term-color-14: #8be9df;
+  --term-color-15: var(--fg-0, #f0ece2);
+}
+
+.a2a-terminal-demo .ap-wrapper {
+  border: var(--bw, 1px) solid var(--b-1, #262a33);
+  border-radius: var(--r-2, 4px);
+  box-shadow: var(--shadow-terminal, 0 18px 44px rgba(0, 0, 0, 0.34));
+  overflow: hidden;
 }
 
 .a2a-terminal-theme-switch {
@@ -49,18 +59,26 @@
 }
 
 .a2a-terminal-theme-switch button {
-  border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 999px;
-  background: var(--md-default-bg-color);
-  color: var(--md-default-fg-color--light);
+  border: var(--bw, 1px) solid var(--b-1, #262a33);
+  border-radius: var(--r-1, 2px);
+  background: var(--s-1, #14161b);
+  color: var(--fg-1, #b9b3a5);
   cursor: pointer;
   font: inherit;
-  font-size: 0.68rem;
-  padding: 0.15rem 0.55rem;
+  font-size: var(--t-micro, 11px);
+  letter-spacing: 0.04em;
+  padding: 0.18rem 0.55rem;
+  text-transform: uppercase;
+}
+
+.a2a-terminal-theme-switch button:hover {
+  border-color: var(--b-2, #3a3f4a);
+  color: var(--fg-0, #f0ece2);
 }
 
 .a2a-terminal-theme-switch button[aria-pressed] {
-  border-color: var(--md-accent-fg-color);
-  background: var(--md-accent-fg-color--transparent);
-  color: var(--md-accent-fg-color);
+  border-color: var(--a-0, #f5a400);
+  background: var(--a-bg, rgba(245, 164, 0, 0.08));
+  color: var(--a-0, #f5a400);
+  box-shadow: inset 0 -1px 0 var(--a-line, rgba(245, 164, 0, 0.28));
 }
