@@ -47,7 +47,7 @@ from starlette.responses import JSONResponse
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
+from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -155,7 +155,6 @@ class FastAgentA2AExecutor(AgentExecutor):
             try:
                 response = await agent.generate(
                     _prompt_from_a2a_message(context.message),
-                    request_params=RequestParams(use_history=True),
                 )
             except ProviderKeyError as exc:
                 await updater.requires_auth(

@@ -182,6 +182,41 @@ class InputRequiredRecordingAgent(RecordingAgent):
         return response
 
 
+class NoHistoryRecordingAgent(RecordingAgent):
+    def __post_init__(self) -> None:
+        self.config = AgentConfig(
+            name=self.name,
+            agent_type=self.agent_type,
+            default=True,
+            use_history=False,
+        )
+
+    async def generate(self, messages: Any, request_params: Any = None) -> PromptMessageExtended:
+        use_history = request_params.use_history if request_params is not None else self.config.use_history
+        if isinstance(messages, PromptMessageExtended):
+            prompt = messages
+        else:
+            prompt = PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text=str(messages))],
+            )
+        self.received.append(prompt)
+        history_len = len(self.message_history)
+        response = PromptMessageExtended(
+            role="assistant",
+            content=[
+                TextContent(
+                    type="text",
+                    text=f"server history {history_len}: {prompt.all_text()}",
+                )
+            ],
+        )
+        if use_history:
+            self.message_history.append(prompt)
+            self.message_history.append(response)
+        return response
+
+
 @dataclass(frozen=True)
 class RunningFastAgentA2AServer:
     base_url: str
@@ -383,6 +418,74 @@ async def test_fast_agent_a2a_server_serves_jsonrpc_agent_with_context_sessions(
     assert list(skills["worker"].tags) == ["fast-agent", "basic"]
     assert list(skills["worker"].input_modes) == ["text", "file", "image"]
     assert list(skills["worker"].output_modes) == ["text", "file", "image", "task-status"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_context_does_not_force_agent_history(
+    unused_tcp_port: int,
+    wait_for_port,
+) -> None:
+    host = "127.0.0.1"
+    port = unused_tcp_port
+    created_agents: list[NoHistoryRecordingAgent] = []
+    disposed: list[AgentInstance] = []
+
+    async def create_instance() -> AgentInstance:
+        agent = NoHistoryRecordingAgent(name="worker")
+        created_agents.append(agent)
+        return _instance(agent)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        disposed.append(instance)
+        await instance.shutdown()
+
+    server = AgentA2AServer(
+        primary_instance=_instance(NoHistoryRecordingAgent(name="worker")),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent no-history test server",
+        host=host,
+        port=port,
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    client = A2ARemoteAgent(
+        config=AgentConfig(name="remote", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=f"http://{host}:{port}", transport="JSONRPC"),
+    )
+    await client.initialize()
+    try:
+        first = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="first")],
+                )
+            ]
+        )
+        second = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="second")],
+                )
+            ]
+        )
+    finally:
+        await client.shutdown()
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(task, timeout=5.0)
+        await server.executor.shutdown()
+
+    assert first.all_text() == "server history 0: first"
+    assert second.all_text() == "server history 0: second"
+    assert len(created_agents) == 1
+    assert disposed
 
 
 @pytest.mark.integration

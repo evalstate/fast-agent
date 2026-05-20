@@ -139,7 +139,8 @@ A2A `contextId` is optional on inbound messages. If a client omits it, the A2A
 SDK generates one. fast-agent uses the resolved `context_id` as the server-side
 session key:
 
-- same `context_id`: reuse the same fast-agent instance and message history;
+- same `context_id`: reuse the same fast-agent instance and that agent's
+  configured history behavior;
 - new `context_id`: create a fresh fast-agent instance;
 - same interrupted `task_id` and `context_id`: continue an `INPUT_REQUIRED`
   task.

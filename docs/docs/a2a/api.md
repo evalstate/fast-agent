@@ -127,7 +127,9 @@ app = server.asgi_app()
 
 `create_instance` is called for each new A2A `context_id`; `dispose_instance` is
 called during server shutdown. This keeps A2A session correlation aligned with
-fast-agent's existing per-session instance behavior.
+fast-agent's existing per-session instance behavior. The A2A `context_id`
+selects the server-side fast-agent instance; each served agent's `use_history`
+setting still controls whether prior turns are included in model calls.
 
 ## Raw A2A JSON-RPC
 
