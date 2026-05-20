@@ -1,21 +1,18 @@
 ---
 title: A2A Getting Started
-description: Connect fast-agent to a remote Agent2Agent (A2A) server, stream responses, and inspect file/data parts.
+description: Connect fast-agent to remote Agent2Agent (A2A) servers and deploy fast-agent agents over A2A HTTP transports.
 ---
 
 # A2A Getting Started
 
 fast-agent can connect to remote [Agent2Agent (A2A)](https://a2a-protocol.org/)
-agents as first-class agents. The quickest path is the `--a2a` command-line
-shortcut, which creates a temporary `type: a2a` AgentCard for the current run.
+agents as first-class agents, and can serve fast-agent agents over A2A HTTP
+transports. The quickest client path is the `--a2a` command-line shortcut, which
+creates a temporary `type: a2a` AgentCard for the current run.
 
 This guide uses the deterministic fake A2A server included in the fast-agent test
 suite. That keeps the examples copy/pasteable and gives us a repeatable docs +
 test pipeline.
-
-!!! note "Client-only scope"
-    This page covers fast-agent acting as an A2A **client**. Serving a fast-agent
-    agent as an A2A server is planned separately.
 
 ## 1. Start the fake A2A server
 
@@ -181,6 +178,75 @@ The `/a2a` command group currently includes:
 /a2a reset [agent]
 /a2a connect <url> [--transport JSONRPC|HTTP+JSON|GRPC] [--name NAME]
 ```
+
+## 7. Serve fast-agent over A2A
+
+Use `fast-agent serve --transport a2a` when you want another A2A client to call a
+fast-agent agent. The A2A server exposes both HTTP transports:
+
+| Endpoint | URL |
+|---|---|
+| AgentCard | `http://127.0.0.1:41241/.well-known/agent-card.json` |
+| JSON-RPC | `http://127.0.0.1:41241/a2a/jsonrpc` |
+| HTTP+JSON | `http://127.0.0.1:41241/a2a/rest` |
+
+Example with an AgentCard bundle:
+
+```bash
+uv run fast-agent serve \
+  --transport a2a \
+  --host 127.0.0.1 \
+  --port 41241 \
+  --agent-cards ./agents \
+  --model codexresponses.gpt-5.4-mini
+```
+
+The same runtime wiring used by normal fast-agent agents is available inside the
+served agent: configured MCP servers, tools, skills, hooks, and AgentCard-loaded
+agents are initialized through the regular fast-agent path before the A2A server
+starts.
+
+The generated A2A AgentCard lists each loaded fast-agent agent as an A2A skill.
+By default, incoming A2A messages are routed to the fast-agent default agent. API
+clients can route to a specific loaded agent by adding message metadata:
+
+```json
+{
+  "metadata": {
+    "agent": "researcher"
+  }
+}
+```
+
+`fast_agent_agent` is accepted as an equivalent metadata key.
+
+### Server sessions
+
+A2A `context_id` is optional in the protocol request. The A2A SDK server
+generates one when the client omits it. fast-agent uses that `context_id` as the
+server-side session key, so messages with the same A2A context reuse the same
+fast-agent instance and normal message history. A new `context_id` gets a fresh
+fast-agent instance.
+
+Clients should preserve and reuse the returned `context_id` for conversational
+continuity. The fast-agent A2A client does this automatically.
+
+### API behavior
+
+The A2A server maps incoming A2A parts into the same `PromptMessageExtended`
+shape used by normal fast-agent agents:
+
+- text parts become `TextContent`;
+- URL parts become `ResourceLink` where the URL is valid;
+- raw image bytes become `ImageContent`;
+- other raw bytes are represented as a safe text placeholder;
+- data parts become formatted JSON text.
+
+Responses are mapped back to A2A artifact parts and completed with
+`TASK_STATE_COMPLETED`. Provider credential failures are reported as
+`TASK_STATE_AUTH_REQUIRED`. Cancellations are reported as `TASK_STATE_CANCELED`.
+For user-interaction workflows, preserve the A2A `context_id` and continue the
+task from the client; A2A `INPUT_REQUIRED` client handling is shown in step 4.
 
 ## Demo recording
 

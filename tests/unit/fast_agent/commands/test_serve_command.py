@@ -134,6 +134,46 @@ def test_serve_command_noenv_forces_permissions_disabled() -> None:
     assert request.permissions_enabled is False
 
 
+def test_serve_command_builds_a2a_request() -> None:
+    ctx = typer.Context(click.Command("serve"))
+    request = serve_command._build_run_request(
+        ctx=ctx,
+        name="fast-agent-a2a",
+        instruction=None,
+        config_path=None,
+        servers=None,
+        agent_cards=["./agents"],
+        card_tools=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        model=None,
+        skills_dir=None,
+        env_dir=None,
+        noenv=False,
+        force_smart=False,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        description=None,
+        tool_name_template=None,
+        transport=serve_command.ServeTransport.A2A,
+        host="127.0.0.1",
+        port=41241,
+        shell=False,
+        instance_scope=serve_command.InstanceScope.SHARED,
+        no_permissions=False,
+        reload=False,
+        watch=False,
+    )
+
+    assert request.mode == "serve"
+    assert request.transport == "a2a"
+    assert request.host == "127.0.0.1"
+    assert request.port == 41241
+    assert request.instance_scope == "shared"
+
+
 def test_serve_command_builds_request_with_missing_shell_cwd_override() -> None:
     ctx = typer.Context(click.Command("serve"))
     request = serve_command._build_run_request(

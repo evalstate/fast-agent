@@ -21,6 +21,7 @@ class ServeTransport(str, Enum):
     HTTP = "http"
     STDIO = "stdio"
     ACP = "acp"
+    A2A = "a2a"
 
 
 class InstanceScope(str, Enum):
@@ -138,7 +139,10 @@ def _build_run_request(
 
 
 app = typer.Typer(
-    help="Expose fast-agent to clients over MCP (http or stdio) or ACP, without writing an agent.py file",
+    help=(
+        "Expose fast-agent to clients over MCP (http or stdio), ACP, or A2A, "
+        "without writing an agent.py file"
+    ),
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     add_completion=False,
 )
@@ -218,7 +222,7 @@ def serve(
     reload: bool = CommonAgentOptions.reload(),
     watch: bool = CommonAgentOptions.watch(),
 ) -> None:
-    """Expose fast-agent to clients over MCP (http/stdio) or ACP."""
+    """Expose fast-agent to clients over MCP (http/stdio), ACP, or A2A."""
     request = _build_run_request(
         ctx=ctx,
         name=name,

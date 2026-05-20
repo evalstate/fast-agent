@@ -1,0 +1,217 @@
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, cast
+
+import pytest
+import pytest_asyncio
+import uvicorn
+from mcp.types import TextContent
+
+from fast_agent.a2a.config import A2AAgentConfig
+from fast_agent.a2a.remote_agent import A2ARemoteAgent
+from fast_agent.a2a.server import AgentA2AServer
+from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.fastagent import AgentInstance
+from fast_agent.types import PromptMessageExtended
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from fast_agent.interfaces import AgentProtocol
+
+
+@dataclass
+class RecordingAgent:
+    name: str = "worker"
+    agent_type: AgentType = AgentType.BASIC
+    message_history: list[PromptMessageExtended] = field(default_factory=list)
+    received: list[PromptMessageExtended] = field(default_factory=list)
+    config: AgentConfig = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.config = AgentConfig(
+            name=self.name,
+            agent_type=self.agent_type,
+            default=True,
+            use_history=True,
+        )
+
+    async def initialize(self) -> None:
+        return None
+
+    async def shutdown(self) -> None:
+        return None
+
+    async def set_model(self, model: str | None) -> None:
+        del model
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        del clear_prompts
+        self.message_history.clear()
+
+    def pop_last_message(self) -> PromptMessageExtended | None:
+        return self.message_history.pop() if self.message_history else None
+
+    async def __call__(self, message: Any) -> str:
+        return await self.send(message)
+
+    async def send(self, message: Any, request_params: Any = None) -> str:
+        response = await self.generate(message, request_params=request_params)
+        return response.all_text()
+
+    async def generate(self, messages: Any, request_params: Any = None) -> PromptMessageExtended:
+        del request_params
+        if isinstance(messages, PromptMessageExtended):
+            prompt = messages
+        else:
+            prompt = PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text=str(messages))],
+            )
+        self.received.append(prompt)
+        self.message_history.append(prompt)
+        response = PromptMessageExtended(
+            role="assistant",
+            content=[
+                TextContent(
+                    type="text",
+                    text=f"server saw {len(self.message_history)}: {prompt.all_text()}",
+                )
+            ],
+        )
+        self.message_history.append(response)
+        return response
+
+    async def structured(self, messages: Any, model: type, request_params: Any = None) -> tuple:
+        del model
+        return None, await self.generate(messages, request_params=request_params)
+
+
+@dataclass(frozen=True)
+class RunningFastAgentA2AServer:
+    base_url: str
+    server: AgentA2AServer
+    created_agents: list[RecordingAgent]
+
+
+def _instance(agent: RecordingAgent) -> AgentInstance:
+    protocol_agent = cast("AgentProtocol", agent)
+    return AgentInstance(
+        app=AgentApp({agent.name: protocol_agent}),
+        agents={agent.name: protocol_agent},
+    )
+
+
+@pytest_asyncio.fixture
+async def fast_agent_a2a_server(
+    unused_tcp_port: int,
+    wait_for_port,
+) -> AsyncIterator[RunningFastAgentA2AServer]:
+    host = "127.0.0.1"
+    port = unused_tcp_port
+    created_agents: list[RecordingAgent] = []
+    disposed: list[AgentInstance] = []
+
+    async def create_instance() -> AgentInstance:
+        agent = RecordingAgent(name="worker")
+        created_agents.append(agent)
+        return _instance(agent)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        disposed.append(instance)
+        await instance.shutdown()
+
+    bootstrap = _instance(RecordingAgent(name="worker"))
+    server = AgentA2AServer(
+        primary_instance=bootstrap,
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent test server",
+        host=host,
+        port=port,
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    try:
+        yield RunningFastAgentA2AServer(
+            base_url=f"http://{host}:{port}",
+            server=server,
+            created_agents=created_agents,
+        )
+    finally:
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(task, timeout=5.0)
+        await server.executor.shutdown()
+        assert disposed
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_serves_jsonrpc_agent_with_context_sessions(
+    fast_agent_a2a_server: RunningFastAgentA2AServer,
+) -> None:
+    client = A2ARemoteAgent(
+        config=AgentConfig(name="remote", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=fast_agent_a2a_server.base_url, transport="JSONRPC"),
+    )
+    await client.initialize()
+    try:
+        first = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="first")],
+                )
+            ]
+        )
+        second = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="second")],
+                )
+            ]
+        )
+    finally:
+        await client.shutdown()
+
+    assert first.all_text() == "server saw 1: first"
+    assert second.all_text() == "server saw 3: second"
+    assert len(fast_agent_a2a_server.created_agents) == 1
+    assert fast_agent_a2a_server.server.agent_card.name == "fast-agent test server"
+    assert {
+        interface.protocol_binding
+        for interface in fast_agent_a2a_server.server.agent_card.supported_interfaces
+    } == {"JSONRPC", "HTTP+JSON"}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_serves_http_json_transport(
+    fast_agent_a2a_server: RunningFastAgentA2AServer,
+) -> None:
+    client = A2ARemoteAgent(
+        config=AgentConfig(name="remote_http", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=fast_agent_a2a_server.base_url, transport="HTTP+JSON"),
+    )
+    await client.initialize()
+    try:
+        response = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="over rest")],
+                )
+            ]
+        )
+    finally:
+        await client.shutdown()
+
+    assert response.all_text() == "server saw 1: over rest"
