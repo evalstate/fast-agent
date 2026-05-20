@@ -21,7 +21,7 @@ from a2a.types import (
     TaskState,
 )
 from fastapi.testclient import TestClient
-from mcp.types import BlobResourceContents, EmbeddedResource, TextContent
+from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 from pydantic import AnyUrl
 
 from fast_agent.a2a.config import A2AAgentConfig
@@ -974,6 +974,54 @@ def test_fast_agent_a2a_server_preserves_raw_file_input_parts() -> None:
     assert str(content.resource.uri) == "attachment:///report.pdf"
     assert content.resource.mimeType == "application/pdf"
     assert content.resource.blob == "JVBERiB0ZXN0IGJ5dGVz"
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_maps_raw_image_input_parts() -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="image-input",
+            parts=[
+                Part(
+                    raw=b"image bytes",
+                    media_type="image/png",
+                    filename="chart.png",
+                )
+            ],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, ImageContent)
+    assert content.mimeType == "image/png"
+    assert content.data == "aW1hZ2UgYnl0ZXM="
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_preserves_raw_audio_as_blob_resource() -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="audio-input",
+            parts=[
+                Part(
+                    raw=b"audio bytes",
+                    media_type="audio/wav",
+                    filename="clip.wav",
+                )
+            ],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, EmbeddedResource)
+    assert isinstance(content.resource, BlobResourceContents)
+    assert str(content.resource.uri) == "attachment:///clip.wav"
+    assert content.resource.mimeType == "audio/wav"
+    assert content.resource.blob == "YXVkaW8gYnl0ZXM="
 
 
 @pytest.mark.integration

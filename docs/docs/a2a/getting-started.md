@@ -233,14 +233,20 @@ surface and known gaps.
 ### Server sessions
 
 A2A `context_id` is optional in the protocol request. The A2A SDK server
-generates one when the client omits it. fast-agent uses that `context_id` as the
-server-side session key, so messages with the same A2A context reuse the same
-fast-agent instance. The served agent's own `use_history` setting still controls
-whether prior turns are sent to the model. A new `context_id` gets a fresh
-fast-agent instance.
+generates one when the client omits it. `fast-agent serve a2a` also honors the
+normal `--instance-scope` option:
+
+- `shared` reuses the primary fast-agent instance for all A2A contexts;
+- `connection` uses the A2A `context_id` as the server-side instance key;
+- `request` creates and disposes a fresh fast-agent instance per message.
+
+The served agent's own `use_history` setting still controls whether prior turns
+are sent to the model inside the selected instance scope.
 
 Clients should preserve and reuse the returned `context_id` for conversational
-continuity. The fast-agent A2A client does this automatically.
+continuity. The fast-agent A2A client does this automatically when history is
+enabled, and intentionally starts completed no-history turns with a fresh
+context.
 
 ### API behavior
 
