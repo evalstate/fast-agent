@@ -70,3 +70,29 @@ async def test_a2a_remote_agent_keeps_task_id_for_input_required_full_task_event
     assert agent.context_id == "ctx-2"
     assert agent.last_task_state == "TASK_STATE_INPUT_REQUIRED"
     assert agent.current_task_id == "input-task"
+
+
+def test_a2a_remote_agent_resets_context_for_no_history_completed_turns() -> None:
+    agent = _remote_agent()
+    agent.context_id = "ctx-completed"
+    agent.current_task_id = None
+    agent.last_task_state = "TASK_STATE_COMPLETED"
+
+    agent._prepare_turn_state(use_history=False)
+
+    assert agent.context_id != "ctx-completed"
+    assert agent.current_task_id is None
+    assert agent.last_task_state is None
+
+
+def test_a2a_remote_agent_keeps_input_required_task_for_no_history_follow_up() -> None:
+    agent = _remote_agent()
+    agent.context_id = "ctx-input"
+    agent.current_task_id = "task-input"
+    agent.last_task_state = "TASK_STATE_INPUT_REQUIRED"
+
+    agent._prepare_turn_state(use_history=False)
+
+    assert agent.context_id == "ctx-input"
+    assert agent.current_task_id == "task-input"
+    assert agent.last_task_state == "TASK_STATE_INPUT_REQUIRED"

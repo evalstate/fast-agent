@@ -13,7 +13,7 @@ client stack and intentionally excludes gRPC.
 | JSON-RPC transport | Supported | Client and server use the SDK JSON-RPC binding. |
 | HTTP+JSON transport | Supported | Client and server use the SDK REST binding. The server exposes the REST binding under `/a2a/rest`. |
 | Streaming task updates | Supported | fast-agent stream listeners are bridged to A2A `TaskArtifactUpdateEvent` events. The client preserves artifact order and honors the A2A `append` flag. |
-| Multi-turn contexts | Supported | Inbound `contextId` is optional. The SDK generates one when omitted, and fast-agent uses the resolved `context_id` as the server-side session key. |
+| Multi-turn contexts | Supported | Inbound `contextId` is optional. The SDK generates one when omitted. In A2A server `connection` scope, fast-agent uses the resolved `context_id` as the server-side instance key; `shared` and `request` scopes intentionally reuse or recreate instances independently of the A2A context. |
 | `INPUT_REQUIRED` continuation | Supported | Server responses with `PromptMessageExtended.stop_reason == LlmStopReason.PAUSE` become `TASK_STATE_INPUT_REQUIRED`. The fast-agent A2A client preserves the pending `task_id` and returned `context_id`, and surfaces the local response with `LlmStopReason.PAUSE`. |
 | Task retrieval, listing, cancellation, and subscribe | SDK-backed | These operations are provided by the SDK request handler and in-memory task store. Cancellation also cancels the running fast-agent task when still active. |
 | Text parts | Supported | A2A text parts map to `TextContent`; fast-agent text output maps back to A2A text parts. |

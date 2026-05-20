@@ -229,6 +229,26 @@ class NoHistoryRecordingAgent(RecordingAgent):
         return response
 
 
+class NamedResponseAgent(RecordingAgent):
+    async def generate(self, messages: Any, request_params: Any = None) -> PromptMessageExtended:
+        del request_params
+        if isinstance(messages, PromptMessageExtended):
+            prompt = messages
+        else:
+            prompt = PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text=str(messages))],
+            )
+        self.received.append(prompt)
+        self.message_history.append(prompt)
+        response = PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text=f"{self.name} handled: {prompt.all_text()}")],
+        )
+        self.message_history.append(response)
+        return response
+
+
 class CancellableRecordingAgent(RecordingAgent):
     def __init__(self, name: str = "worker") -> None:
         super().__init__(name=name)
@@ -261,6 +281,14 @@ def _instance(agent: RecordingAgent) -> AgentInstance:
     return AgentInstance(
         app=AgentApp({agent.name: protocol_agent}),
         agents={agent.name: protocol_agent},
+    )
+
+
+def _multi_agent_instance(*agents: RecordingAgent) -> AgentInstance:
+    protocol_agents = {agent.name: cast("AgentProtocol", agent) for agent in agents}
+    return AgentInstance(
+        app=AgentApp(protocol_agents),
+        agents=protocol_agents,
     )
 
 
@@ -411,7 +439,7 @@ async def test_fast_agent_a2a_server_serves_jsonrpc_agent_with_context_sessions(
     fast_agent_a2a_server: RunningFastAgentA2AServer,
 ) -> None:
     client = A2ARemoteAgent(
-        config=AgentConfig(name="remote", agent_type=AgentType.A2A, use_history=False),
+        config=AgentConfig(name="remote", agent_type=AgentType.A2A, use_history=True),
         a2a_config=A2AAgentConfig(url=fast_agent_a2a_server.base_url, transport="JSONRPC"),
     )
     await client.initialize()
@@ -468,6 +496,263 @@ async def test_fast_agent_a2a_server_serves_jsonrpc_agent_with_context_sessions(
         "application/octet-stream",
         "image/*",
     ]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_without_history_uses_fresh_server_contexts(
+    fast_agent_a2a_server: RunningFastAgentA2AServer,
+) -> None:
+    client = A2ARemoteAgent(
+        config=AgentConfig(name="remote_no_history", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=fast_agent_a2a_server.base_url, transport="JSONRPC"),
+    )
+    await client.initialize()
+    try:
+        first = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="first")],
+                )
+            ]
+        )
+        first_context_id = client.context_id
+        second = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="second")],
+                )
+            ]
+        )
+    finally:
+        await client.shutdown()
+
+    assert first.all_text() == "server saw 1: first"
+    assert second.all_text() == "server saw 1: second"
+    assert client.context_id != first_context_id
+    assert len(fast_agent_a2a_server.created_agents) == 2
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_shared_instance_scope_reuses_primary_instance(
+    unused_tcp_port: int,
+    wait_for_port,
+) -> None:
+    host = "127.0.0.1"
+    port = unused_tcp_port
+    created_agents: list[RecordingAgent] = []
+
+    async def create_instance() -> AgentInstance:
+        agent = RecordingAgent(name="worker")
+        created_agents.append(agent)
+        return _instance(agent)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    server = AgentA2AServer(
+        primary_instance=_instance(RecordingAgent(name="worker")),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent shared scope test server",
+        host=host,
+        port=port,
+        instance_scope="shared",
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    client = A2ARemoteAgent(
+        config=AgentConfig(name="remote_shared", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=f"http://{host}:{port}", transport="JSONRPC"),
+    )
+    await client.initialize()
+    try:
+        first = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="first")],
+                )
+            ]
+        )
+        second = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="second")],
+                )
+            ]
+        )
+    finally:
+        await client.shutdown()
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(task, timeout=5.0)
+        await server.executor.shutdown()
+
+    assert first.all_text() == "server saw 1: first"
+    assert second.all_text() == "server saw 3: second"
+    assert not created_agents
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_request_instance_scope_disposes_each_turn(
+    unused_tcp_port: int,
+    wait_for_port,
+) -> None:
+    host = "127.0.0.1"
+    port = unused_tcp_port
+    created_agents: list[RecordingAgent] = []
+    disposed: list[AgentInstance] = []
+
+    async def create_instance() -> AgentInstance:
+        agent = RecordingAgent(name="worker")
+        created_agents.append(agent)
+        return _instance(agent)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        disposed.append(instance)
+        await instance.shutdown()
+
+    server = AgentA2AServer(
+        primary_instance=_instance(RecordingAgent(name="worker")),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent request scope test server",
+        host=host,
+        port=port,
+        instance_scope="request",
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    client = A2ARemoteAgent(
+        config=AgentConfig(name="remote_request", agent_type=AgentType.A2A, use_history=True),
+        a2a_config=A2AAgentConfig(url=f"http://{host}:{port}", transport="JSONRPC"),
+    )
+    await client.initialize()
+    try:
+        first = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="first")],
+                )
+            ]
+        )
+        second = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="second")],
+                )
+            ]
+        )
+    finally:
+        await client.shutdown()
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(task, timeout=5.0)
+        await server.executor.shutdown()
+
+    assert first.all_text() == "server saw 1: first"
+    assert second.all_text() == "server saw 1: second"
+    assert len(created_agents) == 2
+    assert len(disposed) == 2
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_routes_to_agent_skill_named_in_metadata(
+    unused_tcp_port: int,
+    wait_for_port,
+) -> None:
+    host = "127.0.0.1"
+    port = unused_tcp_port
+    created_agents: list[tuple[NamedResponseAgent, NamedResponseAgent]] = []
+    disposed: list[AgentInstance] = []
+
+    def agent_pair() -> tuple[NamedResponseAgent, NamedResponseAgent]:
+        primary = NamedResponseAgent(name="primary")
+        primary.config.default = True
+        specialist = NamedResponseAgent(name="specialist")
+        specialist.config.default = False
+        specialist.config.description = "Handle specialist work."
+        return primary, specialist
+
+    async def create_instance() -> AgentInstance:
+        primary, specialist = agent_pair()
+        created_agents.append((primary, specialist))
+        return _multi_agent_instance(primary, specialist)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        disposed.append(instance)
+        await instance.shutdown()
+
+    bootstrap_primary, bootstrap_specialist = agent_pair()
+    server = AgentA2AServer(
+        primary_instance=_multi_agent_instance(bootstrap_primary, bootstrap_specialist),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent routing test server",
+        host=host,
+        port=port,
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    http_client = httpx.AsyncClient()
+    client = await create_client(
+        f"http://{host}:{port}",
+        client_config=ClientConfig(
+            httpx_client=http_client,
+            supported_protocol_bindings=["JSONRPC"],
+        ),
+    )
+    response_text: str | None = None
+    try:
+        async for event in client.send_message(
+            SendMessageRequest(
+                message=Message(
+                    role=Role.ROLE_USER,
+                    message_id="target-specialist",
+                    parts=[Part(text="route this")],
+                    metadata={"agent": "specialist"},
+                )
+            )
+        ):
+            if event.HasField("artifact_update"):
+                artifact_parts = event.artifact_update.artifact.parts
+                if artifact_parts and artifact_parts[0].HasField("text"):
+                    response_text = artifact_parts[0].text
+    finally:
+        await client.close()
+        await http_client.aclose()
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(task, timeout=5.0)
+        await server.executor.shutdown()
+
+    skills = {skill.id: skill for skill in server.agent_card.skills}
+    assert set(skills) == {"primary", "specialist"}
+    assert skills["specialist"].description == "Handle specialist work."
+    assert response_text == "specialist handled: route this"
+    assert created_agents
+    primary, specialist = created_agents[0]
+    assert not primary.received
+    assert len(specialist.received) == 1
+    assert disposed
 
 
 @pytest.mark.integration
@@ -534,7 +819,7 @@ async def test_fast_agent_a2a_server_context_does_not_force_agent_history(
 
     assert first.all_text() == "server history 0: first"
     assert second.all_text() == "server history 0: second"
-    assert len(created_agents) == 1
+    assert len(created_agents) == 2
     assert disposed
 
 

@@ -180,6 +180,7 @@ class A2ARemoteAgent(LlmDecorator):
             raise RuntimeError("A2A remote agent is not initialized")
 
         use_history = request_params.use_history if request_params else self.config.use_history
+        self._prepare_turn_state(use_history=use_history)
         self._timestamp_messages(messages)
         self._display_user_messages(messages)
         user_text = _latest_text(messages)
@@ -220,6 +221,13 @@ class A2ARemoteAgent(LlmDecorator):
         if use_history:
             self._persist_history(messages, assistant_message)
         return assistant_message
+
+    def _prepare_turn_state(self, *, use_history: bool) -> None:
+        if use_history:
+            return
+        if self.last_task_state == _INPUT_REQUIRED_STATE and self.current_task_id:
+            return
+        self.reset_a2a_state()
 
     def _display_user_messages(self, messages: list[PromptMessageExtended]) -> None:
         display_messages = [message for message in messages if message.role == "user"]

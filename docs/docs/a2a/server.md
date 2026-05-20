@@ -17,6 +17,7 @@ agent.
 uv run fast-agent serve a2a \
   --host 127.0.0.1 \
   --port 41241 \
+  --instance-scope shared \
   --agent-cards ./agents \
   --model codexresponses.gpt-5.4-mini
 ```
@@ -133,21 +134,27 @@ Current limitation: examples are still generic, and mode lists describe the
 server-wide MIME-style content support rather than deriving per-agent modality
 declarations from fast-agent AgentCard metadata or installed fast-agent skills.
 
-## Sessions and Resumption
+## Instance Scope, Sessions, and Resumption
 
 A2A `contextId` is optional on inbound messages. If a client omits it, the A2A
-SDK generates one. fast-agent uses the resolved `context_id` as the server-side
-session key:
+SDK generates one. The server still returns and tracks the resolved A2A
+`context_id`; how that maps to fast-agent runtime instances depends on
+`--instance-scope`:
 
-- same `context_id`: reuse the same fast-agent instance and that agent's
-  configured history behavior;
-- new `context_id`: create a fresh fast-agent instance;
-- same interrupted `task_id` and `context_id`: continue an `INPUT_REQUIRED`
-  task.
+| Scope | Behavior |
+|---|---|
+| `shared` | Use the primary fast-agent instance for all A2A contexts. This is the default for `fast-agent serve a2a`, matching the generic serve default. |
+| `connection` | Use the A2A `context_id` as the server-side instance/session key. The same `context_id` reuses the same fast-agent instance; a new `context_id` creates a fresh instance. |
+| `request` | Create and dispose a fresh fast-agent instance for every A2A message. |
 
-The `context_id` selects the server-side fast-agent instance. The agent's
-history setting controls how much prior conversation is sent to the model; it
-does not change the A2A session key.
+The served agent's history setting controls how much prior conversation is sent
+to the model inside whichever instance scope is selected. It does not change the
+A2A protocol `context_id`.
+
+For `INPUT_REQUIRED`, clients should continue with the returned `task_id` and
+`context_id`. `shared` and `connection` scopes preserve in-memory fast-agent
+state for follow-up turns. `request` scope intentionally creates a fresh
+fast-agent instance for each message, so it is best for stateless agents.
 
 The current server uses in-memory A2A task storage and in-memory fast-agent
 context instances. Restarting the process loses A2A task state and session

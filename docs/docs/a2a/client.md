@@ -128,6 +128,11 @@ Useful diagnostics:
 `/a2a status` shows the current A2A `context_id`, pending `task_id`, last task
 state, and selected client transport.
 
+When the local A2A AgentCard or request has `use_history: false`, fast-agent
+starts each completed turn with a fresh A2A context. The exception is
+`TASK_STATE_INPUT_REQUIRED`: fast-agent keeps the returned `task_id` and
+`context_id` so the next user message can continue the interrupted task.
+
 ## Streaming
 
 Remote A2A `TaskArtifactUpdateEvent` updates are emitted through the normal

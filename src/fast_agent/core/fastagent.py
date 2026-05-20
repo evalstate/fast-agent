@@ -2371,6 +2371,7 @@ class FastAgent(DecoratorMixin):
 
         server_description = getattr(self.args, "server_description", None)
         server_name = getattr(self.args, "server_name", None)
+        instance_scope = getattr(self.args, "instance_scope", "shared")
         a2a_server = AgentA2AServer(
             primary_instance=state.primary_instance,
             create_instance=callbacks.create_instance,
@@ -2379,6 +2380,7 @@ class FastAgent(DecoratorMixin):
             server_description=server_description,
             host=self.args.host,
             port=self.args.port,
+            instance_scope=instance_scope,
         )
         await a2a_server.run_async(host=self.args.host, port=self.args.port)
 

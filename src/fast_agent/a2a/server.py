@@ -90,11 +90,13 @@ class FastAgentA2AExecutor(AgentExecutor):
         dispose_instance: Callable[[AgentInstance], Awaitable[None]],
         *,
         primary_agent_name: str,
+        instance_scope: str = "connection",
     ) -> None:
         self._primary_instance = primary_instance
         self._create_instance = create_instance
         self._dispose_instance = dispose_instance
         self._primary_agent_name = primary_agent_name
+        self._instance_scope = instance_scope
         self._context_instances: dict[str, AgentInstance] = {}
         self._context_locks: dict[str, asyncio.Lock] = {}
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
@@ -147,33 +149,39 @@ class FastAgentA2AExecutor(AgentExecutor):
             message=updater.new_agent_message(parts=[Part(text="fast-agent is working")])
         )
 
-        lock = await self._context_lock(context.context_id)
+        lock = await self._context_lock(self._lock_key(context))
         async with lock:
-            instance = await self._instance_for_context(context.context_id)
-            agent = self._select_agent(instance, context.message)
-            stream_context = self._prepare_streaming_context(
-                agent=agent,
-                updater=updater,
-            )
+            instance = await self._acquire_instance(context.context_id)
             try:
-                response = await agent.generate(
-                    _prompt_from_a2a_message(context.message),
+                agent = self._select_agent(instance, context.message)
+                stream_context = self._prepare_streaming_context(
+                    agent=agent,
+                    updater=updater,
                 )
-            except ProviderKeyError as exc:
-                await updater.requires_auth(
-                    message=updater.new_agent_message(parts=[Part(text=exc.message)])
-                )
-                return
-            except asyncio.CancelledError:
-                await updater.cancel()
-                raise
-            except Exception as exc:
-                await updater.failed(
-                    message=updater.new_agent_message(parts=[Part(text=str(exc))])
-                )
-                return
+                try:
+                    response = await agent.generate(
+                        _prompt_from_a2a_message(context.message),
+                    )
+                except ProviderKeyError as exc:
+                    await updater.requires_auth(
+                        message=updater.new_agent_message(parts=[Part(text=exc.message)])
+                    )
+                    return
+                except asyncio.CancelledError:
+                    await updater.cancel()
+                    raise
+                except Exception as exc:
+                    await updater.failed(
+                        message=updater.new_agent_message(parts=[Part(text=str(exc))])
+                    )
+                    return
+                finally:
+                    await self._cleanup_streaming_context(stream_context)
             finally:
-                await self._cleanup_streaming_context(stream_context)
+                await self._release_instance(
+                    context.context_id,
+                    instance,
+                )
 
         streamed_text = stream_context.streamed_text()
         response_text = response.all_text()
@@ -230,21 +238,37 @@ class FastAgentA2AExecutor(AgentExecutor):
         if stream_context.tasks:
             await asyncio.gather(*stream_context.tasks, return_exceptions=True)
 
-    async def _context_lock(self, context_id: str) -> asyncio.Lock:
+    def _lock_key(self, context: RequestContext) -> str:
+        if self._instance_scope == "shared":
+            return "__shared__"
+        if self._instance_scope == "request":
+            return context.task_id or context.context_id or "__request__"
+        return context.context_id or "__context__"
+
+    async def _context_lock(self, lock_key: str) -> asyncio.Lock:
         async with self._lock:
-            lock = self._context_locks.get(context_id)
+            lock = self._context_locks.get(lock_key)
             if lock is None:
                 lock = asyncio.Lock()
-                self._context_locks[context_id] = lock
+                self._context_locks[lock_key] = lock
             return lock
 
-    async def _instance_for_context(self, context_id: str) -> AgentInstance:
+    async def _acquire_instance(self, context_id: str) -> AgentInstance:
+        if self._instance_scope == "shared":
+            return self._primary_instance
+        if self._instance_scope == "request":
+            return await self._create_instance()
         instance = self._context_instances.get(context_id)
         if instance is not None:
             return instance
         instance = await self._create_instance()
         self._context_instances[context_id] = instance
         return instance
+
+    async def _release_instance(self, context_id: str, instance: AgentInstance) -> None:
+        del context_id
+        if self._instance_scope == "request":
+            await self._dispose_instance(instance)
 
     def _select_agent(self, instance: AgentInstance, message: Message) -> AgentProtocol:
         agent_name = _requested_agent_name(message)
@@ -322,6 +346,7 @@ class AgentA2AServer:
         server_description: str | None = None,
         host: str = "0.0.0.0",
         port: int = 8000,
+        instance_scope: str = "connection",
     ) -> None:
         self._host = host
         self._port = port
@@ -338,6 +363,7 @@ class AgentA2AServer:
             create_instance=create_instance,
             dispose_instance=dispose_instance,
             primary_agent_name=self._primary_agent_name,
+            instance_scope=instance_scope,
         )
         self.request_handler = DefaultRequestHandler(
             agent_executor=self.executor,
