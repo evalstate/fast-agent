@@ -237,6 +237,60 @@ async def test_a2a_remote_agent_renders_file_url_data_and_raw_parts(a2a_test_ser
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_a2a_remote_agent_honors_artifact_append_semantics(a2a_test_server) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_append", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    chunks: list[str] = []
+    agent.add_stream_listener(lambda chunk: chunks.append(chunk.text))
+    await agent.initialize()
+    try:
+        response = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="artifact append")],
+                )
+            ]
+        )
+    finally:
+        await agent.shutdown()
+
+    assert response.all_text() == "final\nrepeat\nrepeat"
+    assert chunks == ["draft", "final", "\nrepeat", "\nrepeat"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_clone_preserves_remote_config(a2a_test_server) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_clone", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="HTTP+JSON"),
+    )
+    await agent.initialize()
+    clone: A2ARemoteAgent | None = None
+    try:
+        clone = await agent.spawn_detached_instance(name="remote_clone[tool]")
+        response = await clone.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="hello clone")],
+                )
+            ]
+        )
+    finally:
+        if clone is not None:
+            await clone.shutdown()
+        await agent.shutdown()
+
+    assert clone.a2a_config == agent.a2a_config
+    assert "echo: hello clone" in response.all_text()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_a2a_remote_agent_sends_url_and_raw_parts(a2a_test_server) -> None:
     from mcp.types import ImageContent, ResourceLink
     from pydantic import AnyUrl

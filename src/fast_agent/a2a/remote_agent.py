@@ -144,6 +144,10 @@ class A2ARemoteAgent(LlmDecorator):
 
         return remove_listener
 
+    def _clone_constructor_kwargs(self) -> dict[str, Any]:
+        """Carry remote A2A connection configuration into detached clones."""
+        return {"a2a_config": self.a2a_config}
+
     def reset_a2a_state(self) -> None:
         self.context_id = str(uuid.uuid4())
         self.current_task_id = None
@@ -242,15 +246,16 @@ class A2ARemoteAgent(LlmDecorator):
         )
 
     async def _consume_events(self, events: Any) -> "_A2AResult":
-        chunks: list[str] = []
-        seen_chunks: set[str] = set()
+        message_chunks: list[str] = []
+        artifact_order: list[str] = []
+        artifact_texts: dict[str, str] = {}
         state: str | None = None
         status_text: str | None = None
 
         async for event in events:
             if event.HasField("message"):
                 text = _parts_text(event.message.parts)
-                _append_text(chunks, seen_chunks, text)
+                _append_text(message_chunks, text)
                 self._emit_stream(text)
                 continue
 
@@ -261,8 +266,7 @@ class A2ARemoteAgent(LlmDecorator):
                 self.last_task_state = state
                 self._log_a2a_progress(ProgressAction.UPDATED, details=state)
                 for artifact in event.task.artifacts:
-                    text = _parts_text(artifact.parts)
-                    _append_text(chunks, seen_chunks, text)
+                    _replace_artifact_text(artifact_order, artifact_texts, artifact, _parts_text(artifact.parts))
                 continue
 
             if event.HasField("status_update"):
@@ -280,15 +284,30 @@ class A2ARemoteAgent(LlmDecorator):
                 continue
 
             if event.HasField("artifact_update"):
-                artifact = event.artifact_update.artifact
+                update = event.artifact_update
+                artifact = update.artifact
                 text = _parts_text(artifact.parts)
-                if text and text not in seen_chunks:
-                    _append_text(chunks, seen_chunks, text)
-                    self._log_a2a_progress(ProgressAction.STREAMING, details=artifact.name)
-                    self._emit_stream(text)
+                if not text:
+                    continue
+                _apply_artifact_update(
+                    artifact_order,
+                    artifact_texts,
+                    artifact,
+                    text,
+                    append=update.append,
+                )
+                self._log_a2a_progress(ProgressAction.STREAMING, details=artifact.name)
+                self._emit_stream(text)
 
         return _A2AResult(
-            text="\n".join(chunk for chunk in chunks if chunk),
+            text="\n".join(
+                chunk
+                for chunk in [
+                    *message_chunks,
+                    *(artifact_texts[artifact_id] for artifact_id in artifact_order),
+                ]
+                if chunk
+            ),
             state=state,
             status_text=status_text,
         )
@@ -396,11 +415,52 @@ def _latest_text(messages: Sequence[PromptMessageExtended]) -> str:
     return ""
 
 
-def _append_text(chunks: list[str], seen_chunks: set[str], text: str) -> None:
-    if not text or text in seen_chunks:
+def _append_text(chunks: list[str], text: str) -> None:
+    if not text:
         return
     chunks.append(text)
-    seen_chunks.add(text)
+
+
+def _artifact_key(artifact: Any) -> str:
+    artifact_id = artifact.artifact_id
+    if artifact_id:
+        return artifact_id
+    if artifact.name:
+        return artifact.name
+    return str(id(artifact))
+
+
+def _replace_artifact_text(
+    artifact_order: list[str],
+    artifact_texts: dict[str, str],
+    artifact: Any,
+    text: str,
+) -> None:
+    if not text:
+        return
+    key = _artifact_key(artifact)
+    if key not in artifact_texts:
+        artifact_order.append(key)
+    artifact_texts[key] = text
+
+
+def _apply_artifact_update(
+    artifact_order: list[str],
+    artifact_texts: dict[str, str],
+    artifact: Any,
+    text: str,
+    *,
+    append: bool,
+) -> None:
+    key = _artifact_key(artifact)
+    if key not in artifact_texts:
+        artifact_order.append(key)
+        artifact_texts[key] = text
+        return
+    if append:
+        artifact_texts[key] = f"{artifact_texts[key]}{text}"
+        return
+    artifact_texts[key] = text
 
 
 def _state_message(state: str | None) -> str:

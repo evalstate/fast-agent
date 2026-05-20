@@ -57,6 +57,7 @@ FAKE_A2A_HELP = """Fake A2A server commands:
 - please stream: emit two short streaming artifact updates
 - please long stream: emit a longer multi-step streaming artifact
 - respond with files: return text, URL, data, and raw byte parts
+- artifact append: replace and append updates on the same artifact
 - need input: enter an INPUT_REQUIRED task; reply with a value such as blue
 - help: show this menu"""
 
@@ -188,6 +189,39 @@ class EchoAgentExecutor(AgentExecutor):
                     Part(raw=b"abc", media_type="text/plain", filename="note.txt"),
                 ],
                 name="files",
+                last_chunk=True,
+            )
+            await updater.complete()
+            return
+
+        if "artifact append" in query:
+            artifact_id = "append-contract"
+            await updater.add_artifact(
+                parts=[Part(text="draft")],
+                name="append-contract",
+                artifact_id=artifact_id,
+                append=False,
+                last_chunk=False,
+            )
+            await updater.add_artifact(
+                parts=[Part(text="final")],
+                name="append-contract",
+                artifact_id=artifact_id,
+                append=False,
+                last_chunk=False,
+            )
+            await updater.add_artifact(
+                parts=[Part(text="\nrepeat")],
+                name="append-contract",
+                artifact_id=artifact_id,
+                append=True,
+                last_chunk=False,
+            )
+            await updater.add_artifact(
+                parts=[Part(text="\nrepeat")],
+                name="append-contract",
+                artifact_id=artifact_id,
+                append=True,
                 last_chunk=True,
             )
             await updater.complete()
