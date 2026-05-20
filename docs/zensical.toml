@@ -37,6 +37,9 @@ nav = [
     { "Using as an Agent" = "acp/index.md" },
     { "Customizing Agents" = "acp/customizing_agents.md" },
   ] },
+  { "A2A" = [
+    { "Getting Started" = "a2a/getting-started.md" },
+  ] },
   { "MCP" = [
     { "Configuring Servers" = "mcp/index.md" },
     { "Deploying as an MCP Server" = "mcp/mcp-server.md" },

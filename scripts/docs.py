@@ -5,6 +5,7 @@ Documentation generation and serving utilities.
 Usage:
     uv run scripts/docs.py install    # Install/sync dev dependencies
     uv run scripts/docs.py generate   # Generate reference docs from source
+    uv run scripts/docs.py a2a       # Regenerate A2A getting-started snippets
     uv run scripts/docs.py social [--page path.md]
                                       # Generate committed Open Graph card PNGs
     uv run scripts/docs.py social-contact-sheet
@@ -53,6 +54,15 @@ def generate() -> int:
             return result.returncode
     print(f"Generated docs in {DOCS_DIR / 'docs' / '_generated'}")
     return 0
+
+
+def a2a() -> int:
+    """Regenerate A2A getting-started snippets and verify them."""
+    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "a2a_docs_pipeline.py"), "generate"], cwd=ROOT)
+    if result.returncode != 0:
+        return result.returncode
+    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "a2a_docs_pipeline.py"), "check"], cwd=ROOT)
+    return result.returncode
 
 
 def social(args: list[str]) -> int:
@@ -172,6 +182,8 @@ def main() -> int:
         return install()
     elif command == "generate":
         return generate()
+    elif command == "a2a":
+        return a2a()
     elif command == "social":
         return social(sys.argv[2:])
     elif command == "check-social":
