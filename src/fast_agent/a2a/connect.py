@@ -14,7 +14,6 @@ _TRANSPORT_ALIASES = {
     "http": "HTTP+JSON",
     "http+json": "HTTP+JSON",
     "rest": "HTTP+JSON",
-    "grpc": "GRPC",
 }
 
 
@@ -28,7 +27,7 @@ class A2AConnectRequest:
 
 def parse_a2a_connect_arguments(arguments: str | None) -> tuple[A2AConnectRequest | None, str | None]:
     if not arguments:
-        return None, "Usage: /a2a connect <base-url-or-card-url> [--transport JSONRPC|HTTP+JSON|GRPC] [--name NAME] [--card-path PATH]"
+        return None, "Usage: /a2a connect <base-url-or-card-url> [--transport JSONRPC|HTTP+JSON] [--name NAME] [--card-path PATH]"
     try:
         tokens = shlex.split(arguments)
     except ValueError as exc:

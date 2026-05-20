@@ -8,7 +8,7 @@ from fast_agent.a2a.connect import (
 def test_normalize_a2a_transport_aliases() -> None:
     assert normalize_a2a_transport("json-rpc") == "JSONRPC"
     assert normalize_a2a_transport("rest") == "HTTP+JSON"
-    assert normalize_a2a_transport("grpc") == "GRPC"
+    assert normalize_a2a_transport("grpc") is None
     assert normalize_a2a_transport("bogus") is None
 
 

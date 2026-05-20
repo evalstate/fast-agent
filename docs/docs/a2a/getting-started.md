@@ -92,7 +92,6 @@ Transport names accepted by fast-agent are:
 |---|---|
 | `JSONRPC` | `jsonrpc`, `json-rpc`, `rpc` |
 | `HTTP+JSON` | `http`, `http+json`, `rest` |
-| `GRPC` | `grpc` |
 
 ## 3. Receive file, URL, and data parts
 
@@ -183,7 +182,7 @@ The `/a2a` command group currently includes:
 /a2a card [agent]
 /a2a transport [agent]
 /a2a reset [agent]
-/a2a connect <url> [--transport JSONRPC|HTTP+JSON|GRPC] [--name NAME]
+/a2a connect <url> [--transport JSONRPC|HTTP+JSON] [--name NAME]
 ```
 
 ## 7. Serve fast-agent over A2A
