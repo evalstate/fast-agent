@@ -10,6 +10,13 @@ agents as first-class agents, and can serve fast-agent agents over A2A HTTP
 transports. The quickest client path is the `--a2a` command-line shortcut, which
 creates a temporary `type: a2a` AgentCard for the current run.
 
+For focused reference material, see:
+
+- [Use as Client](client.md);
+- [Serve as A2A Server](server.md);
+- [API Usage](api.md);
+- [Protocol Compliance](protocol-compliance.md).
+
 This guide uses the deterministic fake A2A server included in the fast-agent test
 suite. That keeps the examples copy/pasteable and gives us a repeatable docs +
 test pipeline.
@@ -219,6 +226,9 @@ clients can route to a specific loaded agent by adding message metadata:
 ```
 
 `fast_agent_agent` is accepted as an equivalent metadata key.
+
+See [Protocol Compliance](protocol-compliance.md) for the supported A2A 1.0
+surface and known gaps.
 
 ### Server sessions
 

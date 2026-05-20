@@ -6,7 +6,7 @@ from mcp.types import TextContent
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.types import PromptMessageExtended
+from fast_agent.types import LlmStopReason, PromptMessageExtended
 from tests.integration.a2a.conftest import FAKE_A2A_HELP, LONG_STREAM_CHUNKS
 
 
@@ -162,8 +162,10 @@ async def test_a2a_remote_agent_preserves_input_required_task_for_follow_up(
         await agent.shutdown()
 
     assert first.all_text() == "A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value."
+    assert first.stop_reason == LlmStopReason.PAUSE
     assert input_task_id
     assert "input received: blue" in second.all_text()
+    assert second.stop_reason == LlmStopReason.END_TURN
     assert agent.current_task_id is None
     assert agent.last_task_state == "TASK_STATE_COMPLETED"
     assert a2a_test_server.executor.seen_queries[-2:] == ["need input", "blue"]

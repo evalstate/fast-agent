@@ -462,8 +462,10 @@ async def test_fast_agent_a2a_server_preserves_input_required_task_for_follow_up
         await client.shutdown()
 
     assert first.all_text() == "A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value."
+    assert first.stop_reason == LlmStopReason.PAUSE
     assert input_task_id
     assert "input received: blue" in second.all_text()
+    assert second.stop_reason == LlmStopReason.END_TURN
     assert client.current_task_id is None
     assert client.last_task_state == "TASK_STATE_COMPLETED"
     assert len(input_required_fast_agent_a2a_server.created_agents) == 1

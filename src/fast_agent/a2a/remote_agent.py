@@ -28,7 +28,7 @@ from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.stream_types import StreamChunk
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.message_display_helpers import build_user_message_display
@@ -194,9 +194,15 @@ class A2ARemoteAgent(LlmDecorator):
         response_text = result.text or result.status_text or _state_message(result.state)
         if result.state in _ERROR_STATES:
             response_text = f"A2A task {result.state}: {response_text}"
+        stop_reason = (
+            LlmStopReason.PAUSE
+            if result.state == "TASK_STATE_INPUT_REQUIRED"
+            else LlmStopReason.END_TURN
+        )
         assistant_message = PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text=response_text)],
+            stop_reason=stop_reason,
         )
         progress_display.pause(cancel_deferred_on_noop=True)
         await self.display.show_assistant_message(

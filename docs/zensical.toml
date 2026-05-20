@@ -39,6 +39,10 @@ nav = [
   ] },
   { "A2A" = [
     { "Getting Started" = "a2a/getting-started.md" },
+    { "Use as Client" = "a2a/client.md" },
+    { "Serve as A2A Server" = "a2a/server.md" },
+    { "API Usage" = "a2a/api.md" },
+    { "Protocol Compliance" = "a2a/protocol-compliance.md" },
   ] },
   { "MCP" = [
     { "Configuring Servers" = "mcp/index.md" },
