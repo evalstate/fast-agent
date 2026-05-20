@@ -393,3 +393,330 @@ Manual smoke matrix:
 ### Final commit
 
 Commit docs and final verification notes.
+
+---
+
+## 2026-05-20 implementation update
+
+The core short-term plan is now mostly implemented and committed in focused
+checkpoints.
+
+### Commit log for this feature slice
+
+```text
+a33ad0d1 test a2a jsonrpc and http transports
+e8867e12 support a2a streaming and file parts
+13fb9804 add a2a diagnostic commands
+94e61939 add interactive a2a connect
+59c603dc add a2a cli shortcut and fake server
+fffa4a90 document and expose a2a transport diagnostics
+98273942 handle a2a connection failures gracefully
+2767f493 add a2a getting started docs pipeline
+dc0e62ad embed asciinema player in a2a docs
+0b91bf5c record colored a2a docs casts
+6ccc47fb add a2a cast theme switch
+a4fb64ba align a2a cast theme with docs styles
+```
+
+### Runtime and transport status
+
+Implemented:
+
+- SDK-backed integration fixture under `tests/integration/a2a/`.
+- JSON-RPC runtime coverage.
+- HTTP+JSON runtime coverage.
+- A deterministic fake server:
+
+  ```bash
+  uv run python tests/integration/a2a/fake_server.py --port 41242
+  ```
+
+- CLI one-shot shortcut:
+
+  ```bash
+  uv run fast-agent -x \
+    --a2a http://127.0.0.1:41242 \
+    --a2a-transport JSONRPC \
+    --message "please stream" \
+    --quiet
+  ```
+
+- Direct card URL normalization for both CLI and TUI connect flows.
+- Graceful connection failure handling for A2A initialization errors. Missing or
+  unreachable servers now produce an `AgentConfigError` style message instead of
+  a rich traceback.
+
+Still open:
+
+- gRPC transport coverage remains optional/deferred.
+- `/a2a transport` reports requested transport and selected SDK client class, but
+  deeper SDK transport introspection may still be worth improving if the SDK
+  exposes a stable public surface.
+
+### Current fake server behavior
+
+The fake server is the source of truth for repeatable docs/tests/demos. It
+exposes:
+
+```text
+AgentCard: http://127.0.0.1:41242/.well-known/agent-card.json
+JSON-RPC:  http://127.0.0.1:41242/a2a/jsonrpc
+REST:      http://127.0.0.1:41242/a2a/rest
+```
+
+Useful prompts:
+
+```text
+hello
+please stream
+respond with files
+```
+
+It deterministically exercises:
+
+- text echo;
+- delayed streaming artifact chunks;
+- inbound URL/data/raw rendering;
+- outbound text/url/raw part mapping.
+
+### Streaming and file/data mapping status
+
+Implemented outbound mapping:
+
+| fast-agent/MCP content | A2A part |
+|---|---|
+| `TextContent` | `Part(text=...)` |
+| `ImageContent` / `AudioContent` | `Part(raw=..., media_type=...)` |
+| `ResourceLink` | `Part(url=..., media_type=..., filename=...)` |
+| `EmbeddedResource` blob | `Part(raw=..., media_type=..., filename=...)` |
+| `EmbeddedResource` text | `Part(text=..., media_type=..., filename=...)` |
+
+Implemented inbound rendering:
+
+| A2A part | fast-agent rendering |
+|---|---|
+| `text` | assistant text |
+| `url` | Markdown link with media type when present |
+| `data` | fenced JSON |
+| `raw` | safe `[filename: N bytes media/type]` placeholder |
+
+Streaming events are consumed incrementally and emitted to stream listeners while
+still producing a final normal assistant turn. The CLI currently prints final
+aggregated text for one-shot mode; the TUI path displays the completed assistant
+turn in the usual A2A-styled transcript.
+
+### `/a2a` command surface now implemented
+
+```text
+/a2a
+/a2a list
+/a2a status [agent]
+/a2a card [agent]
+/a2a transport [agent]
+/a2a reset [agent]
+/a2a connect <url> [--transport JSONRPC|HTTP+JSON|GRPC] [--name NAME] [--card-path PATH]
+```
+
+Notes:
+
+- `/a2a` defaults to status for the current agent.
+- `/a2a connect` creates a runtime A2A agent and switches to it.
+- `/a2a reset` clears local A2A `context_id`, `current_task_id`, and
+  `last_task_state`.
+- Persistent write-back/save is still deferred.
+
+### CLI A2A shortcut now implemented
+
+New flags:
+
+```text
+--a2a <url>                 repeatable; base URL or direct AgentCard URL
+--a2a-transport <transport> JSONRPC, HTTP+JSON, GRPC, or aliases
+```
+
+Transport aliases:
+
+```text
+jsonrpc, json-rpc, rpc -> JSONRPC
+http, http+json, rest  -> HTTP+JSON
+grpc                   -> GRPC
+```
+
+Generated temporary agents are named:
+
+```text
+a2a_remote
+a2a_remote_2
+...
+```
+
+If exactly one `--a2a` is supplied and `--agent` is omitted, fast-agent targets
+that temporary A2A agent automatically.
+
+### Documentation and recording pipeline
+
+A new top-level docs section exists:
+
+```text
+A2A
+└── Getting Started
+```
+
+Primary page:
+
+```text
+docs/docs/a2a/getting-started.md
+```
+
+Docs nav update:
+
+```text
+docs/zensical.toml
+```
+
+Generated snippets live under:
+
+```text
+docs/docs/a2a/snippets/
+```
+
+Current snippets:
+
+```text
+agent-card.yaml
+cli-files-command.sh
+cli-files-output.txt
+cli-stream-command.sh
+cli-stream-output.txt
+start-fake-server.sh
+tui-session.txt
+```
+
+The repeatable pipeline is:
+
+```bash
+uv run scripts/a2a_docs_pipeline.py generate
+uv run scripts/a2a_docs_pipeline.py check
+uv run scripts/a2a_docs_pipeline.py record
+```
+
+Convenience wrapper:
+
+```bash
+uv run scripts/docs.py a2a
+```
+
+The `record` command now captures a live tmux session with asciinema rather than
+capturing a plain-text tmux pane. This preserves ANSI colors in the `.cast`.
+
+Current committed recording:
+
+```text
+docs/docs/assets/a2a/a2a-streaming-files.cast
+```
+
+Current recording metadata:
+
+```text
+width: 104
+height: 27
+idle_time_limit: 1.3
+contains ANSI escape sequences: yes
+```
+
+The old local working recordings under `/home/ssmith/plan/records/` are still
+useful as scratch/reference artifacts, but the docs source of truth is now the
+committed asset under `docs/docs/assets/a2a/`.
+
+### Embedded asciinema player
+
+The A2A Getting Started page embeds the cast using vendored asciinema-player
+assets:
+
+```text
+docs/docs/assets/vendor/asciinema-player/asciinema-player.css
+docs/docs/assets/vendor/asciinema-player/asciinema-player.min.js
+docs/docs/assets/vendor/asciinema-player/catppuccin.css
+```
+
+Despite the legacy filename `catppuccin.css`, the CSS now defines fast-agent
+native terminal themes aligned to `docs/docs/stylesheets/fast-agent.css` tokens:
+
+```text
+fast-agent-light
+fast-agent-dark
+```
+
+The page includes a player-local switch:
+
+```text
+Auto | Light | Dark
+```
+
+Behavior:
+
+- Auto follows the Zensical docs light/dark mode.
+- Light forces `fast-agent-light`.
+- Dark forces `fast-agent-dark`.
+- The player recreates itself when the local player theme or docs site theme
+  changes.
+
+### Tests added/updated
+
+A2A runtime and command tests now include:
+
+```text
+tests/integration/a2a/conftest.py
+tests/integration/a2a/test_remote_agent_runtime.py
+tests/integration/a2a/fake_server.py
+tests/unit/fast_agent/a2a_connect_test.py
+tests/unit/fast_agent/cli/test_a2a_go_options.py
+tests/unit/fast_agent/core/test_a2a_error_formatting.py
+tests/unit/fast_agent/ui/test_parse_a2a_commands.py
+tests/unit/test_a2a_docs_pipeline.py
+```
+
+The docs pipeline tests check that:
+
+- generated snippets are current;
+- the Getting Started page includes all generated snippets;
+- the cast asset is present;
+- the cast metadata uses the compact 27-row size;
+- the cast contains ANSI escape sequences;
+- vendored asciinema assets are present;
+- fast-agent light/dark terminal themes are present;
+- the page includes Auto/Light/Dark controls.
+
+### Validation commands run after latest changes
+
+```bash
+uv run pytest tests/unit/test_a2a_docs_pipeline.py -q
+uv run scripts/a2a_docs_pipeline.py check
+uv run scripts/lint.py
+uv run scripts/typecheck.py
+uv run scripts/docs.py build
+```
+
+Earlier broader validation also passed:
+
+```bash
+uv run pytest tests/integration/a2a \
+  tests/unit/fast_agent/a2a_connect_test.py \
+  tests/unit/fast_agent/cli/test_a2a_go_options.py \
+  tests/unit/fast_agent/core/test_a2a_error_formatting.py \
+  tests/unit/fast_agent/ui/test_parse_a2a_commands.py \
+  tests/unit/test_a2a_docs_pipeline.py -q
+```
+
+### Remaining recommended follow-ups
+
+1. Add optional/skipped gRPC integration coverage.
+2. Rename `catppuccin.css` to a fast-agent-specific filename if we want the asset
+   name to match its current purpose. This is cosmetic but would reduce future
+   confusion.
+3. Add docs for persistent A2A session state once `context_id` resume semantics
+   are decided.
+4. Consider a `/a2a save [agent] <path>` command to write a connected runtime A2A
+   agent back to an AgentCard.
+5. Consider richer inbound raw-byte handling if/when fast-agent has a standard
+   artifact storage/display path.
