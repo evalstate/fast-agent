@@ -245,8 +245,11 @@ shape used by normal fast-agent agents:
 Responses are mapped back to A2A artifact parts and completed with
 `TASK_STATE_COMPLETED`. Provider credential failures are reported as
 `TASK_STATE_AUTH_REQUIRED`. Cancellations are reported as `TASK_STATE_CANCELED`.
-For user-interaction workflows, preserve the A2A `context_id` and continue the
-task from the client; A2A `INPUT_REQUIRED` client handling is shown in step 4.
+When a fast-agent response has `stop_reason=LlmStopReason.PAUSE`, the A2A server
+reports `TASK_STATE_INPUT_REQUIRED` with the response text as the status message.
+The task remains resumable; clients should send the next user message with the
+same A2A `task_id` and `context_id`. The fast-agent A2A client preserves both
+automatically, as shown in step 4.
 
 ## Demo recording
 

@@ -7,7 +7,7 @@ import base64
 import contextlib
 import json
 from importlib.metadata import version as get_version
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import uvicorn
 from a2a.server.agent_execution.agent_executor import AgentExecutor
@@ -34,7 +34,8 @@ from pydantic import AnyUrl
 
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -44,6 +45,16 @@ if TYPE_CHECKING:
 
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.llm.stream_types import StreamChunk
+
+
+@runtime_checkable
+class _StreamListenerCapable(Protocol):
+    def add_stream_listener(self, listener: Any) -> Any:
+        """Register a text stream listener."""
+
+
+logger = get_logger(__name__)
 
 
 def _fast_agent_version() -> str:
@@ -124,6 +135,10 @@ class FastAgentA2AExecutor(AgentExecutor):
         async with lock:
             instance = await self._instance_for_context(context.context_id)
             agent = self._select_agent(instance, context.message)
+            stream_context = self._prepare_streaming_context(
+                agent=agent,
+                updater=updater,
+            )
             try:
                 response = await agent.generate(
                     _prompt_from_a2a_message(context.message),
@@ -142,14 +157,63 @@ class FastAgentA2AExecutor(AgentExecutor):
                     message=updater.new_agent_message(parts=[Part(text=str(exc))])
                 )
                 return
+            finally:
+                await self._cleanup_streaming_context(stream_context)
 
-        await updater.add_artifact(
-            parts=_parts_from_prompt_message(response),
-            name="response",
-            append=False,
-            last_chunk=True,
-        )
+        streamed_text = stream_context.streamed_text()
+        response_text = response.all_text()
+        if response.stop_reason == LlmStopReason.PAUSE:
+            await updater.requires_input(
+                message=updater.new_agent_message(parts=_parts_from_prompt_message(response))
+            )
+            return
+
+        if streamed_text:
+            if response_text and response_text != streamed_text:
+                await updater.add_artifact(
+                    parts=_parts_from_prompt_message(response),
+                    artifact_id=stream_context.artifact_id,
+                    name="response",
+                    append=False,
+                    last_chunk=True,
+                )
+        else:
+            await updater.add_artifact(
+                parts=_parts_from_prompt_message(response),
+                name="response",
+                append=False,
+                last_chunk=True,
+            )
         await updater.complete()
+
+    def _prepare_streaming_context(
+        self,
+        *,
+        agent: AgentProtocol,
+        updater: TaskUpdater,
+    ) -> "_A2AStreamingContext":
+        stream_context = _A2AStreamingContext(
+            updater=updater,
+            artifact_id=f"{updater.task_id}:response",
+        )
+        if not isinstance(agent, _StreamListenerCapable):
+            return stream_context
+        stream_context.start()
+
+        def on_stream_chunk(chunk: StreamChunk) -> None:
+            if not chunk.text or chunk.is_reasoning:
+                return
+            stream_context.record_chunk(chunk.text)
+
+        stream_context.remove_listener = agent.add_stream_listener(on_stream_chunk)
+        return stream_context
+
+    async def _cleanup_streaming_context(self, stream_context: "_A2AStreamingContext") -> None:
+        if stream_context.remove_listener is not None:
+            stream_context.remove_listener()
+        await stream_context.drain()
+        if stream_context.tasks:
+            await asyncio.gather(*stream_context.tasks, return_exceptions=True)
 
     async def _context_lock(self, context_id: str) -> asyncio.Lock:
         async with self._lock:
@@ -182,6 +246,52 @@ class FastAgentA2AExecutor(AgentExecutor):
             await self._dispose_instance(instance)
         self._context_instances.clear()
         self._context_locks.clear()
+
+
+class _A2AStreamingContext:
+    def __init__(self, *, updater: TaskUpdater, artifact_id: str) -> None:
+        self.updater = updater
+        self.artifact_id = artifact_id
+        self.remove_listener: Callable[[], None] | None = None
+        self.tasks: list[asyncio.Task[None]] = []
+        self._queue: asyncio.Queue[tuple[str, bool] | None] = asyncio.Queue()
+        self._chunks: list[str] = []
+
+    def start(self) -> None:
+        self.tasks.append(asyncio.create_task(self._publish_chunks()))
+
+    def record_chunk(self, text: str) -> None:
+        append = bool(self._chunks)
+        self._chunks.append(text)
+        self._queue.put_nowait((text, append))
+
+    def streamed_text(self) -> str:
+        return "".join(self._chunks)
+
+    async def _publish_chunks(self) -> None:
+        while True:
+            item = await self._queue.get()
+            if item is None:
+                self._queue.task_done()
+                return
+            text, append = item
+            try:
+                await self.updater.add_artifact(
+                    parts=[Part(text=text)],
+                    artifact_id=self.artifact_id,
+                    name="response",
+                    append=append,
+                    last_chunk=False,
+                )
+            except Exception:
+                logger.warning("Failed to publish A2A streaming artifact update", exc_info=True)
+            finally:
+                self._queue.task_done()
+
+    async def drain(self) -> None:
+        await self._queue.join()
+        if self.tasks:
+            self._queue.put_nowait(None)
 
 
 class AgentA2AServer:
