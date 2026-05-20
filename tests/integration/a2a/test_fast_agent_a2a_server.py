@@ -10,7 +10,16 @@ import pytest
 import pytest_asyncio
 import uvicorn
 from a2a.client import ClientConfig, create_client
-from a2a.types import CancelTaskRequest, Message, Part, Role, SendMessageRequest, TaskState
+from a2a.types import (
+    CancelTaskRequest,
+    GetTaskRequest,
+    ListTasksRequest,
+    Message,
+    Part,
+    Role,
+    SendMessageRequest,
+    TaskState,
+)
 from fastapi.testclient import TestClient
 from mcp.types import BlobResourceContents, EmbeddedResource, TextContent
 from pydantic import AnyUrl
@@ -585,6 +594,8 @@ async def test_fast_agent_a2a_server_cancel_task_cancels_running_agent(
 
         assert cancelled.status.state == TaskState.TASK_STATE_CANCELED
         await asyncio.wait_for(created_agents[0].cancelled.wait(), timeout=5)
+        fetched = await client.get_task(GetTaskRequest(id=task_id))
+        listed = await client.list_tasks(ListTasksRequest())
     finally:
         stream_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -596,6 +607,8 @@ async def test_fast_agent_a2a_server_cancel_task_cancels_running_agent(
         await server.executor.shutdown()
 
     assert stream_error is None or isinstance(stream_error, asyncio.CancelledError)
+    assert fetched.status.state == TaskState.TASK_STATE_CANCELED
+    assert any(task.id == task_id and task.status.state == TaskState.TASK_STATE_CANCELED for task in listed.tasks)
     assert disposed
 
 
