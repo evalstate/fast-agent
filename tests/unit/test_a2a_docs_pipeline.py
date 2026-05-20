@@ -35,3 +35,22 @@ def test_a2a_cast_asset_is_present() -> None:
     assert asset.is_file()
     first_line = asset.read_text(encoding="utf-8").splitlines()[0]
     assert '"version"' in first_line
+
+
+def test_a2a_getting_started_embeds_asciinema_player() -> None:
+    page = ROOT / "docs" / "docs" / "a2a" / "getting-started.md"
+    text = page.read_text(encoding="utf-8")
+    assert "AsciinemaPlayer.create" in text
+    assert "../../assets/a2a/a2a-streaming-files.cast" in text
+    assert "../../assets/vendor/asciinema-player/asciinema-player.css" in text
+    assert "../../assets/vendor/asciinema-player/asciinema-player.min.js" in text
+
+
+def test_asciinema_player_vendor_assets_are_present() -> None:
+    vendor = ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player"
+    css = vendor / "asciinema-player.css"
+    js = vendor / "asciinema-player.min.js"
+    assert css.is_file()
+    assert js.is_file()
+    assert "ap-wrapper" in css.read_text(encoding="utf-8")
+    assert "AsciinemaPlayer" in js.read_text(encoding="utf-8")[:200]

@@ -126,12 +126,50 @@ The `/a2a` command group currently includes:
 ## Demo recording
 
 The repeatable docs pipeline can generate an asciinema recording for the TUI
-streaming/files flow. The current committed recording is available as a static
-asset:
+streaming/files flow. The committed `.cast` file is embedded below and can also
+be downloaded for local replay.
 
-[Download the A2A streaming/files cast](../assets/a2a/a2a-streaming-files.cast)
+<link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">
 
-Replay locally with:
+<div id="a2a-streaming-files-player" class="a2a-terminal-demo"></div>
+
+<script src="../../assets/vendor/asciinema-player/asciinema-player.min.js"></script>
+<script>
+  (function () {
+    function renderA2ACast() {
+      var target = document.getElementById("a2a-streaming-files-player");
+      if (!target || target.dataset.loaded === "true" || !window.AsciinemaPlayer) {
+        return;
+      }
+      target.dataset.loaded = "true";
+      window.AsciinemaPlayer.create(
+        "../../assets/a2a/a2a-streaming-files.cast",
+        target,
+        {
+          cols: 104,
+          rows: 34,
+          preload: true,
+          poster: "npt:0:03",
+          speed: 1,
+          idleTimeLimit: 1.3,
+          fit: "width"
+        }
+      );
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", renderA2ACast);
+    } else {
+      renderA2ACast();
+    }
+    if (window.document$ && window.document$.subscribe) {
+      window.document$.subscribe(renderA2ACast);
+    }
+  })();
+</script>
+
+If the player does not load, [download the A2A streaming/files cast](../assets/a2a/a2a-streaming-files.cast)
+and replay it locally with:
 
 ```bash
 asciinema play docs/docs/assets/a2a/a2a-streaming-files.cast

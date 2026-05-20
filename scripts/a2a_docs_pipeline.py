@@ -160,9 +160,29 @@ def check() -> None:
         path = SNIPPETS / filename
         if not path.exists() or path.read_text(encoding="utf-8") != text:
             missing_or_changed.append(str(path.relative_to(ROOT)))
+    required_assets = [
+        ASSETS / "a2a-streaming-files.cast",
+        ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.css",
+        ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.min.js",
+    ]
+    for asset in required_assets:
+        if not asset.exists():
+            missing_or_changed.append(str(asset.relative_to(ROOT)))
+
+    page = DOCS_A2A / "getting-started.md"
+    page_text = page.read_text(encoding="utf-8") if page.exists() else ""
+    for required_text in [
+        "AsciinemaPlayer.create",
+        "../../assets/a2a/a2a-streaming-files.cast",
+        "../../assets/vendor/asciinema-player/asciinema-player.css",
+        "../../assets/vendor/asciinema-player/asciinema-player.min.js",
+    ]:
+        if required_text not in page_text:
+            missing_or_changed.append(f"{page.relative_to(ROOT)} missing {required_text}")
+
     if missing_or_changed:
         raise SystemExit(
-            "A2A docs snippets are stale; run `uv run scripts/a2a_docs_pipeline.py generate`.\n"
+            "A2A docs snippets/assets are stale; run `uv run scripts/a2a_docs_pipeline.py generate`.\n"
             + "\n".join(missing_or_changed)
         )
 
