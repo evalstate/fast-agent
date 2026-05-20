@@ -139,3 +139,50 @@ async def test_a2a_remote_agent_sends_url_and_raw_parts(a2a_test_server) -> None
 
     assert "echo: inspect attachment [text,url,raw]" in response.all_text()
     assert a2a_test_server.executor.seen_part_kinds[-1] == ["text", "url", "raw"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_connect_command_adds_runtime_agent(a2a_test_server) -> None:
+    from fast_agent.core.agent_app import AgentApp
+    from fast_agent.ui.command_payloads import A2ACommand
+    from fast_agent.ui.interactive.command_dispatch import dispatch_command_payload
+    from fast_agent.ui.interactive_prompt import InteractivePrompt
+
+    initial = A2ARemoteAgent(
+        config=AgentConfig(name="initial", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    await initial.initialize()
+    app = AgentApp({"initial": initial})
+    owner = InteractivePrompt(agent_types={"initial": AgentType.A2A})
+    try:
+        result = await dispatch_command_payload(
+            owner,
+            A2ACommand(
+                action="connect",
+                argument=f"{a2a_test_server.base_url} --transport http --name connected",
+            ),
+            prompt_provider=app,
+            agent="initial",
+            available_agents=["initial"],
+            available_agents_set={"initial"},
+            merge_pinned_agents=lambda names: names,
+        )
+        assert result.next_agent == "connected"
+        assert result.available_agents_set == {"initial", "connected"}
+        connected = app.get_agent("connected")
+        assert isinstance(connected, A2ARemoteAgent)
+        response = await connected.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="hello connected")],
+                )
+            ]
+        )
+        assert "echo: hello connected" in response.all_text()
+    finally:
+        for remote in app.registered_agents().values():
+            if isinstance(remote, A2ARemoteAgent):
+                await remote.shutdown()

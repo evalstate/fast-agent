@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from rich import print as rich_print
 
+from fast_agent.a2a.config import A2AAgentConfig
+from fast_agent.a2a.connect import parse_a2a_connect_arguments
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
-from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.command_actions import (
     PluginCommandActionContext,
     PluginCommandActionRegistry,
@@ -358,6 +360,16 @@ async def _dispatch_catalog_payload(
             return None
 
 
+def _default_a2a_agent_name(existing: set[str]) -> str:
+    base = "a2a_remote"
+    if base not in existing:
+        return base
+    index = 2
+    while f"{base}_{index}" in existing:
+        index += 1
+    return f"{base}_{index}"
+
+
 async def _dispatch_a2a_payload(
     owner: "InteractivePrompt",
     payload: CommandPayload,
@@ -425,7 +437,40 @@ async def _dispatch_a2a_payload(
                 )
             return result
         case "connect":
-            rich_print("[yellow]/a2a connect is planned; use an AgentCard for now.[/yellow]")
+            request, error = parse_a2a_connect_arguments(payload.argument)
+            if error or request is None:
+                rich_print(f"[red]{error}[/red]")
+                return result
+            name = request.name or _default_a2a_agent_name(available_agents_set)
+            if name in available_agents_set:
+                rich_print(f"[red]Agent '{name}' already exists. Choose --name NAME.[/red]")
+                return result
+            remote_agent = A2ARemoteAgent(
+                config=AgentConfig(name=name, agent_type=AgentType.A2A, use_history=True),
+                a2a_config=A2AAgentConfig(
+                    url=request.url,
+                    transport=request.transport,
+                    relative_card_path=request.relative_card_path,
+                ),
+            )
+            try:
+                await remote_agent.initialize()
+            except Exception as exc:
+                await remote_agent.shutdown()
+                rich_print(f"[red]Unable to connect to A2A agent: {exc}[/red]")
+                return result
+            agents = cast("dict[str, Any]", prompt_provider.registered_agents())
+            agents[name] = remote_agent
+            prompt_provider._apply_agent_registry()
+            owner.agent_types[name] = AgentType.A2A
+            result.next_agent = name
+            result.available_agents = prompt_provider.visible_agent_names(force_include=name)
+            result.available_agents_set = set(result.available_agents)
+            rich_print(f"[green]Connected A2A agent '{name}'.[/green]")
+            rich_print(f"  URL: {request.url}")
+            rich_print(f"  Transport: {request.transport or 'auto'}")
+            if remote_agent.remote_card is not None:
+                rich_print(f"  Remote: {remote_agent.remote_card.name}")
             return result
         case _:
             rich_print(f"[red]Unknown /a2a action: {payload.action}[/red]")
