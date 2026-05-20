@@ -379,7 +379,7 @@ def go(
     a2a_transport: str | None = typer.Option(
         None,
         "--a2a-transport",
-        help="Preferred A2A transport for --a2a: JSONRPC, HTTP+JSON, or GRPC.",
+        help="Preferred A2A transport for --a2a: JSONRPC or HTTP+JSON.",
     ),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
     urls: str | None = CommonAgentOptions.urls(),

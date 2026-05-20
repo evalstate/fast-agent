@@ -552,3 +552,21 @@ def test_load_a2a_agent_card_rejects_invalid_transport(tmp_path: Path) -> None:
 
     with pytest.raises(AgentConfigError, match="transport"):
         load_agent_cards(card_path)
+
+
+def test_load_a2a_agent_card_rejects_grpc_transport(tmp_path: Path) -> None:
+    card_path = tmp_path / "bad_remote.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "type: a2a",
+                "name: bad_remote",
+                "url: http://127.0.0.1:41241",
+                "transport: GRPC",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="JSONRPC, HTTP\\+JSON"):
+        load_agent_cards(card_path)

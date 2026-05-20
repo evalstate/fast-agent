@@ -593,9 +593,9 @@ def _ensure_optional_str(value: Any, field: str, path: Path) -> str | None:
 
 def _ensure_a2a_transport(value: Any, path: Path) -> str:
     transport = _ensure_str(value, "transport", path)
-    if transport not in {"JSONRPC", "HTTP+JSON", "GRPC"}:
+    if transport not in {"JSONRPC", "HTTP+JSON"}:
         raise AgentConfigError(
-            f"'transport' must be one of JSONRPC, HTTP+JSON, GRPC in {path}"
+            f"'transport' must be one of JSONRPC, HTTP+JSON in {path}"
         )
     return transport
 
