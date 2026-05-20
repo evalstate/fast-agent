@@ -106,8 +106,8 @@ agent:
   "description": "Research and summarize source material.",
   "tags": ["fast-agent", "basic"],
   "examples": ["Hello"],
-  "inputModes": ["text", "file", "image"],
-  "outputModes": ["text", "file", "image", "task-status"]
+  "inputModes": ["text/plain", "application/octet-stream", "image/*"],
+  "outputModes": ["text/plain", "application/octet-stream", "image/*"]
 }
 ```
 
@@ -129,9 +129,9 @@ target a specific loaded agent with message metadata:
 
 `fast_agent_agent` is accepted as an equivalent metadata key.
 
-Current limitation: examples and mode lists are still generic. They do not yet
-derive richer examples or per-agent modality declarations from fast-agent
-AgentCard metadata or from installed fast-agent skills.
+Current limitation: examples are still generic, and mode lists describe the
+server-wide MIME-style content support rather than deriving per-agent modality
+declarations from fast-agent AgentCard metadata or installed fast-agent skills.
 
 ## Sessions and Resumption
 

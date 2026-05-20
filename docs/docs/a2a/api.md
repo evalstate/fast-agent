@@ -54,7 +54,7 @@ A2AAgentConfig(
     transport="JSONRPC",
     streaming=True,
     polling=False,
-    accepted_output_modes=["text", "image"],
+    accepted_output_modes=["text/plain", "image/*"],
     headers={"Authorization": "Bearer ..."},
     relative_card_path="/.well-known/agent-card.json",
 )
@@ -104,7 +104,7 @@ context.
 Most deployments should use:
 
 ```bash
-uv run fast-agent serve --transport a2a --agent-cards ./agents
+uv run fast-agent serve a2a --agent-cards ./agents
 ```
 
 If you are embedding the server in Python, use `AgentA2AServer` with an existing
@@ -187,7 +187,7 @@ Inbound A2A parts are converted to fast-agent prompt content:
 | `text` | `TextContent` |
 | `url` | `ResourceLink` when valid, otherwise Markdown link text |
 | `raw` image bytes | `ImageContent` |
-| `raw` non-image bytes | text placeholder with filename and byte count |
+| `raw` non-image bytes | `EmbeddedResource` with `BlobResourceContents` |
 | `data` | formatted JSON text |
 
 fast-agent responses are converted back to A2A artifact parts using the content

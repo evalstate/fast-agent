@@ -9,7 +9,7 @@ client stack and intentionally excludes gRPC.
 
 | Area | Status | Notes |
 |---|---|---|
-| Agent discovery | Supported | `fast-agent serve a2a` serves an AgentCard at `/.well-known/agent-card.json`. The card declares `JSONRPC` and `HTTP+JSON` interfaces with protocol version `1.0`. `fast-agent serve --transport a2a` remains supported. |
+| Agent discovery | Supported | `fast-agent serve a2a` serves an AgentCard at `/.well-known/agent-card.json`. The card declares `JSONRPC` and `HTTP+JSON` interfaces with protocol version `1.0`, and advertises MIME-style input/output modes such as `text/plain`, `application/octet-stream`, and `image/*`. `fast-agent serve --transport a2a` remains supported. |
 | JSON-RPC transport | Supported | Client and server use the SDK JSON-RPC binding. |
 | HTTP+JSON transport | Supported | Client and server use the SDK REST binding. The server exposes the REST binding under `/a2a/rest`. |
 | Streaming task updates | Supported | fast-agent stream listeners are bridged to A2A `TaskArtifactUpdateEvent` events. The client preserves artifact order and honors the A2A `append` flag. |

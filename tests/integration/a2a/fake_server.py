@@ -202,8 +202,8 @@ def build_app(host: str, port: int) -> FastAPI:
         provider=AgentProvider(organization="fast-agent", url="https://fast-agent.ai"),
         version="1.0.0",
         capabilities=AgentCapabilities(streaming=True, push_notifications=False),
-        default_input_modes=["text", "image", "file"],
-        default_output_modes=["text", "task-status", "application/json"],
+        default_input_modes=["text/plain", "application/octet-stream", "image/*"],
+        default_output_modes=["text/plain", "application/json", "application/octet-stream"],
         skills=[
             AgentSkill(
                 id="fake_echo_stream_files",
@@ -211,8 +211,8 @@ def build_app(host: str, port: int) -> FastAPI:
                 description="Echoes text, streams short/long chunks, and returns URL/data/raw parts.",
                 tags=["test", "streaming", "files"],
                 examples=["hello", "please stream", "please long stream", "respond with files"],
-                input_modes=["text", "image", "file"],
-                output_modes=["text", "task-status", "application/json"],
+                input_modes=["text/plain", "application/octet-stream", "image/*"],
+                output_modes=["text/plain", "application/json", "application/octet-stream"],
             )
         ],
         supported_interfaces=[

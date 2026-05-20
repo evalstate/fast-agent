@@ -448,8 +448,26 @@ async def test_fast_agent_a2a_server_serves_jsonrpc_agent_with_context_sessions(
     assert skills["worker"].name == "worker"
     assert skills["worker"].description == "Send a message to the worker fast-agent agent."
     assert list(skills["worker"].tags) == ["fast-agent", "basic"]
-    assert list(skills["worker"].input_modes) == ["text", "file", "image"]
-    assert list(skills["worker"].output_modes) == ["text", "file", "image", "task-status"]
+    assert list(fast_agent_a2a_server.server.agent_card.default_input_modes) == [
+        "text/plain",
+        "application/octet-stream",
+        "image/*",
+    ]
+    assert list(fast_agent_a2a_server.server.agent_card.default_output_modes) == [
+        "text/plain",
+        "application/octet-stream",
+        "image/*",
+    ]
+    assert list(skills["worker"].input_modes) == [
+        "text/plain",
+        "application/octet-stream",
+        "image/*",
+    ]
+    assert list(skills["worker"].output_modes) == [
+        "text/plain",
+        "application/octet-stream",
+        "image/*",
+    ]
 
 
 @pytest.mark.integration

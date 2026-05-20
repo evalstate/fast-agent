@@ -100,8 +100,8 @@ A2A cards also support:
 streaming: true
 polling: false
 accepted_output_modes:
-  - text
-  - image
+  - text/plain
+  - image/*
 headers:
   Authorization: "Bearer ${A2A_TOKEN}"
 relative_card_path: "/.well-known/agent-card.json"

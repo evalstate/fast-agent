@@ -258,8 +258,8 @@ async def a2a_test_server(unused_tcp_port: int, wait_for_port) -> AsyncIterator[
         provider=AgentProvider(organization="fast-agent", url="https://fast-agent.ai"),
         version="1.0.0",
         capabilities=AgentCapabilities(streaming=True, push_notifications=False),
-        default_input_modes=["text"],
-        default_output_modes=["text", "task-status"],
+        default_input_modes=["text/plain"],
+        default_output_modes=["text/plain"],
         skills=[
             AgentSkill(
                 id="echo",
@@ -267,8 +267,8 @@ async def a2a_test_server(unused_tcp_port: int, wait_for_port) -> AsyncIterator[
                 description="Echo user input.",
                 tags=["test"],
                 examples=["hello"],
-                input_modes=["text"],
-                output_modes=["text", "task-status"],
+                input_modes=["text/plain"],
+                output_modes=["text/plain"],
             )
         ],
         supported_interfaces=[

@@ -69,6 +69,9 @@ class _StreamListenerCapable(Protocol):
 
 logger = get_logger(__name__)
 
+A2A_INPUT_MODES = ["text/plain", "application/octet-stream", "image/*"]
+A2A_OUTPUT_MODES = ["text/plain", "application/octet-stream", "image/*"]
+
 
 def _fast_agent_version() -> str:
     for package_name in ("fast-agent-mcp", "fast-agent"):
@@ -398,8 +401,8 @@ def _build_agent_card(
         provider=AgentProvider(organization="fast-agent", url="https://fast-agent.ai"),
         version=_fast_agent_version(),
         capabilities=AgentCapabilities(streaming=True, push_notifications=False),
-        default_input_modes=["text", "file", "image"],
-        default_output_modes=["text", "file", "image", "task-status"],
+        default_input_modes=A2A_INPUT_MODES,
+        default_output_modes=A2A_OUTPUT_MODES,
         skills=skills,
         supported_interfaces=[
             AgentInterface(
@@ -466,8 +469,8 @@ def _agent_skill_from_fast_agent(agent_name: str, agent: AgentProtocol) -> Agent
         description=description,
         tags=["fast-agent", agent_type],
         examples=["Hello"],
-        input_modes=["text", "file", "image"],
-        output_modes=["text", "file", "image", "task-status"],
+        input_modes=A2A_INPUT_MODES,
+        output_modes=A2A_OUTPUT_MODES,
     )
 
 
