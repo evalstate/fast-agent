@@ -46,6 +46,7 @@ from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.paths import resolve_environment_paths
 
 CARD_EXTENSIONS = _CARD_EXTENSIONS
@@ -562,6 +563,9 @@ def go(
 
     try:
         run_request(request)
+    except AgentConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     finally:
         if a2a_tempdir is not None:
             a2a_tempdir.cleanup()
