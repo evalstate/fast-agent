@@ -43,14 +43,27 @@ def test_a2a_getting_started_embeds_asciinema_player() -> None:
     assert "AsciinemaPlayer.create" in text
     assert "../../assets/a2a/a2a-streaming-files.cast" in text
     assert "../../assets/vendor/asciinema-player/asciinema-player.css" in text
+    assert "../../assets/vendor/asciinema-player/catppuccin.css" in text
     assert "../../assets/vendor/asciinema-player/asciinema-player.min.js" in text
+    assert "catppuccin-mocha" in text
+    assert "catppuccin-latte" in text
 
 
 def test_asciinema_player_vendor_assets_are_present() -> None:
     vendor = ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player"
     css = vendor / "asciinema-player.css"
+    catppuccin = vendor / "catppuccin.css"
     js = vendor / "asciinema-player.min.js"
     assert css.is_file()
+    assert catppuccin.is_file()
     assert js.is_file()
     assert "ap-wrapper" in css.read_text(encoding="utf-8")
+    catppuccin_text = catppuccin.read_text(encoding="utf-8")
+    assert "asciinema-player-theme-catppuccin-mocha" in catppuccin_text
+    assert "asciinema-player-theme-catppuccin-latte" in catppuccin_text
     assert "AsciinemaPlayer" in js.read_text(encoding="utf-8")[:200]
+
+
+def test_a2a_cast_contains_ansi_escape_sequences() -> None:
+    asset = ROOT / "docs" / "docs" / "assets" / "a2a" / "a2a-streaming-files.cast"
+    assert "\\u001b[" in asset.read_text(encoding="utf-8")

@@ -129,19 +129,40 @@ The repeatable docs pipeline can generate an asciinema recording for the TUI
 streaming/files flow. The committed `.cast` file is embedded below and can also
 be downloaded for local replay.
 
-<link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">
-
-<div id="a2a-streaming-files-player" class="a2a-terminal-demo"></div>
+<div class="a2a-terminal-demo">
+  <link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">
+  <link rel="stylesheet" href="../../assets/vendor/asciinema-player/catppuccin.css">
+  <div id="a2a-streaming-files-player"></div>
+</div>
 
 <script src="../../assets/vendor/asciinema-player/asciinema-player.min.js"></script>
 <script>
   (function () {
+    function currentTheme() {
+      var scheme = document.documentElement.getAttribute("data-md-color-scheme");
+      if (scheme === "slate") {
+        return "catppuccin-mocha";
+      }
+      if (scheme === "default") {
+        return "catppuccin-latte";
+      }
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "catppuccin-mocha"
+        : "catppuccin-latte";
+    }
+
     function renderA2ACast() {
       var target = document.getElementById("a2a-streaming-files-player");
-      if (!target || target.dataset.loaded === "true" || !window.AsciinemaPlayer) {
+      if (!target || !window.AsciinemaPlayer) {
+        return;
+      }
+      var theme = currentTheme();
+      if (target.dataset.loaded === "true" && target.dataset.theme === theme) {
         return;
       }
       target.dataset.loaded = "true";
+      target.dataset.theme = theme;
+      target.innerHTML = "";
       window.AsciinemaPlayer.create(
         "../../assets/a2a/a2a-streaming-files.cast",
         target,
@@ -152,7 +173,8 @@ be downloaded for local replay.
           poster: "npt:0:03",
           speed: 1,
           idleTimeLimit: 1.3,
-          fit: "width"
+          fit: "width",
+          theme: theme
         }
       );
     }
@@ -165,6 +187,10 @@ be downloaded for local replay.
     if (window.document$ && window.document$.subscribe) {
       window.document$.subscribe(renderA2ACast);
     }
+    new MutationObserver(renderA2ACast).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-md-color-scheme"]
+    });
   })();
 </script>
 

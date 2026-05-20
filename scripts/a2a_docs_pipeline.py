@@ -163,6 +163,7 @@ def check() -> None:
     required_assets = [
         ASSETS / "a2a-streaming-files.cast",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.css",
+        ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "catppuccin.css",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.min.js",
     ]
     for asset in required_assets:
@@ -175,7 +176,10 @@ def check() -> None:
         "AsciinemaPlayer.create",
         "../../assets/a2a/a2a-streaming-files.cast",
         "../../assets/vendor/asciinema-player/asciinema-player.css",
+        "../../assets/vendor/asciinema-player/catppuccin.css",
         "../../assets/vendor/asciinema-player/asciinema-player.min.js",
+        "catppuccin-mocha",
+        "catppuccin-latte",
     ]:
         if required_text not in page_text:
             missing_or_changed.append(f"{page.relative_to(ROOT)} missing {required_text}")
@@ -201,17 +205,26 @@ def record() -> None:
         f"""#!/usr/bin/env bash
 set -euo pipefail
 SESSION=a2a_docs_cast
-cd {ROOT}
+ROOT={ROOT}
+BASE_URL={BASE_URL}
+
 tmux kill-session -t "$SESSION" 2>/dev/null || true
-tmux new-session -d -s "$SESSION" 'cd {ROOT} && FAST_AGENT_MODEL=passthrough uv run fast-agent -x --a2a {BASE_URL} --a2a-transport JSONRPC'
-sleep 4
-tmux send-keys -t "$SESSION" 'please stream' Enter
-sleep 3
-tmux send-keys -t "$SESSION" 'respond with files' Enter
-sleep 3
-tmux capture-pane -t "$SESSION" -p -S -3000
-sleep 1
-tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x 104 -y 34 \
+  "cd '$ROOT' && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_MODEL=passthrough uv run fast-agent -x --a2a '$BASE_URL' --a2a-transport JSONRPC"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep 4
+  tmux send-keys -t "$SESSION" 'please stream' Enter
+  sleep 4
+  tmux send-keys -t "$SESSION" 'respond with files' Enter
+  sleep 4
+  tmux send-keys -t "$SESSION" '/exit' Enter
+  sleep 1
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
 """,
         encoding="utf-8",
     )
@@ -237,6 +250,7 @@ tmux kill-session -t "$SESSION" 2>/dev/null || true
         ]
         subprocess.run(command, cwd=ROOT, check=True)
     finally:
+        subprocess.run(["tmux", "kill-session", "-t", "a2a_docs_cast"], check=False)
         _stop_server(server)
 
 

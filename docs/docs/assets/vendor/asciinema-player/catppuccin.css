@@ -1,0 +1,42 @@
+/* Catppuccin terminal palettes for asciinema-player. */
+.asciinema-player-theme-catppuccin-latte {
+  --term-color-foreground: #4c4f69;
+  --term-color-background: #eff1f5;
+  --term-color-0: #5c5f77;
+  --term-color-1: #d20f39;
+  --term-color-2: #40a02b;
+  --term-color-3: #df8e1d;
+  --term-color-4: #1e66f5;
+  --term-color-5: #ea76cb;
+  --term-color-6: #179299;
+  --term-color-7: #acb0be;
+  --term-color-8: #6c6f85;
+  --term-color-9: #d20f39;
+  --term-color-10: #40a02b;
+  --term-color-11: #df8e1d;
+  --term-color-12: #1e66f5;
+  --term-color-13: #ea76cb;
+  --term-color-14: #179299;
+  --term-color-15: #bcc0cc;
+}
+
+.asciinema-player-theme-catppuccin-mocha {
+  --term-color-foreground: #cdd6f4;
+  --term-color-background: #1e1e2e;
+  --term-color-0: #45475a;
+  --term-color-1: #f38ba8;
+  --term-color-2: #a6e3a1;
+  --term-color-3: #f9e2af;
+  --term-color-4: #89b4fa;
+  --term-color-5: #f5c2e7;
+  --term-color-6: #94e2d5;
+  --term-color-7: #bac2de;
+  --term-color-8: #585b70;
+  --term-color-9: #f38ba8;
+  --term-color-10: #a6e3a1;
+  --term-color-11: #f9e2af;
+  --term-color-12: #89b4fa;
+  --term-color-13: #f5c2e7;
+  --term-color-14: #94e2d5;
+  --term-color-15: #a6adc8;
+}
