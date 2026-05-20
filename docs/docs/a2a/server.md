@@ -32,6 +32,11 @@ The server exposes:
 The AgentCard advertises `JSONRPC` and `HTTP+JSON` with protocol version `1.0`.
 gRPC is intentionally not advertised.
 
+When the server binds to the wildcard host `0.0.0.0`, the AgentCard advertises
+`127.0.0.1` instead of `0.0.0.0`, because `0.0.0.0` is a bind address rather
+than a client-routable interface URL. For remote clients on another machine, bind
+with a concrete hostname or address that those clients can reach.
+
 ## Runtime Wiring
 
 The served agents use the normal fast-agent runtime. AgentCards, MCP servers,
@@ -53,8 +58,8 @@ agent:
 {
   "id": "researcher",
   "name": "researcher",
-  "description": "Send a message to the researcher fast-agent agent.",
-  "tags": ["fast-agent"],
+  "description": "Research and summarize source material.",
+  "tags": ["fast-agent", "basic"],
   "examples": ["Hello"],
   "inputModes": ["text", "file", "image"],
   "outputModes": ["text", "file", "image", "task-status"]
@@ -62,9 +67,12 @@ agent:
 ```
 
 The generated skill list comes from `primary_instance.agents` at server startup.
-The skill `id` is the fast-agent agent name. By default, messages route to the
-fast-agent default agent. A2A clients can target a specific loaded agent with
-message metadata:
+The skill `id` and `name` are the fast-agent agent name. The description uses the
+agent's configured `description` when present, otherwise fast-agent generates a
+generic description. Tags include `fast-agent` and the fast-agent agent type.
+
+By default, messages route to the fast-agent default agent. A2A clients can
+target a specific loaded agent with message metadata:
 
 ```json
 {
@@ -76,9 +84,9 @@ message metadata:
 
 `fast_agent_agent` is accepted as an equivalent metadata key.
 
-Current limitation: the generated A2A `AgentSkill` descriptions, tags, examples,
-and mode lists are generic. They do not yet derive richer descriptions from
-fast-agent AgentCard metadata or from installed fast-agent skills.
+Current limitation: examples and mode lists are still generic. They do not yet
+derive richer examples or per-agent modality declarations from fast-agent
+AgentCard metadata or from installed fast-agent skills.
 
 ## Sessions and Resumption
 

@@ -64,6 +64,8 @@ _ERROR_STATES = {
 
 logger = get_logger(__name__)
 
+SUPPORTED_A2A_HTTP_TRANSPORTS = ["JSONRPC", "HTTP+JSON"]
+
 
 @dataclass(frozen=True)
 class A2ADiagnostics:
@@ -111,6 +113,8 @@ class A2ARemoteAgent(LlmDecorator):
         )
         if self.a2a_config.transport:
             client_config.supported_protocol_bindings = [self.a2a_config.transport]
+        else:
+            client_config.supported_protocol_bindings = list(SUPPORTED_A2A_HTTP_TRANSPORTS)
 
         resolver = A2ACardResolver(
             self._httpx_client,

@@ -23,6 +23,10 @@ uv run fast-agent -x \
 from `/.well-known/agent-card.json`, selects a supported transport, and sends the
 message through the A2A SDK client.
 
+When no transport is specified, fast-agent asks the SDK to use either supported
+HTTP binding: `JSONRPC` or `HTTP+JSON`. Set `--a2a-transport` only when you want
+to force one binding.
+
 Supported HTTP transports:
 
 | Canonical | Useful aliases |

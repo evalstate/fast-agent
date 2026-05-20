@@ -375,18 +375,10 @@ def _build_agent_card(
     host: str,
     port: int,
 ) -> AgentCard:
-    base_url = f"http://{host}:{port}"
+    base_url = f"http://{_advertised_host(host)}:{port}"
     skills = [
-        AgentSkill(
-            id=agent_name,
-            name=agent_name,
-            description=f"Send a message to the {agent_name} fast-agent agent.",
-            tags=["fast-agent"],
-            examples=["Hello"],
-            input_modes=["text", "file", "image"],
-            output_modes=["text", "file", "image", "task-status"],
-        )
-        for agent_name in primary_instance.agents
+        _agent_skill_from_fast_agent(agent_name, agent)
+        for agent_name, agent in primary_instance.agents.items()
     ]
     return AgentCard(
         name=server_name,
@@ -409,6 +401,26 @@ def _build_agent_card(
                 url=f"{base_url}/a2a/rest",
             ),
         ],
+    )
+
+
+def _advertised_host(bind_host: str) -> str:
+    if bind_host in {"0.0.0.0", "::", ""}:
+        return "127.0.0.1"
+    return bind_host
+
+
+def _agent_skill_from_fast_agent(agent_name: str, agent: AgentProtocol) -> AgentSkill:
+    agent_type = str(agent.agent_type) if agent.agent_type else "agent"
+    description = agent.config.description or f"Send a message to the {agent_name} fast-agent agent."
+    return AgentSkill(
+        id=agent_name,
+        name=agent_name,
+        description=description,
+        tags=["fast-agent", agent_type],
+        examples=["Hello"],
+        input_modes=["text", "file", "image"],
+        output_modes=["text", "file", "image", "task-status"],
     )
 
 

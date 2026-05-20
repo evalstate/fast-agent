@@ -369,6 +369,39 @@ async def test_fast_agent_a2a_server_serves_jsonrpc_agent_with_context_sessions(
         interface.protocol_binding
         for interface in fast_agent_a2a_server.server.agent_card.supported_interfaces
     } == {"JSONRPC", "HTTP+JSON"}
+    skills = {skill.id: skill for skill in fast_agent_a2a_server.server.agent_card.skills}
+    assert set(skills) == {"worker"}
+    assert skills["worker"].name == "worker"
+    assert skills["worker"].description == "Send a message to the worker fast-agent agent."
+    assert list(skills["worker"].tags) == ["fast-agent", "basic"]
+    assert list(skills["worker"].input_modes) == ["text", "file", "image"]
+    assert list(skills["worker"].output_modes) == ["text", "file", "image", "task-status"]
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_does_not_advertise_wildcard_bind_host() -> None:
+    agent = RecordingAgent(name="worker")
+
+    async def create_instance() -> AgentInstance:
+        return _instance(RecordingAgent(name="worker"))
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        del instance
+
+    server = AgentA2AServer(
+        primary_instance=_instance(agent),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent wildcard test server",
+        host="0.0.0.0",
+        port=41241,
+    )
+
+    urls = {interface.url for interface in server.agent_card.supported_interfaces}
+    assert urls == {
+        "http://127.0.0.1:41241/a2a/jsonrpc",
+        "http://127.0.0.1:41241/a2a/rest",
+    }
 
 
 @pytest.mark.integration
