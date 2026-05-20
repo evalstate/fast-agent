@@ -189,8 +189,8 @@ The `/a2a` command group currently includes:
 
 ## 7. Serve fast-agent over A2A
 
-Use `fast-agent serve --transport a2a` when you want another A2A client to call a
-fast-agent agent. The A2A server exposes both HTTP transports:
+Use `fast-agent serve a2a` when you want another A2A client to call a fast-agent
+agent. The A2A server exposes both HTTP transports:
 
 | Endpoint | URL |
 |---|---|
@@ -201,8 +201,7 @@ fast-agent agent. The A2A server exposes both HTTP transports:
 Example with an AgentCard bundle:
 
 ```bash
-uv run fast-agent serve \
-  --transport a2a \
+uv run fast-agent serve a2a \
   --host 127.0.0.1 \
   --port 41241 \
   --agent-cards ./agents \

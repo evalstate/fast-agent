@@ -5,16 +5,16 @@ description: Deploy fast-agent agents as an Agent2Agent (A2A) HTTP server.
 
 # A2A Server
 
-Use `fast-agent serve --transport a2a` to expose fast-agent agents through A2A
-HTTP transports. This follows the same deployment shape as ACP/MCP serving: the
-configured fast-agent app is initialized first, then the A2A server routes
-incoming protocol messages into the selected agent.
+Use `fast-agent serve a2a` to expose fast-agent agents through A2A HTTP
+transports. `fast-agent serve --transport a2a` remains supported for parity with
+the generic MCP/ACP serve command. The configured fast-agent app is initialized
+first, then the A2A server routes incoming protocol messages into the selected
+agent.
 
 ## Start a Server
 
 ```bash
-uv run fast-agent serve \
-  --transport a2a \
+uv run fast-agent serve a2a \
   --host 127.0.0.1 \
   --port 41241 \
   --agent-cards ./agents \

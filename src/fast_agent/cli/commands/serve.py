@@ -223,6 +223,8 @@ def serve(
     watch: bool = CommonAgentOptions.watch(),
 ) -> None:
     """Expose fast-agent to clients over MCP (http/stdio), ACP, or A2A."""
+    if ctx.invoked_subcommand is not None:
+        return
     request = _build_run_request(
         ctx=ctx,
         name=name,
@@ -259,5 +261,79 @@ def serve(
         reload=reload,
         watch=watch,
         missing_shell_cwd=missing_shell_cwd,
+    )
+    run_request(request)
+
+
+@app.command("a2a")
+def serve_a2a(
+    ctx: typer.Context,
+    name: str = typer.Option("fast-agent-a2a", "--name", help="Name for the A2A server"),
+    instruction: str | None = CommonAgentOptions.instruction(),
+    config_path: str | None = CommonAgentOptions.config_path(),
+    model: str | None = CommonAgentOptions.model(),
+    servers: str | None = CommonAgentOptions.servers(),
+    agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
+    card_tools: list[str] | None = CommonAgentOptions.card_tools(),
+    urls: str | None = CommonAgentOptions.urls(),
+    auth: str | None = CommonAgentOptions.auth(),
+    client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
+    env_dir: Path | None = CommonAgentOptions.env_dir(),
+    noenv: bool = CommonAgentOptions.noenv(),
+    smart: bool = CommonAgentOptions.smart(),
+    skills_dir: Path | None = CommonAgentOptions.skills_dir(),
+    npx: str | None = CommonAgentOptions.npx(),
+    uvx: str | None = CommonAgentOptions.uvx(),
+    host: str = typer.Option(
+        "0.0.0.0",
+        "--host",
+        help="Host address to bind for the A2A HTTP server",
+    ),
+    port: int = typer.Option(
+        8000,
+        "--port",
+        help="Port to use for the A2A HTTP server",
+    ),
+    shell: bool = CommonAgentOptions.shell(),
+    no_shell: bool = CommonAgentOptions.no_shell(),
+    instance_scope: InstanceScope = typer.Option(
+        InstanceScope.SHARED,
+        "--instance-scope",
+        help="Control how A2A clients receive isolated agent instances.",
+    ),
+    reload: bool = CommonAgentOptions.reload(),
+    watch: bool = CommonAgentOptions.watch(),
+) -> None:
+    """Expose fast-agent over A2A HTTP transports."""
+    request = _build_run_request(
+        ctx=ctx,
+        name=name,
+        instruction=instruction,
+        config_path=config_path,
+        servers=servers,
+        agent_cards=agent_cards,
+        card_tools=card_tools,
+        urls=urls,
+        auth=auth,
+        client_metadata_url=client_metadata_url,
+        model=model,
+        skills_dir=skills_dir,
+        env_dir=env_dir,
+        noenv=noenv,
+        force_smart=smart,
+        npx=npx,
+        uvx=uvx,
+        stdio=None,
+        description=None,
+        tool_name_template=None,
+        transport=ServeTransport.A2A,
+        host=host,
+        port=port,
+        shell=shell,
+        no_shell=no_shell,
+        instance_scope=instance_scope,
+        no_permissions=False,
+        reload=reload,
+        watch=watch,
     )
     run_request(request)

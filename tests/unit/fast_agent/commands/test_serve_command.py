@@ -1,9 +1,15 @@
+from typing import TYPE_CHECKING, cast
+
 import click
 import pytest
 import typer
+from typer.testing import CliRunner
 
 from fast_agent.cli.commands import go as go_command
 from fast_agent.cli.commands import serve as serve_command
+
+if TYPE_CHECKING:
+    from fast_agent.cli.runtime.run_request import AgentRunRequest
 
 
 def test_run_async_agent_passes_serve_mode() -> None:
@@ -172,6 +178,40 @@ def test_serve_command_builds_a2a_request() -> None:
     assert request.host == "127.0.0.1"
     assert request.port == 41241
     assert request.instance_scope == "shared"
+
+
+def test_serve_a2a_subcommand_builds_a2a_request(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_request(request: object) -> None:
+        captured["request"] = request
+
+    monkeypatch.setattr(serve_command, "run_request", fake_run_request)
+
+    result = CliRunner().invoke(
+        serve_command.app,
+        [
+            "a2a",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "41241",
+            "--agent-cards",
+            "./agents",
+            "--model",
+            "codexresponses.gpt-5.4-mini",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    request = cast("AgentRunRequest", captured["request"])
+    assert request.mode == "serve"
+    assert request.transport == "a2a"
+    assert request.name == "fast-agent-a2a"
+    assert request.host == "127.0.0.1"
+    assert request.port == 41241
+    assert request.agent_cards == ["./agents"]
+    assert request.model == "codexresponses.gpt-5.4-mini"
 
 
 def test_serve_command_builds_request_with_missing_shell_cwd_override() -> None:
