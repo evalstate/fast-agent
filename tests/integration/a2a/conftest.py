@@ -41,6 +41,31 @@ def _data_part(value: dict[str, object]) -> Part:
     return part
 
 
+LONG_STREAM_CHUNKS = [
+    "Starting the remote analysis task.\n\n",
+    "Step 1 — Reading the request and identifying the goal.\n",
+    "Step 2 — Checking the available A2A task context.\n",
+    "Step 3 — Building a concise response plan.\n",
+    "Step 4 — Verifying the streamed artifact updates are ordered.\n",
+    "Step 5 — Preparing the final summary.\n\n",
+    "Remote analysis complete.",
+]
+
+
+FAKE_A2A_HELP = """Fake A2A server commands:
+- hello: echo a normal response
+- please stream: emit two short streaming artifact updates
+- please long stream: emit a longer multi-step streaming artifact
+- respond with files: return text, URL, data, and raw byte parts
+- need input: enter an INPUT_REQUIRED task; reply with a value such as blue
+- help: show this menu"""
+
+
+def _is_help_query(query: str) -> bool:
+    normalized = query.strip().lower()
+    return normalized in {"help", "?", "commands", "menu"} or "what can you do" in normalized
+
+
 @dataclass(frozen=True)
 class A2ATestServer:
     base_url: str
@@ -52,6 +77,7 @@ class EchoAgentExecutor(AgentExecutor):
     def __init__(self) -> None:
         self.seen_queries: list[str] = []
         self.seen_part_kinds: list[list[str]] = []
+        self.pending_input_tasks: set[str] = set()
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         updater = TaskUpdater(
@@ -85,7 +111,54 @@ class EchoAgentExecutor(AgentExecutor):
 
         query = context.get_user_input()
         self.seen_queries.append(query)
-        self.seen_part_kinds.append([part.WhichOneof("content") or "unknown" for part in context.message.parts])
+        self.seen_part_kinds.append(
+            [part.WhichOneof("content") or "unknown" for part in context.message.parts]
+        )
+
+        if _is_help_query(query):
+            if context.task_id in self.pending_input_tasks:
+                await updater.update_status(
+                    TaskState.TASK_STATE_INPUT_REQUIRED,
+                    message=updater.new_agent_message(
+                        parts=[
+                            Part(
+                                text=(
+                                    f"{FAKE_A2A_HELP}\n\n"
+                                    "Current task is still waiting for input."
+                                )
+                            )
+                        ]
+                    ),
+                )
+                return
+            await updater.add_artifact(
+                parts=[Part(text=FAKE_A2A_HELP)],
+                name="help",
+                last_chunk=True,
+            )
+            await updater.complete()
+            return
+
+        if context.task_id in self.pending_input_tasks:
+            self.pending_input_tasks.remove(context.task_id)
+            await updater.add_artifact(
+                parts=[Part(text=f"input received: {query}")],
+                name="input-response",
+                last_chunk=True,
+            )
+            await updater.complete()
+            return
+
+        if "long stream" in query:
+            for index, chunk in enumerate(LONG_STREAM_CHUNKS, start=1):
+                await updater.add_artifact(
+                    parts=[Part(text=chunk)],
+                    name="long-stream",
+                    last_chunk=index == len(LONG_STREAM_CHUNKS),
+                )
+                await asyncio.sleep(0.01)
+            await updater.complete()
+            return
 
         if "stream" in query:
             await updater.add_artifact(
@@ -118,6 +191,16 @@ class EchoAgentExecutor(AgentExecutor):
                 last_chunk=True,
             )
             await updater.complete()
+            return
+
+        if "need input" in query:
+            self.pending_input_tasks.add(context.task_id)
+            await updater.update_status(
+                TaskState.TASK_STATE_INPUT_REQUIRED,
+                message=updater.new_agent_message(
+                    parts=[Part(text="Please provide the missing value.")]
+                ),
+            )
             return
 
         await asyncio.sleep(0.01)

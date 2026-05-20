@@ -4,9 +4,12 @@ Run:
     uv run python tests/integration/a2a/fake_server.py --port 41242
 
 Useful prompts:
+    help
     hello
     please stream
+    please long stream
     respond with files
+    need input
 """
 
 from __future__ import annotations
@@ -42,8 +45,34 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+LONG_STREAM_CHUNKS = [
+    "Starting the remote analysis task.\n\n",
+    "Step 1 — Reading the request and identifying the goal.\n",
+    "Step 2 — Checking the available A2A task context.\n",
+    "Step 3 — Building a concise response plan.\n",
+    "Step 4 — Verifying the streamed artifact updates are ordered.\n",
+    "Step 5 — Preparing the final summary.\n\n",
+    "Remote analysis complete.",
+]
+
+FAKE_A2A_HELP = """Fake A2A server commands:
+- hello: echo a normal response
+- please stream: emit two short streaming artifact updates
+- please long stream: emit a longer multi-step streaming artifact
+- respond with files: return text, URL, data, and raw byte parts
+- need input: enter an INPUT_REQUIRED task; reply with a value such as blue
+- help: show this menu"""
+
+
+def _is_help_query(query: str) -> bool:
+    normalized = query.strip().lower()
+    return normalized in {"help", "?", "commands", "menu"} or "what can you do" in normalized
+
 
 class FakeAgentExecutor(AgentExecutor):
+    def __init__(self) -> None:
+        self.pending_input_tasks: set[str] = set()
+
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         updater = TaskUpdater(
             event_queue=event_queue,
@@ -72,6 +101,51 @@ class FakeAgentExecutor(AgentExecutor):
         await updater.start_work(message=updater.new_agent_message(parts=[Part(text="working")]))
 
         query = context.get_user_input()
+        if _is_help_query(query):
+            if context.task_id in self.pending_input_tasks:
+                await updater.update_status(
+                    TaskState.TASK_STATE_INPUT_REQUIRED,
+                    message=updater.new_agent_message(
+                        parts=[
+                            Part(
+                                text=(
+                                    f"{FAKE_A2A_HELP}\n\n"
+                                    "Current task is still waiting for input."
+                                )
+                            )
+                        ]
+                    ),
+                )
+                return
+            await updater.add_artifact(
+                parts=[Part(text=FAKE_A2A_HELP)],
+                name="help",
+                last_chunk=True,
+            )
+            await updater.complete()
+            return
+
+        if context.task_id in self.pending_input_tasks:
+            self.pending_input_tasks.remove(context.task_id)
+            await updater.add_artifact(
+                parts=[Part(text=f"input received: {query}")],
+                name="input-response",
+                last_chunk=True,
+            )
+            await updater.complete()
+            return
+
+        if "long stream" in query.lower():
+            for index, chunk in enumerate(LONG_STREAM_CHUNKS, start=1):
+                await updater.add_artifact(
+                    parts=[Part(text=chunk)],
+                    name="long-stream",
+                    last_chunk=index == len(LONG_STREAM_CHUNKS),
+                )
+                await asyncio.sleep(0.35)
+            await updater.complete()
+            return
+
         if "stream" in query.lower():
             await updater.add_artifact(parts=[Part(text="stream chunk one")], name="stream")
             await asyncio.sleep(0.4)
@@ -101,6 +175,16 @@ class FakeAgentExecutor(AgentExecutor):
             await updater.complete()
             return
 
+        if "need input" in query.lower():
+            self.pending_input_tasks.add(context.task_id)
+            await updater.update_status(
+                TaskState.TASK_STATE_INPUT_REQUIRED,
+                message=updater.new_agent_message(
+                    parts=[Part(text="Please provide the missing value.")]
+                ),
+            )
+            return
+
         kinds = ",".join(part.WhichOneof("content") or "unknown" for part in context.message.parts)
         await updater.add_artifact(
             parts=[Part(text=f"fake echo: {query} [{kinds}]")],
@@ -124,9 +208,9 @@ def build_app(host: str, port: int) -> FastAPI:
             AgentSkill(
                 id="fake_echo_stream_files",
                 name="Fake echo/stream/files",
-                description="Echoes text, streams chunks, and returns URL/data/raw parts.",
+                description="Echoes text, streams short/long chunks, and returns URL/data/raw parts.",
                 tags=["test", "streaming", "files"],
-                examples=["hello", "please stream", "respond with files"],
+                examples=["hello", "please stream", "please long stream", "respond with files"],
                 input_modes=["text", "image", "file"],
                 output_modes=["text", "task-status", "application/json"],
             )

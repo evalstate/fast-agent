@@ -36,6 +36,15 @@ The fake server exposes:
 Keep this server running in one terminal, then use a second terminal for the
 client commands below.
 
+If you forget the fake server prompts, send:
+
+```text
+help
+```
+
+The fake server responds with its available demo commands. This is separate from
+fast-agent's local `/a2a help`, which lists TUI-side A2A commands.
+
 ## 2. Connect from the CLI and stream a response
 
 ```bash
@@ -51,6 +60,27 @@ Expected output:
 The `--a2a` value is normally the remote A2A agent's base URL. fast-agent resolves
 its AgentCard from `/.well-known/agent-card.json`, selects the requested
 transport, sends the message, and prints the final aggregated response.
+
+For a longer manual streaming test, use the same server with:
+
+```bash
+uv run fast-agent -x \
+  --a2a http://127.0.0.1:41242 \
+  --a2a-transport JSONRPC \
+  --message "please long stream" \
+  --quiet
+```
+
+In the TUI, send:
+
+```text
+please long stream
+```
+
+The fake server emits a multi-step "remote analysis" artifact over several
+streaming updates, which is useful for checking the live renderer rather than
+only the final assistant turn. The stream uses `Step 1 — ...` text instead of a
+Markdown ordered list so the TUI preserves the step labels exactly.
 
 Transport names accepted by fast-agent are:
 
@@ -81,7 +111,36 @@ Current rendering behavior:
 - data parts render as fenced JSON;
 - raw bytes render as a safe filename/media-type/byte-count placeholder.
 
-## 4. Use an AgentCard instead of `--a2a`
+## 4. Continue an `INPUT_REQUIRED` task
+
+A2A agents can pause a task and ask the client for more input. fast-agent maps
+that state to a normal assistant turn, keeps the remote `task_id`, and sends the
+next user message back to the same task.
+
+With the fake server, type this in the TUI:
+
+```text
+need input
+blue
+```
+
+The first turn receives:
+
+```text
+A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value.
+```
+
+The second turn is sent with the pending A2A task id and completes the task:
+
+```text
+input received: blue
+```
+
+Use `/a2a status` between those turns to inspect the preserved `Context`, `Task`,
+and `Last state` fields. `/a2a reset` starts a fresh remote context and clears any
+pending task.
+
+## 5. Use an AgentCard instead of `--a2a`
 
 For persistent configuration, create a card like this:
 
@@ -98,7 +157,7 @@ uv run fast-agent -x --agent-cards ./fake-a2a.yaml --agent fake_remote
 Use AgentCards when you want the connection checked in, shared, or combined with
 other configured agents.
 
-## 5. Connect inside the TUI
+## 6. Connect inside the TUI
 
 You can connect to A2A agents after the TUI has started:
 
@@ -126,8 +185,8 @@ The `/a2a` command group currently includes:
 ## Demo recording
 
 The repeatable docs pipeline can generate an asciinema recording for the TUI
-streaming/files flow. The committed `.cast` file is embedded below and can also
-be downloaded for local replay.
+streaming/files/input-required flow. The committed `.cast` file is embedded below
+and can also be downloaded for local replay.
 
 <div class="a2a-terminal-demo">
   <link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">

@@ -47,7 +47,7 @@ name: fake_remote
 url: {BASE_URL}
 transport: JSONRPC
 """
-TUI_SESSION = "/a2a status\n/a2a transport\nplease stream\nrespond with files\n"
+TUI_SESSION = "/a2a help\nhelp\n/a2a status\n/a2a transport\nplease stream\nrespond with files\nneed input\nblue\n"
 
 STATIC_SNIPPETS = {
     "start-fake-server.sh": START_FAKE_SERVER,
@@ -110,6 +110,14 @@ def _start_server() -> subprocess.Popen[str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    time.sleep(0.2)
+    if process.poll() is not None:
+        stdout = process.stdout.read() if process.stdout else ""
+        stderr = process.stderr.read() if process.stderr else ""
+        raise RuntimeError(
+            f"fake A2A server exited immediately. Is port {PORT} already in use?\n"
+            f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+        )
     _wait_for_server(process)
     return process
 
@@ -215,9 +223,17 @@ tmux set-option -t "$SESSION" status off >/dev/null
 
 (
   sleep 4
+  tmux send-keys -t "$SESSION" '/a2a help' Enter
+  sleep 4
+  tmux send-keys -t "$SESSION" 'help' Enter
+  sleep 4
   tmux send-keys -t "$SESSION" 'please stream' Enter
   sleep 4
   tmux send-keys -t "$SESSION" 'respond with files' Enter
+  sleep 4
+  tmux send-keys -t "$SESSION" 'need input' Enter
+  sleep 4
+  tmux send-keys -t "$SESSION" 'blue' Enter
   sleep 4
   tmux send-keys -t "$SESSION" '/exit' Enter
   sleep 1
@@ -243,7 +259,7 @@ tmux attach-session -t "$SESSION" || true
             "--idle-time-limit",
             "1.3",
             "-t",
-            "fast-agent A2A streaming and files demo",
+            "fast-agent A2A streaming, files, and input-required demo",
             "-c",
             str(driver),
             str(ASSETS / "a2a-streaming-files.cast"),

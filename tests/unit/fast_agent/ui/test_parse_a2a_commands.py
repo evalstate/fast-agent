@@ -38,3 +38,10 @@ def test_parse_a2a_transport_target() -> None:
     assert isinstance(result, A2ACommand)
     assert result.action == "transport"
     assert result.argument == "remote"
+
+
+def test_parse_a2a_help_variants() -> None:
+    for command in ["/a2a help", "/a2a ?", "/a2a -h", "/a2a --help", "/a2a commands"]:
+        result = parse_special_input(command)
+        assert isinstance(result, A2ACommand)
+        assert result.error is None

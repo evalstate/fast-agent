@@ -614,7 +614,19 @@ def _parse_a2a_command(remainder: str) -> CommandPayload:
     tokens = remainder.split(maxsplit=1)
     action = tokens[0].lower()
     argument = tokens[1].strip() if len(tokens) > 1 else None
-    if action in {"list", "status", "card", "reset", "connect", "transport"}:
+    if action in {
+        "list",
+        "status",
+        "card",
+        "reset",
+        "connect",
+        "transport",
+        "help",
+        "?",
+        "-h",
+        "--help",
+        "commands",
+    }:
         return A2ACommand(action=action, argument=argument)
     return A2ACommand(action=action, argument=argument, error=f"Unknown /a2a action: {action}")
 

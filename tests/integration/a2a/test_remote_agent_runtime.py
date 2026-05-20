@@ -7,6 +7,7 @@ from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.types import PromptMessageExtended
+from tests.integration.a2a.conftest import FAKE_A2A_HELP, LONG_STREAM_CHUNKS
 
 
 async def _send_text(base_url: str, transport: str) -> A2ARemoteAgent:
@@ -75,6 +76,135 @@ async def test_a2a_remote_agent_emits_stream_chunks(a2a_test_server) -> None:
     assert "stream chunk one" in response.all_text()
     assert "stream chunk two" in response.all_text()
     assert chunks == ["stream chunk one", "stream chunk two"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_emits_long_stream_chunks(a2a_test_server) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_long_stream", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    chunks: list[str] = []
+    agent.add_stream_listener(lambda chunk: chunks.append(chunk.text))
+    await agent.initialize()
+    try:
+        response = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="please long stream")],
+                )
+            ]
+        )
+    finally:
+        await agent.shutdown()
+
+    assert chunks == LONG_STREAM_CHUNKS
+    assert "Starting the remote analysis task." in response.all_text()
+    assert "Step 1 — Reading the request and identifying the goal." in response.all_text()
+    assert "Remote analysis complete." in response.all_text()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_fake_server_help_lists_available_prompts(a2a_test_server) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_help", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    await agent.initialize()
+    try:
+        response = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="help")],
+                )
+            ]
+        )
+    finally:
+        await agent.shutdown()
+
+    assert response.all_text() == FAKE_A2A_HELP
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_preserves_input_required_task_for_follow_up(
+    a2a_test_server,
+) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_input", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    await agent.initialize()
+    try:
+        first = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="need input")],
+                )
+            ]
+        )
+        input_task_id = agent.current_task_id
+
+        second = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="blue")],
+                )
+            ]
+        )
+    finally:
+        await agent.shutdown()
+
+    assert first.all_text() == "A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value."
+    assert input_task_id
+    assert "input received: blue" in second.all_text()
+    assert agent.current_task_id is None
+    assert agent.last_task_state == "TASK_STATE_COMPLETED"
+    assert a2a_test_server.executor.seen_queries[-2:] == ["need input", "blue"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_fake_server_help_does_not_complete_input_required_task(
+    a2a_test_server,
+) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_input_help", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
+    )
+    await agent.initialize()
+    try:
+        await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="need input")],
+                )
+            ]
+        )
+        input_task_id = agent.current_task_id
+        help_response = await agent.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="help")],
+                )
+            ]
+        )
+    finally:
+        await agent.shutdown()
+
+    assert input_task_id
+    assert agent.current_task_id == input_task_id
+    assert agent.last_task_state == "TASK_STATE_INPUT_REQUIRED"
+    assert "Fake A2A server commands:" in help_response.all_text()
+    assert "Current task is still waiting for input." in help_response.all_text()
 
 
 @pytest.mark.integration

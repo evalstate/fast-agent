@@ -187,7 +187,7 @@ class A2ARemoteAgent(LlmDecorator):
         self._log_a2a_progress(ProgressAction.SENDING, details=self._transport_label())
         result = await self._consume_events(self._client.send_message(request))
         self._log_a2a_progress(ProgressAction.READY, details=result.state or "completed")
-        response_text = result.text or _state_message(result.state)
+        response_text = result.text or result.status_text or _state_message(result.state)
         if result.state in _ERROR_STATES:
             response_text = f"A2A task {result.state}: {response_text}"
         assistant_message = PromptMessageExtended(
@@ -245,6 +245,7 @@ class A2ARemoteAgent(LlmDecorator):
         chunks: list[str] = []
         seen_chunks: set[str] = set()
         state: str | None = None
+        status_text: str | None = None
 
         async for event in events:
             if event.HasField("message"):
@@ -258,6 +259,7 @@ class A2ARemoteAgent(LlmDecorator):
                 self.context_id = event.task.context_id
                 state = TaskState.Name(event.task.status.state)
                 self.last_task_state = state
+                self._log_a2a_progress(ProgressAction.UPDATED, details=state)
                 for artifact in event.task.artifacts:
                     text = _parts_text(artifact.parts)
                     _append_text(chunks, seen_chunks, text)
@@ -267,8 +269,14 @@ class A2ARemoteAgent(LlmDecorator):
                 status = event.status_update.status
                 state = TaskState.Name(status.state)
                 self.last_task_state = state
+                self._log_a2a_progress(ProgressAction.UPDATED, details=state)
+                self.context_id = event.status_update.context_id
+                if state == "TASK_STATE_INPUT_REQUIRED":
+                    self.current_task_id = event.status_update.task_id
                 if state in _TERMINAL_STATES and state != "TASK_STATE_INPUT_REQUIRED":
                     self.current_task_id = None
+                if status.HasField("message"):
+                    status_text = _parts_text(status.message.parts) or status_text
                 continue
 
             if event.HasField("artifact_update"):
@@ -276,9 +284,14 @@ class A2ARemoteAgent(LlmDecorator):
                 text = _parts_text(artifact.parts)
                 if text and text not in seen_chunks:
                     _append_text(chunks, seen_chunks, text)
+                    self._log_a2a_progress(ProgressAction.STREAMING, details=artifact.name)
                     self._emit_stream(text)
 
-        return _A2AResult(text="\n".join(chunk for chunk in chunks if chunk), state=state)
+        return _A2AResult(
+            text="\n".join(chunk for chunk in chunks if chunk),
+            state=state,
+            status_text=status_text,
+        )
 
     def _emit_stream(self, text: str) -> None:
         if not text:
@@ -292,6 +305,7 @@ class A2ARemoteAgent(LlmDecorator):
 class _A2AResult:
     text: str
     state: str | None
+    status_text: str | None
 
 
 

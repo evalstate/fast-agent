@@ -370,6 +370,20 @@ def _default_a2a_agent_name(existing: set[str]) -> str:
     return f"{base}_{index}"
 
 
+def _print_a2a_help() -> None:
+    rich_print("[bold]A2A commands[/bold]")
+    for line in [
+        "/a2a list",
+        "/a2a status [agent]",
+        "/a2a card [agent]",
+        "/a2a transport [agent]",
+        "/a2a reset [agent]",
+        "/a2a connect <url> [--transport JSONRPC|HTTP+JSON|GRPC] [--name NAME] [--card-path PATH]",
+        "/a2a help",
+    ]:
+        rich_print(f"  {line}")
+
+
 async def _dispatch_a2a_payload(
     owner: "InteractivePrompt",
     payload: CommandPayload,
@@ -387,6 +401,9 @@ async def _dispatch_a2a_payload(
         return result
 
     match payload.action:
+        case "help" | "?" | "-h" | "--help" | "commands":
+            _print_a2a_help()
+            return result
         case "list":
             names = sorted(
                 name
