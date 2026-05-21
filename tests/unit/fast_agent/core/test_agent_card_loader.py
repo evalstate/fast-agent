@@ -543,6 +543,11 @@ def test_load_a2a_agent_card(tmp_path: Path) -> None:
     assert a2a_config.accepted_output_modes == ["text"]
     assert a2a_config.request_timeout_seconds == 45.0
 
+    dumped = dump_agent_to_string("hello_remote", loaded.agent_data, as_yaml=True)
+    assert "auth:" in dumped
+    assert "oauth: true" in dumped
+    assert "persist: memory" in dumped
+
 
 def test_load_a2a_agent_card_rejects_invalid_transport(tmp_path: Path) -> None:
     card_path = tmp_path / "bad_remote.yaml"

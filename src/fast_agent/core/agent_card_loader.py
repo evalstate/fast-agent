@@ -1212,6 +1212,10 @@ def _serialize_a2a_fields(
         card["accepted_output_modes"] = list(a2a_config.accepted_output_modes)
     if a2a_config.headers:
         card["headers"] = dict(a2a_config.headers)
+    if a2a_config.auth is not None:
+        auth = a2a_config.auth.model_dump(mode="python", exclude_none=True, exclude_defaults=True)
+        auth["oauth"] = a2a_config.auth.oauth
+        card["auth"] = auth
     if a2a_config.relative_card_path:
         card["relative_card_path"] = a2a_config.relative_card_path
     if a2a_config.request_timeout_seconds != 120.0:
