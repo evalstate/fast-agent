@@ -1,9 +1,9 @@
 # A2A Completion Audit
 
-Current audit status: not yet marked complete. The implementation has broad
-coverage, but the goal should remain active until the verification set below has
-been rerun after the final A2A changes and any remaining intentional gaps have
-been accepted.
+Current audit status: complete as of the final verification pass. The
+implementation satisfies the requested HTTP A2A client/server scope; the known
+gaps below are intentionally documented protocol/operational limitations rather
+than hidden unfinished work for this goal.
 
 ## Requirement Evidence
 
@@ -47,9 +47,9 @@ unfinished work:
   dedicated fast-agent audio content object.
 - Ordinary model text that contains JSON is not guessed into protocol data.
 
-## Required Final Verification
+## Final Verification
 
-Before marking the goal complete, rerun:
+Final verification was rerun successfully with:
 
 ```bash
 uv run pytest tests/integration/a2a \
