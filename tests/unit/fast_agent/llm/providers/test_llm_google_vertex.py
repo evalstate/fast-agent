@@ -4,14 +4,17 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from google.genai import types as google_types
 from mcp import Tool
+from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 from pydantic import BaseModel
 
 from fast_agent.config import GoogleSettings, Settings
+from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.mcp.prompt import Prompt
-from fast_agent.types import RequestParams
+from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
     from fast_agent.llm.request_params import StructuredToolPolicy
@@ -344,6 +347,7 @@ async def test_structured_schema_in_generate_path_returns_google_tool_calls() ->
                                 "parts": [
                                     {
                                         "function_call": {
+                                            "id": "call_lookup",
                                             "name": "lookup_probe_payload",
                                             "args": {},
                                         }
@@ -392,6 +396,182 @@ async def test_structured_schema_in_generate_path_returns_google_tool_calls() ->
     )
 
     assert response.tool_calls
+    assert list(response.tool_calls) == ["call_lookup"]
     [tool_call] = response.tool_calls.values()
     assert tool_call.params.name == "lookup_probe_payload"
     assert response.stop_reason == "toolUse"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_request_preserves_google_function_call_id_and_history() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeModels:
+        async def generate_content(self, **kwargs):
+            captured.update(kwargs)
+            return google_types.GenerateContentResponse.model_validate(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "role": "model",
+                                "parts": [{"text": "The weather is sunny."}],
+                            },
+                            "finish_reason": "STOP",
+                        }
+                    ]
+                }
+            )
+
+    class FakeAio:
+        def __init__(self) -> None:
+            self.models = FakeModels()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.aio = FakeAio()
+
+    class Harness(GoogleNativeLLM):
+        async def _stream_generate_content(self, **kwargs):
+            return None
+
+        def _initialize_google_client(self):
+            return FakeClient()
+
+    llm = Harness(context=Context(config=Settings()), model="gemini-3.5-flash")
+    llm.history.set(
+        [
+            google_types.Content(role="user", parts=[google_types.Part.from_text(text="weather")]),
+            google_types.Content(
+                role="model",
+                parts=[
+                    google_types.Part(
+                        text="thinking",
+                        thought=True,
+                        thought_signature=b"signature",
+                    ),
+                    google_types.Part(
+                        function_call=google_types.FunctionCall(
+                            id="call_weather",
+                            name="weather",
+                            args={"city": "Paris"},
+                        )
+                    ),
+                ],
+            ),
+        ]
+    )
+
+    await llm._apply_prompt_provider_specific(
+        [
+            Prompt.user("weather"),
+            Prompt.assistant(
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "call_weather": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(
+                            name="weather",
+                            arguments={"city": "Paris"},
+                        ),
+                    )
+                },
+            ),
+            PromptMessageExtended(
+                role="user",
+                content=[],
+                tool_results={
+                    "call_weather": CallToolResult(
+                        content=[TextContent(type="text", text="Sunny")],
+                        isError=False,
+                    )
+                },
+            ),
+        ],
+        request_params=RequestParams(model="gemini-3.5-flash"),
+        tools=[
+            Tool(
+                name="weather",
+                description="Check weather",
+                inputSchema={"type": "object", "properties": {}},
+            )
+        ],
+    )
+
+    contents = cast("list[google_types.Content]", captured["contents"])
+    assert [content.role for content in contents] == ["user", "model", "user", "model"]
+
+    model_parts = contents[1].parts or []
+    assert model_parts[0].thought is True
+    assert model_parts[0].thought_signature == b"signature"
+    assert model_parts[1].function_call is not None
+    assert model_parts[1].function_call.id == "call_weather"
+
+    response_parts = contents[2].parts or []
+    fn_response = response_parts[0].function_response
+    assert fn_response is not None
+    assert fn_response.id == "call_weather"
+    assert fn_response.name == "weather"
+    assert fn_response.response == {"result": "Sunny"}
+
+
+@pytest.mark.asyncio
+async def test_google_thought_parts_are_preserved_as_reasoning_channel() -> None:
+    class FakeModels:
+        async def generate_content(self, **kwargs):
+            return google_types.GenerateContentResponse.model_validate(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "role": "model",
+                                "parts": [
+                                    {"text": "private analysis", "thought": True},
+                                    {"text": "final answer"},
+                                ],
+                            },
+                            "finish_reason": "STOP",
+                        }
+                    ]
+                }
+            )
+
+    class FakeAio:
+        def __init__(self) -> None:
+            self.models = FakeModels()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.aio = FakeAio()
+
+    class Harness(GoogleNativeLLM):
+        async def _stream_generate_content(self, **kwargs):
+            return None
+
+        def _initialize_google_client(self):
+            return FakeClient()
+
+    llm = Harness(context=Context(config=Settings()), model="gemini-3.5-flash")
+    response = await llm._google_completion(
+        [google_types.Content(role="user", parts=[google_types.Part.from_text(text="hello")])],
+        request_params=RequestParams(model="gemini-3.5-flash"),
+    )
+
+    assert response.last_text() == "final answer"
+    assert response.channels is not None
+    reasoning = response.channels[REASONING]
+    assert len(reasoning) == 1
+    assert isinstance(reasoning[0], TextContent)
+    assert reasoning[0].text == "private analysis"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from rich import print as rich_print
@@ -17,12 +18,15 @@ if TYPE_CHECKING:
 
 
 def load_prompt_messages_from_file(
-    filename: str, *, label: str
+    filename: str,
+    *,
+    label: str,
+    arguments: Mapping[str, str] | None = None,
 ) -> list[PromptMessageExtended] | None:
     try:
         from fast_agent.mcp.prompts.prompt_load import load_prompt
 
-        return load_prompt(filename)
+        return load_prompt(filename, arguments=arguments)
     except FileNotFoundError:
         rich_print(f"[red]File not found: {filename}[/red]")
     except AgentConfigError as exc:

@@ -10,6 +10,7 @@ from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.io.source_resolver import (
     _read_hf_text_source,
     materialize_text_source,
+    materialized_text_source,
     read_text_source,
 )
 
@@ -142,6 +143,21 @@ def test_materialize_text_source_writes_temp_file_for_hf_uri(monkeypatch):
 
     assert materialized.suffix == ".md"
     assert materialized.read_text(encoding="utf-8") == "hf prompt"
+
+
+def test_materialized_text_source_removes_remote_temp_file(monkeypatch):
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/home/demo.md"
+        assert label == "prompt file"
+        return "hf prompt"
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+
+    with materialized_text_source("hf://buckets/evalstate/home/demo.md", label="prompt file") as path:
+        assert path.exists()
+        assert path.read_text(encoding="utf-8") == "hf prompt"
+
+    assert not path.exists()
 
 
 def test_file_uri_to_path_supports_windows_drive_uri():

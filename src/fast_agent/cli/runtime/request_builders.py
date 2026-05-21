@@ -247,21 +247,15 @@ def resolve_instruction_option(
 
     if instruction:
         try:
-            from fast_agent.core.direct_decorators import _resolve_instruction
+            from fast_agent.core.instruction_source import resolve_instruction_source
             from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
 
-            instruction_path = materialize_text_source(
-                instruction,
-                label="instruction",
-            )
-            resolved_instruction = _resolve_instruction(instruction_path)
+            resolved_instruction = resolve_instruction_source(instruction)
             parsed_instruction = urlparse(str(instruction))
-            if (
-                parsed_instruction.scheme not in REMOTE_TEXT_SCHEMES
-                and instruction_path.exists()
-                and instruction_path.is_file()
-            ):
-                agent_name = instruction_path.stem
+            if parsed_instruction.scheme not in REMOTE_TEXT_SCHEMES:
+                instruction_path = materialize_text_source(instruction, label="instruction")
+                if instruction_path.exists() and instruction_path.is_file():
+                    agent_name = instruction_path.stem
         except Exception as exc:
             typer.echo(f"Error loading instruction from {instruction}: {exc}", err=True)
             raise typer.Exit(1) from exc

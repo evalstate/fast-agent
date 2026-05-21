@@ -57,10 +57,21 @@ def _uses_none_low_medium_high_scale(spec: ReasoningEffortSpec) -> bool:
     return spec.allowed_efforts == ["none", "low", "medium", "high"]
 
 
+def _uses_minimal_low_medium_high_scale(spec: ReasoningEffortSpec) -> bool:
+    return spec.allowed_efforts == ["minimal", "low", "medium", "high"]
+
+
 def _effort_to_level(value: str, spec: ReasoningEffortSpec | None = None) -> int:
     if spec is not None and _uses_none_low_medium_high_scale(spec):
         return {
             "none": 0,
+            "low": 2,
+            "medium": 3,
+            "high": 4,
+        }.get(value, 0)
+    if spec is not None and _uses_minimal_low_medium_high_scale(spec):
+        return {
+            "minimal": 1,
             "low": 2,
             "medium": 3,
             "high": 4,
@@ -81,6 +92,13 @@ def _effort_color(value: str, spec: ReasoningEffortSpec) -> str:
     if _uses_none_low_medium_high_scale(spec):
         return {
             "none": INACTIVE_COLOR,
+            "low": "ansigreen",
+            "medium": "ansiyellow",
+            "high": "ansired",
+        }.get(value, "ansiyellow")
+    if _uses_minimal_low_medium_high_scale(spec):
+        return {
+            "minimal": "ansigreen",
             "low": "ansigreen",
             "medium": "ansiyellow",
             "high": "ansired",

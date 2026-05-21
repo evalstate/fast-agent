@@ -24,6 +24,7 @@ from fast_agent.core.exceptions import ConfigFileError
 from fast_agent.home import (
     ConfigDiscoveryResult,
     discover_config_files,
+    find_config_in_directory,
     resolve_fast_agent_home,
 )
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
@@ -165,6 +166,17 @@ class CardsSettings(BaseModel):
 
     marketplace_url: str | None = None
     marketplace_urls: list[str] | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class PluginsSettings(BaseModel):
+    """Configuration for command plugin discovery and marketplace selection."""
+
+    enabled: list[str] = Field(default_factory=list)
+    marketplace_url: str | None = None
+    marketplace_urls: list[str] | None = None
+    config: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -1476,6 +1488,92 @@ def load_selected_settings(
     return load_implicit_settings(start_path=start_path, env_dir=env_dir, noenv=noenv)
 
 
+def _merge_home_plugin_settings(
+    settings: dict[str, Any],
+    *,
+    global_plugin_home: Path | None,
+    active_config_file: Path | None,
+) -> dict[str, Any]:
+    """Merge only global plugin selections into the active settings.
+
+    General config discovery intentionally picks one main config file. Plugins are
+    different: global plugin installs should augment project-local plugin
+    selections instead of replacing them.
+    """
+    if global_plugin_home is None:
+        return settings
+    home_config = find_config_in_directory(global_plugin_home)
+    if home_config is None:
+        return settings
+    if active_config_file is not None and home_config.resolve() == active_config_file.resolve():
+        return settings
+
+    home_settings = load_yaml_mapping(home_config)
+    home_plugins = home_settings.get("plugins")
+    if not isinstance(home_plugins, dict):
+        return settings
+
+    merged = dict(settings)
+    active_plugins = merged.get("plugins")
+    if not isinstance(active_plugins, dict):
+        active_plugins = {}
+
+    plugin_settings = deep_merge(home_plugins, active_plugins)
+    enabled: list[str] = []
+    for source in (home_plugins, active_plugins):
+        raw_enabled = source.get("enabled")
+        if isinstance(raw_enabled, list):
+            for item in raw_enabled:
+                if isinstance(item, str) and item.strip() and item.strip() not in enabled:
+                    enabled.append(item.strip())
+    if enabled:
+        plugin_settings["enabled"] = enabled
+
+    merged["plugins"] = plugin_settings
+    return merged
+
+
+def _expand_user_path(path: Path, *, home: Path) -> Path:
+    text = str(path)
+    if text == "~":
+        return home
+    if text.startswith("~/"):
+        return home / text[2:]
+    return path
+
+
+def resolve_global_plugin_home_path(
+    *,
+    fast_agent_home: str | None,
+    home: Path,
+    cwd: Path,
+    noenv: bool = False,
+) -> Path | None:
+    if noenv:
+        return None
+
+    if fast_agent_home:
+        path = _expand_user_path(Path(fast_agent_home), home=home)
+        if not path.is_absolute():
+            path = cwd / path
+        return path.resolve()
+
+    return (home / ".fast-agent").resolve()
+
+
+def _resolve_global_plugin_home(*, noenv: bool) -> Path | None:
+    try:
+        home = Path.home()
+    except RuntimeError:
+        return None
+    return resolve_global_plugin_home_path(
+        fast_agent_home=os.getenv("FAST_AGENT_HOME"),
+        home=home,
+        cwd=Path.cwd(),
+        noenv=noenv,
+    )
+
+
 def load_layered_model_settings(
     *,
     start_path: Path,
@@ -1637,6 +1735,9 @@ class Settings(BaseSettings):
     cards: CardsSettings = CardsSettings()
     """Card pack registry selection settings."""
 
+    plugins: PluginsSettings = PluginsSettings()
+    """Command plugin selection and marketplace settings."""
+
     commands: dict[str, PluginCommandActionSpec] | None = None
     """Global plugin command actions loaded from fast-agent.yaml."""
 
@@ -1653,7 +1754,9 @@ class Settings(BaseSettings):
     _secrets_file: str | None = PrivateAttr(default=None)
     _fast_agent_home: str | None = PrivateAttr(default=None)
     _fast_agent_home_source: str | None = PrivateAttr(default=None)
+    _fast_agent_global_plugin_home: str | None = PrivateAttr(default=None)
     _fast_agent_noenv: bool = PrivateAttr(default=False)
+    _fast_agent_settings_source: Literal["manual", "discovered"] = PrivateAttr(default="manual")
 
     @field_validator("commands", mode="before")
     @classmethod
@@ -1709,10 +1812,19 @@ def _cached_settings_match_environment_request(
     env_dir: str | Path | None,
     noenv: bool,
 ) -> bool:
+    if settings._fast_agent_settings_source == "manual":
+        return not noenv and env_dir is None
+
     if noenv:
         return settings._fast_agent_noenv
 
     if settings._fast_agent_noenv:
+        return False
+
+    requested_global_home = _resolve_global_plugin_home(noenv=False)
+    if settings._fast_agent_global_plugin_home != (
+        str(requested_global_home) if requested_global_home is not None else None
+    ):
         return False
 
     if env_dir is None and settings._fast_agent_home is None:
@@ -1798,6 +1910,13 @@ def get_settings(
         if config_file and config_file.exists():
             config_sources.append((config_file, load_yaml_mapping(config_file)))
 
+    global_plugin_home = _resolve_global_plugin_home(noenv=noenv)
+    merged_settings = _merge_home_plugin_settings(
+        merged_settings,
+        global_plugin_home=global_plugin_home,
+        active_config_file=config_file,
+    )
+
     # Load secrets file if found (regardless of whether config file exists)
     if secrets_file and secrets_file.exists():
         merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_file))
@@ -1826,7 +1945,11 @@ def get_settings(
     _settings._secrets_file = str(secrets_file) if secrets_file else None
     _settings._fast_agent_home = str(discovery.home.path) if discovery.home else None
     _settings._fast_agent_home_source = discovery.home.source if discovery.home else None
+    _settings._fast_agent_global_plugin_home = (
+        str(global_plugin_home) if global_plugin_home is not None else None
+    )
     _settings._fast_agent_noenv = noenv
+    _settings._fast_agent_settings_source = "discovered"
     current_theme_file = getattr(_settings.logger, "theme_file", None)
     if current_theme_file is not None:
         for source_path, source_mapping in reversed(config_sources):
@@ -1837,7 +1960,128 @@ def get_settings(
             if found and source_value == current_theme_file:
                 _settings.logger._theme_file_config_path = str(source_path)
                 break
+    _settings.commands = _merge_enabled_plugin_commands(_settings)
     return _settings
+
+
+def _merge_enabled_plugin_commands(settings: Settings) -> dict[str, PluginCommandActionSpec] | None:
+    inline_commands = settings.commands or {}
+    home_enabled, project_enabled = _enabled_plugin_sources(settings)
+    if not home_enabled and not project_enabled:
+        return inline_commands or None
+
+    from fast_agent.paths import resolve_environment_paths
+    from fast_agent.plugins.operations import load_enabled_plugin_commands
+
+    plugin_commands: dict[str, PluginCommandActionSpec] = {}
+    if home_enabled and settings._fast_agent_global_plugin_home:
+        plugin_commands.update(
+            _load_enabled_plugin_commands_from_root(
+                destination_root=Path(settings._fast_agent_global_plugin_home) / "plugins",
+                enabled=home_enabled,
+                scope="global",
+                load_enabled_plugin_commands=load_enabled_plugin_commands,
+            )
+        )
+
+    if project_enabled:
+        plugin_commands.update(
+            _load_enabled_plugin_commands_from_root(
+                destination_root=resolve_environment_paths(settings).plugins,
+                enabled=project_enabled,
+                scope="project",
+                load_enabled_plugin_commands=load_enabled_plugin_commands,
+            )
+        )
+
+    merged = dict(plugin_commands)
+    merged.update(inline_commands)
+    return merged or None
+
+
+def _load_enabled_plugin_commands_from_root(
+    *,
+    destination_root: Path,
+    enabled: list[str],
+    scope: str,
+    load_enabled_plugin_commands,
+) -> dict[str, PluginCommandActionSpec]:
+    try:
+        return load_enabled_plugin_commands(
+            destination_root=destination_root,
+            enabled=enabled,
+        )
+    except Exception as exc:  # noqa: BLE001
+        warnings.warn(
+            f"Failed to load enabled fast-agent plugins from {scope}: {exc}",
+            UserWarning,
+            stacklevel=3,
+        )
+        return {}
+
+
+def _enabled_plugin_sources(settings: Settings) -> tuple[list[str], list[str]]:
+    """Return enabled plugins grouped by FAST_AGENT_HOME and active project config."""
+    enabled = list(settings.plugins.enabled)
+    if not enabled:
+        return [], []
+
+    global_config = _global_plugin_config_for_plugin_merge(settings)
+    if global_config is None:
+        return [], enabled
+
+    home_enabled = _enabled_plugins_from_config(global_config)
+    active_config = Path(settings._config_file) if settings._config_file else None
+    project_enabled: list[str] = []
+    if active_config is not None and active_config.exists():
+        try:
+            same_as_global = active_config.resolve() == global_config.resolve()
+        except OSError:
+            same_as_global = False
+        if not same_as_global:
+            project_enabled = _enabled_plugins_from_config(active_config)
+
+    known = {*home_enabled, *project_enabled}
+    project_enabled.extend(name for name in enabled if name not in known)
+    return home_enabled, project_enabled
+
+
+def _global_plugin_config_for_plugin_merge(settings: Settings) -> Path | None:
+    if not settings._fast_agent_global_plugin_home:
+        return None
+
+    home_config = find_config_in_directory(Path(settings._fast_agent_global_plugin_home))
+    if home_config is None:
+        return None
+
+    active_config = Path(settings._config_file) if settings._config_file else None
+    if active_config is not None:
+        try:
+            if active_config.resolve() == home_config.resolve():
+                return None
+        except OSError:
+            return None
+
+    return home_config
+
+
+def _enabled_plugins_from_config(config_path: Path) -> list[str]:
+    data = load_yaml_mapping(config_path)
+    plugins = data.get("plugins")
+    if not isinstance(plugins, dict):
+        return []
+
+    raw_enabled = plugins.get("enabled")
+    if not isinstance(raw_enabled, list):
+        return []
+
+    enabled: list[str] = []
+    for item in raw_enabled:
+        if isinstance(item, str):
+            name = item.strip()
+            if name and name not in enabled:
+                enabled.append(name)
+    return enabled
 
 
 def update_global_settings(settings: Settings) -> None:
@@ -1848,4 +2092,5 @@ def update_global_settings(settings: Settings) -> None:
     work correctly without needing to pass settings around explicitly.
     """
     global _settings
+    settings._fast_agent_settings_source = "manual"
     _settings = settings

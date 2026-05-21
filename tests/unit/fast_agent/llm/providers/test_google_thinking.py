@@ -24,12 +24,17 @@ def _build_llm(config: Settings | None = None, **kwargs) -> GoogleNativeLLM:
 @pytest.mark.unit
 def test_gemini_25_has_thinking_spec() -> None:
     """Gemini 2.5+ models should have a google_thinking reasoning spec."""
-    for model in ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-pro-preview"):
+    for model in (
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-3-pro-preview",
+        "gemini-3.5-flash",
+    ):
         assert ModelDatabase.get_reasoning(model) == "google_thinking", model
         spec = ModelDatabase.get_reasoning_effort_spec(model)
         assert spec is not None, model
         assert spec.kind == "effort"
-        assert spec.allow_auto is True
+        assert set(spec.allowed_efforts or []) == {"minimal", "low", "medium", "high"}
 
 
 @pytest.mark.unit
@@ -49,6 +54,14 @@ def test_resolve_thinking_config_auto() -> None:
     # Default is auto → budget=-1, no named level
     assert budget == -1
     assert level is None
+
+
+@pytest.mark.unit
+def test_gemini35_flash_defaults_to_medium_thinking_level() -> None:
+    llm = _build_llm(model="gemini-3.5-flash")
+    budget, level = llm._resolve_thinking_config()
+    assert budget is None
+    assert level == "MEDIUM"
 
 
 @pytest.mark.unit

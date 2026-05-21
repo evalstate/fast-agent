@@ -20,9 +20,13 @@ from fast_agent.config import (
     OpenRouterSettings,
     Settings,
 )
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
 from fast_agent.llm.provider.openai.llm_azure import AzureOpenAILLM
+from fast_agent.llm.provider.openai.llm_generic import GenericLLM
+from fast_agent.llm.provider.openai.llm_google_oai import GoogleOaiLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
@@ -53,6 +57,15 @@ def test_openai_explicit_model_overrides_provider_default() -> None:
     llm = OpenAILLM(context=Context(config=settings), model="gpt-4.1")
 
     assert llm.default_request_params.model == "gpt-4.1"
+
+
+def test_provider_defaults_use_global_max_iterations() -> None:
+    settings = Settings()
+    context = Context(config=settings)
+
+    assert GenericLLM(context=context).default_request_params.max_iterations == DEFAULT_MAX_ITERATIONS
+    assert GoogleOaiLLM(context=context).default_request_params.max_iterations == DEFAULT_MAX_ITERATIONS
+    assert GoogleNativeLLM(context=context).default_request_params.max_iterations == DEFAULT_MAX_ITERATIONS
 
 
 def test_responses_provider_default_model_used_when_model_missing() -> None:

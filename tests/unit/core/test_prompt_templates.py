@@ -22,6 +22,27 @@ def test_enrich_with_environment_context_populates_env_block():
     assert "internal://fast-agent/model-overlays" in context["agentInternalResources"]
 
 
+def test_enrich_with_environment_context_noenv_omits_environment_paths(tmp_path):
+    from fast_agent.config import Settings, get_settings, update_global_settings
+
+    context: dict[str, str] = {}
+    settings = Settings()
+    settings._fast_agent_noenv = True
+    previous_settings = get_settings()
+
+    try:
+        update_global_settings(settings)
+        enrich_with_environment_context(context, str(tmp_path), {"name": "Zed"}, noenv=True)
+    finally:
+        update_global_settings(previous_settings)
+
+    assert context["workspaceRoot"] == str(tmp_path)
+    assert "environmentDir" not in context
+    assert "environmentAgentCardsDir" not in context
+    assert "environmentToolCardsDir" not in context
+    assert f"Workspace root: {tmp_path}" in context["env"]
+
+
 def test_enrich_with_environment_context_formats_acp_client_handoff():
     context: dict[str, str] = {}
     client_info = {

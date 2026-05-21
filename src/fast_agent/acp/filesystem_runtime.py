@@ -18,6 +18,7 @@ from fast_agent.tools.filesystem_tool_definitions import (
     build_read_text_file_tool,
     build_write_text_file_tool,
 )
+from fast_agent.tools.tool_sources import set_tool_source
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
@@ -71,8 +72,8 @@ class ACPFilesystemRuntime:
         self._tool_handler = tool_handler
         self._permission_handler = permission_handler
 
-        self._read_tool = build_read_text_file_tool()
-        self._write_tool = build_write_text_file_tool()
+        self._read_tool = set_tool_source(build_read_text_file_tool(), "acp_filesystem")
+        self._write_tool = set_tool_source(build_write_text_file_tool(), "acp_filesystem")
 
         self.logger.info(
             "ACPFilesystemRuntime initialized",

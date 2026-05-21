@@ -81,6 +81,9 @@ class ModelParameters(BaseModel):
     anthropic_task_budget_supported: bool = False
     """Whether Anthropic task_budget output_config is supported for this model."""
 
+    google_search_supported: bool = False
+    """Whether Grounding with Google Search is supported for this model."""
+
     default_temperature: float | None = None
     """Optional default sampling temperature for this model."""
 
@@ -244,6 +247,12 @@ class ModelDatabase:
         allow_toggle_disable=True,
         allow_auto=True,
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+    )
+
+    GOOGLE_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
@@ -623,7 +632,7 @@ class ModelDatabase:
         reasoning="tags",
     )
 
-    GEMINI_STANDARD = ModelParameters(
+    GEMINI_25_STANDARD = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65_536,
         tokenizes=GOOGLE_MULTIMODAL,
@@ -632,6 +641,7 @@ class ModelDatabase:
         reasoning="google_thinking",
         reasoning_effort_spec=GOOGLE_THINKING_EFFORT_SPEC,
         default_provider=Provider.GOOGLE,
+        google_search_supported=True,
         model_specific=(
             "You have multimodal capabilities. When attachment/resource tools are available, "
             "you can inspect supported images, PDFs, audio, and video inputs. "
@@ -640,14 +650,19 @@ class ModelDatabase:
         ),
     )
 
+    GEMINI_STANDARD = GEMINI_25_STANDARD.model_copy(
+        update={"reasoning_effort_spec": GOOGLE_THINKING_LEVEL_SPEC}
+    )
+
     GEMINI_STANDARD_STRUCTURED = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65_536,
         tokenizes=GOOGLE_MULTIMODAL,
         json_mode="schema",
         reasoning="google_thinking",
-        reasoning_effort_spec=GOOGLE_THINKING_EFFORT_SPEC,
+        reasoning_effort_spec=GOOGLE_THINKING_LEVEL_SPEC,
         default_provider=Provider.GOOGLE,
+        google_search_supported=True,
         model_specific=(
             "You have multimodal capabilities. When attachment/resource tools are available, "
             "you can inspect supported images, PDFs, audio, and video inputs. "
@@ -662,6 +677,7 @@ class ModelDatabase:
         tokenizes=GOOGLE_MULTIMODAL,
         json_mode="schema",
         default_provider=Provider.GOOGLE,
+        google_search_supported=True,
         model_specific=(
             "You have multimodal capabilities. When attachment/resource tools are available, "
             "you can inspect supported images, PDFs, audio, and video inputs. "
@@ -982,11 +998,12 @@ class ModelDatabase:
         "stepfun/step-3.5-flash": STEPFUN_STEP_35_FLASH,
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
-        "gemini-2.5-pro": GEMINI_STANDARD,
-        "gemini-2.5-flash": _with_fast(GEMINI_STANDARD),
+        "gemini-2.5-pro": GEMINI_25_STANDARD,
+        "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
+        "gemini-3.5-flash": _with_fast(GEMINI_STANDARD_STRUCTURED),
         "gemini-3-pro-preview": GEMINI_STANDARD,
         "gemini-3-flash-preview": GEMINI_STANDARD_STRUCTURED,
-        "gemini-3.1-pro-preview": GEMINI_STANDARD,
+        "gemini-3.1-pro-preview": GEMINI_STANDARD_STRUCTURED,
         "gemini-3.1-flash-lite-preview": _with_fast(GEMINI_STANDARD),
         # xAI Grok Models
         "grok": GROK_43,

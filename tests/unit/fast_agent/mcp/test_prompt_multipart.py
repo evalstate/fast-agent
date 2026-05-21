@@ -6,7 +6,11 @@ import os
 import tempfile
 from pathlib import Path
 
-from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources, load_prompt
+from fast_agent.mcp.prompts.prompt_load import (
+    create_messages_with_resources,
+    load_prompt,
+    prompt_file_template_variables,
+)
 from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
 
@@ -145,3 +149,41 @@ assistant2
     finally:
         # Clean up
         os.unlink(tf_path)
+
+
+def test_load_markdown_prompt_applies_template_arguments(tmp_path):
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("Hello {{ name }} about {{topic}}.", encoding="utf-8")
+
+    assert prompt_file_template_variables(prompt_path) == {"name", "topic"}
+
+    messages = load_prompt(prompt_path, arguments={"name": "Ada", "topic": "math"})
+
+    assert len(messages) == 1
+    assert messages[0].first_text() == "Hello Ada about math."
+
+
+def test_load_json_prompt_applies_text_template_arguments(tmp_path):
+    prompt_path = tmp_path / "prompt.json"
+    prompt_path.write_text(
+        """
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Hello {{name}}."}
+      ]
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    assert prompt_file_template_variables(prompt_path) == {"name"}
+
+    messages = load_prompt(prompt_path, arguments={"name": "Ada"})
+
+    assert len(messages) == 1
+    assert messages[0].first_text() == "Hello Ada."

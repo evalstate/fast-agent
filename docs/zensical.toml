@@ -1,0 +1,149 @@
+[project]
+site_name = "fast-agent documentation"
+site_url = "https://fast-agent.ai/"
+site_description = "MCP-native agents, workflows, and servers"
+repo_url = "https://github.com/evalstate/fast-agent"
+repo_name = "evalstate/fast-agent"
+copyright = "© 2025-2026 llmindset.co.uk"
+extra_css = ["stylesheets/fast-agent.css"]
+nav = [
+  { "fast-agent" = "index.md" },
+  { "Guides" = [
+    { "Core Concepts" = "guides/core-concepts.md" },
+    "guides/codex.md",
+    "guides/hf-dev.md",
+    "guides/batch-processing.md",
+    "guides/structured-outputs.md",
+    { "Privacy Filter" = "guides/privacy_filter.md" },
+  ] },
+  { "Agents" = [
+    "agents/defining.md",
+    { "Workflows" = "agents/workflows.md" },
+    "agents/running.md",
+    "agents/prompting.md",
+    "agents/tool_runner.md",
+    { "System Prompts" = "agents/instructions.md" },
+    "agents/skills.md",
+    { "Command Plugins" = "agents/plugins.md" },
+  ] },
+  { "Models" = [
+    { "Getting Started" = "models/index.md" },
+    { "Model Overlays" = "models/model_overlays.md" },
+    { "Providers and Models" = "models/llm_providers.md" },
+    { "Models Reference" = "models/models_reference.md" },
+    { "Internal Models" = "models/internal_models.md" },
+  ] },
+  { "ACP" = [
+    { "Using as an Agent" = "acp/index.md" },
+    { "Customizing Agents" = "acp/customizing_agents.md" },
+  ] },
+  { "MCP" = [
+    { "Configuring Servers" = "mcp/index.md" },
+    { "Deploying as an MCP Server" = "mcp/mcp-server.md" },
+    { "Inspecting Servers" = "mcp/mcp_display.md" },
+    { "Quickstart - Elicitations" = "mcp/elicitations.md" },
+    { "Quickstart - State Transfer" = "mcp/state_transfer.md" },
+    "mcp/openai-apps-sdk.md",
+    "mcp/mcp-ui.md",
+    { "MCP Server OAuth" = "mcp/mcp-oauth.md" },
+    "mcp/types.md",
+    "mcp/resources.md",
+  ] },
+  { "Reference" = [
+    { "fast-agent go" = "ref/go_command.md" },
+    { "Export Command" = "ref/export_command.md" },
+    { "Batch Processing" = "ref/batch.md" },
+    { "AgentCards and ToolCards" = "ref/agent_cards.md" },
+    { "Config File" = "ref/config_file.md" },
+    { "Command Line" = "ref/cmd_switches.md" },
+    { "Generated Docs" = "ref/generated_docs.md" },
+    { "Docs Automation" = "ref/docs_automation.md" },
+    { "Class Reference" = "ref/class_reference.md" },
+    { "Open Telemetry" = "ref/open_telemetry.md" },
+    { "Azure Configuration" = "ref/azure-config.md" },
+    { "Articles & Blog Posts" = "ref/fast_agent_ai_articles.md" },
+    { "About" = "ref/about.md" },
+  ] },
+]
+
+[project.theme]
+features = [
+  "navigation.instant",
+  "navigation.tracking",
+  "navigation.tabs",
+  "navigation.expand",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.footer",
+  "content.action.edit",
+  "content.action.view",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "announce.dismiss",
+  "search.highlight",
+  "search.suggest",
+  "content.tabs.link",
+]
+custom_dir = "overrides"
+logo = "assets/brand/fast-agent-icon.svg"
+favicon = "assets/brand/fast-agent-icon.svg"
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/discord"
+link = "https://discord.gg/xg5cJ7ndN6"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/x-twitter"
+link = "https://x.com/llmindsetuk"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/evalstate"
+
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.snippets]
+base_path = ["docs", ".."]
+check_paths = true
+[project.markdown_extensions.pymdownx.superfences]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.emoji]
+emoji_index = "zensical.extensions.emoji.twemoji"
+emoji_generator = "zensical.extensions.emoji.to_svg"
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+
+[project.plugins.search]
