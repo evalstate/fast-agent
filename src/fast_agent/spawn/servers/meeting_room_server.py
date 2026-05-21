@@ -357,6 +357,53 @@ async def create_meeting(
 # get_transcript: Replaced by transcript embedded in notifications
 
 
+def _assert_self_identity(agent_name: str) -> tuple[str, str | None]:
+    """Resolve caller identity + refuse impersonation.
+
+    The legacy contract was ``agent_name = agent_name or _get_my_name()``
+    — i.e. trust whatever name the caller supplies. That let any agent
+    `speak()` or `skip_turn()` ON BEHALF OF a teammate by simply passing
+    their name as ``agent_name``, since the only downstream check was
+    "is this name the current speaker", not "is the caller actually
+    this agent" (production 2026-05-20: Taylor [PM] force-skipped all
+    6 teammates in one meeting by impersonating each one's turn —
+    transcript falsely attributed identical placeholder responses to
+    BA/SA/Dev/Designer/QE/DSO).
+
+    Each MCP server child runs inside one agent's process with
+    ``TEAM_MY_NAME`` pinned at spawn time, so ``_get_my_name()`` is the
+    authoritative caller identity. If the caller supplies an
+    ``agent_name`` that disagrees with their env-pinned identity, it is
+    an impersonation attempt — fail loud, do NOT silently rewrite.
+
+    Returns ``(resolved_name, error_json)`` — exactly one is non-empty.
+    Caller short-circuits on error_json. Sentinel ``"agent"`` (the
+    fallback when neither TEAM_MY_NAME nor TEAM_MY_ROLE is set) is
+    treated as "no identity asserted" → caller must supply one
+    explicitly, preserving the legacy path for non-team contexts.
+    """
+    caller = _get_my_name()
+    has_real_identity = caller and caller.lower() != "agent"
+
+    if not agent_name:
+        return caller, None  # auto-detect (no impersonation possible)
+
+    if has_real_identity and agent_name.strip().lower() != caller.strip().lower():
+        return "", json.dumps({
+            "error": (
+                f"Impersonation refused: caller is {caller!r} but "
+                f"agent_name={agent_name!r}. You can only speak/skip on "
+                f"YOUR own turn. If a teammate is unresponsive, use "
+                f"end_meeting (or leave_meeting on your own turn) — do "
+                f"not put words in their mouth."
+            ),
+            "caller": caller,
+            "claimed_agent_name": agent_name,
+        })
+
+    return agent_name, None
+
+
 @mcp.tool()
 async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
     """Add your message to the meeting transcript.
@@ -376,12 +423,17 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
     Args:
         meeting_id: The meeting to speak in.
         agent_name: YOUR agent name (must be the current speaker). Auto-detected if empty.
+            ⚠️ Cannot be used to speak on behalf of another agent — if you
+            pass a name that disagrees with your spawn-pinned identity,
+            the call is refused. Use ``end_meeting`` if a teammate stalls.
         message: What you want to say.
 
     Returns:
         JSON with confirmation and next turn info.
     """
-    agent_name = agent_name or _get_my_name()
+    agent_name, _err = _assert_self_identity(agent_name)
+    if _err:
+        return _err
 
     if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
@@ -623,12 +675,17 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
     Args:
         meeting_id: The meeting.
         agent_name: YOUR agent name. Auto-detected if empty.
+            ⚠️ Cannot be used to skip another agent's turn — if you pass
+            a name that disagrees with your spawn-pinned identity, the
+            call is refused. Use ``end_meeting`` if a teammate stalls.
         reason: Optional reason for skipping.
 
     Returns:
         JSON with confirmation.
     """
-    agent_name = agent_name or _get_my_name()
+    agent_name, _err = _assert_self_identity(agent_name)
+    if _err:
+        return _err
 
     if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
