@@ -12,4 +12,4 @@ class A2AAgentConfig:
     accepted_output_modes: list[str] = field(default_factory=list)
     headers: dict[str, str] = field(default_factory=dict)
     relative_card_path: str | None = None
-
+    request_timeout_seconds: float | None = 120.0

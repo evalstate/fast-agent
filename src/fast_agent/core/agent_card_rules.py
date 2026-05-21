@@ -152,6 +152,7 @@ ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
         "accepted_output_modes",
         "headers",
         "relative_card_path",
+        "request_timeout_seconds",
     },
 }
 

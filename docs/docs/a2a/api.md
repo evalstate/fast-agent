@@ -57,6 +57,7 @@ A2AAgentConfig(
     accepted_output_modes=["text/plain", "application/json", "image/*"],
     headers={"Authorization": "Bearer ..."},
     relative_card_path="/.well-known/agent-card.json",
+    request_timeout_seconds=120,
 )
 ```
 

@@ -103,6 +103,7 @@ accepted_output_modes:
   - text/plain
   - application/json
   - image/*
+request_timeout_seconds: 120
 headers:
   Authorization: "Bearer ${A2A_TOKEN}"
 relative_card_path: "/.well-known/agent-card.json"
@@ -140,6 +141,57 @@ Remote A2A `TaskArtifactUpdateEvent` updates are emitted through the normal
 fast-agent stream listener path. The client assembles final text per artifact
 and honors the A2A `append` flag, so replacement updates replace the artifact
 content and append updates extend it.
+
+The A2A client defaults to a longer HTTP request timeout than httpx's default so
+real LLM-backed servers have time to emit the first stream event. Set
+`request_timeout_seconds` on an A2A AgentCard when a remote endpoint needs a
+different timeout.
+
+### Real LLM Server Recording
+
+This recording shows a fast-agent A2A client streaming from a fast-agent A2A
+server backed by a real LLM and the Hugging Face MCP server. It is a provider
+smoke recording, separate from the deterministic fake-server recordings used by
+the test suite.
+
+<div class="a2a-terminal-demo">
+  <div id="a2a-real-llm-hf-player"></div>
+</div>
+
+<script>
+  (function () {
+    function renderRealLlmHfCast() {
+      var target = document.getElementById("a2a-real-llm-hf-player");
+      if (!target || !window.AsciinemaPlayer || target.dataset.loaded === "true") {
+        return;
+      }
+      target.dataset.loaded = "true";
+      window.AsciinemaPlayer.create("../../assets/a2a/a2a-real-llm-hf-streaming.cast", target, {
+        cols: 120,
+        rows: 32,
+        preload: true,
+        speed: 1,
+        idleTimeLimit: 1,
+        fit: "width",
+        theme: "fast-agent-dark"
+      });
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", renderRealLlmHfCast);
+    } else {
+      renderRealLlmHfCast();
+    }
+    if (window.document$ && window.document$.subscribe) {
+      window.document$.subscribe(renderRealLlmHfCast);
+    }
+  })();
+</script>
+
+Regenerate this provider-backed cast with:
+
+```bash
+uv run scripts/a2a_docs_pipeline.py record-real-llm
+```
 
 ## `INPUT_REQUIRED`
 

@@ -105,7 +105,10 @@ class A2ARemoteAgent(LlmDecorator):
 
     async def initialize(self) -> None:
         await super().initialize()
-        self._httpx_client = httpx.AsyncClient(headers=self.a2a_config.headers or None)
+        self._httpx_client = httpx.AsyncClient(
+            headers=self.a2a_config.headers or None,
+            timeout=self.a2a_config.request_timeout_seconds,
+        )
         client_config = ClientConfig(
             streaming=self.a2a_config.streaming,
             polling=self.a2a_config.polling,

@@ -552,6 +552,11 @@ def _build_agent_data(
             relative_card_path=_ensure_optional_str(
                 raw.get("relative_card_path"), "relative_card_path", path
             ),
+            request_timeout_seconds=(
+                _ensure_float(raw.get("request_timeout_seconds"), "request_timeout_seconds", path)
+                if raw.get("request_timeout_seconds") is not None
+                else 120.0
+            ),
         )
 
     return agent_data
@@ -1205,6 +1210,8 @@ def _serialize_a2a_fields(
         card["headers"] = dict(a2a_config.headers)
     if a2a_config.relative_card_path:
         card["relative_card_path"] = a2a_config.relative_card_path
+    if a2a_config.request_timeout_seconds != 120.0:
+        card["request_timeout_seconds"] = a2a_config.request_timeout_seconds
 
 
 _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {

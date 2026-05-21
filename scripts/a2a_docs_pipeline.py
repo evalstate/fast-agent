@@ -9,12 +9,15 @@ Usage:
     uv run scripts/a2a_docs_pipeline.py generate
     uv run scripts/a2a_docs_pipeline.py check
     uv run scripts/a2a_docs_pipeline.py record
+    uv run scripts/a2a_docs_pipeline.py record-real-llm
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -27,7 +30,14 @@ SNIPPETS = DOCS_A2A / "snippets"
 ASSETS = ROOT / "docs" / "docs" / "assets" / "a2a"
 RECORDS = Path.home() / "plan" / "records"
 PORT = 41242
+REAL_LLM_PORT = 41243
 BASE_URL = f"http://127.0.0.1:{PORT}"
+REAL_LLM_BASE_URL = f"http://127.0.0.1:{REAL_LLM_PORT}"
+REAL_LLM_MCP_URL = "https://hf.co/mcp"
+REAL_LLM_MODEL = "codexresponses.gpt-5.4-mini"
+REAL_LLM_CAST = "a2a-real-llm-hf-streaming.cast"
+REAL_LLM_SERVER_LOG = Path("/tmp/a2a-real-llm-server.log")
+REAL_LLM_READY_TIMEOUT_SECONDS = 90.0
 
 START_FAKE_SERVER = f"uv run python tests/integration/a2a/fake_server.py --port {PORT}\n"
 STREAM_COMMAND = f"""uv run fast-agent -x \\
@@ -131,6 +141,37 @@ def _stop_server(process: subprocess.Popen[str]) -> None:
         process.wait(timeout=5)
 
 
+def _log_tail(path: Path, *, lines: int = 80) -> str:
+    if not path.exists():
+        return f"{path} does not exist"
+    content = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return "\n".join(content[-lines:])
+
+
+def _wait_for_url(
+    url: str,
+    *,
+    process: subprocess.Popen[str] | None = None,
+    log_path: Path | None = None,
+    timeout_seconds: float = 10.0,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            details = f"\nLOG:\n{_log_tail(log_path)}" if log_path is not None else ""
+            raise RuntimeError(
+                f"process exited before {url} became ready with status {process.returncode}{details}"
+            )
+        try:
+            with urllib.request.urlopen(url, timeout=0.5) as response:  # noqa: S310 - docs smoke URL
+                if response.status == 200:
+                    return
+        except OSError:
+            time.sleep(0.5)
+    details = f"\nLOG:\n{_log_tail(log_path)}" if log_path is not None else ""
+    raise TimeoutError(f"{url} did not become ready within {timeout_seconds:.1f}s{details}")
+
+
 def generate() -> None:
     SNIPPETS.mkdir(parents=True, exist_ok=True)
     ASSETS.mkdir(parents=True, exist_ok=True)
@@ -173,6 +214,7 @@ def check() -> None:
         ASSETS / "a2a-client-cli.cast",
         ASSETS / "a2a-client-input-required.cast",
         ASSETS / "a2a-server-card.cast",
+        ASSETS / REAL_LLM_CAST,
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.css",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "catppuccin.css",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.min.js",
@@ -199,6 +241,7 @@ def check() -> None:
         DOCS_A2A / "client.md": [
             "../../assets/a2a/a2a-client-cli.cast",
             "../../assets/a2a/a2a-client-input-required.cast",
+            f"../../assets/a2a/{REAL_LLM_CAST}",
         ],
         DOCS_A2A / "server.md": ["../../assets/a2a/a2a-server-card.cast"],
     }
@@ -288,16 +331,180 @@ tmux attach-session -t "$SESSION" || true
         _stop_server(server)
 
 
+def _require_real_llm_recording_tools() -> None:
+    missing = [tool for tool in ["asciinema", "tmux", "curl"] if not shutil.which(tool)]
+    if missing:
+        raise SystemExit("record-real-llm requires these tools: " + ", ".join(missing))
+    missing_env = [
+        name
+        for name in ["HF_TOKEN", "OPENAI_API_KEY"]
+        if not os.environ.get(name)
+    ]
+    if missing_env:
+        raise SystemExit(
+            "record-real-llm requires environment variables: " + ", ".join(missing_env)
+        )
+
+
+def _start_real_llm_server(instruction: Path) -> subprocess.Popen[str]:
+    REAL_LLM_SERVER_LOG.unlink(missing_ok=True)
+    log_file = REAL_LLM_SERVER_LOG.open("w", encoding="utf-8")
+    env = os.environ.copy()
+    model = env.get("A2A_REAL_LLM_MODEL", REAL_LLM_MODEL)
+    hf_mcp_url = env.get("A2A_HF_MCP_URL", REAL_LLM_MCP_URL)
+    command = [
+        "uv",
+        "run",
+        "fast-agent",
+        "serve",
+        "a2a",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(REAL_LLM_PORT),
+        "--name",
+        "hf-model-research",
+        "--model",
+        model,
+        "--url",
+        hf_mcp_url,
+        "--instruction",
+        str(instruction),
+    ]
+    process = subprocess.Popen(
+        command,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    log_file.close()
+    _wait_for_url(
+        f"{REAL_LLM_BASE_URL}/.well-known/agent-card.json",
+        process=process,
+        log_path=REAL_LLM_SERVER_LOG,
+        timeout_seconds=float(
+            os.environ.get(
+                "A2A_REAL_LLM_READY_TIMEOUT_SECONDS",
+                str(REAL_LLM_READY_TIMEOUT_SECONDS),
+            )
+        ),
+    )
+    return process
+
+
+def _stop_real_llm_server(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=5)
+
+
+def record_real_llm() -> None:
+    """Record a provider-backed A2A server/client streaming demo."""
+    _require_real_llm_recording_tools()
+    ASSETS.mkdir(parents=True, exist_ok=True)
+    RECORDS.mkdir(parents=True, exist_ok=True)
+
+    instruction = Path("/tmp/a2a-real-llm-instruction.md")
+    instruction.write_text(
+        """You are a concise Hugging Face model research assistant.
+
+Use available Hugging Face MCP tools to answer questions about models. When the
+user asks about trending models, use markdown with a short heading, 3-5 bullets,
+and a brief note about the source or any uncertainty.
+""",
+        encoding="utf-8",
+    )
+
+    server = _start_real_llm_server(instruction)
+    driver = Path("/tmp/a2a-real-llm-record.sh")
+    driver.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+SESSION=a2a_real_llm_cast
+ROOT={ROOT}
+BASE_URL={REAL_LLM_BASE_URL}
+SERVER_LOG={REAL_LLM_SERVER_LOG}
+RECORD_SECONDS="${{A2A_REAL_LLM_RECORD_SECONDS:-70}}"
+MODEL="${{A2A_REAL_LLM_MODEL:-{REAL_LLM_MODEL}}}"
+HF_MCP_URL="${{A2A_HF_MCP_URL:-{REAL_LLM_MCP_URL}}}"
+PROMPT='Use the Hugging Face MCP server if available. Answer in markdown: what models are trending on Hugging Face right now? Include concise bullets and mention any uncertainty.'
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x 120 -y 32 \
+  "printf 'fast-agent A2A server ready\\nmodel: %s\\nMCP: %s\\nlog: %s\\n\\n' '$MODEL' '$HF_MCP_URL' '$SERVER_LOG'; tail -n 80 -f '$SERVER_LOG'"
+tmux set-option -t "$SESSION" status off >/dev/null
+tmux split-window -v -t "$SESSION" -l 20 \
+  "cd '$ROOT' && printf 'A2A card: %s/.well-known/agent-card.json\\n' '$BASE_URL'; curl -fsS '$BASE_URL/.well-known/agent-card.json' | python -m json.tool | sed -n '1,22p'; printf '\\ninteractive A2A JSON-RPC client\\n'; TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_MODEL=passthrough uv run fast-agent -x --noenv --a2a '$BASE_URL' --a2a-transport JSONRPC"
+
+(
+  for _ in $(seq 1 120); do
+    if tmux capture-pane -p -t "$SESSION":0.1 | grep -q 'a2a_remote'; then
+      break
+    fi
+    sleep 0.5
+  done
+  sleep 1
+  tmux send-keys -l -t "$SESSION":0.1 "$PROMPT"
+  tmux send-keys -t "$SESSION":0.1 Enter
+  sleep "$RECORD_SECONDS"
+  tmux send-keys -t "$SESSION":0.1 '/exit' Enter
+  sleep 2
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux select-pane -t "$SESSION":0.1
+tmux attach-session -t "$SESSION" || true
+""",
+        encoding="utf-8",
+    )
+    driver.chmod(0o755)
+
+    command = [
+        "asciinema",
+        "rec",
+        "--overwrite",
+        "--cols",
+        "120",
+        "--rows",
+        "32",
+        "--idle-time-limit",
+        "1.3",
+        "-t",
+        "fast-agent A2A real LLM Hugging Face MCP streaming demo",
+        "-c",
+        str(driver),
+        str(ASSETS / REAL_LLM_CAST),
+    ]
+    try:
+        subprocess.run(command, cwd=ROOT, check=True)
+    finally:
+        subprocess.run(["tmux", "kill-session", "-t", "a2a_real_llm_cast"], check=False)
+        _stop_real_llm_server(server)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["generate", "check", "record"])
+    parser.add_argument("command", choices=["generate", "check", "record", "record-real-llm"])
     args = parser.parse_args()
     if args.command == "generate":
         generate()
     elif args.command == "check":
         check()
-    else:
+    elif args.command == "record":
         record()
+    else:
+        record_real_llm()
     return 0
 
 
