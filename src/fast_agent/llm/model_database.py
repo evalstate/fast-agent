@@ -19,6 +19,7 @@ from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
 
 ResourceSource = Literal["embedded", "link"]
+ChatCompletionReasoningAdapter = Literal["openai_responses_v1"]
 
 
 class ModelParameters(BaseModel):
@@ -44,6 +45,9 @@ class ModelParameters(BaseModel):
 
     reasoning_effort_spec: ReasoningEffortSpec | None = None
     """Reasoning effort input configuration supported by the model, if any."""
+
+    chat_completion_reasoning_adapter: ChatCompletionReasoningAdapter | None = None
+    """Adapter for provider-specific reasoning payloads on Chat Completions streams."""
 
     text_verbosity_spec: TextVerbositySpec | None = None
     """Text verbosity configuration supported by the model, if any."""
@@ -557,6 +561,53 @@ class ModelDatabase:
         default_provider=Provider.ANTHROPIC,
     )
 
+    # ---------------------------------------------------------------------------
+    # Nous Research Portal models
+    # Injected via extra_body["tags"] for portal product attribution.
+    # ---------------------------------------------------------------------------
+    H3_405B = ModelParameters(
+        context_window=128000,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        default_provider=Provider.NOUS,
+    )
+    H3_70B = ModelParameters(
+        context_window=128000,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        default_provider=Provider.NOUS,
+    )
+    H2_405B = ModelParameters(
+        context_window=128000,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        default_provider=Provider.NOUS,
+    )
+    H2_70B = ModelParameters(
+        context_window=128000,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        default_provider=Provider.NOUS,
+    )
+    NOUS_EPISTEM = ModelParameters(
+        context_window=128000,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        default_provider=Provider.NOUS,
+    )
+    STEPFUN_STEP_35_FLASH = ModelParameters(
+        context_window=128000,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        default_provider=Provider.NOUS,
+    )
+
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
         context_window=65536,
         max_output_tokens=8192,
@@ -891,6 +942,7 @@ class ModelDatabase:
         "gpt-5.5": OPENAI_GPT_CODEX.model_copy(
             update={
                 "reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING,
+                "chat_completion_reasoning_adapter": "openai_responses_v1",
                 "model_specific": GPT_53_PLUS_MODEL_SPECIFIC,
             }
         ),
@@ -941,6 +993,14 @@ class ModelDatabase:
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
         "deepseek-chat": _with_fast(DEEPSEEK_CHAT_STANDARD),
+        # Nous Research Portal — Hermes brain, Nous gateway tagging
+        "hermes-3-405b": H3_405B,
+        "hermes-3-70b": H3_70B,
+        "hermes-2-405b": H2_405B,
+        "hermes-2-70b": H2_70B,
+        "epistem-7b-hermes-2-beta": NOUS_EPISTEM,
+        # StepFun via Nous Portal
+        "stepfun/step-3.5-flash": STEPFUN_STEP_35_FLASH,
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,

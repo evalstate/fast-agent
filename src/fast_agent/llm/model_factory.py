@@ -983,6 +983,10 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.llm_groq import GroqLLM
 
                 return GroqLLM
+            if provider == Provider.NOUS:
+                from fast_agent.llm.provider.nous.llm_nous import NousLLM
+
+                return NousLLM
             if provider == Provider.RESPONSES:
                 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 

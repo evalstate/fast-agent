@@ -41,6 +41,7 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.BEDROCK,
     Provider.DEEPSEEK,
     Provider.ALIYUN,
+    Provider.NOUS,
     Provider.OPENROUTER,
     Provider.FAST_AGENT,
 )

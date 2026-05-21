@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -24,7 +25,7 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_message_tool_call import Function
 from pydantic_core import from_json
 
-from fast_agent.constants import REASONING
+from fast_agent.constants import OPENAI_REASONING_ENCRYPTED, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -101,6 +102,7 @@ class OpenAILLM(
         # Initialize logger with name if available
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
         self._file_id_cache: dict[str, str] = {}
+        self._last_chat_reasoning_details: list[dict[str, Any]] = []
 
         # Set up reasoning-related attributes
         raw_setting = kwargs.get("reasoning_effort", None)
@@ -352,6 +354,26 @@ class OpenAILLM(
         """Allow subclasses to suppress streamed reasoning display."""
         return True
 
+    def _chat_completion_reasoning_adapter(self, model: str | None) -> str | None:
+        params = self._get_model_params(model)
+        return params.chat_completion_reasoning_adapter if params is not None else None
+
+    def _stream_reasoning_mode(self, model: str, reasoning_mode: str | None) -> str | None:
+        if self._chat_completion_reasoning_adapter(model) == "openai_responses_v1":
+            return "stream"
+        return reasoning_mode
+
+    def _record_chat_reasoning_details(self, delta: Any, model: str) -> None:
+        if self._chat_completion_reasoning_adapter(model) != "openai_responses_v1":
+            return
+        reasoning_details = getattr(delta, "reasoning_details", None)
+        if not reasoning_details:
+            return
+        for detail in reasoning_details:
+            payload = detail if isinstance(detail, dict) else getattr(detail, "model_dump", lambda: None)()
+            if isinstance(payload, dict) and payload.get("type") == "reasoning.encrypted":
+                self._last_chat_reasoning_details.append(dict(payload))
+
     def _handle_tool_delta(
         self,
         *,
@@ -463,6 +485,7 @@ class OpenAILLM(
         if chunk.choices:
             choice = chunk.choices[0]
             delta = choice.delta
+            self._record_chat_reasoning_details(delta, model)
             reasoning_text = self._extract_reasoning_text(
                 reasoning=getattr(delta, "reasoning", None),
                 reasoning_content=getattr(delta, "reasoning_content", None),
@@ -608,7 +631,7 @@ class OpenAILLM(
         estimated_tokens = 0
         reasoning_active = False
         reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
-        reasoning_mode = self._get_model_reasoning(model)
+        reasoning_mode = self._stream_reasoning_mode(model, self._get_model_reasoning(model))
 
         # For providers/models that emit non-OpenAI deltas, fall back to manual accumulation
         stream_mode = self._get_model_stream_mode(model)
@@ -759,7 +782,7 @@ class OpenAILLM(
         estimated_tokens = 0
         reasoning_active = False
         reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
-        reasoning_mode = self._get_model_reasoning(model)
+        reasoning_mode = self._stream_reasoning_mode(model, self._get_model_reasoning(model))
 
         # Manual accumulation of response data
         accumulated_content = ""
@@ -998,6 +1021,7 @@ class OpenAILLM(
                 capture_filename = _stream_capture_filename(self.chat_turn())
                 _save_stream_request(capture_filename, arguments)
 
+                self._last_chat_reasoning_details = []
                 stream = await client.chat.completions.create(**arguments)
                 timeout = request_params.streaming_timeout
                 timed_stream = with_stream_idle_timeout(
@@ -1136,11 +1160,26 @@ class OpenAILLM(
         if streamed_reasoning:
             reasoning_blocks = [TextContent(type="text", text="".join(streamed_reasoning))]
 
+        encrypted_reasoning_blocks: list[ContentBlock] | None = None
+        if self._last_chat_reasoning_details:
+            encrypted_reasoning_blocks = [
+                TextContent(type="text", text=json.dumps(detail, separators=(",", ":")))
+                for detail in self._last_chat_reasoning_details
+            ]
+
+        channels: dict[str, list[ContentBlock]] | None = None
+        if reasoning_blocks:
+            channels = {REASONING: reasoning_blocks}
+        if encrypted_reasoning_blocks:
+            if channels is None:
+                channels = {}
+            channels[OPENAI_REASONING_ENCRYPTED] = encrypted_reasoning_blocks
+
         return PromptMessageExtended(
             role="assistant",
             content=response_content_blocks,
             tool_calls=requested_tool_calls,
-            channels={REASONING: reasoning_blocks} if reasoning_blocks else None,
+            channels=channels,
             stop_reason=stop_reason,
         )
 
@@ -1269,6 +1308,68 @@ class OpenAILLM(
 
         return ""
 
+    def _chat_reasoning_summary_text(self, msg: PromptMessageExtended) -> str:
+        if not msg.channels:
+            return ""
+        reasoning_blocks = msg.channels.get(REASONING) or []
+        texts = [get_text(block) for block in reasoning_blocks]
+        return "\n\n".join(text for text in texts if text).strip()
+
+    def _chat_reasoning_encrypted_details(
+        self, msg: PromptMessageExtended
+    ) -> list[dict[str, Any]]:
+        if not msg.channels:
+            return []
+        encrypted_blocks = msg.channels.get(OPENAI_REASONING_ENCRYPTED) or []
+        details: list[dict[str, Any]] = []
+        for block in encrypted_blocks:
+            text = get_text(block)
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                self.logger.debug("Skipping malformed chat reasoning detail block")
+                continue
+            if isinstance(payload, dict) and payload.get("type") == "reasoning.encrypted":
+                details.append(payload)
+        return details
+
+    def _apply_chat_reasoning_adapter(
+        self,
+        msg: PromptMessageExtended,
+        openai_msgs: list[ChatCompletionMessageParam],
+        model: str | None,
+    ) -> None:
+        if self._chat_completion_reasoning_adapter(model) != "openai_responses_v1":
+            return
+        if msg.role != "assistant" or not msg.channels:
+            return
+
+        summary_text = self._chat_reasoning_summary_text(msg)
+        encrypted_details = self._chat_reasoning_encrypted_details(msg)
+        if not summary_text and not encrypted_details:
+            return
+
+        details: list[dict[str, Any]] = []
+        if summary_text:
+            details.append(
+                {
+                    "type": "reasoning.summary",
+                    "summary": summary_text,
+                    "format": "openai-responses-v1",
+                    "index": 0,
+                }
+            )
+        details.extend(encrypted_details)
+
+        for oai_msg in openai_msgs:
+            oai_dict = cast("dict[str, Any]", oai_msg)
+            if summary_text:
+                oai_dict["reasoning"] = summary_text
+            if details:
+                oai_dict["reasoning_details"] = details
+
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
     ) -> list[ChatCompletionMessageParam]:
@@ -1289,6 +1390,7 @@ class OpenAILLM(
         for msg in messages:
             # convert_to_openai returns a list of messages
             openai_msgs = OpenAIConverter.convert_to_openai(msg)
+            self._apply_chat_reasoning_adapter(msg, openai_msgs, model)
 
             if reasoning_mode == "reasoning_content" and msg.channels:
                 reasoning_blocks = msg.channels.get(REASONING) if msg.channels else None

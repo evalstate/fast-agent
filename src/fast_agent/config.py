@@ -1071,6 +1071,29 @@ class DeepSeekSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class NousSettings(BaseModel):
+    """Settings for using Nous Research Portal provider in the fast-agent application."""
+
+    api_key: str | None = Field(default=None, description="Nous API key")
+    base_url: str | None = Field(
+        default="https://inference.nousresearch.com/v1",
+        description="Nous Portal API endpoint (default: https://inference.nousresearch.com/v1)",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description="Default Nous model when Nous provider is selected without an explicit model",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all Nous API requests",
+    )
+    # Hermes passthrough: product=hermes-agent tag injected automatically in fast-agent
+    # as product=fast-agent; this field is not exposed in config schema — it is derived
+    # from the NousPortalAttributionPolicy in fast-agent 0.8+.
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class GoogleSettings(BaseModel):
     """Settings for using Google models in the fast-agent application."""
 
@@ -1654,6 +1677,9 @@ class Settings(BaseSettings):
 
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
+
+    nous: NousSettings | None = None
+    """Settings for using Nous Research Portal in the fast-agent application"""
 
     google: GoogleSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""

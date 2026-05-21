@@ -1,9 +1,13 @@
 from dataclasses import dataclass
+from typing import Any, cast
 
 import pytest
+from mcp.types import TextContent
 
+from fast_agent.constants import OPENAI_REASONING_ENCRYPTED, REASONING
 from fast_agent.context import Context
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 def test_extract_incremental_delta_with_cumulative_content() -> None:
@@ -43,6 +47,8 @@ class StubToolCallDelta:
 @dataclass
 class StubDelta:
     content: str | None = None
+    reasoning: str | None = None
+    reasoning_details: list[dict[str, object]] | None = None
     tool_calls: list[StubToolCallDelta] | None = None
     role: str | None = None
     function_call: object | None = None
@@ -130,3 +136,88 @@ async def test_tool_streaming_survives_cumulative_content() -> None:
     assert "delta" in event_types
     assert "stop" in event_types
     assert event_types.index("start") < event_types.index("stop")
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_chat_reasoning_adapter_streams_and_records_details() -> None:
+    context = Context()
+    llm = OpenAILLM(context=context, model="gpt-5.5")
+    stream_chunks: list[tuple[str, bool]] = []
+    llm.add_stream_listener(lambda chunk: stream_chunks.append((chunk.text, chunk.is_reasoning)))
+    llm._last_chat_reasoning_details = []
+
+    encrypted_detail: dict[str, object] = {
+        "type": "reasoning.encrypted",
+        "data": "enc",
+        "format": "openai-responses-v1",
+        "index": 0,
+    }
+    chunks = [
+        StubChunk(
+            [
+                StubChoice(
+                    StubDelta(
+                        reasoning="summary",
+                        reasoning_details=[
+                            {
+                                "type": "reasoning.summary",
+                                "summary": "summary",
+                                "format": "openai-responses-v1",
+                                "index": 0,
+                            }
+                        ],
+                    )
+                )
+            ]
+        ),
+        StubChunk([StubChoice(StubDelta(reasoning_details=[encrypted_detail]))]),
+        StubChunk([StubChoice(StubDelta(content="done"), finish_reason="stop")]),
+    ]
+
+    _completion, reasoning = await llm._process_stream_manual(_stream_chunks(chunks), "gpt-5.5")
+
+    assert reasoning == ["summary"]
+    assert ("summary", True) in stream_chunks
+    assert llm._last_chat_reasoning_details == [encrypted_detail]
+
+
+def test_openai_responses_chat_reasoning_adapter_replays_details() -> None:
+    context = Context()
+    llm = OpenAILLM(context=context, model="gpt-5.5")
+    encrypted_detail: dict[str, object] = {
+        "type": "reasoning.encrypted",
+        "data": "enc",
+        "format": "openai-responses-v1",
+        "index": 0,
+    }
+    msg = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        channels={
+            REASONING: [TextContent(type="text", text="summary")],
+            OPENAI_REASONING_ENCRYPTED: [
+                TextContent(
+                    type="text",
+                    text=(
+                        '{"type":"reasoning.encrypted","data":"enc",'
+                        '"format":"openai-responses-v1","index":0}'
+                    ),
+                )
+            ],
+        },
+    )
+
+    converted = llm._convert_extended_messages_to_provider([msg])
+
+    assert len(converted) == 1
+    outgoing = cast("dict[str, Any]", converted[0])
+    assert outgoing["reasoning"] == "summary"
+    assert outgoing["reasoning_details"] == [
+        {
+            "type": "reasoning.summary",
+            "summary": "summary",
+            "format": "openai-responses-v1",
+            "index": 0,
+        },
+        encrypted_detail,
+    ]
