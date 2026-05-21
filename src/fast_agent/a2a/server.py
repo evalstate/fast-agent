@@ -18,6 +18,7 @@ from a2a.server.agent_execution.agent_executor import AgentExecutor
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.request_handlers.response_helpers import agent_card_to_dict
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, create_rest_routes
+from a2a.server.routes.common import DefaultServerCallContextBuilder
 from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
 from a2a.server.tasks.task_updater import TaskUpdater
 from a2a.types import (
@@ -111,6 +112,10 @@ def _bearer_token_from_header(value: str | None) -> str | None:
 
 
 def _bearer_token_from_call_context(context: RequestContext) -> str | None:
+    saved_token = context.call_context.state.get("fast_agent_bearer_token")
+    if isinstance(saved_token, str) and saved_token:
+        return saved_token
+
     headers = context.call_context.state.get("headers")
     if not isinstance(headers, dict):
         return None
@@ -164,6 +169,9 @@ class A2ABearerAuthMiddleware:
             await response(scope, receive, send)
             return
 
+        state = dict(scope.get("state") or {})
+        state["fast_agent_bearer_token"] = token
+        scope = dict(scope, state=state)
         await self.app(scope, receive, send)
 
 
@@ -172,6 +180,17 @@ def _header_value(headers: list[tuple[bytes, bytes]], name: bytes) -> str | None
         if key.lower() == name:
             return value.decode("latin-1")
     return None
+
+
+class A2AServerCallContextBuilder(DefaultServerCallContextBuilder):
+    """Build A2A call context while preserving fast-agent request auth state."""
+
+    def build(self, request: Request) -> Any:
+        context = super().build(request)
+        token = getattr(request.state, "fast_agent_bearer_token", None)
+        if isinstance(token, str) and token:
+            context.state["fast_agent_bearer_token"] = token
+        return context
 
 
 class FastAgentA2AExecutor(AgentExecutor):
@@ -245,17 +264,19 @@ class FastAgentA2AExecutor(AgentExecutor):
 
         lock = await self._context_lock(self._lock_key(context))
         async with lock:
-            instance = await self._acquire_instance(context.context_id)
+            saved_bearer_token = request_bearer_token.set(
+                _bearer_token_from_call_context(context)
+            )
+            instance: AgentInstance | None = None
             try:
-                agent = self._select_agent(instance, context.message)
-                stream_context = self._prepare_streaming_context(
-                    agent=agent,
-                    updater=updater,
-                )
-                saved_bearer_token = request_bearer_token.set(
-                    _bearer_token_from_call_context(context)
-                )
+                instance = await self._acquire_instance(context.context_id)
+                stream_context: _A2AStreamingContext | None = None
                 try:
+                    agent = self._select_agent(instance, context.message)
+                    stream_context = self._prepare_streaming_context(
+                        agent=agent,
+                        updater=updater,
+                    )
                     response = await agent.generate(
                         _prompt_from_a2a_message(context.message),
                     )
@@ -273,13 +294,15 @@ class FastAgentA2AExecutor(AgentExecutor):
                     )
                     return
                 finally:
-                    request_bearer_token.reset(saved_bearer_token)
-                    await self._cleanup_streaming_context(stream_context)
+                    if stream_context is not None:
+                        await self._cleanup_streaming_context(stream_context)
             finally:
-                await self._release_instance(
-                    context.context_id,
-                    instance,
-                )
+                request_bearer_token.reset(saved_bearer_token)
+                if instance is not None:
+                    await self._release_instance(
+                        context.context_id,
+                        instance,
+                    )
 
         streamed_text = stream_context.streamed_text()
         response_text = response.all_text()
@@ -473,12 +496,21 @@ class AgentA2AServer:
 
     def asgi_app(self) -> FastAPI:
         app = FastAPI(title=self.agent_card.name)
+        context_builder = A2AServerCallContextBuilder()
         app.routes.extend(_agent_card_routes(self.agent_card, host=self._host, port=self._port))
         app.routes.extend(
-            create_jsonrpc_routes(request_handler=self.request_handler, rpc_url="/a2a/jsonrpc")
+            create_jsonrpc_routes(
+                request_handler=self.request_handler,
+                rpc_url="/a2a/jsonrpc",
+                context_builder=context_builder,
+            )
         )
         app.routes.extend(
-            create_rest_routes(request_handler=self.request_handler, path_prefix="/a2a/rest")
+            create_rest_routes(
+                request_handler=self.request_handler,
+                path_prefix="/a2a/rest",
+                context_builder=context_builder,
+            )
         )
         if self._oauth_provider == "huggingface":
             app.add_middleware(A2ABearerAuthMiddleware, provider=self._oauth_provider)
@@ -562,7 +594,11 @@ def _agent_card_routes(agent_card: AgentCard, *, host: str, port: int) -> list[A
     from starlette.routing import Route
 
     async def _get_agent_card(request: "Request") -> JSONResponse:
-        base_url = str(request.base_url).rstrip("/")
+        base_url = (
+            os.environ.get("FAST_AGENT_PUBLIC_URL")
+            or os.environ.get("FAST_AGENT_OAUTH_RESOURCE_URL")
+            or str(request.base_url)
+        ).rstrip("/")
         return JSONResponse(agent_card_to_dict(_agent_card_with_base_url(agent_card, base_url)))
 
     return [

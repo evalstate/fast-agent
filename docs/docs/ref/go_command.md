@@ -28,7 +28,7 @@ fast-agent go [OPTIONS]
 - `--config-path`, `-c <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to config file
 - `--servers <server1>,<server2>`: Comma-separated list of server names to enable from config
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
-- `--auth TEXT`: Bearer token for authorization with URL-based servers
+- `--auth TEXT`: Bearer token for authorization with remote MCP URL servers and A2A endpoints
 - `--model`, `--models <model_string>`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--model`, `--models <model1>,<model2>,...`: Run one agent per model in parallel and print a side-by-side comparison of responses
 - `--pack`, `--card-pack <name>`: Ensure a named card pack is installed in the selected environment before starting
@@ -273,8 +273,11 @@ The `--url` parameter allows you to connect directly to HTTP or SSE servers usin
 
 ### Authentication
 
-The `--auth` parameter provides authentication for URL-based servers:
+The `--auth` parameter provides authentication for remote connections created by
+the CLI:
 
-- When provided, it creates an `Authorization: Bearer TOKEN` header for all URL-based servers
-- This is commonly used with API endpoints that require authentication
+- For `--url`, it creates an `Authorization: Bearer TOKEN` header for all URL-based MCP servers
+- For `--a2a`, it creates an `Authorization: Bearer TOKEN` header for all generated ad hoc A2A AgentCards
+- This is a convenience flag for simple runs where the same credential applies to every remote endpoint
+- Use checked-in config or AgentCards when different remote endpoints need different credentials
 - Example: `fast-agent go --url=https://api.example.com/mcp --auth=12345abcde`

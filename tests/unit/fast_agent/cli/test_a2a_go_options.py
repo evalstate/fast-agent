@@ -26,6 +26,21 @@ def test_materialize_a2a_agent_card() -> None:
         tempdir.cleanup()
 
 
+def test_materialize_a2a_agent_card_with_auth_uses_authorization_for_hf_space() -> None:
+    tempdir, paths = _materialize_a2a_agent_cards(
+        ["https://demo.hf.space"],
+        transport="jsonrpc",
+        auth_token="Bearer explicit-token",
+    )
+    try:
+        text = Path(paths[0]).read_text(encoding="utf-8")
+        assert "headers:" in text
+        assert "  Authorization: 'Bearer explicit-token'" in text
+        assert "X-HF-Authorization" not in text
+    finally:
+        tempdir.cleanup()
+
+
 def test_materialize_a2a_rejects_bad_transport() -> None:
     with pytest.raises(typer.BadParameter):
         _materialize_a2a_agent_cards(["http://127.0.0.1:41241"], transport="bogus")

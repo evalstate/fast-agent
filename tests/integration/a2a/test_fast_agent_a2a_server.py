@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
@@ -35,6 +36,7 @@ from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
 from fast_agent.a2a.server import (
     AgentA2AServer,
+    _bearer_token_from_call_context,
     _parts_from_prompt_message,
     _prompt_from_a2a_message,
 )
@@ -978,6 +980,39 @@ def test_fast_agent_a2a_server_does_not_advertise_wildcard_bind_host() -> None:
 
 
 @pytest.mark.integration
+def test_fast_agent_a2a_server_uses_public_url_env_for_dynamic_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = RecordingAgent(name="worker")
+
+    async def create_instance() -> AgentInstance:
+        return _instance(RecordingAgent(name="worker"))
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        del instance
+
+    monkeypatch.setenv("FAST_AGENT_PUBLIC_URL", "https://agent.example")
+    server = AgentA2AServer(
+        primary_instance=_instance(agent),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent public URL test server",
+        host="0.0.0.0",
+        port=41241,
+    )
+
+    client = TestClient(server.asgi_app(), base_url="http://internal.example:41241")
+    response = client.get("/.well-known/agent-card.json")
+    response.raise_for_status()
+
+    urls = {interface["url"] for interface in response.json()["supportedInterfaces"]}
+    assert urls == {
+        "https://agent.example/a2a/jsonrpc",
+        "https://agent.example/a2a/rest",
+    }
+
+
+@pytest.mark.integration
 def test_fast_agent_a2a_server_preserves_raw_file_input_parts() -> None:
     prompt = _prompt_from_a2a_message(
         Message(
@@ -1296,6 +1331,82 @@ async def test_fast_agent_a2a_server_passes_bearer_token_to_request_context(
 
     assert response.all_text() == expected
     assert disposed
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_sets_bearer_token_before_instance_creation(
+    monkeypatch,
+    unused_tcp_port: int,
+    wait_for_port,
+) -> None:
+    monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
+    monkeypatch.setenv("FAST_AGENT_OAUTH_RESOURCE_URL", "http://127.0.0.1")
+    host = "127.0.0.1"
+    port = unused_tcp_port
+    tokens_seen: list[str | None] = []
+
+    async def create_instance() -> AgentInstance:
+        tokens_seen.append(request_bearer_token.get())
+        return _instance(TokenEchoAgent(name="worker"))
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    server = AgentA2AServer(
+        primary_instance=_instance(TokenEchoAgent(name="worker")),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent auth early propagation test server",
+        host=host,
+        port=port,
+        instance_scope="request",
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    server_task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    client = A2ARemoteAgent(
+        config=AgentConfig(name="remote_auth", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(
+            url=f"http://{host}:{port}",
+            transport="JSONRPC",
+            headers={"Authorization": "Bearer request-token"},
+        ),
+    )
+    await client.initialize()
+    try:
+        response = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="who am i")],
+                )
+            ]
+        )
+    finally:
+        await client.shutdown()
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(server_task, timeout=5.0)
+        await server.executor.shutdown()
+
+    assert response.all_text() == "request-token"
+    assert tokens_seen == ["request-token"]
+
+
+def test_bearer_token_from_call_context_prefers_saved_request_state() -> None:
+    context = SimpleNamespace(
+        call_context=SimpleNamespace(
+            state={
+                "fast_agent_bearer_token": "saved-token",
+                "headers": {"authorization": "Bearer header-token"},
+            }
+        )
+    )
+
+    assert _bearer_token_from_call_context(cast("Any", context)) == "saved-token"
 
 
 async def _async_instance(agent: RecordingAgent) -> AgentInstance:

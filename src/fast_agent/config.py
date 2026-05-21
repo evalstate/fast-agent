@@ -51,6 +51,10 @@ class MCPServerAuthSettings(BaseModel):
     # and escalates to OAuth on a 401 challenge.
     oauth: bool = True
 
+    # Forward the inbound request bearer token to matching upstream services.
+    # "huggingface" applies only to hf.co, huggingface.co, and *.hf.space URLs.
+    forward: Literal["huggingface"] | None = None
+
     # Local callback server configuration
     redirect_port: int = 3030
     redirect_path: str = "/callback"
@@ -568,6 +572,9 @@ class MCPServerSettings(BaseModel):
                 url=self.url,
                 headers=self.headers,
                 access_token=self.access_token,
+                forward_huggingface=(
+                    self.auth is not None and self.auth.forward == "huggingface"
+                ),
             )
         return self
 

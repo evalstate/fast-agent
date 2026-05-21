@@ -29,7 +29,12 @@ from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.stream_types import StreamChunk
-from fast_agent.mcp.hf_auth import add_hf_auth_header
+from fast_agent.mcp.hf_auth import (
+    add_explicit_bearer_auth_header,
+    add_hf_auth_header,
+    get_hf_token_from_env,
+    is_hf_space_url,
+)
 from fast_agent.mcp.oauth_client import build_oauth_provider
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.ui import console
@@ -131,6 +136,20 @@ class A2ARemoteAgent(LlmDecorator):
             self.a2a_config.relative_card_path or "/.well-known/agent-card.json",
         )
         self.remote_card = await resolver.get_agent_card()
+        card_headers = _headers_for_resolved_card(
+            url=self.a2a_config.url,
+            headers=headers,
+            explicit_headers=bool(self.a2a_config.headers),
+            card=self.remote_card,
+        )
+        if card_headers != headers:
+            headers = card_headers
+            await self._httpx_client.aclose()
+            self._httpx_client = httpx.AsyncClient(
+                headers=headers or None,
+                timeout=self.a2a_config.request_timeout_seconds,
+            )
+            client_config.httpx_client = self._httpx_client
         oauth_provider = self._build_oauth_provider_for_card(self.remote_card)
         if oauth_provider is not None:
             await self._httpx_client.aclose()
@@ -174,9 +193,19 @@ class A2ARemoteAgent(LlmDecorator):
         auth_config = self.a2a_config.auth
         if auth_config is not None and not auth_config.oauth:
             return None
-        if auth_config is None and not _card_advertises_oauth(card):
+        hf_space_bearer = is_hf_space_url(self.a2a_config.url) and _card_advertises_http_bearer(
+            card
+        )
+        if auth_config is None and not (_card_advertises_oauth(card) or hf_space_bearer):
             return None
         if self.a2a_config.headers:
+            return None
+        if _headers_for_resolved_card(
+            url=self.a2a_config.url,
+            headers=None,
+            explicit_headers=False,
+            card=card,
+        ):
             return None
         return build_oauth_provider(
             cast(
@@ -497,6 +526,42 @@ def _card_advertises_oauth(card: AgentCard) -> bool:
         ):
             return True
     return False
+
+
+def _card_advertises_http_bearer(card: AgentCard) -> bool:
+    if not card.security_schemes or not card.security_requirements:
+        return False
+    required_scheme_names = {
+        scheme_name
+        for requirement in card.security_requirements
+        for scheme_name in requirement.schemes
+    }
+    for scheme_name in required_scheme_names:
+        scheme = card.security_schemes.get(scheme_name)
+        if scheme is None:
+            continue
+        if not scheme.HasField("http_auth_security_scheme"):
+            continue
+        http_scheme = scheme.http_auth_security_scheme.scheme
+        if http_scheme.lower() == "bearer":
+            return True
+    return False
+
+
+def _headers_for_resolved_card(
+    *,
+    url: str,
+    headers: dict[str, str] | None,
+    explicit_headers: bool,
+    card: AgentCard,
+) -> dict[str, str] | None:
+    if explicit_headers or not is_hf_space_url(url) or not _card_advertises_http_bearer(card):
+        return headers
+
+    token = get_hf_token_from_env()
+    if not token:
+        return None
+    return add_explicit_bearer_auth_header(url, None, token)
 
 
 def _latest_text(messages: Sequence[PromptMessageExtended]) -> str:

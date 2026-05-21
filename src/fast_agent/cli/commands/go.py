@@ -47,6 +47,7 @@ from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.mcp.hf_auth import add_explicit_bearer_auth_header
 from fast_agent.paths import resolve_environment_paths
 
 CARD_EXTENSIONS = _CARD_EXTENSIONS
@@ -104,6 +105,7 @@ def _materialize_a2a_agent_cards(
     *,
     transport: str | None,
     oauth: bool | None = None,
+    auth_token: str | None = None,
 ) -> tuple[tempfile.TemporaryDirectory[str], list[str]]:
     normalized_transport = None
     if transport:
@@ -127,6 +129,17 @@ def _materialize_a2a_agent_cards(
             f"name: {name}",
             f"url: {url}",
         ]
+        if auth_token:
+            normalized_token = auth_token.strip()
+            if normalized_token.lower().startswith("bearer "):
+                normalized_token = normalized_token[7:].strip()
+            if not normalized_token:
+                tempdir.cleanup()
+                raise typer.BadParameter("Auth token cannot be empty", param_hint="--auth")
+            headers = add_explicit_bearer_auth_header(url, None, normalized_token)
+            lines.append("headers:")
+            for key, value in headers.items():
+                lines.append(f"  {key}: {value!r}")
         if normalized_transport:
             lines.append(f"transport: {normalized_transport}")
         if oauth is not None:
@@ -525,6 +538,7 @@ def go(
             a2a,
             transport=a2a_transport,
             oauth=a2a_oauth,
+            auth_token=auth,
         )
         agent_cards = [*(agent_cards or []), *a2a_cards]
         if agent is None and len(a2a_cards) == 1:

@@ -39,6 +39,7 @@ def normalize_client_managed_url_server(
     url: str,
     headers: Mapping[str, str] | None,
     access_token: str | None,
+    forward_huggingface: bool = False,
 ) -> tuple[str, dict[str, str] | None]:
     final_headers = dict(headers) if headers else None
 
@@ -55,7 +56,8 @@ def normalize_client_managed_url_server(
     if transport == "http":
         _server_name, _transport, final_url = parse_server_url(url)
 
-    final_headers = add_hf_auth_header(final_url, final_headers)
+    if not forward_huggingface:
+        final_headers = add_hf_auth_header(final_url, final_headers)
     return final_url, final_headers or None
 
 

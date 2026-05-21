@@ -9,8 +9,9 @@ import pytest
 from anyio import create_task_group
 from mcp import ClientSession
 
-from fast_agent.config import MCPServerSettings
+from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
 from fast_agent.core.exceptions import ServerInitializationError
+from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
@@ -122,6 +123,77 @@ def test_prepare_headers_auto_mode_does_not_build_oauth(monkeypatch):
     assert headers == {}
     assert auth is None
     assert user_keys == set()
+
+
+def test_prepare_headers_forwards_hf_request_token() -> None:
+    config = MCPServerSettings(
+        name="test",
+        transport="http",
+        url="https://huggingface.co/mcp",
+        auth=MCPServerAuthSettings(forward="huggingface"),
+    )
+
+    saved_token = request_bearer_token.set("request-token")
+    try:
+        headers, auth, user_keys = _prepare_headers_and_auth(config, trigger_oauth=True)
+    finally:
+        request_bearer_token.reset(saved_token)
+
+    assert headers == {"Authorization": "Bearer request-token"}
+    assert auth is None
+    assert user_keys == {"Authorization"}
+
+
+def test_forward_hf_config_does_not_capture_env_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HF_TOKEN", "env-token")
+
+    config = MCPServerSettings(
+        name="test",
+        transport="http",
+        url="https://huggingface.co/mcp",
+        auth=MCPServerAuthSettings(forward="huggingface"),
+    )
+
+    assert config.headers is None
+
+
+def test_prepare_headers_forwards_hf_space_request_token() -> None:
+    config = MCPServerSettings(
+        name="test",
+        transport="http",
+        url="https://demo.hf.space/mcp",
+        auth=MCPServerAuthSettings(forward="huggingface"),
+    )
+
+    saved_token = request_bearer_token.set("request-token")
+    try:
+        headers, auth, user_keys = _prepare_headers_and_auth(config, trigger_oauth=True)
+    finally:
+        request_bearer_token.reset(saved_token)
+
+    assert headers == {"X-HF-Authorization": "Bearer request-token"}
+    assert auth is None
+    assert user_keys == {"X-HF-Authorization"}
+
+
+def test_prepare_headers_forward_preserves_explicit_authorization() -> None:
+    config = MCPServerSettings(
+        name="test",
+        transport="http",
+        url="https://huggingface.co/mcp",
+        headers={"Authorization": "Bearer explicit"},
+        auth=MCPServerAuthSettings(forward="huggingface"),
+    )
+
+    saved_token = request_bearer_token.set("request-token")
+    try:
+        headers, auth, user_keys = _prepare_headers_and_auth(config, trigger_oauth=True)
+    finally:
+        request_bearer_token.reset(saved_token)
+
+    assert headers == {"Authorization": "Bearer explicit"}
+    assert auth is None
+    assert user_keys == {"Authorization"}
 
 
 @pytest.mark.asyncio
