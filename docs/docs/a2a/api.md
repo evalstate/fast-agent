@@ -153,14 +153,16 @@ External clients can call the served fast-agent endpoint directly:
       "messageId": "msg-1",
       "parts": [
         {"text": "hello"}
-      ],
-      "metadata": {
-        "agent": "researcher"
-      }
+      ]
     }
   }
 }
 ```
+
+The endpoint behaves as one A2A remote agent. Requests route to the fast-agent
+default agent, which can orchestrate or delegate internally. fast-agent servers
+also accept a non-portable metadata routing extension, such as
+`{"agent": "researcher"}`, for fast-agent-to-fast-agent integrations.
 
 To continue a session, include the returned `contextId`. To continue an
 `INPUT_REQUIRED` task, include both the returned `contextId` and `taskId`.

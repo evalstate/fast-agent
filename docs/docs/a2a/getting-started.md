@@ -208,14 +208,18 @@ uv run fast-agent serve a2a \
   --model codexresponses.gpt-5.4-mini
 ```
 
-The same runtime wiring used by normal fast-agent agents is available inside the
-served agent: configured MCP servers, tools, skills, hooks, and AgentCard-loaded
-agents are initialized through the regular fast-agent path before the A2A server
-starts.
+The same runtime wiring used by normal fast-agent agents is available behind the
+served A2A agent: configured MCP servers, tools, skills, hooks, and
+AgentCard-loaded agents are initialized through the regular fast-agent path
+before the A2A server starts.
 
-The generated A2A AgentCard lists each loaded fast-agent agent as an A2A skill.
-By default, incoming A2A messages are routed to the fast-agent default agent. API
-clients can route to a specific loaded agent by adding message metadata:
+A2A treats the endpoint as one remote agent or agentic system. The generated A2A
+AgentCard uses skills as capability metadata, and incoming A2A messages route to
+the fast-agent default agent. That default can orchestrate or delegate to other
+loaded agents internally.
+
+For fast-agent-to-fast-agent integrations, API clients can opt into a
+fast-agent-specific routing extension by adding message metadata:
 
 ```json
 {
@@ -225,7 +229,8 @@ clients can route to a specific loaded agent by adding message metadata:
 }
 ```
 
-`fast_agent_agent` is accepted as an equivalent metadata key.
+`fast_agent_agent` is accepted as an equivalent metadata key. Generic A2A
+clients should not depend on this extension.
 
 See [Protocol Compliance](protocol-compliance.md) for the supported A2A 1.0
 surface and known gaps.

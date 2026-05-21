@@ -92,15 +92,22 @@ OAuth-enabled A2A flow:
 
 1. The client fetches `/.well-known/agent-card.json`.
 2. The AgentCard advertises bearer/OAuth security requirements.
-3. The client sends A2A requests to `/a2a/jsonrpc` or `/a2a/rest` with either:
-   - `Authorization: Bearer <hf-token>`;
-   - `X-HF-Authorization: Bearer <hf-token>` when running through Hugging Face
-     Space infrastructure.
-4. The A2A server normalizes the Hugging Face header and validates that a bearer
-   credential is present.
+3. The client sends A2A requests to `/a2a/jsonrpc` or `/a2a/rest` with
+   `Authorization: Bearer <hf-token>`, or uses OAuth when the card advertises an
+   OAuth/OIDC challenge.
+4. The A2A server validates that a bearer credential is present.
 5. fast-agent stores the token in request context while the agent runs.
 6. Hugging Face Inference Provider model calls and Hugging Face MCP/tool calls
    can use the request token.
+
+Do not confuse this with fast-agent's ambient Hugging Face client policy. The
+normal CLI can add a discovered local `HF_TOKEN` to Hugging Face URLs without an
+explicit `--auth`: it sends `Authorization` to `hf.co` and `huggingface.co`, and
+`X-HF-Authorization` to ordinary `*.hf.space` app URLs. That protects local
+tokens from being sent as app-level `Authorization` to arbitrary Space apps.
+When the Space endpoint itself is the authenticated A2A or MCP server, use
+explicit endpoint auth instead: `--auth`, checked-in `headers: Authorization:
+...`, or OAuth.
 
 ## AgentCard Security
 
@@ -148,18 +155,14 @@ headers:
   Authorization: "Bearer ${HF_TOKEN}"
 ```
 
-For Hugging Face Space routing, clients may also need:
-
-```yaml
-headers:
-  Authorization: "Bearer ${HF_TOKEN}"
-  X-HF-Authorization: "Bearer ${HF_TOKEN}"
-```
-
-fast-agent A2A clients reuse the existing Hugging Face token discovery used by
-MCP URL connections, so explicit headers are not needed when the target is
-`hf.co`, `huggingface.co`, or `*.hf.space` and no auth header has already been
-configured.
+This is endpoint authentication: the Space-hosted A2A server is the protected
+resource, so the standard `Authorization` header is the right header. The
+ambient `X-HF-Authorization` Space policy is for ordinary Space apps, not for
+authenticating to an A2A action route that advertises bearer/OAuth security.
+When a fast-agent A2A client connects to a `*.hf.space` URL and the public
+AgentCard advertises HTTP bearer security, a discovered local Hugging Face token
+is automatically promoted to endpoint `Authorization` unless explicit headers
+were configured.
 
 For AgentCards that advertise OAuth2 or OpenID Connect instead of a static
 bearer scheme, enable browser OAuth explicitly or allow the card to activate it:
@@ -187,19 +190,36 @@ without putting a shared user token in the Space:
 
 ```yaml
 name: researcher
-type: basic
+type: agent
 model: hf.moonshotai/Kimi-K2-Thinking
 instruction: |
   Answer with concise Markdown.
   Use Hugging Face tools when current Hub context is needed.
-mcp_servers:
+mcp_connect:
   - name: huggingface
-    target: "https://huggingface.co/mcp"
+    target: "https://huggingface.co/mcp?bouquet=hub_repo_details_readme"
+    auth:
+      forward: huggingface
 ```
 
-When the A2A request arrives with a user bearer token, both provider calls and
-the Hugging Face MCP server should be able to use that token through the normal
-fast-agent request auth context.
+When the A2A request arrives with a user bearer token, Hugging Face provider
+calls use that request token before falling back to Space configuration.
+
+For client-managed Hugging Face MCP URLs, set `auth.forward: huggingface` to
+forward the same inbound request token to `hf.co`, `huggingface.co`, or
+`*.hf.space` upstreams. For Space upstreams, forwarded requests use
+`X-HF-Authorization`; for `hf.co` and `huggingface.co`, they use
+`Authorization`. This mode is intended for hosted Spaces where the agent should
+act as the caller rather than as a shared Space identity. For the Hugging Face
+MCP server itself, use `https://huggingface.co/mcp?...`; the forwarded request
+token is sent there as `Authorization: Bearer ...`. It preserves explicit
+`Authorization`/`X-HF-Authorization` headers when they are configured and
+disables OAuth escalation for that MCP connection.
+
+Do not combine `auth.forward: huggingface` with a shared `HF_TOKEN` expectation
+for that MCP server: forward mode deliberately avoids capturing the Space
+process token during configuration and uses the per-request bearer token at
+connection time.
 
 ## Operational Notes
 
@@ -217,7 +237,8 @@ The OAuth-enabled A2A implementation should include tests that prove:
 
 - unauthenticated A2A requests are rejected;
 - authenticated A2A requests reach the agent;
-- `Authorization` and `X-HF-Authorization` both propagate to request context;
+- the verified bearer token is saved at the A2A HTTP boundary and propagated
+  into fast-agent request context;
 - the AgentCard advertises security schemes and requirements;
 - client-side Hugging Face token auto-headers are added for HF URLs;
 - explicit user-supplied auth headers are preserved.

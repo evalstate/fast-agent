@@ -5,11 +5,11 @@ description: Deploy fast-agent agents as an Agent2Agent (A2A) HTTP server.
 
 # A2A Server
 
-Use `fast-agent serve a2a` to expose fast-agent agents through A2A HTTP
+Use `fast-agent serve a2a` to expose a fast-agent app through A2A HTTP
 transports. `fast-agent serve --transport a2a` remains supported for parity with
 the generic MCP/ACP serve command. The configured fast-agent app is initialized
-first, then the A2A server routes incoming protocol messages into the selected
-agent.
+first, then the A2A server routes ordinary protocol messages into the
+fast-agent default agent.
 
 ## Start a Server
 
@@ -85,20 +85,24 @@ remote clients should use.
 
 ## Runtime Wiring
 
-The served agents use the normal fast-agent runtime. AgentCards, MCP servers,
+The served A2A agent uses the normal fast-agent runtime. AgentCards, MCP servers,
 tools, skills, hooks, model settings, and workflow agents are loaded through the
 same path used by the CLI and TUI before the A2A server starts.
 
-That means an A2A request can drive a full fast-agent bundle: an orchestrator,
-router, tool-using agent, MCP-backed agent, or AgentCard-loaded group.
+That means an A2A request can drive a full fast-agent bundle behind one A2A
+agent boundary: an orchestrator, router, tool-using agent, MCP-backed agent, or
+AgentCard-loaded group.
 
 ## Agent Skills in the A2A Card
 
-A2A `AgentSkill` is the protocol's advertised capability object. It is separate
-from fast-agent "skills" on disk.
+A2A models the served endpoint as one remote agent or agentic system. A2A
+`AgentSkill` entries are advertised capabilities for that remote agent; they are
+not a standard routing table and do not make multiple directly addressable
+agents at the same endpoint. A2A `AgentSkill` is also separate from fast-agent
+"skills" on disk.
 
-fast-agent currently exposes one A2A `AgentSkill` for each loaded fast-agent
-agent:
+fast-agent advertises loaded user-facing fast-agent agents as A2A skills so
+clients can understand the capabilities available behind the endpoint:
 
 ```json
 {
@@ -112,13 +116,18 @@ agent:
 }
 ```
 
-The generated skill list comes from `primary_instance.agents` at server startup.
-The skill `id` and `name` are the fast-agent agent name. The description uses the
-agent's configured `description` when present, otherwise fast-agent generates a
-generic description. Tags include `fast-agent` and the fast-agent agent type.
+The generated skill list comes from the user-facing fast-agent agents loaded at
+server startup. The skill `id` and `name` are derived from the fast-agent agent
+name. The description uses the agent's configured `description` when present,
+otherwise fast-agent generates a generic description. Tags include `fast-agent`
+and the fast-agent agent type.
 
-By default, messages route to the fast-agent default agent. A2A clients can
-target a specific loaded agent with message metadata:
+Messages route to the fast-agent default agent by default. That default agent
+should orchestrate, delegate, or call helper agents internally just as it would
+in normal fast-agent use.
+
+For fast-agent-to-fast-agent integrations, the server also accepts a
+fast-agent-specific routing extension in message metadata:
 
 ```json
 {
@@ -128,7 +137,9 @@ target a specific loaded agent with message metadata:
 }
 ```
 
-`fast_agent_agent` is accepted as an equivalent metadata key.
+`fast_agent_agent` is accepted as an equivalent metadata key. This metadata is
+not portable A2A behavior; generic A2A clients should treat skills as capability
+metadata and send normal messages to the endpoint.
 
 Current limitation: examples are still generic, and mode lists describe the
 server-wide MIME-style content support rather than deriving per-agent modality
@@ -204,18 +215,21 @@ Set `FAST_AGENT_SERVE_OAUTH=huggingface` before starting `fast-agent serve a2a`
 to require bearer authentication on `/a2a/jsonrpc` and `/a2a/rest` while keeping
 the public AgentCard discoverable.
 
-The A2A server accepts both:
+The A2A server middleware accepts both header names when they reach the app:
 
 ```text
 Authorization: Bearer <token>
 X-HF-Authorization: Bearer <token>
 ```
 
-The Hugging Face header form is useful on Spaces. The server advertises an
-`hf_bearer` HTTP bearer security scheme in the AgentCard and stores the inbound
-token in fast-agent request context while the agent runs, allowing Hugging Face
-Inference Provider models and Hugging Face MCP/tools to use the caller
-credential.
+For Space-hosted A2A endpoints, clients should use `Authorization` through
+`--auth`, explicit AgentCard headers, or OAuth. `X-HF-Authorization` is the
+ambient fast-agent CLI policy for ordinary Space app calls; it is not a
+substitute for endpoint bearer auth unless the deployment ingress passes that
+header through to the app. The server advertises an `hf_bearer` HTTP bearer
+security scheme in the AgentCard and stores the inbound token in fast-agent
+request context while the agent runs, allowing Hugging Face Inference Provider
+models and Hugging Face MCP/tools to use the caller credential.
 
 See [Host A2A on Hugging Face](host-on-hf.md) for a Space-oriented setup.
 

@@ -37,6 +37,16 @@ uv run fast-agent -x \
   --message "hello"
 ```
 
+Use `--auth` when the remote A2A endpoint itself expects bearer auth. This uses
+the standard `Authorization` header, including for Hugging Face Space endpoints:
+
+```bash
+uv run fast-agent -x \
+  --a2a https://agent-demo.hf.space \
+  --auth "$HF_TOKEN" \
+  --message "hello"
+```
+
 Supported HTTP transports:
 
 | Canonical | Useful aliases |
@@ -123,9 +133,22 @@ relative_card_path: "/.well-known/agent-card.json"
 ```
 
 For Hugging Face URLs (`hf.co`, `huggingface.co`, and `*.hf.space`),
-fast-agent automatically applies the local Hugging Face token as A2A request
-headers when no explicit auth header is configured. For Spaces this includes
-both `Authorization` and `X-HF-Authorization`.
+fast-agent has two different auth policies:
+
+- Ambient Hugging Face auth discovers `HF_TOKEN` or the local Hub login and adds
+  it only to Hugging Face URLs. It uses `Authorization` for `hf.co` and
+  `huggingface.co`, and `X-HF-Authorization` for `*.hf.space`. This is intended
+  for ordinary HF MCP calls and Space apps that consume the caller's HF token
+  without taking over app-level `Authorization`.
+- Explicit endpoint auth uses `Authorization: Bearer ...`, including for
+  `*.hf.space`. This is the policy behind `--auth`, checked-in `headers:
+  Authorization: ...`, and OAuth-managed A2A/MCP servers.
+
+For `*.hf.space` A2A URLs, fast-agent first fetches the public AgentCard. If the
+card advertises HTTP bearer security and no explicit headers were configured,
+the client treats the Space as a protected endpoint: a discovered local
+`HF_TOKEN`/Hub login is sent as `Authorization`, not `X-HF-Authorization`. If no
+local token is available and OAuth is allowed, the client uses the OAuth flow.
 
 When a remote AgentCard advertises OAuth2 or OpenID Connect security schemes,
 fast-agent can reuse the existing browser OAuth flow. If `auth` is omitted, the

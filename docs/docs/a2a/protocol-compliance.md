@@ -30,7 +30,7 @@ client stack and intentionally excludes gRPC.
 | gRPC transport | Not supported by design for this work. | The AgentCard does not advertise gRPC, and the CLI/API should use `JSONRPC` or `HTTP+JSON`. |
 | Push notifications | Not implemented. | The AgentCard advertises `pushNotifications=false`; SDK push configuration methods return the protocol's not-supported error. Streaming and polling remain available. |
 | Extended AgentCard | Not implemented. | The server publishes the public AgentCard only and does not configure `extendedAgentCard`. |
-| Authentication/security schemes on served AgentCards | Supported for Hugging Face bearer auth and OAuth/OIDC clients | Remote clients can pass headers when connecting to other A2A agents. When `FAST_AGENT_SERVE_OAUTH=huggingface` is set, serving fast-agent over A2A advertises an `hf_bearer` HTTP bearer security scheme, requires bearer auth on A2A action routes, accepts `Authorization` and `X-HF-Authorization`, and passes the bearer token into fast-agent request context. A2A clients reuse the existing browser OAuth flow when a remote AgentCard advertises OAuth2 or OpenID Connect security schemes, with `auth.oauth` and `/a2a connect --oauth/--no-oauth` controls. In-task provider auth failures are reported as `AUTH_REQUIRED`. |
+| Authentication/security schemes on served AgentCards | Supported for Hugging Face bearer auth and OAuth/OIDC clients | Remote clients can pass headers when connecting to other A2A agents. When `FAST_AGENT_SERVE_OAUTH=huggingface` is set, serving fast-agent over A2A advertises an `hf_bearer` HTTP bearer security scheme, requires bearer auth on A2A action routes, accepts `Authorization` and also accepts `X-HF-Authorization` when deployment ingress forwards it, and passes the bearer token into fast-agent request context. A2A clients reuse the existing browser OAuth flow when a remote AgentCard advertises OAuth2 or OpenID Connect security schemes, with `auth.oauth` and `/a2a connect --oauth/--no-oauth` controls. In-task provider auth failures are reported as `AUTH_REQUIRED`. |
 | Typed audio content on the server | Partial. | The client can send `AudioContent` as raw A2A parts. The server preserves inbound audio bytes as blob resources rather than mapping them to a dedicated fast-agent `AudioContent` object. |
 | Structured JSON output from model text | Partial. | fast-agent JSON text responses remain text artifacts unless represented as `TextResourceContents` with `mimeType="application/json"`. This avoids guessing whether ordinary text is intended to be protocol data. |
 | Persistent task/session storage | In-memory only. | The server uses the SDK `InMemoryTaskStore` and fast-agent in-memory context instances. Restarting the server loses A2A task state and context-bound fast-agent sessions. |
@@ -47,7 +47,8 @@ The deterministic A2A integration suite exercises:
 - fresh A2A context/task state for `use_history=False` turns, except while
   continuing an `INPUT_REQUIRED` task;
 - A2A server `shared`, `connection`, and `request` instance scopes;
-- AgentCard skill advertisement and skill routing via message metadata;
+- AgentCard skill advertisement and fast-agent-specific routing via message
+  metadata;
 - streaming artifact updates delivered to the fast-agent client stream listener;
 - artifact replacement and append semantics on the client;
 - `TASK_STATE_INPUT_REQUIRED` preservation and follow-up completion;
@@ -58,8 +59,7 @@ The deterministic A2A integration suite exercises:
 - cancellation, task retrieval/listing after cancellation, and protocol error
   paths via SDK-backed handlers.
 - Hugging Face bearer auth route protection, AgentCard security metadata,
-  `Authorization`/`X-HF-Authorization` token propagation, and client-side HF
-  auth header application.
+  saved request-token propagation, and client-side HF auth header application.
 - A2A client OAuth activation for OAuth/OIDC AgentCards, `auth.oauth: false`
   suppression, checked-in AgentCard auth parsing, and TUI `--oauth/--no-oauth`
   parsing.
