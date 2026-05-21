@@ -469,10 +469,7 @@ async def run_isolated_agent(
         )
 
         orig_cfg: dict[str, Any] = {}
-        if lifecycle in (
-            Lifecycle.PERSISTENT.value,
-            Lifecycle.RESUMABLE.value,
-        ):
+        if lifecycle == Lifecycle.RESUMABLE.value:
             orig_cfg = {
                 "task": task,
                 "instruction": instruction,
@@ -483,6 +480,11 @@ async def run_isolated_agent(
                 "timeout_seconds": timeout_seconds,
                 "role": role or "agent",
                 "project_dir": str(Path(project_dir).resolve()),
+                # Same persistence rationale as the background path below —
+                # see comment there. Mirrored here to keep the foreground
+                # and background spawn paths SSoT-aligned.
+                "workspace_dir": workspace_dir or "",
+                "server_overrides": dict(server_overrides) if server_overrides else None,
             }
         record = SpawnRecord(
             run_id=run_id,
@@ -869,6 +871,83 @@ async def _check_and_resume_on_inbox(
         except Exception as e:
             logger.warning("Failed to re-inject team context: %s", e)
 
+    # ── Preserve team identity across the resume chain ──
+    #
+    # Previously this call omitted ``team_name=`` and ``session_id=``, so the
+    # new run_id inherited the SpawnRecord defaults (empty strings). On the
+    # NEXT auto-resume the read of ``cfg.team_name`` returned "", cascading
+    # the loss forever. Effect: spawn_progress_bridge.find_by_team_name(...)
+    # + session_id filter dropped all auto-resumed worker rows → bridge saw
+    # only stale rows (all idle) → fired premature "team complete" while
+    # workers were actively running. Verified against the 2026-05-17 10:16:20
+    # incident where notification #28 fired with PM still mid-turn.
+    #
+    # Recovery strategy (SSoT-aware):
+    #   * session_id    — read env_vars.TEAM_SESSION_ID (the only field that
+    #     survived the historical chain because cfg.env_vars was always
+    #     forwarded), fall back to record.session_id for first-link runs.
+    #   * team_name     — cfg/record team_name if present, else DB-lookup via
+    #     team_sessions[session_id].team_name (the canonical SSoT). This both
+    #     stops new drift AND recovers records already mid-drift.
+    env_vars_cfg = cfg.get("env_vars") or {}
+    resume_session_id = (
+        env_vars_cfg.get("TEAM_SESSION_ID", "")
+        or (record.session_id if record else "")
+    )
+    resume_team_name = (
+        cfg.get("team_name", "")
+        or (record.team_name if record else "")
+    )
+    resume_server_overrides = cfg.get("server_overrides") or None
+    resume_workspace_dir = cfg.get("workspace_dir") or None
+    if resume_session_id and (
+        not resume_team_name or not resume_server_overrides
+    ):
+        try:
+            from fast_agent.spawn.team_spawner import get_team_session
+            sess = get_team_session(resume_session_id)
+            if sess:
+                if not resume_team_name and sess.team_name:
+                    resume_team_name = sess.team_name
+                    logger.info(
+                        "[AUTO-RESUME] %s: recovered team_name=%r via team_sessions DB lookup",
+                        agent_name, resume_team_name,
+                    )
+                # server_overrides SSoT lives in team_sessions.template.roles[<role>]
+                # — restore from there if cfg lost it through the cascade.
+                if not resume_server_overrides:
+                    role_key = cfg.get("role", "")
+                    template_roles = (sess.template or {}).get("roles") or {}
+                    role_cfg = template_roles.get(role_key) or {}
+                    role_overrides = role_cfg.get("server_overrides")
+                    if role_overrides:
+                        resume_server_overrides = role_overrides
+                        logger.info(
+                            "[AUTO-RESUME] %s: recovered server_overrides for role=%r via team_sessions DB lookup",
+                            agent_name, role_key,
+                        )
+                # workspace_dir SSoT is the team session's workspace path.
+                if not resume_workspace_dir and getattr(sess, "workspace", None):
+                    resume_workspace_dir = str(sess.workspace)
+                    logger.info(
+                        "[AUTO-RESUME] %s: recovered workspace_dir=%r via team_sessions DB lookup",
+                        agent_name, resume_workspace_dir,
+                    )
+        except Exception as e:
+            logger.warning(
+                "[AUTO-RESUME] %s: team DB recovery failed: %s",
+                agent_name, e,
+            )
+    if not resume_session_id or not resume_team_name:
+        # Log loud — without these the new run is invisible to the bridge's
+        # team filter and will not trigger cycle-complete notifications.
+        logger.warning(
+            "[AUTO-RESUME] %s: missing session_id=%r or team_name=%r after "
+            "recovery — spawn_progress_bridge filtering will fail. "
+            "Investigate the original spawn record.",
+            agent_name, resume_session_id, resume_team_name,
+        )
+
     new_run_id = await run_isolated_agent_background(
         task=follow_up,
         project_dir=project_dir,
@@ -879,12 +958,16 @@ async def _check_and_resume_on_inbox(
         timeout_seconds=cfg.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS),
         role=cfg.get("role", ""),
         agent_name=agent_name,
+        team_name=resume_team_name,
+        workspace_dir=resume_workspace_dir,
         lifecycle="resumable",
         registry=registry,
         display_manager=display_manager,
         env_vars=env_vars,
         history_file=history_file,
         spawn_lifecycle_hooks=spawn_lifecycle_hooks,
+        server_overrides=resume_server_overrides,
+        session_id=resume_session_id,
     )
 
     # Track the resume chain
@@ -948,10 +1031,7 @@ async def run_isolated_agent_background(
         )
 
         orig_cfg: dict[str, Any] = {}
-        if lifecycle in (
-            Lifecycle.PERSISTENT.value,
-            Lifecycle.RESUMABLE.value,
-        ):
+        if lifecycle == Lifecycle.RESUMABLE.value:
             orig_cfg = {
                 "task": task,
                 "instruction": instruction,
@@ -966,6 +1046,15 @@ async def run_isolated_agent_background(
                 "workspace_dir": workspace_dir or "",
                 "env_vars": env_vars or {},
                 "project_dir": str(Path(project_dir).resolve()),
+                # Persist server_overrides so auto-resume / restart_spawn can
+                # restore filesystem (and any other) per-role MCP arg
+                # customizations. Without this, every resume falls back to
+                # fastagent.config.yaml defaults, which historically pointed
+                # ``./jarvis_workspace`` at a non-existent dir → filesystem
+                # MCP failed to start silently → Designer saw 5 servers
+                # instead of 6 (incident 2026-05-17). NOTE: dict copy so a
+                # later caller mutating the original doesn't propagate here.
+                "server_overrides": dict(server_overrides) if server_overrides else None,
             }
         record = SpawnRecord(
             run_id=run_id,

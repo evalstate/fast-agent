@@ -277,8 +277,13 @@ class _SocketSpawnLifecycleHooks:
     async def on_agent_ready(self, run_id: str, agent_name: str) -> None:
         self._emit("lifecycle_agent_ready", run_id, agent_name)
 
-    async def on_completed(self, run_id: str, agent_name: str, result: str) -> None:
-        self._emit("lifecycle_completed", run_id, agent_name, {"result_preview": result[:200]})
+    async def on_completed(self, run_id: str, agent_name: str, result: Any) -> None:
+        # Protocol declares result as dict[str, Any]; defend against str legacy callers.
+        if isinstance(result, dict):
+            preview = str(result.get("summary") or result.get("result") or "")[:200]
+        else:
+            preview = str(result)[:200]
+        self._emit("lifecycle_completed", run_id, agent_name, {"result_preview": preview})
 
     async def on_error(self, run_id: str, agent_name: str, error: str) -> None:
         self._emit("lifecycle_error", run_id, agent_name, {"error": error[:500]})
@@ -286,11 +291,11 @@ class _SocketSpawnLifecycleHooks:
     async def on_idle(self, run_id: str, agent_name: str) -> None:
         self._emit("lifecycle_idle", run_id, agent_name)
 
-    async def on_pre_cleanup(self, run_id: str, agent_name: str) -> None:
-        self._emit("lifecycle_pre_cleanup", run_id, agent_name)
+    async def on_pre_cleanup(self, run_id: str, agent_name: str, lifecycle: str) -> None:
+        self._emit("lifecycle_pre_cleanup", run_id, agent_name, {"lifecycle": lifecycle})
 
-    async def on_after_cleanup(self, run_id: str, agent_name: str) -> None:
-        self._emit("lifecycle_after_cleanup", run_id, agent_name)
+    async def on_after_cleanup(self, run_id: str, agent_name: str, lifecycle: str) -> None:
+        self._emit("lifecycle_after_cleanup", run_id, agent_name, {"lifecycle": lifecycle})
 
     async def on_auto_resume(self, run_id: str, agent_name: str, new_run_id: str, reason: str) -> None:
         self._emit("lifecycle_auto_resume", run_id, agent_name, {"new_run_id": new_run_id, "reason": reason})
@@ -373,11 +378,16 @@ async def spawn_and_run_isolated(
         model: Override LLM model.
         timeout_seconds: Max execution time (default 120).
         role: Role label for tracking.
-        lifecycle: "oneshot" | "persistent".
+        lifecycle: "oneshot" | "resumable". (Legacy "persistent" still
+            accepted and coerced to "resumable" for backward compat.)
         skills: Comma-separated skill names.
     """
     server_list = [s.strip() for s in servers.split(",") if s.strip()] if servers else []
     skill_paths = _resolve_skills_for_spawn(skills)
+
+    # Legacy "persistent" was functionally identical to "resumable" — merge on input.
+    if lifecycle == "persistent":
+        lifecycle = "resumable"
 
     result = await run_isolated_agent(
         task=task,
@@ -392,6 +402,7 @@ async def spawn_and_run_isolated(
         registry=_registry,
         display_manager=_display,
         skills=skill_paths,
+        spawn_lifecycle_hooks=_spawn_hooks,
     )
 
     run_id = result.get("run_id", "")
@@ -426,15 +437,20 @@ async def spawn_and_run_background(
         model: Override LLM model.
         timeout_seconds: Max execution time (default 600).
         role: Role label for tracking.
-        lifecycle: "oneshot" | "persistent".
+        lifecycle: "oneshot" | "resumable". (Legacy "persistent" still
+            accepted and coerced to "resumable" for backward compat.)
         skills: Comma-separated skill names.
     """
     server_list = [s.strip() for s in servers.split(",") if s.strip()] if servers else []
     skill_paths = _resolve_skills_for_spawn(skills)
 
+    # Legacy "persistent" was functionally identical to "resumable" — merge on input.
+    if lifecycle == "persistent":
+        lifecycle = "resumable"
+
     # Non-oneshot agents should not be killed by outer timeout
     effective_timeout = timeout_seconds
-    if lifecycle in ("persistent", "resumable") and timeout_seconds > 0:
+    if lifecycle == "resumable" and timeout_seconds > 0:
         logger.info(
             "Overriding timeout_seconds=%d → 0 for lifecycle=%s agent",
             timeout_seconds,
@@ -538,6 +554,15 @@ async def restart_spawn(run_id: str) -> str:
     if not cfg:
         return json.dumps({"error": (f"No saved config for spawn '{run_id}'. Cannot restart.")})
 
+    # session_id + server_overrides + workspace_dir MUST be forwarded so the
+    # new run stays visible to spawn_progress_bridge's session-scoped filter
+    # AND filesystem/etc. MCPs start with the right per-role args. Same SSoT
+    # reasoning documented at isolated_spawner.py _check_and_resume_on_inbox.
+    env_vars_cfg = cfg.get("env_vars") or {}
+    restart_session_id = (
+        env_vars_cfg.get("TEAM_SESSION_ID", "")
+        or record.session_id
+    )
     new_run_id = await run_isolated_agent_background(
         task=cfg.get("task", record.task),
         project_dir=str(_PROJECT_DIR),
@@ -549,10 +574,13 @@ async def restart_spawn(run_id: str) -> str:
         role=cfg.get("role", record.role),
         agent_name=cfg.get("agent_name", record.agent_name),
         team_name=cfg.get("team_name", record.team_name),
+        workspace_dir=cfg.get("workspace_dir") or None,
         lifecycle=record.lifecycle,
         registry=_registry,
         display_manager=_display,
         spawn_lifecycle_hooks=_spawn_hooks,
+        server_overrides=cfg.get("server_overrides") or None,
+        session_id=restart_session_id,
     )
 
     _registry._load()
@@ -587,10 +615,17 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
     if not record:
         return json.dumps({"error": f"No spawn found with run_id '{run_id}'"})
 
-    if not record.is_terminal:
+    # ``idle`` is the canonical post-task state for resumable agents (the
+    # agent is alive, waiting). ``is_terminal`` (completed/error/...) covers
+    # legacy records and crashed runs. Either is fine to resume from; only
+    # actively-running states should block.
+    if not record.is_terminal and record.status != "idle":
         return json.dumps({"error": (f"Spawn '{run_id}' is still running. Wait for completion.")})
 
     if record.lifecycle != "resumable":
+        # Oneshot records are removed from registry on cleanup (no config to
+        # restore), so they can't be resumed. Legacy "persistent" records are
+        # auto-coerced to "resumable" by SpawnRecord.from_dict on read.
         return json.dumps(
             {
                 "error": (
@@ -605,32 +640,47 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
     if not cfg:
         return json.dumps({"error": (f"No saved config for spawn '{run_id}'. Cannot resume.")})
 
-    # Find previous session history for native FastAgent resume
-    # (same pattern as auto-resume in _check_and_resume_on_inbox)
-    workspace_dir = cfg.get("workspace_dir", "")
-    history_file = _find_latest_history(workspace_dir) if workspace_dir else None
-
     agent_name = cfg.get("agent_name", record.agent_name)
-    if history_file:
-        # History file found — agent gets full conversation via
-        # load_history_into_agent(). Only pass follow-up as task.
-        enriched_context = follow_up_task
-        logger.info(
-            "📂 resume_spawn: found history for %s: %s", agent_name, history_file,
-        )
-    else:
-        # No history file — fall back to text-based context
-        prev_context = cfg.get("context", "")
-        prev_result = record.result or ""
-        enriched_context = ""
-        if prev_context:
-            enriched_context += f"## Original Context\n{prev_context}\n\n"
-        if prev_result:
-            enriched_context += f"## Previous Agent Result\n{prev_result}\n\n"
-        enriched_context += f"## Follow-Up Task\n{follow_up_task}"
-        logger.info(
-            "⚠️ resume_spawn: no history for %s — using text-based context", agent_name,
-        )
+
+    # Single source of truth for resumable-agent conversation history:
+    # the ``agent_context_snapshots`` table. ``isolated_runner`` writes
+    # a fresh, cumulative snapshot of ``agent.message_history`` to it at
+    # every ``task_complete`` / ``idle`` boundary (see isolated_runner.py
+    # ``_save_agent_context_snapshot``), so by the time a resumable agent
+    # is eligible for resume it MUST have at least one snapshot.
+    #
+    # No file-based fallback, no text-context fallback. A missing
+    # snapshot signals a real upstream bug (snapshot hook never ran,
+    # crashed agent, name mismatch, DB write failed) — surface that
+    # loudly rather than papering it with a stale ``context``/``result``
+    # text reconstruction the LLM can't meaningfully continue from.
+    from services.context_persistence import load_latest_context_json
+    snapshot_json = load_latest_context_json(agent_name)
+    if not snapshot_json:
+        return json.dumps({
+            "error": (
+                f"No conversation snapshot found for agent '{agent_name}' "
+                f"(run_id={run_id}). The agent never produced a "
+                "task_complete snapshot, so its history can't be restored. "
+                "Use restart_spawn to re-run the original task from scratch."
+            )
+        })
+
+    fd, history_file = tempfile.mkstemp(
+        prefix=f"resume_{agent_name.replace(' ', '_')}_",
+        suffix=".json",
+    )
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(snapshot_json)
+    logger.info(
+        "📂 resume_spawn: materialized snapshot for %s -> %s",
+        agent_name, history_file,
+    )
+
+    # FastAgent's native ``load_history_into_agent`` will hydrate
+    # ``agent.message_history`` from history_file at child startup; the
+    # follow-up task is appended on top of it.
+    enriched_context = follow_up_task
 
     # Determine correct project_dir from original_config
     project_dir = cfg.get("project_dir", str(_PROJECT_DIR))
@@ -671,6 +721,7 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
         skills=cfg.get("skills", []),
         history_file=history_file,
         spawn_lifecycle_hooks=_spawn_hooks,
+        server_overrides=cfg.get("server_overrides") or None,
         session_id=team_session_id,
     )
 
@@ -1268,20 +1319,26 @@ def get_team_result(session_id: str) -> str:
         }
 
     # Fail loud: surface the orchestrator's empty result so Jarvis can
-    # report the bug instead of silently saying "team done". We pick the
-    # same orchestrator the notification path picks (pm/orchestrator role,
-    # else first spawned) so both surfaces report the same agent.
+    # report the bug instead of silently saying "team done". The
+    # orchestrator role is whichever role the template declares as the
+    # orchestrator — the single source of truth is
+    # ``team_sessions.template.orchestrator``. The earlier code matched
+    # substring "pm"/"orchestrator" in the role string, which broke any
+    # template whose orchestrator role wasn't literally named "pm"
+    # (audit 2026-05-19: orchestrator concept is template-driven, the
+    # name "PM" is just one role in one template).
+    orch_role = str(session.template.get("orchestrator", "") or "").lower()
     orch_name = ""
     orch_result = ""
-    orch_role = ""
-    for role, info in session.agents.items():
-        rl = (info.get("role") or role or "").lower()
-        if "pm" in rl or "orchestrator" in rl:
-            orch_name = info.get("agent_name") or role
+    if orch_role:
+        info = session.agents.get(orch_role)
+        if info:
+            orch_name = info.get("agent_name") or orch_role
             orch_result = info.get("result", "") or ""
-            orch_role = rl
-            break
     if not orch_name:
+        # Fallback: first spawned (orchestrator is spawned first by
+        # construction). Covers templates that omit ``orchestrator`` or
+        # legacy data where the field is missing.
         first = next(iter(session.agents.values()), None)
         if first:
             orch_name = first.get("agent_name") or "?"

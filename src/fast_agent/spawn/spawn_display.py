@@ -132,9 +132,11 @@ class SpawnPanel:
 
     @property
     def lifecycle_badge(self) -> str:
+        # Legacy "persistent" rows display as "resumable" — the lifecycle was
+        # merged on 2026-05-20.
         return {
             "oneshot": "oneshot",
-            "persistent": "persistent",
+            "persistent": "resumable",
             "resumable": "resumable",
         }.get(self.lifecycle, self.lifecycle)
 
