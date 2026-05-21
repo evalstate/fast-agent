@@ -49,6 +49,8 @@ from .shell_cwd_policy import (
 )
 
 if TYPE_CHECKING:
+    from mcp.types import ContentBlock
+
     from fast_agent.types import PromptMessageExtended, StructuredToolPolicy
 
     from .run_request import AgentRunRequest
@@ -818,7 +820,7 @@ def _build_fan_out_result_paths(
 
 
 def _build_transient_result_messages(
-    request_messages: str | list["PromptMessageExtended"],
+    request_messages: str | "PromptMessageExtended" | list["PromptMessageExtended"],
     response: "PromptMessageExtended",
 ) -> list["PromptMessageExtended"]:
     from fast_agent.types import normalize_to_extended_list
@@ -829,6 +831,76 @@ def _build_transient_result_messages(
     export_messages.append(response.model_copy(deep=True))
     return export_messages
 
+
+def _cli_attachment_token(source: str) -> str:
+    from fast_agent.ui.prompt.attachment_tokens import (
+        build_local_attachment_token,
+        build_remote_attachment_token,
+    )
+
+    parsed = urlparse(source)
+    if parsed.scheme.lower() in {"http", "https"}:
+        return build_remote_attachment_token(source)
+    return build_local_attachment_token(source)
+
+
+async def _resolve_cli_attachment_blocks(
+    resolver_agent: Any,
+    attachments: list[str] | None,
+) -> list["ContentBlock"]:
+    if not attachments:
+        return []
+
+    from fast_agent.ui.prompt.resource_mentions import parse_mentions, resolve_mentions
+
+    parsed = parse_mentions(" ".join(_cli_attachment_token(source) for source in attachments))
+    try:
+        resolved = await resolve_mentions(resolver_agent, parsed)
+    except Exception as exc:
+        typer.echo(f"Error resolving --attach: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    return resolved.resources
+
+
+async def _build_cli_message_payload(
+    agent_obj: Any,
+    message: str,
+    attachments: list[str] | None,
+) -> str | "PromptMessageExtended":
+    blocks = await _resolve_cli_attachment_blocks(agent_obj, attachments)
+    if not blocks:
+        return message
+
+    from mcp.types import TextContent
+
+    from fast_agent.types import PromptMessageExtended
+
+    return PromptMessageExtended(
+        role="user",
+        content=[TextContent(type="text", text=message), *blocks],
+    )
+
+
+async def _build_cli_prompt_file_payload(
+    agent_obj: Any,
+    prompt: list["PromptMessageExtended"],
+    attachments: list[str] | None,
+) -> list["PromptMessageExtended"]:
+    blocks = await _resolve_cli_attachment_blocks(agent_obj, attachments)
+    if not blocks:
+        return prompt
+
+    prompt_with_attachments = [message.model_copy(deep=True) for message in prompt]
+    for message in reversed(prompt_with_attachments):
+        if message.role == "user":
+            message.content.extend(blocks)
+            return prompt_with_attachments
+
+    typer.echo(
+        "Error: --attach requires the prompt file to contain at least one user message.",
+        err=True,
+    )
+    raise typer.Exit(1)
 
 
 def _response_was_persisted(
@@ -981,13 +1053,18 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
         assert request.message is not None
         agent_obj = agent_app._agent(request.target_agent_name)
         history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
+        prompt_payload = await _build_cli_message_payload(
+            agent_obj,
+            request.message,
+            request.attachments,
+        )
         if structured_source is None:
-            response = await agent_obj.generate(request.message)
+            response = await agent_obj.generate(prompt_payload)
             print(response.last_text() or "")
         else:
             parsed, response = await _structured_call(
                 agent_obj,
-                request.message,
+                prompt_payload,
                 structured_source,
                 request.structured_tool_policy,
             )
@@ -1004,20 +1081,25 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             response,
         ):
             transient_messages_by_agent = {
-                agent_obj.name: _build_transient_result_messages(request.message, response)
+                agent_obj.name: _build_transient_result_messages(prompt_payload, response)
             }
     elif request.execution_mode == "one_shot_prompt_file":
         assert request.prompt_file is not None
         prompt = load_prompt(request.prompt_file)
         agent_obj = agent_app._agent(request.target_agent_name)
         history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
+        prompt_payload = await _build_cli_prompt_file_payload(
+            agent_obj,
+            prompt,
+            request.attachments,
+        )
         if structured_source is None:
-            response = await agent_obj.generate(prompt)
+            response = await agent_obj.generate(prompt_payload)
             print(response.last_text() or "")
         else:
             parsed, response = await _structured_call(
                 agent_obj,
-                prompt,
+                prompt_payload,
                 structured_source,
                 request.structured_tool_policy,
             )
@@ -1034,7 +1116,7 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             response,
         ):
             transient_messages_by_agent = {
-                agent_obj.name: _build_transient_result_messages(prompt, response)
+                agent_obj.name: _build_transient_result_messages(prompt_payload, response)
             }
     else:
         await _run_interactive_with_interrupt_recovery()
@@ -1313,7 +1395,12 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                         history_before = [
                             message.model_copy(deep=True) for message in agent_obj.message_history
                         ]
-                        response = await agent_obj.generate(request.message)
+                        prompt_payload = await _build_cli_message_payload(
+                            agent_obj,
+                            request.message,
+                            request.attachments,
+                        )
+                        response = await agent_obj.generate(prompt_payload)
                         print(response.last_text() or "")
                         if request.result_file and not _response_was_persisted(
                             history_before,
@@ -1322,12 +1409,17 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                         ):
                             transient_messages_by_agent = {
                                 agent_obj.name: _build_transient_result_messages(
-                                    request.message,
+                                    prompt_payload,
                                     response,
                                 )
                             }
                     else:
-                        await agent.parallel.send(request.message)
+                        prompt_payload = await _build_cli_message_payload(
+                            object(),
+                            request.message,
+                            request.attachments,
+                        )
+                        await agent.parallel.send(prompt_payload)
                         display = ConsoleDisplay(config=None)
                         display.show_parallel_results(agent.parallel)
                 elif request.execution_mode == "one_shot_prompt_file":
@@ -1340,7 +1432,12 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                         history_before = [
                             message.model_copy(deep=True) for message in agent_obj.message_history
                         ]
-                        response = await agent_obj.generate(prompt)
+                        prompt_payload = await _build_cli_prompt_file_payload(
+                            agent_obj,
+                            prompt,
+                            request.attachments,
+                        )
+                        response = await agent_obj.generate(prompt_payload)
                         print(response.last_text() or "")
                         if request.result_file and not _response_was_persisted(
                             history_before,
@@ -1348,10 +1445,18 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                             response,
                         ):
                             transient_messages_by_agent = {
-                                agent_obj.name: _build_transient_result_messages(prompt, response)
+                                agent_obj.name: _build_transient_result_messages(
+                                    prompt_payload,
+                                    response,
+                                )
                             }
                     else:
-                        await agent.parallel.generate(prompt)
+                        prompt_payload = await _build_cli_prompt_file_payload(
+                            object(),
+                            prompt,
+                            request.attachments,
+                        )
+                        await agent.parallel.generate(prompt_payload)
                         display = ConsoleDisplay(config=None)
                         display.show_parallel_results(agent.parallel)
                 else:

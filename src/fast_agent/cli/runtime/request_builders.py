@@ -154,6 +154,18 @@ def validate_execution_mode_inputs(
         ) from exc
 
 
+def validate_attachment_inputs(
+    *,
+    attachments: list[str] | None,
+    execution_mode: ExecutionMode,
+) -> None:
+    if attachments and execution_mode == "repl":
+        raise typer.BadParameter(
+            "--attach requires --message or --prompt-file",
+            param_hint="--attach",
+        )
+
+
 def validate_json_schema_inputs(
     *,
     json_schema: str | None,
@@ -429,6 +441,7 @@ def build_agent_run_request(
     structured_tool_policy: str | None = None,
     force_smart: bool = False,
     noenv: bool = False,
+    attachments: list[str] | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_noenv_conflicts(
@@ -441,6 +454,7 @@ def build_agent_run_request(
         message=message,
         prompt_file=prompt_file,
     )
+    validate_attachment_inputs(attachments=attachments, execution_mode=execution_mode)
     resolved_structured_tool_policy = validate_json_schema_inputs(
         json_schema=json_schema,
         schema_model=schema_model,
@@ -500,6 +514,7 @@ def build_agent_run_request(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        attachments=attachments,
         json_schema=json_schema,
         schema_model=schema_model,
         structured_tool_policy=resolved_structured_tool_policy,
@@ -541,6 +556,7 @@ def build_run_agent_kwargs(
     **request_kwargs: Any,
 ) -> dict[str, Any]:
     if request is None:
+        request_kwargs.setdefault("attachments", None)
         request = build_agent_run_request(**request_kwargs)
     return request.to_agent_setup_kwargs()
 
@@ -587,6 +603,7 @@ def build_command_run_request(
     json_schema: str | None = None,
     schema_model: str | None = None,
     structured_tool_policy: str | None = None,
+    attachments: list[str] | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_noenv_conflicts(
@@ -617,6 +634,7 @@ def build_command_run_request(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        attachments=attachments,
         json_schema=json_schema,
         schema_model=schema_model,
         structured_tool_policy=structured_tool_policy,

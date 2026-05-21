@@ -87,6 +87,7 @@ class AgentRunRequest:
     quiet: bool = False
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
     prefer_local_shell: bool = False
+    attachments: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.noenv and self.environment_dir is not None:
@@ -105,6 +106,8 @@ class AgentRunRequest:
             )
         if self.json_schema is not None and self.schema_model is not None:
             raise ValueError("--json-schema cannot be combined with --schema-model")
+        if self.attachments and self.execution_mode == "repl":
+            raise ValueError("--attach requires --message or --prompt-file")
         if self.structured_tool_policy is not None:
             if self.structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
                 raise ValueError(
@@ -149,6 +152,7 @@ class AgentRunRequest:
             "model": self.model,
             "message": self.message,
             "prompt_file": self.prompt_file,
+            "attachments": self.attachments,
             "json_schema": self.json_schema,
             "schema_model": self.schema_model,
             "structured_tool_policy": self.structured_tool_policy,

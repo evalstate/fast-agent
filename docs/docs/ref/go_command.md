@@ -37,6 +37,7 @@ fast-agent go [OPTIONS]
 - `--card-tool <path or uri>`: Load AgentCards from a path, HTTP(S) URL, `file://` URI, or `hf://` URI and attach them as tools to the selected/default agent (repeatable)
 - `--agent <name>`: Target a specific loaded agent by name for `--message`, `--prompt-file`, and initial interactive mode
 - `--message`, `-m TEXT`: Message to send to the agent (skips interactive mode)
+- `--attach`, `-a <path or url>`: Attach a local file or HTTP(S) URL to a one-shot `--message` or `--prompt-file` run (repeatable). With `--prompt-file`, attachments are added to the last user message.
 - `--json-schema <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a JSON Schema file used for one-shot structured output
 - `--env <path>`: Override the base `.fast-agent` environment directory (where default `agent-cards/` and `tool-cards/` are discovered)
 - `--noenv`, `--no-env`: Run in ephemeral mode (disable implicit environment card loading, session persistence/resume, and permission-store side effects)
@@ -95,6 +96,9 @@ fast-agent --npx @modelcontextprotocol/server-everything
 # Non-interactive mode with a single message
 fast-agent go --message="What is the weather today?" --model=haiku
 
+# Attach files or URLs to a one-shot message
+fast-agent go --message "Summarize these" --attach ./report.pdf --attach https://example.com/chart.png --model=haiku
+
 # Machine-readable structured one-shot output
 fast-agent go --noenv --model haiku --message "What is the weather in London?" --json-schema ./schema.json
 
@@ -109,6 +113,9 @@ fast-agent go --agent-cards ./agents --agent qa --message "run smoke checks"
 
 # Using a prompt file
 fast-agent go --prompt-file=my-prompt.txt --model=haiku
+
+# Attach evidence to the last user message in a prompt file
+fast-agent go --prompt-file=my-prompt.txt --attach ./evidence.pdf --model=haiku
 
 # Specify a system prompt file
 fast-agent go -i my_system_prompt.md
