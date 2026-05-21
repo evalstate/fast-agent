@@ -24,9 +24,15 @@ _TERMINAL_STATES = {"completed", "error", "timeout", "cancelled", "killed"}
 
 
 class Lifecycle(Enum):
-    """Agent lifecycle model."""
+    """Agent lifecycle model.
 
-    PERSISTENT = "persistent"  # Stays alive, manual cleanup
+    Only two modes after the 2026-05-20 merge: oneshot (auto-delete) and
+    resumable (kept for resume). The legacy ``"persistent"`` value is no
+    longer emitted by the spawner — entry points coerce it to ``"resumable"``
+    (see ``spawn_and_run_isolated`` / ``spawn_and_run_background``), and
+    SpawnRecord.from_dict() upgrades old DB rows on read.
+    """
+
     RESUMABLE = "resumable"  # Can be stopped and resumed with context
     ONESHOT = "oneshot"  # Auto-delete after completion
 
@@ -105,7 +111,13 @@ class SpawnRecord:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SpawnRecord:
         known = {f.name for f in cls.__dataclass_fields__.values()}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        filtered = {k: v for k, v in data.items() if k in known}
+        # Backward-compat: legacy DB rows had lifecycle="persistent". After
+        # the 2026-05-20 merge persistent ≡ resumable everywhere — collapse
+        # on read so downstream code can rely on the 2-value enum.
+        if filtered.get("lifecycle") == "persistent":
+            filtered["lifecycle"] = Lifecycle.RESUMABLE.value
+        return cls(**filtered)
 
 
 class SpawnRegistry:
@@ -148,7 +160,59 @@ class SpawnRegistry:
     def _save(self) -> None:
         self._backend.save(self._data)
 
+    @staticmethod
+    def _validate_for_registration(record: SpawnRecord) -> None:
+        """Reject loose inputs that would silently fragment agent identity.
+
+        Background — incident 2026-05-17: PM was registered twice in the
+        running team, once as ``agent_name='Robin [PM]'`` (correct) and once
+        as ``agent_name='pm'`` (just the role). The dashboard, which treats
+        ``agent_name`` as the unique identity for grouping, rendered two
+        separate cards for the same logical agent.
+
+        Root cause was a defensive fallback in ``isolated_spawner`` —
+        ``agent_name or role or "agent"`` — that silently substituted the
+        role string when a caller forgot to pass ``agent_name`` to
+        ``run_isolated_agent_background``. The mistake produced a successful
+        register call instead of a loud error, so the bug only surfaced when
+        a human noticed the duplicate card much later.
+
+        This validator catches the bug class at the write boundary. For
+        ad-hoc spawns (no ``team_name`` — generic ``_spawn_agent_background``
+        MCP tool, one-off internal tasks) the fallback is legitimate and
+        passes through unchanged. For team-managed spawns the human-readable
+        identity must be present and distinct from the role.
+
+        Why here and not in ``SpawnRecord.__post_init__``: ``from_dict()``
+        (which loads existing rows from the DB) MUST be able to round-trip
+        any historical row, including pre-fix orphans, without raising.
+        Putting the guard in ``register()`` means "you cannot WRITE bad
+        records going forward" without breaking the ability to READ legacy
+        ones — which is the SSoT contract we actually want.
+        """
+        if not record.team_name:
+            return  # ad-hoc spawn — fallback is legitimate
+        if not record.agent_name:
+            raise ValueError(
+                f"Refuse to register team agent without agent_name "
+                f"(team={record.team_name!r}, role={record.role!r}, "
+                f"run_id={record.run_id!r}). Team-managed agents MUST be "
+                f"registered under their team-assigned identity "
+                f"(e.g. 'Robin [PM]') — silent fallback to role fragments "
+                f"the dashboard's agent grouping."
+            )
+        if record.agent_name == record.role:
+            raise ValueError(
+                f"Refuse to register team agent whose agent_name equals "
+                f"role ({record.agent_name!r}). team={record.team_name!r}, "
+                f"run_id={record.run_id!r}. This indicates a caller "
+                f"missed passing the distinct human-readable identity "
+                f"(e.g. 'Robin [PM]') and fell back to the role string. "
+                f"Fix the caller — do not loosen this check."
+            )
+
     def register(self, record: SpawnRecord) -> None:
+        self._validate_for_registration(record)
         data = record.to_dict()
         logger.warning(
             "[REGISTRY_DEBUG] register run_id=%s agent=%s lifecycle=%s team=%s backend=%s",
