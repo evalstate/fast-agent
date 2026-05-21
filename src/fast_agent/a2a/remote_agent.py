@@ -7,7 +7,8 @@ import json
 import uuid
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Any
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from a2a.client import A2ACardResolver, ClientConfig, create_client
@@ -29,6 +30,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.hf_auth import add_hf_auth_header
+from fast_agent.mcp.oauth_client import build_oauth_provider
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -42,6 +44,7 @@ if TYPE_CHECKING:
     from mcp import Tool
 
     from fast_agent.a2a.config import A2AAgentConfig
+    from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
 
 _TERMINAL_STATES = {
@@ -128,6 +131,15 @@ class A2ARemoteAgent(LlmDecorator):
             self.a2a_config.relative_card_path or "/.well-known/agent-card.json",
         )
         self.remote_card = await resolver.get_agent_card()
+        oauth_provider = self._build_oauth_provider_for_card(self.remote_card)
+        if oauth_provider is not None:
+            await self._httpx_client.aclose()
+            self._httpx_client = httpx.AsyncClient(
+                auth=oauth_provider,
+                headers=headers or None,
+                timeout=self.a2a_config.request_timeout_seconds,
+            )
+            client_config.httpx_client = self._httpx_client
         self._client = await create_client(
             self.remote_card,
             client_config=client_config,
@@ -157,6 +169,26 @@ class A2ARemoteAgent(LlmDecorator):
     def _clone_constructor_kwargs(self) -> dict[str, Any]:
         """Carry remote A2A connection configuration into detached clones."""
         return {"a2a_config": self.a2a_config}
+
+    def _build_oauth_provider_for_card(self, card: AgentCard) -> Any | None:
+        auth_config = self.a2a_config.auth
+        if auth_config is not None and not auth_config.oauth:
+            return None
+        if auth_config is None and not _card_advertises_oauth(card):
+            return None
+        if self.a2a_config.headers:
+            return None
+        return build_oauth_provider(
+            cast(
+                "MCPServerSettings",
+                SimpleNamespace(
+                    name=self.config.name,
+                    transport="http",
+                    url=self.a2a_config.url,
+                    auth=auth_config,
+                ),
+            )
+        )
 
     def reset_a2a_state(self) -> None:
         self.context_id = str(uuid.uuid4())
@@ -446,6 +478,26 @@ def _part_text(part: Part) -> str:
         suffix = f" {part.media_type}" if part.media_type else ""
         return f"[{label}: {len(part.raw)} bytes{suffix}]"
     return ""
+
+
+def _card_advertises_oauth(card: AgentCard) -> bool:
+    if not card.security_schemes or not card.security_requirements:
+        return False
+    required_scheme_names = {
+        scheme_name
+        for requirement in card.security_requirements
+        for scheme_name in requirement.schemes
+    }
+    for scheme_name in required_scheme_names:
+        scheme = card.security_schemes.get(scheme_name)
+        if scheme is None:
+            continue
+        if scheme.HasField("oauth2_security_scheme") or scheme.HasField(
+            "open_id_connect_security_scheme"
+        ):
+            return True
+    return False
+
 
 def _latest_text(messages: Sequence[PromptMessageExtended]) -> str:
     for message in reversed(messages):

@@ -27,6 +27,16 @@ When no transport is specified, fast-agent asks the SDK to use either supported
 HTTP binding: `JSONRPC` or `HTTP+JSON`. Set `--a2a-transport` only when you want
 to force one binding.
 
+Use `--a2a-oauth` or `--no-a2a-oauth` to force or disable browser OAuth for an
+ad hoc remote agent:
+
+```bash
+uv run fast-agent -x \
+  --a2a https://research.example.com \
+  --a2a-oauth \
+  --message "hello"
+```
+
 Supported HTTP transports:
 
 | Canonical | Useful aliases |
@@ -106,6 +116,9 @@ accepted_output_modes:
 request_timeout_seconds: 120
 headers:
   Authorization: "Bearer ${A2A_TOKEN}"
+auth:
+  oauth: true
+  persist: keyring
 relative_card_path: "/.well-known/agent-card.json"
 ```
 
@@ -114,12 +127,48 @@ fast-agent automatically applies the local Hugging Face token as A2A request
 headers when no explicit auth header is configured. For Spaces this includes
 both `Authorization` and `X-HF-Authorization`.
 
+When a remote AgentCard advertises OAuth2 or OpenID Connect security schemes,
+fast-agent can reuse the existing browser OAuth flow. If `auth` is omitted, the
+A2A client enables that flow only for OAuth/OIDC cards. Set `auth.oauth: false`
+to disable browser OAuth, or `auth.oauth: true` to allow OAuth challenge handling
+even before the card requires it. The flow uses the same local callback,
+paste-URL fallback, client metadata URL, and keyring storage behavior as MCP URL
+connections.
+
 ## TUI
 
 Inside the interactive prompt, connect a remote A2A agent at runtime:
 
 ```text
 /a2a connect http://127.0.0.1:41242 --transport JSONRPC --name research_remote
+```
+
+Use `--oauth` or `--no-oauth` to force or disable browser OAuth for a runtime
+connection:
+
+```text
+/a2a connect https://research.example.com --oauth --name research_remote
+```
+
+## Python API
+
+Use `A2ARemoteAgent` directly when constructing agents in code:
+
+```python
+from fast_agent.a2a.config import A2AAgentConfig
+from fast_agent.a2a.remote_agent import A2ARemoteAgent
+from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.config import MCPServerAuthSettings
+
+remote_agent = A2ARemoteAgent(
+    config=AgentConfig(name="research_remote", agent_type=AgentType.A2A),
+    a2a_config=A2AAgentConfig(
+        url="https://research.example.com",
+        transport="JSONRPC",
+        auth=MCPServerAuthSettings(oauth=True),
+    ),
+)
+await remote_agent.initialize()
 ```
 
 Useful diagnostics:

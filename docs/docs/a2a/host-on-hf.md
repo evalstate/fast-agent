@@ -130,9 +130,9 @@ The current implementation advertises bearer security:
 }
 ```
 
-Skills include the same `securityRequirements` entry. Later implementations can
-advertise OAuth2 or OpenID Connect metadata when the client can complete the
-browser OAuth flow directly from the AgentCard.
+Skills include the same `securityRequirements` entry. fast-agent A2A clients can
+also use the existing browser OAuth flow when a remote AgentCard advertises
+OAuth2 or OpenID Connect security schemes.
 
 ## Client Configuration
 
@@ -160,6 +160,25 @@ fast-agent A2A clients reuse the existing Hugging Face token discovery used by
 MCP URL connections, so explicit headers are not needed when the target is
 `hf.co`, `huggingface.co`, or `*.hf.space` and no auth header has already been
 configured.
+
+For AgentCards that advertise OAuth2 or OpenID Connect instead of a static
+bearer scheme, enable browser OAuth explicitly or allow the card to activate it:
+
+```yaml
+type: a2a
+name: hosted_agent
+url: https://<space-subdomain>.hf.space
+transport: JSONRPC
+auth:
+  oauth: true
+  persist: keyring
+```
+
+The same `--oauth` switch is available from the TUI:
+
+```text
+/a2a connect https://<space-subdomain>.hf.space --oauth --name hosted_agent
+```
 
 ## Inference Provider Use
 

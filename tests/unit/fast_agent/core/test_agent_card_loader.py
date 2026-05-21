@@ -517,6 +517,9 @@ def test_load_a2a_agent_card(tmp_path: Path) -> None:
                 "name: hello_remote",
                 "url: http://127.0.0.1:41241",
                 "transport: JSONRPC",
+                "auth:",
+                "  oauth: true",
+                "  persist: memory",
                 "request_timeout_seconds: 45",
                 "accepted_output_modes:",
                 "  - text",
@@ -534,6 +537,9 @@ def test_load_a2a_agent_card(tmp_path: Path) -> None:
     assert a2a_config.url == "http://127.0.0.1:41241"
     assert a2a_config.transport == "JSONRPC"
     assert a2a_config.streaming is True
+    assert a2a_config.auth is not None
+    assert a2a_config.auth.oauth is True
+    assert a2a_config.auth.persist == "memory"
     assert a2a_config.accepted_output_modes == ["text"]
     assert a2a_config.request_timeout_seconds == 45.0
 

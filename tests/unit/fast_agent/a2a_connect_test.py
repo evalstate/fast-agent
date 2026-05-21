@@ -40,6 +40,20 @@ def test_parse_a2a_connect_arguments() -> None:
     assert request.relative_card_path == "/card.json"
 
 
+def test_parse_a2a_connect_oauth_switches() -> None:
+    request, error = parse_a2a_connect_arguments("http://127.0.0.1:41241 --oauth")
+    assert error is None
+    assert request is not None
+    assert request.auth is not None
+    assert request.auth.oauth is True
+
+    request, error = parse_a2a_connect_arguments("http://127.0.0.1:41241 --no-oauth")
+    assert error is None
+    assert request is not None
+    assert request.auth is not None
+    assert request.auth.oauth is False
+
+
 def test_parse_a2a_connect_rejects_endpointless_url() -> None:
     request, error = parse_a2a_connect_arguments("127.0.0.1:41241")
     assert request is None

@@ -151,6 +151,7 @@ ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
         "polling",
         "accepted_output_modes",
         "headers",
+        "auth",
         "relative_card_path",
         "request_timeout_seconds",
     },

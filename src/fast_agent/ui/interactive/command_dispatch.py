@@ -378,7 +378,7 @@ def _print_a2a_help() -> None:
         "/a2a card [agent]",
         "/a2a transport [agent]",
         "/a2a reset [agent]",
-        "/a2a connect <url> [--transport JSONRPC|HTTP+JSON|GRPC] [--name NAME] [--card-path PATH]",
+        "/a2a connect <url> [--transport JSONRPC|HTTP+JSON] [--name NAME] [--card-path PATH] [--oauth|--no-oauth]",
         "/a2a help",
     ]:
         rich_print(f"  {line}")
@@ -482,6 +482,7 @@ async def _dispatch_a2a_payload(
                 a2a_config=A2AAgentConfig(
                     url=request.url,
                     transport=request.transport,
+                    auth=request.auth,
                     relative_card_path=request.relative_card_path,
                 ),
             )

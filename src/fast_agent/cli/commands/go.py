@@ -103,6 +103,7 @@ def _materialize_a2a_agent_cards(
     urls: list[str],
     *,
     transport: str | None,
+    oauth: bool | None = None,
 ) -> tuple[tempfile.TemporaryDirectory[str], list[str]]:
     normalized_transport = None
     if transport:
@@ -128,6 +129,13 @@ def _materialize_a2a_agent_cards(
         ]
         if normalized_transport:
             lines.append(f"transport: {normalized_transport}")
+        if oauth is not None:
+            lines.extend(
+                [
+                    "auth:",
+                    f"  oauth: {str(oauth).lower()}",
+                ]
+            )
         if card_path:
             lines.append(f"relative_card_path: {card_path}")
         path = Path(tempdir.name) / f"{name}.yaml"
@@ -381,6 +389,11 @@ def go(
         "--a2a-transport",
         help="Preferred A2A transport for --a2a: JSONRPC or HTTP+JSON.",
     ),
+    a2a_oauth: bool | None = typer.Option(
+        None,
+        "--a2a-oauth/--no-a2a-oauth",
+        help="Force or disable browser OAuth for --a2a remote agents.",
+    ),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
     urls: str | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
@@ -511,6 +524,7 @@ def go(
         a2a_tempdir, a2a_cards = _materialize_a2a_agent_cards(
             a2a,
             transport=a2a_transport,
+            oauth=a2a_oauth,
         )
         agent_cards = [*(agent_cards or []), *a2a_cards]
         if agent is None and len(a2a_cards) == 1:

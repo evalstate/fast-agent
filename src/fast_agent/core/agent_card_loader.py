@@ -19,7 +19,7 @@ from fast_agent.agents.agent_types import (
     MCPConnectTarget,
 )
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
-from fast_agent.config import MCPServerSettings, resolve_env_vars
+from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, resolve_env_vars
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_rules import (
     AGENT_TYPE_TO_CARD_TYPE,
@@ -540,6 +540,9 @@ def _build_agent_data(
         transport = raw.get("transport")
         if transport is not None:
             transport = _ensure_a2a_transport(transport, path)
+        auth = raw.get("auth")
+        if auth is not None and not isinstance(auth, dict):
+            raise AgentConfigError(f"'auth' must be a mapping in {path}")
         agent_data["a2a"] = A2AAgentConfig(
             url=_ensure_str(raw.get("url"), "url", path),
             transport=transport,
@@ -549,6 +552,7 @@ def _build_agent_data(
                 raw.get("accepted_output_modes", []), "accepted_output_modes", path
             ),
             headers=_ensure_headers_map(raw.get("headers"), "headers", path) or {},
+            auth=MCPServerAuthSettings.model_validate(auth) if auth is not None else None,
             relative_card_path=_ensure_optional_str(
                 raw.get("relative_card_path"), "relative_card_path", path
             ),

@@ -1,6 +1,6 @@
 # A2A OAuth and Hugging Face Hosting Goal
 
-Status: first bearer/Hugging Face pass implemented.
+Status: bearer/Hugging Face pass and first A2A client browser OAuth pass implemented.
 
 ## Goal
 
@@ -26,7 +26,7 @@ credential.
   requirements.
 - [x] A2A clients can send static bearer/HF tokens, including automatic
   Hugging Face token headers for Hugging Face URLs.
-- [ ] A2A clients can use the existing fast-agent OAuth browser flow where the
+- [x] A2A clients can use the existing fast-agent OAuth browser flow where the
   remote AgentCard advertises OAuth or OIDC.
 - [x] Documentation includes an A2A "Host on HF" page with Space setup,
   environment variables, OAuth behavior, AgentCard security metadata, and
@@ -104,7 +104,15 @@ Implemented first pass:
 - A2A clients automatically apply Hugging Face token headers through
   `add_hf_auth_header(...)` for Hugging Face URLs when no explicit auth header
   is configured.
-- Browser OAuth remains open.
+- Checked-in A2A AgentCards accept an `auth` block compatible with the existing
+  MCP OAuth settings.
+- `fast-agent --a2a` accepts `--a2a-oauth` and `--no-a2a-oauth`.
+- `/a2a connect` accepts `--oauth` and `--no-oauth`.
+- When `auth` is omitted, A2A clients attach the existing browser OAuth
+  `httpx` auth flow only when the remote AgentCard advertises OAuth2 or OpenID
+  Connect security schemes.
+- The A2A OAuth bridge preserves the A2A base URL as the protected-resource
+  identity instead of rewriting it to an MCP endpoint.
 
 ## Testing
 
@@ -120,6 +128,9 @@ Implemented first pass:
   - explicit A2A headers are sent;
   - HF token auto-header logic applies only to Hugging Face URLs;
   - existing explicit auth headers win over auto HF auth.
+  - OAuth/OIDC AgentCards enable the browser OAuth provider;
+  - `auth.oauth: false` suppresses browser OAuth;
+  - checked-in A2A cards, CLI `--a2a`, and `/a2a connect` parse OAuth settings.
 - Inference pass-through:
   - deterministic test agent reads `request_bearer_token`;
   - provider-key-manager behavior can use the request token for Hugging Face.
@@ -129,7 +140,7 @@ Implemented first pass:
 - Should A2A server auth configuration live only in shared serve environment
   variables, or should `fast-agent serve a2a` expose first-class `--oauth`
   flags?
-- Should the first client OAuth pass be generic OAuth/OIDC, or should it focus
-  on Hugging Face Spaces first?
+- Should A2A OAuth tokens share the existing MCP keyring service/index long
+  term, or should they move to a distinct A2A service name after migration?
 - Should authenticated extended AgentCards be implemented as part of this work,
   or should public cards advertise enough security metadata for the first pass?

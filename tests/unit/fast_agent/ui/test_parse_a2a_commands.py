@@ -25,6 +25,14 @@ def test_parse_a2a_connect_preserves_arguments() -> None:
     assert result.error is None
 
 
+def test_parse_a2a_connect_preserves_oauth_switch() -> None:
+    result = parse_special_input("/a2a connect http://127.0.0.1:41241 --oauth")
+    assert isinstance(result, A2ACommand)
+    assert result.action == "connect"
+    assert result.argument == "http://127.0.0.1:41241 --oauth"
+    assert result.error is None
+
+
 def test_parse_a2a_unknown_action_reports_error() -> None:
     result = parse_special_input("/a2a wat remote")
     assert isinstance(result, A2ACommand)
