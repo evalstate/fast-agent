@@ -1343,6 +1343,11 @@ def get_team_result(session_id: str) -> str:
         if first:
             orch_name = first.get("agent_name") or "?"
             orch_result = first.get("result", "") or ""
+            # Preserve role on the fallback path so the error_state row
+            # downstream still carries useful attribution (test contract:
+            # tests/test_services/test_get_team_result_fail_loud.py
+            # expects ``es["role"]`` to name the orchestrator role).
+            orch_role = str(first.get("role", "") or "").lower()
 
     error_state: dict[str, Any] = {}
     if orch_name and not orch_result.strip():

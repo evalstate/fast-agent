@@ -370,34 +370,35 @@ def _assert_self_identity(agent_name: str) -> tuple[str, str | None]:
     transcript falsely attributed identical placeholder responses to
     BA/SA/Dev/Designer/QE/DSO).
 
-    Each MCP server child runs inside one agent's process with
-    ``TEAM_MY_NAME`` pinned at spawn time, so ``_get_my_name()`` is the
-    authoritative caller identity. If the caller supplies an
-    ``agent_name`` that disagrees with their env-pinned identity, it is
-    an impersonation attempt — fail loud, do NOT silently rewrite.
+    Authoritative caller identity is ``$TEAM_MY_NAME`` — set by the
+    isolated_spawner at team-spawn time, immutable for the process's
+    lifetime. We read the env var DIRECTLY (not via ``_get_my_name()``)
+    because that helper falls back to ``$TEAM_MY_ROLE`` and then a
+    generic "agent" string; only ``TEAM_MY_NAME`` proves the process
+    was spawned as a specific team member. If it's unset, the process
+    is NOT a team agent (CLI tests, dashboard direct calls, library
+    use) and we preserve the legacy permissive contract.
 
     Returns ``(resolved_name, error_json)`` — exactly one is non-empty.
-    Caller short-circuits on error_json. Sentinel ``"agent"`` (the
-    fallback when neither TEAM_MY_NAME nor TEAM_MY_ROLE is set) is
-    treated as "no identity asserted" → caller must supply one
-    explicitly, preserving the legacy path for non-team contexts.
+    Caller short-circuits on error_json.
     """
-    caller = _get_my_name()
-    has_real_identity = caller and caller.lower() != "agent"
+    caller_env = os.environ.get("TEAM_MY_NAME", "").strip()
 
     if not agent_name:
-        return caller, None  # auto-detect (no impersonation possible)
+        # No claim made — use whatever the legacy helper resolves
+        # (env name, env role, or "agent"). No impersonation possible.
+        return _get_my_name(), None
 
-    if has_real_identity and agent_name.strip().lower() != caller.strip().lower():
+    if caller_env and agent_name.strip().lower() != caller_env.lower():
         return "", json.dumps({
             "error": (
-                f"Impersonation refused: caller is {caller!r} but "
+                f"Impersonation refused: caller is {caller_env!r} but "
                 f"agent_name={agent_name!r}. You can only speak/skip on "
                 f"YOUR own turn. If a teammate is unresponsive, use "
                 f"end_meeting (or leave_meeting on your own turn) — do "
                 f"not put words in their mouth."
             ),
-            "caller": caller,
+            "caller": caller_env,
             "claimed_agent_name": agent_name,
         })
 
