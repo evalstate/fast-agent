@@ -135,7 +135,7 @@ from fast_agent.types import RequestParams
 | `maxTokens`           | `int`    | `2048`  | The maximum number of tokens to sample, as requested by the server         |
 | `model`               | `string` | `None`  | The model to use for the LLM generation. Can only be set at Agent creation time                                    |
 | `use_history`         | `bool`   | `True`  | Agent/LLM maintains conversation history. Does not include applied Prompts                        |
-| `max_iterations`      | `int`    | `99`    | The maximum number of tool calls allowed in a conversation turn                        |
+| `max_iterations`      | `int`    | `199`   | The maximum number of tool calls allowed in a conversation turn                        |
 | `parallel_tool_calls` | `bool`   | `True`  | Whether to allow simultaneous tool calls   |
 | `response_format`     | `Any`    | `None`  | Response format for structured calls (advanced use). Prefer to use `structured` with a Pydantic model instead                |
 | `template_vars` | `Dict[str,Any]` | `{}` | Dictionary of template values for dynamic templates. Currently only supported for TensorZero provider |

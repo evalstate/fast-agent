@@ -19,6 +19,7 @@ from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
 
 ResourceSource = Literal["embedded", "link"]
+ChatCompletionReasoningAdapter = Literal["openai_responses_v1"]
 
 
 class ModelParameters(BaseModel):
@@ -44,6 +45,9 @@ class ModelParameters(BaseModel):
 
     reasoning_effort_spec: ReasoningEffortSpec | None = None
     """Reasoning effort input configuration supported by the model, if any."""
+
+    chat_completion_reasoning_adapter: ChatCompletionReasoningAdapter | None = None
+    """Adapter for provider-specific reasoning payloads on Chat Completions streams."""
 
     text_verbosity_spec: TextVerbositySpec | None = None
     """Text verbosity configuration supported by the model, if any."""
@@ -938,6 +942,7 @@ class ModelDatabase:
         "gpt-5.5": OPENAI_GPT_CODEX.model_copy(
             update={
                 "reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING,
+                "chat_completion_reasoning_adapter": "openai_responses_v1",
                 "model_specific": GPT_53_PLUS_MODEL_SPECIFIC,
             }
         ),
