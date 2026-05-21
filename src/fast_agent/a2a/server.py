@@ -7,6 +7,7 @@ import base64
 import contextlib
 import copy
 import json
+import os
 from importlib.metadata import version as get_version
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -25,8 +26,12 @@ from a2a.types import (
     AgentInterface,
     AgentProvider,
     AgentSkill,
+    HTTPAuthSecurityScheme,
     Message,
     Part,
+    SecurityRequirement,
+    SecurityScheme,
+    StringList,
     Task,
     TaskState,
     TaskStatus,
@@ -47,6 +52,7 @@ from starlette.responses import JSONResponse
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -55,6 +61,7 @@ if TYPE_CHECKING:
     from a2a.server.agent_execution.context import RequestContext
     from a2a.server.events.event_queue import EventQueue
     from starlette.requests import Request
+    from starlette.types import ASGIApp, Receive, Scope, Send
 
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.interfaces import AgentProtocol
@@ -71,6 +78,7 @@ logger = get_logger(__name__)
 
 A2A_INPUT_MODES = ["text/plain", "application/json", "application/octet-stream", "image/*"]
 A2A_OUTPUT_MODES = ["text/plain", "application/json", "application/octet-stream", "image/*"]
+A2A_HF_BEARER_SCHEME = "hf_bearer"
 
 
 def _fast_agent_version() -> str:
@@ -78,6 +86,92 @@ def _fast_agent_version() -> str:
         with contextlib.suppress(Exception):
             return get_version(package_name)
     return "unknown"
+
+
+def _get_a2a_oauth_provider() -> str | None:
+    oauth_provider = os.environ.get("FAST_AGENT_SERVE_OAUTH", "").lower()
+    if oauth_provider in {"hf", "huggingface"}:
+        return "huggingface"
+    if not oauth_provider:
+        return None
+    return oauth_provider
+
+
+def _bearer_token_from_header(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    prefix = "bearer "
+    if stripped.lower().startswith(prefix):
+        token = stripped[len(prefix) :].strip()
+        return token or None
+    return None
+
+
+def _bearer_token_from_call_context(context: RequestContext) -> str | None:
+    headers = context.call_context.state.get("headers")
+    if not isinstance(headers, dict):
+        return None
+    authorization = headers.get("authorization") or headers.get("Authorization")
+    token = _bearer_token_from_header(authorization if isinstance(authorization, str) else None)
+    if token is not None:
+        return token
+    hf_authorization = headers.get("x-hf-authorization") or headers.get("X-HF-Authorization")
+    return _bearer_token_from_header(
+        hf_authorization if isinstance(hf_authorization, str) else None
+    )
+
+
+class A2ABearerAuthMiddleware:
+    """Require bearer authentication for A2A action routes."""
+
+    def __init__(self, app: ASGIApp, *, provider: str) -> None:
+        self.app = app
+        self.provider = provider
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = str(scope.get("path", ""))
+        if not path.startswith("/a2a/"):
+            await self.app(scope, receive, send)
+            return
+
+        headers = list(scope.get("headers", []))
+        authorization = _header_value(headers, b"authorization")
+        hf_authorization = _header_value(headers, b"x-hf-authorization")
+        if authorization is None and hf_authorization is not None:
+            authorization = hf_authorization
+            headers.append((b"authorization", hf_authorization.encode("latin-1")))
+            scope = dict(scope, headers=headers)
+
+        token = _bearer_token_from_header(authorization)
+        if token is None:
+            response = JSONResponse(
+                {"error": "unauthorized"},
+                status_code=401,
+                headers={
+                    "WWW-Authenticate": (
+                        f'Bearer realm="fast-agent-a2a", '
+                        f'error="invalid_token", provider="{self.provider}"'
+                    )
+                },
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+def _header_value(headers: list[tuple[bytes, bytes]], name: bytes) -> str | None:
+    for key, value in headers:
+        if key.lower() == name:
+            return value.decode("latin-1")
+    return None
 
 
 class FastAgentA2AExecutor(AgentExecutor):
@@ -158,6 +252,9 @@ class FastAgentA2AExecutor(AgentExecutor):
                     agent=agent,
                     updater=updater,
                 )
+                saved_bearer_token = request_bearer_token.set(
+                    _bearer_token_from_call_context(context)
+                )
                 try:
                     response = await agent.generate(
                         _prompt_from_a2a_message(context.message),
@@ -176,6 +273,7 @@ class FastAgentA2AExecutor(AgentExecutor):
                     )
                     return
                 finally:
+                    request_bearer_token.reset(saved_bearer_token)
                     await self._cleanup_streaming_context(stream_context)
             finally:
                 await self._release_instance(
@@ -350,6 +448,7 @@ class AgentA2AServer:
     ) -> None:
         self._host = host
         self._port = port
+        self._oauth_provider = _get_a2a_oauth_provider()
         self._primary_agent_name = _select_primary_agent(primary_instance)
         self.agent_card = _build_agent_card(
             primary_instance=primary_instance,
@@ -357,6 +456,7 @@ class AgentA2AServer:
             server_description=server_description,
             host=host,
             port=port,
+            auth_enabled=self._oauth_provider == "huggingface",
         )
         self.executor = FastAgentA2AExecutor(
             primary_instance=primary_instance,
@@ -380,6 +480,8 @@ class AgentA2AServer:
         app.routes.extend(
             create_rest_routes(request_handler=self.request_handler, path_prefix="/a2a/rest")
         )
+        if self._oauth_provider == "huggingface":
+            app.add_middleware(A2ABearerAuthMiddleware, provider=self._oauth_provider)
         return app
 
     async def run_async(self, *, host: str | None = None, port: int | None = None) -> None:
@@ -415,10 +517,16 @@ def _build_agent_card(
     server_description: str | None,
     host: str,
     port: int,
+    auth_enabled: bool = False,
 ) -> AgentCard:
     base_url = _base_url(host=host, port=port)
+    security_requirements = _security_requirements() if auth_enabled else []
     skills = [
-        _agent_skill_from_fast_agent(agent_name, agent)
+        _agent_skill_from_fast_agent(
+            agent_name,
+            agent,
+            security_requirements=security_requirements,
+        )
         for agent_name, agent in primary_instance.agents.items()
     ]
     return AgentCard(
@@ -430,6 +538,8 @@ def _build_agent_card(
         default_input_modes=A2A_INPUT_MODES,
         default_output_modes=A2A_OUTPUT_MODES,
         skills=skills,
+        security_schemes=_security_schemes() if auth_enabled else {},
+        security_requirements=security_requirements,
         supported_interfaces=[
             AgentInterface(
                 protocol_binding="JSONRPC",
@@ -486,7 +596,32 @@ def _is_wildcard_host(bind_host: str) -> bool:
     return bind_host in {"0.0.0.0", "::", ""}
 
 
-def _agent_skill_from_fast_agent(agent_name: str, agent: AgentProtocol) -> AgentSkill:
+def _security_schemes() -> dict[str, SecurityScheme]:
+    return {
+        A2A_HF_BEARER_SCHEME: SecurityScheme(
+            http_auth_security_scheme=HTTPAuthSecurityScheme(
+                scheme="bearer",
+                bearer_format="HF_TOKEN",
+                description="Hugging Face bearer token",
+            )
+        )
+    }
+
+
+def _security_requirements() -> list[SecurityRequirement]:
+    return [
+        SecurityRequirement(
+            schemes={A2A_HF_BEARER_SCHEME: StringList(list=[])}
+        )
+    ]
+
+
+def _agent_skill_from_fast_agent(
+    agent_name: str,
+    agent: AgentProtocol,
+    *,
+    security_requirements: list[SecurityRequirement] | None = None,
+) -> AgentSkill:
     agent_type = str(agent.agent_type) if agent.agent_type else "agent"
     description = agent.config.description or f"Send a message to the {agent_name} fast-agent agent."
     return AgentSkill(
@@ -497,6 +632,7 @@ def _agent_skill_from_fast_agent(agent_name: str, agent: AgentProtocol) -> Agent
         examples=["Hello"],
         input_modes=A2A_INPUT_MODES,
         output_modes=A2A_OUTPUT_MODES,
+        security_requirements=security_requirements or [],
     )
 
 

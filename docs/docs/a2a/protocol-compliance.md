@@ -30,7 +30,7 @@ client stack and intentionally excludes gRPC.
 | gRPC transport | Not supported by design for this work. | The AgentCard does not advertise gRPC, and the CLI/API should use `JSONRPC` or `HTTP+JSON`. |
 | Push notifications | Not implemented. | The AgentCard advertises `pushNotifications=false`; SDK push configuration methods return the protocol's not-supported error. Streaming and polling remain available. |
 | Extended AgentCard | Not implemented. | The server publishes the public AgentCard only and does not configure `extendedAgentCard`. |
-| Authentication/security schemes on served AgentCards | Partial. | Remote clients can pass headers when connecting to other A2A agents. Serving fast-agent over A2A does not yet expose configurable A2A security schemes or enforce transport-level client auth. In-task provider auth failures are reported as `AUTH_REQUIRED`. |
+| Authentication/security schemes on served AgentCards | Supported for Hugging Face bearer auth | Remote clients can pass headers when connecting to other A2A agents. When `FAST_AGENT_SERVE_OAUTH=huggingface` is set, serving fast-agent over A2A advertises an `hf_bearer` HTTP bearer security scheme, requires bearer auth on A2A action routes, accepts `Authorization` and `X-HF-Authorization`, and passes the bearer token into fast-agent request context. Browser OAuth for A2A clients remains a future extension. In-task provider auth failures are reported as `AUTH_REQUIRED`. |
 | Typed audio content on the server | Partial. | The client can send `AudioContent` as raw A2A parts. The server preserves inbound audio bytes as blob resources rather than mapping them to a dedicated fast-agent `AudioContent` object. |
 | Structured JSON output from model text | Partial. | fast-agent JSON text responses remain text artifacts unless represented as `TextResourceContents` with `mimeType="application/json"`. This avoids guessing whether ordinary text is intended to be protocol data. |
 | Persistent task/session storage | In-memory only. | The server uses the SDK `InMemoryTaskStore` and fast-agent in-memory context instances. Restarting the server loses A2A task state and context-bound fast-agent sessions. |
@@ -57,6 +57,9 @@ The deterministic A2A integration suite exercises:
 - JSON `TextResourceContents` mapping to A2A data parts;
 - cancellation, task retrieval/listing after cancellation, and protocol error
   paths via SDK-backed handlers.
+- Hugging Face bearer auth route protection, AgentCard security metadata,
+  `Authorization`/`X-HF-Authorization` token propagation, and client-side HF
+  auth header application.
 
 For provider smoke testing, run a fast-agent A2A server with
 `codexresponses.gpt-5.4-mini` and connect to it with the fast-agent A2A client.

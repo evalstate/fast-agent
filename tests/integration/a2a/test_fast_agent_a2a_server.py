@@ -42,6 +42,7 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -273,6 +274,20 @@ class CancellableRecordingAgent(RecordingAgent):
         return PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="not cancelled")],
+        )
+
+
+class TokenEchoAgent(RecordingAgent):
+    async def generate(self, messages: Any, request_params: Any = None) -> PromptMessageExtended:
+        del messages, request_params
+        return PromptMessageExtended(
+            role="assistant",
+            content=[
+                TextContent(
+                    type="text",
+                    text=request_bearer_token.get() or "missing",
+                )
+            ],
         )
 
 
@@ -1183,3 +1198,109 @@ async def test_fast_agent_a2a_server_preserves_input_required_task_for_follow_up
     assert client.current_task_id is None
     assert client.last_task_state == "TASK_STATE_COMPLETED"
     assert len(input_required_fast_agent_a2a_server.created_agents) == 1
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_hf_auth_card_and_rejection(monkeypatch) -> None:
+    monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
+    monkeypatch.setenv("FAST_AGENT_OAUTH_RESOURCE_URL", "http://testserver")
+    server = AgentA2AServer(
+        primary_instance=_instance(TokenEchoAgent(name="worker")),
+        create_instance=lambda: _async_instance(TokenEchoAgent(name="worker")),
+        dispose_instance=_async_dispose_instance,
+        server_name="fast-agent auth test server",
+        host="127.0.0.1",
+        port=41241,
+    )
+    client = TestClient(server.asgi_app(), base_url="http://testserver")
+
+    card_response = client.get("/.well-known/agent-card.json")
+    card_response.raise_for_status()
+    payload = card_response.json()
+
+    assert "hf_bearer" in payload["securitySchemes"]
+    assert payload["securityRequirements"] == [{"schemes": {"hf_bearer": {}}}]
+    assert payload["skills"][0]["securityRequirements"] == [{"schemes": {"hf_bearer": {}}}]
+
+    rejected = client.post("/a2a/jsonrpc", json={})
+    assert rejected.status_code == 401
+    assert rejected.headers["www-authenticate"].startswith("Bearer ")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({"Authorization": "Bearer request-token"}, "request-token"),
+        ({"X-HF-Authorization": "Bearer hf-space-token"}, "hf-space-token"),
+    ],
+)
+async def test_fast_agent_a2a_server_passes_bearer_token_to_request_context(
+    monkeypatch,
+    unused_tcp_port: int,
+    wait_for_port,
+    headers: dict[str, str],
+    expected: str,
+) -> None:
+    monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
+    monkeypatch.setenv("FAST_AGENT_OAUTH_RESOURCE_URL", "http://127.0.0.1")
+    host = "127.0.0.1"
+    port = unused_tcp_port
+    disposed: list[AgentInstance] = []
+
+    async def create_instance() -> AgentInstance:
+        return _instance(TokenEchoAgent(name="worker"))
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        disposed.append(instance)
+        await instance.shutdown()
+
+    server = AgentA2AServer(
+        primary_instance=_instance(TokenEchoAgent(name="worker")),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent auth propagation test server",
+        host=host,
+        port=port,
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    server_task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    client = A2ARemoteAgent(
+        config=AgentConfig(name="remote_auth", agent_type=AgentType.A2A, use_history=False),
+        a2a_config=A2AAgentConfig(
+            url=f"http://{host}:{port}",
+            transport="JSONRPC",
+            headers=headers,
+        ),
+    )
+    await client.initialize()
+    try:
+        response = await client.generate_impl(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="who am i")],
+                )
+            ]
+        )
+    finally:
+        await client.shutdown()
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(server_task, timeout=5.0)
+        await server.executor.shutdown()
+
+    assert response.all_text() == expected
+    assert disposed
+
+
+async def _async_instance(agent: RecordingAgent) -> AgentInstance:
+    return _instance(agent)
+
+
+async def _async_dispose_instance(instance: AgentInstance) -> None:
+    await instance.shutdown()

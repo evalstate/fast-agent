@@ -198,6 +198,27 @@ Transport validation errors, task lookup errors, non-cancelable tasks, and
 unsupported push notification operations are handled by the A2A SDK request
 handler.
 
+## Hugging Face Bearer Auth
+
+Set `FAST_AGENT_SERVE_OAUTH=huggingface` before starting `fast-agent serve a2a`
+to require bearer authentication on `/a2a/jsonrpc` and `/a2a/rest` while keeping
+the public AgentCard discoverable.
+
+The A2A server accepts both:
+
+```text
+Authorization: Bearer <token>
+X-HF-Authorization: Bearer <token>
+```
+
+The Hugging Face header form is useful on Spaces. The server advertises an
+`hf_bearer` HTTP bearer security scheme in the AgentCard and stores the inbound
+token in fast-agent request context while the agent runs, allowing Hugging Face
+Inference Provider models and Hugging Face MCP/tools to use the caller
+credential.
+
+See [Host A2A on Hugging Face](host-on-hf.md) for a Space-oriented setup.
+
 ## File Parts
 
 Incoming raw image parts become `ImageContent`. Other raw file parts become

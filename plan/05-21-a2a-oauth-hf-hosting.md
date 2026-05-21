@@ -1,6 +1,6 @@
 # A2A OAuth and Hugging Face Hosting Goal
 
-Status: planned.
+Status: first bearer/Hugging Face pass implemented.
 
 ## Goal
 
@@ -15,19 +15,20 @@ credential.
 
 ## Outcomes
 
-- A2A servers can enforce bearer/OAuth authentication for `JSONRPC` and
+- [x] A2A servers can enforce bearer authentication for `JSONRPC` and
   `HTTP+JSON` endpoints.
-- Hugging Face Spaces deployment supports `X-HF-Authorization` and standard
+- [x] Hugging Face Spaces deployment supports `X-HF-Authorization` and standard
   `Authorization` bearer headers, matching the existing MCP behavior.
-- The request bearer token is written to `request_bearer_token` while the
+- [x] The request bearer token is written to `request_bearer_token` while the
   fast-agent agent handles an A2A request.
-- Served A2A AgentCards advertise security metadata through A2A
-  `security_schemes`, `security_requirements`, and, where appropriate,
-  per-skill security requirements.
-- A2A clients can send static bearer/HF tokens and can later use the existing
-  fast-agent OAuth browser flow where the remote AgentCard advertises OAuth or
-  OIDC.
-- Documentation includes an A2A "Host on HF" page with Space setup,
+- [x] Served A2A AgentCards advertise security metadata through A2A
+  `security_schemes`, `security_requirements`, and per-skill security
+  requirements.
+- [x] A2A clients can send static bearer/HF tokens, including automatic
+  Hugging Face token headers for Hugging Face URLs.
+- [ ] A2A clients can use the existing fast-agent OAuth browser flow where the
+  remote AgentCard advertises OAuth or OIDC.
+- [x] Documentation includes an A2A "Host on HF" page with Space setup,
   environment variables, OAuth behavior, AgentCard security metadata, and
   inference-provider usage.
 
@@ -70,6 +71,16 @@ credential.
    - add `OAuth2SecurityScheme` or `OpenIdConnectSecurityScheme` once we have
      provider metadata details that A2A clients can use reliably.
 
+Implemented first pass:
+
+- `FAST_AGENT_SERVE_OAUTH=huggingface` enables A2A bearer auth.
+- AgentCard discovery stays public.
+- `/a2a/jsonrpc` and `/a2a/rest` require a bearer token.
+- `X-HF-Authorization` is accepted and normalized for Hugging Face Spaces.
+- The bearer token is available through `request_bearer_token` while the
+  fast-agent agent runs.
+- The public AgentCard advertises an `hf_bearer` HTTP bearer security scheme.
+
 ## Proposed Client Design
 
 1. Static token support:
@@ -86,6 +97,14 @@ credential.
    - adapt `fast_agent.mcp.oauth_client` to an A2A-oriented server identity;
    - store tokens in keyring using a distinct service or identity prefix;
    - emit OAuth events through CLI/TUI surfaces similarly to `/mcp connect`.
+
+Implemented first pass:
+
+- A2A explicit `headers` remain supported.
+- A2A clients automatically apply Hugging Face token headers through
+  `add_hf_auth_header(...)` for Hugging Face URLs when no explicit auth header
+  is configured.
+- Browser OAuth remains open.
 
 ## Testing
 

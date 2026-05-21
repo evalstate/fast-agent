@@ -28,6 +28,7 @@ from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.mcp.hf_auth import add_hf_auth_header
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -105,8 +106,9 @@ class A2ARemoteAgent(LlmDecorator):
 
     async def initialize(self) -> None:
         await super().initialize()
+        headers = add_hf_auth_header(self.a2a_config.url, self.a2a_config.headers)
         self._httpx_client = httpx.AsyncClient(
-            headers=self.a2a_config.headers or None,
+            headers=headers or None,
             timeout=self.a2a_config.request_timeout_seconds,
         )
         client_config = ClientConfig(

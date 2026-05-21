@@ -16,11 +16,14 @@ and Hugging Face tools as the caller rather than as a shared server account.
 
 ## Current Status
 
-A2A server auth for Hugging Face hosting is planned work. The current A2A server
-supports unauthenticated HTTP `JSONRPC` and `HTTP+JSON` serving. MCP serving
-already has the Hugging Face OAuth/pass-through pattern that A2A will mirror.
+fast-agent A2A serving supports Hugging Face bearer authentication for HTTP
+`JSONRPC` and `HTTP+JSON` routes when `FAST_AGENT_SERVE_OAUTH=huggingface` is
+set. The public AgentCard stays discoverable, and action routes require a bearer
+token.
 
-Use this page as the setup target for the OAuth-enabled A2A server work.
+The implemented first pass supports static bearer credentials and Hugging Face
+Space header normalization. Browser-based OAuth login for A2A clients is a later
+phase.
 
 ## Space Layout
 
@@ -85,7 +88,7 @@ the credential source.
 
 ## Request Flow
 
-Expected OAuth-enabled A2A flow:
+OAuth-enabled A2A flow:
 
 1. The client fetches `/.well-known/agent-card.json`.
 2. The AgentCard advertises bearer/OAuth security requirements.
@@ -104,7 +107,7 @@ Expected OAuth-enabled A2A flow:
 An OAuth-enabled card should advertise security metadata so A2A clients know
 that credentials are required.
 
-The first implementation target is bearer security:
+The current implementation advertises bearer security:
 
 ```json
 {
@@ -117,16 +120,19 @@ The first implementation target is bearer security:
       }
     }
   },
-  "security": [
+  "securityRequirements": [
     {
-      "hf_bearer": []
+      "schemes": {
+        "hf_bearer": {}
+      }
     }
   ]
 }
 ```
 
-Later implementations can advertise OAuth2 or OpenID Connect metadata when the
-client can complete the browser OAuth flow directly from the AgentCard.
+Skills include the same `securityRequirements` entry. Later implementations can
+advertise OAuth2 or OpenID Connect metadata when the client can complete the
+browser OAuth flow directly from the AgentCard.
 
 ## Client Configuration
 
@@ -150,10 +156,10 @@ headers:
   X-HF-Authorization: "Bearer ${HF_TOKEN}"
 ```
 
-The planned fast-agent A2A client behavior is to reuse the existing Hugging Face
-token discovery used by MCP URL connections, so explicit headers are not needed
-when the target is `hf.co`, `huggingface.co`, or `*.hf.space` and no auth header
-has already been configured.
+fast-agent A2A clients reuse the existing Hugging Face token discovery used by
+MCP URL connections, so explicit headers are not needed when the target is
+`hf.co`, `huggingface.co`, or `*.hf.space` and no auth header has already been
+configured.
 
 ## Inference Provider Use
 

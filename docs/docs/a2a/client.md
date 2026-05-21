@@ -109,6 +109,11 @@ headers:
 relative_card_path: "/.well-known/agent-card.json"
 ```
 
+For Hugging Face URLs (`hf.co`, `huggingface.co`, and `*.hf.space`),
+fast-agent automatically applies the local Hugging Face token as A2A request
+headers when no explicit auth header is configured. For Spaces this includes
+both `Authorization` and `X-HF-Authorization`.
+
 ## TUI
 
 Inside the interactive prompt, connect a remote A2A agent at runtime:
