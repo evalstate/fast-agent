@@ -94,6 +94,17 @@ fast-agent go --noenv --message "..." --json-schema ./schema.json
 
 This validates the response locally and writes only JSON to stdout.
 
+For one-shot `fast-agent go` runs, attach local files or HTTP(S) URLs with
+repeatable `--attach` / `-a` options:
+
+```bash
+fast-agent go --message "Summarize this" --attach ./report.pdf
+fast-agent go --prompt-file review.md --attach ./evidence.pdf --attach https://example.com/chart.png
+```
+
+`--attach` requires `--message` or `--prompt-file`; with `--prompt-file`,
+attachments are added to the last user message in the prompt.
+
 For card-based loading and the distinction between `--agent-cards` and `--card-tool`, see [AgentCards and ToolCards](agent_cards/).
 
 ## fast-agent export Command

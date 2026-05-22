@@ -437,6 +437,7 @@ uvx fast-agent-mcp@latest batch run \
   --template hf://datasets/evalstate/fast-agent-batch-demo/hf-research-template.md \
   --limit 3 \
   --id-field id \
+  --progress-every 1 \
   --model kimi26instant
 ```
 
@@ -564,5 +565,3 @@ The output is one JSONL envelope per input row:
 ```
 
 For the full option reference, see [Batch Processing](../ref/batch.md).
-
-

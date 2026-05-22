@@ -293,6 +293,42 @@ def test_run_async_agent_passes_result_file() -> None:
     assert run_kwargs["result_file"] == "result.json"
 
 
+def test_go_accepts_repeated_attach_flags(monkeypatch, tmp_path: Path) -> None:
+    attachment = tmp_path / "report.txt"
+    attachment.write_text("hello", encoding="utf-8")
+    captured_requests = []
+
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--message",
+            "summarize",
+            "--attach",
+            attachment.as_posix(),
+            "--attach",
+            "https://example.com/chart.png",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(captured_requests) == 1
+    assert captured_requests[0].attachments == [
+        attachment.as_posix(),
+        "https://example.com/chart.png",
+    ]
+
+
+def test_go_attach_requires_one_shot_mode() -> None:
+    runner = CliRunner()
+    result = runner.invoke(go_command.app, ["--attach", "report.txt"])
+
+    assert result.exit_code == 2
+    assert "--attach requires --message or --prompt-file" in strip_ansi(result.output)
+
+
 def test_build_compat_run_request_defaults_acp_instance_scope_to_connection() -> None:
     request = go_command._build_compat_run_request(
         name="test-agent",
