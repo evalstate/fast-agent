@@ -129,7 +129,23 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.DEEPSEEK: (
-            CatalogModelEntry(alias="deepseek3", model="deepseek.deepseek-chat", fast=True),
+            CatalogModelEntry(
+                alias="deepseek",
+                display_label="DeepSeek V4 Pro",
+                model="deepseek.deepseek-v4-pro",
+            ),
+            CatalogModelEntry(
+                alias="deepseek4flash",
+                display_label="DeepSeek V4 Flash",
+                model="deepseek.deepseek-v4-flash",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="deepseek3",
+                model="deepseek.deepseek-chat",
+                fast=True,
+                current=False,
+            ),
         ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
@@ -138,8 +154,9 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             CatalogModelEntry(
-                alias="deepseek4",
-                model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+                alias="deepseek-hf",
+                display_label="DeepSeek V4 Pro (HF)",
+                model="hf.deepseek-ai/DeepSeek-V4-Pro:together",
                 current=True,
             ),
             CatalogModelEntry(

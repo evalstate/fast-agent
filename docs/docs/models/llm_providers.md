@@ -541,14 +541,18 @@ groq:
 
 ## DeepSeek
 
-DeepSeek v3 is supported for Text and Tool calling.
+DeepSeek V4 Flash and V4 Pro are supported through DeepSeek's OpenAI-format API
+for text, JSON output, tool calling, and `reasoning_content` thinking streams.
+Thinking mode is enabled by default for V4 models; use `?reasoning=off` to
+disable it where needed. The legacy `deepseek-chat` and `deepseek-reasoner`
+model names remain available for compatibility.
 
 **YAML Configuration:**
 
 ```yaml
 deepseek:
   api_key: "your_deepseek_key"
-  base_url: "https://api.deepseek.com/v1"
+  base_url: "https://api.deepseek.com"
 ```
 
 **Environment Variables:**

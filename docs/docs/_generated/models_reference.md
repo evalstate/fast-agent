@@ -27,8 +27,11 @@
 | `opus46` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `max`, `off`<br>Example: `opus46.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `opus` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `codexspark` | `codexresponses` | Text | `json` (schema) | — | — | — |
+| `deepseek` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek.high` | — | — |
+| `deepseek-reasoner` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek-reasoner.high` | — | — |
 | `deepseek.deepseek-ai/deepseek-v3.1` | `deepseek` | Text | `json` (schema) | — | — | — |
 | `deepseek3` | `deepseek` | Text | `json` (schema) | — | — | — |
+| `deepseek4flash` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek4flash.high` | — | — |
 | `passthrough` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `playback` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `silent` | `fast-agent` | Text | `json` (schema) | — | — | — |
@@ -46,7 +49,7 @@
 | `moonshotai/kimi-k2-thinking` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
-| `deepseek` | `hf` | Text | `json` (schema) | — | — | — |
+| `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
 | `glm` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm?reasoning=off` | — | — |

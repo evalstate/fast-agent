@@ -217,6 +217,13 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
+    DEEPSEEK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["high", "max"],
+        allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
     ANTHROPIC_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="budget",
         min_budget_tokens=1024,
@@ -557,15 +564,35 @@ class ModelDatabase:
         default_provider=Provider.ANTHROPIC,
     )
 
-    DEEPSEEK_CHAT_STANDARD = ModelParameters(
-        context_window=65536,
-        max_output_tokens=8192,
+    DEEPSEEK_V4_FLASH = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=393_216,
         tokenizes=TEXT_ONLY,
+        json_mode="schema",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,
     )
 
+    DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH.model_copy()
+
+    DEEPSEEK_CHAT_STANDARD = DEEPSEEK_V4_FLASH.model_copy(
+        update={
+            "reasoning": None,
+            "reasoning_effort_spec": None,
+            "max_output_tokens": 8192,
+            "fast": True,
+        }
+    )
+
     DEEPSEEK_REASONER = ModelParameters(
-        context_window=65536, max_output_tokens=32768, tokenizes=TEXT_ONLY
+        context_window=1_048_576,
+        max_output_tokens=393_216,
+        tokenizes=TEXT_ONLY,
+        json_mode="schema",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
+        default_provider=Provider.DEEPSEEK,
     )
 
     DEEPSEEK_V_32 = ModelParameters(
@@ -573,7 +600,7 @@ class ModelDatabase:
         max_output_tokens=32768,
         tokenizes=TEXT_ONLY,
         json_mode="object",
-        reasoning="gpt-oss",
+        reasoning="gpt_oss",
         system_role="developer",
     )
 
@@ -941,6 +968,9 @@ class ModelDatabase:
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
         "deepseek-chat": _with_fast(DEEPSEEK_CHAT_STANDARD),
+        "deepseek-reasoner": DEEPSEEK_REASONER,
+        "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
+        "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
