@@ -210,6 +210,12 @@ class ToolRunnerHooks:
     - before_tool_call: Called before tools are executed
     - after_tool_call: Called after tool results are received
     - after_turn_complete: Called once after the entire turn completes (when stop_reason != TOOL_USE)
+    - on_pause_cancel: Optional async filter for ``CancelledError`` raised
+      from inside the LLM call. Returns True to indicate the cancel was
+      intentional pause (and the LLM call should be retried after the
+      caller awaits resume); False to let CancelledError propagate as
+      usual. Lets PauseController interrupt long-running LLM streams
+      without tearing down the surrounding chat request.
     """
 
     before_llm_call: (
@@ -221,6 +227,7 @@ class ToolRunnerHooks:
     after_turn_complete: (
         Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None
     ) = None
+    on_pause_cancel: Callable[["ToolRunner"], Awaitable[bool]] | None = None
 
 
 class ToolRunner:
@@ -279,11 +286,34 @@ class ToolRunner:
         if self._hooks.before_llm_call is not None:
             await self._hooks.before_llm_call(self, self._delta_messages)
 
-        assistant_message = await self._agent._tool_runner_llm_step(
-            self._delta_messages,
-            request_params=self._request_params,
-            tools=self._tools,
-        )
+        # Retry loop: lets ``on_pause_cancel`` intercept a CancelledError
+        # raised mid-LLM-call (e.g. when PauseController cancels the
+        # task to interrupt a long-running stream). If the hook returns
+        # True the LLM call is reissued with the same ``_delta_messages``
+        # — effectively "pause + resume" without unwinding the chat
+        # request task. ``task.uncancel()`` clears the pending-cancel
+        # state so subsequent awaits don't immediately re-raise.
+        # Falls through (raise) when no hook is registered or the hook
+        # says the cancel was genuine.
+        while True:
+            try:
+                assistant_message = await self._agent._tool_runner_llm_step(
+                    self._delta_messages,
+                    request_params=self._request_params,
+                    tools=self._tools,
+                )
+                break
+            except asyncio.CancelledError:
+                hook = self._hooks.on_pause_cancel
+                if hook is None:
+                    raise
+                should_retry = await hook(self)
+                if not should_retry:
+                    raise
+                try:
+                    asyncio.current_task().uncancel()
+                except (AttributeError, RuntimeError):
+                    pass  # uncancel unavailable / not a Task — re-raise next iter
 
         self._last_message = assistant_message
         if self._hooks.after_llm_call is not None:

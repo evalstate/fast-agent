@@ -1198,26 +1198,38 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
     except Exception:
         pass  # RTAC is optional — don't break spawn if it fails
 
-    # Pause/Resume: signal-based pause checkpoint hooks. Three hooks come
-    # from the pause module:
+    # Pause/Resume: signal-based pause checkpoint hooks.
     #   - ``pause_checkpoint``: used at both before_llm_call AND
     #     before_tool_call so the subprocess pauses at the same
     #     granularity as the in-process Jarvis agent.
+    #   - ``pause_after_llm``: clears the in-flight LLM task ref so a
+    #     subsequent SIGUSR1 doesn't cancel something past the LLM phase
+    #     (tool calls are left running per strategy B).
     #   - ``pause_turn_complete``: after_turn_complete marker that flips
     #     the subprocess ``_active`` flag back to idle, letting the
     #     signal handler emit terminal ``agent_paused`` itself when the
     #     pause request lands on an idle agent.
+    #   - ``pause_cancel_filter``: on_pause_cancel hook — when tool_runner
+    #     catches CancelledError from a SIGUSR1-cancelled LLM call, this
+    #     hook awaits resume and signals retry. Without it the cancel
+    #     would propagate up and terminate the subprocess turn entirely.
     pause_before_llm: Any = None
     pause_before_tool: Any = None
+    pause_after_llm_hook: Any = None
     pause_turn_done: Any = None
+    pause_cancel: Any = None
     try:
         from fast_agent.spawn.pause_signal_handler import (
             pause_checkpoint,
+            pause_after_llm,
             pause_turn_complete,
+            pause_cancel_filter,
         )
         pause_before_llm = pause_checkpoint
         pause_before_tool = pause_checkpoint
+        pause_after_llm_hook = pause_after_llm
         pause_turn_done = pause_turn_complete
+        pause_cancel = pause_cancel_filter
     except Exception:
         pass  # Pause is optional — don't break spawn if it fails
 
@@ -1257,6 +1269,8 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             await spawn_after_llm(runner, message)
             if orig_after_llm:
                 await orig_after_llm(runner, message)
+            if pause_after_llm_hook:
+                await pause_after_llm_hook(runner, message)
 
         async def merged_after_turn(runner: Any, message: Any) -> None:
             if orig_after_turn:
@@ -1270,6 +1284,7 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             before_tool_call=merged_before_tool,
             after_tool_call=merged_after_tool,
             after_turn_complete=merged_after_turn,
+            on_pause_cancel=pause_cancel,
         )
     else:
         # Build before_llm chain: spawn → rtac → pause
@@ -1288,12 +1303,18 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             if pause_before_tool:
                 await pause_before_tool(r, req)
 
+        async def _chained_after_llm(r: Any, m: Any) -> None:
+            await spawn_after_llm(r, m)
+            if pause_after_llm_hook:
+                await pause_after_llm_hook(r, m)
+
         child_agent.tool_runner_hooks = ToolRunnerHooks(
             before_llm_call=_chained_before_llm,
-            after_llm_call=spawn_after_llm,
+            after_llm_call=_chained_after_llm,
             before_tool_call=_chained_before_tool,
             after_tool_call=after_tool_call,
             after_turn_complete=pause_turn_done,
+            on_pause_cancel=pause_cancel,
         )
 
 

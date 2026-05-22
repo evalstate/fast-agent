@@ -311,3 +311,97 @@ async def test_tool_hook_error_returns_tool_result():
 
     result = await agent.generate("hi")
     assert result.stop_reason == LlmStopReason.ERROR
+
+
+# ─── on_pause_cancel hook — instant LLM pause via task cancel ──────────
+
+
+class CancelOnceLlm(PassthroughLLM):
+    """LLM that raises CancelledError on the first call, then succeeds.
+
+    Simulates PauseController calling ``task.cancel()`` while an LLM
+    stream is in flight. The on_pause_cancel hook should intercept,
+    say "retry", and the second call returns a normal END_TURN.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._calls = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages,
+        request_params=None,
+        tools=None,
+        is_template=False,
+    ):
+        self._calls += 1
+        if self._calls == 1:
+            import asyncio as _asyncio
+            raise _asyncio.CancelledError()
+        return Prompt.assistant("done after retry", stop_reason=LlmStopReason.END_TURN)
+
+
+class CancelRetryHookAgent(ToolAgent):
+    """Agent that retries the LLM call once via on_pause_cancel."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.retry_count = 0
+
+    def _tool_runner_hooks(self):
+        async def on_pause_cancel(runner):
+            # First call: simulate "we were paused", request retry.
+            # Second call (if any): "genuine cancel", propagate.
+            self.retry_count += 1
+            return self.retry_count == 1
+
+        return ToolRunnerHooks(on_pause_cancel=on_pause_cancel)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_pause_cancel_retries_llm_call():
+    """The tool_runner must catch CancelledError from the LLM call and
+    re-issue it when on_pause_cancel returns True. End result: the
+    chat request completes normally despite the mid-call cancellation,
+    matching PauseController's pause+resume semantics.
+    """
+    llm = CancelOnceLlm()
+    agent = CancelRetryHookAgent(AgentConfig("cancel-retry"))
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+
+    assert result.last_text() == "done after retry"
+    assert agent.retry_count == 1
+    assert llm._calls == 2  # first cancelled, second succeeded
+
+
+class GenuineCancelHookAgent(ToolAgent):
+    """Agent whose on_pause_cancel always says "genuine cancel, propagate"."""
+
+    def _tool_runner_hooks(self):
+        async def on_pause_cancel(runner):
+            return False
+
+        return ToolRunnerHooks(on_pause_cancel=on_pause_cancel)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_pause_cancel_returning_false_propagates():
+    """When on_pause_cancel returns False (= not paused, real cancel),
+    the CancelledError must propagate up so the chat request actually
+    fails — otherwise legitimate client-disconnect cancels would be
+    silently swallowed.
+    """
+    import asyncio
+    llm = CancelOnceLlm()
+    agent = GenuineCancelHookAgent(AgentConfig("genuine-cancel"))
+    agent._llm = llm
+
+    with pytest.raises(asyncio.CancelledError):
+        await agent.generate("hi")
+
+    assert llm._calls == 1  # no retry happened

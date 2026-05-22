@@ -56,6 +56,12 @@ _installed = False
 # signal handler to know whether to emit the terminal paused/resumed event
 # itself (idle agent) or defer to the checkpoint hook (active agent).
 _active = False
+# Ref to the asyncio.Task that's mid-LLM-call. Set by ``pause_checkpoint``
+# (before_llm_call), cleared by ``pause_after_llm`` (after_llm_call) so that
+# the signal handler only cancels during the LLM phase. Tool calls are not
+# cancelled (strategy B — let side-effects complete; pause cooperatively
+# at the next checkpoint).
+_current_llm_task: asyncio.Task | None = None
 
 
 def _ensure_event() -> asyncio.Event:
@@ -95,6 +101,13 @@ def install_pause_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
         event.clear()
         logger.info("[PAUSE-SIGNAL] SIGUSR1 received — agent %s pausing", agent_name)
         _emit("agent_pausing", agent_name, run_id, "pausing")
+        # Instant-pause: cancel the in-flight LLM task (only when in LLM
+        # phase — ``_current_llm_task`` is None during tool calls). The
+        # ``pause_cancel_filter`` hook on the tool_runner catches the
+        # resulting CancelledError, awaits resume, and signals retry.
+        if _current_llm_task is not None and not _current_llm_task.done():
+            _current_llm_task.cancel()
+            logger.info("[PAUSE-SIGNAL] Cancelled in-flight LLM task for %s", agent_name)
         # Idle case: no in-flight turn means the checkpoint hook will
         # never fire to emit ``agent_paused`` — handle it here.
         if not _active:
@@ -129,10 +142,15 @@ async def pause_checkpoint(runner: Any, messages: Any) -> None:
     awaits the resume event, then emits ``agent_resumed`` so the UI
     knows the agent has actually resumed (not just received the request).
     Also flips ``_active`` to True so the signal handler knows to defer
-    terminal-state emits to this hook.
+    terminal-state emits to this hook, and registers the current task
+    so the SIGUSR1 handler can cancel an in-flight LLM call.
     """
-    global _active
+    global _active, _current_llm_task
     _active = True
+    try:
+        _current_llm_task = asyncio.current_task()
+    except RuntimeError:
+        _current_llm_task = None  # not in a task — cancel disabled
 
     event = _ensure_event()
     if not event.is_set():
@@ -145,6 +163,15 @@ async def pause_checkpoint(runner: Any, messages: Any) -> None:
         logger.info("[PAUSE-SIGNAL] Agent %s unblocked, continuing", agent_name)
 
 
+async def pause_after_llm(runner: Any, message: Any) -> None:
+    """``after_llm_call`` hook — LLM call finished, clear the task ref so
+    a subsequent SIGUSR1 doesn't cancel something past the LLM phase
+    (e.g. the upcoming tool call, which we leave running per strategy B).
+    """
+    global _current_llm_task
+    _current_llm_task = None
+
+
 async def pause_turn_complete(runner: Any, message: Any) -> None:
     """``after_turn_complete`` hook — marks the agent idle.
 
@@ -152,5 +179,26 @@ async def pause_turn_complete(runner: Any, message: Any) -> None:
     so the next pause request must be terminated by the signal handler
     itself (the checkpoint hook won't fire until a new turn starts).
     """
-    global _active
+    global _active, _current_llm_task
     _active = False
+    _current_llm_task = None
+
+
+async def pause_cancel_filter(runner: Any) -> bool:
+    """``on_pause_cancel`` hook — the LLM call inside tool_runner just
+    took CancelledError. If we initiated the cancel via SIGUSR1 (event
+    is cleared), await resume and return True (the runner retries the
+    LLM call with the same delta_messages). Otherwise return False
+    (genuine cancel — propagate).
+    """
+    event = _ensure_event()
+    if not event.is_set():
+        agent_name = os.environ.get("TEAM_MY_NAME", "unknown")
+        run_id = os.environ.get("SPAWN_RUN_ID", "")
+        _emit("agent_paused", agent_name, run_id, "paused")
+        logger.info("[PAUSE-SIGNAL] Agent %s blocked after LLM-cancel", agent_name)
+        await event.wait()
+        _emit("agent_resumed", agent_name, run_id, "running")
+        logger.info("[PAUSE-SIGNAL] Agent %s unblocked, retrying LLM call", agent_name)
+        return True
+    return False
