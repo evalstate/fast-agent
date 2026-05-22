@@ -950,11 +950,23 @@ class MCPConnectionManager(ContextDependent):
                         f"Server '{server_name}' uses stdio transport but no command is specified"
                     )
                 # Inherit SPAWN_* and VIRTUAL_ENV from parent process
-                # (get_default_environment() only passes HOME/PATH/SHELL etc.)
+                # (get_default_environment() only passes HOME/PATH/SHELL etc.).
+                # Also inherit JARVIS_RUNTIME_RPC_SOCKET so middleware MCPs
+                # (agent_spawner, etc.) carry the socket handle forward to
+                # grandchild fast-agent processes — otherwise their own
+                # ``${JARVIS_RUNTIME_RPC_SOCKET}`` expansions resolve against
+                # an empty env and leak the literal placeholder downstream
+                # (approval-server / skill_server / mcp_admin all break with
+                # ENOENT). This is a backend-managed system handle, not a
+                # secret, so wide propagation is safe.
                 import os as _os
                 _parent_extras = {
                     k: v for k, v in _os.environ.items()
-                    if k.startswith("SPAWN_") or k in ("VIRTUAL_ENV",)
+                    if (
+                        k.startswith("SPAWN_")
+                        or k == "JARVIS_RUNTIME_RPC_SOCKET"
+                        or k in ("VIRTUAL_ENV",)
+                    )
                 }
                 # Expand ``${VAR}`` / ``$VAR`` in config.env values using the
                 # parent process environment — matches shell + docker-compose

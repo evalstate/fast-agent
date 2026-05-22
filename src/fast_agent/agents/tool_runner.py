@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Awaitable,
@@ -28,6 +31,124 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
     from mcp import Tool
+
+
+# ── Context-overflow defence: cap oversized tool results pre-history ──────
+#
+# Incident 2026-05-17 (figma_read export_svg returning 777KB SVG markup):
+# a single oversized tool result lands in message_history full-fat, every
+# subsequent LLM call resends it, Anthropic API returns 400 "prompt is too
+# long", error becomes assistant turn → poisons history → agent stuck.
+#
+# Defence-in-depth: regardless of any per-tool size cap, every tool result
+# text block >MAX_TOOL_RESULT_BYTES is spilled to disk and replaced with a
+# stub + 8KB preview BEFORE it ever reaches the staged history. Spill path
+# lives under the workspace dir so the agent's filesystem MCP can read it
+# back if it really needs the full content.
+#
+# Configurable via FAST_AGENT_MAX_TOOL_RESULT_BYTES env var; default 64KB.
+
+_DEFAULT_MAX_TOOL_RESULT_BYTES = 64 * 1024
+_PREVIEW_BYTES = 8 * 1024
+
+
+def _max_tool_result_bytes() -> int:
+    raw = os.environ.get("FAST_AGENT_MAX_TOOL_RESULT_BYTES")
+    if not raw:
+        return _DEFAULT_MAX_TOOL_RESULT_BYTES
+    try:
+        return max(1024, int(raw))
+    except ValueError:
+        return _DEFAULT_MAX_TOOL_RESULT_BYTES
+
+
+def _spill_dir() -> Path:
+    """Where to write oversized tool-result spills.
+
+    Prefers ``TEAM_WORKSPACE`` (set by isolated_runner before MCP spawn), so
+    the file is reachable via the agent's per-role filesystem MCP. Falls
+    back to cwd, which after isolated_runner's chdir is also workspace_dir.
+    """
+    base = os.environ.get("TEAM_WORKSPACE") or os.getcwd()
+    return Path(base) / ".tool-outputs"
+
+
+def _sanitize_oversized_tool_results(
+    message: PromptMessageExtended,
+    *,
+    agent_name: str = "agent",
+) -> PromptMessageExtended:
+    """Mutate-and-return: cap every TextContent inside tool_results.
+
+    The mutation is in-place on each ``CallToolResult.content`` list — the
+    caller's reference to ``message`` stays valid. We replace the oversized
+    ``TextContent`` element entirely (rather than truncating its ``text``)
+    so the stub is structurally identical to a normal text block and the
+    LLM provider serialiser can't choke on a half-sized message.
+    """
+    if not getattr(message, "tool_results", None):
+        return message
+
+    max_bytes = _max_tool_result_bytes()
+    spill_dir = _spill_dir()
+
+    for tool_id, tr in list(message.tool_results.items()):
+        content_list = tr.content or []
+        for i, block in enumerate(content_list):
+            if not isinstance(block, TextContent):
+                continue
+            text = block.text or ""
+            raw_bytes = text.encode("utf-8", errors="replace")
+            if len(raw_bytes) <= max_bytes:
+                continue
+
+            try:
+                spill_dir.mkdir(parents=True, exist_ok=True)
+                ts = int(time.time() * 1000)
+                # Sanitise agent_name + tool_id for filesystem safety.
+                safe_name = (agent_name or "agent").replace("/", "_").replace(" ", "_")
+                safe_tid = str(tool_id).replace("/", "_")
+                spill_path = spill_dir / f"{safe_name}-{safe_tid}-{ts}.txt"
+                spill_path.write_text(text, encoding="utf-8")
+                spill_target = str(spill_path)
+            except OSError:
+                # If we can't write to disk we still MUST cap — otherwise
+                # the next LLM call dies. Fall back to "lost" stub.
+                spill_target = "(spill failed — full content discarded)"
+
+            preview = text[:_PREVIEW_BYTES]
+            # Stub format: tell the agent (1) where the full file lives,
+            # (2) the preview is bounded, (3) reading the file naively
+            # will re-hit this cap. Trust the model to choose a bounded
+            # read primitive (head/grep/awk via execute, or read_text_file
+            # with head=/tail= if its filesystem MCP supports it) — don't
+            # prescribe one. Phase 2 enhancement after the read-back
+            # loopback concern raised 2026-05-18.
+            stub_text = (
+                f"[Output too large ({len(raw_bytes)} bytes) — saved to "
+                f"{spill_target}. Read the file in bounded chunks if you "
+                f"need more than this preview; an unbounded read hits the "
+                f"same {_max_tool_result_bytes() // 1024}KB cap.]\n\n"
+                f"--- preview (first {_PREVIEW_BYTES // 1024}KB) ---\n"
+                f"{preview}"
+            )
+            content_list[i] = TextContent(type="text", text=stub_text)
+
+        # Also cap any text block on the message-level content
+        # (some providers serialise this too).
+        if message.content:
+            for j, block in enumerate(list(message.content)):
+                if not isinstance(block, TextContent):
+                    continue
+                text = block.text or ""
+                if len(text.encode("utf-8", errors="replace")) <= max_bytes:
+                    continue
+                message.content[j] = TextContent(
+                    type="text",
+                    text=text[:_PREVIEW_BYTES] + "\n\n[... truncated by Jarvis context-overflow guard]",
+                )
+
+    return message
 
 
 class _AgentConfig(Protocol):
@@ -429,6 +550,13 @@ class ToolRunner:
                 tool_call_ids=tool_call_ids,
                 tool_names=tool_names,
             )
+
+        # Layer A — cap oversized tool results BEFORE they enter the staged
+        # history. See _sanitize_oversized_tool_results for incident notes.
+        tool_message = _sanitize_oversized_tool_results(
+            tool_message,
+            agent_name=getattr(self._agent, "name", "agent") or "agent",
+        )
 
         self._pending_tool_response = tool_message
 
