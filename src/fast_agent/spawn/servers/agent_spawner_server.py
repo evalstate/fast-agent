@@ -752,6 +752,105 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
 # ───────────────────────────────────────────────────────────
 
 
+def _persist_dynamic_agent_to_db(
+    *,
+    db_path: str,
+    name: str,
+    instruction: str,
+    servers: list[str],
+    model: str | None,
+) -> None:
+    """Insert a row into the parent project's ``agent_definitions`` table
+    and bump the ``rev`` counter so the parent process's reload loop
+    picks up the change.
+
+    This duplicates the bare minimum of the schema owned by
+    ``services.agent_definitions`` on the parent side. Both writers must
+    stay aligned: if columns are added there, mirror them here. Raises
+    ValueError on duplicate name (the same contract the service layer
+    has), other exceptions on connection / SQL failures.
+
+    Why duplicate the schema instead of importing? The submodule must
+    remain decoupled from the parent project; importing parent modules
+    would make this fork unusable outside jarvis. The schema is small
+    and stable enough that drift is easy to spot in code review.
+    """
+    import sqlite3 as _sqlite3
+    import time as _time
+
+    conn = _sqlite3.connect(db_path, timeout=10)
+    try:
+        # Ensure tables exist — the parent process normally creates them
+        # on first read, but the MCP subprocess may run earlier in some
+        # bootstrap orders.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_definitions (
+                name TEXT PRIMARY KEY,
+                instruction TEXT NOT NULL,
+                servers TEXT NOT NULL DEFAULT '[]',
+                tools TEXT NOT NULL DEFAULT '{}',
+                skills TEXT NOT NULL DEFAULT '[]',
+                model TEXT,
+                use_history INTEGER NOT NULL DEFAULT 1,
+                request_params TEXT NOT NULL DEFAULT '{}',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_definitions_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO agent_definitions_meta (key, value) VALUES ('rev', '0')"
+        )
+
+        existing = conn.execute(
+            "SELECT 1 FROM agent_definitions WHERE name = ?", (name,)
+        ).fetchone()
+        if existing:
+            raise ValueError(f"agent '{name}' already exists")
+
+        now = _time.time()
+        conn.execute(
+            """
+            INSERT INTO agent_definitions
+              (name, instruction, servers, tools, skills, model,
+               use_history, request_params, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            """,
+            (
+                name,
+                instruction,
+                json.dumps(servers, ensure_ascii=False),
+                "{}",
+                "[]",
+                model,
+                "{}",
+                now,
+                now,
+            ),
+        )
+
+        row = conn.execute(
+            "SELECT value FROM agent_definitions_meta WHERE key = 'rev'"
+        ).fetchone()
+        new_rev = int(row[0] if row else 0) + 1
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_definitions_meta (key, value) VALUES ('rev', ?)",
+            (str(new_rev),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @mcp.tool()
 def spawn_agent(
     name: str,
@@ -760,7 +859,12 @@ def spawn_agent(
     model: str = "",
     extra_instruction: str = "",
 ) -> str:
-    """Create a PERSISTENT sub-agent (agent card).
+    """Create a PERSISTENT sub-agent.
+
+    The agent is stored in the parent project's ``agent_definitions``
+    SQLite table (path resolved via SPAWN_REGISTRY_DB env var). The
+    parent process's reload loop picks it up within ~2s and attaches
+    it to its master agent (Jarvis) — no restart required.
 
     For one-shot tasks, use spawn_and_run_isolated instead.
 
@@ -769,39 +873,46 @@ def spawn_agent(
         instruction: Defining the agent's role and behavior.
         servers: Comma-separated MCP server names.
         model: Override model.
-        extra_instruction: Additional instruction text.
+        extra_instruction: Additional instruction text appended to
+            `instruction` (kept for backwards compatibility with the
+            previous file-based card writer).
     """
     try:
         server_list = [s.strip() for s in servers.split(",") if s.strip()] if servers else []
-        # Resolve agent_cards dir from runtime paths
-        agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
-        agent_cards_dir.mkdir(parents=True, exist_ok=True)
 
-        # Also try the legacy .fast-agent/agent_cards location
-        legacy_cards = _PROJECT_DIR / ".fast-agent" / "agent_cards"
-        if legacy_cards.exists():
-            agent_cards_dir = legacy_cards
+        full_instruction = instruction
+        if extra_instruction:
+            full_instruction = f"{instruction}\n\n{extra_instruction}".strip()
 
-        card_path = generate_agent_card(
+        db_path = os.environ.get("SPAWN_REGISTRY_DB")
+        if not db_path:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": (
+                        "SPAWN_REGISTRY_DB env var not set — agent_spawner "
+                        "MCP must run with the parent project's DB path "
+                        "exported."
+                    ),
+                }
+            )
+
+        _persist_dynamic_agent_to_db(
+            db_path=db_path,
             name=name,
-            instruction=instruction,
-            agent_cards_dir=str(agent_cards_dir),
+            instruction=full_instruction,
             servers=server_list,
             model=model if model else None,
-            extra_instruction=extra_instruction,
         )
-
-        reload_signal = Path(get_runtime_paths(str(_PROJECT_DIR))["reload_signal"])
-        reload_signal.touch()
 
         return json.dumps(
             {
                 "status": "success",
-                "agent_name": card_path.stem,
-                "card_file": str(card_path),
+                "agent_name": name,
                 "servers": server_list,
                 "message": (
-                    f"Agent '{card_path.stem}' created. Available at the start of the NEXT turn."
+                    f"Agent '{name}' created. Available within ~2s as the "
+                    f"parent process reload loop picks up the change."
                 ),
             }
         )
