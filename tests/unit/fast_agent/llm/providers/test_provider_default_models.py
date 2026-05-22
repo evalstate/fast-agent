@@ -14,6 +14,7 @@ import os
 
 from fast_agent.config import (
     AzureSettings,
+    DeepSeekSettings,
     HuggingFaceSettings,
     OpenAISettings,
     OpenResponsesSettings,
@@ -25,6 +26,7 @@ from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
 from fast_agent.llm.provider.openai.llm_azure import AzureOpenAILLM
+from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_google_oai import GoogleOaiLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
@@ -145,6 +147,73 @@ def test_huggingface_provider_default_model_used_with_provider_suffix() -> None:
         llm.default_request_params,
     )
     assert request["model"] == "moonshotai/kimi-k2-instruct:fireworks-ai"
+
+
+def test_deepseek_provider_defaults_to_v4_flash() -> None:
+    llm = DeepSeekLLM(context=Context(config=Settings()), model="")
+
+    assert llm.default_request_params.model == "deepseek-v4-flash"
+
+
+def test_deepseek_provider_config_default_model_used_when_model_missing() -> None:
+    settings = Settings(deepseek=DeepSeekSettings(default_model="deepseek-v4-pro"))
+    llm = DeepSeekLLM(context=Context(config=settings), model="")
+
+    assert llm.default_request_params.model == "deepseek-v4-pro"
+
+
+def test_deepseek_v4_request_enables_thinking_by_default() -> None:
+    llm = DeepSeekLLM(context=Context(config=Settings()), model="deepseek-v4-pro")
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert request["reasoning_effort"] == "high"
+    assert request["extra_body"] == {"thinking": {"type": "enabled"}}
+
+
+def test_deepseek_v4_request_maps_reasoning_and_can_disable_thinking() -> None:
+    medium_llm = DeepSeekLLM(
+        context=Context(config=Settings()),
+        model="deepseek-v4-pro",
+        reasoning_effort="medium",
+    )
+    medium_request = medium_llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        medium_llm.default_request_params,
+    )
+    assert medium_request["reasoning_effort"] == "high"
+    assert medium_request["extra_body"] == {"thinking": {"type": "enabled"}}
+
+    max_llm = DeepSeekLLM(
+        context=Context(config=Settings()),
+        model="deepseek-v4-pro",
+        reasoning_effort="xhigh",
+    )
+    max_request = max_llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        max_llm.default_request_params,
+    )
+    assert max_request["reasoning_effort"] == "max"
+    assert max_request["extra_body"] == {"thinking": {"type": "enabled"}}
+
+    off_llm = DeepSeekLLM(
+        context=Context(config=Settings()),
+        model="deepseek-v4-pro",
+        reasoning_effort=False,
+    )
+    off_request = off_llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        off_llm.default_request_params,
+    )
+    assert "reasoning_effort" not in off_request
+    assert off_request["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 def test_azure_uses_azure_deployment_when_default_model_unset() -> None:

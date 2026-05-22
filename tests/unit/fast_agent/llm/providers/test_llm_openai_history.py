@@ -5,6 +5,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.core.prompt import Prompt
+from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.types import PromptMessageExtended
@@ -172,3 +173,27 @@ def test_gpt_oss_reasoning_prefixed_with_tool_calls():
     content = message.get("content", "")
     assert isinstance(content, str)
     assert content.startswith(reasoning_text), "content should be prefixed with reasoning"
+
+
+def test_deepseek_reasoning_content_preserved_with_tool_calls():
+    """DeepSeek V4 requires reasoning_content replay for assistant tool-call turns."""
+    context = Context()
+    llm = DeepSeekLLM(context=context, model="deepseek-v4-pro")
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="demo_tool", arguments={"arg": "value"}),
+    )
+    reasoning_text = "need to call demo_tool"
+
+    assistant_tool_call = Prompt.assistant(
+        "calling tool",
+        tool_calls={"call_1": tool_call},
+    )
+    assistant_tool_call.channels = {REASONING: [TextContent(type="text", text=reasoning_text)]}
+
+    converted = llm._convert_extended_messages_to_provider([assistant_tool_call])
+    message = _message_payload(converted[0])
+
+    assert "reasoning_content" in message
+    assert message["reasoning_content"] == reasoning_text

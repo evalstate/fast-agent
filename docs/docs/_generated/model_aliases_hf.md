@@ -1,11 +1,11 @@
 | Model Alias | Maps to |
 | --- | --- |
-| `deepseek` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
+| `deepseek-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek-ai/deepseek-v4-pro` | `deepseek-ai/deepseek-v4-pro` |
 | `deepseek32` | `hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai` |
-| `deepseek4` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
-| `deepseek4pro` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
-| `deepseekv4pro` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
+| `deepseek4-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
+| `deepseek4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
+| `deepseekv4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `glm` | `hf.zai-org/GLM-5.1:together` |
 | `glm47` | `hf.zai-org/GLM-4.7:cerebras` |
 | `glm5` | `hf.zai-org/GLM-5:novita` |

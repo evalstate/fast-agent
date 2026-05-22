@@ -43,9 +43,25 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
     assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
+    assert ModelDatabase.get_context_window("deepseek-v4-flash") == 1_048_576
+    assert ModelDatabase.get_context_window("deepseek-v4-pro") == 1_048_576
 
     # Test unknown model
     assert ModelDatabase.get_context_window("unknown-model") is None
+
+
+def test_deepseek_v4_direct_model_metadata():
+    assert ModelDatabase.get_max_output_tokens("deepseek-v4-flash") == 393_216
+    assert ModelDatabase.get_max_output_tokens("deepseek-v4-pro") == 393_216
+    assert ModelDatabase.get_reasoning("deepseek-v4-flash") == "reasoning_content"
+    assert ModelDatabase.get_reasoning("deepseek-v4-pro") == "reasoning_content"
+
+    spec = ModelDatabase.get_reasoning_effort_spec("deepseek-v4-pro")
+    assert spec is not None
+    assert spec.default is not None
+    assert spec.default.value == "high"
+    assert spec.allowed_efforts == ["high", "max"]
+    assert spec.allow_toggle_disable is True
 
 
 def test_model_database_long_context_windows():

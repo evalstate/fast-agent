@@ -29,6 +29,7 @@ from fast_agent.ui.shell_output_truncation import (
 
 if TYPE_CHECKING:
     from mcp.types import CallToolResult
+    from rich.console import RenderableType
 
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
     from fast_agent.ui.console_display import ConsoleDisplay
@@ -838,6 +839,7 @@ class ToolDisplay:
         is_skybridge_tool: bool,
         skybridge_resource_uri: str | None,
         show_hook_indicator: bool,
+        post_content: RenderableType | None = None,
     ) -> None:
         config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
         block_color = "red" if result.isError else config_map["block_color"]
@@ -861,6 +863,9 @@ class ToolDisplay:
             MessageType.TOOL_RESULT,
             check_markdown_markers=False,
         )
+        if post_content:
+            console.console.print()
+            console.console.print(post_content, markup=self._markup)
         console.console.print()
 
         if is_skybridge_tool:

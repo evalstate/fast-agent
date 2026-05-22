@@ -198,3 +198,4 @@ async def display_history_turn(
                 )
 
     flush_user_group()
+    display.show_pending_tool_result_images()

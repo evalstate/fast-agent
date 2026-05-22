@@ -310,7 +310,7 @@ Important configuration notes:
 ```yaml
 deepseek:
   api_key: "your_deepseek_key"  # Can also use DEEPSEEK_API_KEY env var
-  base_url: "https://api.deepseek.com/v1"  # Optional, only include to override
+  base_url: "https://api.deepseek.com"  # Optional, only include to override
 ```
 
 ### Google
