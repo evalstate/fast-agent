@@ -4,7 +4,7 @@ Direct AgentApp implementation for interacting with agents without proxies.
 
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Awaitable, Callable, Mapping, Sequence, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
@@ -50,6 +50,11 @@ class AgentApp:
         refresh_callback: Callable[[], Awaitable[bool]] | None = None,
         load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
         | None = None,
+        load_data_callback: Callable[
+            [Sequence[dict[str, Any]], str | None],
+            Awaitable[tuple[list[str], list[str]]],
+        ]
+        | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
         detach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
@@ -88,6 +93,7 @@ class AgentApp:
         self._reload_callback = reload_callback
         self._refresh_callback = refresh_callback
         self._load_card_callback = load_card_callback
+        self._load_data_callback = load_data_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
         self._dump_agent_callback = dump_agent_callback
@@ -343,6 +349,10 @@ class AgentApp:
         """Return True if agent card loading is available."""
         return self._load_card_callback is not None
 
+    def can_load_agent_data(self) -> bool:
+        """Return True if in-memory agent definition loading is available."""
+        return self._load_data_callback is not None
+
     def can_attach_agent_tools(self) -> bool:
         """Return True if agent tool attachment is available."""
         return self._attach_agent_tools_callback is not None
@@ -366,6 +376,28 @@ class AgentApp:
         if not self._load_card_callback:
             raise RuntimeError("Agent card loading is not available.")
         return await self._load_card_callback(source, parent_agent)
+
+    async def load_agent_data(
+        self,
+        definitions: Sequence[dict[str, Any]],
+        parent_agent: str | None = None,
+    ) -> tuple[list[str], list[str]]:
+        """Load agents from in-memory definitions (no filesystem).
+
+        Replace semantics — `definitions` represents the complete set of
+        in-memory cards after this call; previously-loaded in-memory
+        cards absent from the list are removed. See
+        FastAgent.load_agents_from_dicts for the full contract.
+
+        Returns:
+            (loaded_names, added_to_parent) — `loaded_names` is the
+            sorted list of agents currently loaded from memory sources;
+            `added_to_parent` is the subset that became child agents of
+            `parent_agent`.
+        """
+        if not self._load_data_callback:
+            raise RuntimeError("Agent data loading is not available.")
+        return await self._load_data_callback(definitions, parent_agent)
 
     async def attach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]:
         """Attach agents as tools to a parent agent."""
@@ -450,6 +482,17 @@ class AgentApp:
     ) -> None:
         """Update the callback for loading agent cards at runtime."""
         self._load_card_callback = callback
+
+    def set_load_data_callback(
+        self,
+        callback: Callable[
+            [Sequence[dict[str, Any]], str | None],
+            Awaitable[tuple[list[str], list[str]]],
+        ]
+        | None,
+    ) -> None:
+        """Update the callback for loading agents from in-memory data."""
+        self._load_data_callback = callback
 
     def set_attach_agent_tools_callback(
         self, callback: Callable[[str, Sequence[str]], Awaitable[list[str]]] | None

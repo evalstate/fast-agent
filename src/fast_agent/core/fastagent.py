@@ -121,6 +121,14 @@ class RuntimeCallbacks:
     reload_source: Callable[[], Awaitable[bool]] | None
     load_card_and_refresh: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
     load_card_source: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
+    load_data_and_refresh: Callable[
+        [Sequence[dict[str, Any]], str | None],
+        Awaitable[tuple[list[str], list[str]]],
+    ]
+    load_data_source: Callable[
+        [Sequence[dict[str, Any]], str | None],
+        Awaitable[tuple[list[str], list[str]]],
+    ]
     attach_agent_tools_and_refresh: Callable[[str, Sequence[str]], Awaitable[list[str]]]
     detach_agent_tools_and_refresh: Callable[[str, Sequence[str]], Awaitable[list[str]]]
     attach_agent_tools_source: Callable[[str, Sequence[str]], Awaitable[list[str]]]
@@ -524,6 +532,90 @@ class FastAgent(DecoratorMixin):
         if changed:
             self._agent_registry_version += 1
         return sorted(self._agent_card_roots.get(root, set()))
+
+    def load_agents_from_dicts(
+        self, definitions: Sequence[dict[str, Any]]
+    ) -> list[str]:
+        """Load AgentCards from in-memory dicts (no filesystem).
+
+        Replace semantics: the given `definitions` represent the COMPLETE
+        set of in-memory cards after this call. Any previously loaded
+        memory-source card (path prefix "memory://") whose name is not
+        in the new set is REMOVED. New/updated names are added.
+
+        Each definition follows the same schema as YAML frontmatter on a
+        file-based card. Validated through the same pipeline.
+
+        Use this for stores that own the definition lifecycle elsewhere
+        (e.g. SQLite). The reload trigger is the caller's responsibility
+        — there is no watcher.
+
+        Returns:
+            Sorted list of agent names currently loaded from memory
+            sources after this call (i.e. the names in `definitions`).
+        """
+        from fast_agent.core.agent_card_loader import (
+            build_loaded_card_from_dict,
+            is_memory_card_path,
+        )
+
+        new_cards = [build_loaded_card_from_dict(d) for d in definitions]
+        # Reject duplicate names in the input itself — catches caller bugs.
+        seen: set[str] = set()
+        for card in new_cards:
+            if card.name in seen:
+                raise AgentConfigError(
+                    f"Duplicate name '{card.name}' in in-memory definitions"
+                )
+            seen.add(card.name)
+
+        new_names = {c.name for c in new_cards}
+
+        # Compute removals: previously loaded memory:// names not in new set.
+        previously_loaded = {
+            name
+            for name, src in self._agent_card_sources.items()
+            if is_memory_card_path(src)
+        }
+        to_remove = previously_loaded - new_names
+
+        # Removals first so name collisions on update (rare) don't trip
+        # the "agent exists and is not from AgentCard" guard below.
+        for name in to_remove:
+            self.agents.pop(name, None)
+            self._agent_card_sources.pop(name, None)
+            self._agent_card_histories.pop(name, None)
+            self._agent_card_history_mtime.pop(name, None)
+            self._agent_card_history_len.pop(name, None)
+
+        # Apply additions/updates.
+        for card in new_cards:
+            existing_source = self._agent_card_sources.get(card.name)
+            if card.name in self.agents and existing_source is None:
+                # Name is owned by a code-defined agent (decorator).
+                raise AgentConfigError(
+                    f"Agent '{card.name}' already exists and is not from AgentCard/data"
+                )
+            if existing_source is not None and not is_memory_card_path(existing_source):
+                # Name is owned by a file-based card; refuse to clobber.
+                raise AgentConfigError(
+                    f"Agent '{card.name}' is loaded from a file card "
+                    f"({existing_source}); cannot override from in-memory data"
+                )
+            self.agents[card.name] = card.agent_data
+            self._agent_card_sources[card.name] = card.path
+            if card.message_files:
+                self._agent_card_histories[card.name] = card.message_files
+
+        if new_cards or to_remove:
+            self._apply_skills_to_agent_configs(self._default_skill_manifests)
+            for card in new_cards:
+                self._agent_card_last_changed.add(card.name)
+            for name in to_remove:
+                self._agent_card_last_removed.add(name)
+            self._agent_registry_version += 1
+
+        return sorted(new_names)
 
     def load_agents_from_url(self, url: str) -> list[str]:
         """Load an AgentCard from a URL (markdown or YAML)."""
@@ -1763,6 +1855,37 @@ class FastAgent(DecoratorMixin):
             await self._refresh_shared_instance(state)
         return loaded_names, added_names
 
+    async def _load_data_core(
+        self,
+        state: ManagedRunState,
+        definitions: Sequence[dict[str, Any]],
+        parent_name: str | None,
+        *,
+        should_refresh: bool,
+    ) -> tuple[list[str], list[str]]:
+        """Counterpart to _load_card_core for in-memory definitions.
+
+        See FastAgent.load_agents_from_dicts for replace semantics. The
+        attach-to-parent logic mirrors _load_card_core so a dynamic
+        agent appears as a tool of its parent (e.g. Jarvis) immediately
+        after load. Children removed by the replace are NOT explicitly
+        detached from the parent — _refresh_shared_instance picks up the
+        change because they are flagged in _agent_card_last_removed.
+        """
+        loaded_names = self.load_agents_from_dicts(definitions)
+
+        added_names: list[str] = []
+        if parent_name and loaded_names:
+            target_name = parent_name
+            if target_name not in self.agents:
+                target_name = next(iter(self.agents.keys()), None)
+            if target_name:
+                added_names = self.attach_agent_tools(target_name, loaded_names)
+
+        if should_refresh:
+            await self._refresh_shared_instance(state)
+        return loaded_names, added_names
+
     async def _attach_agent_tools_and_refresh(
         self,
         state: ManagedRunState,
@@ -1879,6 +2002,22 @@ class FastAgent(DecoratorMixin):
         ) -> tuple[list[str], list[str]]:
             return await self._load_card_core(state, source, parent_name, should_refresh=False)
 
+        async def load_data_and_refresh(
+            definitions: Sequence[dict[str, Any]],
+            parent_name: str | None,
+        ) -> tuple[list[str], list[str]]:
+            return await self._load_data_core(
+                state, definitions, parent_name, should_refresh=True
+            )
+
+        async def load_data_source(
+            definitions: Sequence[dict[str, Any]],
+            parent_name: str | None,
+        ) -> tuple[list[str], list[str]]:
+            return await self._load_data_core(
+                state, definitions, parent_name, should_refresh=False
+            )
+
         async def attach_agent_tools_and_refresh(
             parent_name: str,
             child_names: Sequence[str],
@@ -1942,6 +2081,8 @@ class FastAgent(DecoratorMixin):
             reload_source=self.reload_agents if settings.reload_enabled else None,
             load_card_and_refresh=load_card_and_refresh,
             load_card_source=load_card_source,
+            load_data_and_refresh=load_data_and_refresh,
+            load_data_source=load_data_source,
             attach_agent_tools_and_refresh=attach_agent_tools_and_refresh,
             detach_agent_tools_and_refresh=detach_agent_tools_and_refresh,
             attach_agent_tools_source=attach_agent_tools_source,
@@ -1967,6 +2108,7 @@ class FastAgent(DecoratorMixin):
             callbacks.refresh_shared_instance if settings.reload_enabled else None
         )
         wrapper.set_load_card_callback(callbacks.load_card_and_refresh)
+        wrapper.set_load_data_callback(callbacks.load_data_and_refresh)
         wrapper.set_attach_agent_tools_callback(callbacks.attach_agent_tools_and_refresh)
         wrapper.set_detach_agent_tools_callback(callbacks.detach_agent_tools_and_refresh)
         wrapper.set_dump_agent_callback(callbacks.dump_agent_card)
