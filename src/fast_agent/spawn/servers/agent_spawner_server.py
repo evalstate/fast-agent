@@ -42,12 +42,6 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from fast_agent.spawn.card_generator import (
-    generate_agent_card,
-    get_agent_card_content,
-    list_agent_cards,
-    remove_agent_card,
-)
 from fast_agent.spawn.config_reader import get_available_servers
 from fast_agent.spawn.runtime_paths import get_runtime_paths
 from fast_agent.spawn.isolated_spawner import (
@@ -752,6 +746,87 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
 # ───────────────────────────────────────────────────────────
 
 
+# NOTE: the schema below is a STRICT mirror of the parent project's
+# ``services/agent_definitions.py::_ensure_tables`` (jarvis). If columns
+# are added there, mirror them here. The submodule deliberately does not
+# import parent-side modules — that would make this fork unusable
+# outside jarvis. Cross-side drift is the trade-off; the brevity of
+# the schema keeps it easy to spot in code review.
+#
+# Rev counter contract: ``agent_definitions_meta.rev`` is a wake signal,
+# NOT an event counter. Two concurrent writers can both read rev=N and
+# both set rev=N+1, losing one bump on count. Functionally fine because
+# the reader polls a monotonic comparison ("did rev advance since I last
+# saw it?") — any advance, of any size, triggers a full reload. Do not
+# repurpose this value as a sequence number without first switching to
+# an atomic UPDATE WHERE pattern.
+
+
+def _open_dynamic_agents_db(db_path: str):  # -> sqlite3.Connection
+    """Open SQLite at ``db_path``, ensure tables + seed rev=0, return conn.
+
+    Shared by the persist/delete helpers so both paths use the exact
+    same schema. The caller owns ``conn.commit()`` and ``conn.close()``
+    — keeping the open helper write-mode-agnostic.
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(db_path, timeout=10)
+    # WAL hygiene: PRAGMA is per-file and persists once set. The parent
+    # process normally enables it, but on a cold start the MCP
+    # subprocess may open the DB first; setting WAL here makes the
+    # bootstrap order irrelevant.
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except _sqlite3.DatabaseError:
+        # Older SQLite or readonly mount — fall through to default
+        # rollback journal. The agent_definitions writes here are
+        # serial (one tool call at a time) so DELETE-journal mode is
+        # still correct, just slightly slower under concurrent reads.
+        pass
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_definitions (
+            name TEXT PRIMARY KEY,
+            instruction TEXT NOT NULL,
+            servers TEXT NOT NULL DEFAULT '[]',
+            tools TEXT NOT NULL DEFAULT '{}',
+            skills TEXT NOT NULL DEFAULT '[]',
+            model TEXT,
+            use_history INTEGER NOT NULL DEFAULT 1,
+            request_params TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_definitions_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO agent_definitions_meta (key, value) VALUES ('rev', '0')"
+    )
+    return conn
+
+
+def _bump_rev_in_conn(conn) -> int:
+    """Increment the rev counter on an open connection. Caller commits."""
+    row = conn.execute(
+        "SELECT value FROM agent_definitions_meta WHERE key = 'rev'"
+    ).fetchone()
+    new_rev = int(row[0] if row else 0) + 1
+    conn.execute(
+        "INSERT OR REPLACE INTO agent_definitions_meta (key, value) VALUES ('rev', ?)",
+        (str(new_rev),),
+    )
+    return new_rev
+
+
 def _persist_dynamic_agent_to_db(
     *,
     db_path: str,
@@ -764,53 +839,14 @@ def _persist_dynamic_agent_to_db(
     and bump the ``rev`` counter so the parent process's reload loop
     picks up the change.
 
-    This duplicates the bare minimum of the schema owned by
-    ``services.agent_definitions`` on the parent side. Both writers must
-    stay aligned: if columns are added there, mirror them here. Raises
-    ValueError on duplicate name (the same contract the service layer
-    has), other exceptions on connection / SQL failures.
-
-    Why duplicate the schema instead of importing? The submodule must
-    remain decoupled from the parent project; importing parent modules
-    would make this fork unusable outside jarvis. The schema is small
-    and stable enough that drift is easy to spot in code review.
+    Raises ``ValueError`` on duplicate name (same contract as the
+    parent's service-layer ``create_definition``). Other exceptions
+    propagate (connection / SQL failures).
     """
-    import sqlite3 as _sqlite3
     import time as _time
 
-    conn = _sqlite3.connect(db_path, timeout=10)
+    conn = _open_dynamic_agents_db(db_path)
     try:
-        # Ensure tables exist — the parent process normally creates them
-        # on first read, but the MCP subprocess may run earlier in some
-        # bootstrap orders.
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS agent_definitions (
-                name TEXT PRIMARY KEY,
-                instruction TEXT NOT NULL,
-                servers TEXT NOT NULL DEFAULT '[]',
-                tools TEXT NOT NULL DEFAULT '{}',
-                skills TEXT NOT NULL DEFAULT '[]',
-                model TEXT,
-                use_history INTEGER NOT NULL DEFAULT 1,
-                request_params TEXT NOT NULL DEFAULT '{}',
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS agent_definitions_meta (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-            """
-        )
-        conn.execute(
-            "INSERT OR IGNORE INTO agent_definitions_meta (key, value) VALUES ('rev', '0')"
-        )
-
         existing = conn.execute(
             "SELECT 1 FROM agent_definitions WHERE name = ?", (name,)
         ).fetchone()
@@ -837,16 +873,28 @@ def _persist_dynamic_agent_to_db(
                 now,
             ),
         )
-
-        row = conn.execute(
-            "SELECT value FROM agent_definitions_meta WHERE key = 'rev'"
-        ).fetchone()
-        new_rev = int(row[0] if row else 0) + 1
-        conn.execute(
-            "INSERT OR REPLACE INTO agent_definitions_meta (key, value) VALUES ('rev', ?)",
-            (str(new_rev),),
-        )
+        _bump_rev_in_conn(conn)
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _delete_dynamic_agent_from_db(*, db_path: str, name: str) -> bool:
+    """Remove a row from the parent project's ``agent_definitions`` table
+    and bump the rev counter on success.
+
+    Symmetric to ``_persist_dynamic_agent_to_db``. Returns True if a row
+    was actually removed (parent's poll loop should see it), False if
+    no such row existed (idempotent — caller can safely retry).
+    """
+    conn = _open_dynamic_agents_db(db_path)
+    try:
+        cur = conn.execute("DELETE FROM agent_definitions WHERE name = ?", (name,))
+        removed = cur.rowcount > 0
+        if removed:
+            _bump_rev_in_conn(conn)
+        conn.commit()
+        return removed
     finally:
         conn.close()
 
@@ -873,9 +921,13 @@ def spawn_agent(
         instruction: Defining the agent's role and behavior.
         servers: Comma-separated MCP server names.
         model: Override model.
-        extra_instruction: Additional instruction text appended to
-            `instruction` (kept for backwards compatibility with the
-            previous file-based card writer).
+        extra_instruction: Additional instruction text. SEMANTIC CHANGE
+            FROM THE FILE-BASED WRITER: now concatenated into `instruction`
+            with `\n\n` BEFORE the row is inserted, so the stored
+            ``agent_definitions.instruction`` is the merged result. The
+            old writer kept them separate in a YAML field. Callers that
+            relied on a separate field must move the extra content into
+            ``instruction`` directly.
     """
     try:
         server_list = [s.strip() for s in servers.split(",") if s.strip()] if servers else []
@@ -946,13 +998,25 @@ def remove_spawned_agent(name: str) -> str:
         name: Exact name of the agent or team_name to remove.
               Must match exactly as returned by list_spawned_agents.
     """
-    # Resolve agent_cards dir (same logic as spawn_agent)
-    agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
-    legacy_cards = _PROJECT_DIR / ".fast-agent" / "agent_cards"
-    if legacy_cards.exists():
-        agent_cards_dir = legacy_cards
-
-    card_removed = remove_agent_card(name, agent_cards_dir=str(agent_cards_dir))
+    # Persistent agents (DB-backed templates) and team/runtime instances
+    # (spawn_registry) are stored in separate tables but reachable by the
+    # same caller through a single tool, so we attempt both removals.
+    # If we only deleted the registry row, the DB template would persist
+    # → next poll tick → undead agent re-attached as a Jarvis tool.
+    db_path = os.environ.get("SPAWN_REGISTRY_DB")
+    template_removed = False
+    if db_path:
+        try:
+            template_removed = _delete_dynamic_agent_from_db(
+                db_path=db_path, name=name
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Don't abort registry cleanup on a DB failure; surface in
+            # the message so the caller can act.
+            template_removed = False
+            logger.warning(
+                "Failed to delete agent_definitions row for '%s': %s", name, exc
+            )
 
     # Try individual agent removal from registry
     registry_removed = False
@@ -962,10 +1026,10 @@ def remove_spawned_agent(name: str) -> str:
         removed_run_ids.append(record.run_id)
         registry_removed = _registry.remove(record.run_id)
 
-    if card_removed or registry_removed:
+    if template_removed or registry_removed:
         parts = []
-        if card_removed:
-            parts.append("card removed")
+        if template_removed:
+            parts.append("definition removed")
         if registry_removed:
             parts.append("registry cleaned")
         # Emit removal event so backend bridge cleans DB
@@ -984,11 +1048,24 @@ def remove_spawned_agent(name: str) -> str:
         team_run_ids = [m.run_id for m in team_members if m.run_id]
         team_agent_names = [m.agent_name for m in team_members]
 
-        # Remove all agent cards for team members
-        cards_removed = 0
-        for member in team_members:
-            if remove_agent_card(member.agent_name, agent_cards_dir=str(agent_cards_dir)):
-                cards_removed += 1
+        # Drop any DB-backed definitions for team members so the parent's
+        # poll loop unloads them. Members of a team may have been
+        # persisted via spawn_agent during team setup; if we leave their
+        # rows behind they re-attach to Jarvis after the team is torn
+        # down (the original BUG in fast-agent#2 review).
+        defs_removed = 0
+        if db_path:
+            for member in team_members:
+                try:
+                    if _delete_dynamic_agent_from_db(
+                        db_path=db_path, name=member.agent_name
+                    ):
+                        defs_removed += 1
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to delete agent_definitions row for team member '%s': %s",
+                        member.agent_name, exc,
+                    )
 
         # Remove all registry entries for the team
         registry_count = _registry.remove_team(name)
@@ -996,15 +1073,17 @@ def remove_spawned_agent(name: str) -> str:
         # Emit removal event so backend bridge cleans DB
         _emit_removal_event(team_agent_names, team_run_ids)
 
+        cleaned_parts = [f"{registry_count} registry entries"]
+        if defs_removed:
+            cleaned_parts.append(f"{defs_removed} definition rows")
         return json.dumps(
             {
                 "status": "success",
                 "message": (
-                    f"Team '{name}' fully cleaned up: "
-                    f"{registry_count} registry entries."
+                    f"Team '{name}' fully cleaned up: {', '.join(cleaned_parts)}."
                 ),
                 "removed_agents": team_agent_names,
-                "cleaned": [f"{registry_count} registry entries"],
+                "cleaned": cleaned_parts,
             }
         )
 
