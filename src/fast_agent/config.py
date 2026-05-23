@@ -39,6 +39,8 @@ from fast_agent.mcp.provider_management import (
 )
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
+type TerminalImageSize = int | Literal["auto"] | str | None
+
 
 class MCPServerAuthSettings(BaseModel):
     """Represents authentication configuration for a server.
@@ -1302,6 +1304,57 @@ class HuggingFaceSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class TerminalImageSettings(BaseModel):
+    """Terminal image rendering settings for chat/tool output."""
+
+    enabled: bool = True
+    """Render image content in the terminal when supported."""
+
+    backend: Literal[
+        "auto",
+        "textual-image",
+        "kitty",
+        "sixel",
+        "halfcell",
+        "unicode",
+        "none",
+    ] = "auto"
+    """Terminal image backend to use."""
+
+    width: TerminalImageSize = "80%"
+    """Image render width: cells, percentage (e.g. '80%'), 'auto', or null."""
+
+    height: TerminalImageSize = "auto"
+    """Image render height: cells, percentage (e.g. '40%'), 'auto', or null."""
+
+    render_tools: bool = False
+    """Deprecated: tool images are rendered in the final assistant pass."""
+
+    render_assistant: bool = True
+    """Render images in final assistant messages."""
+
+    @field_validator("width", "height", mode="before")
+    @classmethod
+    def _validate_image_size(cls, value: Any) -> TerminalImageSize:
+        if value is None:
+            return None
+        if isinstance(value, int) and not isinstance(value, bool):
+            if value < 0:
+                raise ValueError("terminal image size must be non-negative")
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "" or stripped.lower() in {"none", "null"}:
+                return None
+            if stripped == "auto":
+                return "auto"
+            if stripped.endswith("%") and stripped[:-1].isdecimal():
+                return stripped
+            if stripped.isdecimal():
+                return int(stripped)
+        raise ValueError("terminal image size must be an integer, percentage, 'auto', or null")
+
+
 class LoggerSettings(BaseModel):
     """
     Logger settings for the fast-agent application.
@@ -1360,6 +1413,8 @@ class LoggerSettings(BaseModel):
     """Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"""
     code_word_wrap: bool = True
     """Wrap Syntax-rendered code blocks instead of cropping at the viewport edge"""
+    terminal_images: TerminalImageSettings = Field(default_factory=TerminalImageSettings)
+    """Render image content in capable terminals."""
     apply_patch_preview_max_lines: int | None = Field(
         default=120,
         description=(

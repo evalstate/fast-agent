@@ -760,7 +760,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.7.9"
+version = "0.7.11"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -794,6 +794,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
     { name = "ruamel-yaml" },
+    { name = "textual-image" },
     { name = "tiktoken" },
     { name = "typer" },
     { name = "uvloop", marker = "sys_platform != 'win32'" },
@@ -902,6 +903,7 @@ requires-dist = [
     { name = "tensorzero", marker = "extra == 'all-providers'", specifier = ">=2025.7.5" },
     { name = "tensorzero", marker = "extra == 'tensorzero'", specifier = ">=2025.7.5" },
     { name = "textual", marker = "extra == 'textual'", specifier = ">=6.2.1" },
+    { name = "textual-image", specifier = ">=0.12.0" },
     { name = "tiktoken", specifier = "==0.13.0" },
     { name = "tokenizers", marker = "extra == 'privacy'", specifier = ">=0.22" },
     { name = "tokenizers", marker = "extra == 'privacy-gpu'", specifier = ">=0.22" },
@@ -1330,11 +1332,11 @@ wheels = [
 
 [[package]]
 name = "idna"
-version = "3.11"
+version = "3.15"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6f/6d/0703ccc57f3a7233505399edb88de3cbd678da106337b9fcde432b65ed60/idna-3.11.tar.gz", hash = "sha256:795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902", size = 194582, upload-time = "2025-10-12T14:55:20.501Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/77/7b3966d0b9d1d31a36ddf1746926a11dface89a83409bf1483f0237aa758/idna-3.15.tar.gz", hash = "sha256:ca962446ea538f7092a95e057da437618e886f4d349216d2b1e294abfdb65fdc", size = 199245, upload-time = "2026-05-12T22:45:57.011Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/61/66938bbb5fc52dbdf84594873d5b51fb1f7c7794e9c0f5bd885f30bc507b/idna-3.11-py3-none-any.whl", hash = "sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea", size = 71008, upload-time = "2025-10-12T14:55:18.883Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/23/408243171aa9aaba178d3e2559159c24c1171a641aa83b67bdd3394ead8e/idna-3.15-py3-none-any.whl", hash = "sha256:048adeaf8c2d788c40fee287673ccaa74c24ffd8dcf09ffa555a2fbb59f10ac8", size = 72340, upload-time = "2026-05-12T22:45:55.733Z" },
 ]
 
 [[package]]
@@ -3463,6 +3465,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c8/8f/aeccf7459e3d71cbca912a27a97f1fcb00735326f90714d22fa540d3848e/textual-6.8.0.tar.gz", hash = "sha256:7efe618ec9197466b8fe536aefabb678edf30658b9dc58a763365d7daed12b62", size = 1581639, upload-time = "2025-12-07T17:53:46.681Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/47/34/4f1bad936ac3ad94c8576b15660d4ce434f7dbd372baa53566a490bcdce3/textual-6.8.0-py3-none-any.whl", hash = "sha256:074d389ba8c6c98c74e2a4fe1493ea3a38f3ee5008697e98f71daa2cf8ab8fda", size = 714378, upload-time = "2025-12-07T17:53:44.501Z" },
+]
+
+[[package]]
+name = "textual-image"
+version = "0.12.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pillow" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c2/e7/c82ea0604874b6d51d5717a0911061ae5810e36dad2e4d2b11fa7d54cdaa/textual_image-0.12.0.tar.gz", hash = "sha256:fdd0b5ff9c8a99740bc360a99ce014d563fa97d07a5b49b472470809f57c0a74", size = 116403, upload-time = "2026-04-12T17:37:44.696Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/2c/38ac586a3834a3bd8cbcf0c8ea1ae23bf68b9cc13b96a67f47a825479dd3/textual_image-0.12.0-py3-none-any.whl", hash = "sha256:0b13f62fe6a29f4ed6dfd641f2779ffe92dde41f16163fa1de69158477aa50aa", size = 115626, upload-time = "2026-04-12T17:37:41.238Z" },
 ]
 
 [[package]]

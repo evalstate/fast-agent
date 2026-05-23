@@ -33,13 +33,13 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.HUGGINGFACE,
     Provider.GOOGLE,
     Provider.XAI,
+    Provider.DEEPSEEK,
     Provider.GENERIC,
     Provider.ANTHROPIC_VERTEX,
     Provider.OPENAI,
     Provider.GROQ,
     Provider.AZURE,
     Provider.BEDROCK,
-    Provider.DEEPSEEK,
     Provider.ALIYUN,
     Provider.OPENROUTER,
     Provider.FAST_AGENT,
@@ -325,7 +325,7 @@ def build_snapshot(
         )
         if not entries and not has_special_picker_flow:
             continue
-        if provider == Provider.GENERIC:
+        if provider == Provider.DEEPSEEK:
             providers.append(
                 ProviderOption(
                     provider=None,

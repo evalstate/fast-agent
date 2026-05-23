@@ -2,7 +2,9 @@
 Utilities for rendering PromptMessageExtended objects for display.
 """
 
-from mcp.types import BlobResourceContents, TextResourceContents
+from collections.abc import Sequence
+
+from mcp.types import BlobResourceContents, ContentBlock, TextResourceContents
 
 from fast_agent.mcp.helpers.content_helpers import (
     get_resource_uri,
@@ -27,9 +29,14 @@ def render_multipart_message(message: PromptMessageExtended) -> str:
     Returns:
         A string representation of the message's content
     """
+    return render_content_blocks(message.content)
+
+
+def render_content_blocks(content_blocks: Sequence[ContentBlock]) -> str:
+    """Render MCP content blocks for display without dumping binary payloads."""
     rendered_parts: list[str] = []
 
-    for content in message.content:
+    for content in content_blocks:
         if is_text_content(content):
             # Handle text content
             text = get_text(content)

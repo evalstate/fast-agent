@@ -2,9 +2,9 @@ import json
 from contextlib import contextmanager
 from json import JSONDecodeError
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Union, cast
 
-from mcp.types import CallToolResult
+from mcp.types import CallToolResult, ContentBlock
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
 from rich.markup import escape as escape_markup
@@ -48,6 +48,7 @@ from fast_agent.utils.time import format_duration
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
+    from fast_agent.ui.terminal_images import ImageRenderItem
 
 logger = get_logger(__name__)
 
@@ -109,6 +110,7 @@ class ConsoleDisplay:
         self._apply_console_theme()
         self._style = A3MessageStyle()
         self._tool_display = ToolDisplay(self)
+        self._pending_tool_image_items: list[ImageRenderItem] = []
 
     @staticmethod
     def _resolve_logger_settings(config: Settings | None) -> LoggerSettings:
@@ -375,6 +377,7 @@ class ConsoleDisplay:
         truncate_content: bool = True,
         additional_message: Text | None = None,
         pre_content: Text | Group | None = None,
+        post_content: RenderableType | None = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
         header_rule_fill: bool = False,
@@ -394,6 +397,7 @@ class ConsoleDisplay:
             truncate_content: Whether to truncate long content
             additional_message: Optional Rich Text appended after the main content
             pre_content: Optional Rich Text shown before the main content
+            post_content: Optional Rich renderable shown after the main content
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
             header_rule_fill: Whether to extend the header with a dim rule to the right edge
@@ -456,6 +460,9 @@ class ConsoleDisplay:
             )
         if additional_message:
             console.console.print(additional_message, markup=self._markup)
+        if post_content:
+            console.console.print()
+            console.console.print(post_content, markup=self._markup)
 
         # Handle bottom separator with optional metadata
         self._render_bottom_metadata(
@@ -464,6 +471,47 @@ class ConsoleDisplay:
             highlight_index=highlight_index,
             max_item_length=max_item_length,
         )
+
+    def collect_tool_result_images(self, content: list[object] | None) -> None:
+        """Collect tool-result image blocks for the next final assistant render."""
+        if not content or not self.config:
+            return
+        terminal_images = self.config.logger.terminal_images
+        if (
+            not terminal_images.enabled
+            or terminal_images.backend == "none"
+            or not terminal_images.render_assistant
+        ):
+            return
+
+        from fast_agent.ui.terminal_images import extract_image_render_items
+
+        self._pending_tool_image_items.extend(extract_image_render_items(content))
+
+    def _drain_tool_result_images(self) -> RenderableType | None:
+        if not self._pending_tool_image_items or not self.config:
+            return None
+        terminal_images = self.config.logger.terminal_images
+        items = self._pending_tool_image_items
+        self._pending_tool_image_items = []
+        if (
+            not terminal_images.enabled
+            or terminal_images.backend == "none"
+            or not terminal_images.render_assistant
+        ):
+            return None
+
+        from fast_agent.ui.terminal_images import render_image_items
+
+        return render_image_items(terminal_images, items)
+
+    def show_pending_tool_result_images(self) -> None:
+        """Render pending tool-result images without reprinting assistant text."""
+        post_content = self._drain_tool_result_images()
+        if post_content is None:
+            return
+        console.console.print()
+        console.console.print(post_content, markup=self._markup)
 
     def _display_content(
         self,
@@ -683,7 +731,13 @@ class ConsoleDisplay:
                         console.console.print("(empty text)", markup=self._markup)
             else:
                 # Multiple blocks or non-text content
-                self._print_pretty(content, truncate=truncate, style=style)
+                from fast_agent.mcp.prompt_render import render_content_blocks
+
+                self._print_plain_text(
+                    render_content_blocks(cast("list[ContentBlock]", content)),
+                    truncate=truncate,
+                    style=style,
+                )
         else:
             # Any other type - use Pretty
             self._print_pretty(content, truncate=truncate, style=style)
@@ -748,6 +802,7 @@ class ConsoleDisplay:
         if type_label is not None:
             kwargs["type_label"] = type_label
 
+        self.collect_tool_result_images(cast("list[object] | None", result.content))
         if not display_tools_enabled():
             return
         self._tool_display.show_tool_result(result, **kwargs)
@@ -1007,6 +1062,7 @@ class ConsoleDisplay:
         from fast_agent.types import PromptMessageExtended
 
         resolved_pre_content = pre_content
+        post_content: RenderableType | None = None
 
         if isinstance(message_text, PromptMessageExtended):
             # Prefer full assistant text so streamed/finalized multi-block responses
@@ -1021,8 +1077,17 @@ class ConsoleDisplay:
                 self._extract_reasoning_content(message_text),
                 pre_content,
             )
+            from fast_agent.ui.terminal_images import render_terminal_images
+
+            post_content = render_terminal_images(self.config, "assistant", message_text)
         else:
             display_text = message_text
+
+        pending_tool_images = self._drain_tool_result_images()
+        if post_content is not None and pending_tool_images is not None:
+            post_content = Group(post_content, pending_tool_images)
+        elif pending_tool_images is not None:
+            post_content = pending_tool_images
 
         display_text = self._normalize_assistant_display_text(display_text)
 
@@ -1045,6 +1110,7 @@ class ConsoleDisplay:
             truncate_content=False,  # Assistant messages shouldn't be truncated
             additional_message=additional_message,
             pre_content=resolved_pre_content,
+            post_content=post_content,
             render_markdown=render_markdown,
             show_hook_indicator=show_hook_indicator,
         )
@@ -1286,6 +1352,7 @@ class ConsoleDisplay:
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a user message in the new visual style."""
+        self._pending_tool_image_items = []
         if not display_chat_enabled():
             return
         if self.config and not self.config.logger.show_chat:

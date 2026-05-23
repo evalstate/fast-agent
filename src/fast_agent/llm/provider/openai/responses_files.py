@@ -75,12 +75,9 @@ class ResponsesFileMixin:
     async def _normalize_input_files(
         self, client: AsyncOpenAI, input_items: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        normalized: list[dict[str, Any]] = []
-        for item in input_items:
-            if item.get("type") != "message":
-                normalized.append(item)
-                continue
-            content = item.get("content") or []
+        async def normalize_content_parts(
+            content: list[dict[str, Any]],
+        ) -> tuple[list[dict[str, Any]], bool]:
             updated_content: list[dict[str, Any]] = []
             changed = False
             for part in content:
@@ -114,9 +111,7 @@ class ResponsesFileMixin:
                     updated_content.append(part)
                     continue
                 if part.get("file_id"):
-                    updated_content.append(
-                        {"type": "input_file", "file_id": part.get("file_id")}
-                    )
+                    updated_content.append({"type": "input_file", "file_id": part.get("file_id")})
                     if part.get("filename") or part.get("file_url") or part.get("file_data"):
                         changed = True
                     continue
@@ -160,6 +155,25 @@ class ResponsesFileMixin:
 
                 updated_content.append(part)
 
+            return updated_content, changed
+
+        normalized: list[dict[str, Any]] = []
+        for item in input_items:
+            if item.get("type") in {"function_call_output", "custom_tool_call_output"}:
+                output = item.get("output")
+                if isinstance(output, list):
+                    updated_output, changed = await normalize_content_parts(output)
+                    if changed:
+                        item = dict(item)
+                        item["output"] = updated_output
+                normalized.append(item)
+                continue
+
+            if item.get("type") != "message":
+                normalized.append(item)
+                continue
+            content = item.get("content") or []
+            updated_content, changed = await normalize_content_parts(content)
             if changed:
                 item = dict(item)
                 item["content"] = updated_content

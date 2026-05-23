@@ -285,6 +285,7 @@ class LlmAgent(LlmDecorator):
         else:
             if status_message_text is not None:
                 self.display.show_status_message(status_message_text)
+            self.display.show_pending_tool_result_images()
             self.display.show_mermaid_diagrams_from_message_text(message_text)
         self._display_url_elicitations_from_history(display_name)
 

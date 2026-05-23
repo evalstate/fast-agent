@@ -42,7 +42,8 @@ These providers have native fast-agent support and provider-specific feature han
 | Anthropic        | `sonnet`, `opus`, `opus47`, `haiku`                                 | Claude 4.x, prompt caching, reasoning budgets/adaptive thinking, structured outputs, `web_search`, `web_fetch`, long context, task budget where supported      |
 | Google           | `gemini`, `gemini3`, `gemini3.1`, `gemini3flash`                    | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments                            |
 | xAI              | `grok`, `grok4`, `grok-4.3`                                         | Grok via Responses-compatible API, structured outputs, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                  |
-| Hugging Face     | `kimi`, `kimi26`, `deepseek`, `glm`, `minimax`, `qwen35`, `gpt-oss` | Inference Providers routing, explicit provider suffixes, curated aliases, structured/tool-use tested aliases, reasoning toggles where supported                |
+| DeepSeek         | `deepseek`, `deepseek4flash`                                        | DeepSeek V4 via the official OpenAI-format API, thinking controls, `reasoning_content` streams, JSON output, tool calls                                       |
+| Hugging Face     | `kimi`, `kimi26`, `deepseek-hf`, `glm`, `minimax`, `qwen35`, `gpt-oss` | Inference Providers routing, explicit provider suffixes, curated aliases, structured/tool-use tested aliases, reasoning toggles where supported              |
 
 ### OpenAI Responses
 
@@ -148,7 +149,7 @@ hf.<model_name>[:provider][?query=value&...]
 ```
 
 If no provider suffix is supplied, Hugging Face auto-routes the request. Curated aliases such as
-`kimi`, `deepseek`, `glm`, and `minimax` include provider choices and request defaults that have
+`kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults that have
 been tested with fast-agent features such as structured outputs and tool use. Capability can still
 vary by backing provider.
 

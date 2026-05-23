@@ -470,23 +470,6 @@ class ResponsesContentMixin:
 
         return parts
 
-    def _content_to_image_url(self, item: ContentBlock) -> str | None:
-        data = get_image_data(item)
-        if not data:
-            if is_resource_link(item):
-                mime_type = self._content_mime_type(item)
-                uri = getattr(item, "uri", None)
-                if uri and mime_type and is_image_mime_type(mime_type):
-                    return str(uri)
-            return None
-        mime_type = getattr(item, "mimeType", None)
-        if not mime_type and is_resource_content(item):
-            resource = getattr(item, "resource", None)
-            mime_type = getattr(resource, "mimeType", None) if resource else None
-        if not mime_type or not is_image_mime_type(mime_type):
-            return None
-        return f"data:{mime_type};base64,{data}"
-
     def _convert_tool_calls(self, tool_calls: dict[str, CallToolRequest]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for index, (tool_use_id, request) in enumerate(tool_calls.items()):
@@ -546,7 +529,7 @@ class ResponsesContentMixin:
                 logger=self.logger,
                 source="openai.responses",
             )
-            output = self._tool_result_content_to_text(canonical_content)
+            output = self._tool_result_content_to_output(canonical_content)
             tool_kind = self._resolve_tool_call_kind(
                 tool_use_id=tool_use_id,
                 fc_id=fc_id,
@@ -568,54 +551,53 @@ class ResponsesContentMixin:
                     "output": output,
                 }
             )
-            attachment_parts = self._tool_result_content_to_input_parts(canonical_content)
-            if attachment_parts:
-                items.append(
-                    {
-                        "type": "message",
-                        "role": "user",
-                        "content": attachment_parts,
-                    }
-                )
         return items
 
-    def _tool_result_content_to_text(self, contents: list[ContentBlock]) -> str:
-        chunks: list[str] = []
-        for item in contents:
-            text = get_text(item)
-            if text is not None:
-                chunks.append(text)
-                continue
-            if is_image_content(item) or is_resource_content(item) or is_resource_link(item):
-                image_url = self._content_to_image_url(item)
-                if image_url:
-                    chunks.append(f"![Image]({image_url})")
-                    continue
-                input_part = self._content_to_input_part(item)
-                if input_part and input_part.get("type") == "input_file":
-                    file_url = input_part.get("file_url")
-                    if isinstance(file_url, str):
-                        chunks.append(f"[Resource]({file_url})")
-                        continue
-            resource_uri = get_resource_uri(item)
-            if resource_uri:
-                chunks.append(f"[Resource]({resource_uri})")
-                continue
-            if is_resource_link(item):
-                uri = getattr(item, "uri", None)
-                if uri:
-                    chunks.append(f"[Resource]({uri})")
-                    continue
-            chunks.append(f"[Unsupported content: {type(item).__name__}]")
-        return "\n".join(chunk for chunk in chunks if chunk)
-
-    def _tool_result_content_to_input_parts(
+    def _tool_result_content_to_output(
         self, contents: list[ContentBlock]
-    ) -> list[dict[str, Any]]:
+    ) -> str | list[dict[str, Any]]:
         parts: list[dict[str, Any]] = []
+        has_attachment = False
         for item in contents:
+            if is_text_content(item):
+                parts.append({"type": "input_text", "text": get_text(item) or ""})
+                continue
+
+            if is_resource_content(item):
+                text_part = self._content_to_input_text_part(item)
+                if text_part:
+                    parts.append(text_part)
+                    continue
+
             if is_image_content(item) or is_resource_content(item) or is_resource_link(item):
                 input_part = self._content_to_input_part(item)
                 if input_part:
                     parts.append(input_part)
-        return parts
+                    has_attachment = True
+                    continue
+
+            text = get_text(item)
+            if text is not None:
+                parts.append({"type": "input_text", "text": text})
+                continue
+
+            resource_uri = get_resource_uri(item)
+            if resource_uri:
+                parts.append({"type": "input_text", "text": f"[Resource]({resource_uri})"})
+                continue
+            if is_resource_link(item):
+                uri = getattr(item, "uri", None)
+                if uri:
+                    parts.append({"type": "input_text", "text": f"[Resource]({uri})"})
+                    continue
+            parts.append(
+                {"type": "input_text", "text": f"[Unsupported content: {type(item).__name__}]"}
+            )
+
+        if has_attachment:
+            return parts
+        return "\n".join(
+            text
+            for part in parts
+            if part.get("type") == "input_text" and (text := part.get("text"))
+        )
