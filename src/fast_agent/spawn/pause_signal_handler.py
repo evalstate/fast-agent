@@ -98,13 +98,22 @@ def install_pause_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
     run_id = os.environ.get("SPAWN_RUN_ID", "")
 
     def _on_pause() -> None:
+        # Idempotent: a repeat SIGUSR1 while already paused must not
+        # re-emit ``agent_pausing`` or re-cancel anything — the parent
+        # ``PauseController._pause_one`` already returns False for
+        # already-paused agents, but external senders (operator script,
+        # k8s preStop hook, etc.) could still double-fire. Cheap guard.
+        if not event.is_set():
+            return
         event.clear()
         logger.info("[PAUSE-SIGNAL] SIGUSR1 received — agent %s pausing", agent_name)
         _emit("agent_pausing", agent_name, run_id, "pausing")
-        # Instant-pause: cancel the in-flight LLM task (only when in LLM
-        # phase — ``_current_llm_task`` is None during tool calls). The
-        # ``pause_cancel_filter`` hook on the tool_runner catches the
-        # resulting CancelledError, awaits resume, and signals retry.
+        # Instant-pause: cancel the in-flight LLM task. ``_current_llm_task``
+        # is set ONLY by ``pause_before_llm`` (cleared in ``pause_after_llm``)
+        # — strategy B leaves tool calls running to completion, so during
+        # the tool phase this ref is None and no cancel fires. Cooperative
+        # block at the next ``pause_before_tool`` checkpoint handles the
+        # tool-phase pause without tearing down the in-flight tool.
         if _current_llm_task is not None and not _current_llm_task.done():
             _current_llm_task.cancel()
             logger.info("[PAUSE-SIGNAL] Cancelled in-flight LLM task for %s", agent_name)
@@ -114,6 +123,9 @@ def install_pause_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
             _emit("agent_paused", agent_name, run_id, "paused")
 
     def _on_resume() -> None:
+        # Mirror idempotency: ignore SIGUSR2 if already running.
+        if event.is_set():
+            return
         event.set()
         logger.info("[PAUSE-SIGNAL] SIGUSR2 received — agent %s resuming", agent_name)
         _emit("agent_resuming", agent_name, run_id, "resuming")
@@ -135,23 +147,12 @@ def install_pause_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
         logger.warning("[PAUSE-SIGNAL] Cannot install signal handlers: %s", e)
 
 
-async def pause_checkpoint(runner: Any, messages: Any) -> None:
-    """``before_llm_call`` / ``before_tool_call`` hook — blocks if paused.
-
-    Returns immediately if not paused. Otherwise emits ``agent_paused``,
-    awaits the resume event, then emits ``agent_resumed`` so the UI
-    knows the agent has actually resumed (not just received the request).
-    Also flips ``_active`` to True so the signal handler knows to defer
-    terminal-state emits to this hook, and registers the current task
-    so the SIGUSR1 handler can cancel an in-flight LLM call.
+async def _block_if_paused() -> None:
+    """Shared cooperative-block helper. If the pause event is cleared,
+    emit ``agent_paused`` (terminal), await the resume signal, then
+    emit ``agent_resumed`` so the UI flips out of the spinner state.
+    No state-flag side effects — pure block.
     """
-    global _active, _current_llm_task
-    _active = True
-    try:
-        _current_llm_task = asyncio.current_task()
-    except RuntimeError:
-        _current_llm_task = None  # not in a task — cancel disabled
-
     event = _ensure_event()
     if not event.is_set():
         agent_name = os.environ.get("TEAM_MY_NAME", "unknown")
@@ -161,6 +162,55 @@ async def pause_checkpoint(runner: Any, messages: Any) -> None:
         await event.wait()
         _emit("agent_resumed", agent_name, run_id, "running")
         logger.info("[PAUSE-SIGNAL] Agent %s unblocked, continuing", agent_name)
+
+
+async def pause_before_llm(runner: Any, messages: Any) -> None:
+    """``before_llm_call`` hook.
+
+    Registers the current asyncio Task as the cancel target — this is
+    the strategy-B-correct entry point: ``_current_llm_task`` is set
+    ONLY here, so the SIGUSR1 handler can cancel an in-flight LLM call
+    but won't touch a task running an unrelated tool. Cleared in
+    ``pause_after_llm`` to bound the cancel-eligible window strictly
+    to the LLM phase.
+
+    Also flips ``_active`` so the signal handler knows the agent has
+    an in-flight turn and defers the terminal ``agent_paused`` event
+    to ``_block_if_paused`` below.
+    """
+    global _active, _current_llm_task
+    _active = True
+    try:
+        _current_llm_task = asyncio.current_task()
+    except RuntimeError:
+        _current_llm_task = None  # not in a task — cancel disabled
+    await _block_if_paused()
+
+
+async def pause_before_tool(runner: Any, request: Any) -> None:
+    """``before_tool_call`` hook.
+
+    Cooperative block only — does NOT register the current task. Tool
+    calls have side effects (file writes, network calls, MCP calls)
+    that cannot be cleanly unrolled, so strategy B leaves them
+    running to completion. The pause request lands at the *next* LLM
+    checkpoint (where ``pause_before_llm`` fires and cancels safely).
+
+    Splitting this from ``pause_before_llm`` is load-bearing: if the
+    same hook were wired to both ``before_llm_call`` AND
+    ``before_tool_call``, ``_current_llm_task`` would be set during
+    the tool phase too, and SIGUSR1 would cancel the in-flight tool
+    task → CancelledError propagates out of ``run_tools`` → the chat
+    request task dies (no on_pause_cancel retry contract for tools).
+    Regression-tested in test_pause_strategy_b_tool_phase.py.
+    """
+    await _block_if_paused()
+
+
+# Backward-compat alias — keep until external callers migrate.
+# Defaults to LLM behavior because that's the historical use site;
+# tool-phase callers must explicitly use ``pause_before_tool``.
+pause_checkpoint = pause_before_llm
 
 
 async def pause_after_llm(runner: Any, message: Any) -> None:

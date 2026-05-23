@@ -1199,34 +1199,40 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
         pass  # RTAC is optional — don't break spawn if it fails
 
     # Pause/Resume: signal-based pause checkpoint hooks.
-    #   - ``pause_checkpoint``: used at both before_llm_call AND
-    #     before_tool_call so the subprocess pauses at the same
-    #     granularity as the in-process Jarvis agent.
-    #   - ``pause_after_llm``: clears the in-flight LLM task ref so a
-    #     subsequent SIGUSR1 doesn't cancel something past the LLM phase
-    #     (tool calls are left running per strategy B).
-    #   - ``pause_turn_complete``: after_turn_complete marker that flips
-    #     the subprocess ``_active`` flag back to idle, letting the
-    #     signal handler emit terminal ``agent_paused`` itself when the
-    #     pause request lands on an idle agent.
-    #   - ``pause_cancel_filter``: on_pause_cancel hook — when tool_runner
-    #     catches CancelledError from a SIGUSR1-cancelled LLM call, this
-    #     hook awaits resume and signals retry. Without it the cancel
-    #     would propagate up and terminate the subprocess turn entirely.
+    #   - ``pause_before_llm`` (wired to before_llm_call): registers the
+    #     current asyncio task as the cancel target so SIGUSR1 can
+    #     interrupt the in-flight LLM stream. Strategy B requires this
+    #     registration happen ONLY on the LLM boundary.
+    #   - ``pause_before_tool_hook`` (wired to before_tool_call):
+    #     cooperative block ONLY — explicitly does NOT register the
+    #     current task. Tool side effects must complete; the pause
+    #     request lands at the next LLM checkpoint instead.
+    #   - ``pause_after_llm_hook`` (wired to after_llm_call): clears the
+    #     in-flight LLM task ref so a subsequent SIGUSR1 doesn't cancel
+    #     something past the LLM phase.
+    #   - ``pause_turn_done`` (wired to after_turn_complete): flips the
+    #     subprocess ``_active`` flag back to idle, letting the signal
+    #     handler emit terminal ``agent_paused`` itself when the pause
+    #     request lands on an idle agent.
+    #   - ``pause_cancel`` (wired to on_pause_cancel): when tool_runner
+    #     catches CancelledError from a SIGUSR1-cancelled LLM call,
+    #     this hook awaits resume and signals retry. Without it the
+    #     cancel would propagate up and terminate the subprocess turn.
     pause_before_llm: Any = None
-    pause_before_tool: Any = None
+    pause_before_tool_hook: Any = None
     pause_after_llm_hook: Any = None
     pause_turn_done: Any = None
     pause_cancel: Any = None
     try:
         from fast_agent.spawn.pause_signal_handler import (
-            pause_checkpoint,
+            pause_before_llm as _pause_before_llm,
+            pause_before_tool as _pause_before_tool,
             pause_after_llm,
             pause_turn_complete,
             pause_cancel_filter,
         )
-        pause_before_llm = pause_checkpoint
-        pause_before_tool = pause_checkpoint
+        pause_before_llm = _pause_before_llm
+        pause_before_tool_hook = _pause_before_tool
         pause_after_llm_hook = pause_after_llm
         pause_turn_done = pause_turn_complete
         pause_cancel = pause_cancel_filter
@@ -1248,8 +1254,8 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             if orig_before_tool:
                 await orig_before_tool(runner, request)
             await before_tool_call(runner, request)
-            if pause_before_tool:
-                await pause_before_tool(runner, request)
+            if pause_before_tool_hook:
+                await pause_before_tool_hook(runner, request)
 
         async def merged_after_tool(runner: Any, result: Any) -> None:
             if orig_after_tool:
@@ -1300,8 +1306,8 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
 
         async def _chained_before_tool(r: Any, req: Any) -> None:
             await before_tool_call(r, req)
-            if pause_before_tool:
-                await pause_before_tool(r, req)
+            if pause_before_tool_hook:
+                await pause_before_tool_hook(r, req)
 
         async def _chained_after_llm(r: Any, m: Any) -> None:
             await spawn_after_llm(r, m)
