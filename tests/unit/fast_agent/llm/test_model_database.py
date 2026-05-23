@@ -401,7 +401,8 @@ def test_model_database_xai_image_input_mime_types_match_docs():
     assert ModelDatabase.supports_mime(vision_model, "jpg")
     assert ModelDatabase.supports_mime(vision_model, "image/png")
     assert not ModelDatabase.supports_mime(vision_model, "image/webp")
-    assert not ModelDatabase.supports_mime("grok-4.3", "image/png")
+    assert ModelDatabase.supports_mime("grok-4.3", "image/png")
+    assert not ModelDatabase.supports_mime("grok-4.3", "image/webp")
 
 
 def test_model_database_google_video_audio_mime_types():
