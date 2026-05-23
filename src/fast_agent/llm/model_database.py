@@ -721,12 +721,18 @@ class ModelDatabase:
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.XAI,),
     )
-    GROK_43 = GROK_4.model_copy(
-        update={
-            "context_window": 1_000_000,
-            "reasoning": "openai",
-            "reasoning_effort_spec": XAI_GROK_43_REASONING_EFFORT_SPEC,
-        }
+
+    GROK_43 = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=65535,
+        tokenizes=XAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="always",
+        reasoning="openai",
+        reasoning_effort_spec=XAI_GROK_43_REASONING_EFFORT_SPEC,
+        default_provider=Provider.XAI,
+        response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.XAI,),
     )
 
     GROK_4_VLM = ModelParameters(

@@ -375,15 +375,14 @@ def test_convert_tool_results_prefers_structured_content_and_keeps_attachments()
 
     assert items[0]["type"] == "function_call_output"
     assert items[0]["call_id"] == "call_1"
-    assert items[0]["output"].splitlines()[0] == '{"fresh":true}'
-    assert "stale summary" not in items[0]["output"]
-    assert items[1]["type"] == "message"
-    assert items[1]["role"] == "user"
-    attachments = items[1]["content"]
-    assert isinstance(attachments, list)
-    assert attachments == [
+    output = items[0]["output"]
+    assert isinstance(output, list)
+    assert output[0] == {"type": "input_text", "text": '{"fresh":true}'}
+    assert "stale summary" not in str(output)
+    assert output[1:] == [
         {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_data}"}
     ]
+    assert len(items) == 1
 
 
 def test_convert_tool_results_resource_link_pdf_becomes_user_input_file() -> None:
@@ -402,17 +401,14 @@ def test_convert_tool_results_resource_link_pdf_becomes_user_input_file() -> Non
     items = harness._convert_tool_results({"call_1": result})
 
     assert items[0]["type"] == "function_call_output"
-    assert items[0]["output"].splitlines()[0] == "attached"
-    assert items[1] == {
-        "type": "message",
-        "role": "user",
-        "content": [
-            {
-                "type": "input_file",
-                "file_url": "https://example.com/report.pdf",
-            }
-        ],
-    }
+    assert items[0]["output"] == [
+        {"type": "input_text", "text": "attached"},
+        {
+            "type": "input_file",
+            "file_url": "https://example.com/report.pdf",
+        },
+    ]
+    assert len(items) == 1
 
 
 def test_convert_tool_calls_keeps_namespaced_apply_patch_as_function_call() -> None:
@@ -977,6 +973,32 @@ async def test_normalize_input_image_file_url(tmp_path):
     normalized = await harness._normalize_input_files(client, input_items)
     content = normalized[0]["content"]
     assert content[0] == {"type": "input_image", "file_id": f"file_{len(image_path.read_bytes())}"}
+
+
+@pytest.mark.asyncio
+async def test_normalize_tool_output_input_file_data_to_file_id():
+    harness = _FileHarness()
+    client = AsyncOpenAI(api_key="test")
+    file_bytes = b"%PDF-1.4 dummy"
+    file_data = base64.b64encode(file_bytes).decode("ascii")
+
+    input_items = [
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": [
+                {"type": "input_text", "text": "attached"},
+                {"type": "input_file", "file_data": file_data, "filename": "sample.pdf"},
+            ],
+        }
+    ]
+
+    normalized = await harness._normalize_input_files(client, input_items)
+
+    assert normalized[0]["output"] == [
+        {"type": "input_text", "text": "attached"},
+        {"type": "input_file", "file_id": f"file_{len(file_bytes)}"},
+    ]
 
 
 def test_tool_fallback_notifications():
