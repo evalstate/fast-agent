@@ -49,6 +49,58 @@ class LoadedAgentCard:
     message_files: list[Path]
 
 
+def build_loaded_card_from_dict(
+    raw: dict[str, Any], name: str | None = None
+) -> LoadedAgentCard:
+    """Build a LoadedAgentCard from an in-memory dict (no filesystem).
+
+    Same shape as the YAML frontmatter that file-based cards use:
+    `name`, `instruction`, optional `type` (defaults to "agent"),
+    `servers`, `tools`, `skills`, `model`, `use_history`, `request_params`,
+    etc. Validated by the same `_build_card_from_data` pipeline as
+    file-based cards.
+
+    The resulting card is tagged with a synthetic path
+    `Path(f"memory://{name}")`. This lets the caller register the card
+    inside FastAgent's `_agent_card_sources` map alongside real
+    file-based cards without colliding with any filesystem path. The
+    "memory://" prefix is a recognised marker: in-memory cards do not
+    participate in the file watcher and are reload-driven by the
+    caller (e.g. a DB poller).
+
+    Args:
+        raw: Dict matching the agent card frontmatter shape.
+        name: Optional override; falls back to `raw["name"]`.
+
+    Raises:
+        AgentConfigError: If `name` is missing/empty, or any field
+            fails the same validation rules as file-based cards.
+    """
+    raw_copy = dict(raw)
+    raw_copy.setdefault("type", "agent")
+
+    resolved_name = (name or raw_copy.get("name") or "").strip()
+    if not resolved_name:
+        raise AgentConfigError(
+            "Agent name is required for in-memory card load"
+        )
+    raw_copy["name"] = resolved_name
+
+    synthetic_path = Path(f"memory://{resolved_name}")
+    return _build_card_from_data(synthetic_path, raw_copy, body=None)
+
+
+def is_memory_card_path(path: Path | str) -> bool:
+    """Return True if the given path is a synthetic in-memory card path.
+
+    `Path("memory://X")` is normalised to `"memory:/X"` (Python collapses
+    duplicate slashes), so the marker prefix we test for is `"memory:"`,
+    which both forms share and which no real filesystem path will start
+    with on supported platforms.
+    """
+    return str(path).startswith("memory:")
+
+
 def load_agent_cards(path: Path) -> list[LoadedAgentCard]:
     path = path.expanduser().resolve()
     if not path.exists():
