@@ -15,6 +15,7 @@ content can be refreshed from the codebase.
 
 ```bash
 uv run scripts/docs.py generate
+uv run scripts/docs.py assets
 uv run scripts/docs.py social
 uv run scripts/docs.py build
 uv run scripts/docs.py screenshot
@@ -22,6 +23,7 @@ uv run scripts/docs.py assess
 ```
 
 - `generate` refreshes `_generated/` from the Python source tree.
+- `assets` verifies committed interactive docs assets, including vendored asciinema player files.
 - `social` renders per-page Open Graph PNGs from HTML using `google-chrome`.
 - `build` verifies the committed social PNGs exist, then runs a strict Zensical build.
 - `screenshot` captures the built local site and the live site for visual comparison with
@@ -47,6 +49,40 @@ in a terminal.
 Example output:
 
 ![Terminal capture](terminal-fast-agent-go.svg)
+
+## Interactive Terminal Assets
+
+Use `scripts/docs_assets.py` through the docs wrapper for interactive asciinema casts:
+
+```bash
+uv run scripts/docs.py assets
+uv run scripts/docs.py assets-record tui-shell
+uv run scripts/docs.py cast-build tui-shell
+```
+
+The `tui-shell` scenario records `fast-agent` starting with shell access and a visible model
+selection, sends a short prompt, then runs `! git status` from inside the TUI. Recording requires
+`asciinema` and `tmux`; normal docs builds only need the committed `.cast` files and the vendored
+player assets. `cast-build` is an alias for recording a named cast.
+
+By default, cast recordings stop by killing the tmux session after the final demonstrated action,
+so the user-facing recording does not show a trailing `/exit`. Set
+`FAST_AGENT_TUI_DEMO_SHOW_EXIT=1` when you explicitly want the exit command included.
+Cast recordings also set `TUI__COMPLETION_MENU_RESERVED_LINES=4` by default to keep the prompt
+area compact; override it when a recording needs to demonstrate completion menus.
+
+The default recording command is:
+
+```bash
+uv run fast-agent -x --model deepseek
+```
+
+Override it for local refreshes with:
+
+```bash
+FAST_AGENT_TUI_DEMO_MODEL=sonnet uv run scripts/docs.py assets-record tui-shell
+FAST_AGENT_TUI_DEMO_COMMAND="uv run fast-agent -x --model deepseek" uv run scripts/docs.py assets-record tui-shell
+```
 
 ## Social Cards
 

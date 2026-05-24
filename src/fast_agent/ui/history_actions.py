@@ -32,6 +32,7 @@ async def display_history_turn(
     from fast_agent.ui.message_display_helpers import (
         build_tool_use_additional_message,
         build_user_message_display,
+        build_user_message_image_previews,
         tool_use_requests_file_read_access,
         tool_use_requests_shell_access,
     )
@@ -88,11 +89,13 @@ async def display_history_turn(
         if not user_group:
             return
         message_text, attachments = build_user_message_display(user_group)
+        image_previews = build_user_message_image_previews(user_group)
         part_count = len(user_group)
         turn_range = (turn_index, turn_index) if turn_index else None
         display.show_user_message(
             message=message_text,
             attachments=attachments,
+            image_previews=image_previews or None,
             name=agent_name,
             part_count=part_count,
             turn_range=turn_range,
