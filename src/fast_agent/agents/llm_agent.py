@@ -52,6 +52,7 @@ from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
     build_user_message_display,
+    build_user_message_image_previews,
     resolve_highlight_index,
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
@@ -681,12 +682,14 @@ class LlmAgent(LlmDecorator):
         part_count = len(display_messages)
 
         message_text, attachments = build_user_message_display(display_messages)
+        image_previews = build_user_message_image_previews(display_messages)
 
         self.display.show_user_message(
             message_text,
             chat_turn=0,
             name=self.name,
             attachments=attachments if attachments else None,
+            image_previews=image_previews or None,
             part_count=part_count if part_count > 1 else None,
             show_hook_indicator=getattr(self, "has_before_llm_call_hook", False),
         )

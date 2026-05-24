@@ -1348,6 +1348,7 @@ class ConsoleDisplay:
         turn_range: tuple[int, int] | None = None,
         name: str | None = None,
         attachments: list[str] | None = None,
+        image_previews: list["ImageRenderItem"] | None = None,
         part_count: int | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
@@ -1397,12 +1398,28 @@ class ConsoleDisplay:
 
         right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 
-        # Build attachment indicator as pre_content
-        pre_content: Text | Group | None = None
+        # Build attachment indicator and local image previews as pre_content.
+        pre_content_parts: list[Text | Group] = []
         if attachments:
-            pre_content = Text()
-            pre_content.append("🔗 ", style="dim")
-            pre_content.append(", ".join(attachments), style="dim blue")
+            attachment_text = Text()
+            attachment_text.append("🔗 ", style="dim")
+            attachment_text.append(", ".join(attachments), style="dim blue")
+            pre_content_parts.append(attachment_text)
+
+        if image_previews and self.config:
+            terminal_images = self.config.logger.terminal_images
+            if terminal_images.enabled and terminal_images.backend != "none":
+                from fast_agent.ui.terminal_images import render_image_items
+
+                rendered_previews = render_image_items(terminal_images, image_previews)
+                if rendered_previews is not None:
+                    pre_content_parts.append(Group(rendered_previews))
+
+        pre_content: Text | Group | None = None
+        if len(pre_content_parts) == 1:
+            pre_content = pre_content_parts[0]
+        elif pre_content_parts:
+            pre_content = Group(*pre_content_parts)
 
         self.display_message(
             content=message,
