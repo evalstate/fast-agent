@@ -447,13 +447,15 @@ def run_interactive_shell_command(
     *,
     max_output_chars: int = 50000,
     show_output: bool = True,
+    echo_command: bool = True,
 ) -> ShellExecutionResult:
     output_capture = _CapturedShellOutput(max_output_chars=max_output_chars)
     return_code = 0
     proc: subprocess.Popen[str] | subprocess.Popen[bytes] | None = None
     cleanup_state = _PtyCleanupState()
 
-    print(f"$ {command}", flush=True)
+    if echo_command:
+        print(f"$ {command}", flush=True)
 
     shell_env = _build_interactive_shell_env()
     use_pty, targets = _resolve_interactive_tty_targets()

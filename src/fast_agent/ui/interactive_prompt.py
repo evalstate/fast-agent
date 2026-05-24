@@ -885,9 +885,13 @@ class InteractivePrompt:
             return current_result, hash_send_execution.buffer_prefill, True
 
         if pending.shell_execute_cmd:
+            print(f"$ {pending.shell_execute_cmd}", flush=True)
             emit_prompt_mark("C")
-            result = run_interactive_shell_command(pending.shell_execute_cmd)
-            emit_prompt_mark("D")
+            result = run_interactive_shell_command(
+                pending.shell_execute_cmd,
+                echo_command=False,
+            )
+            emit_prompt_mark(f"D;{result.return_code}")
 
             if result.output.strip():
                 set_last_copyable_output(result.output.rstrip())

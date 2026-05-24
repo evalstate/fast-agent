@@ -1355,6 +1355,18 @@ class TerminalImageSettings(BaseModel):
         raise ValueError("terminal image size must be an integer, percentage, 'auto', or null")
 
 
+class TUISettings(BaseModel):
+    """Interactive TUI settings."""
+
+    completion_menu_reserved_lines: int = Field(
+        default=6,
+        ge=0,
+        description="Prompt-toolkit lines reserved below the input for completion menus.",
+    )
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class LoggerSettings(BaseModel):
     """
     Logger settings for the fast-agent application.
@@ -1773,6 +1785,9 @@ class Settings(BaseSettings):
 
     plugins: PluginsSettings = PluginsSettings()
     """Command plugin selection and marketplace settings."""
+
+    tui: TUISettings = TUISettings()
+    """Interactive TUI settings."""
 
     commands: dict[str, PluginCommandActionSpec] | None = None
     """Global plugin command actions loaded from fast-agent.yaml."""

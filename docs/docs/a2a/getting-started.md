@@ -405,3 +405,15 @@ run:
 ```bash
 uv run scripts/a2a_docs_pipeline.py record
 ```
+
+Provider-backed A2A recordings are optional. When refreshing them, export the
+environment used by the docs run before recording:
+
+```bash
+export HF_TOKEN=...
+export OPENAI_API_KEY=...
+export A2A_REAL_LLM_MODEL=codexresponses.gpt-5.4-mini
+export A2A_HF_MCP_URL=https://hf.co/mcp
+export A2A_REAL_LLM_RECORD_SECONDS=70
+uv run scripts/a2a_docs_pipeline.py record-real-llm
+```

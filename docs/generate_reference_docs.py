@@ -174,6 +174,131 @@ def generate_request_params_reference() -> str:
     return "".join(lines)
 
 
+def _env_name(setting_path: str) -> str:
+    return setting_path.upper().replace(".", "__")
+
+
+def _escape_table(value: object) -> str:
+    text = str(value)
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _type_name(annotation: object) -> str:
+    return (
+        str(annotation)
+        .replace("typing.", "")
+        .replace("types.", "")
+        .replace("<class '", "")
+        .replace("'>", "")
+    )
+
+
+def _default_text(default: object) -> str:
+    if isinstance(default, str):
+        return f"`{default}`"
+    return f"`{default}`"
+
+
+def generate_tui_runtime_reference() -> str:
+    """Generate curated TUI settings/env reference from code-owned values."""
+    from pydantic_core import PydanticUndefined
+
+    from fast_agent.config import (
+        LoggerSettings,
+        ShellSettings,
+        TerminalImageSettings,
+        TUISettings,
+    )
+    from fast_agent.constants import DOCUMENTED_ENV_VARS
+
+    setting_sources = {
+        "logger": LoggerSettings,
+        "logger.terminal_images": TerminalImageSettings,
+        "shell_execution": ShellSettings,
+        "tui": TUISettings,
+    }
+    curated_settings = [
+        "logger.streaming",
+        "logger.enable_prompt_marks",
+        "logger.progress_display",
+        "logger.show_chat",
+        "logger.show_tools",
+        "logger.truncate_tools",
+        "logger.theme_file",
+        "logger.code_theme",
+        "logger.render_fences_with_syntax",
+        "logger.code_word_wrap",
+        "logger.apply_patch_preview_max_lines",
+        "logger.terminal_images.enabled",
+        "logger.terminal_images.backend",
+        "logger.terminal_images.width",
+        "logger.terminal_images.height",
+        "shell_execution.output_display_lines",
+        "shell_execution.show_bash",
+        "shell_execution.interactive_use_pty",
+        "shell_execution.timeout_seconds",
+        "shell_execution.warning_interval_seconds",
+        "tui.completion_menu_reserved_lines",
+    ]
+    descriptions = {
+        "logger.streaming": "Streaming renderer for assistant responses.",
+        "logger.enable_prompt_marks": "Emit OSC 133 prompt marks for supported terminals.",
+        "logger.progress_display": "Enable or disable progress display.",
+        "logger.show_chat": "Show user and assistant messages on the console.",
+        "logger.show_tools": "Show MCP server tool calls on the console.",
+        "logger.truncate_tools": "Truncate long tool call display.",
+        "logger.theme_file": "Optional Rich theme file for console styles.",
+        "logger.code_theme": "Pygments/Rich syntax theme for Markdown code rendering.",
+        "logger.render_fences_with_syntax": "Render Markdown code fences with Rich Syntax.",
+        "logger.code_word_wrap": "Wrap Syntax-rendered code blocks instead of cropping.",
+        "logger.apply_patch_preview_max_lines": "Maximum lines to show in apply_patch previews.",
+        "logger.terminal_images.enabled": "Render image content in capable terminals.",
+        "logger.terminal_images.backend": "Terminal image backend to use.",
+        "logger.terminal_images.width": "Image render width.",
+        "logger.terminal_images.height": "Image render height.",
+        "shell_execution.output_display_lines": "Maximum shell/read_text_file lines to display.",
+        "shell_execution.show_bash": "Show shell command output on the console.",
+        "shell_execution.interactive_use_pty": "Use a PTY for interactive prompt shell commands.",
+        "shell_execution.timeout_seconds": "Maximum seconds without command output before termination.",
+        "shell_execution.warning_interval_seconds": "Show timeout warnings every N seconds.",
+        "tui.completion_menu_reserved_lines": "Prompt-toolkit lines reserved below the input for completion menus.",
+    }
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py\n")
+    lines.append("-->\n\n")
+    lines.append("#### TUI environment variables\n\n")
+    lines.append("| Symbol | Variable | Purpose |\n")
+    lines.append("| --- | --- | --- |\n")
+    for item in DOCUMENTED_ENV_VARS:
+        if item.surface != "tui":
+            continue
+        lines.append(
+            f"| `{item.symbol}` | `{item.value}` | {_escape_table(item.purpose)} |\n"
+        )
+
+    lines.append("\n#### TUI-related settings\n\n")
+    lines.append("| Setting | Environment variable | Type | Default | Description |\n")
+    lines.append("| --- | --- | --- | --- | --- |\n")
+    for setting_path in curated_settings:
+        section, field_name = setting_path.rsplit(".", 1)
+        model = setting_sources[section]
+        field = model.model_fields[field_name]
+        default = field.default
+        if default is PydanticUndefined:
+            default = field.default_factory() if field.default_factory is not None else ""
+        description = descriptions.get(setting_path) or field.description or ""
+        lines.append(
+            f"| `{setting_path}` | `{_env_name(setting_path)}` | "
+            f"`{_escape_table(_type_name(field.annotation))}` | {_default_text(default)} | "
+            f"{_escape_table(description)} |\n"
+        )
+
+    return "".join(lines)
+
+
 def _choose_alias(
     canonical: str,
     canonical_to_aliases: dict[str, list[str]],
@@ -772,6 +897,7 @@ def main() -> int:
             _write(GENERATED_DIR / "workflows_reference.md", generate_workflows_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
+        _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         (GENERATED_DIR / "_generation_warnings.md").unlink(missing_ok=True)
     except Exception as exc:
         _write(

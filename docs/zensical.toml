@@ -10,6 +10,7 @@ nav = [
   { "fast-agent" = "index.md" },
   { "Guides" = [
     { "Core Concepts" = "guides/core-concepts.md" },
+    "guides/tui.md",
     "guides/codex.md",
     "guides/hf-dev.md",
     "guides/batch-processing.md",
@@ -139,6 +140,7 @@ link = "https://github.com/evalstate"
 [project.markdown_extensions.attr_list]
 [project.markdown_extensions.admonition]
 [project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.keys]
 [project.markdown_extensions.pymdownx.snippets]
 base_path = ["docs", ".."]
 check_paths = true

@@ -12,6 +12,11 @@ Usage:
                                       # Generate social card review sheet
     uv run scripts/docs.py social-variants
                                       # Generate CRT social card variant previews
+    uv run scripts/docs.py assets     # Verify committed interactive docs assets
+    uv run scripts/docs.py assets-record tui-shell
+                                      # Record an interactive docs asset
+    uv run scripts/docs.py cast-build tui-shell
+                                      # Alias for assets-record
     uv run scripts/docs.py serve      # Run Zensical dev server
     uv run scripts/docs.py build      # Build static site
     uv run scripts/docs.py screenshot # Capture local and live docs screenshots
@@ -97,6 +102,20 @@ def social_variants() -> int:
         cwd=ROOT,
     )
     return result.returncode
+
+
+def assets(args: list[str]) -> int:
+    """Build or verify committed interactive documentation assets."""
+    command = args or ["build"]
+    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "docs_assets.py"), *command], cwd=ROOT)
+    return result.returncode
+
+
+def assets_record(args: list[str]) -> int:
+    """Record a named interactive documentation asset."""
+    if not args:
+        args = ["tui-shell"]
+    return assets(["record", *args])
 
 
 def serve() -> int:
@@ -192,6 +211,14 @@ def main() -> int:
         return social_contact_sheet()
     elif command == "social-variants":
         return social_variants()
+    elif command == "assets":
+        return assets(sys.argv[2:])
+    elif command == "assets-record":
+        return assets_record(sys.argv[2:])
+    elif command == "cast-build":
+        return assets_record(sys.argv[2:])
+    elif command == "cast-check":
+        return assets(sys.argv[2:])
     elif command == "serve":
         return serve()
     elif command == "build":

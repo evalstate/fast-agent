@@ -44,21 +44,24 @@
   --term-color-15: var(--fg-0, #f0ece2);
 }
 
-.a2a-terminal-demo .ap-wrapper {
+.a2a-terminal-demo .ap-wrapper,
+.fa-terminal-demo .ap-wrapper {
   border: var(--bw, 1px) solid var(--b-1, #262a33);
   border-radius: var(--r-2, 4px);
   box-shadow: var(--shadow-terminal, 0 18px 44px rgba(0, 0, 0, 0.34));
   overflow: hidden;
 }
 
-.a2a-terminal-theme-switch {
+.a2a-terminal-theme-switch,
+.fa-terminal-theme-switch {
   display: flex;
   justify-content: flex-end;
   gap: 0.35rem;
   margin: 0.5rem 0 0.35rem;
 }
 
-.a2a-terminal-theme-switch button {
+.a2a-terminal-theme-switch button,
+.fa-terminal-theme-switch button {
   border: var(--bw, 1px) solid var(--b-1, #262a33);
   border-radius: var(--r-1, 2px);
   background: var(--s-1, #14161b);
@@ -71,12 +74,14 @@
   text-transform: uppercase;
 }
 
-.a2a-terminal-theme-switch button:hover {
+.a2a-terminal-theme-switch button:hover,
+.fa-terminal-theme-switch button:hover {
   border-color: var(--b-2, #3a3f4a);
   color: var(--fg-0, #f0ece2);
 }
 
-.a2a-terminal-theme-switch button[aria-pressed] {
+.a2a-terminal-theme-switch button[aria-pressed],
+.fa-terminal-theme-switch button[aria-pressed] {
   border-color: var(--a-0, #f5a400);
   background: var(--a-bg, rgba(245, 164, 0, 0.08));
   color: var(--a-0, #f5a400);

@@ -24,6 +24,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from docs_assets import record_asciinema_cast, require_recording_tools
+
 ROOT = Path(__file__).resolve().parent.parent
 DOCS_A2A = ROOT / "docs" / "docs" / "a2a"
 SNIPPETS = DOCS_A2A / "snippets"
@@ -262,11 +264,10 @@ def check() -> None:
 
 def record() -> None:
     generate()
-    if not shutil.which("asciinema"):
-        print("asciinema is not installed; generated text snippets only", file=sys.stderr)
-        return
-    if not shutil.which("tmux"):
-        print("tmux is not installed; generated text snippets only", file=sys.stderr)
+    try:
+        require_recording_tools()
+    except RuntimeError as exc:
+        print(f"{exc}; generated text snippets only", file=sys.stderr)
         return
 
     driver = Path("/tmp/a2a-docs-record.sh")
@@ -309,32 +310,23 @@ tmux attach-session -t "$SESSION" || true
 
     server = _start_server()
     try:
-        command = [
-            "asciinema",
-            "rec",
-            "--overwrite",
-            "--cols",
-            "104",
-            "--rows",
-            "27",
-            "--idle-time-limit",
-            "1.3",
-            "-t",
-            "fast-agent A2A streaming, files, and input-required demo",
-            "-c",
-            str(driver),
-            str(ASSETS / "a2a-streaming-files.cast"),
-        ]
-        subprocess.run(command, cwd=ROOT, check=True)
+        record_asciinema_cast(
+            output=ASSETS / "a2a-streaming-files.cast",
+            title="fast-agent A2A streaming, files, and input-required demo",
+            command=str(driver),
+            cols=104,
+            rows=27,
+            cleanup_session="a2a_docs_cast",
+        )
     finally:
-        subprocess.run(["tmux", "kill-session", "-t", "a2a_docs_cast"], check=False)
         _stop_server(server)
 
 
 def _require_real_llm_recording_tools() -> None:
-    missing = [tool for tool in ["asciinema", "tmux", "curl"] if not shutil.which(tool)]
-    if missing:
-        raise SystemExit("record-real-llm requires these tools: " + ", ".join(missing))
+    try:
+        require_recording_tools(("asciinema", "tmux", "curl"))
+    except RuntimeError as exc:
+        raise SystemExit(str(exc).replace("Cannot record docs assets", "record-real-llm")) from exc
     missing_env = [
         name
         for name in ["HF_TOKEN", "OPENAI_API_KEY"]
@@ -470,26 +462,16 @@ tmux attach-session -t "$SESSION" || true
     )
     driver.chmod(0o755)
 
-    command = [
-        "asciinema",
-        "rec",
-        "--overwrite",
-        "--cols",
-        "120",
-        "--rows",
-        "32",
-        "--idle-time-limit",
-        "1.3",
-        "-t",
-        "fast-agent A2A real LLM Hugging Face MCP streaming demo",
-        "-c",
-        str(driver),
-        str(ASSETS / REAL_LLM_CAST),
-    ]
     try:
-        subprocess.run(command, cwd=ROOT, check=True)
+        record_asciinema_cast(
+            output=ASSETS / REAL_LLM_CAST,
+            title="fast-agent A2A real LLM Hugging Face MCP streaming demo",
+            command=str(driver),
+            cols=120,
+            rows=32,
+            cleanup_session="a2a_real_llm_cast",
+        )
     finally:
-        subprocess.run(["tmux", "kill-session", "-t", "a2a_real_llm_cast"], check=False)
         _stop_real_llm_server(server)
 
 
