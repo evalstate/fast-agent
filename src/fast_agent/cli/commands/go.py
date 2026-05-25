@@ -9,7 +9,6 @@ from typing import Any, Literal
 
 import typer
 
-from fast_agent.cards import service as card_service
 from fast_agent.cli.command_support import ensure_context_object, get_settings_or_exit
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.runtime.agent_setup import run_agent_request
@@ -49,6 +48,16 @@ from fast_agent.paths import resolve_environment_paths
 CARD_EXTENSIONS = _CARD_EXTENSIONS
 DEFAULT_AGENT_CARDS_DIR = _DEFAULT_AGENT_CARDS_DIR
 DEFAULT_TOOL_CARDS_DIR = _DEFAULT_TOOL_CARDS_DIR
+
+
+class _LazyCardService:
+    def __getattr__(self, name: str) -> Any:
+        from fast_agent.cards import service as loaded_card_service
+
+        return getattr(loaded_card_service, name)
+
+
+card_service = _LazyCardService()
 
 
 app = typer.Typer(

@@ -27,8 +27,6 @@ from mcp.types import (
     GetPromptResult,
     PromptMessage,
 )
-from openai import NotGiven
-from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
 from pydantic_core import from_json
 
 from fast_agent.constants import (
@@ -1034,6 +1032,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Provider-agnostic schema representation or NotGiven if conversion fails
         """
+        from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
+
         return _type_to_response_format(model)
 
     @staticmethod
@@ -1095,6 +1095,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         if not request_params.response_format:
             schema = self.model_to_response_format(model)
+            from openai import NotGiven
+
             if schema is not NotGiven:
                 request_params.response_format = schema
 
