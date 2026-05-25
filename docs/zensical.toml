@@ -5,7 +5,15 @@ site_description = "MCP-native agents, workflows, and servers"
 repo_url = "https://github.com/evalstate/fast-agent"
 repo_name = "evalstate/fast-agent"
 copyright = "© 2025-2026 llmindset.co.uk"
-extra_css = ["stylesheets/fast-agent.css"]
+extra_css = [
+  "stylesheets/fast-agent.css",
+  "assets/vendor/asciinema-player/asciinema-player.css",
+  "assets/vendor/asciinema-player/catppuccin.css",
+]
+extra_javascript = [
+  "assets/vendor/asciinema-player/asciinema-player.min.js",
+  "javascripts/asciinema-demos.js",
+]
 nav = [
   { "fast-agent" = "index.md" },
   { "Guides" = [
