@@ -70,18 +70,40 @@ so the user-facing recording does not show a trailing `/exit`. Set
 `FAST_AGENT_TUI_DEMO_SHOW_EXIT=1` when you explicitly want the exit command included.
 Cast recordings also set `TUI__COMPLETION_MENU_RESERVED_LINES=4` by default to keep the prompt
 area compact; override it when a recording needs to demonstrate completion menus.
+The recording driver sets `FAST_AGENT_HOME` to a temporary directory with a tiny config file so
+project-local config, implicit cards, sessions, and permission-store state from the repository
+`.fast-agent` are not loaded. It runs `fast-agent` from a throwaway demo git repository rather than
+the docs checkout. It also unsets `ENVIRONMENT_DIR`, `FAST_AGENT_RUNTIME_ENVIRONMENT`, and
+`VIRTUAL_ENV` to avoid environment overrides and `uv` active-environment warnings, and sets
+`FAST_AGENT_KEYRING_NOTICE=0` so the one-time OS keyring probe message does not appear in committed
+casts.
 
 The default recording command is:
 
 ```bash
-uv run fast-agent -x --model deepseek
+fast-agent -x --model deepseek
 ```
 
 Override it for local refreshes with:
 
 ```bash
 FAST_AGENT_TUI_DEMO_MODEL=sonnet uv run scripts/docs.py assets-record tui-shell
-FAST_AGENT_TUI_DEMO_COMMAND="uv run fast-agent -x --model deepseek" uv run scripts/docs.py assets-record tui-shell
+FAST_AGENT_TUI_DEMO_COMMAND="fast-agent -x --model deepseek" uv run scripts/docs.py assets-record tui-shell
+```
+
+For image-output experiments, prefer a small halfcell render and a landscape prompt with broad shapes:
+
+```bash
+export FAST_AGENT_KEYRING_NOTICE=0
+export LOGGER__TERMINAL_IMAGES__ENABLED=true
+export LOGGER__TERMINAL_IMAGES__BACKEND=halfcell
+export LOGGER__TERMINAL_IMAGES__WIDTH=96
+export LOGGER__TERMINAL_IMAGES__HEIGHT=24
+fast-agent -x --model codexplan --url 'https://huggingface.co/mcp?bouquet=dynamic_space'
+```
+
+```text
+generate a wide cinematic landscape: a quiet alpine lake at sunrise, dark pine silhouettes, snow-capped mountains, warm orange sky reflected in the water, bold simple shapes, high contrast, no text
 ```
 
 ## Social Cards

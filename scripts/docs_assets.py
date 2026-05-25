@@ -40,7 +40,7 @@ def _tui_shell_scenario() -> TerminalCastScenario:
     model = os.environ.get("FAST_AGENT_TUI_DEMO_MODEL", "deepseek")
     command = os.environ.get("FAST_AGENT_TUI_DEMO_COMMAND")
     if command is None:
-        command = f"uv run fast-agent -x --model {model}"
+        command = f"fast-agent -x --model {model}"
     return TerminalCastScenario(
         name="tui-shell",
         title="fast-agent TUI shell commands",
@@ -142,7 +142,7 @@ type_slow() {{
 
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
-  "cd '$ROOT' && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-demo.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && git init -q && git config user.email docs@example.invalid && git config user.name 'Docs Demo' && printf '# Demo workspace\\n' > README.md && git add README.md && git commit -qm init && printf '\\nLocal edit\\n' >> README.md && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
 tmux set-option -t "$SESSION" status off >/dev/null
 
 (
