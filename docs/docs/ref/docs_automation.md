@@ -112,6 +112,38 @@ export A2A_REAL_LLM_RECORD_SECONDS=70
 uv run scripts/a2a_docs_pipeline.py record-real-llm
 ```
 
+### Image output capture experiment
+
+For review, an interactive Hugging Face MCP image-generation run was recorded with the keyring
+notice suppressed and terminal image rendering enabled:
+
+```bash
+export FAST_AGENT_KEYRING_NOTICE=0
+export LOGGER__TERMINAL_IMAGES__ENABLED=true
+uv run fast-agent -x --model codexplan --url https://huggingface.co/mcp
+```
+
+Prompt:
+
+```text
+generate an image of a sunflower
+```
+
+The Hugging Face MCP server invoked `evalstate/flux1_schnell` and returned an `image/webp` block,
+an image URL, and a seed. In the asciinema cast, terminal image output is captured as terminal
+frames rather than as a separate image asset. In this environment the inline preview appeared as
+SIXEL-style text frames, for example:
+
+```text
+[IMAGE: image/webp, 81600 bytes]
+Image URL: https://evalstate-flux1-schnell.hf.space/.../image.webp
+Seed used for generation: 2131209976
+SIXEL IMAGE (96x33) +++++...
+```
+
+The URL and Markdown image link remain visible in the cast, so this is safe as a docs fallback even
+when the player does not reconstruct the inline terminal image exactly.
+
 ## Social Cards
 
 Every Markdown page gets a committed 1200×630 PNG under `docs/assets/social/`. `overrides/main.html`
