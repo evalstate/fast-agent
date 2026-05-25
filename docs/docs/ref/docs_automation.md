@@ -75,6 +75,8 @@ so the user-facing recording does not show a trailing `/exit`. Set
 `FAST_AGENT_TUI_DEMO_SHOW_EXIT=1` when you explicitly want the exit command included.
 Cast recordings also set `TUI__COMPLETION_MENU_RESERVED_LINES=4` by default to keep the prompt
 area compact; override it when a recording needs to demonstrate completion menus.
+The recording drivers set `FAST_AGENT_KEYRING_NOTICE=0` so the one-time OS keyring probe message
+does not appear in committed casts.
 
 The default recording command is:
 

@@ -148,7 +148,7 @@ type_slow() {{
 
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
-  "cd '$ROOT' && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
+  "cd '$ROOT' && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
 tmux set-option -t "$SESSION" status off >/dev/null
 
 (

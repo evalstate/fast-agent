@@ -280,7 +280,7 @@ BASE_URL={BASE_URL}
 
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 tmux new-session -d -s "$SESSION" -x 104 -y 27 \
-  "cd '$ROOT' && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_MODEL=passthrough uv run fast-agent -x --a2a '$BASE_URL' --a2a-transport JSONRPC"
+  "cd '$ROOT' && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 FAST_AGENT_MODEL=passthrough uv run fast-agent -x --a2a '$BASE_URL' --a2a-transport JSONRPC"
 tmux set-option -t "$SESSION" status off >/dev/null
 
 (
@@ -342,6 +342,7 @@ def _start_real_llm_server(instruction: Path) -> subprocess.Popen[str]:
     REAL_LLM_SERVER_LOG.unlink(missing_ok=True)
     log_file = REAL_LLM_SERVER_LOG.open("w", encoding="utf-8")
     env = os.environ.copy()
+    env["FAST_AGENT_KEYRING_NOTICE"] = "0"
     model = env.get("A2A_REAL_LLM_MODEL", REAL_LLM_MODEL)
     hf_mcp_url = env.get("A2A_HF_MCP_URL", REAL_LLM_MCP_URL)
     command = [
@@ -437,7 +438,7 @@ tmux new-session -d -s "$SESSION" -x 120 -y 32 \
   "printf 'fast-agent A2A server ready\\nmodel: %s\\nMCP: %s\\nlog: %s\\n\\n' '$MODEL' '$HF_MCP_URL' '$SERVER_LOG'; tail -n 80 -f '$SERVER_LOG'"
 tmux set-option -t "$SESSION" status off >/dev/null
 tmux split-window -v -t "$SESSION" -l 20 \
-  "cd '$ROOT' && printf 'A2A card: %s/.well-known/agent-card.json\\n' '$BASE_URL'; curl -fsS '$BASE_URL/.well-known/agent-card.json' | python -m json.tool | sed -n '1,22p'; printf '\\ninteractive A2A JSON-RPC client\\n'; TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_MODEL=passthrough uv run fast-agent -x --noenv --a2a '$BASE_URL' --a2a-transport JSONRPC"
+  "cd '$ROOT' && printf 'A2A card: %s/.well-known/agent-card.json\\n' '$BASE_URL'; curl -fsS '$BASE_URL/.well-known/agent-card.json' | python -m json.tool | sed -n '1,22p'; printf '\\ninteractive A2A JSON-RPC client\\n'; TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 FAST_AGENT_MODEL=passthrough uv run fast-agent -x --noenv --a2a '$BASE_URL' --a2a-transport JSONRPC"
 
 (
   for _ in $(seq 1 120); do
