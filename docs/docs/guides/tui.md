@@ -161,6 +161,128 @@ logger:
 
 For example, use `LOGGER__TERMINAL_IMAGES__ENABLED=false` to disable terminal image rendering or `LOGGER__TERMINAL_IMAGES__BACKEND=kitty` to choose a backend.
 
+The recording below is a review capture of image generation through the Hugging Face MCP server.
+It was recorded with `FAST_AGENT_KEYRING_NOTICE=0` so the OS keyring access notice does not appear
+in the cast, and with `LOGGER__TERMINAL_IMAGES__ENABLED=true` so terminal image output is enabled:
+
+```bash
+export FAST_AGENT_KEYRING_NOTICE=0
+export LOGGER__TERMINAL_IMAGES__ENABLED=true
+uv run fast-agent -x --model codexplan --url https://huggingface.co/mcp
+```
+
+Prompt:
+
+```text
+generate an image of a sunflower
+```
+
+In this environment the terminal preview is captured by asciinema as SIXEL-style terminal frames
+(`SIXEL IMAGE (...) +++++...`) rather than as a separate image asset. The Markdown image link and
+source URL remain visible in the recording.
+
+<div class="fa-terminal-demo">
+  <link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">
+  <link rel="stylesheet" href="../../assets/vendor/asciinema-player/catppuccin.css">
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-image-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-image-terminal-theme="light">Light</button>
+    <button type="button" data-fa-image-terminal-theme="dark">Dark</button>
+  </div>
+  <div id="tui-image-generation-player"></div>
+</div>
+
+<script>
+  (function () {
+    var override = "auto";
+
+    function siteTheme() {
+      var scheme = document.documentElement.getAttribute("data-md-color-scheme");
+      if (scheme === "slate") {
+        return "dark";
+      }
+      if (scheme === "default") {
+        return "light";
+      }
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+
+    function selectedMode() {
+      return override === "auto" ? siteTheme() : override;
+    }
+
+    function currentTheme() {
+      return selectedMode() === "dark" ? "fast-agent-dark" : "fast-agent-light";
+    }
+
+    function updateButtons() {
+      document.querySelectorAll("[data-fa-image-terminal-theme]").forEach(function (button) {
+        var active = button.getAttribute("data-fa-image-terminal-theme") === override;
+        button.toggleAttribute("aria-pressed", active);
+      });
+    }
+
+    function bindButtons() {
+      document.querySelectorAll("[data-fa-image-terminal-theme]").forEach(function (button) {
+        if (button.dataset.bound === "true") {
+          return;
+        }
+        button.dataset.bound = "true";
+        button.addEventListener("click", function () {
+          override = button.getAttribute("data-fa-image-terminal-theme") || "auto";
+          updateButtons();
+          renderTuiImageCast(true);
+        });
+      });
+      updateButtons();
+    }
+
+    function renderTuiImageCast(force) {
+      var target = document.getElementById("tui-image-generation-player");
+      if (!target || !window.AsciinemaPlayer) {
+        return;
+      }
+      bindButtons();
+      var theme = currentTheme();
+      if (!force && target.dataset.loaded === "true" && target.dataset.theme === theme) {
+        return;
+      }
+      target.dataset.loaded = "true";
+      target.dataset.theme = theme;
+      target.innerHTML = "";
+      window.AsciinemaPlayer.create(
+        "../../assets/tui/hf-image-generation.cast",
+        target,
+        {
+          cols: 120,
+          rows: 34,
+          preload: true,
+          poster: "npt:1:24",
+          speed: 1,
+          idleTimeLimit: 1.3,
+          fit: "width",
+          theme: theme
+        }
+      );
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", function () { renderTuiImageCast(false); });
+    } else {
+      renderTuiImageCast(false);
+    }
+    if (window.document$ && window.document$.subscribe) {
+      window.document$.subscribe(function () { renderTuiImageCast(false); });
+    }
+    new MutationObserver(function () { renderTuiImageCast(false); }).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-md-color-scheme"]
+    });
+  })();
+</script>
+
 ### Paste and Attach Images / Documents
 
 You can attach images and documents using `/attach` or by using the `^<uri|file>` syntax. The indicator in the status bar shows a count of attachments, and is green if they are found, red if there is an error. Press ++f10++ to clear all attachments.
