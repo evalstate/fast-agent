@@ -163,11 +163,12 @@ For example, use `LOGGER__TERMINAL_IMAGES__ENABLED=false` to disable terminal im
 
 The recording below is a review capture of image generation through the Hugging Face MCP server.
 It was recorded with `FAST_AGENT_KEYRING_NOTICE=0` so the OS keyring access notice does not appear
-in the cast, and with `LOGGER__TERMINAL_IMAGES__ENABLED=true` so terminal image output is enabled:
+in the cast, with `LOGGER__TERMINAL_IMAGES__ENABLED=true`, and with `LOGGER__TERMINAL_IMAGES__BACKEND=halfcell` so asciinema records ANSI/Unicode cells instead of terminal-specific image protocols:
 
 ```bash
 export FAST_AGENT_KEYRING_NOTICE=0
 export LOGGER__TERMINAL_IMAGES__ENABLED=true
+export LOGGER__TERMINAL_IMAGES__BACKEND=halfcell
 uv run fast-agent -x --model codexplan --url https://huggingface.co/mcp
 ```
 
@@ -177,9 +178,7 @@ Prompt:
 generate an image of a sunflower
 ```
 
-In this environment the terminal preview is captured by asciinema as SIXEL-style terminal frames
-(`SIXEL IMAGE (...) +++++...`) rather than as a separate image asset. The Markdown image link and
-source URL remain visible in the recording.
+For docs recordings, `halfcell` is safer than `sixel` or `kitty`: it uses ANSI colour and Unicode block characters that asciinema-player can replay as ordinary terminal text. The Markdown image link and source URL remain visible in the recording as a fallback.
 
 <div class="fa-terminal-demo">
   <link rel="stylesheet" href="../../assets/vendor/asciinema-player/asciinema-player.css">
@@ -259,7 +258,7 @@ source URL remain visible in the recording.
           cols: 120,
           rows: 34,
           preload: true,
-          poster: "npt:1:24",
+          poster: "npt:0:36",
           speed: 1,
           idleTimeLimit: 1.3,
           fit: "width",

@@ -120,6 +120,7 @@ notice suppressed and terminal image rendering enabled:
 ```bash
 export FAST_AGENT_KEYRING_NOTICE=0
 export LOGGER__TERMINAL_IMAGES__ENABLED=true
+export LOGGER__TERMINAL_IMAGES__BACKEND=halfcell
 uv run fast-agent -x --model codexplan --url https://huggingface.co/mcp
 ```
 
@@ -130,15 +131,14 @@ generate an image of a sunflower
 ```
 
 The Hugging Face MCP server invoked `evalstate/flux1_schnell` and returned an `image/webp` block,
-an image URL, and a seed. In the asciinema cast, terminal image output is captured as terminal
-frames rather than as a separate image asset. In this environment the inline preview appeared as
-SIXEL-style text frames, for example:
+an image URL, and a seed. In the asciinema cast, terminal image output is captured as terminal frames rather than as a separate image asset. Prefer the `halfcell` backend for committed recordings because it replays as ANSI colour and Unicode block characters. A typical captured output includes:
 
 ```text
 [IMAGE: image/webp, 81600 bytes]
 Image URL: https://evalstate-flux1-schnell.hf.space/.../image.webp
 Seed used for generation: 2131209976
-SIXEL IMAGE (96x33) +++++...
+[IMAGE 1: image/webp, ... bytes]
+ANSI/Unicode half-block image preview...
 ```
 
 The URL and Markdown image link remain visible in the cast, so this is safe as a docs fallback even
