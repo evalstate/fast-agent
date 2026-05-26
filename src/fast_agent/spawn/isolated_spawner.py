@@ -215,6 +215,34 @@ async def _run_subprocess(
 
     _background_processes[run_id] = process
 
+    # ┌─────────────────────────────────────────────────────────────────┐
+    # │ ⚠️  PID gotcha — read before changing pause/resume signal code  │
+    # ├─────────────────────────────────────────────────────────────────┤
+    # │ ``cmd[0] == "uv"``, so ``process.pid`` is the uv *launcher*'s  │
+    # │ PID, NOT the python interpreter running ``isolated_runner``.   │
+    # │                                                                 │
+    # │ Process tree:                                                   │
+    # │   uv (pid)                                                      │
+    # │     └── python -m fast_agent.spawn.isolated_runner (pid+1)     │
+    # │             ↑ This is where SIGUSR1/SIGUSR2 handlers live      │
+    # │               (see pause_signal_handler.py).                    │
+    # │                                                                 │
+    # │ SIGUSR1 default action is TERMINATE. uv has no handler for     │
+    # │ SIGUSR1 → ``os.kill(launcher_pid, SIGUSR1)`` kills uv → orphans │
+    # │ python → the entire agent dies on what was supposed to be a    │
+    # │ cooperative pause.                                              │
+    # │                                                                 │
+    # │ Downstream consumers (e.g. jarvis's ``PauseController``) work   │
+    # │ around this by walking ``pgrep -P <uv_pid>`` to locate the     │
+    # │ python child before signaling. They pin the workaround in     │
+    # │ their own test suites; we deliberately do not name a specific  │
+    # │ test here since the test path lives outside this repo.         │
+    # │                                                                 │
+    # │ If you switch the spawn command to invoke python directly      │
+    # │ (e.g. via ``sys.executable`` resolved against the venv),       │
+    # │ ``process.pid`` becomes python's PID and the walk becomes a    │
+    # │ no-op — delete _find_python_child + this comment.              │
+    # └─────────────────────────────────────────────────────────────────┘
     # Store PID in registry for cross-process cleanup
     try:
         from fast_agent.spawn.spawn_registry import SpawnRegistry

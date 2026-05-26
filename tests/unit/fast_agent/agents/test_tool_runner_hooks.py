@@ -488,3 +488,238 @@ async def test_pause_block_helper_blocks_then_releases_on_resume():
 
     event.set()  # resume
     await asyncio.wait_for(task, timeout=0.5)
+
+
+# ─── Path B: LLM returns stop_reason=CANCELLED (no exception) ──────────
+
+
+class CancelStopReasonLlm(PassthroughLLM):
+    """Simulates the openai/anthropic graceful-cancel path: the provider
+    catches its own CancelledError and returns ``stop_reason=CANCELLED``
+    instead of propagating. tool_runner must STILL dispatch to
+    ``on_pause_cancel`` so the pause flow doesn't get stuck.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._calls = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages,
+        request_params=None,
+        tools=None,
+        is_template=False,
+    ):
+        self._calls += 1
+        if self._calls == 1:
+            return Prompt.assistant("", stop_reason=LlmStopReason.CANCELLED)
+        return Prompt.assistant("retry succeeded", stop_reason=LlmStopReason.END_TURN)
+
+
+class CancelRetryStopReasonAgent(ToolAgent):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.retry_count = 0
+
+    def _tool_runner_hooks(self):
+        async def on_pause_cancel(runner):
+            self.retry_count += 1
+            return self.retry_count == 1
+
+        return ToolRunnerHooks(on_pause_cancel=on_pause_cancel)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_pause_cancel_fires_on_stop_reason_cancelled():
+    """Regression for 2026-05-24 stuck-Pausing bug.
+
+    openai + anthropic providers catch CancelledError internally and
+    return a response with ``stop_reason=CANCELLED`` rather than
+    propagating the exception. Pre-fix, tool_runner only dispatched to
+    ``on_pause_cancel`` on raised CancelledError → graceful-cancel
+    path bypassed the hook → controller never emitted ``agent_paused``
+    → UI stuck on "Pausing…" forever. Path B in __anext__ now
+    inspects ``stop_reason`` after the call returns and dispatches
+    the same hook, so both provider styles behave identically.
+    """
+    llm = CancelStopReasonLlm()
+    agent = CancelRetryStopReasonAgent(AgentConfig("cancel-stop-reason"))
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+
+    assert result.last_text() == "retry succeeded"
+    assert agent.retry_count == 1
+    assert llm._calls == 2
+
+
+class GenuineCancelStopReasonAgent(ToolAgent):
+    """Hook always says "no retry, propagate" — verifies the
+    CANCELLED message is preserved when the hook declines.
+    """
+
+    def _tool_runner_hooks(self):
+        async def on_pause_cancel(runner):
+            return False
+
+        return ToolRunnerHooks(on_pause_cancel=on_pause_cancel)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stop_reason_cancelled_falls_through_when_hook_declines():
+    """When ``on_pause_cancel`` returns False on the CANCELLED branch,
+    the CANCELLED response must pass through unchanged so
+    ``until_done`` runs its rollback path. Pins the "don't swallow
+    genuine cancels" invariant for Path B.
+    """
+    llm = CancelStopReasonLlm()
+    agent = GenuineCancelStopReasonAgent(AgentConfig("genuine-cancel-stop"))
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+
+    assert result.stop_reason == LlmStopReason.CANCELLED
+    assert llm._calls == 1  # no retry
+
+
+# ─── E2E: real cancellation flow through provider-like LLM ──────────
+
+
+class CancellableSlowLlm(PassthroughLLM):
+    """Mimics openai/anthropic provider faithfully:
+
+    - First call: ``await asyncio.sleep`` to simulate streaming.
+      When the surrounding task is cancelled, the sleep raises
+      CancelledError → the provider's ``except CancelledError`` catches
+      and returns ``stop_reason=CANCELLED`` (mirroring
+      ``llm_openai.py:931-938`` and ``llm_anthropic.py:1656``).
+    - Subsequent calls: returns the real END_TURN response (the retry).
+
+    Closer to reality than a mock that just returns CANCELLED directly,
+    because:
+      1. The CancelledError is actually raised by asyncio (not faked).
+      2. The provider's except-handler is exercised (replicates
+         producer code path inside this test class).
+      3. tool_runner.__anext__'s Path B is reached via the same code
+         path it would in production.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._calls = 0
+        self.cancel_event: asyncio.Event | None = None
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages,
+        request_params=None,
+        tools=None,
+        is_template=False,
+    ):
+        self._calls += 1
+        if self._calls == 1:
+            # Block in a way that's actually cancellable. Real provider
+            # blocks on ``await client.chat.completions.create(...)``;
+            # we substitute a sleep that the test cancels externally.
+            try:
+                if self.cancel_event is not None:
+                    self.cancel_event.set()  # signal "I'm now in the LLM call"
+                await asyncio.sleep(30)  # would be the streaming await
+            except asyncio.CancelledError:
+                # Mirror llm_openai.py:931-938 — graceful cancel return.
+                return Prompt.assistant("", stop_reason=LlmStopReason.CANCELLED)
+            return Prompt.assistant("never reached", stop_reason=LlmStopReason.END_TURN)
+        return Prompt.assistant("resumed work", stop_reason=LlmStopReason.END_TURN)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_e2e_provider_like_cancel_with_inline_pause_hook():
+    """End-to-end happy path closest to production:
+
+    - Inline pause hook implementing the same contract as the parent
+      repo's ``PauseController`` (the controller itself lives in
+      ``services/`` outside this submodule, so we reproduce its
+      behavior here rather than reaching across).
+    - Real ``tool_runner`` retry loop.
+    - LLM simulator that handles CancelledError exactly like
+      ``llm_openai.py`` does (returns ``stop_reason=CANCELLED``).
+    - External pause: ``pause_controller.pause(name)`` cancels the
+      in-flight task while it's awaiting the LLM "stream".
+    - External resume: ``pause_controller.resume(name)`` unblocks the
+      hook → tool_runner reissues the LLM call → returns final result.
+
+    Pre-fix (no Path B in __anext__): the CANCELLED response would
+    bubble up unhandled, on_pause_cancel never fired, agent.generate()
+    would return a CANCELLED response immediately instead of awaiting
+    resume. This test would fail with stop_reason=CANCELLED instead
+    of END_TURN.
+    """
+    # ── Wire real PauseController hooks onto the agent ──
+    # We can't import the parent-repo pause_controller from here (it's
+    # in services/, not on path). Re-implement the same hook contract
+    # inline so the test stays in submodule scope but exercises the
+    # exact tool_runner integration.
+    pause_event = asyncio.Event()
+    pause_event.set()  # start unpaused
+    captured_states = []
+
+    async def on_before_llm_call(runner, messages):
+        if not pause_event.is_set():
+            await pause_event.wait()
+
+    async def on_pause_cancel(runner):
+        captured_states.append("cancel_detected")
+        if not pause_event.is_set():
+            captured_states.append("awaiting_resume")
+            await pause_event.wait()
+            captured_states.append("resumed")
+            return True  # retry
+        return False  # genuine cancel
+
+    class _E2EAgent(ToolAgent):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+
+        def _tool_runner_hooks(self):
+            return ToolRunnerHooks(
+                before_llm_call=on_before_llm_call,
+                on_pause_cancel=on_pause_cancel,
+            )
+
+    llm = CancellableSlowLlm()
+    llm.cancel_event = asyncio.Event()  # signal when LLM is "streaming"
+    agent = _E2EAgent(AgentConfig("e2e-pause-resume"))
+    agent._llm = llm
+
+    # ── Run agent.generate in a task; wait until LLM call is mid-stream ──
+    gen_task = asyncio.create_task(agent.generate("do work"))
+    await asyncio.wait_for(llm.cancel_event.wait(), timeout=2.0)
+
+    # ── External pause: clear event + cancel the task ──
+    pause_event.clear()
+    gen_task.cancel()
+    # Yield so cancel propagates through provider → returns CANCELLED →
+    # tool_runner Path B → on_pause_cancel awaits.
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if "awaiting_resume" in captured_states:
+            break
+    assert "cancel_detected" in captured_states, \
+        "Path B in tool_runner.__anext__ failed to dispatch on_pause_cancel"
+    assert "awaiting_resume" in captured_states, \
+        "on_pause_cancel didn't reach the await event.wait() step"
+    assert not gen_task.done(), \
+        "agent.generate() must remain hanging while hook awaits resume"
+
+    # ── External resume: set event → hook returns True → retry LLM ──
+    pause_event.set()
+    result = await asyncio.wait_for(gen_task, timeout=2.0)
+
+    assert result.last_text() == "resumed work", \
+        "after resume, tool_runner must reissue the LLM call and return its result"
+    assert llm._calls == 2, "exactly one retry should happen"
+    assert "resumed" in captured_states
