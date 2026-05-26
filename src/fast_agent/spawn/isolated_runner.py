@@ -1251,11 +1251,15 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
         orig_after_turn = existing.after_turn_complete
 
         async def merged_before_tool(runner: Any, request: Any) -> None:
+            # Pause FIRST so the block is immediate when the user
+            # clicks pause — otherwise orig + spawn-event hooks (some
+            # of which await network I/O) extend the time-to-block
+            # by an entire LLM/tool iteration. Order matters for UX.
+            if pause_before_tool_hook:
+                await pause_before_tool_hook(runner, request)
             if orig_before_tool:
                 await orig_before_tool(runner, request)
             await before_tool_call(runner, request)
-            if pause_before_tool_hook:
-                await pause_before_tool_hook(runner, request)
 
         async def merged_after_tool(runner: Any, result: Any) -> None:
             if orig_after_tool:
@@ -1263,13 +1267,19 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             await after_tool_call(runner, result)
 
         async def merged_before_llm(runner: Any, messages: Any) -> None:
+            # Pause check FIRST so the user-perceived pause latency is
+            # bounded by signal-delivery + one hook call, not by the
+            # time it takes spawn_before_llm to emit events + orig
+            # hooks to run + RTAC to poll the inbox. Pre-fix the team
+            # could grind through an entire kickoff before pause took
+            # effect because pause check was last in the chain.
+            if pause_before_llm:
+                await pause_before_llm(runner, messages)
             await spawn_before_llm(runner, messages)
             if orig_before_llm:
                 await orig_before_llm(runner, messages)
             if rtac_before_llm:
                 await rtac_before_llm(runner, messages)
-            if pause_before_llm:
-                await pause_before_llm(runner, messages)
 
         async def merged_after_llm(runner: Any, message: Any) -> None:
             await spawn_after_llm(runner, message)
@@ -1293,21 +1303,25 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             on_pause_cancel=pause_cancel,
         )
     else:
-        # Build before_llm chain: spawn → rtac → pause
-        _blm_fns = [spawn_before_llm]
-        if rtac_before_llm:
-            _blm_fns.append(rtac_before_llm)
+        # Build before_llm chain: pause FIRST, then spawn → rtac.
+        # Pause-first minimizes time-to-block on user pause click;
+        # see ``merged_before_llm`` comment above for the rationale.
+        _blm_fns = []
         if pause_before_llm:
             _blm_fns.append(pause_before_llm)
+        _blm_fns.append(spawn_before_llm)
+        if rtac_before_llm:
+            _blm_fns.append(rtac_before_llm)
 
         async def _chained_before_llm(r: Any, m: Any) -> None:
             for fn in _blm_fns:
                 await fn(r, m)
 
         async def _chained_before_tool(r: Any, req: Any) -> None:
-            await before_tool_call(r, req)
+            # Pause first — same reasoning as merged_before_tool above.
             if pause_before_tool_hook:
                 await pause_before_tool_hook(r, req)
+            await before_tool_call(r, req)
 
         async def _chained_after_llm(r: Any, m: Any) -> None:
             await spawn_after_llm(r, m)

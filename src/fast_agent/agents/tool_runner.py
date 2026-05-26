@@ -302,8 +302,10 @@ class ToolRunner:
                     request_params=self._request_params,
                     tools=self._tools,
                 )
-                break
             except asyncio.CancelledError:
+                # Path A: provider re-raised CancelledError. Some providers
+                # (anthropic, openai) catch it themselves and convert to
+                # ``stop_reason=CANCELLED`` instead — handled in Path B below.
                 hook = self._hooks.on_pause_cancel
                 if hook is None:
                     raise
@@ -314,6 +316,26 @@ class ToolRunner:
                     asyncio.current_task().uncancel()
                 except (AttributeError, RuntimeError):
                     pass  # uncancel unavailable / not a Task — re-raise next iter
+                continue
+
+            # Path B: provider swallowed CancelledError and returned a
+            # ``stop_reason=CANCELLED`` response (anthropic + openai
+            # graceful-cancel path). Call on_pause_cancel manually so
+            # the pause hook still gets to await resume and decide
+            # retry — without this dispatch the pause is invisible to
+            # the controller and the UI is stuck on "Pausing…" because
+            # ``agent_paused`` never emits.
+            if assistant_message.stop_reason == LlmStopReason.CANCELLED:
+                hook = self._hooks.on_pause_cancel
+                if hook is not None and await hook(self):
+                    # Hook awaited resume and asked for retry. Reissue
+                    # the LLM call with the same delta_messages so the
+                    # cancelled response is replaced by the real one.
+                    continue
+                # else: genuine cancel — fall through with the
+                # CANCELLED message and let ``until_done`` do its
+                # rollback path (lines 310-317).
+            break
 
         self._last_message = assistant_message
         if self._hooks.after_llm_call is not None:
