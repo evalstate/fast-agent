@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from a2a.types import Artifact, Part, StreamResponse, Task, TaskState, TaskStatus
+from a2a.types import (
+    Artifact,
+    Part,
+    StreamResponse,
+    Task,
+    TaskArtifactUpdateEvent,
+    TaskState,
+    TaskStatus,
+)
 from google.protobuf.json_format import MessageToDict
-from mcp.types import EmbeddedResource, TextResourceContents
+from mcp.types import EmbeddedResource, TextContent, TextResourceContents
 from pydantic import AnyUrl
 
 from fast_agent.a2a.config import A2AAgentConfig
@@ -14,7 +23,9 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Iterator
+
+    from fast_agent.llm.stream_types import StreamChunk
 
 
 async def _events(*events: StreamResponse) -> AsyncIterator[StreamResponse]:
@@ -26,6 +37,71 @@ def _remote_agent() -> A2ARemoteAgent:
     return A2ARemoteAgent(
         config=AgentConfig(name="remote", agent_type=AgentType.A2A, use_history=False),
         a2a_config=A2AAgentConfig(url="http://127.0.0.1:41242"),
+    )
+
+
+class _FakeStreamHandle:
+    def __init__(self, *, preserve: bool) -> None:
+        self.preserve = preserve
+        self.chunks: list[str] = []
+        self.finalized = False
+
+    def update_chunk(self, chunk: StreamChunk) -> None:
+        self.chunks.append(chunk.text)
+
+    async def wait_for_drain(self) -> None:
+        return
+
+    def preserve_final_frame(self) -> bool:
+        return self.preserve and bool(self.chunks)
+
+    def finalize(self, message: PromptMessageExtended) -> None:
+        del message
+        self.finalized = True
+
+
+class _FakeDisplay:
+    def __init__(self, *, preserve: bool = True) -> None:
+        self.handle = _FakeStreamHandle(preserve=preserve)
+        self.assistant_messages: list[PromptMessageExtended] = []
+
+    def show_user_message(self, *_args: object, **_kwargs: object) -> None:
+        return
+
+    @contextmanager
+    def streaming_assistant_message(self, **_kwargs: object) -> Iterator[_FakeStreamHandle]:
+        yield self.handle
+
+    async def show_assistant_message(
+        self,
+        message: PromptMessageExtended,
+        **_kwargs: object,
+    ) -> None:
+        self.assistant_messages.append(message)
+
+
+class _FakeClient:
+    def __init__(self, events: list[StreamResponse]) -> None:
+        self.events = events
+
+    def send_message(self, _request: object) -> AsyncIterator[StreamResponse]:
+        return _events(*self.events)
+
+
+def _artifact_update(
+    text: str,
+    *,
+    append: bool = False,
+    last_chunk: bool = False,
+) -> StreamResponse:
+    return StreamResponse(
+        artifact_update=TaskArtifactUpdateEvent(
+            task_id="task-1",
+            context_id="ctx-1",
+            artifact=Artifact(name="response", parts=[Part(text=text)]),
+            append=append,
+            last_chunk=last_chunk,
+        )
     )
 
 
@@ -100,6 +176,51 @@ def test_a2a_remote_agent_keeps_input_required_task_for_no_history_follow_up() -
     assert agent.context_id == "ctx-input"
     assert agent.current_task_id == "task-input"
     assert agent.last_task_state == "TASK_STATE_INPUT_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_streams_chunks_to_live_display() -> None:
+    agent = _remote_agent()
+    display = _FakeDisplay(preserve=True)
+    agent.display = cast("Any", display)
+    agent._client = _FakeClient(
+        [
+            _artifact_update("one "),
+            _artifact_update("two", append=True, last_chunk=True),
+            StreamResponse(
+                task=Task(
+                    id="task-1",
+                    context_id="ctx-1",
+                    status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
+                )
+            ),
+        ]
+    )
+
+    response = await agent.generate_impl(
+        [PromptMessageExtended(role="user", content=[TextContent(type="text", text="stream")])]
+    )
+
+    assert response.all_text() == "one two"
+    assert display.handle.chunks == ["one ", "two"]
+    assert display.handle.finalized
+    assert display.assistant_messages == []
+
+
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_renders_final_message_when_live_display_cannot_preserve() -> None:
+    agent = _remote_agent()
+    display = _FakeDisplay(preserve=False)
+    agent.display = cast("Any", display)
+    agent._client = _FakeClient([_artifact_update("final", last_chunk=True)])
+
+    response = await agent.generate_impl(
+        [PromptMessageExtended(role="user", content=[TextContent(type="text", text="stream")])]
+    )
+
+    assert response.all_text() == "final"
+    assert display.handle.chunks == ["final"]
+    assert [message.all_text() for message in display.assistant_messages] == ["final"]
 
 
 def test_a2a_remote_agent_sends_json_text_resources_as_data_parts() -> None:

@@ -261,28 +261,57 @@ class A2ARemoteAgent(LlmDecorator):
         )
 
         self._log_a2a_progress(ProgressAction.SENDING, details=self._transport_label())
-        result = await self._consume_events(self._client.send_message(request))
-        self._log_a2a_progress(ProgressAction.READY, details=result.state or "completed")
-        response_text = result.text or result.status_text or _state_message(result.state)
-        if result.state in _ERROR_STATES:
-            response_text = f"A2A task {result.state}: {response_text}"
-        stop_reason = (
-            LlmStopReason.PAUSE
-            if result.state == _INPUT_REQUIRED_STATE
-            else LlmStopReason.END_TURN
-        )
-        assistant_message = PromptMessageExtended(
-            role="assistant",
-            content=[TextContent(type="text", text=response_text)],
-            stop_reason=stop_reason,
-        )
-        progress_display.pause(cancel_deferred_on_noop=True)
-        await self.display.show_assistant_message(
-            assistant_message,
+        remove_live_listener: Callable[[], None] | None = None
+        stream_emitted = False
+        preserve_streamed_frame = False
+
+        with self.display.streaming_assistant_message(
             name=self.name,
             model="A2A",
             bottom_items=[self._transport_label()],
-        )
+        ) as stream_handle:
+
+            def update_live_stream(chunk: StreamChunk) -> None:
+                nonlocal stream_emitted
+                stream_emitted = True
+                stream_handle.update_chunk(chunk)
+
+            remove_live_listener = self.add_stream_listener(update_live_stream)
+            try:
+                result = await self._consume_events(self._client.send_message(request))
+            finally:
+                remove_live_listener()
+                remove_live_listener = None
+
+            self._log_a2a_progress(ProgressAction.READY, details=result.state or "completed")
+            response_text = result.text or result.status_text or _state_message(result.state)
+            if result.state in _ERROR_STATES:
+                response_text = f"A2A task {result.state}: {response_text}"
+            stop_reason = (
+                LlmStopReason.PAUSE
+                if result.state == _INPUT_REQUIRED_STATE
+                else LlmStopReason.END_TURN
+            )
+            assistant_message = PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text=response_text)],
+                stop_reason=stop_reason,
+            )
+            await stream_handle.wait_for_drain()
+            if stream_emitted and result.state not in _ERROR_STATES:
+                preserve_streamed_frame = stream_handle.preserve_final_frame()
+            stream_handle.finalize(assistant_message)
+
+        if remove_live_listener is not None:
+            remove_live_listener()
+        progress_display.pause(cancel_deferred_on_noop=True)
+        if not preserve_streamed_frame:
+            await self.display.show_assistant_message(
+                assistant_message,
+                name=self.name,
+                model="A2A",
+                bottom_items=[self._transport_label()],
+            )
         console.console.print()
         if use_history:
             self._persist_history(messages, assistant_message)
