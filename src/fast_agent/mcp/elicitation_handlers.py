@@ -9,8 +9,6 @@ from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult, ErrorData
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.human_input.elicitation_handler import elicitation_input_callback
-from fast_agent.human_input.types import HumanInputRequest
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 
 if TYPE_CHECKING:
@@ -102,6 +100,9 @@ async def forms_elicitation_handler(
 
     # Form mode - use interactive form UI
     # Note: requestedSchema is only present on ElicitRequestFormParams, not ElicitRequestURLParams
+    from fast_agent.human_input.elicitation_handler import elicitation_input_callback
+    from fast_agent.human_input.types import HumanInputRequest
+
     requested_schema = getattr(params, "requestedSchema", None)
     request = HumanInputRequest(
         prompt=params.message,

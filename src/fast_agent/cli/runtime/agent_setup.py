@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 import typer
-from prompt_toolkit import PromptSession
 from pydantic import BaseModel
 
 from fast_agent.cli.command_support import get_settings_or_exit
@@ -24,10 +23,6 @@ from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.structured_schema import (
-    StructuredSchemaSource,
-    load_structured_schema_source,
-)
 from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.model_picker_common import (
@@ -51,6 +46,7 @@ from .shell_cwd_policy import (
 if TYPE_CHECKING:
     from mcp.types import ContentBlock
 
+    from fast_agent.llm.structured_schema import StructuredSchemaSource
     from fast_agent.types import PromptMessageExtended, StructuredToolPolicy
 
     from .run_request import AgentRunRequest
@@ -340,6 +336,8 @@ def _generic_model_prompt_default(initial_model_spec: str | None) -> str:
 
 
 async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> str:
+    from prompt_toolkit import PromptSession
+
     prompt_session = PromptSession()
     while True:
         try:
@@ -988,6 +986,8 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
     # Allow interactive prompt startup checks to honor per-run CLI override policy.
     agent_app.missing_shell_cwd_policy_override = request.missing_shell_cwd_policy
     try:
+        from fast_agent.llm.structured_schema import load_structured_schema_source
+
         structured_source = (
             load_structured_schema_source(
                 json_schema=request.json_schema,
