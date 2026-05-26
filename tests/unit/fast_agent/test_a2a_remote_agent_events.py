@@ -83,8 +83,10 @@ class _FakeDisplay:
 class _FakeClient:
     def __init__(self, events: list[StreamResponse]) -> None:
         self.events = events
+        self.requests: list[object] = []
 
-    def send_message(self, _request: object) -> AsyncIterator[StreamResponse]:
+    def send_message(self, request: object) -> AsyncIterator[StreamResponse]:
+        self.requests.append(request)
         return _events(*self.events)
 
 
@@ -103,6 +105,13 @@ def _artifact_update(
             last_chunk=last_chunk,
         )
     )
+
+
+def test_a2a_remote_agent_starts_without_client_generated_context_id() -> None:
+    agent = _remote_agent()
+
+    assert agent.context_id is None
+    assert agent.current_task_id is None
 
 
 @pytest.mark.asyncio
@@ -152,7 +161,7 @@ async def test_a2a_remote_agent_keeps_task_id_for_input_required_full_task_event
     assert agent.current_task_id == "input-task"
 
 
-def test_a2a_remote_agent_resets_context_for_no_history_completed_turns() -> None:
+def test_a2a_remote_agent_clears_context_for_no_history_completed_turns() -> None:
     agent = _remote_agent()
     agent.context_id = "ctx-completed"
     agent.current_task_id = None
@@ -160,7 +169,7 @@ def test_a2a_remote_agent_resets_context_for_no_history_completed_turns() -> Non
 
     agent._prepare_turn_state(use_history=False)
 
-    assert agent.context_id != "ctx-completed"
+    assert agent.context_id is None
     assert agent.current_task_id is None
     assert agent.last_task_state is None
 
@@ -176,6 +185,34 @@ def test_a2a_remote_agent_keeps_input_required_task_for_no_history_follow_up() -
     assert agent.context_id == "ctx-input"
     assert agent.current_task_id == "task-input"
     assert agent.last_task_state == "TASK_STATE_INPUT_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_first_request_omits_context_and_task_ids() -> None:
+    agent = _remote_agent()
+    display = _FakeDisplay()
+    fake_client = _FakeClient(
+        [
+            StreamResponse(
+                task=Task(
+                    id="task-server",
+                    context_id="ctx-server",
+                    status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
+                )
+            )
+        ]
+    )
+    agent.display = cast("Any", display)
+    agent._client = fake_client
+
+    await agent.generate_impl(
+        [PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")])]
+    )
+
+    request = cast("Any", fake_client.requests[0])
+    assert request.message.context_id == ""
+    assert request.message.task_id == ""
+    assert agent.context_id == "ctx-server"
 
 
 @pytest.mark.asyncio

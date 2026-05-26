@@ -546,6 +546,7 @@ async def test_a2a_remote_agent_without_history_uses_fresh_server_contexts(
             ]
         )
         first_context_id = client.context_id
+        assert first_context_id
         second = await client.generate_impl(
             [
                 PromptMessageExtended(

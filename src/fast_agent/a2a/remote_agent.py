@@ -82,7 +82,7 @@ class A2ADiagnostics:
     url: str
     transport: str | None
     remote_name: str | None
-    context_id: str
+    context_id: str | None
     current_task_id: str | None
     last_task_state: str | None
     selected_transport_class: str | None
@@ -99,7 +99,7 @@ class A2ARemoteAgent(LlmDecorator):
     ) -> None:
         super().__init__(config=config, context=context)
         self.a2a_config = a2a_config
-        self.context_id = str(uuid.uuid4())
+        self.context_id: str | None = None
         self.current_task_id: str | None = None
         self.last_task_state: str | None = None
         self.remote_card: AgentCard | None = None
@@ -220,7 +220,7 @@ class A2ARemoteAgent(LlmDecorator):
         )
 
     def reset_a2a_state(self) -> None:
-        self.context_id = str(uuid.uuid4())
+        self.context_id = None
         self.current_task_id = None
         self.last_task_state = None
 
@@ -250,15 +250,16 @@ class A2ARemoteAgent(LlmDecorator):
         self._timestamp_messages(messages)
         self._display_user_messages(messages)
         user_text = _latest_text(messages)
-        request = SendMessageRequest(
-            message=Message(
-                role=Role.ROLE_USER,
-                message_id=str(uuid.uuid4()),
-                context_id=self.context_id,
-                task_id=self.current_task_id,
-                parts=_parts_from_messages(messages) or [Part(text=user_text)],
-            )
+        message = Message(
+            role=Role.ROLE_USER,
+            message_id=str(uuid.uuid4()),
+            parts=_parts_from_messages(messages) or [Part(text=user_text)],
         )
+        if self.context_id:
+            message.context_id = self.context_id
+        if self.current_task_id:
+            message.task_id = self.current_task_id
+        request = SendMessageRequest(message=message)
 
         self._log_a2a_progress(ProgressAction.SENDING, details=self._transport_label())
         remove_live_listener: Callable[[], None] | None = None
@@ -436,7 +437,7 @@ class A2ARemoteAgent(LlmDecorator):
 
     def _advance_task_state(self, *, state: str, task_id: str, context_id: str) -> None:
         self.last_task_state = state
-        self.context_id = context_id
+        self.context_id = context_id or None
         if state == _INPUT_REQUIRED_STATE:
             self.current_task_id = task_id
             return

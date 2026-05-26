@@ -122,7 +122,7 @@ async def test_a2a_tui_dispatch_lists_and_resets_remote_agents(
     assert reset.handled
     assert "  • remote" in printed
     assert all("local" not in line for line in printed)
-    assert remote.context_id != "ctx-current"
+    assert remote.context_id is None
     assert remote.current_task_id is None
     assert remote.last_task_state is None
 

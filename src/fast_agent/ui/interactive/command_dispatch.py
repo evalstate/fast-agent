@@ -449,7 +449,7 @@ async def _dispatch_a2a_payload(
                 rich_print(f"  URL: {diagnostics.url}")
                 rich_print(f"  Transport: {diagnostics.transport or 'auto'}")
                 rich_print(f"  Remote: {diagnostics.remote_name or 'unresolved'}")
-                rich_print(f"  Context: {diagnostics.context_id}")
+                rich_print(f"  Context: {diagnostics.context_id or '-'}")
                 rich_print(f"  Task: {diagnostics.current_task_id or '-'}")
                 rich_print(f"  Last state: {diagnostics.last_task_state or '-'}")
                 rich_print(f"  Client transport: {diagnostics.selected_transport_class or '-'}")
