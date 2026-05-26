@@ -232,11 +232,11 @@ async def _run_subprocess(
     # │ python → the entire agent dies on what was supposed to be a    │
     # │ cooperative pause.                                              │
     # │                                                                 │
-    # │ ``PauseController._find_pid`` works around this by walking     │
-    # │ ``pgrep -P <uv_pid>`` to locate the python child before        │
-    # │ signaling. Regression-pinned by                                 │
-    # │ ``tests/test_services/test_pause_controller.py``                │
-    # │ ``::test_find_pid_walks_uv_to_python_child_with_real_subprocess``│
+    # │ Downstream consumers (e.g. jarvis's ``PauseController``) work   │
+    # │ around this by walking ``pgrep -P <uv_pid>`` to locate the     │
+    # │ python child before signaling. They pin the workaround in     │
+    # │ their own test suites; we deliberately do not name a specific  │
+    # │ test here since the test path lives outside this repo.         │
     # │                                                                 │
     # │ If you switch the spawn command to invoke python directly      │
     # │ (e.g. via ``sys.executable`` resolved against the venv),       │

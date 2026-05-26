@@ -637,10 +637,13 @@ class CancellableSlowLlm(PassthroughLLM):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_e2e_real_pause_controller_with_provider_like_cancel():
+async def test_e2e_provider_like_cancel_with_inline_pause_hook():
     """End-to-end happy path closest to production:
 
-    - Real ``PauseController`` (no stub) with full ``create_pause_hooks``.
+    - Inline pause hook implementing the same contract as the parent
+      repo's ``PauseController`` (the controller itself lives in
+      ``services/`` outside this submodule, so we reproduce its
+      behavior here rather than reaching across).
     - Real ``tool_runner`` retry loop.
     - LLM simulator that handles CancelledError exactly like
       ``llm_openai.py`` does (returns ``stop_reason=CANCELLED``).

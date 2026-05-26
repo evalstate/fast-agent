@@ -1250,36 +1250,18 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
 
         orig_after_turn = existing.after_turn_complete
 
-        async def merged_before_tool(runner: Any, request: Any) -> None:
-            # Pause FIRST so the block is immediate when the user
-            # clicks pause — otherwise orig + spawn-event hooks (some
-            # of which await network I/O) extend the time-to-block
-            # by an entire LLM/tool iteration. Order matters for UX.
-            if pause_before_tool_hook:
-                await pause_before_tool_hook(runner, request)
-            if orig_before_tool:
-                await orig_before_tool(runner, request)
-            await before_tool_call(runner, request)
+        merged_before_tool = _build_merged_before_tool(
+            pause_before_tool_hook, orig_before_tool, before_tool_call,
+        )
 
         async def merged_after_tool(runner: Any, result: Any) -> None:
             if orig_after_tool:
                 await orig_after_tool(runner, result)
             await after_tool_call(runner, result)
 
-        async def merged_before_llm(runner: Any, messages: Any) -> None:
-            # Pause check FIRST so the user-perceived pause latency is
-            # bounded by signal-delivery + one hook call, not by the
-            # time it takes spawn_before_llm to emit events + orig
-            # hooks to run + RTAC to poll the inbox. Pre-fix the team
-            # could grind through an entire kickoff before pause took
-            # effect because pause check was last in the chain.
-            if pause_before_llm:
-                await pause_before_llm(runner, messages)
-            await spawn_before_llm(runner, messages)
-            if orig_before_llm:
-                await orig_before_llm(runner, messages)
-            if rtac_before_llm:
-                await rtac_before_llm(runner, messages)
+        merged_before_llm = _build_merged_before_llm_existing(
+            pause_before_llm, spawn_before_llm, orig_before_llm, rtac_before_llm,
+        )
 
         async def merged_after_llm(runner: Any, message: Any) -> None:
             await spawn_after_llm(runner, message)
@@ -1303,25 +1285,13 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             on_pause_cancel=pause_cancel,
         )
     else:
-        # Build before_llm chain: pause FIRST, then spawn → rtac.
-        # Pause-first minimizes time-to-block on user pause click;
-        # see ``merged_before_llm`` comment above for the rationale.
-        _blm_fns = []
-        if pause_before_llm:
-            _blm_fns.append(pause_before_llm)
-        _blm_fns.append(spawn_before_llm)
-        if rtac_before_llm:
-            _blm_fns.append(rtac_before_llm)
-
-        async def _chained_before_llm(r: Any, m: Any) -> None:
-            for fn in _blm_fns:
-                await fn(r, m)
-
-        async def _chained_before_tool(r: Any, req: Any) -> None:
-            # Pause first — same reasoning as merged_before_tool above.
-            if pause_before_tool_hook:
-                await pause_before_tool_hook(r, req)
-            await before_tool_call(r, req)
+        _chained_before_llm = _build_merged_before_llm_fresh(
+            pause_before_llm, spawn_before_llm, rtac_before_llm,
+        )
+        # ``orig_before_tool=None`` since there are no existing hooks.
+        _chained_before_tool = _build_merged_before_tool(
+            pause_before_tool_hook, None, before_tool_call,
+        )
 
         async def _chained_after_llm(r: Any, m: Any) -> None:
             await spawn_after_llm(r, m)
@@ -1342,6 +1312,82 @@ async def _chain_before_llm(spawn_fn: Any, rtac_fn: Any, runner: Any, messages: 
     """Chain spawn_before_llm and RTAC before_llm hooks."""
     await spawn_fn(runner, messages)
     await rtac_fn(runner, messages)
+
+
+# ─── Hook-chain builders (extracted for testability) ─────────────────────────
+#
+# These were inline closures inside ``_install_tool_hooks``. Extracted so
+# the pause-first ordering invariant can be pinned by unit tests — if a
+# future "sort alphabetically for readability" pass reorders the chain,
+# the test fails before the regression hits prod. See
+# ``tests/unit/fast_agent/spawn/test_install_tool_hooks_ordering.py``.
+
+
+def _build_merged_before_llm_existing(
+    pause_fn: Any,
+    spawn_fn: Any,
+    orig_fn: Any,
+    rtac_fn: Any,
+) -> Any:
+    """Build the before_llm chain for an agent that already had
+    ``tool_runner_hooks`` set on its AgentCard.
+
+    Order is load-bearing for UX: pause FIRST so the user-perceived
+    pause latency is bounded by signal-delivery + one hook call, not
+    by the time it takes ``spawn_before_llm`` to emit events + orig
+    hooks to run + RTAC to poll the inbox. The "chạy chán chê rồi mới
+    pause" regression came from pause being LAST in this chain.
+    """
+    async def merged(runner: Any, messages: Any) -> None:
+        if pause_fn:
+            await pause_fn(runner, messages)
+        await spawn_fn(runner, messages)
+        if orig_fn:
+            await orig_fn(runner, messages)
+        if rtac_fn:
+            await rtac_fn(runner, messages)
+    return merged
+
+
+def _build_merged_before_llm_fresh(
+    pause_fn: Any,
+    spawn_fn: Any,
+    rtac_fn: Any,
+) -> Any:
+    """Build the before_llm chain for an agent with no pre-existing
+    ``tool_runner_hooks``. Same pause-first ordering rationale as
+    :func:`_build_merged_before_llm_existing`.
+    """
+    _fns: list[Any] = []
+    if pause_fn:
+        _fns.append(pause_fn)
+    _fns.append(spawn_fn)
+    if rtac_fn:
+        _fns.append(rtac_fn)
+
+    async def merged(r: Any, m: Any) -> None:
+        for fn in _fns:
+            await fn(r, m)
+    return merged
+
+
+def _build_merged_before_tool(
+    pause_fn: Any,
+    orig_fn: Any,
+    before_tool_fn: Any,
+) -> Any:
+    """Build the before_tool chain. ``before_tool_fn`` is the spawn
+    layer's emit (always present); ``orig_fn`` is the agent's
+    pre-existing hook (may be None). Pause-first for the same UX
+    reason as :func:`_build_merged_before_llm_existing`.
+    """
+    async def merged(runner: Any, request: Any) -> None:
+        if pause_fn:
+            await pause_fn(runner, request)
+        if orig_fn:
+            await orig_fn(runner, request)
+        await before_tool_fn(runner, request)
+    return merged
 
 
 async def main() -> None:

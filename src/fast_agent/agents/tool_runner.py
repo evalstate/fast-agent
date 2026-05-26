@@ -325,6 +325,22 @@ class ToolRunner:
             # retry — without this dispatch the pause is invisible to
             # the controller and the UI is stuck on "Pausing…" because
             # ``agent_paused`` never emits.
+            #
+            # Asymmetry vs Path A (intentional)
+            # ---------------------------------
+            # On a genuine cancel (hook returns False or absent), Path A
+            # ``raise``s — ``after_llm_call`` is skipped and
+            # ``until_done`` enters its ``except asyncio.CancelledError``
+            # branch (``_persist_cancelled_turn_state_after_task_cancel``).
+            # Path B instead falls through to ``break`` → ``after_llm_call``
+            # is invoked with the CANCELLED message → ``until_done``
+            # enters its ``if last.stop_reason == LlmStopReason.CANCELLED``
+            # branch (``_persist_cancelled_turn_state``). These are two
+            # different persistence paths on purpose: Path A is "task was
+            # cancelled mid-stream, partial state" while Path B is
+            # "provider returned a complete CANCELLED response with
+            # metadata". Hooks observing ``after_llm_call`` may see a
+            # CANCELLED message on Path B; they will not on Path A.
             if assistant_message.stop_reason == LlmStopReason.CANCELLED:
                 hook = self._hooks.on_pause_cancel
                 if hook is not None and await hook(self):
@@ -333,8 +349,9 @@ class ToolRunner:
                     # cancelled response is replaced by the real one.
                     continue
                 # else: genuine cancel — fall through with the
-                # CANCELLED message and let ``until_done`` do its
-                # rollback path (lines 310-317).
+                # CANCELLED message and let ``until_done`` route through
+                # its ``last.stop_reason == LlmStopReason.CANCELLED``
+                # rollback branch.
             break
 
         self._last_message = assistant_message
