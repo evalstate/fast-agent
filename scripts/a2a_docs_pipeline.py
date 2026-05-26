@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import shutil
 import signal
@@ -24,7 +25,24 @@ import time
 import urllib.request
 from pathlib import Path
 
-from docs_assets import record_asciinema_cast, require_recording_tools
+
+def _load_docs_asset_helpers():
+    try:
+        from docs_assets import record_asciinema_cast, require_recording_tools
+
+        return record_asciinema_cast, require_recording_tools
+    except ModuleNotFoundError:
+        path = Path(__file__).resolve().parent / "docs_assets.py"
+        spec = importlib.util.spec_from_file_location("docs_assets", path)
+        if spec is None or spec.loader is None:
+            raise
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.record_asciinema_cast, module.require_recording_tools
+
+
+record_asciinema_cast, require_recording_tools = _load_docs_asset_helpers()
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS_A2A = ROOT / "docs" / "docs" / "a2a"
