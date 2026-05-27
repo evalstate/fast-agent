@@ -21,6 +21,8 @@ _OPTIONS_WITHOUT_VALUES = {
     "--watch",
     "--reload",
     "--smart",
+    "--a2a-oauth",
+    "--no-a2a-oauth",
     "-x",
 }
 

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
 from typing import Any, Literal
 
 import typer
 
+from fast_agent.a2a.connect import normalize_a2a_transport, normalize_a2a_url
 from fast_agent.cli.command_support import ensure_context_object, get_settings_or_exit
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.runtime.agent_setup import run_agent_request
@@ -43,6 +45,8 @@ from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.mcp.hf_auth import add_explicit_bearer_auth_header
 from fast_agent.paths import resolve_environment_paths
 
 CARD_EXTENSIONS = _CARD_EXTENSIONS
@@ -103,6 +107,63 @@ def _merge_card_sources(
     default_dir: Path,
 ) -> list[str] | None:
     return merge_card_sources(sources, default_dir)
+
+
+def _materialize_a2a_agent_cards(
+    urls: list[str],
+    *,
+    transport: str | None,
+    oauth: bool | None = None,
+    auth_token: str | None = None,
+) -> tuple[tempfile.TemporaryDirectory[str], list[str]]:
+    normalized_transport = None
+    if transport:
+        normalized_transport = normalize_a2a_transport(transport)
+        if normalized_transport is None:
+            raise typer.BadParameter(
+                f"Unsupported A2A transport: {transport}",
+                param_hint="--a2a-transport",
+            )
+
+    tempdir = tempfile.TemporaryDirectory(prefix="fast-agent-a2a-")
+    paths: list[str] = []
+    for index, raw_url in enumerate(urls, start=1):
+        url, card_path, error = normalize_a2a_url(raw_url)
+        if error:
+            tempdir.cleanup()
+            raise typer.BadParameter(error, param_hint="--a2a")
+        name = "a2a_remote" if index == 1 else f"a2a_remote_{index}"
+        lines = [
+            "type: a2a",
+            f"name: {name}",
+            f"url: {url}",
+        ]
+        if auth_token:
+            normalized_token = auth_token.strip()
+            if normalized_token.lower().startswith("bearer "):
+                normalized_token = normalized_token[7:].strip()
+            if not normalized_token:
+                tempdir.cleanup()
+                raise typer.BadParameter("Auth token cannot be empty", param_hint="--auth")
+            headers = add_explicit_bearer_auth_header(url, None, normalized_token)
+            lines.append("headers:")
+            for key, value in headers.items():
+                lines.append(f"  {key}: {value!r}")
+        if normalized_transport:
+            lines.append(f"transport: {normalized_transport}")
+        if oauth is not None:
+            lines.extend(
+                [
+                    "auth:",
+                    f"  oauth: {str(oauth).lower()}",
+                ]
+            )
+        if card_path:
+            lines.append(f"relative_card_path: {card_path}")
+        path = Path(tempdir.name) / f"{name}.yaml"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        paths.append(str(path))
+    return tempdir, paths
 
 
 def _merge_pack_card_sources(
@@ -342,6 +403,22 @@ def go(
     config_path: str | None = CommonAgentOptions.config_path(),
     servers: str | None = CommonAgentOptions.servers(),
     agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
+    a2a: list[str] | None = typer.Option(
+        None,
+        "--a2a",
+        metavar="<url>",
+        help="Connect to a remote A2A agent by base URL or agent-card URL (repeatable).",
+    ),
+    a2a_transport: str | None = typer.Option(
+        None,
+        "--a2a-transport",
+        help="Preferred A2A transport for --a2a: JSONRPC or HTTP+JSON.",
+    ),
+    a2a_oauth: bool | None = typer.Option(
+        None,
+        "--a2a-oauth/--no-a2a-oauth",
+        help="Force or disable browser OAuth for --a2a remote agents.",
+    ),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
     urls: str | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
@@ -474,6 +551,18 @@ def go(
         agent_cards = _merge_pack_card_sources(agent_cards, env_paths.agent_cards)
         card_tools = _merge_pack_card_sources(card_tools, env_paths.tool_cards)
 
+    a2a_tempdir: tempfile.TemporaryDirectory[str] | None = None
+    if a2a:
+        a2a_tempdir, a2a_cards = _materialize_a2a_agent_cards(
+            a2a,
+            transport=a2a_transport,
+            oauth=a2a_oauth,
+            auth_token=auth,
+        )
+        agent_cards = [*(agent_cards or []), *a2a_cards]
+        if agent is None and len(a2a_cards) == 1:
+            agent = Path(a2a_cards[0]).stem
+
     request = build_command_run_request(
         name=name,
         instruction_option=instruction,
@@ -520,4 +609,11 @@ def go(
 
         queue_startup_notice(update_notice)
 
-    run_request(request)
+    try:
+        run_request(request)
+    except AgentConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    finally:
+        if a2a_tempdir is not None:
+            a2a_tempdir.cleanup()

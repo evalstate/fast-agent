@@ -173,3 +173,10 @@ def test_format_toolbar_agent_identity_omits_badge_for_basic_agent() -> None:
 
     assert "[S]" not in identity
     assert "agent " in identity
+
+
+def test_format_toolbar_agent_identity_includes_a2a_badge_and_magenta() -> None:
+    identity = _format_toolbar_agent_identity("remote", "ansiblue", _StubAgent(AgentType.A2A))
+
+    assert "remote[A2A]" in identity
+    assert "ansimagenta" in identity

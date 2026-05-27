@@ -14,6 +14,11 @@ class ShowUsageCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ToggleTraceCommand(CommandBase):
+    kind: Literal["toggle_trace"] = "toggle_trace"
+
+
+@dataclass(frozen=True, slots=True)
 class ShowSystemCommand(CommandBase):
     kind: Literal["show_system"] = "show_system"
 
@@ -29,6 +34,14 @@ class ShowMcpStatusCommand(CommandBase):
 
 
 McpConnectMode = Literal["url", "npx", "uvx", "stdio"]
+
+
+@dataclass(frozen=True, slots=True)
+class A2ACommand(CommandBase):
+    action: str
+    argument: str | None
+    error: str | None = None
+    kind: Literal["a2a_command"] = "a2a_command"
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,9 +432,11 @@ class UnknownCommand(CommandBase):
 
 CommandPayload = (
     ShowUsageCommand
+    | ToggleTraceCommand
     | ShowSystemCommand
     | ShowMarkdownCommand
     | ShowMcpStatusCommand
+    | A2ACommand
     | McpListCommand
     | McpConnectCommand
     | McpDisconnectCommand

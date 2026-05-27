@@ -6,8 +6,9 @@ import ast
 import inspect
 import os
 import sys
+import types
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args, get_origin
 
 DOCS_ROOT = Path(__file__).resolve().parent
 GENERATED_DIR = DOCS_ROOT / "docs" / "_generated"
@@ -64,8 +65,54 @@ def _md_code(lang: str, code: str) -> str:
     return f"```{lang}\n{code.rstrip()}\n```\n"
 
 
+def _format_type(annotation: object) -> str:
+    """Format type annotations for stable, readable generated docs."""
+    if annotation is None or annotation is types.NoneType:
+        return "None"
+
+    if annotation is Any:
+        return "Any"
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+
+    if origin in {types.UnionType, getattr(types, "UnionType", object)} or str(origin) == "typing.Union":
+        parts = [_format_type(arg) for arg in args]
+        parts = [part for part in parts if part != "None"] + [
+            part for part in parts if part == "None"
+        ]
+        return " | ".join(parts)
+
+    if str(origin) == "typing.Literal":
+        values = [repr(arg) if isinstance(arg, str) else _format_type(arg) for arg in args]
+        return f"Literal[{', '.join(values)}]"
+
+    if origin is not None:
+        origin_name = _format_type(origin)
+        if args:
+            return f"{origin_name}[{', '.join(_format_type(arg) for arg in args)}]"
+        return origin_name
+
+    if isinstance(annotation, str):
+        return annotation
+
+    name = getattr(annotation, "__qualname__", None) or getattr(annotation, "__name__", None)
+    module = getattr(annotation, "__module__", None)
+    if name:
+        if module and module not in {"builtins", "typing", "types"}:
+            return f"{module}.{name}".replace("pathlib._local.Path", "pathlib.Path")
+        return name.replace("NoneType", "None")
+
+    return str(annotation).replace("typing.", "").replace("NoneType", "None")
+
+
+def _normalize_signature_text(signature: str) -> str:
+    """Normalize Python-version-specific details in inspect signature output."""
+    return signature.replace("pathlib._local.Path", "pathlib.Path")
+
+
 def _format_signature(name: str, func: Any) -> str:
-    sig = str(inspect.signature(func))
+    sig = _normalize_signature_text(str(inspect.signature(func)))
     return f"{name}{sig}"
 
 
@@ -114,8 +161,7 @@ def generate_request_params_reference() -> str:
     lines.append("| --- | --- | --- | --- |\n")
 
     for field_name, field_info in RequestParams.model_fields.items():
-        annotation = field_info.annotation
-        type_str = getattr(annotation, "__name__", None) or str(annotation)
+        type_str = _format_type(field_info.annotation)
         default = field_info.default
         if default is None and field_info.default_factory is not None:
             default_str = "`<factory>`"

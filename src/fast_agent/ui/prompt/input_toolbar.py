@@ -9,10 +9,13 @@ from typing import TYPE_CHECKING, cast
 
 from prompt_toolkit.formatted_text import HTML
 
+from fast_agent.a2a.remote_agent import A2ARemoteAgent
+from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.trace import llm_trace_enabled
 from fast_agent.ui import notification_tracker
 from fast_agent.ui.attachment_indicator import (
     DraftAttachmentSummary,
@@ -303,6 +306,14 @@ def _build_toolbar_agent_state(
         return ToolbarAgentState()
 
     turn_count = _turn_count_for_agent(agent)
+    if _is_a2a_agent(agent):
+        return ToolbarAgentState(
+            agent=agent,
+            model_name="A2A",
+            model_display=_resolve_a2a_display(agent),
+            turn_count=turn_count,
+        )
+
     context_pct, usage_accumulator = _usage_context_for_agent(agent)
     model_name = _resolve_model_name(agent, llm)
     model_display = _resolve_model_display(agent, model_name, llm=llm)
@@ -323,6 +334,18 @@ def _build_toolbar_agent_state(
         web_search_indicator=model_visuals.web_search_indicator,
         web_fetch_indicator=model_visuals.web_fetch_indicator,
     )
+
+
+def _is_a2a_agent(agent: AgentProtocol) -> bool:
+    agent_type = getattr(agent, "agent_type", None)
+    normalized = getattr(agent_type, "value", agent_type)
+    return isinstance(normalized, str) and normalized.lower() == AgentType.A2A.value
+
+
+def _resolve_a2a_display(agent: AgentProtocol) -> str:
+    if isinstance(agent, A2ARemoteAgent) and agent.remote_card is not None:
+        return _truncate_model_display(agent.remote_card.name)
+    return "A2A"
 
 
 def _build_toolbar_agent_state_cache_key(
@@ -593,6 +616,8 @@ def _build_middle_segment(
     )
     if shortcut_text:
         middle_segments.append(shortcut_text)
+    if llm_trace_enabled():
+        middle_segments.append("<style fg='ansired' bg='ansiblack'>*</style>")
     return " | ".join(middle_segments)
 
 

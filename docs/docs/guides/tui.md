@@ -86,6 +86,8 @@ Cast asset:
 - Replay locally: asciinema play docs/docs/assets/tui/hf-image-generation.cast
 -->
 
+The image-generation recording was captured with terminal image rendering enabled and the halfcell backend, so asciinema can replay ANSI/Unicode cells instead of terminal-specific image protocols. The Markdown image link and source URL remain visible in the recording as a fallback.
+
 ## Paste and Attach Images / Documents
 
 You can attach images and documents using `/attach` or by using the `^<uri|file>` syntax. The indicator in the status bar shows a count of attachments, and is green if they are found, red if there is an error. Press ++f10++ to clear all attachments.

@@ -46,6 +46,14 @@ nav = [
     { "Using as an Agent" = "acp/index.md" },
     { "Customizing Agents" = "acp/customizing_agents.md" },
   ] },
+  { "A2A" = [
+    { "Getting Started" = "a2a/getting-started.md" },
+    { "Use as Client" = "a2a/client.md" },
+    { "Serve as A2A Server" = "a2a/server.md" },
+    { "Host on HF" = "a2a/host-on-hf.md" },
+    { "API Usage" = "a2a/api.md" },
+    { "Protocol Compliance" = "a2a/protocol-compliance.md" },
+  ] },
   { "MCP" = [
     { "Configuring Servers" = "mcp/index.md" },
     { "Deploying as an MCP Server" = "mcp/mcp-server.md" },

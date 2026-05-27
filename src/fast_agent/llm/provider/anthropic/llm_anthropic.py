@@ -104,6 +104,7 @@ from fast_agent.llm.task_budget import (
     validate_task_budget_tokens,
 )
 from fast_agent.llm.tool_tracking import ToolCallTracker
+from fast_agent.llm.trace import llm_trace_enabled
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
 from fast_agent.mcp.provider_management import build_anthropic_provider_managed_mcp_payload
@@ -129,7 +130,6 @@ MCP_CLIENT_BETA = "mcp-client-2025-11-20"
 
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
 # Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
-STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
 STREAM_CAPTURE_DIR = Path("stream-debug")
 
 # Type alias for system field - can be string or list of text blocks with cache control
@@ -235,7 +235,7 @@ def _is_beta_text_block_validation_error(error: Exception) -> bool:
 
 def _stream_capture_filename(turn: int) -> Path | None:
     """Generate filename for stream capture. Returns None if capture is disabled."""
-    if not STREAM_CAPTURE_ENABLED:
+    if not llm_trace_enabled():
         return None
     STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

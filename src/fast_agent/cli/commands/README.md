@@ -20,7 +20,7 @@ fast-agent go [OPTIONS]
 - `--config-path`, `-c <path-or-uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to config file
 - `--servers TEXT`: Comma-separated list of server names to enable from config
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
-- `--auth TEXT`: Bearer token for authorization with URL-based servers
+- `--auth TEXT`: Bearer token for authorization with remote MCP URL servers and A2A endpoints
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--pack`, `--card-pack TEXT`: Install or reuse a named card pack in the selected environment before launch
@@ -83,10 +83,13 @@ The `--url` parameter allows you to connect directly to HTTP or SSE servers usin
 
 ### Authentication
 
-The `--auth` parameter provides authentication for URL-based servers:
+The `--auth` parameter provides authentication for remote connections created by
+the CLI:
 
-- When provided, it creates an `Authorization: Bearer TOKEN` header for all URL-based servers
-- This is commonly used with API endpoints that require authentication
+- For `--url`, it creates an `Authorization: Bearer TOKEN` header for all URL-based MCP servers
+- For `--a2a`, it creates an `Authorization: Bearer TOKEN` header for all generated ad hoc A2A AgentCards
+- This is a convenience flag for simple runs where the same credential applies to every remote endpoint
+- Use checked-in config or AgentCards when different remote endpoints need different credentials
 - Example: `fast-agent go --url=https://api.example.com/mcp --auth=12345abcde`
 
 ## Serve Command
@@ -107,7 +110,7 @@ fast-agent serve [OPTIONS]
 - `--servers TEXT`: Comma-separated list of server names to enable from config
 - `--card`, `--agent-cards <path-or-uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to an AgentCard file or directory (repeatable)
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to
-- `--auth TEXT`: Bearer token for authorization with URL-based servers
+- `--auth TEXT`: Bearer token for authorization with remote MCP URL servers and A2A endpoints
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--skills-dir`, `--skills PATH`: Override the default skills directory

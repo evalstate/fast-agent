@@ -59,7 +59,7 @@ class CommonAgentOptions:
             None,
             "--auth",
             help=(
-                "Authorization token value for URL-based servers "
+                "Authorization token value for remote MCP URL servers and A2A endpoints "
                 "(pass token only; optional 'Bearer ' prefix is accepted)"
             ),
         )

@@ -889,7 +889,7 @@ async def test_handle_mcp_connect_hf_url_adds_hf_auth_from_env(monkeypatch) -> N
     assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
     assert manager.last_config is not None
     assert manager.last_config.headers is not None
-    assert manager.last_config.headers.get("Authorization") == "Bearer hf_test_token"
+    assert "Authorization" not in manager.last_config.headers
     assert manager.last_config.headers.get("X-HF-Authorization") == "Bearer hf_test_token"
 
 

@@ -129,6 +129,44 @@ When both target-derived values and explicit fields are present, explicit fields
 If an inferred/provided name collides with another server using different settings,
 startup fails with a collision error. Prefer explicit `name` values for stability.
 
+## Remote A2A AgentCards
+
+A remote A2A agent can be loaded as a first-class fast-agent agent with
+`type: a2a`:
+
+```yaml
+type: a2a
+name: hello_remote
+url: http://127.0.0.1:41241
+transport: JSONRPC
+```
+
+`url` is the A2A agent base URL used to resolve the remote card at
+`/.well-known/agent-card.json`. If the card is served elsewhere, set
+`relative_card_path`:
+
+```yaml
+type: a2a
+name: remote_custom_card
+url: https://agent.example.com
+relative_card_path: /custom/agent-card.json
+transport: HTTP+JSON
+```
+
+Supported transport names are `JSONRPC`, `HTTP+JSON`, and `GRPC`. If `transport`
+is omitted, the A2A SDK chooses from the remote AgentCard's advertised
+interfaces. The current client maps text, URL resources, structured data, and
+raw binary parts into fast-agent messages; inbound raw bytes are represented
+safely with filename/media type/byte count.
+
+For one-off CLI connections, use `--a2a` instead of writing a card:
+
+```bash
+fast-agent go --a2a http://127.0.0.1:41241 --a2a-transport JSONRPC --message hello
+```
+
+In the TUI, use `/a2a connect http://127.0.0.1:41241 --transport HTTP+JSON --name hello_rest`.
+
 ## Examples
 
 ```bash

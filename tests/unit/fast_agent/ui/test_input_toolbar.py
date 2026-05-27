@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
+from fast_agent.llm.trace import set_llm_trace_enabled
 from fast_agent.ui.attachment_indicator import DraftAttachmentSummary
 from fast_agent.ui.prompt.attachment_tokens import build_local_attachment_token
 from fast_agent.ui.prompt.input_toolbar import (
@@ -99,6 +100,7 @@ def test_build_middle_segment_prefixes_codex_before_overlay() -> None:
 
 
 def test_build_middle_segment_renders_attachment_indicator() -> None:
+    set_llm_trace_enabled(False)
     middle = _build_middle_segment(
         ToolbarAgentState(
             model_display="gpt-4.1",
@@ -120,6 +122,22 @@ def test_build_middle_segment_renders_attachment_indicator() -> None:
     assert "▲2" in middle
     assert middle.index("TVD") < middle.index("▲2") < middle.index("RG") < middle.index("gpt-4.1")
     assert middle.index("gpt-4.1") < middle.index("FAST") < middle.index("WEB")
+
+
+def test_build_middle_segment_renders_trace_indicator() -> None:
+    set_llm_trace_enabled(True)
+    try:
+        middle = _build_middle_segment(
+            ToolbarAgentState(
+                model_display="gpt-4.1",
+                turn_count=3,
+            ),
+            shortcut_text="",
+        )
+    finally:
+        set_llm_trace_enabled(False)
+
+    assert "<style fg='ansired' bg='ansiblack'>*</style>" in middle
 
 
 def test_should_resolve_attachment_summary_only_for_attachment_tokens() -> None:

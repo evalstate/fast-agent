@@ -31,6 +31,11 @@ uv run scripts/docs.py assess
 - `assess` runs deterministic screenshot checks for capture dimensions, blank or unstyled pages,
   the designed home-page header, and visible terminal areas.
 
+CI runs `generate`, fails if `_generation_warnings.md` is produced, verifies the committed
+`docs/_generated/` snippets are up to date, then runs the strict docs build. Because the docs job is
+part of the shared checks workflow, it gates pull requests, `main`, and tag-triggered PyPI
+publishing.
+
 ## Terminal Captures
 
 Use `scripts/docs_terminal_capture.py` to run a command and write a terminal-style SVG that can be
@@ -106,6 +111,59 @@ fast-agent -x --model codexplan --url 'https://huggingface.co/mcp?bouquet=dynami
 generate a wide cinematic landscape: a quiet alpine lake at sunrise, dark pine silhouettes, snow-capped mountains, warm orange sky reflected in the water, bold simple shapes, high contrast, no text
 ```
 
+A2A recordings use the same shared asciinema invocation, cleanup, and terminal-teardown trimming
+helpers, while keeping the deterministic fake-server/snippet generation in the A2A pipeline:
+
+```bash
+uv run scripts/a2a_docs_pipeline.py generate
+uv run scripts/a2a_docs_pipeline.py check
+uv run scripts/a2a_docs_pipeline.py record
+```
+
+For provider-backed A2A recordings, export the recording configuration first so the command is
+copy/paste-ready and the rendered docs can show exactly which environment was used:
+
+```bash
+export HF_TOKEN=...
+export OPENAI_API_KEY=...
+export A2A_REAL_LLM_MODEL=codexresponses.gpt-5.4-mini
+export A2A_HF_MCP_URL=https://hf.co/mcp
+export A2A_REAL_LLM_RECORD_SECONDS=70
+uv run scripts/a2a_docs_pipeline.py record-real-llm
+```
+
+### Image output capture experiment
+
+For review, an interactive Hugging Face MCP image-generation run was recorded with the keyring
+notice suppressed and terminal image rendering enabled:
+
+```bash
+export FAST_AGENT_KEYRING_NOTICE=0
+export LOGGER__TERMINAL_IMAGES__ENABLED=true
+export LOGGER__TERMINAL_IMAGES__BACKEND=halfcell
+uv run fast-agent -x --model codexplan --url https://huggingface.co/mcp
+```
+
+Prompt:
+
+```text
+generate an image of a sunflower
+```
+
+The Hugging Face MCP server invoked `evalstate/flux1_schnell` and returned an `image/webp` block,
+an image URL, and a seed. In the asciinema cast, terminal image output is captured as terminal frames rather than as a separate image asset. Prefer the `halfcell` backend for committed recordings because it replays as ANSI colour and Unicode block characters. A typical captured output includes:
+
+```text
+[IMAGE: image/webp, 81600 bytes]
+Image URL: https://evalstate-flux1-schnell.hf.space/.../image.webp
+Seed used for generation: 2131209976
+[IMAGE 1: image/webp, ... bytes]
+ANSI/Unicode half-block image preview...
+```
+
+The URL and Markdown image link remain visible in the cast, so this is safe as a docs fallback even
+when the player does not reconstruct the inline terminal image exactly.
+
 ## Social Cards
 
 Every Markdown page gets a committed 1200×630 PNG under `docs/assets/social/`. `overrides/main.html`
@@ -174,8 +232,8 @@ aligned with the implementation.
 
 ## Proposed Next Automations
 
-- Add a CI docs job that runs `uv run scripts/docs.py generate`, fails if generated files changed,
-  then runs `uv run scripts/docs.py build` and `uv run scripts/docs.py assess`.
+- Consider adding `uv run scripts/docs.py assess` to CI after the deterministic screenshot flow is
+  stable in hosted runners.
 - Add a snippet verifier that scans docs for `--8<--` includes and confirms every referenced file
   exists under an allowed root.
 - Add example smoke tests for docs-included examples so pages cannot point at broken sample code.

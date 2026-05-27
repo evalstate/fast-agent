@@ -20,6 +20,8 @@ from typing import (
 
 from fastmcp.tools import FunctionTool
 
+from fast_agent.a2a.config import A2AAgentConfig
+from fast_agent.a2a.remote_agent import A2ARemoteAgent
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType, FunctionToolConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -956,6 +958,63 @@ async def _create_maker_agent(
     result_agents[name] = maker_agent
 
 
+def _format_a2a_initialization_error(
+    *,
+    name: str,
+    url: str,
+    transport: str | None,
+    exc: Exception,
+) -> str:
+    reason = str(exc).strip()
+    cause = exc.__cause__
+    while cause is not None:
+        cause_text = str(cause).strip()
+        if cause_text:
+            reason = cause_text
+            break
+        reason = cause.__class__.__name__
+        cause = cause.__cause__
+    if not reason:
+        reason = exc.__class__.__name__
+    transport_text = f" via {transport}" if transport else ""
+    return (
+        f"Unable to initialize A2A agent '{name}'{transport_text} at {url}: {reason}. "
+        "Check that the A2A server is running and that the URL points to the agent base "
+        "URL or agent card."
+    )
+
+
+async def _create_a2a_agent(
+    name: str,
+    agent_data: Mapping[str, Any],
+    build_ctx: AgentBuildContext,
+    result_agents: AgentDict,
+) -> None:
+    config = cast("AgentConfig", agent_data["config"])
+    a2a_config = agent_data.get("a2a")
+    if not isinstance(a2a_config, A2AAgentConfig):
+        raise AgentConfigError(f"A2A agent '{name}' missing A2A configuration")
+
+    agent = A2ARemoteAgent(
+        config=config,
+        a2a_config=a2a_config,
+        context=build_ctx.app_instance.context,
+    )
+    try:
+        await agent.initialize()
+    except Exception as exc:
+        await agent.shutdown()
+        raise AgentConfigError(
+            _format_a2a_initialization_error(
+                name=name,
+                url=a2a_config.url,
+                transport=a2a_config.transport,
+                exc=exc,
+            )
+        ) from exc
+    _register_loaded_agent(result_agents, name, agent)
+
+
 _AGENT_TYPE_BUILDERS: dict[AgentType, AgentTypeBuilder] = {
     AgentType.LLM: _create_basic_agent,
     AgentType.BASIC: _create_basic_agent,
@@ -968,6 +1027,7 @@ _AGENT_TYPE_BUILDERS: dict[AgentType, AgentTypeBuilder] = {
     AgentType.CHAIN: _create_chain_workflow_agent,
     AgentType.EVALUATOR_OPTIMIZER: _create_evaluator_optimizer_agent,
     AgentType.MAKER: _create_maker_agent,
+    AgentType.A2A: _create_a2a_agent,
 }
 
 

@@ -53,6 +53,7 @@ from fast_agent.core.model_resolution import (
     resolve_model_spec,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
 from fast_agent.mcp.gen_client import gen_client
@@ -435,6 +436,20 @@ class MCPAggregator(ContextDependent):
         if server_registry is None:
             raise RuntimeError("Context is missing server registry for MCP connections")
         return cast("ServerRegistryProtocol", server_registry)
+
+    def _should_use_request_scoped_connection(self, server_name: str) -> bool:
+        """Use a fresh MCP transport when auth.forward depends on request context."""
+        if not request_bearer_token.get():
+            return False
+        try:
+            config = self._require_server_registry().get_server_config(server_name)
+        except Exception:
+            return False
+        return (
+            config is not None
+            and config.auth is not None
+            and config.auth.forward == "huggingface"
+        )
 
     def _require_connection_manager(self) -> MCPConnectionManager:
         if self._persistent_connection_manager is None:
@@ -1732,7 +1747,9 @@ class MCPAggregator(ContextDependent):
 
         # Try initial execution
         try:
-            if self.connection_persistence:
+            if self.connection_persistence and not self._should_use_request_scoped_connection(
+                server_name
+            ):
                 manager = self._require_connection_manager()
                 server_connection = await manager.get_server(
                     server_name, client_session_factory=self._create_session_factory(server_name)

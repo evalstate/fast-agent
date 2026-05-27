@@ -20,6 +20,7 @@ import yaml
 from fast_agent.cli.runtime.agent_setup import (
     _emit_model_picker_keyring_notice,
     _explicit_agent_cards_define_startup_model,
+    _explicit_agent_cards_satisfy_startup_model,
     _generic_model_prompt_default,
     _load_request_settings,
     _normalize_generic_model_spec,
@@ -60,6 +61,7 @@ def _make_request(
     prompt_file: str | None = None,
     agent_cards: list[str] | None = None,
     card_tools: list[str] | None = None,
+    target_agent_name: str | None = None,
 ) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
@@ -76,7 +78,7 @@ def _make_request(
         url_servers=None,
         stdio_servers=None,
         agent_name="agent",
-        target_agent_name=None,
+        target_agent_name=target_agent_name,
         skills_directory=None,
         environment_dir=None,
         noenv=False,
@@ -189,6 +191,30 @@ def test_explicit_remote_agent_card_without_model_keeps_startup_model_selection(
     )
 
     assert _explicit_agent_cards_define_startup_model(request) is False
+
+
+def test_explicit_a2a_agent_card_satisfies_startup_model_without_local_model(
+    tmp_path: Path,
+) -> None:
+    card_path = tmp_path / "remote.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "type: a2a",
+                "name: a2a_remote",
+                "url: http://127.0.0.1:41242",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    request = _make_request(
+        agent_cards=[str(card_path)],
+        target_agent_name="a2a_remote",
+    )
+
+    assert _explicit_agent_cards_define_startup_model(request) is False
+    assert _explicit_agent_cards_satisfy_startup_model(request) is True
 
 
 @pytest.mark.parametrize(

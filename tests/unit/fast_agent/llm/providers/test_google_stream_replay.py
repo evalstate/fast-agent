@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -152,6 +153,13 @@ async def test_google_stream_plain_text_reconstructs_final_response() -> None:
     final_response = await harness._consume_google_stream(
         stream,
         model="gemini-2.0-flash",
+        diagnostics={
+            "transport": "google-genai-stream",
+            "request_type": "models.generate_content_stream",
+            "streaming": True,
+            "model": "gemini-2.0-flash",
+            "phase_ms": {},
+        },
     )
 
     assert stream.closed is True
@@ -171,6 +179,19 @@ async def test_google_stream_plain_text_reconstructs_final_response() -> None:
     parts = content.parts or []
     assert len(parts) == 1
     assert parts[0].text == "Hello"
+    diagnostics = harness._last_google_provider_diagnostics
+    assert diagnostics is not None
+    assert diagnostics["transport"] == "google-genai-stream"
+    assert diagnostics["streaming"] is True
+    assert diagnostics["stream"] == {
+        "chunk_count": 2,
+        "text_chunks": 2,
+        "reasoning_chunks": 0,
+        "function_call_chunks": 0,
+        "usage_metadata_seen": False,
+    }
+    assert diagnostics["phase_ms"]["first_event"] is not None
+    json.dumps(diagnostics)
 
 
 @pytest.mark.unit
@@ -187,6 +208,13 @@ async def test_google_stream_reasoning_emits_stream_events_without_text_tool_eve
     final_response = await harness._consume_google_stream(
         stream,
         model="gemini-2.0-flash",
+        diagnostics={
+            "transport": "google-genai-stream",
+            "request_type": "models.generate_content_stream",
+            "streaming": True,
+            "model": "gemini-2.0-flash",
+            "phase_ms": {},
+        },
     )
 
     assert stream.closed is True
@@ -238,6 +266,13 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
     final_response = await harness._consume_google_stream(
         stream,
         model="gemini-2.0-flash",
+        diagnostics={
+            "transport": "google-genai-stream",
+            "request_type": "models.generate_content_stream",
+            "streaming": True,
+            "model": "gemini-2.0-flash",
+            "phase_ms": {},
+        },
     )
 
     assert stream.closed is True
@@ -278,6 +313,10 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
     assert len(parts) == 1
     assert parts[0].function_call is not None
     assert parts[0].function_call.name == "weather"
+    diagnostics = harness._last_google_provider_diagnostics
+    assert diagnostics is not None
+    assert diagnostics["stream"]["function_call_chunks"] == 2
+    assert diagnostics["stream"]["text_chunks"] == 0
     assert parts[0].function_call.args == {"city": "Paris"}
     assert parts[0].function_call.id == "call_weather"
     assert parts[0].thought_signature == b"sig"

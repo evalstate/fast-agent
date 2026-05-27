@@ -1,6 +1,7 @@
 import json
 import logging
 import secrets
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -46,6 +47,7 @@ logging.getLogger("google_genai").setLevel(logging.ERROR)
 # Define default model and potentially other Google-specific defaults
 DEFAULT_GOOGLE_MODEL = "gemini3"
 _GOOGLE_VERTEX_PARTNER_MODEL_PREFIXES = ("claude",)
+GOOGLE_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
 
 
 # Define Google-specific parameter exclusions if necessary
@@ -112,6 +114,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         super().__init__(provider=Provider.GOOGLE, **kwargs)
         # Initialize the converter
         self._converter = GoogleConverter()
+        self._last_google_provider_diagnostics: dict[str, Any] | None = None
         self._init_reasoning(kwargs)
 
     @property
@@ -331,6 +334,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         client: genai.Client,
     ) -> types.GenerateContentResponse | None:
         """Stream Gemini responses and return the final aggregated completion."""
+        diagnostics: dict[str, Any] = {
+            "transport": "google-genai-stream",
+            "request_type": "models.generate_content_stream",
+            "streaming": True,
+            "model": model,
+            "phase_ms": {},
+        }
         capture_base = stream_capture_filename(self.chat_turn())
         save_stream_request(
             capture_base,
@@ -340,11 +350,16 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 "config": config,
             },
         )
+        request_start = time.perf_counter()
         try:
             response_stream = await client.aio.models.generate_content_stream(
                 model=model,
                 contents=cast("types.ContentListUnion", contents),
                 config=config,
+            )
+            diagnostics["phase_ms"]["send_request"] = round(
+                (time.perf_counter() - request_start) * 1000,
+                2,
             )
         except AttributeError:
             # Older SDKs might not expose streaming; fall back to non-streaming.
@@ -362,6 +377,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             response_stream,
             model=model,
             capture_base=capture_base,
+            diagnostics=diagnostics,
         )
 
     @staticmethod
@@ -532,8 +548,16 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         *,
         model: str,
         capture_base=None,
+        diagnostics: dict[str, Any] | None = None,
     ) -> types.GenerateContentResponse | None:
         """Consume the async streaming iterator and aggregate the final response."""
+        stream_start = time.perf_counter()
+        first_event_ms: float | None = None
+        chunk_count = 0
+        text_chunk_count = 0
+        reasoning_chunk_count = 0
+        function_call_chunk_count = 0
+        usage_metadata_seen = False
         estimated_tokens = 0
         timeline: list[GoogleTimelineEntry] = []
         tracker = ToolCallTracker()
@@ -546,9 +570,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         try:
             # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
             async for chunk in response_stream:
+                chunk_count += 1
+                if first_event_ms is None:
+                    first_event_ms = round((time.perf_counter() - stream_start) * 1000, 2)
                 save_stream_chunk(capture_base, chunk)
                 last_chunk = chunk
                 if getattr(chunk, "usage_metadata", None):
+                    usage_metadata_seen = True
                     usage_metadata = chunk.usage_metadata
 
                 if not getattr(chunk, "candidates", None):
@@ -564,6 +592,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                         text = part.text or ""
                         if text:
                             if getattr(part, "thought", False):
+                                reasoning_chunk_count += 1
                                 self._notify_stream_listeners(
                                     StreamChunk(text=text, is_reasoning=True)
                                 )
@@ -573,6 +602,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                     cast("bytes | None", part.thought_signature),
                                 )
                             else:
+                                text_chunk_count += 1
                                 self._append_google_text_timeline(timeline, text)
                                 estimated_tokens = self._emit_stream_text_delta(
                                     text=text,
@@ -581,6 +611,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                 )
 
                     if getattr(part, "function_call", None):
+                        function_call_chunk_count += 1
                         function_call = part.function_call
                         name = getattr(function_call, "name", None) or "tool"
                         args = getattr(function_call, "args", None) or {}
@@ -675,6 +706,23 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 + ", ".join(f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools)
             )
 
+        if diagnostics is not None:
+            phase_ms = diagnostics.setdefault("phase_ms", {})
+            phase_ms["first_event"] = first_event_ms
+            phase_ms["stream_total"] = round((time.perf_counter() - stream_start) * 1000, 2)
+            phase_ms["total"] = round(
+                float(phase_ms.get("send_request") or 0) + phase_ms["stream_total"],
+                2,
+            )
+            diagnostics["stream"] = {
+                "chunk_count": chunk_count,
+                "text_chunks": text_chunk_count,
+                "reasoning_chunks": reasoning_chunk_count,
+                "function_call_chunks": function_call_chunk_count,
+                "usage_metadata_seen": usage_metadata_seen,
+            }
+            self._last_google_provider_diagnostics = diagnostics
+
         return self._build_google_final_response(
             last_chunk=last_chunk,
             usage_metadata=usage_metadata,
@@ -695,6 +743,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         """
         Process a query using Google's generate_content API and available tools.
         """
+        self._last_google_provider_diagnostics = None
         request_params = self.get_request_params(request_params=request_params)
         responses: list[ContentBlock] = []
         if request_params.structured_schema and response_schema is None:
@@ -767,11 +816,21 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                         client=client,
                     )
                 if api_response is None:
+                    request_start = time.perf_counter()
                     api_response = await client.aio.models.generate_content(
                         model=model_name,
                         contents=cast("types.ContentListUnion", conversation_history),
                         config=generate_content_config,
                     )
+                    self._last_google_provider_diagnostics = {
+                        "transport": "google-genai",
+                        "request_type": "models.generate_content",
+                        "streaming": False,
+                        "model": model_name,
+                        "phase_ms": {
+                            "total": round((time.perf_counter() - request_start) * 1000, 2),
+                        },
+                    }
                 self.logger.debug("Google generate_content response:", data=api_response)
 
                 # Track usage if response is valid and has usage data
@@ -899,6 +958,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if reasoning_blocks:
             channels = dict(assistant.channels or {})
             channels[REASONING] = reasoning_blocks
+            assistant.channels = channels
+        diagnostics = getattr(self, "_last_google_provider_diagnostics", None)
+        if diagnostics:
+            channels = dict(assistant.channels or {})
+            channels[GOOGLE_DIAGNOSTICS_CHANNEL] = [
+                TextContent(type="text", text=json.dumps(diagnostics))
+            ]
             assistant.channels = channels
         return assistant
 

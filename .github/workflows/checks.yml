@@ -152,3 +152,34 @@ jobs:
 
       - name: Run package install test
         run: bash scripts/test_package_install.sh
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install the project
+        run: |
+          uv sync --locked --group dev
+
+      - name: Generate reference docs
+        run: uv run scripts/docs.py generate
+
+      - name: Fail on partial docs generation
+        run: test ! -f docs/docs/_generated/_generation_warnings.md
+
+      - name: Check generated docs are committed
+        run: git diff --exit-code -- docs/docs/_generated
+
+      - name: Build docs
+        run: uv run scripts/docs.py build

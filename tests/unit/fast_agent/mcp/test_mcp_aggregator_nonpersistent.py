@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from mcp.shared.exceptions import McpError
 from mcp.types import (
+    CallToolResult,
     ErrorData,
     Implementation,
     InitializeResult,
@@ -13,12 +14,14 @@ from mcp.types import (
     Prompt,
     PromptsCapability,
     ServerCapabilities,
+    TextContent,
     Tool,
     ToolsCapability,
 )
 
-from fast_agent.config import MCPServerSettings
+from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
 from fast_agent.context import Context
+from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.interfaces import ServerInitializerProtocol
 from fast_agent.mcp.mcp_aggregator import (
@@ -302,6 +305,69 @@ async def test_execute_on_server_nonpersistent_retries_with_oauth_after_401(
     assert isinstance(result, ListToolsResult)
     assert [tool.name for tool in result.tools] == ["echo"]
     assert trigger_history == [None, True]
+
+
+@pytest.mark.asyncio
+async def test_execute_on_server_uses_request_scoped_connection_for_forwarded_hf_auth(
+    monkeypatch,
+) -> None:
+    context = _build_context(
+        {
+            "hf": MCPServerSettings(
+                name="hf",
+                transport="http",
+                url="https://huggingface.co/mcp",
+                auth=MCPServerAuthSettings(forward="huggingface"),
+            )
+        }
+    )
+    aggregator = MCPAggregator(
+        server_names=["hf"],
+        connection_persistence=True,
+        context=context,
+    )
+
+    class _PersistentManager:
+        async def get_server(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            del args, kwargs
+            raise AssertionError("persistent connection must not be reused for forwarded auth")
+
+    class _RequestClient:
+        async def call_tool(self, **kwargs):  # noqa: ANN003
+            del kwargs
+            return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    gen_client_calls: list[str] = []
+
+    @asynccontextmanager
+    async def _fake_gen_client(
+        server_name,
+        server_registry,
+        client_session_factory=_DummySession,
+        *,
+        trigger_oauth=None,
+    ):
+        del server_registry, client_session_factory, trigger_oauth
+        gen_client_calls.append(server_name)
+        yield _RequestClient()
+
+    monkeypatch.setattr("fast_agent.mcp.mcp_aggregator.gen_client", _fake_gen_client)
+    aggregator._persistent_connection_manager = cast("MCPConnectionManager", _PersistentManager())
+
+    token = request_bearer_token.set("request-token")
+    try:
+        result = await aggregator._execute_on_server(
+            "hf",
+            "tools/call",
+            "hf_whoami",
+            "call_tool",
+            method_args={"name": "hf_whoami", "arguments": {}},
+        )
+    finally:
+        request_bearer_token.reset(token)
+
+    assert isinstance(result, CallToolResult)
+    assert gen_client_calls == ["hf"]
 
 
 # ---------------------------------------------------------------------------

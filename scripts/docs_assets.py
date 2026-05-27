@@ -62,6 +62,12 @@ def _missing_tools(tools: tuple[str, ...]) -> list[str]:
     return [tool for tool in tools if shutil.which(tool) is None]
 
 
+def require_recording_tools(tools: tuple[str, ...] = ("asciinema", "tmux")) -> None:
+    missing = _missing_tools(tools)
+    if missing:
+        raise RuntimeError("Cannot record docs assets; missing tools: " + ", ".join(missing))
+
+
 def _required_assets() -> list[Path]:
     return [
         VENDOR_ASCIINEMA / "README.md",
@@ -142,7 +148,7 @@ type_slow() {{
 
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
-  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-demo.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && git init -q && git config user.email docs@example.invalid && git config user.name 'Docs Demo' && printf '# Demo workspace\\n' > README.md && git add README.md && git commit -qm init && printf '\\nLocal edit\\n' >> README.md && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\n' > \"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\" && export FAST_AGENT_HOME=\"\\$DEMO_FAST_AGENT_HOME\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-demo.XXXXXX) && cd \"\\$DEMO_WORKDIR\" && git init -q && git config user.email docs@example.invalid && git config user.name 'Docs Demo' && printf '# Demo workspace\n' > README.md && git add README.md && git commit -qm init && printf '\nLocal edit\n' >> README.md && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
 tmux set-option -t "$SESSION" status off >/dev/null
 
 (
@@ -182,32 +188,57 @@ def record(name: str) -> int:
         driver = Path(temp_dir) / f"{scenario.name}.sh"
         driver.write_text(_record_script(scenario), encoding="utf-8")
         driver.chmod(0o755)
-        command = [
-            "asciinema",
-            "rec",
-            "--overwrite",
-            "--cols",
-            str(scenario.cols),
-            "--rows",
-            str(scenario.rows),
-            "--idle-time-limit",
-            str(scenario.idle_time_limit),
-            "-t",
-            scenario.title,
-            "-c",
-            str(driver),
-            str(scenario.output),
-        ]
-        try:
-            subprocess.run(command, cwd=ROOT, check=True)
-        finally:
-            subprocess.run(
-                ["tmux", "kill-session", "-t", f"fast_agent_docs_{name.replace('-', '_')}"],
-                check=False,
-            )
-    _trim_terminal_teardown(scenario.output)
+        record_asciinema_cast(
+            output=scenario.output,
+            title=scenario.title,
+            command=str(driver),
+            cols=scenario.cols,
+            rows=scenario.rows,
+            idle_time_limit=scenario.idle_time_limit,
+            cleanup_session=f"fast_agent_docs_{name.replace('-', '_')}",
+        )
     print(f"Recorded {scenario.output.relative_to(ROOT)}")
     return 0
+
+
+def record_asciinema_cast(
+    *,
+    output: Path,
+    title: str,
+    command: str,
+    cols: int,
+    rows: int,
+    idle_time_limit: float = 1.3,
+    cleanup_session: str | None = None,
+    cwd: Path = ROOT,
+) -> None:
+    """Record an asciinema cast using the docs-wide defaults and cleanup rules."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            [
+                "asciinema",
+                "rec",
+                "--overwrite",
+                "--cols",
+                str(cols),
+                "--rows",
+                str(rows),
+                "--idle-time-limit",
+                str(idle_time_limit),
+                "-t",
+                title,
+                "-c",
+                command,
+                str(output),
+            ],
+            cwd=cwd,
+            check=True,
+        )
+    finally:
+        if cleanup_session:
+            subprocess.run(["tmux", "kill-session", "-t", cleanup_session], check=False)
+    _trim_terminal_teardown(output)
 
 
 def _is_terminal_teardown_event(line: str) -> bool:

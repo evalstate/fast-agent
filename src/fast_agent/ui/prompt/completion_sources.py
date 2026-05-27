@@ -87,7 +87,7 @@ def _complete_attached_mcp_servers(completer: "AgentCompleter", partial: str) ->
 def _mcp_connect_completions(completer: "AgentCompleter", remainder: str) -> list[Completion]:
     connect_flags = {
         "--name": "set attached server name",
-        "--auth": "set bearer token for URL servers",
+        "--auth": "set bearer token for remote MCP/A2A",
         "--timeout": "set startup timeout in seconds",
         "--oauth": "enable oauth flow",
         "--no-oauth": "disable oauth flow",

@@ -1,0 +1,8 @@
+/a2a help
+help
+/a2a status
+/a2a transport
+please stream
+respond with files
+need input
+blue

@@ -506,3 +506,80 @@ def test_dump_agent_card_preserves_plugin_command_actions(tmp_path: Path) -> Non
     assert "review-last:" in dumped
     assert "description: Review the last response" in dumped
     assert "handler: commands.py:review_last" in dumped
+
+
+def test_load_a2a_agent_card(tmp_path: Path) -> None:
+    card_path = tmp_path / "hello_remote.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "type: a2a",
+                "name: hello_remote",
+                "url: http://127.0.0.1:41241",
+                "transport: JSONRPC",
+                "auth:",
+                "  oauth: true",
+                "  persist: memory",
+                "request_timeout_seconds: 45",
+                "accepted_output_modes:",
+                "  - text",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)[0]
+    config = loaded.agent_data["config"]
+    a2a_config = loaded.agent_data["a2a"]
+
+    assert loaded.agent_data["type"] == "a2a"
+    assert config.agent_type.value == "a2a"
+    assert a2a_config.url == "http://127.0.0.1:41241"
+    assert a2a_config.transport == "JSONRPC"
+    assert a2a_config.streaming is True
+    assert a2a_config.auth is not None
+    assert a2a_config.auth.oauth is True
+    assert a2a_config.auth.persist == "memory"
+    assert a2a_config.accepted_output_modes == ["text"]
+    assert a2a_config.request_timeout_seconds == 45.0
+
+    dumped = dump_agent_to_string("hello_remote", loaded.agent_data, as_yaml=True)
+    assert "auth:" in dumped
+    assert "oauth: true" in dumped
+    assert "persist: memory" in dumped
+
+
+def test_load_a2a_agent_card_rejects_invalid_transport(tmp_path: Path) -> None:
+    card_path = tmp_path / "bad_remote.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "type: a2a",
+                "name: bad_remote",
+                "url: http://127.0.0.1:41241",
+                "transport: WEBSOCKET",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="transport"):
+        load_agent_cards(card_path)
+
+
+def test_load_a2a_agent_card_rejects_grpc_transport(tmp_path: Path) -> None:
+    card_path = tmp_path / "bad_remote.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "type: a2a",
+                "name: bad_remote",
+                "url: http://127.0.0.1:41241",
+                "transport: GRPC",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="JSONRPC, HTTP\\+JSON"):
+        load_agent_cards(card_path)
