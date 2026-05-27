@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
 import uvicorn
@@ -31,7 +32,9 @@ from a2a.types import (
     AgentInterface,
     AgentProvider,
     AgentSkill,
+    Message,
     Part,
+    Role,
     Task,
     TaskState,
     TaskStatus,
@@ -69,6 +72,17 @@ def _is_help_query(query: str) -> bool:
     return normalized in {"help", "?", "commands", "menu"} or "what can you do" in normalized
 
 
+def _agent_message(*, text: str, context_id: str | None) -> Message:
+    message = Message(
+        role=Role.ROLE_AGENT,
+        message_id=str(uuid.uuid4()),
+        parts=[Part(text=text)],
+    )
+    if context_id:
+        message.context_id = context_id
+    return message
+
+
 class FakeAgentExecutor(AgentExecutor):
     def __init__(self) -> None:
         self.pending_input_tasks: set[str] = set()
@@ -82,7 +96,33 @@ class FakeAgentExecutor(AgentExecutor):
         await updater.cancel()
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        if not context.message or not context.task_id or not context.context_id:
+        if not context.message:
+            return
+
+        query = context.get_user_input()
+        if _is_help_query(query) and context.task_id not in self.pending_input_tasks:
+            await event_queue.enqueue_event(
+                _agent_message(text=FAKE_A2A_HELP, context_id=context.context_id)
+            )
+            return
+
+        taskless_query = not any(
+            marker in query.lower()
+            for marker in ["long stream", "stream", "files", "need input"]
+        )
+        if context.task_id not in self.pending_input_tasks and taskless_query:
+            kinds = ",".join(
+                part.WhichOneof("content") or "unknown" for part in context.message.parts
+            )
+            await event_queue.enqueue_event(
+                _agent_message(
+                    text=f"fake echo: {query} [{kinds}]",
+                    context_id=context.context_id,
+                )
+            )
+            return
+
+        if not context.task_id or not context.context_id:
             return
 
         await event_queue.enqueue_event(
@@ -100,7 +140,6 @@ class FakeAgentExecutor(AgentExecutor):
         )
         await updater.start_work(message=updater.new_agent_message(parts=[Part(text="working")]))
 
-        query = context.get_user_input()
         if _is_help_query(query):
             if context.task_id in self.pending_input_tasks:
                 await updater.update_status(
@@ -117,13 +156,6 @@ class FakeAgentExecutor(AgentExecutor):
                     ),
                 )
                 return
-            await updater.add_artifact(
-                parts=[Part(text=FAKE_A2A_HELP)],
-                name="help",
-                last_chunk=True,
-            )
-            await updater.complete()
-            return
 
         if context.task_id in self.pending_input_tasks:
             self.pending_input_tasks.remove(context.task_id)
@@ -185,13 +217,6 @@ class FakeAgentExecutor(AgentExecutor):
             )
             return
 
-        kinds = ",".join(part.WhichOneof("content") or "unknown" for part in context.message.parts)
-        await updater.add_artifact(
-            parts=[Part(text=f"fake echo: {query} [{kinds}]")],
-            name="response",
-            last_chunk=True,
-        )
-        await updater.complete()
 
 
 def build_app(host: str, port: int) -> FastAPI:

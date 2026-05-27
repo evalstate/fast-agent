@@ -90,6 +90,16 @@ def test_auto_routes_to_go_when_no_shell_used_at_root() -> None:
     assert "--no-shell" in output
 
 
+def test_auto_routes_to_go_when_a2a_used_at_root() -> None:
+    result = _run_fast_agent_cli("--a2a", "http://localhost:8001", "--help")
+    output = strip_ansi(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "go [OPTIONS] COMMAND" in output
+    assert "--a2a" in output
+    assert "--a2a-transport" in output
+
+
 def test_resume_sentinel_is_not_added_for_batch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1,52 +1,60 @@
 """fast-agent - An MCP native agent application framework"""
 
+import importlib
 from typing import TYPE_CHECKING
 
-from fast_agent.config import (
-    AnthropicSettings,
-    AzureSettings,
-    BedrockSettings,
-    DeepSeekSettings,
-    GenericSettings,
-    GoogleSettings,
-    GroqSettings,
-    HuggingFaceSettings,
-    LoggerSettings,
-    MCPElicitationSettings,
-    MCPRootSettings,
-    MCPSamplingSettings,
-    MCPServerAuthSettings,
-    MCPServerSettings,
-    MCPSettings,
-    OpenAISettings,
-    OpenRouterSettings,
-    OpenTelemetrySettings,
-    Settings,
-    SkillsSettings,
-    TensorZeroSettings,
-    XAISettings,
-)
-from fast_agent.types import (
-    ConversationSummary,
-    LlmStopReason,
-    PromptMessageExtended,
-    RequestParams,
-    ResourceLink,
-    audio_link,
-    extract_first,
-    extract_last,
-    find_matches,
-    image_link,
-    resource_link,
-    search_messages,
-    text_content,
-    video_link,
-)
+_CONFIG_EXPORTS = {
+    "AnthropicSettings",
+    "AzureSettings",
+    "BedrockSettings",
+    "DeepSeekSettings",
+    "GenericSettings",
+    "GoogleSettings",
+    "GroqSettings",
+    "HuggingFaceSettings",
+    "LoggerSettings",
+    "MCPElicitationSettings",
+    "MCPRootSettings",
+    "MCPSamplingSettings",
+    "MCPServerAuthSettings",
+    "MCPServerSettings",
+    "MCPSettings",
+    "OpenAISettings",
+    "OpenRouterSettings",
+    "OpenTelemetrySettings",
+    "Settings",
+    "SkillsSettings",
+    "TensorZeroSettings",
+    "XAISettings",
+}
+
+_TYPE_EXPORTS = {
+    "ConversationSummary",
+    "LlmStopReason",
+    "PromptMessageExtended",
+    "RequestParams",
+    "ResourceLink",
+    "audio_link",
+    "extract_first",
+    "extract_last",
+    "find_matches",
+    "image_link",
+    "resource_link",
+    "search_messages",
+    "text_content",
+    "video_link",
+}
 
 
 def __getattr__(name: str):
     """Lazy import heavy modules to avoid circular imports during package initialization."""
-    if name == "Core":
+    if name in _CONFIG_EXPORTS:
+        module = importlib.import_module("fast_agent.config")
+        return getattr(module, name)
+    elif name in _TYPE_EXPORTS:
+        module = importlib.import_module("fast_agent.types")
+        return getattr(module, name)
+    elif name == "Core":
         from fast_agent.core import Core
 
         return Core
@@ -113,10 +121,44 @@ def __getattr__(name: str):
 # Help static analyzers/IDEs resolve symbols and signatures without importing at runtime.
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
     # Provide a concrete import path for type checkers/IDEs
+    from fast_agent.config import AnthropicSettings as AnthropicSettings  # noqa: F401
+    from fast_agent.config import AzureSettings as AzureSettings  # noqa: F401
+    from fast_agent.config import BedrockSettings as BedrockSettings  # noqa: F401
+    from fast_agent.config import DeepSeekSettings as DeepSeekSettings  # noqa: F401
+    from fast_agent.config import GenericSettings as GenericSettings  # noqa: F401
+    from fast_agent.config import GoogleSettings as GoogleSettings  # noqa: F401
+    from fast_agent.config import GroqSettings as GroqSettings  # noqa: F401
+    from fast_agent.config import HuggingFaceSettings as HuggingFaceSettings  # noqa: F401
+    from fast_agent.config import LoggerSettings as LoggerSettings  # noqa: F401
+    from fast_agent.config import MCPElicitationSettings as MCPElicitationSettings  # noqa: F401
+    from fast_agent.config import MCPRootSettings as MCPRootSettings  # noqa: F401
+    from fast_agent.config import MCPSamplingSettings as MCPSamplingSettings  # noqa: F401
+    from fast_agent.config import MCPServerAuthSettings as MCPServerAuthSettings  # noqa: F401
+    from fast_agent.config import MCPServerSettings as MCPServerSettings  # noqa: F401
+    from fast_agent.config import MCPSettings as MCPSettings  # noqa: F401
+    from fast_agent.config import OpenAISettings as OpenAISettings  # noqa: F401
+    from fast_agent.config import OpenRouterSettings as OpenRouterSettings  # noqa: F401
+    from fast_agent.config import OpenTelemetrySettings as OpenTelemetrySettings  # noqa: F401
+    from fast_agent.config import Settings as Settings  # noqa: F401
+    from fast_agent.config import SkillsSettings as SkillsSettings  # noqa: F401
+    from fast_agent.config import TensorZeroSettings as TensorZeroSettings  # noqa: F401
+    from fast_agent.config import XAISettings as XAISettings  # noqa: F401
     from fast_agent.core.fastagent import FastAgent as FastAgent  # noqa: F401
     from fast_agent.mcp.prompt import Prompt as Prompt  # noqa: F401
     from fast_agent.types import ConversationSummary as ConversationSummary  # noqa: F401
+    from fast_agent.types import LlmStopReason as LlmStopReason  # noqa: F401
     from fast_agent.types import PromptMessageExtended as PromptMessageExtended  # noqa: F401
+    from fast_agent.types import RequestParams as RequestParams  # noqa: F401
+    from fast_agent.types import ResourceLink as ResourceLink  # noqa: F401
+    from fast_agent.types import audio_link as audio_link  # noqa: F401
+    from fast_agent.types import extract_first as extract_first  # noqa: F401
+    from fast_agent.types import extract_last as extract_last  # noqa: F401
+    from fast_agent.types import find_matches as find_matches  # noqa: F401
+    from fast_agent.types import image_link as image_link  # noqa: F401
+    from fast_agent.types import resource_link as resource_link  # noqa: F401
+    from fast_agent.types import search_messages as search_messages  # noqa: F401
+    from fast_agent.types import text_content as text_content  # noqa: F401
+    from fast_agent.types import video_link as video_link  # noqa: F401
 
 
 __all__ = [
@@ -125,7 +167,7 @@ __all__ = [
     "Context",
     "ContextDependent",
     "ServerRegistry",
-    # Configuration and settings (eagerly loaded)
+    # Configuration and settings (lazy loaded)
     "Settings",
     "MCPSettings",
     "MCPServerSettings",
@@ -151,19 +193,19 @@ __all__ = [
     # Progress and event tracking (lazy loaded)
     "ProgressAction",
     "ProgressEvent",
-    # Type definitions and enums (eagerly loaded)
+    # Type definitions and enums (lazy loaded)
     "LlmStopReason",
     "RequestParams",
     "PromptMessageExtended",
     "ResourceLink",
     "ConversationSummary",
-    # Content helpers (eagerly loaded)
+    # Content helpers (lazy loaded)
     "text_content",
     "resource_link",
     "image_link",
     "video_link",
     "audio_link",
-    # Search utilities (eagerly loaded)
+    # Search utilities (lazy loaded)
     "search_messages",
     "find_matches",
     "extract_first",

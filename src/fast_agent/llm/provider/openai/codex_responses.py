@@ -130,10 +130,12 @@ class CodexResponsesLLM(ResponsesLLM):
             data={"url": url},
         )
         from fast_agent.llm.provider.openai.codex_oauth import (
+            clear_codex_token_cache,
             load_codex_tokens,
             refresh_codex_tokens,
             save_codex_tokens,
         )
+        clear_codex_token_cache()
         tokens = load_codex_tokens()
         if not tokens or not tokens.refresh_token:
             raise ProviderKeyError(

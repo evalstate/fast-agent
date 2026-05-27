@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -21,7 +22,9 @@ from a2a.types import (
     AgentInterface,
     AgentProvider,
     AgentSkill,
+    Message,
     Part,
+    Role,
     Task,
     TaskState,
     TaskStatus,
@@ -67,6 +70,17 @@ def _is_help_query(query: str) -> bool:
     return normalized in {"help", "?", "commands", "menu"} or "what can you do" in normalized
 
 
+def _agent_message(*, text: str, context_id: str | None) -> Message:
+    message = Message(
+        role=Role.ROLE_AGENT,
+        message_id=str(uuid.uuid4()),
+        parts=[Part(text=text)],
+    )
+    if context_id:
+        message.context_id = context_id
+    return message
+
+
 @dataclass(frozen=True)
 class A2ATestServer:
     base_url: str
@@ -89,7 +103,40 @@ class EchoAgentExecutor(AgentExecutor):
         await updater.cancel()
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        if not context.message or not context.task_id or not context.context_id:
+        if not context.message:
+            return
+        query = context.get_user_input()
+        self.seen_queries.append(query)
+        self.seen_part_kinds.append(
+            [part.WhichOneof("content") or "unknown" for part in context.message.parts]
+        )
+
+        if _is_help_query(query) and context.task_id not in self.pending_input_tasks:
+            await event_queue.enqueue_event(
+                _agent_message(text=FAKE_A2A_HELP, context_id=context.context_id)
+            )
+            return
+
+        normalized_query = query.lower()
+        taskless_query = not any(
+            marker in normalized_query
+            for marker in [
+                "long stream",
+                "stream",
+                "respond with files",
+                "artifact append",
+                "need input",
+            ]
+        )
+        if context.task_id not in self.pending_input_tasks and taskless_query:
+            await asyncio.sleep(0.01)
+            summary = ",".join(self.seen_part_kinds[-1])
+            await event_queue.enqueue_event(
+                _agent_message(text=f"echo: {query} [{summary}]", context_id=context.context_id)
+            )
+            return
+
+        if not context.task_id or not context.context_id:
             return
 
         await event_queue.enqueue_event(
@@ -110,12 +157,6 @@ class EchoAgentExecutor(AgentExecutor):
             message=updater.new_agent_message(parts=[Part(text="working")])
         )
 
-        query = context.get_user_input()
-        self.seen_queries.append(query)
-        self.seen_part_kinds.append(
-            [part.WhichOneof("content") or "unknown" for part in context.message.parts]
-        )
-
         if _is_help_query(query):
             if context.task_id in self.pending_input_tasks:
                 await updater.update_status(
@@ -132,13 +173,6 @@ class EchoAgentExecutor(AgentExecutor):
                     ),
                 )
                 return
-            await updater.add_artifact(
-                parts=[Part(text=FAKE_A2A_HELP)],
-                name="help",
-                last_chunk=True,
-            )
-            await updater.complete()
-            return
 
         if context.task_id in self.pending_input_tasks:
             self.pending_input_tasks.remove(context.task_id)
@@ -237,14 +271,6 @@ class EchoAgentExecutor(AgentExecutor):
             )
             return
 
-        await asyncio.sleep(0.01)
-        summary = ",".join(self.seen_part_kinds[-1])
-        await updater.add_artifact(
-            parts=[Part(text=f"echo: {query} [{summary}]")],
-            name="response",
-            last_chunk=True,
-        )
-        await updater.complete()
 
 
 @pytest_asyncio.fixture

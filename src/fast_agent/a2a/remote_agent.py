@@ -369,6 +369,8 @@ class A2ARemoteAgent(LlmDecorator):
 
         async for event in events:
             if event.HasField("message"):
+                if event.message.context_id:
+                    self.context_id = event.message.context_id
                 text = _parts_text(event.message.parts)
                 _append_text(message_chunks, text)
                 self._emit_stream(text)

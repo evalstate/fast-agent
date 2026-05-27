@@ -33,7 +33,7 @@ async def _send_text(base_url: str, transport: str) -> A2ARemoteAgent:
         assert agent.remote_card is not None
         assert agent.remote_card.name == "fast-agent test A2A server"
         assert agent.context_id
-        assert agent.last_task_state == "TASK_STATE_COMPLETED"
+        assert agent.last_task_state is None
         assert agent.current_task_id is None
         return agent
     except Exception:
@@ -127,6 +127,9 @@ async def test_a2a_fake_server_help_lists_available_prompts(a2a_test_server) -> 
         await agent.shutdown()
 
     assert response.all_text() == FAKE_A2A_HELP
+    assert agent.context_id
+    assert agent.current_task_id is None
+    assert agent.last_task_state is None
 
 
 @pytest.mark.integration

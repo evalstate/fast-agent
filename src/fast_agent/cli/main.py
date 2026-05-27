@@ -37,9 +37,30 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "export": "fast_agent.cli.commands.export:app",
 }
 
+LAZY_SUBCOMMAND_HELP: dict[str, str] = {
+    "acp": "Start fast-agent as an ACP stdio server (convenience wrapper for 'serve --transport acp').",
+    "auth": "Manage OAuth tokens stored in the OS keyring for MCP HTTP/SSE servers (identity = base URL).",
+    "batch": "Run batch processing jobs.",
+    "bootstrap": "Create fast-agent quickstarts",
+    "cards": "Manage card packs (list/add/remove/update/publish).",
+    "check": "Check and diagnose FastAgent configuration",
+    "config": "Configure fast-agent settings interactively.",
+    "demo": "Demo commands for UI features.",
+    "export": "Export persisted session traces.",
+    "go": "Run an interactive agent directly from the command line without creating an agent.py file",
+    "model": "Interactive model reference setup.",
+    "plugins": "Manage command plugins (list/add/remove/update).",
+    "quickstart": "Create fast-agent quickstarts",
+    "scaffold": "Initialize a new FastAgent project with configuration files and example agent.",
+    "serve": "Expose fast-agent to clients over MCP (http or stdio), ACP, or A2A, without writing an agent.py file",
+    "skills": "Manage skills (list/available/search/add/remove/update).",
+}
+
 
 class LazyGroup(TyperGroup):
     lazy_subcommands: dict[str, str] = {}
+    lazy_help: dict[str, str] = {}
+    _rendering_root_help: bool = False
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         if _first_root_command(args) == "go":
@@ -53,12 +74,21 @@ class LazyGroup(TyperGroup):
         target = self.lazy_subcommands.get(cmd_name)
         if not target:
             return None
+        if self._rendering_root_help:
+            return click.Command(cmd_name, help=self.lazy_help.get(cmd_name, ""))
         module_path, app_name = target.split(":", 1)
         module = importlib.import_module(module_path)
         typer_app = getattr(module, app_name)
         command = typer.main.get_command(typer_app)
         command.name = cmd_name
         return command
+
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        self._rendering_root_help = True
+        try:
+            super().format_help(ctx, formatter)
+        finally:
+            self._rendering_root_help = False
 
 
 app = typer.Typer(
@@ -67,6 +97,7 @@ app = typer.Typer(
     add_completion=False,  # We'll add this later when we have more commands
 )
 LazyGroup.lazy_subcommands = LAZY_SUBCOMMANDS
+LazyGroup.lazy_help = LAZY_SUBCOMMAND_HELP
 
 
 def _first_root_command(args: list[str]) -> str | None:

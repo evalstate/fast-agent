@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from a2a.types import (
     Artifact,
+    Message,
     Part,
+    Role,
     StreamResponse,
     Task,
     TaskArtifactUpdateEvent,
@@ -213,6 +215,30 @@ async def test_a2a_remote_agent_first_request_omits_context_and_task_ids() -> No
     assert request.message.context_id == ""
     assert request.message.task_id == ""
     assert agent.context_id == "ctx-server"
+
+
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_message_only_response_updates_context_without_task_state() -> None:
+    agent = _remote_agent()
+
+    result = await agent._consume_events(
+        _events(
+            StreamResponse(
+                message=Message(
+                    role=Role.ROLE_AGENT,
+                    message_id="message-only",
+                    context_id="ctx-message",
+                    parts=[Part(text="hello")],
+                )
+            )
+        )
+    )
+
+    assert result.text == "hello"
+    assert result.state is None
+    assert agent.context_id == "ctx-message"
+    assert agent.current_task_id is None
+    assert agent.last_task_state is None
 
 
 @pytest.mark.asyncio

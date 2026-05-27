@@ -56,6 +56,8 @@ CODEX_TOKEN_KEY = f"oauth:tokens:{CODEX_KEYRING_IDENTITY}"
 CODEX_TOKEN_META_KEY = f"{CODEX_TOKEN_KEY}:meta"
 CODEX_TOKEN_CHUNK_PREFIX = f"{CODEX_TOKEN_KEY}:chunk"
 CODEX_KEYRING_MAX_PAYLOAD_BYTES = 512
+
+
 class CodexOAuthTokens(BaseModel):
     access_token: str
     refresh_token: str | None = None
@@ -67,6 +69,17 @@ class CodexOAuthTokens(BaseModel):
         if self.expires_at is None:
             return False
         return time.time() >= (self.expires_at - margin_seconds)
+
+
+_AuthJsonFingerprint = tuple[int, int, int] | None
+_KeyringFingerprint = str | None
+_CodexTokenCacheKey = tuple[str, bool, _AuthJsonFingerprint, _KeyringFingerprint]
+_CodexTokenCache = tuple[
+    _CodexTokenCacheKey,
+    CodexOAuthTokens | None,
+    str | None,
+]
+_codex_token_cache: _CodexTokenCache | None = None
 
 
 @dataclass
@@ -238,6 +251,26 @@ def _resolve_codex_cli_auth_path() -> Path:
 
 def _prefer_codex_cli_auth_path() -> bool:
     return _resolve_codex_cli_auth_path() != _default_codex_cli_auth_path()
+
+
+def _auth_json_fingerprint(auth_path: Path) -> _AuthJsonFingerprint:
+    try:
+        stat = auth_path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+
+
+def _keyring_payload_fingerprint(payload: str | None) -> _KeyringFingerprint:
+    if payload is None:
+        return None
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def clear_codex_token_cache() -> None:
+    global _codex_token_cache
+
+    _codex_token_cache = None
 
 
 def _safe_delete(keyring_module: _KeyringProtocol, username: str) -> None:
@@ -458,21 +491,48 @@ def _save_codex_cli_tokens(tokens: CodexOAuthTokens) -> None:
 
 
 def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | None]:
-    if _prefer_codex_cli_auth_path():
+    global _codex_token_cache
+
+    auth_path = _resolve_codex_cli_auth_path()
+    prefer_auth_json = _prefer_codex_cli_auth_path()
+    auth_json_fingerprint = _auth_json_fingerprint(auth_path)
+    if _codex_token_cache is not None:
+        cache_key, cached_tokens, cached_source = _codex_token_cache
+        cache_path, cache_prefer_auth_json, cache_auth_json_fingerprint, _ = cache_key
+        if (
+            cache_path == str(auth_path)
+            and cache_prefer_auth_json == prefer_auth_json
+            and cache_auth_json_fingerprint == auth_json_fingerprint
+        ):
+            return cached_tokens, cached_source
+
+    keyring_payload = None if prefer_auth_json else _get_keyring_password()
+    cache_key = (
+        str(auth_path),
+        prefer_auth_json,
+        auth_json_fingerprint,
+        _keyring_payload_fingerprint(keyring_payload),
+    )
+    if prefer_auth_json:
         tokens = _load_codex_cli_tokens()
         if tokens:
+            _codex_token_cache = (cache_key, tokens, "auth.json")
             return tokens, "auth.json"
 
-    payload = _get_keyring_password()
-    if payload:
+    if keyring_payload:
         try:
-            return CodexOAuthTokens.model_validate_json(payload), "keyring"
+            tokens = CodexOAuthTokens.model_validate_json(keyring_payload)
+            _codex_token_cache = (cache_key, tokens, "keyring")
+            return tokens, "keyring"
         except Exception:
+            _codex_token_cache = (cache_key, None, None)
             return None, None
 
     tokens = _load_codex_cli_tokens()
     if tokens:
+        _codex_token_cache = (cache_key, tokens, "auth.json")
         return tokens, "auth.json"
+    _codex_token_cache = (cache_key, None, None)
     return None, None
 
 
@@ -488,13 +548,34 @@ def load_codex_tokens() -> CodexOAuthTokens | None:
 
 
 def save_codex_tokens(tokens: CodexOAuthTokens) -> None:
-    if _prefer_codex_cli_auth_path():
+    global _codex_token_cache
+
+    auth_path = _resolve_codex_cli_auth_path()
+    prefer_auth_json = _prefer_codex_cli_auth_path()
+    if prefer_auth_json:
         _save_codex_cli_tokens(tokens)
+        _codex_token_cache = (
+            (str(auth_path), True, _auth_json_fingerprint(auth_path), None),
+            tokens,
+            "auth.json",
+        )
         return
-    _set_keyring_password(tokens.model_dump_json())
+    payload = tokens.model_dump_json()
+    _set_keyring_password(payload)
+    _codex_token_cache = (
+        (
+            str(auth_path),
+            False,
+            _auth_json_fingerprint(auth_path),
+            _keyring_payload_fingerprint(payload),
+        ),
+        tokens,
+        "keyring",
+    )
 
 
 def clear_codex_tokens() -> bool:
+    clear_codex_token_cache()
     if not _keyring_payload_present():
         return False
     try:

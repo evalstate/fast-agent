@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
-from fast_agent.config import MCPServerAuthSettings
+if TYPE_CHECKING:
+    from fast_agent.config import MCPServerAuthSettings
 
 _TRANSPORT_ALIASES = {
     "jsonrpc": "JSONRPC",
@@ -82,7 +84,7 @@ def parse_a2a_connect_arguments(arguments: str | None) -> tuple[A2AConnectReques
             name=name,
             transport=transport,
             auth=(
-                MCPServerAuthSettings(oauth=trigger_oauth)
+                _a2a_auth_settings(trigger_oauth)
                 if trigger_oauth is not None
                 else None
             ),
@@ -90,6 +92,12 @@ def parse_a2a_connect_arguments(arguments: str | None) -> tuple[A2AConnectReques
         ),
         None,
     )
+
+
+def _a2a_auth_settings(oauth: bool) -> "MCPServerAuthSettings":
+    from fast_agent.config import MCPServerAuthSettings
+
+    return MCPServerAuthSettings(oauth=oauth)
 
 
 def normalize_a2a_transport(value: str) -> str | None:

@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import typer
 from pydantic import BaseModel
 
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
@@ -52,6 +53,10 @@ if TYPE_CHECKING:
     from .run_request import AgentRunRequest
 
 logger = get_logger(__name__)
+
+_STARTUP_MODEL_DEFINED = "defined"
+_STARTUP_MODEL_NOT_REQUIRED = "not_required"
+_STARTUP_MODEL_UNSATISFIED = "unsatisfied"
 
 
 async def _structured_call(
@@ -101,21 +106,17 @@ def _should_prompt_for_model_picker(
     return stdin_is_tty and stdout_is_tty
 
 
-def _explicit_agent_cards_define_startup_model(
-    request: AgentRunRequest,
-    *,
-    model_references: Mapping[str, Mapping[str, str]] | None = None,
-) -> bool:
-    if not request.agent_cards or request.target_agent_name:
-        return False
+def _load_explicit_agent_cards(request: AgentRunRequest):
+    if not request.agent_cards:
+        return None
 
     try:
-        from fast_agent.core.agent_card_loader import load_agent_cards
+        from fast_agent.core.agent_card_loader import LoadedAgentCard, load_agent_cards
         from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
     except Exception:
-        return False
+        return None
 
-    loaded_cards = []
+    loaded_cards: list[LoadedAgentCard] = []
     temp_paths: list[Path] = []
     try:
         for source in request.agent_cards:
@@ -128,41 +129,99 @@ def _explicit_agent_cards_define_startup_model(
                 path = materialize_text_source(source, label="AgentCard source")
             loaded_cards.extend(load_agent_cards(path))
     except Exception:
-        return False
+        return None
     finally:
         for path in temp_paths:
             path.unlink(missing_ok=True)
 
-    runnable_configs = []
+    return loaded_cards
+
+
+def _selected_startup_agent_config(request: AgentRunRequest) -> AgentConfig | None:
+    loaded_cards = _load_explicit_agent_cards(request)
+    if not loaded_cards:
+        return None
+
+    runnable_cards = []
     for card in loaded_cards:
         if card.agent_data.get("tool_only", False):
             continue
         config = card.agent_data.get("config")
-        if config is None:
+        if not isinstance(config, AgentConfig):
             continue
-        runnable_configs.append(config)
+        runnable_cards.append((card, config))
 
-    if len(runnable_configs) != 1:
-        return False
+    if request.target_agent_name:
+        runnable_cards = [
+            (card, config) for card, config in runnable_cards if card.name == request.target_agent_name
+        ]
+    elif len(runnable_cards) > 1:
+        default_cards = [
+            (card, config) for card, config in runnable_cards if config.default
+        ]
+        if len(default_cards) == 1:
+            runnable_cards = default_cards
 
-    model = runnable_configs[0].model
+    if len(runnable_cards) != 1:
+        return None
+    return runnable_cards[0][1]
+
+
+def _explicit_agent_cards_startup_model_status(
+    request: AgentRunRequest,
+    *,
+    model_references: Mapping[str, Mapping[str, str]] | None = None,
+) -> str:
+    config = _selected_startup_agent_config(request)
+    if config is None:
+        return _STARTUP_MODEL_UNSATISFIED
+
+    if config.agent_type == AgentType.A2A:
+        return _STARTUP_MODEL_NOT_REQUIRED
+
+    model = config.model
     if not isinstance(model, str):
-        return False
+        return _STARTUP_MODEL_UNSATISFIED
 
     model_spec = model.strip()
     if not model_spec:
-        return False
+        return _STARTUP_MODEL_UNSATISFIED
     if not model_spec.startswith("$"):
-        return True
+        return _STARTUP_MODEL_DEFINED
 
     try:
         from fast_agent.core.model_resolution import resolve_model_reference
 
         resolved_model = resolve_model_reference(model_spec, model_references)
     except ModelConfigError:
-        return False
+        return _STARTUP_MODEL_UNSATISFIED
 
-    return bool(resolved_model.strip())
+    return _STARTUP_MODEL_DEFINED if resolved_model.strip() else _STARTUP_MODEL_UNSATISFIED
+
+
+def _explicit_agent_cards_define_startup_model(
+    request: AgentRunRequest,
+    *,
+    model_references: Mapping[str, Mapping[str, str]] | None = None,
+) -> bool:
+    return (
+        _explicit_agent_cards_startup_model_status(
+            request,
+            model_references=model_references,
+        )
+        == _STARTUP_MODEL_DEFINED
+    )
+
+
+def _explicit_agent_cards_satisfy_startup_model(
+    request: AgentRunRequest,
+    *,
+    model_references: Mapping[str, Mapping[str, str]] | None = None,
+) -> bool:
+    return _explicit_agent_cards_startup_model_status(
+        request,
+        model_references=model_references,
+    ) in {_STARTUP_MODEL_DEFINED, _STARTUP_MODEL_NOT_REQUIRED}
 
 
 
@@ -1134,7 +1193,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
     if request.model is None:
         settings = _load_request_settings(request)
-        startup_model_defined_by_card = _explicit_agent_cards_define_startup_model(
+        startup_model_satisfied_by_card = _explicit_agent_cards_satisfy_startup_model(
             request,
             model_references=getattr(settings, "model_references", None),
         )
@@ -1146,7 +1205,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
         if (
             explicit_source is None
-            and not startup_model_defined_by_card
+            and not startup_model_satisfied_by_card
             and _should_prompt_for_model_picker(
             request,
             stdin_is_tty=sys.stdin.isatty(),
@@ -1169,7 +1228,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                 model_spec=request.model,
             )
             startup_model_source_override = "model picker"
-        elif explicit_source is None and not startup_model_defined_by_card:
+        elif explicit_source is None and not startup_model_satisfied_by_card:
             _, initial_model_spec = _resolve_model_picker_initial_selection(
                 settings=settings,
             )
