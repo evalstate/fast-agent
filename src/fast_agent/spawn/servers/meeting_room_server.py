@@ -360,24 +360,32 @@ async def create_meeting(
 def _assert_self_identity(agent_name: str) -> tuple[str, str | None]:
     """Resolve caller identity + refuse impersonation.
 
-    The legacy contract was ``agent_name = agent_name or _get_my_name()``
-    — i.e. trust whatever name the caller supplies. That let any agent
-    `speak()` or `skip_turn()` ON BEHALF OF a teammate by simply passing
-    their name as ``agent_name``, since the only downstream check was
-    "is this name the current speaker", not "is the caller actually
-    this agent" (production 2026-05-20: Taylor [PM] force-skipped all
-    6 teammates in one meeting by impersonating each one's turn —
-    transcript falsely attributed identical placeholder responses to
-    BA/SA/Dev/Designer/QE/DSO).
+    Contract: a process can act as ITSELF and only itself. The
+    authoritative identity is ``$TEAM_MY_NAME`` — set by the spawner at
+    process-creation time, immutable for the process's lifetime.
 
-    Authoritative caller identity is ``$TEAM_MY_NAME`` — set by the
-    isolated_spawner at team-spawn time, immutable for the process's
-    lifetime. We read the env var DIRECTLY (not via ``_get_my_name()``)
-    because that helper falls back to ``$TEAM_MY_ROLE`` and then a
-    generic "agent" string; only ``TEAM_MY_NAME`` proves the process
-    was spawned as a specific team member. If it's unset, the process
-    is NOT a team agent (CLI tests, dashboard direct calls, library
-    use) and we preserve the legacy permissive contract.
+    Two cases:
+
+    1. ``agent_name`` is empty → auto-detect. Fall back to
+       ``_get_my_name()`` (env name, role, or "agent"). No claim was
+       made, so no impersonation is possible.
+
+    2. ``agent_name`` is non-empty → the caller is CLAIMING to be a
+       specific named agent. We must verify. Required:
+         a) ``$TEAM_MY_NAME`` must be set (otherwise we have no ground
+            truth to compare the claim against — REFUSE).
+         b) The claim must match ``$TEAM_MY_NAME`` case-insensitively
+            (otherwise it's impersonation — REFUSE).
+
+    There is NO permissive escape hatch. The previous "if TEAM_MY_NAME
+    is unset, trust the caller" branch was a hole that let any process
+    pass ``agent_name="<teammate>"`` and write false transcript entries
+    (production 2026-05-20: Taylor [PM] force-skipped all 6 teammates
+    in one meeting by impersonating each one's turn). Closing this hole
+    means CLI tests / dashboard / library callers that want to write
+    transcript on behalf of a named agent MUST set TEAM_MY_NAME first —
+    that env var is the only ground-truth identity signal in this
+    process model.
 
     Returns ``(resolved_name, error_json)`` — exactly one is non-empty.
     Caller short-circuits on error_json.
@@ -385,11 +393,33 @@ def _assert_self_identity(agent_name: str) -> tuple[str, str | None]:
     caller_env = os.environ.get("TEAM_MY_NAME", "").strip()
 
     if not agent_name:
-        # No claim made — use whatever the legacy helper resolves
-        # (env name, env role, or "agent"). No impersonation possible.
+        # No claim → no impersonation risk. Fall back to env-resolved
+        # identity (which may itself be the role or "agent" if name is
+        # unset — that's safe because the caller didn't pretend to be
+        # anyone specific).
         return _get_my_name(), None
 
-    if caller_env and agent_name.strip().lower() != caller_env.lower():
+    # Claim was made — TEAM_MY_NAME MUST be set so we have ground truth
+    # to compare against. Empty env + claim = no verification possible =
+    # REFUSE (the old "permissive" branch is what got us here).
+    if not caller_env:
+        logger.error(
+            "meeting_room: refusing claim agent_name=%r — TEAM_MY_NAME is "
+            "unset on this process so identity cannot be verified. Set "
+            "TEAM_MY_NAME before calling speak/skip with an explicit name.",
+            agent_name,
+        )
+        return "", json.dumps({
+            "error": (
+                "Identity unverifiable: TEAM_MY_NAME is not set on this "
+                "process, so a claimed agent_name cannot be verified. "
+                "Either omit agent_name (auto-detect from env role) or "
+                "set TEAM_MY_NAME to your authoritative identity."
+            ),
+            "claimed_agent_name": agent_name,
+        })
+
+    if agent_name.strip().lower() != caller_env.lower():
         return "", json.dumps({
             "error": (
                 f"Impersonation refused: caller is {caller_env!r} but "
