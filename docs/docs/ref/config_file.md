@@ -30,9 +30,9 @@ default_model: "gpt-5-mini?reasoning=low"  # Format: provider.model_name with op
 model_references:
   system:
     fast: "gpt-5-mini?reasoning=low"
-    plan: "claude-sonnet-4-5"
+    plan: "claude-sonnet-4-6"
 
-# Whether to automatically enable Sampling. Model seletion precedence is Agent > Default.
+# Whether to automatically enable Sampling. Model selection precedence is Agent > Default.
 auto_sampling: true
 
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env)
@@ -65,7 +65,7 @@ default_model: "$system.fast"
 model_references:
   system:
     fast: "gpt-5-mini?reasoning=low"
-    plan: "claude-sonnet-4-5"
+    plan: "claude-sonnet-4-6"
 ```
 
 Notes:
@@ -177,9 +177,10 @@ Anthropic models fall into three groups:
 - **Budget-based thinking** (older models): defaults to a 1024 token budget. Set `reasoning` to a
   budget integer or disable with `"0"`/`off`/`false`. You can also pass `low`/`medium`/`high`/`max`,
   which map to preset budgets.
-- **Adaptive thinking** (e.g. `claude-opus-4-6`): defaults to `auto` (provider‑chosen). Use effort
-  levels (`low`/`medium`/`high`/`max`) to set `output_config.effort`. Budgets are not supported on
-  adaptive models.
+- **Adaptive thinking** (e.g. `claude-opus-4-6`, `claude-opus-4-7`, `claude-opus-4-8`): defaults
+  to `auto` (provider-chosen). Use effort levels (`low`/`medium`/`high`/`max`, plus `xhigh` where
+  advertised) to set `output_config.effort`. Fixed thinking budgets are deprecated for these models;
+  Opus 4.7+ additionally supports `task_budget` for model-visible agent-loop budgets.
 
 For budget models, the reasoning budget must be lower than `max_tokens` (fast-agent raises
 `max_tokens` if needed).
@@ -205,27 +206,16 @@ Allowed values: `on`/`off` (also accepts `true`/`false`, `1`/`0`).
 openai:
   api_key: "your_openai_key"  # Can also use OPENAI_API_KEY env var
   base_url: "https://api.openai.com/v1"  # Optional, only include to override
-  reasoning_effort: "medium"  # Default reasoning effort: "minimal", "low", "medium", or "high"
-  web_search:
-    enabled: false
-    tool_type: "web_search"  # Optional: web_search (default) or web_search_preview
-    search_context_size: "medium"  # Optional: low, medium, high
-    allowed_domains: ["example.com"]  # Optional, max 100 entries
-    user_location:  # Optional
-      type: approximate
-      city: "London"
-      country: "UK"
-      region: "England"
-      timezone: "Europe/London"
-    external_web_access: true  # Optional; applies to tool_type=web_search
+  reasoning: "medium"  # Optional unified reasoning setting where supported
 ```
 
-The same `web_search` block is also supported for `openresponses` and
+For OpenAI Responses API models, use the `responses` section below. The
+Responses-family `web_search` block is also supported for `openresponses` and
 `codexresponses` provider sections.
 
 Responses-family providers can also be toggled per run in the model string:
 
-- `openai.gpt-5?web_search=on`
+- `responses.gpt-5?web_search=on`
 - `openresponses.openai/gpt-oss-120b:groq?web_search=on`
 - `codexresponses.gpt-5.3-codex?web_search=off`
 
@@ -271,7 +261,7 @@ azure:
   api_key: "your_azure_openai_key"  # Required unless using DefaultAzureCredential
   resource_name: "your-resource-name"  # Resource name in Azure
   azure_deployment: "deployment-name"  # Required - deployment name from Azure
-  api_version: "2023-05-15"  # Optional API version
+  api_version: "2024-10-21"  # Optional API version
   default_headers:
     Ocp-Apim-Subscription-Key: "${AZURE_OPENAI_API_KEY}"
   # Do NOT include base_url if you use resource_name
@@ -281,7 +271,7 @@ azure:
 #   api_key: "your_azure_openai_key"
 #   base_url: "https://your-endpoint.openai.azure.com/"
 #   azure_deployment: "deployment-name"
-#   api_version: "2023-05-15"
+#   api_version: "2024-10-21"
 #   default_headers:
 #     Ocp-Apim-Subscription-Key: "${AZURE_OPENAI_API_KEY}"
 #   # Do NOT include resource_name if you use base_url
@@ -291,7 +281,7 @@ azure:
 #   use_default_azure_credential: true
 #   base_url: "https://your-endpoint.openai.azure.com/"
 #   azure_deployment: "deployment-name"
-#   api_version: "2023-05-15"
+#   api_version: "2024-10-21"
 #   default_headers:
 #     Ocp-Apim-Subscription-Key: "${AZURE_OPENAI_API_KEY}"
 #   # Do NOT include api_key or resource_name in this mode
@@ -602,16 +592,17 @@ skills:
 
   # Available skill registries (marketplaces)
   marketplace_urls:
+    - "https://github.com/fast-agent-ai/skills"
     - "https://github.com/huggingface/skills"
     - "https://github.com/anthropics/skills"
 ```
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `directories` | List of directories to search for SKILL.md files | environment skills directory (default `.fast-agent/skills`), `.claude/skills` |
-| `marketplace_urls` | List of skill registries for `/skills add` | HuggingFace and Anthropic registries |
+| `directories` | List of directories to search for `SKILL.md` files | `.fast-agent/skills`, `.agents/skills`, `.claude/skills` |
+| `marketplace_urls` | List of skill registries for `/skills add` | fast-agent, Hugging Face, and Anthropic registries |
 
-See [Agent Skills](../agents/skills/) for more information on using skills.
+See [Agent Skills](../guides/skills/) for more information on using skills.
 
 ## Command Plugin Configuration
 
@@ -744,9 +735,9 @@ default_model: "gpt-5-mini?reasoning=low"
 anthropic:
   api_key: API_KEY
 
-openai:
+responses:
   api_key: API_KEY
-  reasoning_effort: "high"
+  reasoning: "high"
 
 # MCP servers
 mcp:

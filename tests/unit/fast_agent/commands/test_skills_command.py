@@ -126,6 +126,46 @@ def test_skills_add_list_remove_via_cli(tmp_path: Path) -> None:
         update_global_settings(old_settings)
 
 
+def test_skills_add_direct_local_source_uses_manifest_name_without_marketplace(
+    tmp_path: Path,
+) -> None:
+    """CLI routing smoke: direct paths bypass registry fetch and use manifest name."""
+    source_dir = tmp_path / "source-name"
+    source_dir.mkdir()
+    (source_dir / "SKILL.md").write_text(
+        "---\nname: canonical-name\ndescription: Direct skill\n---\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    env_root = tmp_path / ".fast-agent"
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text(
+        "default_model: passthrough\n"
+        f"environment_dir: '{env_root.as_posix()}'\n"
+        "skills:\n"
+        "  marketplace_url: 'https://example.invalid/marketplace.json'\n",
+        encoding="utf-8",
+    )
+
+    old_settings = get_settings()
+    get_settings(config_path=str(config_path))
+    try:
+        runner = CliRunner()
+        result = runner.invoke(
+            skills_command.app,
+            ["add", source_dir.as_posix()],
+            terminal_width=200,
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Skill Installed" in result.output
+        assert "name: canonical-name" in result.output
+        assert (env_root / "skills" / "canonical-name" / "SKILL.md").exists()
+        assert not (env_root / "skills" / "source-name").exists()
+    finally:
+        update_global_settings(old_settings)
+
+
 def test_skills_help_has_registry_and_skills_dir_options_no_registry_subcommand() -> None:
     runner = CliRunner()
     result = runner.invoke(skills_command.app, ["--help"])

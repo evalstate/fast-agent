@@ -17,6 +17,8 @@ def build_progress_payload(
     tool_use_id: str | None = None,
     tool_call_id: str | None = None,
     tool_event: str | None = None,
+    tool_state: str | None = None,
+    tool_terminal: bool | None = None,
     progress: float | None = None,
     total: float | None = None,
     details: str | None = None,
@@ -37,6 +39,10 @@ def build_progress_payload(
         payload["tool_call_id"] = tool_call_id
     if tool_event is not None:
         payload["tool_event"] = tool_event
+    if tool_state is not None:
+        payload["tool_state"] = tool_state
+    if tool_terminal is not None:
+        payload["tool_terminal"] = tool_terminal
     if progress is not None:
         payload["progress"] = progress
     if total is not None:

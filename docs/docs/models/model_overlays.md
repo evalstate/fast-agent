@@ -246,7 +246,7 @@ default_model: "$system.fast"
 model_references:
   system:
     fast: "qwen-local"
-    plan: "claude-sonnet-4-5"
+    plan: "claude-sonnet-4-6"
 ```
 
 ## Overlays and precedence

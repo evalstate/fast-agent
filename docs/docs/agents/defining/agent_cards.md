@@ -1,17 +1,17 @@
 ---
-title: AgentCards and ToolCards
+title: Agent Cards
 description: How fast-agent loads AgentCards as runnable agents vs attached tools,
   including defaults for agent-cards and tool-cards directories.
 social:
-  title: AgentCards and ToolCards
+  title: Agent Cards
   tagline: Load AgentCards as runnable agents or attach ToolCards as callable tools.
   description: Load AgentCards as runnable agents or attach ToolCards as callable
     tools.
-  alt: fast-agent social card — AgentCards and ToolCards
+  alt: fast-agent social card — Agent Cards
 ---
 
 
-# AgentCards and ToolCards
+# Agent Cards
 
 ## Quick answer
 
@@ -115,7 +115,7 @@ mcp_connect:
 ```
 
 Connector-backed entries are supported only by the OpenAI `responses` provider.
-They require `access_token`; omit `target`, `transport`, `headers`, and `auth`.
+They require `name` and `access_token`; omit `target`, `transport`, `headers`, and `auth`.
 
 For provider-managed servers, use exact tool names in `tools.<server_name>`.
 Wildcard tool filters, prompt filters, and resource filters are not supported.

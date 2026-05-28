@@ -13,8 +13,8 @@ def test_build_progress_payload_includes_expected_fields() -> None:
         tool_use_id="call-1",
         tool_call_id="call-1",
         tool_event="stop",
-        progress=1.0,
-        total=1.0,
+        tool_state="completed",
+        tool_terminal=True,
         details="completed",
     )
 
@@ -26,8 +26,8 @@ def test_build_progress_payload_includes_expected_fields() -> None:
         "tool_use_id": "call-1",
         "tool_call_id": "call-1",
         "tool_event": "stop",
-        "progress": 1.0,
-        "total": 1.0,
+        "tool_state": "completed",
+        "tool_terminal": True,
         "details": "completed",
     }
 
@@ -44,4 +44,3 @@ def test_build_progress_payload_omits_none_and_merges_extra_fields() -> None:
         "server_name": "docs",
         "resource_uri": "file://README.md",
     }
-

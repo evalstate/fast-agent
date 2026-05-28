@@ -21,31 +21,52 @@ nav = [
     "guides/tui.md",
     "guides/codex.md",
     "guides/hf-dev.md",
+    { "Agent Skills" = "guides/skills.md" },
     "guides/batch-processing.md",
     "guides/structured-outputs.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
   ] },
   { "Agents" = [
-    "agents/defining.md",
+    { "Defining Agents" = [
+      { "Overview" = "agents/defining/index.md" },
+      { "Python API" = "agents/defining/python_api.md" },
+      { "Agent Cards" = "agents/defining/agent_cards.md" },
+    ] },
     { "Workflows" = "agents/workflows.md" },
     "agents/running.md",
     "agents/prompting.md",
     "agents/tool_runner.md",
     { "System Prompts" = "agents/instructions.md" },
-    "agents/skills.md",
     { "Command Plugins" = "agents/plugins.md" },
   ] },
   { "Models" = [
     { "Getting Started" = "models/index.md" },
+    { "Providers" = [
+      { "Provider Configuration" = "models/llm_providers.md" },
+      { "OpenAI" = "models/providers/openai.md" },
+      { "Anthropic" = "models/providers/anthropic.md" },
+      { "Google" = "models/providers/google.md" },
+      { "Azure" = "models/providers/azure.md" },
+      { "Bedrock" = "models/providers/bedrock.md" },
+      { "xAI" = "models/providers/xai.md" },
+      { "Hugging Face" = "models/providers/huggingface.md" },
+      { "Additional Providers" = "models/providers/additional.md" },
+    ] },
+    { "Reference" = [
     { "Model Overlays" = "models/model_overlays.md" },
-    { "Providers and Models" = "models/llm_providers.md" },
     { "Models Reference" = "models/models_reference.md" },
     { "Internal Models" = "models/internal_models.md" },
+    ]}
   ] },
   { "ACP" = [
+    {"Agent Client Protocol"  = [
     { "Using as an Agent" = "acp/index.md" },
     { "Customizing Agents" = "acp/customizing_agents.md" },
-  ] },
+  ]}
+  ] 
+  
+  
+  },
   { "MCP" = [
     { "Configuring Servers" = "mcp/index.md" },
     { "Deploying as an MCP Server" = "mcp/mcp-server.md" },
@@ -62,7 +83,6 @@ nav = [
     { "fast-agent go" = "ref/go_command.md" },
     { "Export Command" = "ref/export_command.md" },
     { "Batch Processing" = "ref/batch.md" },
-    { "AgentCards and ToolCards" = "ref/agent_cards.md" },
     { "Config File" = "ref/config_file.md" },
     { "Command Line" = "ref/cmd_switches.md" },
     { "Generated Docs" = "ref/generated_docs.md" },

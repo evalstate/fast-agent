@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fast_agent.skills import operations
+from fast_agent.skills.direct_sources import is_direct_skill_source, resolve_direct_skill_source
 from fast_agent.skills.provenance import get_skill_provenance
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
 
@@ -53,6 +54,10 @@ __all__ = [
     "apply_updates",
     "check_updates",
     "install_skill",
+    "install_direct_skill",
+    "install_direct_skill_sync",
+    "install_skill_from_selector",
+    "install_skill_from_selector_sync",
     "install_skill_sync",
     "list_installed_skills",
     "remove_skill",
@@ -98,6 +103,40 @@ async def install_skill(
         raise
 
 
+async def install_direct_skill(
+    source: str,
+    *,
+    destination_root: Path,
+) -> InstalledSkillRecord:
+    direct_source = await resolve_direct_skill_source(source)
+    install_dir = await operations.install_marketplace_skill(
+        direct_source.skill,
+        destination_root=destination_root,
+    )
+    try:
+        return _record_from_install_dir(destination_root, install_dir)
+    except Exception:
+        if install_dir.exists():
+            shutil.rmtree(install_dir)
+        raise
+
+
+async def install_skill_from_selector(
+    source: str,
+    selector: str,
+    *,
+    destination_root: Path,
+) -> InstalledSkillRecord:
+    """Install either a direct skill source or a marketplace selector.
+
+    This is the canonical routing boundary for command surfaces that accept
+    ``skills add <number|name|github-url|path>``.
+    """
+    if is_direct_skill_source(selector):
+        return await install_direct_skill(selector, destination_root=destination_root)
+    return await install_skill(source, selector, destination_root=destination_root)
+
+
 def install_skill_sync(
     source: str,
     selector: str,
@@ -108,6 +147,34 @@ def install_skill_sync(
         install_skill(
             source,
             selector,
+            destination_root=destination_root,
+        )
+    )
+
+
+def install_skill_from_selector_sync(
+    source: str,
+    selector: str,
+    *,
+    destination_root: Path,
+) -> InstalledSkillRecord:
+    return asyncio.run(
+        install_skill_from_selector(
+            source,
+            selector,
+            destination_root=destination_root,
+        )
+    )
+
+
+def install_direct_skill_sync(
+    source: str,
+    *,
+    destination_root: Path,
+) -> InstalledSkillRecord:
+    return asyncio.run(
+        install_direct_skill(
+            source,
             destination_root=destination_root,
         )
     )

@@ -11,6 +11,11 @@ if TYPE_CHECKING:
     from fast_agent.skills.models import MarketplaceSkill
 
 
+SKILLS_ADD_SELECTOR = "number|name|github-url|path"
+SKILLS_ADD_HINT_CLI = f"Install with: fast-agent skills add <{SKILLS_ADD_SELECTOR}>"
+SKILLS_ADD_HINT_SLASH = f"Install with `/skills add <{SKILLS_ADD_SELECTOR}>`."
+
+
 def skills_usage_lines() -> list[str]:
     """Return the shared usage/help text for skills management commands."""
     return [
@@ -20,7 +25,9 @@ def skills_usage_lines() -> list[str]:
         "Examples:",
         "- /skills available",
         "- /skills search docker",
-        "- /skills add <number|name>",
+        f"- /skills add <{SKILLS_ADD_SELECTOR}>",
+        "- /skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md",
+        "- /skills add ./skills/example",
         "- /skills registry",
         "- /skills templates             # list Skills-over-MCP template entries",
         "- /skills resolve <number>      # fill template variables and register",

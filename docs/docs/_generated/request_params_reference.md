@@ -7,36 +7,36 @@
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `task` | `mcp.types.TaskMetadata | None` | `None` |  |
-| `meta` | `mcp.types.RequestParams.Meta | None` | `None` |  |
+| `task` | `Union` | `None` |  |
+| `meta` | `Union` | `None` |  |
 | `messages` | `list` | `[]` |  |
-| `modelPreferences` | `mcp.types.ModelPreferences | None` | `None` |  |
-| `systemPrompt` | `str | None` | `None` |  |
-| `includeContext` | `Optional` | `None` |  |
-| `temperature` | `float | None` | `None` |  |
+| `modelPreferences` | `Union` | `None` |  |
+| `systemPrompt` | `Union` | `None` |  |
+| `includeContext` | `Union` | `None` |  |
+| `temperature` | `Union` | `None` |  |
 | `maxTokens` | `int` | `2048` |  |
-| `stopSequences` | `list[str] | None` | `None` |  |
-| `metadata` | `dict[str, typing.Any] | None` | `None` |  |
-| `tools` | `list[mcp.types.Tool] | None` | `None` |  |
-| `toolChoice` | `mcp.types.ToolChoice | None` | `None` |  |
-| `model` | `str | None` | `None` |  |
+| `stopSequences` | `Union` | `None` |  |
+| `metadata` | `Union` | `None` |  |
+| `tools` | `Union` | `None` |  |
+| `toolChoice` | `Union` | `None` |  |
+| `model` | `Union` | `None` |  |
 | `use_history` | `bool` | `True` |  |
-| `max_iterations` | `int` | `99` |  |
+| `max_iterations` | `int` | `199` |  |
 | `parallel_tool_calls` | `bool` | `True` |  |
-| `response_format` | `typing.Any | None` | `None` |  |
-| `structured_schema` | `dict[str, typing.Any] | None` | `None` |  |
+| `response_format` | `Union` | `None` |  |
+| `structured_schema` | `Union` | `None` |  |
 | `structured_tool_policy` | `Literal` | `'auto'` |  |
 | `template_vars` | `dict` | `PydanticUndefined` |  |
-| `mcp_metadata` | `dict[str, typing.Any] | None` | `None` |  |
-| `tool_execution_handler` | `typing.Any | None` | `None` |  |
+| `mcp_metadata` | `Union` | `None` |  |
+| `tool_execution_handler` | `Union` | `None` |  |
 | `emit_loop_progress` | `bool` | `False` |  |
 | `tool_result_mode` | `Literal` | `'postprocess'` |  |
-| `batch_context` | `fast_agent.llm.request_params.BatchRequestContext | None` | `None` |  |
-| `streaming_timeout` | `float | None` | `300.0` |  |
-| `top_p` | `float | None` | `None` |  |
-| `top_k` | `int | None` | `None` |  |
-| `min_p` | `float | None` | `None` |  |
-| `presence_penalty` | `float | None` | `None` |  |
-| `frequency_penalty` | `float | None` | `None` |  |
-| `repetition_penalty` | `float | None` | `None` |  |
-| `service_tier` | `Optional` | `None` |  |
+| `batch_context` | `Union` | `None` |  |
+| `streaming_timeout` | `Union` | `300.0` |  |
+| `top_p` | `Union` | `None` |  |
+| `top_k` | `Union` | `None` |  |
+| `min_p` | `Union` | `None` |  |
+| `presence_penalty` | `Union` | `None` |  |
+| `frequency_penalty` | `Union` | `None` |  |
+| `repetition_penalty` | `Union` | `None` |  |
+| `service_tier` | `Union` | `None` |  |

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import platform
 import re
 import subprocess
@@ -214,9 +215,7 @@ def open_links_in_browser(links: Iterable[UILink], mcp_ui_mode: str = "auto") ->
             if system == "Darwin":  # macOS
                 subprocess.run(["open", file_path], check=False, capture_output=True)
             elif system == "Windows":
-                subprocess.run(
-                    ["start", "", file_path], shell=True, check=False, capture_output=True
-                )
+                os.startfile(file_path)  # ty: ignore[unresolved-attribute]
             elif system == "Linux":
                 # Try xdg-open first (most common), fallback to other options
                 try:

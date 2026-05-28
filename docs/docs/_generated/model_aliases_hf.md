@@ -1,7 +1,7 @@
 | Model Alias | Maps to |
 | --- | --- |
-| `deepseek-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek-ai/deepseek-v4-pro` | `deepseek-ai/deepseek-v4-pro` |
+| `deepseek-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek32` | `hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai` |
 | `deepseek4-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |

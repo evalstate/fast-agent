@@ -3,11 +3,12 @@
 | `claude` | `claude-sonnet-4-6` | `claude-sonnet-4-6` | `claude-sonnet-4-6` |
 | `claude-3-5-haiku` | `claude-3-5-haiku` | `haiku` | `claude-haiku-4-5` |
 | `claude-3-5-haiku-latest` | `claude-3-5-haiku-latest` | `haiku45` | `claude-haiku-4-5` |
-| `claude-haiku-4-5` | `claude-haiku-4-5` | `opus` | `claude-opus-4-7` |
-| `claude-opus-4-0` | `claude-opus-4-0` | `opus4` | `claude-opus-4-7` |
+| `claude-haiku-4-5` | `claude-haiku-4-5` | `opus` | `claude-opus-4-8` |
+| `claude-opus-4-0` | `claude-opus-4-0` | `opus4` | `claude-opus-4-8` |
 | `claude-opus-4-1` | `claude-opus-4-1` | `opus46` | `claude-opus-4-6` |
 | `claude-opus-4-5` | `claude-opus-4-5` | `opus47` | `claude-opus-4-7` |
-| `claude-opus-4-6` | `claude-opus-4-6` | `sonnet` | `claude-sonnet-4-6` |
-| `claude-opus-4-7` | `claude-opus-4-7` | `sonnet4` | `claude-sonnet-4-6` |
+| `claude-opus-4-6` | `claude-opus-4-6` | `opus48` | `claude-opus-4-8` |
+| `claude-opus-4-7` | `claude-opus-4-7` | `sonnet` | `claude-sonnet-4-6` |
+| `claude-opus-4-8` | `claude-opus-4-8` | `sonnet4` | `claude-sonnet-4-6` |
 | `claude-sonnet-4-0` | `claude-sonnet-4-0` | `sonnet46` | `claude-sonnet-4-6` |
 | `claude-sonnet-4-5` | `claude-sonnet-4-5` |  |  |

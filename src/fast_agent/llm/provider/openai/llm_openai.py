@@ -530,6 +530,7 @@ class OpenAILLM(
                     "tool_name": info.get("tool_name"),
                     "tool_use_id": info.get("tool_use_id"),
                     "tool_event": "stop",
+                    "tool_terminal": True,
                 },
             )
             notified_tool_indices.add(index)

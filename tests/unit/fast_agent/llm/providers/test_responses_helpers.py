@@ -1423,6 +1423,7 @@ def test_responses_duplicate_tool_calls_emit_stop_progress_events() -> None:
     event_data = stop_events[0].get("data", {})
     assert event_data.get("progress_action") == ProgressAction.CALLING_TOOL
     assert event_data.get("tool_event") == "stop"
+    assert event_data.get("tool_terminal") is True
     assert event_data.get("tool_use_id") == "call_123"
 
 

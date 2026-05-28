@@ -58,12 +58,15 @@ Use `scripts/docs_assets.py` through the docs wrapper for interactive asciinema 
 uv run scripts/docs.py assets
 uv run scripts/docs.py assets-record tui-shell
 uv run scripts/docs.py cast-build tui-shell
+uv run scripts/docs.py cast-build model-picker
 ```
 
 The `tui-shell` scenario records `fast-agent` starting with shell access and a visible model
 selection, sends a short prompt, then runs `! git status` from inside the TUI. Recording requires
 `asciinema` and `tmux`; normal docs builds only need the committed `.cast` files and the vendored
 player assets. `cast-build` is an alias for recording a named cast.
+The `model-picker` scenario records `fast-agent go` opening the startup model picker, then navigates
+the provider/model lists with arrow keys.
 
 By default, cast recordings stop by killing the tmux session after the final demonstrated action,
 so the user-facing recording does not show a trailing `/exit`. Set
@@ -153,17 +156,6 @@ pages can include examples directly from `examples/`:
 
 Prefer direct includes for examples that are meant to stay runnable. This keeps docs and examples
 on one source of truth and makes drift visible in ordinary code review.
-
-## Provider Overviews
-
-Provider prose can live next to provider implementation code:
-
-- `src/fast_agent/llm/provider/anthropic/provider_docs.md`
-- `src/fast_agent/llm/provider/openai/provider_docs.md`
-
-`docs/generate_reference_docs.py` copies those files into `_generated/provider_overview_*.md`.
-The public provider page includes the generated snippets, so feature prose can be reviewed beside
-the implementation it describes.
 
 ## Plugin API Reference
 

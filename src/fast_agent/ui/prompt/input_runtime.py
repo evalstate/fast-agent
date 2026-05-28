@@ -96,6 +96,13 @@ def create_prompt_session(
     )
 
 
+@contextlib.contextmanager
+def _prompt_start_guard(start_code: str):
+    """Emit OSC 133 prompt-start and leave prompt-end placement to prompt text."""
+    emit_prompt_mark(start_code)
+    yield
+
+
 async def run_prompt_once(
     *,
     session: PromptSession,
@@ -106,9 +113,8 @@ async def run_prompt_once(
     parse_special_input: "Callable[[str], str | CommandPayload]",
 ) -> str | CommandPayload:
     """Run a single prompt cycle and normalize command/signal outcomes."""
-    prompt_mark_started = False
-    prompt_end_mark_emitted = False
     accept_state: dict[str, Any] = {}
+    prompt_end_mark_emitted = False
     prompt_shutdown_warn_seconds = 0.5
     buffer = session.default_buffer
     original_accept_handler = buffer.accept_handler
@@ -122,7 +128,7 @@ async def run_prompt_once(
             return original_accept_handler(buffer_obj)
         return True
 
-    def _resolve_prompt_text_with_marks() -> object:
+    def _resolve_prompt_text_with_end_mark() -> object:
         nonlocal prompt_end_mark_emitted
 
         fragments = list(to_formatted_text(resolve_prompt_text()))
@@ -130,7 +136,7 @@ async def run_prompt_once(
             sequence = prompt_mark_sequence("B")
             if sequence:
                 fragments.append(("[ZeroWidthEscape]", sequence))
-                prompt_end_mark_emitted = True
+            prompt_end_mark_emitted = True
         return fragments
 
     reserve_space_for_menu = 8
@@ -143,56 +149,54 @@ async def run_prompt_once(
 
     buffer.accept_handler = _track_accept
     try:
-        emit_prompt_mark("A")
-        prompt_mark_started = True
-        with suppress_known_runtime_warnings():
+        with _prompt_start_guard("A"), suppress_known_runtime_warnings():
             result = await session.prompt_async(
-                _resolve_prompt_text_with_marks,
+                _resolve_prompt_text_with_end_mark,
                 default=default_buffer,
                 set_exception_handler=False,
                 reserve_space_for_menu=reserve_space_for_menu,
             )
         prompt_returned_at = time.perf_counter()
-
-        _clear_prompt_echo_line(result)
-
-        stripped = result.lstrip()
-        accepted_at = accept_state.get("accepted_at")
-        if accepted_at:
-            shutdown_delay = prompt_returned_at - accepted_at
-            if shutdown_delay >= prompt_shutdown_warn_seconds and stripped.startswith("!"):
-                text_preview = str(accept_state.get("text") or "").strip()
-                if len(text_preview) > 80:
-                    text_preview = text_preview[:77] + "..."
-                rich_print(
-                    "[yellow]Prompt shutdown delay[/yellow] "
-                    f"{shutdown_delay:.2f}s | "
-                    f"completer={accept_state.get('completer')} "
-                    f"completions_active={accept_state.get('had_completions')} "
-                    f"cwd={Path.cwd()} "
-                    f"input={text_preview!r}"
-                )
-
-        prompt_prefix = _format_prompt_prefix(agent_name, default_agent_name=default_agent_name)
-        if stripped.startswith("/"):
-            rich_print(f"[dim]{prompt_prefix} {stripped.splitlines()[0]}[/dim]")
-        elif stripped.startswith("!"):
-            rich_print(f"[dim]{prompt_prefix} {stripped.splitlines()[0]}[/dim]")
-
-        return parse_special_input(result)
     except (KeyboardInterrupt, PromptInputInterrupt):
-        if prompt_mark_started and not prompt_end_mark_emitted:
+        if not prompt_end_mark_emitted:
             emit_prompt_mark("B")
         return InterruptCommand()
     except EOFError:
-        if prompt_mark_started and not prompt_end_mark_emitted:
+        if not prompt_end_mark_emitted:
             emit_prompt_mark("B")
         return "STOP"
     except Exception as exc:
-        if prompt_mark_started and not prompt_end_mark_emitted:
+        if not prompt_end_mark_emitted:
             emit_prompt_mark("B")
         print(f"\nInput error: {type(exc).__name__}: {exc}")
         return "STOP"
+
+    _clear_prompt_echo_line(result)
+
+    stripped = result.lstrip()
+    accepted_at = accept_state.get("accepted_at")
+    if accepted_at:
+        shutdown_delay = prompt_returned_at - accepted_at
+        if shutdown_delay >= prompt_shutdown_warn_seconds and stripped.startswith("!"):
+            text_preview = str(accept_state.get("text") or "").strip()
+            if len(text_preview) > 80:
+                text_preview = text_preview[:77] + "..."
+            rich_print(
+                "[yellow]Prompt shutdown delay[/yellow] "
+                f"{shutdown_delay:.2f}s | "
+                f"completer={accept_state.get('completer')} "
+                f"completions_active={accept_state.get('had_completions')} "
+                f"cwd={Path.cwd()} "
+                f"input={text_preview!r}"
+            )
+
+    prompt_prefix = _format_prompt_prefix(agent_name, default_agent_name=default_agent_name)
+    if stripped.startswith("/"):
+        rich_print(f"[dim]{prompt_prefix} {stripped.splitlines()[0]}[/dim]")
+    elif stripped.startswith("!"):
+        rich_print(f"[dim]{prompt_prefix} {stripped.splitlines()[0]}[/dim]")
+
+    return parse_special_input(result)
 
 
 def start_toolbar_switch_task(session: PromptSession, delay_seconds: float) -> asyncio.Task[None]:

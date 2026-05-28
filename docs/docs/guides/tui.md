@@ -13,7 +13,7 @@ social:
 
 ANSI colours are used throughout to match your existing preferences. OSC133 and prominent `final response` markers are used to assist scrollback navigation. 
 
-The `apply_patch` tool (supplied, and exposed by default to > `GPT-5.2` models) has highlighting applied during streaming.
+The `apply_patch` tool (supplied, and exposed by default to Codex and `GPT-5.2`+ models when shell file-edit tools are enabled) has highlighting applied during streaming.
 
 Tools can be labelled as generating python code for syntax highlighting (especially useful when integrating with [Pydantic Monty](https://github.com/pydantic/monty))
 

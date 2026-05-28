@@ -956,9 +956,9 @@ class ShellRuntime:
                 self._emit_progress_event(
                     action=ProgressAction.TOOL_PROGRESS,
                     tool_use_id=tool_use_id,
-                    progress=1.0,
-                    total=1.0,
                     details=completion_details,
+                    tool_state="failed" if result.isError else "completed",
+                    tool_terminal=True,
                 )
                 return result
 
@@ -967,9 +967,9 @@ class ShellRuntime:
                 self._emit_progress_event(
                     action=ProgressAction.TOOL_PROGRESS,
                     tool_use_id=tool_use_id,
-                    progress=1.0,
-                    total=1.0,
                     details=f"failed: {exc}",
+                    tool_state="failed",
+                    tool_terminal=True,
                 )
                 return CallToolResult(
                     isError=True,
@@ -985,6 +985,8 @@ class ShellRuntime:
         progress: float | None = None,
         total: float | None = None,
         details: str | None = None,
+        tool_state: str | None = None,
+        tool_terminal: bool | None = None,
     ) -> None:
         """Emit shell tool lifecycle events for progress display when supported."""
         info = getattr(self._logger, "info", None)
@@ -999,6 +1001,8 @@ class ShellRuntime:
             tool_use_id=tool_use_id,
             tool_call_id=tool_use_id,
             tool_event=tool_event,
+            tool_state=tool_state,
+            tool_terminal=tool_terminal,
             progress=progress,
             total=total,
             details=details,

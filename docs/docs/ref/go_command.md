@@ -29,6 +29,7 @@ fast-agent go [OPTIONS]
 - `--servers <server1>,<server2>`: Comma-separated list of server names to enable from config
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
+- `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers when dynamic client registration is not available
 - `--model`, `--models <model_string>`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--model`, `--models <model1>,<model2>,...`: Run one agent per model in parallel and print a side-by-side comparison of responses
 - `--pack`, `--card-pack <name>`: Ensure a named card pack is installed in the selected environment before starting
@@ -39,6 +40,9 @@ fast-agent go [OPTIONS]
 - `--message`, `-m TEXT`: Message to send to the agent (skips interactive mode)
 - `--attach`, `-a <path or url>`: Attach a local file or HTTP(S) URL to a one-shot `--message` or `--prompt-file` run (repeatable). With `--prompt-file`, attachments are added to the last user message.
 - `--json-schema <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a JSON Schema file used for one-shot structured output
+- `--schema-model <module.path:ClassName>`: Pydantic `BaseModel` import path used for one-shot structured output
+- `--structured-tool-policy <auto|always|defer|no_tools>`: Control whether tools may be used with one-shot structured output
+- `--results <path>`: Write the resulting history to a file, or per-model suffixed files in comparison mode
 - `--env <path>`: Override the base `.fast-agent` environment directory (where default `agent-cards/` and `tool-cards/` are discovered)
 - `--noenv`, `--no-env`: Run in ephemeral mode (disable implicit environment card loading, session persistence/resume, and permission-store side effects)
 - `--resume <id|latest>`: Resume the latest session (or a specific session id)
@@ -49,6 +53,9 @@ fast-agent go [OPTIONS]
 - `--npx "@package/name <options>"`: Run an NPX package as a STDIO server (enclose arguments in quotes)
 - `--uvx "@package/name <options>"`: Run an UVX package as a STDIO server (enclose arguments in quotes)
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool (bash or pwsh)
+- `--no-shell`: Disable local shell/filesystem tools, even when skills or agent config request them
+- `--reload`: Enable manual AgentCard reloads with `/reload`
+- `--watch`: Watch AgentCard paths and reload automatically
 
 Global CLI options (apply to all subcommands):
 
@@ -79,7 +86,7 @@ fast-agent --model haiku
 fast-agent --smart --model haiku
 
 # Compare responses across multiple models (comparison mode)
-fast-agent --models kimi,gpt-5-mini.low
+fast-agent --models "kimi,gpt-5-mini?reasoning=low"
 
 # Specifying servers from configuration
 fast-agent go --servers=fetch,filesystem --model=haiku
@@ -170,10 +177,10 @@ How it works:
 - `--smart` is ignored when multiple models are provided.
 
 ```bash
-fast-agent go --models sonnet,gpt-5-mini.low
+fast-agent go --models "sonnet,gpt-5-mini?reasoning=low"
 
 # Route to one model agent directly (instead of side-by-side parallel output)
-fast-agent go --models sonnet,gpt-5-mini.low --agent sonnet --message "Summarize this"
+fast-agent go --models "sonnet,gpt-5-mini?reasoning=low" --agent sonnet --message "Summarize this"
 ```
 
 ### Agent targeting notes
@@ -202,7 +209,7 @@ When `--noenv` is set, this implicit discovery is disabled. Explicit `--agent-ca
 Cards loaded via `--agent-cards` / `--card-tool` can include `mcp_connect` entries;
 those runtime MCP servers are resolved and attached automatically during startup.
 
-See [AgentCards and ToolCards reference](agent_cards/) for details and recommended layout.
+See [AgentCards and ToolCards reference](../agents/defining/agent_cards/) for details and recommended layout.
 
 ### Card packs
 

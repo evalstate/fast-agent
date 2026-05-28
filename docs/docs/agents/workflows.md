@@ -19,7 +19,7 @@ To generate examples use `fast-agent quickstart workflow`.
 Agents can use MCP Servers defined in `fast-agent.yaml`:
 
 ```yaml title="fast-agent.yaml"
-# Example of a STDIO sever named "fetch"
+# Example of a STDIO server named "fetch"
 mcp:
   servers:
     fetch:
@@ -124,7 +124,7 @@ Routers use an LLM to assess a message and route it to the most appropriate agen
 )
 ```
 
-NB - If only one agent is supplied to the router, it forwards directly.
+If only one agent is supplied to the router, it forwards directly.
 
 ### Orchestrator
 

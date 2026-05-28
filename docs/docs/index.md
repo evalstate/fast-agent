@@ -60,7 +60,7 @@ social:
     <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
 <span class="fa-good">ready</span> Start an interactive agent with shell tools
 
-<span class="fa-muted">$</span> fast-agent --url https://hf.co/mcp --auth $HF_TOKEN
+<span class="fa-muted">$</span> fast-agent --url https://huggingface.co/mcp --auth $HF_TOKEN
 <span class="fa-good">connected</span> Quick connect to an MCP Server
 
 <span class="fa-muted">$</span> fast-agent go --pack analyst --model haiku
@@ -99,7 +99,7 @@ social:
     <p>
       Template based <a href="agents/instructions">System Prompts</a>. Install and update Agent Skills, prompt files or Agent definitions.
     </p>
-    <a href="agents/skills/">Agent Skills</a>
+    <a href="guides/skills/">Agent Skills</a>
   </article>
 </section>
 

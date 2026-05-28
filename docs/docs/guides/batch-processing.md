@@ -53,7 +53,7 @@ sessions:
 - **Efficient provider execution**. Stable instructions, tools, schemas, and
   templates can benefit from provider prompt caching where supported; OpenAI
   Responses models can use `service_tier=flex` for cost-sensitive throughput;
-  and OpenAI and Grok models use WebSocket transport to reduce
+  and Responses-family models can use WebSocket transport to reduce
   per-request connection overhead.
 - **Resumable outputs**. Use `--resume` to append only rows whose successful
   result is not already present, so interrupted or partially failed jobs can be
@@ -63,8 +63,8 @@ sessions:
 - **Agent reuse**. The batch worker can be a direct model call, a custom system
   prompt, or a full AgentCard with tools and workflow configuration. Inspect agent
   behaviour interactively before committing to large runs.
-- **Tool Routing**. **`fast-agent`** makes it simple to simulate or stub tool calls, 
-  or bypass LLM processing of results, making it ideal for GEPA optimization scenarios.  
+- **Tool Routing**. **`fast-agent`** makes it simple to simulate or stub tool calls,
+  or bypass LLM processing of results, making it ideal for GEPA optimization scenarios.
 
 For example, a cost-sensitive OpenAI Responses batch can use the flex service
 tier:

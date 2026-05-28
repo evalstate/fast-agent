@@ -14,7 +14,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         "  /skills        - List local skills for the manager directory",
         "  /skills available - Browse marketplace skills before installing",
         "  /skills search <query> - Search marketplace skills by name/description",
-        "  /skills add [<number|name>] - Install a skill (empty = pick from list)",
+        "  /skills add [<number|name|github-url|path>] - Install a skill (empty = pick from list)",
         "  /skills remove [<number|name>] - Remove a managed skill (empty = pick from list)",
         "  /skills update [<number|name|all>] [--force] [--yes] - Check/apply updates",
         "  /skills help   - Show skills command usage",

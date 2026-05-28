@@ -164,17 +164,17 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             if event_type == "start"
             else "Model finished streaming tool call"
         )
-        self.logger.info(
-            message,
-            data={
-                "progress_action": ProgressAction.CALLING_TOOL,
-                "agent_name": self.name,
-                "model": model,
-                "tool_name": tool_name,
-                "tool_use_id": tool_use_id,
-                "tool_event": event_type,
-            },
-        )
+        data: dict[str, Any] = {
+            "progress_action": ProgressAction.CALLING_TOOL,
+            "agent_name": self.name,
+            "model": model,
+            "tool_name": tool_name,
+            "tool_use_id": tool_use_id,
+            "tool_event": event_type,
+        }
+        if event_type == "stop":
+            data["tool_terminal"] = True
+        self.logger.info(message, data=data)
 
     def _handle_responses_output_item_added(
         self,

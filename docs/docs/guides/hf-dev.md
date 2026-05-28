@@ -17,9 +17,9 @@ Use the latest open weight models via Hugging Face Inference Providers:
 uvx fast-agent-mcp@latest --pack hf-dev
 ```
 
-This starts **fast-agent** pre-configured with a coding agent and filesystem search sub-agent. 
+This starts **fast-agent** pre-configured with a coding agent and filesystem search sub-agent.
 
-By default you will be prompted for the coding model to use, with `gpt-oss-120b` used for search.  
+By default you will be prompted for the coding model to use, with `gpt-oss-120b` used for search.
 
 To change these defaults use:
 
@@ -27,15 +27,15 @@ To change these defaults use:
 uvx fast-agent-mcp@latest model setup
 ```
 
-The agent has a minimal system prompt set of tools for accessing the shell, filesystem and **fast-agent** services. The system prompt includes `AGENTS.md` if present. Customise the agent by modifying  `.fast-agent/agent-cards/dev.md`
+The agent has a minimal system prompt and tools for accessing the shell, filesystem, and **fast-agent** services. The system prompt includes `AGENTS.md` if present. Customize the agent by modifying `.fast-agent/agent-cards/dev.md`.
 
-Use `/skills` to discover, add, remove and update skills. Use `/connect` to connect to MCP Servers. 
+Use `/skills` to discover, add, remove, and update skills. Use `/connect` to connect to MCP servers.
 
-Use the `compaction-strategies` skill to set up your preferred compaction scheme (if any). 
+Use the `compaction-strategies` skill to set up your preferred compaction scheme, if any.
 
 ## Installation
 
-**fast-agent** requires Python 3.13 or above. Install with:
+**fast-agent** requires Python 3.13.5 or newer. Install with:
 
 ```bash
 uv tool install -U fast-agent-mcp
@@ -44,7 +44,7 @@ uv tool install -U fast-agent-mcp
 Or a specific version of Python:
 
 ```bash
-uv tool install --python 3.13 -U fast-agent-mcp
+uv tool install --python 3.13.5 -U fast-agent-mcp
 ```
 
 This installs the `fast-agent` executable.

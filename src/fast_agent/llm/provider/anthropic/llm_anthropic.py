@@ -1428,6 +1428,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 "tool_name": state.name,
                                 "tool_use_id": state.tool_use_id,
                                 "tool_event": "stop",
+                                "tool_terminal": True,
                             },
                         )
                         continue
@@ -1509,6 +1510,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 "tool_name": tool_name,
                                 "tool_use_id": state.tool_use_id,
                                 "tool_event": "stop",
+                                "tool_terminal": True,
                                 "details": progress_label,
                             },
                         )

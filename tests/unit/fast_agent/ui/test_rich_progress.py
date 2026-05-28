@@ -327,6 +327,24 @@ class TestParallelToolProgress:
 
         display.stop()
 
+    def test_correlated_tool_details_keep_id_prefix_and_suffix(self) -> None:
+        display = _make_display()
+        display.start()
+
+        correlation_id = "call_DTwuI86WabcdefK6AdYX"
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                details="execute",
+                correlation_id=correlation_id,
+            )
+        )
+
+        fields = _task_fields(display, f"test-agent::{correlation_id}")
+        assert fields["details"].endswith("id: call_…K6AdYX")
+
+        display.stop()
+
 
 class TestAggregatorInitializedVisibility:
     """Running status should only render when it carries meaningful details."""
@@ -376,13 +394,38 @@ class TestAggregatorInitializedVisibility:
         display.update(
             _make_event(
                 action=ProgressAction.TOOL_PROGRESS,
-                progress=1.0,
-                total=1.0,
                 correlation_id="tool-call-1",
+                tool_state="completed",
+                tool_terminal=True,
             )
         )
 
         assert "test-agent::tool-call-1" not in display._taskmap
+
+        display.stop()
+
+    def test_full_progress_without_terminal_state_keeps_row(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-progress",
+            )
+        )
+        assert "test-agent::tool-call-progress" in display._taskmap
+
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                progress=1.0,
+                total=1.0,
+                correlation_id="tool-call-progress",
+            )
+        )
+
+        assert "test-agent::tool-call-progress" in display._taskmap
 
         display.stop()
 
@@ -404,6 +447,7 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="tool-call-2",
                 tool_event="stop",
+                tool_terminal=True,
             )
         )
 
@@ -430,6 +474,7 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="tool-call-failed",
                 tool_event="failed",
+                tool_terminal=True,
             )
         )
 
@@ -437,7 +482,7 @@ class TestAggregatorInitializedVisibility:
 
         display.stop()
 
-    def test_tool_progress_failed_details_without_total_removes_row(self) -> None:
+    def test_tool_progress_failed_final_state_removes_row(self) -> None:
         display = _make_display()
         display.start()
 
@@ -455,6 +500,8 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.TOOL_PROGRESS,
                 correlation_id="tool-call-failed-details",
                 details="failed: boom",
+                tool_state="failed",
+                tool_terminal=True,
             )
         )
 
@@ -481,6 +528,7 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="tool-call-3",
                 tool_event="stop",
+                tool_terminal=True,
             )
         )
         # State advances while paused, so terminal events can clean rows.
@@ -507,9 +555,9 @@ class TestAggregatorInitializedVisibility:
         display.update(
             _make_event(
                 action=ProgressAction.TOOL_PROGRESS,
-                progress=1.0,
-                total=1.0,
                 correlation_id="tool-call-4",
+                tool_state="completed",
+                tool_terminal=True,
             )
         )
         # State advances while paused, so terminal events can clean rows.
@@ -788,7 +836,7 @@ class TestCorrelationIdDetails:
         fields = _task_fields(display, "test-agent::call_abcdef0123456789")
         details = str(fields.get("details", ""))
         assert "web (search)" in details
-        assert "id:call_abcdef01…" in details
+        assert "id: call_…456789" in details
 
         display.stop()
 
@@ -799,13 +847,13 @@ class TestCorrelationIdDetails:
         display.update(
             _make_event(
                 action=ProgressAction.CALLING_TOOL,
-                correlation_id="tool-short-id",
+                correlation_id="tool-id",
             )
         )
 
-        fields = _task_fields(display, "test-agent::tool-short-id")
+        fields = _task_fields(display, "test-agent::tool-id")
         details = str(fields.get("details", ""))
-        assert details == "id:tool-short-id"
+        assert details == "id: tool-id"
 
         display.stop()
 

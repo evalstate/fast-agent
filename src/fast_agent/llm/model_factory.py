@@ -1,7 +1,7 @@
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Literal, Self, Type, Union, cast
+from typing import Any, Callable, Literal, Protocol, Self, cast
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel
@@ -21,14 +21,16 @@ from fast_agent.llm.task_budget import parse_task_budget_tokens, validate_task_b
 from fast_agent.llm.text_verbosity import TextVerbosityLevel, parse_text_verbosity
 from fast_agent.types import RequestParams, StructuredToolPolicy
 
-if TYPE_CHECKING:
-    from fast_agent.llm.internal.passthrough import PassthroughLLM
-    from fast_agent.llm.internal.playback import PlaybackLLM
-    from fast_agent.llm.internal.silent import SilentLLM
-    from fast_agent.llm.internal.slow import SlowLLM
 
-# Type alias for LLM classes
-LLMClass = Union[Type["PassthroughLLM"], Type["PlaybackLLM"], Type["SilentLLM"], Type["SlowLLM"], type]
+class LLMClass(Protocol):
+    """Constructor for an LLM implementation."""
+
+    @property
+    def __name__(self) -> str: ...
+
+    def __call__(self, **kwargs: Any) -> FastAgentLLMProtocol: ...
+
+
 TransportSetting = Literal["sse", "websocket", "auto"]
 ServiceTierSetting = Literal["fast", "flex"]
 
@@ -632,12 +634,11 @@ class ModelFactory:
         "claude": "claude-sonnet-4-6",
         "haiku": "claude-haiku-4-5",
         "haiku45": "claude-haiku-4-5",
-        "opus": "claude-opus-4-7",
-        "opus4": "claude-opus-4-7",
+        "opus": "claude-opus-4-8",
+        "opus4": "claude-opus-4-8",
         "opus46": "claude-opus-4-6",
         "opus47": "claude-opus-4-7",
-        "deepseekv3": "deepseek-chat",
-        "deepseek3": "deepseek-chat",
+        "opus48": "claude-opus-4-8",
         "deepseek": "deepseek.deepseek-v4-pro",
         "deepseek4": "deepseek.deepseek-v4-pro",
         "deepseek4pro": "deepseek.deepseek-v4-pro",
@@ -926,7 +927,7 @@ class ModelFactory:
         return factory
 
     @classmethod
-    def _load_provider_class(cls, provider: Provider) -> type:
+    def _load_provider_class(cls, provider: Provider) -> LLMClass:
         """Import provider-specific LLM classes lazily to avoid heavy deps at import time."""
         try:
             if provider == Provider.FAST_AGENT:
@@ -1015,7 +1016,7 @@ class ModelFactory:
         raise ModelConfigError(f"Unsupported provider: {provider}")
 
     @classmethod
-    def _load_model_specific_class(cls, model_name: str) -> type:
+    def _load_model_specific_class(cls, model_name: str) -> LLMClass:
         """Import built-in model-specific LLM classes lazily."""
         if model_name == "playback":
             from fast_agent.llm.internal.playback import PlaybackLLM
