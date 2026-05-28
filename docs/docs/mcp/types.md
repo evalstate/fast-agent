@@ -16,11 +16,11 @@ Conversations with assistants are based on `PromptMessageExtended` - an extensio
 
 ## Message History Transfer
 
-FastAgent makes it easy to transfer conversation history between agents:
+**fast-agent** makes it easy to transfer conversation history between agents:
 
 ```python title="history_transfer.py"
 @fast.agent(name="haiku", model="haiku")
-@fast.agent(name="openai", model="o3-mini.medium")
+@fast.agent(name="openai", model="gpt-5.5")
 
 async def main() -> None:
     async with fast.run() as agent:
