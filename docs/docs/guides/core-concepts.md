@@ -22,7 +22,7 @@ One agent is the default. Add another agent by dropping a Markdown file into
 <div class="fa-hero__actions">
   <a class="fa-btn fa-btn--primary" href="#make-your-first-environment">Build one</a>
   <a class="fa-btn" href="#share-it-as-a-pack">Share as a pack</a>
-  <a class="fa-btn" href="../ref/agent_cards/">AgentCard reference</a>
+  <a class="fa-btn" href="../agents/defining/agent_cards/">AgentCard reference</a>
 </div>
 
 <div class="fa-term" aria-label="fast-agent TUI example">
@@ -69,7 +69,7 @@ The defaults are deliberately useful:
 - ToolCards in `<env>/tool-cards/` are loaded and attached as tools.
 - Sessions are saved in `<env>/sessions/` so you can resume work later.
 - Skills are discovered from the active environment's `skills/` directory
-  (normally `.fast-agent/skills`), plus `.agents/skills` and `.claude/skills`.
+  (normally `.fast-agent/skills`), plus `.guides/skills` and `.claude/skills`.
 
 <section class="fa-grid fa-grid--3" markdown="1">
 <article class="fa-card" markdown="1">
@@ -370,7 +370,7 @@ references and assets. They let agents load specialized procedures only when
 needed. By default, fast-agent looks in:
 
 - the active environment's `skills/` directory — normally `.fast-agent/skills`
-- `.agents/skills`
+- `.guides/skills`
 - `.claude/skills`
 
 The easiest way to get started is to install skills from an existing registry
@@ -427,7 +427,7 @@ skills:
     - https://github.com/my-org/private-skills
 ```
 
-See [Agent Skills](../agents/skills/) for the full skill workflow.
+See [Agent Skills](skills/) for the full skill workflow.
 
 ## Share it as a pack
 
@@ -565,11 +565,11 @@ An environment is just a folder. Start with one default card, add focused agents
 as Markdown files, then publish the bundle when it becomes useful.
 </div>
 <div markdown="1">
-<a class="fa-btn fa-btn--primary" href="../ref/agent_cards/">Read AgentCards</a>
+<a class="fa-btn fa-btn--primary" href="../agents/defining/agent_cards/">Read AgentCards</a>
 </div>
 </div>
 
-- [AgentCards and ToolCards](../ref/agent_cards/) — advanced card fields,
+- [Agent Cards](../agents/defining/agent_cards/) — advanced card fields,
   ToolCards, runtime MCP targets and loading rules.
 - [Configuration Reference](../ref/config_file/) — every `fast-agent.yaml`
   setting, including providers, MCP, sessions, skills and model references.

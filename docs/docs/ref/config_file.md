@@ -177,9 +177,10 @@ Anthropic models fall into three groups:
 - **Budget-based thinking** (older models): defaults to a 1024 token budget. Set `reasoning` to a
   budget integer or disable with `"0"`/`off`/`false`. You can also pass `low`/`medium`/`high`/`max`,
   which map to preset budgets.
-- **Adaptive thinking** (e.g. `claude-opus-4-6`): defaults to `auto` (provider‑chosen). Use effort
-  levels (`low`/`medium`/`high`/`max`) to set `output_config.effort`. Budgets are not supported on
-  adaptive models.
+- **Adaptive thinking** (e.g. `claude-opus-4-6`, `claude-opus-4-7`, `claude-opus-4-8`): defaults
+  to `auto` (provider-chosen). Use effort levels (`low`/`medium`/`high`/`max`, plus `xhigh` where
+  advertised) to set `output_config.effort`. Fixed thinking budgets are deprecated for these models;
+  Opus 4.7+ additionally supports `task_budget` for model-visible agent-loop budgets.
 
 For budget models, the reasoning budget must be lower than `max_tokens` (fast-agent raises
 `max_tokens` if needed).
@@ -611,7 +612,7 @@ skills:
 | `directories` | List of directories to search for SKILL.md files | environment skills directory (default `.fast-agent/skills`), `.claude/skills` |
 | `marketplace_urls` | List of skill registries for `/skills add` | HuggingFace and Anthropic registries |
 
-See [Agent Skills](../agents/skills/) for more information on using skills.
+See [Agent Skills](../guides/skills/) for more information on using skills.
 
 ## Command Plugin Configuration
 

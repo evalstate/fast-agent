@@ -1055,7 +1055,6 @@ class CodexResponsesSettings(ResponsesProviderSettingsBase):
     )
 
 
-
 class DeepSeekSettings(BaseModel):
     """Settings for using DeepSeek models in the fast-agent application."""
 
@@ -1893,7 +1892,9 @@ def get_settings(
 
     global _settings
 
-    env_dir_override = Path(env_dir) if env_dir is not None and not isinstance(env_dir, str) else env_dir
+    env_dir_override = (
+        Path(env_dir) if env_dir is not None and not isinstance(env_dir, str) else env_dir
+    )
 
     # If we have a specific config path, always reload settings
     # This ensures each test gets its own config

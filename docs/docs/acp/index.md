@@ -156,4 +156,4 @@ Conflicts (fail fast):
 
 ## Structured Outputs
 
-Experimental support for returning [Structured Outputs](../guides/structured-outputs.md#acp-agent-client-protocol) is available.
+Experimental support for returning [Structured Outputs](../guides/structured-outputs/#acp-agent-client-protocol) is available.

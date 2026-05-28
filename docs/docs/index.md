@@ -99,7 +99,7 @@ social:
     <p>
       Template based <a href="agents/instructions">System Prompts</a>. Install and update Agent Skills, prompt files or Agent definitions.
     </p>
-    <a href="agents/skills/">Agent Skills</a>
+    <a href="guides/skills/">Agent Skills</a>
   </article>
 </section>
 
