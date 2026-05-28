@@ -506,4 +506,4 @@ def _extract_tar_safely(archive_file: BinaryIO, destination_dir: Path) -> None:
         for member in archive.getmembers():
             target = (destination_root / member.name).resolve()
             target.relative_to(destination_root)
-        archive.extractall(destination_root)
+        archive.extractall(destination_root, filter="data")
