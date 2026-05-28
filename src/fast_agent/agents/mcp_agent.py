@@ -209,7 +209,6 @@ class McpAgent(ABC, ToolAgent):
         self._skill_manifests: list[SkillManifest] = []
         self._skill_map: dict[str, SkillManifest] = {}
         self._skill_reader: SkillReader | None = None
-        self._skill_archive_cache: dict[str, dict[str, bytes]] = {}
         # `mcp-resource-template` entries — held until the user resolves via `/skills resolve`.
         self._skill_template_entries: list[SkillTemplateEntry] = []
         # Servers with an active `skill://index.json` subscription (idempotent re-subscribe).
@@ -663,7 +662,7 @@ class McpAgent(ABC, ToolAgent):
 
         self._skill_template_entries = list(loaded.template_entries)
 
-        self.set_skill_manifests(merged, archive_cache=loaded.archive_cache)
+        self.set_skill_manifests(merged)
 
         # `resources/subscribe` is SHOULD on servers; failures are normal and silent.
         await self._subscribe_to_skill_index(server_names, enabled_servers)
@@ -771,19 +770,7 @@ class McpAgent(ABC, ToolAgent):
             ]
             self._skill_template_entries = kept_templates + list(loaded.template_entries)
 
-            # Archive cache is keyed by root URI; drop entries for skills this server
-            # used to publish, then overlay its new cache.
-            new_cache = dict(self._skill_archive_cache)
-            previous_uris_for_server = {
-                m.uri.rstrip("/").removesuffix("/SKILL.md")
-                for m in self._skill_manifests
-                if m.server_name == server_name and m.uri
-            }
-            for root_uri in previous_uris_for_server:
-                new_cache.pop(root_uri, None)
-            new_cache.update(loaded.archive_cache)
-
-            self.set_skill_manifests(merged, archive_cache=new_cache)
+            self.set_skill_manifests(merged)
 
         if added or removed:
             # System prompt's <available_skills> block is frozen in conversation history;
@@ -850,18 +837,15 @@ class McpAgent(ABC, ToolAgent):
             # so resolution can't silently shadow a configured skill.
             return None
         new_manifests = list(self._skill_manifests) + [manifest]
-        self.set_skill_manifests(new_manifests, archive_cache=self._skill_archive_cache)
+        self.set_skill_manifests(new_manifests)
         return manifest
 
     def set_skill_manifests(
         self,
         manifests: Sequence[SkillManifest],
-        *,
-        archive_cache: dict[str, dict[str, bytes]] | None = None,
     ) -> None:
         self._skill_manifests = list(manifests)
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
-        self._skill_archive_cache = dict(archive_cache or {})
         self._rebuild_skill_reader()
 
     def _rebuild_skill_reader(self) -> None:
@@ -882,7 +866,6 @@ class McpAgent(ABC, ToolAgent):
                 visible,
                 self.logger,
                 aggregator=self._aggregator,
-                archive_cache=self._skill_archive_cache or None,
             )
             self._ensure_shell_runtime_for_skills()
         else:

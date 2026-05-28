@@ -1042,10 +1042,10 @@ async def handle_preview_skill(
     pre-load surface for users.
 
     The lookup re-uses the agent's SkillReader so the read goes through
-    the same trust boundary, archive cache, and (for MCP-backed skills)
-    aggregator dispatch as a model-driven read. The output is rendered
-    to the user, not added to model context, so a preview never plants
-    skill text in the conversation.
+    the same trust boundary and (for MCP-backed skills) aggregator
+    dispatch as a model-driven read. The output is rendered to the user,
+    not added to model context, so a preview never plants skill text in
+    the conversation.
     """
     outcome = CommandOutcome()
     if not argument or not argument.strip():

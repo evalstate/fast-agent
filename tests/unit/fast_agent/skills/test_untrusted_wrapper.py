@@ -78,26 +78,6 @@ async def test_aggregator_read_is_wrapped_with_source_marker() -> None:
 
 
 @pytest.mark.asyncio
-async def test_archive_cache_read_is_wrapped() -> None:
-    """Cache-served reads come from an MCP-published archive; same
-    untrusted classification as the live aggregator path."""
-    manifest = _mcp_manifest("pdf-processing", server="acme")
-    # Manifest URI must match the archive cache root for `_find_server_for_uri`.
-    cache = {"skill://pdf-processing": {"SKILL.md": b"# pdf body"}}
-    reader = SkillReader(
-        [manifest], logger=MagicMock(), aggregator=MagicMock(), archive_cache=cache
-    )
-
-    result = await reader.execute({"path": "skill://pdf-processing/SKILL.md"})
-
-    assert not result.isError
-    text = result.content[0].text
-    assert 'source="mcp-server: acme"' in text
-    assert "# pdf body" in text
-    assert "</untrusted-skill-content>" in text
-
-
-@pytest.mark.asyncio
 async def test_unenumerated_uri_wraps_with_unknown_server() -> None:
     """The unenumerated `skill://` fanout path doesn't know which server
     answered. The wrapper still fires, marking source as `(unknown)` —
