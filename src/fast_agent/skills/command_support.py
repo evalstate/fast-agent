@@ -20,6 +20,8 @@ def skills_usage_lines() -> list[str]:
         "- /skills available",
         "- /skills search docker",
         "- /skills add <number|name>",
+        "- /skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md",
+        "- /skills add ./skills/example",
         "- /skills registry",
     ]
 

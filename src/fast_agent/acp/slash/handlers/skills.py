@@ -300,6 +300,9 @@ async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> st
         return error
     assert agent is not None
 
+    argument_value = argument.strip() or None
+    loading_message = "Installing skill…" if argument_value else "Fetching marketplace…"
+
     tool_call_id = build_tool_call_id()
     await send_skills_update(
         handler,
@@ -307,11 +310,9 @@ async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> st
         tool_call_id,
         title="Install skill",
         status="in_progress",
-        message="Fetching marketplace…",
+        message=loading_message,
         start=True,
     )
-
-    argument_value = argument.strip() or None
 
     if not argument_value:
         marketplace_url = get_marketplace_url(get_settings())

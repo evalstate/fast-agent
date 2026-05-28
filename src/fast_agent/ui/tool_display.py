@@ -942,6 +942,14 @@ class ToolDisplay:
                 shell_exit_additional_message,
                 read_additional_message,
             )
+            post_content: RenderableType | None = None
+            if result.content:
+                from fast_agent.ui.terminal_images import render_tool_result_images
+
+                post_content = render_tool_result_images(
+                    self._display.config,
+                    result.content,
+                )
 
             if has_structured:
                 self._render_structured_tool_result(
@@ -955,6 +963,7 @@ class ToolDisplay:
                     is_skybridge_tool=is_skybridge_tool,
                     skybridge_resource_uri=skybridge_resource_uri,
                     show_hook_indicator=show_hook_indicator,
+                    post_content=post_content,
                 )
             else:
                 self._display.display_message(
@@ -966,6 +975,7 @@ class ToolDisplay:
                     is_error=result.isError,
                     truncate_content=truncate_content,
                     additional_message=additional_message,
+                    post_content=post_content,
                     render_markdown=render_markdown,
                     show_hook_indicator=show_hook_indicator,
                 )

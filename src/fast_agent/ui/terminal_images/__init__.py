@@ -5,8 +5,9 @@ from fast_agent.ui.terminal_images.renderer import (
     ImageRenderItem,
     extract_image_artifacts,
     extract_image_render_items,
+    render_assistant_images,
     render_image_items,
-    render_terminal_images,
+    render_tool_result_images,
 )
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "ImageRenderItem",
     "extract_image_artifacts",
     "extract_image_render_items",
+    "render_assistant_images",
     "render_image_items",
-    "render_terminal_images",
+    "render_tool_result_images",
 ]

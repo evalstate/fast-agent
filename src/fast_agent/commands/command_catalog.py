@@ -86,13 +86,17 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="add",
                 aliases=("install",),
                 help="Install a skill",
-                usage="/skills add [<number|name>] [--registry url] [--skills-dir path]",
-                examples=("/skills add <number|name>",),
+                usage="/skills add [<number|name|github-url|path>] [--registry url] [--skills-dir path]",
+                examples=(
+                    "/skills add <number|name>",
+                    "/skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md",
+                    "/skills add ./skills/example",
+                ),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
-                        value_name="number|name",
-                        summary="Skill name or marketplace index.",
+                        value_name="number|name|github-url|path",
+                        summary="Skill name, marketplace index, GitHub SKILL.md URL, or local path.",
                     ),
                 ),
                 options=(

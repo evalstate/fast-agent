@@ -63,12 +63,11 @@ def extract_image_render_items(content: Sequence[object]) -> list[ImageRenderIte
     return items
 
 
-def render_terminal_images(
+def render_assistant_images(
     config: Settings | None,
-    source: str,
     content: Sequence[object] | PromptMessageExtended | None,
 ) -> RenderableType | None:
-    settings = _settings_for_source(config, source)
+    settings = _assistant_settings(config)
     if settings is None or content is None:
         return None
 
@@ -79,6 +78,16 @@ def render_terminal_images(
         blocks = content
 
     return render_image_items(settings, extract_image_render_items(blocks))
+
+
+def render_tool_result_images(
+    config: Settings | None,
+    content: Sequence[object] | None,
+) -> RenderableType | None:
+    settings = _tool_result_settings(config)
+    if settings is None or content is None:
+        return None
+    return render_image_items(settings, extract_image_render_items(content))
 
 
 def render_image_items(
@@ -103,15 +112,26 @@ def render_image_items(
     return Group(*renderables)
 
 
-def _settings_for_source(config: Settings | None, source: str) -> TerminalImageSettings | None:
+def _assistant_settings(config: Settings | None) -> TerminalImageSettings | None:
     if config is None:
         return None
     terminal_images = config.logger.terminal_images
     if not terminal_images.enabled or terminal_images.backend == "none":
         return None
-    if source == "assistant" and not terminal_images.render_assistant:
+    if not terminal_images.render_assistant:
         return None
-    if source == "tools":
+    return terminal_images
+
+
+def _tool_result_settings(config: Settings | None) -> TerminalImageSettings | None:
+    if config is None:
+        return None
+    terminal_images = config.logger.terminal_images
+    if not terminal_images.enabled or terminal_images.backend == "none":
+        return None
+    # Tool-result images are rendered at the tool-result boundary. Keep
+    # render_assistant as the user-facing "show generated images" switch.
+    if not terminal_images.render_assistant:
         return None
     return terminal_images
 

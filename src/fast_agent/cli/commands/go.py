@@ -50,16 +50,6 @@ DEFAULT_AGENT_CARDS_DIR = _DEFAULT_AGENT_CARDS_DIR
 DEFAULT_TOOL_CARDS_DIR = _DEFAULT_TOOL_CARDS_DIR
 
 
-class _LazyCardService:
-    def __getattr__(self, name: str) -> Any:
-        from fast_agent.cards import service as loaded_card_service
-
-        return getattr(loaded_card_service, name)
-
-
-card_service = _LazyCardService()
-
-
 app = typer.Typer(
     help="Run an interactive agent directly from the command line without creating an agent.py file",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
@@ -428,6 +418,8 @@ def go(
     effective_env_dir = resolved_env_dir
 
     if pack:
+        from fast_agent.cards import service as card_service
+
         if noenv:
             raise typer.BadParameter("Cannot combine --pack with --noenv.", param_hint="--pack")
 

@@ -1653,7 +1653,7 @@ def _model_preset_rows(
                 "provider": parsed.provider.config_name,
                 "provider_display": parsed.provider.display_name,
                 "model": parsed.model_name,
-                "expanded": parsed.expanded_input,
+                "expanded": model_spec,
                 "key_status": key_status,
                 "key_status_text": key_status_text,
             }

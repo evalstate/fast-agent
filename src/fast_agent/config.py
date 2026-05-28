@@ -1320,9 +1320,6 @@ class TerminalImageSettings(BaseModel):
     height: TerminalImageSize = "auto"
     """Image render height: cells, percentage (e.g. '40%'), 'auto', or null."""
 
-    render_tools: bool = False
-    """Deprecated: tool images are rendered in the final assistant pass."""
-
     render_assistant: bool = True
     """Render images in final assistant messages."""
 

@@ -46,6 +46,7 @@ from fast_agent.skills.scope import (
     resolve_skill_directories,
     resolve_skills_management_scope,
 )
+from fast_agent.skills.service import install_skill_from_selector
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -558,7 +559,28 @@ async def handle_add_skill(
 
     management_scope = resolve_skills_management_scope(ctx.resolve_settings())
     managed_skills_dir = management_scope.managed_directory
+    selection = argument
     marketplace_url = get_marketplace_url(ctx.resolve_settings())
+
+    if selection:
+        try:
+            installed = await install_skill_from_selector(
+                marketplace_url,
+                selection,
+                destination_root=managed_skills_dir,
+            )
+        except Exception as exc:  # noqa: BLE001
+            outcome.add_message(f"Failed to install skill: {exc}", channel="error")
+            return outcome
+
+        outcome.add_message(
+            _format_install_result(installed.name, installed.skill_dir),
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        await _refresh_agent_skills(ctx, agent_name)
+        return outcome
+
     try:
         marketplace = await fetch_marketplace_skills(marketplace_url)
     except Exception as exc:  # noqa: BLE001
@@ -569,7 +591,6 @@ async def handle_add_skill(
         outcome.add_message("No skills found in the marketplace.", channel="warning")
         return outcome
 
-    selection = argument
     if not selection:
         content = Text()
         append_heading(content, "Marketplace skills:")

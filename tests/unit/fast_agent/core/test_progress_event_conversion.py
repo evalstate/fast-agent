@@ -46,6 +46,7 @@ def test_convert_log_event_uses_tool_use_id_when_call_id_missing() -> None:
                 "server_name": "web",
                 "tool_use_id": "use-789",
                 "tool_event": "stop",
+                "tool_terminal": True,
             }
         },
     )
@@ -55,6 +56,7 @@ def test_convert_log_event_uses_tool_use_id_when_call_id_missing() -> None:
     assert progress_event is not None
     assert progress_event.correlation_id == "use-789"
     assert progress_event.tool_event == "stop"
+    assert progress_event.tool_terminal is True
 
 
 def test_convert_log_event_skips_provider_web_tool_progress_events() -> None:

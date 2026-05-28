@@ -42,10 +42,7 @@ def _signature_hints(kind: str, *, empty_arg_list: bool = True) -> list[Completi
     Two or more entries are returned so the prompt-toolkit menu renders
     them; a single no-op completion is culled by the buffer.
     """
-    hints = [
-        _hint_completion("<number>", f"by index — {kind}"),
-        _hint_completion("<name>", f"by name — {kind}"),
-    ]
+    hints = []
     if empty_arg_list:
         hints.append(
             _hint_completion(
@@ -53,6 +50,12 @@ def _signature_hints(kind: str, *, empty_arg_list: bool = True) -> list[Completi
                 "press Enter with no argument to pick from a list",
             )
         )
+    hints.extend(
+        [
+            _hint_completion("<number>", f"by index — {kind}"),
+            _hint_completion("<name>", f"by name — {kind}"),
+        ]
+    )
     return hints
 
 
@@ -442,6 +445,12 @@ def _skills_command_completions(
     if subcmd in {"add", "install"}:
         if not argument:
             results.extend(_signature_hints("marketplace skill"))
+            results.extend(
+                [
+                    _hint_completion("<github-url>", "direct GitHub SKILL.md URL"),
+                    _hint_completion("<path>", "direct local SKILL.md file or skill directory"),
+                ]
+            )
         return results
     if subcmd in {"search", "find"}:
         if not argument:

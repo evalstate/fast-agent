@@ -447,6 +447,7 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="tool-call-2",
                 tool_event="stop",
+                tool_terminal=True,
             )
         )
 
@@ -473,6 +474,7 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="tool-call-failed",
                 tool_event="failed",
+                tool_terminal=True,
             )
         )
 
@@ -526,6 +528,7 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="tool-call-3",
                 tool_event="stop",
+                tool_terminal=True,
             )
         )
         # State advances while paused, so terminal events can clean rows.

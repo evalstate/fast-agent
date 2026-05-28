@@ -407,48 +407,6 @@ class RichProgressDisplay:
             return "stream"
         return "agent"
 
-    @staticmethod
-    def _is_terminal_tool_event(tool_event: str | None) -> bool:
-        """Return True for tool lifecycle events that should close correlated rows."""
-        normalized = (tool_event or "").strip().lower()
-        if not normalized:
-            return False
-        return normalized in {
-            "stop",
-            "completed",
-            "canceled",
-            "cancelled",
-            "denied",
-            "error",
-            "failed",
-        }
-
-    @staticmethod
-    def _is_terminal_tool_state(tool_state: str | None) -> bool:
-        """Return True for final tool lifecycle states."""
-        normalized_details = (tool_state or "").strip().lower()
-        if not normalized_details:
-            return False
-
-        terminal_details = {
-            "completed",
-            "canceled",
-            "cancelled",
-            "denied",
-            "error",
-            "failed",
-        }
-        return normalized_details in terminal_details
-
-    @classmethod
-    def _is_terminal_tool_progress_event(cls, event: ProgressEvent) -> bool:
-        """Return True when a tool progress event explicitly reaches a final state."""
-        return (
-            event.tool_terminal
-            or cls._is_terminal_tool_state(event.tool_state)
-            or cls._is_terminal_tool_event(event.tool_event)
-        )
-
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
         with self._lock:
@@ -486,9 +444,7 @@ class RichProgressDisplay:
         if is_correlated_tool_event and event.correlation_id:
             task_name = f"{task_name}::{event.correlation_id}"
 
-        should_drop_tool_task = is_correlated_tool_event and (
-            self._is_terminal_tool_progress_event(event)
-        )
+        should_drop_tool_task = is_correlated_tool_event and event.tool_terminal
 
         # Create new task if needed
         if task_name not in self._taskmap:

@@ -319,6 +319,23 @@ def _resolve_azure_default_credential_label(
     return None
 
 
+def _resolve_google_vertex_label(
+    provider_name: str,
+    *,
+    main_config: dict[str, Any],
+) -> str | None:
+    if provider_name != Provider.GOOGLE.config_name:
+        return None
+
+    google_payload = main_config.get("google", {})
+    google_cfg = google_payload if isinstance(google_payload, dict) else {}
+    vertex_payload = google_cfg.get("vertex_ai", {})
+    vertex_cfg = vertex_payload if isinstance(vertex_payload, dict) else {}
+    if vertex_cfg.get("enabled") is True:
+        return "Vertex AI ADC"
+    return None
+
+
 def _resolve_provider_config_key(
     provider_name: str,
     *,
@@ -402,6 +419,14 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
         )
         if azure_label is not None:
             status["config"] = azure_label
+            continue
+
+        google_vertex_label = _resolve_google_vertex_label(
+            provider_name,
+            main_config=main_config,
+        )
+        if google_vertex_label is not None:
+            status["config"] = google_vertex_label
             continue
 
         config_key = _resolve_provider_config_key(
