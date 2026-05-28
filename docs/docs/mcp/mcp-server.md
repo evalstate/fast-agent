@@ -12,7 +12,7 @@ social:
 
 Additionally, there is a convenient `serve` command enabling rapid, command line deployment of MCP enabled agents in a variety of instancing modes.
 
-This feature also works with [Agent Skills](../agents/skills/), enabling powerful adaptable behaviours.
+This feature also works with [Agent Skills](../guides/skills/), enabling powerful adaptable behaviours.
 
 #### Using the CLI (fast-agent serve)
 

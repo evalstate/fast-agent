@@ -1,9 +1,13 @@
-# Anthropic
+---
+title: Anthropic Provider
+social:
+  title: Anthropic Provider
+  tagline: Configure Claude models, prompt caching, reasoning, structured outputs, and Anthropic web tools.
+  description: Configure Claude models, prompt caching, reasoning, structured outputs, and Anthropic web tools.
+  alt: fast-agent social card — Anthropic
+---
 
-
-## Anthropic
-
-Anthropic models support Text, Vision and PDF content.
+Anthropic models support Text, Vision and PDF content. Caching is enabled by default, and Remote MCP is supported.
 
 **YAML Configuration:**
 
@@ -51,15 +55,36 @@ The `cache_ttl` setting controls how long cached content persists:
 
 **Reasoning + Structured Outputs:**
 
-`claude-opus-4-6` uses adaptive thinking by default. Use effort levels (`low`, `medium`, `high`,
-`max`) or `auto` with `anthropic.reasoning`:
+Claude reasoning support depends on the model family:
+
+| Model family | fast-agent aliases | Reasoning mode | Effort values | Task budget |
+| --- | --- | --- | --- | --- |
+| Claude Opus 4.8 | `opus`, `opus48` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
+| Claude Opus 4.7 | `opus47` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
+| Claude Opus 4.6 | `opus46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
+| Claude Sonnet 4.6 | `sonnet`, `sonnet46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
+| Older Claude 4.x / Haiku | `haiku`, pinned older IDs | token budget | `1024+` token budgets, or preset aliases | not supported |
+
+Adaptive models use `thinking: {"type": "adaptive"}` under the hood. Use effort levels
+(`low`, `medium`, `high`, `xhigh` where supported, `max`) or `auto` with `anthropic.reasoning`:
 
 ```yaml
 anthropic:
   reasoning: "high"
 ```
 
-Adaptive models default to `auto` (provider‑chosen) and do not accept explicit budgets.
+Adaptive models default to `auto` (provider-chosen). Do not configure fixed thinking budgets for
+these models; use effort levels instead.
+
+`task_budget` is available for Claude Opus 4.7+ in **fast-agent**. It gives the model a visible token
+budget for a full agentic loop, so the model can self-moderate. It is different from `max_tokens`,
+which is still the enforced ceiling for one response:
+
+```yaml
+anthropic:
+  reasoning: "xhigh"
+  task_budget: 128k
+```
 
 Anthropic models using budget-based thinking default to **reasoning on** with a **1024 token budget**.
 Use `anthropic.reasoning` to set a budget, map from effort aliases, or disable reasoning entirely:
@@ -72,12 +97,13 @@ anthropic:
 - Disable reasoning with `reasoning: "0"`, `reasoning: "off"`, or `reasoning: false`.
 - Budget models also accept `low`/`medium`/`high`/`max` to map to preset budgets.
 - The reasoning budget must be less than `max_tokens`. If you set a budget that meets/exceeds
-  `max_tokens`, fast-agent raises `max_tokens` so the budget fits.
+  `max_tokens`, **fast-agent** raises `max_tokens` so the budget fits.
 
 You can also set reasoning per run using the model string:
 
 - `sonnet?reasoning=4096`
-- `anthropic.claude-4-5-sonnet-latest?reasoning=4096`
+- `opus?reasoning=xhigh&task_budget=128k`
+- `opus47?reasoning=auto&task_budget=64k`
 - `claude-opus-4-6?reasoning=auto`
 
 **Structured output selection (Anthropic JSON schema vs tool_use):**
@@ -85,7 +111,9 @@ You can also set reasoning per run using the model string:
 - Models that support the `structured-outputs-2025-11-13` feature default to JSON schema output
   (`structured_output_mode: json`). This mode **is compatible with reasoning**.
 - Older models default to the legacy `tool_use` structured output flow. `tool_use` **is not compatible
-  with reasoning** — fast-agent disables reasoning when tool-forced structured output is selected.
+  with reasoning** — **fast-agent** disables reasoning when tool-forced structured output is selected.
+- Anthropic on Vertex does not support modern structured outputs in **fast-agent**; choose
+  `structured_output_mode: tool_use` / `?structured_outputs=tool_use` there.
 
 You can override the structured output mode explicitly:
 
@@ -98,7 +126,7 @@ Deprecated: `thinking_enabled` and `thinking_budget_tokens` are ignored. Use `re
 
 **Built-in Anthropic web tools (`web_search` + `web_fetch`):**
 
-fast-agent can enable Anthropic server-side web tools directly (these are not MCP tool calls):
+**fast-agent** can enable Anthropic server-side web tools directly (these are not MCP tool calls):
 
 - `anthropic.web_search.enabled: true`
 - `anthropic.web_fetch.enabled: true`
@@ -136,9 +164,9 @@ entries.
 - Server must be a remote `http`/`sse` URL
 - Use `access_token` for bearer auth if required
 
-See [Configuration Reference](../ref/config_file/#mcp-server-configuration)
+See [Configuration Reference](../../ref/config_file/#mcp-server-configuration)
 for the MCP server schema and
-[AgentCards and ToolCards](../ref/agent_cards/#runtime-mcp-targets-mcp_connect)
+[Agent Cards](../../agents/defining/agent_cards/#runtime-mcp-targets-mcp_connect)
 for card-scoped runtime targets.
 
 

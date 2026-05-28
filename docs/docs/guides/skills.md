@@ -1,4 +1,5 @@
 ---
+title: Agent Skills
 social:
   title: Agent Skills
   tagline: Package reusable capabilities and domain knowledge for agents to load on
@@ -8,59 +9,150 @@ social:
   alt: fast-agent social card — Agent Skills
 ---
 
-# Agent Skills
-
-**`fast-agent`** supports Agent Skills, and by default searches the directories listed in `DEFAULT_SKILLS_PATHS`:
+**`fast-agent`** supports Agent Skills, and adds them from the following directories by default:
 
 - `.fast-agent/skills`
+- `.agents/skills`
 - `.claude/skills`
 
 When valid SKILL.md files are found:
 
-- The Agent is given access to an `execute` tool for running shell commands, with the working directory set to the workspace root.
-- Skill descriptions from the manifest and path are added to the System Prompt using the `{{agentSkills}}` expansion. A warning is displayed if this is not present in the System Prompt.
+- The Agent is given shell acess with the working directory set to the workspace root.
+- Skill descriptions from the manifest and path are added to the System Prompt using the `{{agentSkills}}` template variable. A warning is displayed if this is not present in the System Prompt.
 - The `/skills` command lists the available skills.
-- If duplicate skill names exist across directories, later directories override earlier ones. Warnings are surfaced in `/status` (ACP).
+- If duplicate skill names exist across directories, later directories override earlier ones, and a warning message is shown. (Use `/status` from an ACP Client to view).
 
-## Skill Marketplace
+!!! tip "Skill Management"
 
-fast-agent can install skills from online registries. By default, three registries are configured:
+    Skills installed from any git repo (local or remote) can be automatically updated.
 
-- [fast-agent Skills](https://github.com/fast-agent-ai/skills)
-- [HuggingFace Skills](https://github.com/huggingface/skills)
-- [Anthropic Skills](https://github.com/anthropics/skills)
+## Installing Skills 
 
-### Installing Skills
+Skills can be installed, updated and removed from the CLI or TUI with the `skills` commmand. 
 
-Use the `/skills add` command to browse and install skills from the marketplace:
+To view available skills from the current marketplace use `/skills add` to display a list. Supply either a path, repository URL or skill name/index to install a skill
 
-```
-/skills add
-```
+Use `/skills update` to check current versions and install updates.
+
+
+You can also install a skill directly from a GitHub `SKILL.md` URL or a local
+skill directory/file:
+
+=== "TUI"
+
+    ```text
+    /skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md
+    /skills add ./skills/example
+    /skills add ./skills/example/SKILL.md
+    ```
+
+=== "CLI"
+
+    ```bash
+    fast-agent skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md
+    fast-agent skills add ./skills/example
+    fast-agent skills add ./skills/example/SKILL.md
+    ```
+
+For direct installs, fast-agent reads `SKILL.md` first and uses the manifest
+`name` as the canonical install directory. Skills names must follow the format specified in the agentskills.io [specification](https://agentskills.io/specification).
+
+### Registries and Marketplaces
+
+fast-agent can install skills from online registries published in the Claude plugin format. By default, three registries are configured:
+
+- [fast-agent](https://github.com/fast-agent-ai/skills)
+- [Hugging Face](https://github.com/huggingface/skills)
+- [Anthropic](https://github.com/anthropics/skills)
+
+To Browse and install skills from the marketplace:
+
+=== "TUI"
+
+    ```text
+    /skills add
+    ```
+
+=== "CLI"
+
+    ```bash
+    fast-agent skills add
+    ```
 
 This displays available skills with numbers. Install by name or number:
 
-```
-/skills add 1
-/skills add skill-name
-```
+=== "TUI"
+
+    ```text
+    /skills add 1
+    /skills add skill-name
+    ```
+
+=== "CLI"
+
+    ```bash
+    fast-agent skills add 1
+    fast-agent skills add skill-name
+    ```
+
+<div
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../assets/tui/skills-direct-install.cast"
+  data-fa-asciinema-cols="96"
+  data-fa-asciinema-rows="20"
+  data-fa-asciinema-poster="npt:0:01"
+  data-fa-asciinema-speed="1"
+  data-fa-asciinema-idle-time-limit="1.3"
+  data-fa-asciinema-fit="width"
+>
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
+  <div data-fa-asciinema-target></div>
+</div>
+
+<!--
+Cast asset:
+- Source: docs/docs/assets/tui/skills-direct-install.cast
+- Regenerate: uv run scripts/docs.py cast-build skills-direct-install
+- Replay locally: asciinema play docs/docs/assets/tui/skills-direct-install.cast
+-->
 
 ### Removing Skills
 
-Remove installed skills with `/skills remove`:
+Remove installed skills:
 
-```
-/skills remove skill-name
-/skills remove 1
-```
+=== "TUI"
+
+    ```text
+    /skills remove skill-name
+    /skills remove 1
+    ```
+
+=== "CLI"
+
+    ```bash
+    fast-agent skills remove skill-name
+    fast-agent skills remove 1
+    ```
 
 ### Managing Registries
 
 View the current registry and available registries:
 
-```
-/skills registry
-```
+=== "TUI"
+
+    ```text
+    /skills registry
+    ```
+
+=== "CLI"
+
+    ```bash
+    fast-agent skills available
+    ```
 
 Example output:
 ```
@@ -77,10 +169,19 @@ Usage: `/skills registry [number|URL]`
 
 Switch registries by number or provide a custom URL:
 
-```
-/skills registry 2
-/skills registry https://github.com/my-org/my-skills
-```
+=== "TUI"
+
+    ```text
+    /skills registry 2
+    /skills registry https://github.com/my-org/my-skills
+    ```
+
+=== "CLI"
+
+    ```bash
+    fast-agent skills available --registry https://github.com/my-org/my-skills
+    fast-agent skills add skill-name --registry https://github.com/my-org/my-skills
+    ```
 
 ## Configuration
 

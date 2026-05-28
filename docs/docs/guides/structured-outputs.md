@@ -312,7 +312,7 @@ The following models are recommended for single-pass Tools + Structured output.
 | --------- | -------------- | ------------------------ | -----: | ---: | ---: | -----------: |
 | Anthropic | `haiku`        | `claude-haiku-4-5`       | `auto` |   10 |    0 |           0% |
 | Anthropic | `opus46`       | `claude-opus-4-6`        | `auto` |   10 |    0 |           0% |
-| Anthropic | `opus`         | `claude-opus-4-7`        | `auto` |   10 |    0 |           0% |
+| Anthropic | `opus47`       | `claude-opus-4-7`        | `auto` |   10 |    0 |           0% |
 | OpenAI    | `gpt55`        | `gpt-5.5`                | `auto` |   10 |    0 |           0% |
 | OpenAI    | `gpt54`        | `gpt-5.4`                | `auto` |   10 |    0 |           0% |
 | OpenAI    | `gpt54-mini`   | `gpt-5.4-mini`           | `auto` |   10 |    0 |           0% |
@@ -320,7 +320,10 @@ The following models are recommended for single-pass Tools + Structured output.
 | xAI       | `grok`         | `grok-4.3`               | `auto` |   10 |    0 |           0% |
 | Google    | `gemini3flash` | `gemini-3-flash-preview` | `auto` |   10 |    0 |           0% |
 
-`claude-sonnet-4-6`, `gemini-3.1-flash-lite-preview` and `gemini-3.1-pro-preview` show elevated failure rates, so conduct your testing with your own schemas before finalizing a policy.
+`opus` currently resolves to Claude Opus 4.8 in fast-agent and should be validated with your own
+schemas before you promote it into a single-pass Tools + Structured policy. `claude-sonnet-4-6`,
+`gemini-3.1-flash-lite-preview` and `gemini-3.1-pro-preview` show elevated failure rates, so conduct
+your testing with your own schemas before finalizing a policy.
 
 <!--
 | provider | model alias | resolved model | policy | pass | fail | failure rate |

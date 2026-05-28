@@ -67,8 +67,21 @@ def _model_picker_scenario() -> TerminalCastScenario:
     )
 
 
+def _skills_direct_install_scenario() -> TerminalCastScenario:
+    return TerminalCastScenario(
+        name="skills-direct-install",
+        title="fast-agent direct skill install",
+        output=ASSETS / "tui" / "skills-direct-install.cast",
+        cols=int(os.environ.get("FAST_AGENT_SKILLS_DEMO_COLS", "96")),
+        rows=int(os.environ.get("FAST_AGENT_SKILLS_DEMO_ROWS", "20")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_SKILLS_DEMO_IDLE_TIME_LIMIT", "1.3")),
+        prompt="",
+        shell_command="",
+    )
+
+
 def _scenarios() -> dict[str, TerminalCastScenario]:
-    scenarios = [_tui_shell_scenario(), _model_picker_scenario()]
+    scenarios = [_tui_shell_scenario(), _model_picker_scenario(), _skills_direct_install_scenario()]
     return {scenario.name: scenario for scenario in scenarios}
 
 
@@ -127,6 +140,57 @@ def _missing_tools(tools: tuple[str, ...]) -> list[str]:
     return [tool for tool in tools if shutil.which(tool) is None]
 
 
+def _skills_direct_install_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_SKILLS_DEMO_STARTUP_WAIT", "0.7")
+    command_wait = os.environ.get("FAST_AGENT_SKILLS_DEMO_COMMAND_WAIT", "1.0")
+    final_wait = os.environ.get("FAST_AGENT_SKILLS_DEMO_FINAL_WAIT", "1.0")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-skills.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && mkdir -p skills/demo-skill && cat > skills/demo-skill/SKILL.md <<'SKILL'
+---
+name: demo-skill
+description: A small local skill used by the documentation demo.
+---
+
+# Demo Skill
+
+Use this skill to demonstrate direct installation from a local SKILL.md file.
+SKILL
+unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep {startup_wait}
+  type_slow "$SESSION" 'fast-agent skills add ./skills/demo-skill/SKILL.md' 0.035
+  tmux send-keys -t "$SESSION" Enter
+  sleep {command_wait}
+  sleep {final_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
+
+
 def _required_assets() -> list[Path]:
     return [
         VENDOR_ASCIINEMA / "README.md",
@@ -166,6 +230,8 @@ def build() -> int:
 def _record_script(scenario: TerminalCastScenario) -> str:
     if scenario.name == "model-picker":
         return _model_picker_record_script(scenario)
+    if scenario.name == "skills-direct-install":
+        return _skills_direct_install_record_script(scenario)
 
     typing_delay = os.environ.get("FAST_AGENT_TUI_DEMO_TYPING_DELAY", "0.055")
     shell_delay = os.environ.get("FAST_AGENT_TUI_DEMO_SHELL_TYPING_DELAY", "0.045")

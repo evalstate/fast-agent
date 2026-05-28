@@ -48,7 +48,8 @@ nav = [
       { "Google" = "models/providers/google.md" },
       { "Azure" = "models/providers/azure.md" },
       { "Bedrock" = "models/providers/bedrock.md" },
-      { "xAI / Grok" = "models/providers/xai.md" },
+      { "xAI" = "models/providers/xai.md" },
+      { "Hugging Face" = "models/providers/huggingface.md" },
       { "Additional Providers" = "models/providers/additional.md" },
     ] },
     { "Reference" = [
