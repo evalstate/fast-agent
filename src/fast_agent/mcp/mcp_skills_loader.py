@@ -15,10 +15,9 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Sequence
 
-from mcp.types import BlobResourceContents, TextResourceContents
+from mcp.types import TextResourceContents
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.skill_archive import unpack_skill_archive
 from fast_agent.mcp.skill_uri import skill_name_from_uri
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
 
@@ -38,11 +37,6 @@ MAX_SKILL_MD_BYTES = 262_144  # 256 KiB
 KNOWN_INDEX_SCHEMAS = frozenset(
     {"https://schemas.agentskills.io/discovery/0.2.0/schema.json"}
 )
-
-# Wire-bytes ceiling for archive blobs — distinct from the unpacked-size cap in skill_archive.
-MAX_ARCHIVE_BLOB_BYTES = 4 * 1024 * 1024  # 4 MiB
-
-ARCHIVE_SUFFIXES = (".tar.gz", ".tgz", ".zip")
 
 
 @dataclass(frozen=True)
@@ -92,15 +86,9 @@ def expand_uri_template(template: str, values: dict[str, str]) -> str:
 class LoadedSkills:
     """Result of `load_mcp_skill_manifests`.
 
-    The loader discovers three distinct kinds of artifact:
+    The loader discovers two distinct kinds of artifact:
 
-    - `manifests` — concrete skills (both `skill-md` and `archive` index
-      entries reduce to one `SkillManifest` each).
-    - `archive_cache` — for archive-distributed skills, a per-skill
-      in-memory file map keyed by the skill's *root* URI (the URI with
-      `/SKILL.md` stripped, NOT the original `.tar.gz` URL). The
-      SkillReader checks this cache before issuing `resources/read`,
-      so archive-backed reads stay local after the initial fetch.
+    - `manifests` — concrete `skill-md` entries reduced to `SkillManifest`.
     - `template_entries` — `mcp-resource-template` index entries left
       unresolved. The host surfaces these in its UI; the user fills
       variables (via the MCP completion API) and the resolved URI
@@ -108,7 +96,6 @@ class LoadedSkills:
     """
 
     manifests: list[SkillManifest] = field(default_factory=list)
-    archive_cache: dict[str, dict[str, bytes]] = field(default_factory=dict)
     template_entries: list[SkillTemplateEntry] = field(default_factory=list)
 
 
@@ -161,11 +148,8 @@ async def load_mcp_skill_manifests(
     silently skipped), then walks each entry:
 
     - `type: "skill-md"` — fetches the `SKILL.md` and parses frontmatter.
-    - `type: "archive"` — fetches the archive blob and unpacks it
-      in-memory; the resulting file map seeds `LoadedSkills.archive_cache`
-      and the SKILL.md inside the archive is parsed identically to a
-      direct `skill-md` entry.
-    - `mcp-resource-template` — logged and skipped (Feature 3 work).
+    - `mcp-resource-template` — held as a `SkillTemplateEntry` for the
+      user to resolve via `/skills resolve`.
 
     Errors from a single server or entry are logged as warnings; a failure
     never aborts the whole batch.
@@ -214,14 +198,6 @@ async def load_mcp_skill_manifests(
                 manifest = await _load_concrete_entry(aggregator, server_name, entry)
                 if manifest is not None:
                     result.manifests.append(manifest)
-                continue
-            if entry_type == "archive":
-                pair = await _load_archive_entry(aggregator, server_name, entry)
-                if pair is not None:
-                    manifest, files = pair
-                    result.manifests.append(manifest)
-                    root_uri = manifest.uri.removesuffix("/SKILL.md")
-                    result.archive_cache[root_uri] = files
                 continue
             logger.debug(
                 "Skipping MCP skill entry with unrecognized type",
@@ -431,159 +407,3 @@ def _first_text(contents: Iterable) -> str | None:
         if isinstance(item, TextResourceContents):
             return item.text
     return None
-
-
-def _first_blob(contents: Iterable) -> tuple[bytes, str | None] | None:
-    """Return `(blob_bytes, mime_type)` from the first BlobResourceContents.
-
-    `BlobResourceContents.blob` is base64-encoded per the MCP schema;
-    decode here so callers receive raw bytes.
-    """
-    import base64
-
-    for item in contents:
-        if isinstance(item, BlobResourceContents):
-            try:
-                return base64.b64decode(item.blob), item.mimeType
-            except Exception:
-                return None
-    return None
-
-
-def _strip_archive_suffix(url: str) -> str | None:
-    """Return the URL with its archive suffix removed, or None if none match.
-
-    `skill://pdf-processing.tar.gz` -> `skill://pdf-processing`
-    `skill://acme/billing/refunds.zip` -> `skill://acme/billing/refunds`
-    """
-    lowered = url.lower()
-    for suffix in ARCHIVE_SUFFIXES:
-        if lowered.endswith(suffix):
-            return url[: -len(suffix)]
-    return None
-
-
-async def _load_archive_entry(
-    aggregator: "MCPAggregator",
-    server_name: str,
-    entry: dict,
-) -> tuple[SkillManifest, dict[str, bytes]] | None:
-    """Fetch and unpack an `type: "archive"` index entry.
-
-    Returns `(manifest, files)` where `files` is the unpacked file map
-    keyed by archive-relative POSIX path. The manifest's URI is
-    rewritten from the archive URL (`...skill.tar.gz`) to the post-unpack
-    SKILL.md URI (`.../skill/SKILL.md`) so the rest of the host treats
-    the result identically to a `skill-md` entry.
-    """
-    url = entry.get("url")
-    if not isinstance(url, str) or not url:
-        logger.warning(
-            "Skill archive entry missing `url`",
-            data={"server": server_name, "entry": entry},
-        )
-        return None
-
-    if url.lower().startswith("file://"):
-        # See `_load_concrete_entry` for the `file://` trust rationale.
-        logger.warning(
-            "Rejecting `file://` skill archive URI",
-            data={"server": server_name, "url": url},
-        )
-        return None
-
-    skill_root = _strip_archive_suffix(url)
-    if skill_root is None:
-        logger.warning(
-            "Skill archive URL has no recognized suffix (.tar.gz/.tgz/.zip)",
-            data={"server": server_name, "url": url},
-        )
-        return None
-
-    try:
-        result = await aggregator.get_resource(url, server_name=server_name)
-    except Exception as exc:
-        logger.warning(
-            "Failed to read MCP skill archive",
-            data={"server": server_name, "url": url, "error": str(exc)},
-        )
-        return None
-
-    blob_pair = _first_blob(result.contents)
-    if blob_pair is None:
-        logger.warning(
-            "MCP skill archive resource returned no binary content",
-            data={"server": server_name, "url": url},
-        )
-        return None
-    blob, mime_type = blob_pair
-
-    if len(blob) > MAX_ARCHIVE_BLOB_BYTES:
-        logger.warning(
-            "Skill archive blob exceeds wire-bytes limit",
-            data={
-                "server": server_name,
-                "url": url,
-                "bytes": len(blob),
-                "limit": MAX_ARCHIVE_BLOB_BYTES,
-            },
-        )
-        return None
-
-    files = unpack_skill_archive(blob, mime_type, url)
-    if files is None:
-        return None
-
-    skill_md_bytes = files.get("SKILL.md")
-    if skill_md_bytes is None:
-        logger.warning(
-            "Unpacked skill archive missing SKILL.md",
-            data={"server": server_name, "url": url},
-        )
-        return None
-
-    try:
-        skill_md_text = skill_md_bytes.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        logger.warning(
-            "Skill archive SKILL.md is not valid UTF-8",
-            data={"server": server_name, "url": url, "error": str(exc)},
-        )
-        return None
-
-    parsed, parse_error = SkillRegistry.parse_manifest_text(skill_md_text)
-    if parsed is None:
-        logger.warning(
-            "Failed to parse SKILL.md from skill archive",
-            data={"server": server_name, "url": url, "error": parse_error},
-        )
-        return None
-
-    # Frontmatter `name` is authoritative; a URL/name mismatch is a smell, not an error.
-    archive_url_name = skill_root.rsplit("/", 1)[-1]
-    if archive_url_name != parsed.name:
-        logger.warning(
-            "Skill archive URL final segment differs from frontmatter name",
-            data={
-                "server": server_name,
-                "url": url,
-                "url_name": archive_url_name,
-                "frontmatter_name": parsed.name,
-            },
-        )
-
-    skill_md_uri = f"{skill_root}/SKILL.md"
-
-    manifest = SkillManifest(
-        name=parsed.name,
-        description=parsed.description,
-        body=parsed.body,
-        path=None,
-        license=parsed.license,
-        compatibility=parsed.compatibility,
-        metadata=parsed.metadata,
-        allowed_tools=parsed.allowed_tools,
-        uri=skill_md_uri,
-        server_name=server_name,
-    )
-    return manifest, files

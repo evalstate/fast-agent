@@ -36,7 +36,6 @@ class SkillReader:
         logger,
         *,
         aggregator: "MCPAggregator | None" = None,
-        archive_cache: dict[str, dict[str, bytes]] | None = None,
     ) -> None:
         """
         Initialize the skill reader.
@@ -46,18 +45,10 @@ class SkillReader:
             logger: Logger instance for debugging
             aggregator: MCP aggregator for reading Skills-over-MCP resources.
                 Required when any manifest is URI-backed; optional otherwise.
-            archive_cache: For archive-distributed skills, an in-memory
-                file map keyed by skill-root URI. The reader checks this
-                first for any URI that descends from a cached root, so
-                supporting-file reads after the initial archive fetch are
-                served locally instead of round-tripping through the
-                server. Trust-boundary enforcement is unchanged: archive
-                roots seed `_allowed_uri_roots` like any other URI root.
         """
         self._skill_manifests = skill_manifests
         self._logger = logger
         self._aggregator = aggregator
-        self._archive_cache: dict[str, dict[str, bytes]] = dict(archive_cache or {})
 
         self._allowed_directories: set[Path] = set()
         # Allowed URI roots — any scheme per SEP (`skill://`, `github://`, ...). A read is
@@ -218,74 +209,6 @@ class SkillReader:
             f"</untrusted-skill-content>"
         )
 
-    def _read_from_archive_cache(self, uri: str) -> CallToolResult | None:
-        """Return a CallToolResult if `uri` is served from an archive cache.
-
-        Returns None if the URI doesn't descend from any cached archive
-        root — the caller falls back to the aggregator. Picks the
-        longest-matching root when caches overlap (same logic as
-        `_find_server_for_uri`).
-        """
-        if not self._archive_cache:
-            return None
-
-        best_root: str | None = None
-        for root in self._archive_cache:
-            if uri == root or uri.startswith(f"{root}/"):
-                if best_root is None or len(root) > len(best_root):
-                    best_root = root
-        if best_root is None:
-            return None
-
-        files = self._archive_cache[best_root]
-        if uri == best_root:
-            file_path = "SKILL.md"  # the bare root URI reads SKILL.md
-        else:
-            file_path = uri[len(best_root) + 1 :]
-
-        data = files.get(file_path)
-        if data is None:
-            return CallToolResult(
-                isError=True,
-                content=[
-                    TextContent(
-                        type="text",
-                        text=f"File not found in archive: {uri}",
-                    )
-                ],
-            )
-
-        try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError:
-            # read_skill returns text only — binary supporting files have no text content.
-            return CallToolResult(
-                isError=True,
-                content=[
-                    TextContent(
-                        type="text",
-                        text=(
-                            f"Archive file {uri} is not valid UTF-8; "
-                            "read_skill only returns text content."
-                        ),
-                    )
-                ],
-            )
-
-        self._logger.debug(
-            "Read skill resource from archive cache",
-            data={"uri": uri, "root": best_root, "bytes": len(data)},
-        )
-        # Cache is a perf layer, not a trust one — wrap as untrusted just like the
-        # live aggregator path.
-        wrapped = self._wrap_untrusted_mcp_content(
-            text, uri, self._find_server_for_uri(uri)
-        )
-        return CallToolResult(
-            isError=False,
-            content=[TextContent(type="text", text=wrapped)],
-        )
-
     async def execute(self, arguments: dict[str, Any] | None = None) -> CallToolResult:
         """Read a skill file (filesystem path or any resource URI)."""
         path_str = (arguments or {}).get("path") if arguments else None
@@ -306,7 +229,6 @@ class SkillReader:
         return await self._read_filesystem(target)
 
     async def _read_mcp_uri(self, uri: str) -> CallToolResult:
-        # Trust-boundary check applies to cache hits and aggregator fetches alike.
         if not self._is_uri_allowed(uri):
             return CallToolResult(
                 isError=True,
@@ -317,11 +239,6 @@ class SkillReader:
                     )
                 ],
             )
-
-        # Archive-backed skills are unpacked at discovery; serve from memory if cached.
-        cached = self._read_from_archive_cache(uri)
-        if cached is not None:
-            return cached
 
         if self._aggregator is None:
             return CallToolResult(
