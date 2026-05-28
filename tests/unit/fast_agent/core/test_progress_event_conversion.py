@@ -59,6 +59,30 @@ def test_convert_log_event_uses_tool_use_id_when_call_id_missing() -> None:
     assert progress_event.tool_terminal is True
 
 
+def test_convert_log_event_marks_legacy_tool_stop_as_terminal() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.llm.provider.openai.codex_responses.dev",
+        message="Model finished streaming tool call",
+        data={
+            "data": {
+                "progress_action": ProgressAction.CALLING_TOOL,
+                "agent_name": "assistant",
+                "model": "gpt-5.3-codex",
+                "tool_name": "execute",
+                "tool_use_id": "call_id_0",
+                "tool_event": "stop",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+
+    assert progress_event is not None
+    assert progress_event.tool_event == "stop"
+    assert progress_event.tool_terminal is True
+
+
 def test_convert_log_event_skips_provider_web_tool_progress_events() -> None:
     event = Event(
         type="info",
