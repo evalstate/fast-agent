@@ -23,7 +23,7 @@ This demo comprises three MCP Servers and three **fast-agent** programs:
  - A demonstration of an Elicitation made during a Tool Call.
  - An example of using a custom Elicitation handler.
 
-This quick start gives provides you with a complete MCP Client and Server solution for developing and deploying Elicitations.  
+This quick start provides you with a complete MCP Client and Server solution for developing and deploying Elicitations.
 
 ## Setup **fast-agent**
 
@@ -42,10 +42,10 @@ Make sure you have the `uv` [package manager](https://docs.astral.sh/uv/) instal
     # setup fast-agent
     uv pip install fast-agent-mcp
 
-    # setup the elicitations demo 
+    # setup the elicitations demo
     fast-agent quickstart elicitations
 
-    # go the demo folder
+    # go to the demo folder
     cd elicitations
     ```
 === "Windows"
@@ -61,10 +61,10 @@ Make sure you have the `uv` [package manager](https://docs.astral.sh/uv/) instal
     # setup fast-agent
     uv pip install fast-agent-mcp
 
-    # setup the elicitations demo 
+    # setup the elicitations demo
     fast-agent quickstart elicitations
 
-    # go the demo folder
+    # go to the demo folder
     cd elicitations
     ```
 
@@ -93,7 +93,7 @@ Note that the forms:
 
 The `Cancel All` option cancels the Elicitation Request, and automatically cancels future requests to avoid unwanted interruptions from badly behaving Servers.
 
-For MCP Server developers, the form is fast and easy to navigate to facilitating iterative development. 
+For MCP Server developers, the form is fast and easy to navigate, which facilitates iterative development.
 
 The `elicitation_forms_server.py` file includes examples of all field types and validations: `Numbers`, `Booleans`, `Enums` and `Strings`.
 
@@ -119,7 +119,7 @@ uv run game_character.py
 
 ![Custom Elicitation](./pics/elicitation_char3.gif)
 
-This agent uses a custom elicitation handler to generate a character for a game. The custom handler is in `game_character_handler.py` and is setup with the following code:
+This agent uses a custom elicitation handler to generate a character for a game. The custom handler is in `game_character_handler.py` and is set up with the following code:
 
 ```python title="game_character.py" linenums="23" hl_lines="4-5"
 @fast.agent(
@@ -134,9 +134,9 @@ For MCP Server Developers, Custom Handlers can be used to help complete automate
 
 ## Configuration
 
-Note that Elicitations are now _enabled by default_ in **fast-agent**, and can be [configured with](./#elicitations) the `fast-agent.yaml` file. 
+Note that Elicitations are now _enabled by default_ in **fast-agent**, and can be [configured with](../#elicitations) the `fast-agent.yaml` file.
 
-You can configure the Elicitation mode to `forms` (the default),`auto-cancel` or `none`. 
+You can configure the Elicitation mode to `forms` (the default), `auto-cancel`, or `none`.
 
 ```yaml title="fast-agent.yaml" linenums="19" hl_lines="10"
 mcp:
@@ -152,6 +152,6 @@ mcp:
 
 ```
 
-In `auto-cancel` mode, **fast-agent** advertises the Elicitation capability, and automatically cancels Elicitation  requests from the MCP Server. 
+In `auto-cancel` mode, **fast-agent** advertises the Elicitation capability, and automatically cancels Elicitation requests from the MCP Server.
 
 When set to `none`, the Elicitation capability is not advertised to the MCP Server.

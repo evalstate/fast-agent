@@ -14,7 +14,7 @@ Adds OAuth v2.1 to HTTP/SSE MCP servers (STDIO excluded).
 ## Requirements
 
 - **`fast-agent`** 0.3.5 or above
-- OS Keyring support for persistence (e.g. WinVaultKeyring, macOS Keyring, SercretService Keyring)
+- OS Keyring support for persistence (e.g. WinVaultKeyring, macOS Keyring, Secret Service Keyring)
 
 
 ```bash title="Install keyring on Ubuntu"
@@ -43,11 +43,14 @@ mcp:
         redirect_port: 3030              # default 3030
         redirect_path: /callback         # default /callback
         # scope: "user"                  # optional (server defaults used if omitted)
+        # client_metadata_url: "https://example.com/client.json"
 ```
 
 Notes:
 
 - Scope is omitted by default. If a server requires a specific scope, set `auth.scope` (string or list).
+- Use `auth.client_metadata_url` when a server supports Client ID Metadata Document (CIMD)
+  registration and requires a URL-based client ID. The URL must be HTTPS and include a non-root path.
 - STDIO servers do not use OAuth and are hidden in auth views.
 
 ## Keychain Persistence
@@ -79,6 +82,11 @@ Notes:
 
 - Check full app config (includes server OAuth flags and token presence):
   - `fast-agent check`
+
+`fast-agent go`, `fast-agent serve`, and `fast-agent acp` also accept
+`--client-metadata-url` for ad hoc URL-based server connections. The
+`FAST_AGENT_OAUTH_CLIENT_METADATA_URL` environment variable can set a process-wide default; set it
+to an empty value to disable the built-in default.
 
 ## Typical Workflows
 
@@ -114,4 +122,3 @@ Notes:
 
 - STDIO not listed
   - Expected; STDIO transport does not use OAuth.
-

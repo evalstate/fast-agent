@@ -28,9 +28,9 @@ social:
 
 - **AgentVersity – LinkedIn Post (Mar 2025):** *"Introducing Fast-Agent: Revolutionize Your AI Projects"* – A promotional post by the AgentVersity account highlighting fast-agent's quick setup, multi-model support, and business impact for faster AI development.[\[8\]](https://www.linkedin.com/posts/agent-versity_ai-fastagent-mcp-activity-7303631327407312897-7yIa)
 
-- **Matthew Bridges – LinkedIn Post (mid-2025):** Shared early experimentation using fast-agent to quickly spin up an agent connected to Slack, GitHub, and Postgres MCP servers, demonstrating fast-agent's utility in testing multiple integrations.[\[9\]](https://www.linkedin.com/posts/matthew-bridges_fast-agent-documentation-activity-7317554748235083781-IrVB)
+- **Matthew Bridges – LinkedIn Post:** Shared early experimentation using fast-agent to quickly spin up an agent connected to Slack, GitHub, and Postgres MCP servers, demonstrating fast-agent's utility in testing multiple integrations.[\[9\]](https://www.linkedin.com/posts/matthew-bridges_fast-agent-documentation-activity-7317554748235083781-IrVB)
 
-- **Hemanth HM – LinkedIn Post (late 2025):** Showcased a fintech prototype using fast-agent to interface with PayPal's remote MCP server, including OAuth and custom LLM support.[\[10\]](https://www.linkedin.com/posts/hemanthhm_ai-llm-activity-7336127859121451008-szU6)
+- **Hemanth HM – LinkedIn Post:** Showcased a fintech prototype using fast-agent to interface with PayPal's remote MCP server, including OAuth and custom LLM support.[\[10\]](https://www.linkedin.com/posts/hemanthhm_ai-llm-activity-7336127859121451008-szU6)
 
 ### YouTube & Video Content
 

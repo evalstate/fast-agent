@@ -1,6 +1,6 @@
 ---
-title: Open Telemetry Support for fast-agent
-description: Reference for setting up Open Telemetry with fast-agent, providing observability
+title: OpenTelemetry Support for fast-agent
+description: Reference for setting up OpenTelemetry with fast-agent, providing observability
   to MCP tool calls and LLM interactions.
 social:
   title: OpenTelemetry
@@ -12,13 +12,13 @@ social:
 
 ## Getting Started
 
-**fast-agent** supports Open Telemetry, providing observability of MCP and LLM interactions. This is also a useful test/eval tool for comparing the behaviour of MCP Servers with different mixes of Tools, descriptions and models.
+**fast-agent** supports OpenTelemetry, providing observability of MCP and LLM interactions. This is also a useful test/eval tool for comparing the behaviour of MCP Servers with different mixes of Tools, descriptions and models.
 
-![Open Telemetry example](./pics/otel_router.png)
+![OpenTelemetry example](./pics/otel_router.png)
 
-## Set up an Open Telemetry server
+## Set up an OpenTelemetry server
 
-The first step is to set up an Open Telemetry server. For this example, we will use [Jaeger](https://www.jaegertracing.io/) running locally with `docker-compose.yaml`. Create the following `docker-compose` file in a convenient directory:
+The first step is to set up an OpenTelemetry server. For this example, we will use [Jaeger](https://www.jaegertracing.io/) running locally with `docker-compose.yaml`. Create the following `docker-compose` file in a convenient directory:
 
 ```yaml title="docker-compose.yaml"
 services:

@@ -210,6 +210,7 @@ async def test_run_slash_command_skills_add_help(tmp_path: Path) -> None:
     result = await _run_slash_command_call(agent, "/skills add --help")
 
     assert "# commands skills add" in result
+    assert "`/skills add [<number|name|github-url|path>] [--registry url] [--skills-dir path]`" in result
     assert "`--skills-dir path`" in result
 
 

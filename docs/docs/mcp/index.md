@@ -94,7 +94,7 @@ Notes:
 
 - Supported providers: `anthropic` and OpenAI `responses`.
 - Not supported with `codexresponses` / Codex OAuth aliases such as
-  `codexplan`, `codexplan52`, and `codexspark`.
+  `codexplan`, `codexplan54`, and `codexspark`.
 - Not supported with `openresponses`, `openai`, `anthropic-vertex`, or other
   client-managed providers.
 - Provider-managed remote MCP is URL-only: use remote `http`/`sse` servers, not
@@ -121,8 +121,8 @@ mcp:
       defer_loading: true
 ```
 
-For connector-backed entries, omit `transport` and `url`. `access_token` is
-required. `defer_loading: true` enables server-side lazy tool loading for
+For connector-backed entries, set `name`, omit `transport` and `url`, and provide
+`access_token`. `defer_loading: true` enables server-side lazy tool loading for
 Responses provider-managed remote MCP and connectors.
 
 ## Adding a STDIO Server
@@ -131,18 +131,19 @@ The below shows an example of configuring an MCP Server named `server_one`.
 
 ```yaml title="fast-agent.yaml"
 mcp:
-# name used in agent servers array
-  server_one:
-    # command to run
-    command: "npx"
-    # list of arguments for the command
-    args: ["@modelcontextprotocol/server-brave-search"]
-    # key/value pairs of environment variables
-    env:
-      BRAVE_API_KEY: your_key
-      KEY: value
-  server_two:
-    # and so on ...
+  servers:
+    # name used in agent servers array
+    server_one:
+      # command to run
+      command: "npx"
+      # list of arguments for the command
+      args: ["@modelcontextprotocol/server-brave-search"]
+      # key/value pairs of environment variables
+      env:
+        BRAVE_API_KEY: your_key
+        KEY: value
+    server_two:
+      # and so on ...
 
 ```
 
@@ -154,26 +155,27 @@ This MCP Server can then be used with an agent as follows:
 
 ## Adding an SSE or HTTP Server
 
-To use remote MCP Servers, specify the either `http` or `sse` transport and the endpoint URL and headers:
+To use remote MCP Servers, specify either `http` or `sse` transport and the endpoint URL and headers:
 
 ```yaml title="fast-agent.yaml"
 mcp:
-# name used in agent servers array
-  server_two:
-    transport: "http"
-    # url to connect
-    url: "http://localhost:8000/mcp"
-    # timeout in seconds to use for sse sessions (optional)
-    read_transport_sse_timeout_seconds: 300
-    # request headers for connection
-    headers:
-          Authorization: "Bearer <secret>"
+  servers:
+    # name used in agent servers array
+    server_two:
+      transport: "http"
+      # url to connect
+      url: "http://localhost:8000/mcp"
+      # timeout in seconds to use for HTTP/SSE sessions (optional)
+      read_transport_sse_timeout_seconds: 300
+      # request headers for connection
+      headers:
+        Authorization: "Bearer <secret>"
 
-# name used in agent servers array
-  server_three:
-    transport: "sse"
-    # url to connect
-    url: "http://localhost:8001/sse"
+    # name used in agent servers array
+    server_three:
+      transport: "sse"
+      # url to connect
+      url: "http://localhost:8001/sse"
 
 ```
 
@@ -181,60 +183,62 @@ mcp:
 
 Agents and Workflows supporting the `servers` parameter have the ability to filter the tools, resources and prompts available to the agent.  This can greatly reduce the amount of context generated for the agents - which can both increase the accuracy of the responses and reduce costs due to the lower token count of the context.
 
-The default behavior is to include all tools, prompts and resources from the configured MCP servers, but this can be overridden by the `tools`, `prompts` and `resources` parameters.  These parameters accept a Dict, where the key of the dict in the name of the server to filter, and the value is a list of the tool names, resource names and prompt names respectively.
+The default behavior is to include all tools, prompts and resources from the configured MCP servers, but this can be overridden by the `tools`, `prompts` and `resources` parameters. These parameters accept a dict where each key is the server name to filter and each value is a list of tool, resource, or prompt names.
 
 For example:
 ```python
 @fast.agent(
-  name="Search,
-  instruction="You are a search agent that helps users fint files using the provided tools.",
-  servers=["server_one", "server_two"]  # use two MCP servers
+  name="Search",
+  instruction="You are a search agent that helps users find files using the provided tools.",
+  servers=["server_one", "server_two"],  # use two MCP servers
 
-  # Filter some of the MCP resources avalable to the agent
+  # Filter some of the MCP tools available to the agent
   tools={
     "server_one": ["search_files", "search_directory"],
-    "server_two": ["regex_search"]
-  }
-  prompts = None  # DOn't filter prompts (default behavior)
-  resources = {
-    "server_two": ["file://get_tree"] # Only filter resources on server_two
-  }
+    "server_two": ["regex_search"],
+  },
+  prompts=None,  # don't filter prompts (default behavior)
+  resources={
+    "server_two": ["file://get_tree"], # only filter resources on server_two
+  },
 )
 
 ```
 
 ## Implementation Spoofing
 
-**`fast-agent`** can be used the specify the Implementation details sent to the MCP Server, enabling testing Servers that adapt their configuration based on the client connection. By default **`fast-agent`** uses the `fast-agent-mcp` and it's current version number.
+**`fast-agent`** can specify the implementation details sent to the MCP Server, enabling testing of servers that adapt their configuration based on the client connection. By default **`fast-agent`** uses `fast-agent-mcp` and its current version number.
 
 ```yaml title="fast-agent.yaml"
 mcp:
-  server_one:
-    transport: "http"
-    url: "http://localhost:8000/mcp"
-    implementation:
-      name: "spoof-server"
-      version: "9.9.9"
+  servers:
+    server_one:
+      transport: "http"
+      url: "http://localhost:8000/mcp"
+      implementation:
+        name: "spoof-server"
+        version: "9.9.9"
 ```
 
 
 ## Elicitations
 
-Elicitations are configured by specifying a strategy for the MCP Server. The handler can be overriden with a custom handler in the Agent definition.
+Elicitations are configured by specifying a strategy for the MCP Server. The handler can be overridden with a custom handler in the Agent definition.
 
 ```yaml title="fast-agent.yaml"
 mcp:
-  server_four:
-    transport: "http"
-    url: "http://localhost:8000/mcp"
-    elicitation:
-      mode: "forms"
+  servers:
+    server_four:
+      transport: "http"
+      url: "http://localhost:8000/mcp"
+      elicitation:
+        mode: "forms"
 ```
 
 `mode` can be one of:
 
 - **`forms`** (default). Displays a form to respond to elicitations.
-- **`auto_cancel`** The elicitation capability is advertised to the Server, but all solicitations are automatically cancelled.
+- **`auto-cancel`** The elicitation capability is advertised to the Server, but all solicitations are automatically cancelled.
 - **`none`** No elicitation capability is advertised to the Server.
 
 
@@ -249,20 +253,21 @@ mcp:
 
 ```yaml title="fast-agent.yaml"
 mcp:
-  server_three:
-    transport: "http"
-    url: "http://localhost:8000/mcp"
-    roots:
-       uri: "file://...."
-       name: Optional Name
-       server_uri_alias: # optional
+  servers:
+    server_three:
+      transport: "http"
+      url: "http://localhost:8000/mcp"
+      roots:
+        - uri: "file:///path/to/workspace"
+          name: "Optional Name"
+          server_uri_alias: "file:///mnt/data" # optional
 ```
 
 As per the [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/630db617baa801ef8ec99e64aa4b00e99c7165ec/schema/2025-11-25/schema.ts#L2108-L2133) roots MUST be a valid URI starting with `file://`.
 
 If a server_uri_alias is supplied, **fast-agent** presents this to the MCP Server. This allows you to present a consistent interface to the MCP Server. An example of this usage would be mounting a local directory to a docker volume, and presenting it as `/mnt/data` to the MCP Server for consistency.
 
-The data analysis example (`fast-agent quickstart data-analysis` has a working example of MCP Roots).
+The data analysis example (`fast-agent quickstart data-analysis`) has a working example of MCP Roots.
 
 ## Sampling
 
@@ -274,14 +279,15 @@ Sampling is configured by specifying a sampling model for the MCP Server.
 
 ```yaml title="fast-agent.yaml"
 mcp:
-  server_four:
-    transport: "http"
-    url: "http://localhost:8000/mcp"
-    sampling:
-      model: "provider.model.<reasoning_effort>"
+  servers:
+    server_four:
+      transport: "http"
+      url: "http://localhost:8000/mcp"
+      sampling:
+        model: "provider.model.<reasoning_effort>"
 ```
 
-Read more about The model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
+Read more about the model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
 
 ## Experimental Session Capability (client-first demos)
 
@@ -293,11 +299,12 @@ To demonstrate a client-first negotiation style, enable per-server advertising:
 
 ```yaml title="fast-agent.yaml"
 mcp:
-  server_five:
-    transport: "http"
-    url: "http://localhost:8765/mcp"
-    experimental_session_advertise: true
-    experimental_session_advertise_version: 2
+  servers:
+    server_five:
+      transport: "http"
+      url: "http://localhost:8765/mcp"
+      experimental_session_advertise: true
+      experimental_session_advertise_version: 2
 ```
 
 When enabled, those values are included under

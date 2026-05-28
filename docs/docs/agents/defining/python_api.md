@@ -1,15 +1,16 @@
 ---
+title: Python API
 social:
-  tagline: ''
-  title: Define Agents
-  description: Configure fast-agent agents with instructions, models, servers, and
-    tools.
-  alt: fast-agent social card — Define Agents
+  title: Python API
+  tagline: Define fast-agent agents with Python decorators, instructions, models, servers, and tools.
+  description: Define fast-agent agents with Python decorators, instructions, models, servers, and tools.
+  alt: fast-agent social card — Python API
 ---
 
 
 
-# Defining Agents
+
+# Python API
 
 ## Basic Agents
 
@@ -71,7 +72,7 @@ from pathlib import Path
 
 ```
 
-See [Workflows](workflows/) for chaining, routing, parallelism, orchestrators, and MAKER.
+See [Workflows](../workflows/) for chaining, routing, parallelism, orchestrators, and MAKER.
 
 ## Human Input
 
@@ -106,7 +107,7 @@ result = await agent.greeter.send("Hello!")     # You can call 'send' explicitly
 agent["greeter"].send("Good Evening!")          # Dictionary access to agents is also supported
 ```
 
-Read more about prompting agents [here](prompting/)
+Read more about prompting agents [here](../prompting/)
 
 ## Configuring Agent Request Parameters
 
@@ -154,7 +155,7 @@ from fast_agent.types import RequestParams
   instruction="You are a helpful Agent", # base instruction for the agent
   servers=["filesystem"],                # list of MCP Servers for the agent
   #tools={"filesystem": ["tool_1", "tool_2"]  # Filter the tools available to the agent. Defaults to all
-  #resources={"filesystem: ["resource_1", "resource_2"]} # Filter the resources available to the agent. Defaults to all
+  #resources={"filesystem": ["resource_1", "resource_2"]} # Filter the resources available to the agent. Defaults to all
   #prompts={"filesystem": ["prompt_1", "prompt_2"]}  # Filter the prompts available to the agent. Defaults to all.
   model="o3-mini.high",                  # specify a model for the agent
   use_history=True,                      # agent maintains chat history
@@ -165,7 +166,7 @@ from fast_agent.types import RequestParams
 )
 ```
 
-Workflow definitions (chain/parallel/router/orchestrator/maker) are documented on the [Workflows](workflows/) page.
+Workflow definitions (chain/parallel/router/orchestrator/maker) are documented on the [Workflows](../workflows/) page.
 
 #### Custom
 
@@ -176,7 +177,7 @@ Workflow definitions (chain/parallel/router/orchestrator/maker) are documented o
   instruction="instruction",             # base instruction for the orchestrator
   servers=["filesystem"],                # list of MCP Servers for the agent
   #tools={"filesystem": ["tool_1", "tool_2"]  # Filter the tools available to the agent. Defaults to all
-  #resources={"filesystem: ["resource_1", "resource_2"]} # Filter the resources available to the agent. Defaults to all
+  #resources={"filesystem": ["resource_1", "resource_2"]} # Filter the resources available to the agent. Defaults to all
   #prompts={"filesystem": ["prompt_1", "prompt_2"]}  # Filter the prompts available to the agent. Defaults to all
   model="o3-mini.high",                  # specify a model for the agent
   use_history=True,                      # agent maintains chat history

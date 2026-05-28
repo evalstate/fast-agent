@@ -700,7 +700,7 @@ def generate_openai_merged_table(*, repo_root: Path) -> str:
     Generate a merged OpenAI + Responses table.
 
     Models from the Responses provider are marked with (*) since they use
-    the Open Responses API but are commonly thought of as "OpenAI models".
+    the OpenAI Responses API but are commonly thought of as "OpenAI models".
     """
     model_aliases, default_providers, effort_suffixes, provider_names = (
         _load_model_factory_constants(repo_root)
@@ -740,7 +740,7 @@ def generate_openai_merged_table(*, repo_root: Path) -> str:
         list(entries.items()), two_column=False, marked_entries=responses_entries
     )
     # Add footnote
-    table += "\n\\* _Via [Responses API](https://openresponses.org)_\n"
+    table += "\n\\* _Via OpenAI Responses API_\n"
     return table
 
 
@@ -766,13 +766,22 @@ def main() -> int:
             repo_root=repo_root,
         ),
     )
+    _write(
+        GENERATED_DIR / "model_aliases_responses.md",
+        generate_model_alias_table(
+            "responses",
+            include_default_models=True,
+            two_column=True,
+            repo_root=repo_root,
+        ),
+    )
     # OpenAI table merges openai + responses providers, with (*) marking Responses models
     _write(
         GENERATED_DIR / "model_aliases_openai.md",
         generate_openai_merged_table(repo_root=repo_root),
     )
     # Keep Codex OAuth aliases in a dedicated include so provider docs can embed
-    # a focused table (`codexplan`, `codexplan52`, etc.) instead of relying only
+    # a focused table (`codexplan`, `codexplan54`, etc.) instead of relying only
     # on the mixed OpenAI/Responses table.
     _write(
         GENERATED_DIR / "model_aliases_codexresponses.md",

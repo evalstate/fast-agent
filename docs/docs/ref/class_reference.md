@@ -80,8 +80,9 @@ await fast.start_server(
     server_name: str | None = None,
     server_description: str | None = None,
     tool_description: str | None = None,
-    instance_scope: str = "shared",
+    instance_scope: str | None = None,
     permissions_enabled: bool = True,
+    tool_name_template: str | None = None,
 )
 ```
 
@@ -89,14 +90,15 @@ Starts the application as an MCP server.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `transport` | `str` | `"http"` | Transport protocol to use (`http`, `sse`, `stdio`, `acp`) |
-| `host` | `str` | `"0.0.0.0"` | Host address for the server when using HTTP or SSE |
-| `port` | `int` | `8000` | Port for the server when using HTTP or SSE |
+| `transport` | `str` | `"http"` | Transport protocol to use (`http`, `stdio`, `acp`) |
+| `host` | `str` | `"0.0.0.0"` | Host address for the server when using HTTP |
+| `port` | `int` | `8000` | Port for the server when using HTTP |
 | `server_name` | `Optional[str]` | `None` | Optional custom name for the MCP server |
 | `server_description` | `Optional[str]` | `None` | Optional description for the MCP server |
 | `tool_description` | `str \| None` | `None` | Customise the exposed `send` tool description (supports `{agent}` placeholder) |
-| `instance_scope` | `str` | `"shared"` | Control how clients receive isolated agent instances (`shared`, `connection`, `request`) |
+| `instance_scope` | `str \| None` | `None` | Control how clients receive isolated agent instances (`shared`, `connection`, `request`); `None` uses the transport default |
 | `permissions_enabled` | `bool` | `True` | Enable tool permission requests (ACP only) |
+| `tool_name_template` | `str \| None` | `None` | Customise exposed agent tool names (supports `{agent}` placeholder) |
 
 #### `main()`
 

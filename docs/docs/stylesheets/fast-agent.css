@@ -1246,7 +1246,12 @@ table.fa-table {
 }
 .md-typeset table:not([class]) tr:last-child td { border-bottom: 0; }
 .md-typeset table:not([class]) tr:hover td { background: var(--s-2); }
-.md-typeset table:not([class]) code { background: var(--s-2); }
+.md-typeset table:not([class]) code {
+  background: var(--s-2);
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: normal;
+}
 
 /* ── SEARCH ─────────────────────────────────────────────────────────── */
 .md-search__form {

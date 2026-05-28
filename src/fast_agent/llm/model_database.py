@@ -498,6 +498,11 @@ class ModelDatabase:
             "anthropic_task_budget_supported": True,
         }
     )
+    ANTHROPIC_OPUS_48 = ANTHROPIC_OPUS_47.model_copy(
+        update={
+            "max_output_tokens": 128_000,
+        }
+    )
 
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
@@ -969,6 +974,7 @@ class ModelDatabase:
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-6": ANTHROPIC_OPUS_46,
         "claude-opus-4-7": ANTHROPIC_OPUS_47,
+        "claude-opus-4-8": ANTHROPIC_OPUS_48,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),

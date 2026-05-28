@@ -25,6 +25,7 @@
 | `claude` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `max`, `off`<br>Example: `claude.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `haiku` | `anthropic` | Text, Vision, Document | `json` (schema) | budget: `low`, `medium`, `high`, `max`, `0`, `1024`, `16000`, `32000`, `off`<br>Example: `haiku?reasoning=1024` | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
 | `opus46` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `max`, `off`<br>Example: `opus46.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
+| `opus47` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus47.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `opus` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `codexspark` | `codexresponses` | Text | `json` (schema) | — | — | — |
 | `deepseek-chat` | `deepseek` | Text | `json` (schema) | — | — | — |

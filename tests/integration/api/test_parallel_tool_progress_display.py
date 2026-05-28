@@ -158,6 +158,7 @@ async def test_llm_tool_call_rows_cleanup_on_stop_events(fast_agent) -> None:
                             "tool_name": "execute",
                             "tool_use_id": tool_use_id,
                             "tool_event": "stop",
+                            "tool_terminal": True,
                         },
                     )
 

@@ -12,7 +12,7 @@ social:
 # Code with Codex
 
 Use the `codex` pack to start **fast-agent** with a coding agent, a
-Codex-optimised filesystem search sub-agent, WebSocket transport  and an 
+Codex-optimised filesystem search sub-agent, Responses-family transport, and an
 `apply_patch` tool that matches the Codex CLI patch format.
 
 ```bash
@@ -25,7 +25,7 @@ This starts **fast-agent** pre-configured for a Codex-style coding workflow.
 
 - A `dev` coding agent for interactive software work
 - A bounded rg-first search helper backed by `codexspark`
-- WebSockets enabled by default for modern Codex/OpenAI models
+- WebSocket-capable transport for modern Codex/OpenAI models
 - An `apply_patch` tool with a familiar Codex CLI-style patch signature
 - Preconfigured MCP targets available from `/connect`
 
@@ -62,7 +62,7 @@ uvx fast-agent-mcp@latest model setup
 
 ## Installation
 
-**fast-agent** requires Python 3.13 or above. Install with:
+**fast-agent** requires Python 3.13.5 or above. Install with:
 
 ```bash
 uv tool install -U fast-agent-mcp
@@ -71,7 +71,7 @@ uv tool install -U fast-agent-mcp
 Or a specific version of Python:
 
 ```bash
-uv tool install --python 3.13 -U fast-agent-mcp
+uv tool install --python 3.13.5 -U fast-agent-mcp
 ```
 
 This installs the `fast-agent` executable.

@@ -43,21 +43,24 @@ To try it out immediately with your Client: simply set an API Key environment va
 
 **Hugging Face**
 
+```bash
 export HF_TOKEN=hf_.......
+uvx fast-agent-acp@latest --model kimi
+```
 
-`uvx fast-agent-acp@latest --model <your_model> [e.g. kimi]` 
+**OpenAI**
 
-**Open AI**
-
+```bash
 export OPENAI_API_KEY=......
-
-`uvx fast-agent-acp@latest  --model <your_model> [e.g. gpt-5-mini.low]` 
+uvx fast-agent-acp@latest --model "gpt-5-mini?reasoning=low"
+```
 
 **Anthropic**
 
+```bash
 export ANTHROPIC_API_KEY=......
-
-`uvx fast-agent-acp@latest --model <your_model> e.g. [sonnet]` 
+uvx fast-agent-acp@latest --model sonnet
+```
 
 Tip: Use `uvx fast-agent-acp check` to help diagnose issues.
 
@@ -96,13 +99,17 @@ An example Zed configuration is:
 
 ### Installing 
 
-`uv tool install -U fast-agent-mcp`
+```bash
+uv tool install -U fast-agent-mcp
+```
 
 The ACP Server can then be started with the `fast-agent-acp` command. Custom agents can be started with `uv run <agent.py> --transport acp`.
 
 For example:
 
-`fast-agent-acp -x --model kimi --url https://huggingface.co/mcp --auth ${HF_TOKEN}` 
+```bash
+fast-agent-acp -x --model kimi --url https://huggingface.co/mcp --auth ${HF_TOKEN}
+```
 
 Starts an ACP Agent, with shell access and access to the Hugging Face MCP Server.
 
@@ -156,4 +163,4 @@ Conflicts (fail fast):
 
 ## Structured Outputs
 
-Experimental support for returning [Structured Outputs](../guides/structured-outputs.md#acp-agent-client-protocol) is available.
+Experimental support for returning [Structured Outputs](../guides/structured-outputs/#acp-agent-client-protocol) is available.

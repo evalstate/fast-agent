@@ -17,4 +17,4 @@
 | `gpt-5.3-codex` \* | `gpt-5.3-codex` | `o4-mini` \* | `o4-mini` |
 | `gpt-5.4` \* | `gpt-5.4` | `openai/gpt-oss-120b` | `openai/gpt-oss-120b` |
 
-\* _Via [Responses API](https://openresponses.org)_
+\* _Via OpenAI Responses API_
