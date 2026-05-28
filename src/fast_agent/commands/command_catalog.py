@@ -6,6 +6,8 @@ import difflib
 from dataclasses import dataclass
 from typing import Final
 
+from fast_agent.skills.command_support import SKILLS_ADD_SELECTOR
+
 
 @dataclass(frozen=True, slots=True)
 class CommandArgumentSpec:
@@ -86,16 +88,16 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="add",
                 aliases=("install",),
                 help="Install a skill",
-                usage="/skills add [<number|name|github-url|path>] [--registry url] [--skills-dir path]",
+                usage=f"/skills add [<{SKILLS_ADD_SELECTOR}>] [--registry url] [--skills-dir path]",
                 examples=(
-                    "/skills add <number|name>",
+                    f"/skills add <{SKILLS_ADD_SELECTOR}>",
                     "/skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md",
                     "/skills add ./skills/example",
                 ),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
-                        value_name="number|name|github-url|path",
+                        value_name=SKILLS_ADD_SELECTOR,
                         summary="Skill name, marketplace index, GitHub SKILL.md URL, or local path.",
                     ),
                 ),
@@ -186,7 +188,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         default_action="list",
         examples=(
             "/skills available",
-            "/skills add <number|name>",
+            f"/skills add <{SKILLS_ADD_SELECTOR}>",
             "/skills registry",
         ),
     ),

@@ -14,6 +14,7 @@ from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.command_support import (
+    SKILLS_ADD_HINT_SLASH,
     filter_marketplace_skills,
     marketplace_repository_hint,
     skills_usage_lines,
@@ -534,7 +535,7 @@ async def handle_list_marketplace_skills(
     content.append_text(_format_marketplace_skills(selected_marketplace))
     outcome.add_message(content, right_info="skills", agent_name=agent_name)
     outcome.add_message(
-        "Install with `/skills add <number|name>`.",
+        SKILLS_ADD_HINT_SLASH,
         channel="info",
         right_info="skills",
         agent_name=agent_name,
@@ -608,7 +609,7 @@ async def handle_add_skill(
         if not interactive:
             outcome.add_message(content, right_info="skills", agent_name=agent_name)
             outcome.add_message(
-                "Install with `/skills add <number|name>`.",
+                SKILLS_ADD_HINT_SLASH,
                 channel="info",
                 right_info="skills",
                 agent_name=agent_name,

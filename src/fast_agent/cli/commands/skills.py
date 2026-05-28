@@ -24,7 +24,7 @@ from fast_agent.cli.display import (
     print_update_table,
 )
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
-from fast_agent.skills.command_support import filter_marketplace_skills
+from fast_agent.skills.command_support import SKILLS_ADD_HINT_CLI, filter_marketplace_skills
 from fast_agent.skills.configuration import (
     format_marketplace_display_url,
     get_marketplace_url,
@@ -82,7 +82,7 @@ EnvOption = Annotated[
 ]
 
 app = typer.Typer(
-    help="Manage skills (list/available/search/add/remove/update). Add supports marketplace selectors, paths and URLs, and local paths.",
+    help="Manage skills (list/available/search/add/remove/update). Add supports marketplace selectors, GitHub URLs, GitHub paths, and local paths.",
     add_completion=False,
 )
 
@@ -332,7 +332,7 @@ def skills_available(
         title="Marketplace Skills",
         registry_url=marketplace_url,
     )
-    print_hint(console, "Install with: fast-agent skills add <number|name>")
+    print_hint(console, SKILLS_ADD_HINT_CLI)
 
 
 @app.command("search")
@@ -352,7 +352,7 @@ def skills_search(
         registry_url=marketplace_url,
     )
     if selected_marketplace:
-        print_hint(console, "Install with: fast-agent skills add <number|name>")
+        print_hint(console, SKILLS_ADD_HINT_CLI)
     else:
         print_hint(console, "Browse all skills with: fast-agent skills available")
 
@@ -363,7 +363,7 @@ def skills_add(
     selector: Annotated[
         str | None,
         typer.Argument(
-            help="Skill name, marketplace index, GitHub SKILL.md paths and URLs, or local path.",
+            help="Skill name, marketplace index, GitHub SKILL.md URL/path, or local path.",
             show_default=False,
         ),
     ] = None,
@@ -382,7 +382,7 @@ def skills_add(
             title="Marketplace Skills",
             registry_url=marketplace_url,
         )
-        print_hint(console, "Install with: fast-agent skills add <number|name>")
+        print_hint(console, SKILLS_ADD_HINT_CLI)
         raise typer.Exit(0)
 
     try:

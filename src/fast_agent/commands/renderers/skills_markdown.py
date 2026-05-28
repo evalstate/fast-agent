@@ -6,6 +6,7 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
+from fast_agent.skills.command_support import SKILLS_ADD_HINT_SLASH
 from fast_agent.skills.provenance import format_skill_provenance_details
 
 if TYPE_CHECKING:
@@ -209,7 +210,7 @@ def render_marketplace_skills(
             )
         )
 
-    lines.append("Install with `/skills add <number|name>`. ")
+    lines.append(SKILLS_ADD_HINT_SLASH)
     lines.append("Search with `/skills search <query>`. ")
     lines.append("Change registry with `/skills registry`.")
 
