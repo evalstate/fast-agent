@@ -347,7 +347,7 @@ For OpenAI this includes `web_search` as well as the [other connectors](https://
 
 ### Anthropic on Vertex
 
-Anthropic Models on Vertex do not support modern structured outputs, so use the legacy `tool_use` mode. To select this mode supply the mode on the model string e.g. `haiku?structured_outputs=tool_use`.
+Anthropic Models on Vertex do not support modern structured outputs, so use the legacy `tool_use` mode. To select this mode supply the mode on the model string e.g. `haiku?structured=tool_use`.
 
 ### Capability Probe
 

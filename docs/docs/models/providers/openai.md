@@ -48,7 +48,7 @@ Use `responses` for OpenAI Responses API models and for using the `flex` service
 
 #### WebSocket Support
 
-Responses compatible models use WebSockets as the default transport, with each turn only sending new input items for efficiency. fast-agent uses stateless mode to retain compatibility with Zero Data Retention policies (`store=false`). Read [compatibility with ZDR policies](https://developers.openai.com/api/docs/guides/websocket-mode#how-continuation-works) for more details. 
+Responses-compatible models use WebSockets as the default transport, with continuation support so repeated turns can avoid resending unchanged input items. fast-agent sends `store=false` on Responses requests. Read [compatibility with ZDR policies](https://developers.openai.com/api/docs/guides/websocket-mode#how-continuation-works) for more details.
 
 WebSocket mode can be disabled by using `transport=sse` in the model string. 
 

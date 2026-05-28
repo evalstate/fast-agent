@@ -157,17 +157,6 @@ pages can include examples directly from `examples/`:
 Prefer direct includes for examples that are meant to stay runnable. This keeps docs and examples
 on one source of truth and makes drift visible in ordinary code review.
 
-## Provider Overviews
-
-Provider prose can live next to provider implementation code:
-
-- `src/fast_agent/llm/provider/anthropic/provider_docs.md`
-- `src/fast_agent/llm/provider/openai/provider_docs.md`
-
-`docs/generate_reference_docs.py` copies those files into `_generated/provider_overview_*.md`.
-The public provider page includes the generated snippets, so feature prose can be reviewed beside
-the implementation it describes.
-
 ## Plugin API Reference
 
 `docs/generate_plugin_api_docs.py` reads the plugin command dataclasses and runtime protocol from

@@ -70,7 +70,7 @@ Each agent exposes an MCP Tool for sending messages to the agent, and a Prompt t
 
 This enables cross-agent state transfer via the MCP Prompts.
 
-The MCP Server can also be started programatically.
+The MCP Server can also be started programmatically.
 
 ### Programmatic Server Startup
 

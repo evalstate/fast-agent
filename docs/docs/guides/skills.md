@@ -15,9 +15,9 @@ social:
 - `.agents/skills`
 - `.claude/skills`
 
-When valid SKILL.md files are found:
+When valid `SKILL.md` files are found:
 
-- The Agent is given shell acess with the working directory set to the workspace root.
+- The Agent is given shell access with the working directory set to the workspace root.
 - Skill descriptions from the manifest and path are added to the System Prompt using the `{{agentSkills}}` template variable. A warning is displayed if this is not present in the System Prompt.
 - The `/skills` command lists the available skills.
 - If duplicate skill names exist across directories, later directories override earlier ones, and a warning message is shown. (Use `/status` from an ACP Client to view).
@@ -26,11 +26,11 @@ When valid SKILL.md files are found:
 
     Skills installed from any git repo (local or remote) can be automatically updated.
 
-## Installing Skills 
+## Installing Skills
 
-Skills can be installed, updated and removed from the CLI or TUI with the `skills` commmand. 
+Skills can be installed, updated and removed from the CLI or TUI with the `skills` command.
 
-To view available skills from the current marketplace use `/skills add` to display a list. Supply either a path, repository URL or skill name/index to install a skill
+To view available skills from the current marketplace, use `/skills add` to display a list. Supply either a path, repository URL, or skill name/index to install a skill.
 
 Use `/skills update` to check current versions and install updates.
 
@@ -65,7 +65,7 @@ fast-agent can install skills from online registries published in the Claude plu
 - [Hugging Face](https://github.com/huggingface/skills)
 - [Anthropic](https://github.com/anthropics/skills)
 
-To Browse and install skills from the marketplace:
+To browse and install skills from the marketplace:
 
 === "TUI"
 
@@ -140,18 +140,12 @@ Remove installed skills:
 
 ### Managing Registries
 
-View the current registry and available registries:
+In the TUI, view the current registry and available registries:
 
 === "TUI"
 
     ```text
     /skills registry
-    ```
-
-=== "CLI"
-
-    ```bash
-    fast-agent skills available
     ```
 
 Example output:
@@ -167,7 +161,7 @@ Available registries:
 Usage: `/skills registry [number|URL]`
 ```
 
-Switch registries by number or provide a custom URL:
+In the TUI, switch registries by number or provide a custom URL:
 
 === "TUI"
 
@@ -176,12 +170,12 @@ Switch registries by number or provide a custom URL:
     /skills registry https://github.com/my-org/my-skills
     ```
 
-=== "CLI"
+For CLI commands, pass `--registry` to browse or install from a specific registry for that invocation:
 
-    ```bash
-    fast-agent skills available --registry https://github.com/my-org/my-skills
-    fast-agent skills add skill-name --registry https://github.com/my-org/my-skills
-    ```
+```bash
+fast-agent skills available --registry https://github.com/my-org/my-skills
+fast-agent skills add skill-name --registry https://github.com/my-org/my-skills
+```
 
 ## Configuration
 
@@ -204,7 +198,7 @@ If using **fast-agent** interactively from the command line, the `--skills <dire
 
 ```bash
 # Specify a skills folder and a model
-fast-agent go --skills ~/skill-development/testing/ --model gpt-5-mini.low
+fast-agent go --skills ~/skill-development/testing/ --model "gpt-5-mini?reasoning=low"
 
 # Give fast-agent access to the shell
 fast-agent go -x

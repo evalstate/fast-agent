@@ -9,9 +9,9 @@ social:
 
 # Google
 
-Google is natively supported in `fast-agent` using the Google genai libraries. 
+Google is natively supported in `fast-agent` using the Google GenAI libraries.
 
-Google Models have support for attaching YouTube urls for video and transcript understanding.
+Google models have support for attaching YouTube URLs for video and transcript understanding.
 Gemini models that support Grounding with Google Search can also use provider-side web search via
 the standard `web_search` model-string option.
 
@@ -20,7 +20,6 @@ the standard `web_search` model-string option.
 ```yaml
 google:
   api_key: "your_google_key"
-  base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
 ```
 
 **Environment Variables:**
@@ -63,4 +62,4 @@ view.
 
 ### OpenAI Mode
 
-You can also access Google via the OpenAI Provider. Use `googleoai` in the YAML file, or `GOOGLEOAI_API_KEY` for API KEY access.
+You can also access Google via the OpenAI-compatible provider. Use `googleoai` in the YAML file, or `GOOGLEOAI_API_KEY` for API key access; that path uses the Google OpenAI-compatible endpoint by default.

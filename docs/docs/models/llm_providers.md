@@ -27,8 +27,6 @@ In your `fast-agent.yaml`:
 
 The `default_headers` option is available for OpenAI-compatible providers (including Azure).
 
-
-
 ## Provider quick reference
 
 | Provider | Config key | API key environment variable | Notes |

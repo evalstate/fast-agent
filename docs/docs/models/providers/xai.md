@@ -9,7 +9,7 @@ social:
 
 # xAI / Grok
 
-Use the `xai` provider for xAI Grok models. xAI supports both `web_search` and `x_search` for analysing X posts from the [everything app](https://x.com/evalstate). 
+Use the `xai` provider for xAI Grok models. xAI supports both `web_search` and `x_search`; fast-agent sends `x_search` as xAI's provider-managed X Search tool.
 
 ## Configure
 

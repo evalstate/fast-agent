@@ -20,7 +20,7 @@ First, we'll start `agent_one` as an MCP Server, and send it some messages with 
 
 Next, we'll run `agent_two` and transfer the conversation from `agent_one` using an MCP Prompt.
 
-Finally, we'll take a look at **fast-agent**'s `prompt-server` and how it can assist building agent applications
+Finally, we'll take a look at **fast-agent**'s `prompt-server` and how it can assist building agent applications.
 
 <!-- PICTURE OF INSPECTOR OR IMAGE HERE. -->
 
@@ -36,8 +36,8 @@ The quick start also uses the MCP Inspector - check [here](https://modelcontextp
     # create, and change to a new directory
     mkdir fast-agent && cd fast-agent
 
-    # create and activate a python environment
-    uv venv
+    # create and activate a Python environment
+    uv venv --python 3.13.5
     source .venv/bin/activate
 
     # setup fast-agent
@@ -52,8 +52,8 @@ The quick start also uses the MCP Inspector - check [here](https://modelcontextp
     # create, and change to a new directory
     md fast-agent |cd
 
-    # create and activate a python environment
-    uv venv
+    # create and activate a Python environment
+    uv venv --python 3.13.5
     .venv\Scripts\activate
 
     # setup fast-agent
@@ -63,11 +63,11 @@ The quick start also uses the MCP Inspector - check [here](https://modelcontextp
     fast-agent quickstart state-transfer
     ```
 
-Change to the state-transfer directory (`cd state-transfer`), rename `fast-agent.secrets.yaml.example` to `fast-agent.secrets.yaml` and enter the API Keys for the providers you wish to use.
+Change to the state-transfer directory (`cd state-transfer`), rename `fast-agent.secrets.yaml.example` to `fast-agent.secrets.yaml`, and enter the API keys for the providers you want to use.
 
 The supplied `fast-agent.yaml` file contains a default of `gpt-4.1` - edit this if you wish.
 
-Finally, run `uv run agent_one.py` and send a test message to make sure that everything working. Enter `stop` to return to the command line.
+Finally, run `uv run agent_one.py` and send a test message to make sure everything is working. Enter `stop` to return to the command line.
 
 ![Testing the Agent](./pics/test_message.png)
 
@@ -113,7 +113,7 @@ From another command line, run the Model Context Protocol inspector to connect t
     npx @modelcontextprotocol/inspector
     ```
 
-Choose the "Streamable HTTP" transport type, and the url `http://localhost:8001/mcp`. After clicking the `connect` button, you can interact with the agent from the `tools` tab. Use the `agent_one` tool to send the agent a chat message and see it's response.
+Choose the "Streamable HTTP" transport type and the URL `http://localhost:8001/mcp`. After clicking the `connect` button, you can interact with the agent from the `tools` tab. Use the `agent_one` tool to send the agent a chat message and see its response.
 
 ![Using the Inspector to Chat](./pics/inspector_chat.png)
 
@@ -142,7 +142,7 @@ Run `agent_two` with the following command:
 
 Once started, type `'/prompts'` to see the available prompts. Select `1` to apply the Prompt from `agent_one` to `agent_two`, transferring the conversation context.
 
-You can now continue the chat with `agent_two` (potentially using different Models, MCP Tools or Workflow components).
+You can now continue the chat with `agent_two`, potentially using different models, MCP tools, or workflow components.
 
 ![Transferred Chat](./pics/loaded_chat.png)
 
@@ -161,7 +161,7 @@ mcp:
           url: http://localhost:8001/mcp
 ```
 
-`agent_two` then references the server in it's definition:
+`agent_two` then references the server in its definition:
 
 ```python title="agent_two.py" linenums="10" hl_lines="4"
 
@@ -213,6 +213,6 @@ And then update `agent_two.py` to use the new server:
 
 Run `uv run agent_two.py`, and you can then use the `/prompts` command to load the earlier conversation history, and continue where you left off.
 
-Note that Prompts can contain any of the MCP Content types, so Images, Audio and other Embedded Resources can be included.
+Note that prompts can contain any of the MCP content types, so images, audio, and other embedded resources can be included.
 
 You can also use the [Playback LLM](../models/internal_models/) to replay an earlier chat (useful for testing!)

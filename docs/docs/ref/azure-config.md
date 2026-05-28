@@ -31,7 +31,7 @@ azure:
   api_key: "YOUR_AZURE_OPENAI_API_KEY"
   resource_name: "your-resource-name"
   azure_deployment: "my-deployment"
-  api_version: "2023-05-15"
+  api_version: "2024-10-21"
   # Do NOT include base_url if you use resource_name
 
 # OPTION 2: Using base_url and api_key (custom endpoints or sovereign clouds)
@@ -41,7 +41,7 @@ azure:
 #   api_key: "YOUR_AZURE_OPENAI_API_KEY"
 #   base_url: "https://your-resource-name.openai.azure.com/"
 #   azure_deployment: "my-deployment"
-#   api_version: "2023-05-15"
+#   api_version: "2024-10-21"
 #   # Do NOT include resource_name if you use base_url
 
 # OPTION 3: Using DefaultAzureCredential (for managed identity, Azure CLI, etc.)
@@ -51,7 +51,7 @@ azure:
 #   use_default_azure_credential: true
 #   base_url: "https://your-resource-name.openai.azure.com/"
 #   azure_deployment: "my-deployment"
-#   api_version: "2023-05-15"
+#   api_version: "2024-10-21"
 #   # Do NOT include api_key or resource_name in this mode
 ```
 
@@ -74,7 +74,7 @@ fast = FastAgent("Azure OpenAI Example")
 
 # Define the agent using Azure OpenAI deployment
 @fast.agent(
-    instruction="You are a helpful AI assistant powered by Azure OpenAI Service", 
+    instruction="You are a helpful AI assistant powered by Azure OpenAI Service",
     model="azure.my-deployment"
 )
 async def main():

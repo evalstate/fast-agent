@@ -43,7 +43,8 @@ fast-agent --model "hf.moonshotai/Kimi-K2.5?instant=off" # thinking enabled
 `HF_TOKEN` is automatically applied when connecting to Hugging Face MCP servers:
 
 - `hf.co` / `huggingface.co` uses `Authorization: Bearer {HF_TOKEN}`
-- `*.hf.space` uses `X-HF-Authorization: Bearer {HF_TOKEN}`
+- `*.hf.space` uses both `Authorization: Bearer {HF_TOKEN}` and
+  `X-HF-Authorization: Bearer {HF_TOKEN}`
 
 ## Model aliases
 

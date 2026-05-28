@@ -91,7 +91,7 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 - Uploads require `huggingface_hub`.
 - The Hugging Face dataset repo is created automatically when needed.
 - `--privacy-filter` requires the optional `privacy` extra and applies before
-  local write/upload. See the [privacy filter guide](../guides/privacy_filter.png).
+  local write/upload. See the [privacy filter guide](../guides/privacy_filter/).
 - By default, privacy filtering uses a cached model only. Add
   `--download-privacy-filter` to allow the initial model download.
 - `--noenv` runs do not persist sessions, so there is nothing to export later.

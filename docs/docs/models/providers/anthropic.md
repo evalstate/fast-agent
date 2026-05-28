@@ -113,7 +113,7 @@ You can also set reasoning per run using the model string:
 - Older models default to the legacy `tool_use` structured output flow. `tool_use` **is not compatible
   with reasoning** — **fast-agent** disables reasoning when tool-forced structured output is selected.
 - Anthropic on Vertex does not support modern structured outputs in **fast-agent**; choose
-  `structured_output_mode: tool_use` / `?structured_outputs=tool_use` there.
+  `structured_output_mode: tool_use` / `?structured=tool_use` there.
 
 You can override the structured output mode explicitly:
 

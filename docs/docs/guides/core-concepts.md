@@ -292,7 +292,7 @@ or a model reference.
 
 ```bash
 fast-agent go --model sonnet
-fast-agent go --model 'openai.gpt-5?web_search=on'
+fast-agent go --model 'responses.gpt-5?web_search=on'
 fast-agent go --model 'xai.grok-4.3?x_search=on'
 ```
 
@@ -305,8 +305,8 @@ default_model: $system.fast
 model_references:
   system:
     fast: gpt-5-mini?reasoning=low
-    plan: claude-sonnet-4-5
-    research: openai.gpt-5?web_search=on
+    plan: claude-sonnet-4-6
+    research: responses.gpt-5?web_search=on
 ```
 
 ```md
@@ -339,7 +339,7 @@ fast-agent go --env .fast-agent-coding --pack codex
 
 # Research environment
 fast-agent go --env .fast-agent-research --agent researcher \
-  --model 'openai.gpt-5?web_search=on'
+  --model 'responses.gpt-5?web_search=on'
 
 # Ephemeral run: no implicit env cards, sessions, pack installs or permission-store side effects
 fast-agent go --no-env --model haiku --message "summarize this directory"
@@ -550,7 +550,7 @@ fast-agent go --pack coding-local --pack-registry ./marketplace.json
 - `researcher` uses web search and fetch tools.
 - `librarian` stores source notes in the filesystem.
 - `critic` checks claims and asks for citations.
-- Model strings can enable provider tools, for example `openai.gpt-5?web_search=on`
+- Model strings can enable provider tools, for example `responses.gpt-5?web_search=on`
   or `xai.grok-4.3?x_search=on`.
 - MCP servers can connect to internal papers, notebooks, or databases.
 </article>

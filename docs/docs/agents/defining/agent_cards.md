@@ -115,7 +115,7 @@ mcp_connect:
 ```
 
 Connector-backed entries are supported only by the OpenAI `responses` provider.
-They require `access_token`; omit `target`, `transport`, `headers`, and `auth`.
+They require `name` and `access_token`; omit `target`, `transport`, `headers`, and `auth`.
 
 For provider-managed servers, use exact tool names in `tools.<server_name>`.
 Wildcard tool filters, prompt filters, and resource filters are not supported.

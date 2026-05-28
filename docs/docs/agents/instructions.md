@@ -91,16 +91,16 @@ You are a helpful AI Agent.
     instruction="""
 You are a helpful AI Agent.
 Your reliable knowledge cut-off date is December 2024.
-Todays date is {{currentDate}}.
+Today's date is {{currentDate}}.
 """)
 ```
 
-Will produce: `You are a helpful AI Agent. Your reliable knowledge cut-off date is December 2024. Todays date is 25 July 2025.`
+Will produce: `You are a helpful AI Agent. Your reliable knowledge cut-off date is January 2025. Today's date is 28 May 2026.`
 
 ```python title="With URL"
 @fast.agent(name="mcp-expert",
     instruction="""
-You are have expert knowledge of the
+You have expert knowledge of the
 MCP (Model Context Protocol) schema.
 
 {{url:https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/2025-11-25/schema.ts}}
@@ -131,12 +131,12 @@ async def main():
 ```
 
 ```md title="mcp-expert.md"
-You are have expert knowledge of the MCP (Model Context Protocol) schema.
+You have expert knowledge of the MCP (Model Context Protocol) schema.
 
 {{url:https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/2025-11-25/schema.ts}}
 
 Answer any questions about the protocol by referring to and quoting the schema where necessary.
-Your knowledge cut-off is December 2024, todays date is {{currentDate}}
+Your knowledge cut-off is December 2024; today's date is {{currentDate}}.
 
 ```
 
@@ -151,7 +151,7 @@ from pydantic import AnyUrl
 # --> fast-agent system prompt demo
 ```
 
-You can start an agent with instructions from a file using the `fast-agent` commmand:
+You can start an agent with instructions from a file using the `fast-agent` command:
 
 ```bash
 fast-agent --instruction mcp-expert.md
@@ -160,7 +160,7 @@ fast-agent --instruction mcp-expert.md
 This can be combined with other options to specify model and available servers:
 
 ```bash
-fast-agent --instruction mcp-expert.md --model sonnet --url https://hf.co/mcp
+fast-agent --instruction mcp-expert.md --model sonnet --url https://huggingface.co/mcp
 ```
 
 Starts an interactive agent session, with the MCP Schema loaded, attached to Sonnet with the Hugging Face MCP Server.

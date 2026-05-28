@@ -16,14 +16,14 @@ Before deploying an LLM model in Azure, **always check the official Azure docume
 **Key Capabilities and Official Documentation:**
 
 - **General model list & region availability:**
-  [Azure OpenAI Service models – Region availability (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models?utm_source=chatgpt.com)
+  [Azure OpenAI Service models – Region availability (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models)
 - **Vision (GPT-4 Turbo with Vision, GPT-4o, o1, etc.):**
-  [How-to: GPT with Vision (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/gpt-with-vision?utm_source=chatgpt.com)
+  [How-to: GPT with Vision (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/gpt-with-vision)
 - **Audio / Whisper:**
-  [The Whisper model from OpenAI (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/whisper-overview?utm_source=chatgpt.com)
-  [Audio concepts in Azure OpenAI (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/audio?utm_source=chatgpt.com)
+  [The Whisper model from OpenAI (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/whisper-overview)
+  [Audio concepts in Azure OpenAI (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/audio)
 - **PDF / Documents:**
-  [Azure AI Foundry feature availability across clouds regions (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-foundry/reference/region-support?utm_source=chatgpt.com)
+  [Azure AI Foundry feature availability across clouds regions (Microsoft Learn)](https://learn.microsoft.com/en-us/azure/ai-foundry/reference/region-support)
 
 **Summary:**
 
@@ -47,7 +47,7 @@ azure:
   api_key: "your_azure_openai_key" # Required unless using DefaultAzureCredential
   resource_name: "your-resource-name" # Resource name (do NOT include if using base_url)
   azure_deployment: "deployment-name" # Required - the model deployment name
-  api_version: "2023-05-15" # Optional, default shown
+  api_version: "2024-10-21" # Optional, default shown
   default_headers:
     Ocp-Apim-Subscription-Key: "${AZURE_OPENAI_API_KEY}"
   # Do NOT include base_url if you use resource_name
@@ -57,7 +57,7 @@ azure:
   api_key: "your_azure_openai_key"
   base_url: "https://your-resource-name.openai.azure.com" # Full endpoint URL
   azure_deployment: "deployment-name"
-  api_version: "2023-05-15" # Optional
+  api_version: "2024-10-21" # Optional
   # Do NOT include resource_name if you use base_url
 
 # Option 3: Using DefaultAzureCredential (requires azure-identity package)
@@ -65,7 +65,7 @@ azure:
   use_default_azure_credential: true
   base_url: "https://your-resource-name.openai.azure.com"
   azure_deployment: "deployment-name"
-  api_version: "2023-05-15" # Optional
+  api_version: "2024-10-21" # Optional
   # Do NOT include api_key or resource_name when using DefaultAzureCredential
 ```
 

@@ -26,13 +26,16 @@ When running a **fast-agent** application (typically `uv run agent.py`), you hav
 | `--quiet` | Disable progress display, tool and message logging | `--quiet` |
 | `--version` | Show version and exit | `--version` |
 | `--server` | Deprecated alias for server mode; use `--transport` instead | `--server` |
-| `--transport {http,sse,stdio,acp}` | Transport protocol; enabling it also turns on server mode | `--transport http` |
-| `--port PORT` | Port for HTTP/SSE server (default: 8000) | `--port 8080` |
-| `--host HOST` | Host for HTTP/SSE server (default: 0.0.0.0) | `--host localhost` |
+| `--transport {http,stdio,acp}` | Transport protocol; enabling it also turns on server mode | `--transport http` |
+| `--port PORT` | Port for HTTP server (default: 8000) | `--port 8080` |
+| `--host HOST` | Host for HTTP server (default: 0.0.0.0) | `--host localhost` |
 | `--instance-scope {shared,connection,request}` | Control server-side agent instancing (default: shared) | `--instance-scope connection` |
+| `--env DIR` | Override the base fast-agent environment directory | `--env ./agent-env` |
 | `--skills DIR` | Override the default skills directory | `--skills ./skills` |
+| `--dump DIR` | Export loaded agents as Markdown AgentCards | `--dump ./agent-cards` |
+| `--dump-yaml DIR` | Export loaded agents as YAML AgentCards | `--dump-yaml ./agent-cards` |
 
-`--transport` now implies server mode when running a Python module directly. If omitted, it defaults to `http`. `--server` remains available for backward compatibility but will be removed in a future release.
+`--transport` now implies server mode when running a Python module directly. Without `--transport` or the legacy `--server` flag, the module runs in interactive/message mode; when server mode is enabled and no transport is specified, the transport defaults to `http`. `--server` remains available for backward compatibility but will be removed in a future release.
 
 ### Examples
 
@@ -105,7 +108,7 @@ fast-agent go --prompt-file review.md --attach ./evidence.pdf --attach https://e
 `--attach` requires `--message` or `--prompt-file`; with `--prompt-file`,
 attachments are added to the last user message in the prompt.
 
-For card-based loading and the distinction between `--agent-cards` and `--card-tool`, see [AgentCards and ToolCards](agent_cards/).
+For card-based loading and the distinction between `--agent-cards` and `--card-tool`, see [AgentCards and ToolCards](../agents/defining/agent_cards/).
 
 ## fast-agent export Command
 

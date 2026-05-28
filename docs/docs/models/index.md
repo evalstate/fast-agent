@@ -9,9 +9,9 @@ social:
 
 **`fast-agent`** has native support for **OpenAI Responses** and **Chat Completions**, **Anthropic Messages**, **Google GenAI** and **Amazon Bedrock** APIs. 
 
-OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth codex`. 
+OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth codexplan`. 
 
-Chat Completion models are also available via **Microsoft Azure**, and supported Anthropic models also supported on **Google Vertex**.
+Chat Completions models are also available via **Microsoft Azure**, and supported Anthropic models are available on **Google Vertex**.
 
 Local models with [**llama.cpp**](https://llama.app/) are directly supported, with automatic configuration and connection with the Responses API.
 
@@ -66,9 +66,9 @@ Models in **fast-agent** are specified with a model string:
 provider.model_name[?reasoning=high&...]
 ```
 
-The query string allows configuration of provider, model and sampling parameters. 
+The query string allows configuration of provider, model, and sampling parameters.
 
-Custom models and configurations be defined using [Model Overlays](model_overlays.md).
+Custom models and configurations can be defined using [Model Overlays](model_overlays.md).
 
 - [Providers and Models](llm_providers/) lists provider configuration and authentication details.
 - [Models Reference](models_reference/) lists generated model capabilities such as structured

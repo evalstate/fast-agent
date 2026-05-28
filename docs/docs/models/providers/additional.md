@@ -28,7 +28,7 @@ Run `fast-agent check` after adding credentials to confirm they are visible to f
 
 | Provider | Config key | API key environment variable | Default endpoint | Model string examples |
 | --- | --- | --- | --- | --- |
-| Groq | `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | `groq.openai/gpt-oss-120b`, `gpt-oss` |
+| Groq | `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | `groq.openai/gpt-oss-120b` |
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | Provider default | `deepseek`, `deepseek.deepseek-chat` |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `qwen-turbo`, `aliyun.qwen3-max` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | `openrouter.google/gemini-2.5-pro-exp-03-25:free` |
@@ -53,10 +53,11 @@ groq:
 
 ```bash
 fast-agent --model groq.openai/gpt-oss-120b
-fast-agent --model gpt-oss
 ```
 
 Groq is optimized for fast hosted inference. It uses OpenAI-compatible request handling in fast-agent.
+The shortcut `gpt-oss` currently resolves through the Hugging Face provider; use the explicit
+`groq.` prefix when you want Groq.
 
 --8<-- "_generated/model_aliases_groq.md"
 
@@ -113,7 +114,7 @@ Open Responses is an open standard for interoperable LLM interfaces. Use the `op
 openresponses:
   api_key: "${OPENRESPONSES_API_KEY}"
   base_url: "https://api.example.com"
-  reasoning_effort: "medium" # minimal, low, medium, high
+  reasoning: "medium" # minimal, low, medium, high
 ```
 
 ```bash
