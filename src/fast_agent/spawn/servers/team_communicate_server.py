@@ -20,6 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from fast_agent.spawn.message_bus import MessageBus
 from fast_agent.spawn.servers._team_helpers import (
+    assert_self_identity as _assert_self_identity,
     auto_wake_if_idle as _auto_wake_if_idle,
 )
 
@@ -127,7 +128,12 @@ def team_communicate(
     if not bus:
         return json.dumps({"error": "No workspace configured. Cannot send messages."})
 
-    my_name = my_name or _get_my_name()
+    # Identity verification — caller cannot send messages with
+    # from_name=<teammate> (would deliver an apparently-teammate-authored
+    # message and could be used to bypass approval gates).
+    my_name, _err = _assert_self_identity(my_name)
+    if _err:
+        return _err
     to_list = _parse_recipients(to)
     cc_list = _parse_recipients(cc)
 
@@ -208,7 +214,12 @@ def check_responses(
     if not bus:
         return json.dumps({"error": "No workspace configured."})
 
-    my_name = my_name or _get_my_name()
+    # Identity verification — caller cannot read another agent's inbox
+    # by passing my_name=<teammate>. Reading would also mark messages
+    # as done, hiding them from the real recipient.
+    my_name, _err = _assert_self_identity(my_name)
+    if _err:
+        return _err
 
     poll_interval = 3.0
     start = _time.time()
@@ -300,7 +311,11 @@ def reply_to_message(
     if not bus:
         return json.dumps({"error": "No workspace configured."})
 
-    my_name = my_name or _get_my_name()
+    # Identity verification — same as send_message: from_name must be
+    # the caller's authoritative identity, not a claimed teammate.
+    my_name, _err = _assert_self_identity(my_name)
+    if _err:
+        return _err
     resolved = to
 
     msg = bus.send(

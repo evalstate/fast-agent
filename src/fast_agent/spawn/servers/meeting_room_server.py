@@ -260,7 +260,12 @@ async def create_meeting(
             "TEAM_WORKSPACE",
             str(Path.cwd() / ".runtime" / "cache" / "tmp" / "meeting-workspace"),
         )
-    my_name = my_name or _get_my_name()
+    # Identity verification — caller cannot create a meeting under
+    # another agent's name (would auto-prepend them as chair below,
+    # then dictate the participant list as if speaking for them).
+    my_name, _err = _assert_self_identity(my_name)
+    if _err:
+        return _err
     participant_list = [p.strip() for p in participants.split(",") if p.strip()]
     # The creator is the meeting chair — auto-prepend so they speak first
     # and get a turn each round (typically to issue the verdict).
@@ -357,82 +362,9 @@ async def create_meeting(
 # get_transcript: Replaced by transcript embedded in notifications
 
 
-def _assert_self_identity(agent_name: str) -> tuple[str, str | None]:
-    """Resolve caller identity + refuse impersonation.
-
-    Contract: a process can act as ITSELF and only itself. The
-    authoritative identity is ``$TEAM_MY_NAME`` — set by the spawner at
-    process-creation time, immutable for the process's lifetime.
-
-    Two cases:
-
-    1. ``agent_name`` is empty → auto-detect. Fall back to
-       ``_get_my_name()`` (env name, role, or "agent"). No claim was
-       made, so no impersonation is possible.
-
-    2. ``agent_name`` is non-empty → the caller is CLAIMING to be a
-       specific named agent. We must verify. Required:
-         a) ``$TEAM_MY_NAME`` must be set (otherwise we have no ground
-            truth to compare the claim against — REFUSE).
-         b) The claim must match ``$TEAM_MY_NAME`` case-insensitively
-            (otherwise it's impersonation — REFUSE).
-
-    There is NO permissive escape hatch. The previous "if TEAM_MY_NAME
-    is unset, trust the caller" branch was a hole that let any process
-    pass ``agent_name="<teammate>"`` and write false transcript entries
-    (production 2026-05-20: Taylor [PM] force-skipped all 6 teammates
-    in one meeting by impersonating each one's turn). Closing this hole
-    means CLI tests / dashboard / library callers that want to write
-    transcript on behalf of a named agent MUST set TEAM_MY_NAME first —
-    that env var is the only ground-truth identity signal in this
-    process model.
-
-    Returns ``(resolved_name, error_json)`` — exactly one is non-empty.
-    Caller short-circuits on error_json.
-    """
-    caller_env = os.environ.get("TEAM_MY_NAME", "").strip()
-
-    if not agent_name:
-        # No claim → no impersonation risk. Fall back to env-resolved
-        # identity (which may itself be the role or "agent" if name is
-        # unset — that's safe because the caller didn't pretend to be
-        # anyone specific).
-        return _get_my_name(), None
-
-    # Claim was made — TEAM_MY_NAME MUST be set so we have ground truth
-    # to compare against. Empty env + claim = no verification possible =
-    # REFUSE (the old "permissive" branch is what got us here).
-    if not caller_env:
-        logger.error(
-            "meeting_room: refusing claim agent_name=%r — TEAM_MY_NAME is "
-            "unset on this process so identity cannot be verified. Set "
-            "TEAM_MY_NAME before calling speak/skip with an explicit name.",
-            agent_name,
-        )
-        return "", json.dumps({
-            "error": (
-                "Identity unverifiable: TEAM_MY_NAME is not set on this "
-                "process, so a claimed agent_name cannot be verified. "
-                "Either omit agent_name (auto-detect from env role) or "
-                "set TEAM_MY_NAME to your authoritative identity."
-            ),
-            "claimed_agent_name": agent_name,
-        })
-
-    if agent_name.strip().lower() != caller_env.lower():
-        return "", json.dumps({
-            "error": (
-                f"Impersonation refused: caller is {caller_env!r} but "
-                f"agent_name={agent_name!r}. You can only speak/skip on "
-                f"YOUR own turn. If a teammate is unresponsive, use "
-                f"end_meeting (or leave_meeting on your own turn) — do "
-                f"not put words in their mouth."
-            ),
-            "caller": caller_env,
-            "claimed_agent_name": agent_name,
-        })
-
-    return agent_name, None
+# Identity verification (`_assert_self_identity`) lives in `_team_helpers`
+# so it can be shared with team_communicate_server. See the helper for
+# the contract details. Aliased at module bottom imports.
 
 
 @mcp.tool()
@@ -976,7 +908,11 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
         JSON confirming you've left, or an error with ``next_action``
         guidance if you tried to leave on your own turn.
     """
-    agent_name = agent_name or _get_my_name()
+    # Identity verification — caller cannot remove a teammate from
+    # the meeting on their behalf.
+    agent_name, _err = _assert_self_identity(agent_name)
+    if _err:
+        return _err
 
     if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
@@ -1068,6 +1004,7 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
 # ───────────────────────────────────────────────────────────────────
 
 from fast_agent.spawn.servers._team_helpers import (
+    assert_self_identity as _assert_self_identity,
     auto_wake_if_idle as _auto_wake_if_idle,
     get_bus as _get_bus,
     get_my_name as _get_my_name,
