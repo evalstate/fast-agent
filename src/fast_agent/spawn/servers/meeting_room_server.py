@@ -260,7 +260,12 @@ async def create_meeting(
             "TEAM_WORKSPACE",
             str(Path.cwd() / ".runtime" / "cache" / "tmp" / "meeting-workspace"),
         )
-    my_name = my_name or _get_my_name()
+    # Identity verification — caller cannot create a meeting under
+    # another agent's name (would auto-prepend them as chair below,
+    # then dictate the participant list as if speaking for them).
+    my_name, _err = _assert_self_identity(my_name)
+    if _err:
+        return _err
     participant_list = [p.strip() for p in participants.split(",") if p.strip()]
     # The creator is the meeting chair — auto-prepend so they speak first
     # and get a turn each round (typically to issue the verdict).
@@ -357,52 +362,9 @@ async def create_meeting(
 # get_transcript: Replaced by transcript embedded in notifications
 
 
-def _assert_self_identity(agent_name: str) -> tuple[str, str | None]:
-    """Resolve caller identity + refuse impersonation.
-
-    The legacy contract was ``agent_name = agent_name or _get_my_name()``
-    — i.e. trust whatever name the caller supplies. That let any agent
-    `speak()` or `skip_turn()` ON BEHALF OF a teammate by simply passing
-    their name as ``agent_name``, since the only downstream check was
-    "is this name the current speaker", not "is the caller actually
-    this agent" (production 2026-05-20: Taylor [PM] force-skipped all
-    6 teammates in one meeting by impersonating each one's turn —
-    transcript falsely attributed identical placeholder responses to
-    BA/SA/Dev/Designer/QE/DSO).
-
-    Authoritative caller identity is ``$TEAM_MY_NAME`` — set by the
-    isolated_spawner at team-spawn time, immutable for the process's
-    lifetime. We read the env var DIRECTLY (not via ``_get_my_name()``)
-    because that helper falls back to ``$TEAM_MY_ROLE`` and then a
-    generic "agent" string; only ``TEAM_MY_NAME`` proves the process
-    was spawned as a specific team member. If it's unset, the process
-    is NOT a team agent (CLI tests, dashboard direct calls, library
-    use) and we preserve the legacy permissive contract.
-
-    Returns ``(resolved_name, error_json)`` — exactly one is non-empty.
-    Caller short-circuits on error_json.
-    """
-    caller_env = os.environ.get("TEAM_MY_NAME", "").strip()
-
-    if not agent_name:
-        # No claim made — use whatever the legacy helper resolves
-        # (env name, env role, or "agent"). No impersonation possible.
-        return _get_my_name(), None
-
-    if caller_env and agent_name.strip().lower() != caller_env.lower():
-        return "", json.dumps({
-            "error": (
-                f"Impersonation refused: caller is {caller_env!r} but "
-                f"agent_name={agent_name!r}. You can only speak/skip on "
-                f"YOUR own turn. If a teammate is unresponsive, use "
-                f"end_meeting (or leave_meeting on your own turn) — do "
-                f"not put words in their mouth."
-            ),
-            "caller": caller_env,
-            "claimed_agent_name": agent_name,
-        })
-
-    return agent_name, None
+# Identity verification (`_assert_self_identity`) lives in `_team_helpers`
+# so it can be shared with team_communicate_server. See the helper for
+# the contract details. Aliased at module bottom imports.
 
 
 @mcp.tool()
@@ -946,7 +908,11 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
         JSON confirming you've left, or an error with ``next_action``
         guidance if you tried to leave on your own turn.
     """
-    agent_name = agent_name or _get_my_name()
+    # Identity verification — caller cannot remove a teammate from
+    # the meeting on their behalf.
+    agent_name, _err = _assert_self_identity(agent_name)
+    if _err:
+        return _err
 
     if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
@@ -1038,6 +1004,7 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
 # ───────────────────────────────────────────────────────────────────
 
 from fast_agent.spawn.servers._team_helpers import (
+    assert_self_identity as _assert_self_identity,
     auto_wake_if_idle as _auto_wake_if_idle,
     get_bus as _get_bus,
     get_my_name as _get_my_name,

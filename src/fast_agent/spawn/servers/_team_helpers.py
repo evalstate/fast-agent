@@ -42,6 +42,86 @@ def get_my_name() -> str:
     return os.environ.get("TEAM_MY_NAME", os.environ.get("TEAM_MY_ROLE", "agent"))
 
 
+def assert_self_identity(claimed_name: str) -> tuple[str, str | None]:
+    """Resolve caller identity + refuse impersonation across team servers.
+
+    Single source of truth for the "is the caller the agent they claim to
+    be" check. Used by every team-server tool that accepts a caller-
+    supplied name (meeting_room: speak/skip_turn/create_meeting/
+    leave_meeting; team_communicate: team_communicate/check_responses/
+    reply_message). All of them previously did
+    ``name = name or get_my_name()`` — i.e. trusted the caller's claim
+    blindly. That let a spawn-misconfigured process pass
+    ``name="<teammate>"`` and write transcript / messaging entries
+    falsely attributed to the impersonated agent (production 2026-05-20:
+    Taylor [PM] force-skipped 6 teammates by impersonating each one's
+    turn).
+
+    Authoritative identity is ``$TEAM_MY_NAME`` — set by the spawner at
+    process-creation time, immutable for the process's lifetime. Read
+    DIRECTLY (not via ``get_my_name()``) because that helper falls back
+    to ``$TEAM_MY_ROLE`` and then a generic "agent" string; only
+    ``TEAM_MY_NAME`` proves the process was spawned as a specific team
+    member.
+
+    Contract — no permissive escape hatch:
+
+    1. ``claimed_name=""`` → auto-detect, fall back to ``get_my_name()``.
+       No claim made, no impersonation possible.
+    2. ``claimed_name`` set + ``TEAM_MY_NAME`` set + match → allow.
+    3. ``claimed_name`` set + ``TEAM_MY_NAME`` set + mismatch → REFUSE.
+    4. ``claimed_name`` set + ``TEAM_MY_NAME`` UNSET → REFUSE.
+
+    Returns ``(resolved_name, error_json)`` — exactly one is non-empty.
+    Callers short-circuit on ``error_json``.
+    """
+    caller_env = os.environ.get("TEAM_MY_NAME", "").strip()
+
+    if not claimed_name:
+        return get_my_name(), None
+
+    if not caller_env:
+        # Refusals here are the CORRECT response to an unverified claim,
+        # not a server error — use warning level so they don't flood
+        # error dashboards once misconfigured CLI / library callers
+        # start hitting the new strict contract.
+        logger.warning(
+            "team server: refusing claim claimed_name=%r — TEAM_MY_NAME is "
+            "unset on this process so identity cannot be verified. Set "
+            "TEAM_MY_NAME before calling team tools with an explicit name.",
+            claimed_name,
+        )
+        return "", json.dumps({
+            "error": (
+                "Identity unverifiable: TEAM_MY_NAME is not set on this "
+                "process, so a claimed agent name cannot be verified. "
+                "Either omit the name argument (auto-detect from env "
+                "role) or set TEAM_MY_NAME to your authoritative identity."
+            ),
+            "caller_env": "",
+            "claimed_agent_name": claimed_name,
+        })
+
+    if claimed_name.strip().lower() != caller_env.lower():
+        logger.warning(
+            "team server: refusing impersonation — caller is %r but claim is %r",
+            caller_env, claimed_name,
+        )
+        return "", json.dumps({
+            "error": (
+                f"Impersonation refused: caller is {caller_env!r} but "
+                f"claimed_name={claimed_name!r}. You can only act on "
+                f"behalf of YOUR own identity. If a teammate is "
+                f"unresponsive, use the team's escalation path — do not "
+                f"put words in their mouth."
+            ),
+            "caller_env": caller_env,
+            "claimed_agent_name": claimed_name,
+        })
+
+    return claimed_name, None
+
+
 def get_team_config() -> dict:
     """Load team roles config from env."""
     try:
