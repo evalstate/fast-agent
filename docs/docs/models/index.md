@@ -1,32 +1,74 @@
 ---
-title: Getting Started with Models
+title: Providers and Models
 social:
-  title: Getting Started with Models
+  title: Providers and Models
   tagline: Pick providers, model aliases, and first-class features quickly.
   description: Pick providers, model aliases, and first-class features quickly.
   alt: fast-agent social card — Getting Started with Models
 ---
 
+**`fast-agent`** has native support for **OpenAI Responses** and **Chat Completions**, **Anthropic Messages**, **Google GenAI** and **Amazon Bedrock** APIs. 
 
-# Getting Started with Models
+OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth codex`. 
 
-Models in **fast-agent** are selected with a model string:
+Chat Completion models are also available via **Microsoft Azure**, and supported Anthropic models also supported on **Google Vertex**.
 
-```text
-provider.model_name[.reasoning_effort][?query=value&...]
-```
+Local models with [**llama.cpp**](https://llama.app/) are directly supported, with automatic configuration and connection with the Responses API.
 
-The shortest useful examples are aliases:
+## Selecting a Model
+
+#### Model Picker and Defaults
+
+In interactive mode, with no model specified or default configured, **`fast-agent`** shows a model selector on startup, highlighting available models.
+
+<div
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../assets/models/model-picker.cast"
+  data-fa-asciinema-cols="96"
+  data-fa-asciinema-rows="21"
+  data-fa-asciinema-poster="npt:0:03"
+  data-fa-asciinema-speed="1"
+  data-fa-asciinema-idle-time-limit="1.3"
+  data-fa-asciinema-fit="width"
+  data-fa-asciinema-autoplay="true"
+>
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
+  <div data-fa-asciinema-target></div>
+</div>
+
+<!--
+Cast asset:
+- Source: docs/docs/assets/models/model-picker.cast
+- Regenerate: uv run scripts/docs.py cast-build model-picker
+- Replay locally: asciinema play docs/docs/assets/models/model-picker.cast
+-->
+
+### Using Presets
+
+The quickest way to get started is to use the inbuilt convenience presets, for example:
 
 ```bash
-fast-agent --model sonnet
-fast-agent --model gpt55
-fast-agent --model gemini
-fast-agent --model grok
-fast-agent --model kimi
+fast-agent --model opus      # Use the most recent opus model
+fast-agent --model codexplan # Use the latest supported Codex Subscription Model
 ```
 
-Full alias tables and model capabilities are generated from the source tree to reduce drift:
+Use `fast-agent model presets` to view the current shortcuts.
+
+### Model Strings and Configuration
+
+Models in **fast-agent** are specified with a model string:
+
+```text
+provider.model_name[?reasoning=high&...]
+```
+
+The query string allows configuration of provider, model and sampling parameters. 
+
+Custom models and configurations be defined using [Model Overlays](model_overlays.md).
 
 - [Providers and Models](llm_providers/) lists provider configuration and generated alias tables.
 - [Models Reference](models_reference/) lists generated model capabilities such as structured

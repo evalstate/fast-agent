@@ -12,13 +12,16 @@ Testing notes:
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
 
 from fast_agent.config import Settings, get_settings, update_global_settings
+from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -47,6 +50,33 @@ def _cleanup_overlay_runtime_state(base_dir: Path) -> None:
     load_model_overlay_registry(start_path=base_dir, env_dir=empty_env_dir)
 
 
+@contextmanager
+def _isolated_overlay_environment(
+    env_dir: Path | None,
+    *,
+    cleanup_base: Path,
+) -> Iterator[None]:
+    env_keys = ("ENVIRONMENT_DIR", "FAST_AGENT_HOME", FAST_AGENT_RUNTIME_ENVIRONMENT)
+    previous = {key: os.environ.get(key) for key in env_keys}
+
+    os.environ.pop("FAST_AGENT_HOME", None)
+    os.environ.pop(FAST_AGENT_RUNTIME_ENVIRONMENT, None)
+    if env_dir is None:
+        os.environ.pop("ENVIRONMENT_DIR", None)
+    else:
+        os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+
+    try:
+        yield
+    finally:
+        _cleanup_overlay_runtime_state(cleanup_base)
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def _overlay_group(snapshot):
     return next(option for option in snapshot.providers if option.overlay_group)
 
@@ -68,8 +98,24 @@ def test_export_preserves_explicit_provider_over_catalog_default() -> None:
 def test_export_preserves_hf_namespace_before_database_lookup() -> None:
     manifest = build_model_overlay_manifest_from_database("hf.openai/gpt-oss-120b:cerebras")
 
+    assert manifest.name == "hf-openai-gpt-oss-120b-cerebras"
     assert manifest.provider == Provider.HUGGINGFACE
     assert manifest.model == "openai/gpt-oss-120b:cerebras"
+
+
+def test_export_default_name_strips_model_query_params() -> None:
+    manifest = build_model_overlay_manifest_from_database(
+        "hf.Qwen/Qwen3.5-397B-A17B:novita?"
+        "temperature=0.6&top_p=0.95&top_k=20&min_p=0.0&presence_penalty=0.0"
+        "&repetition_penalty=1.0&reasoning=on"
+    )
+
+    assert manifest.name == "hf-Qwen-Qwen3.5-397B-A17B-novita"
+    assert manifest.model == (
+        "Qwen/Qwen3.5-397B-A17B:novita?"
+        "temperature=0.6&top_p=0.95&top_k=20&min_p=0.0&presence_penalty=0.0"
+        "&repetition_penalty=1.0&reasoning=on"
+    )
 
 
 def test_export_preserves_bare_hf_namespace_that_matches_provider() -> None:
@@ -115,31 +161,26 @@ defaults:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
     previous_remote_key = os.environ.get("REMOTE_QWEN_KEY")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
     os.environ["REMOTE_QWEN_KEY"] = "remote-key"
 
     try:
-        local_llm = ModelFactory.create_factory("qwen-local")(LlmAgent(AgentConfig(name="local")))
-        remote_llm = ModelFactory.create_factory("qwen-remote")(
-            LlmAgent(AgentConfig(name="remote"))
-        )
+        with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+            local_llm = ModelFactory.create_factory("qwen-local")(
+                LlmAgent(AgentConfig(name="local"))
+            )
+            remote_llm = ModelFactory.create_factory("qwen-remote")(
+                LlmAgent(AgentConfig(name="remote"))
+            )
 
-        assert isinstance(local_llm, OpenResponsesLLM)
-        assert isinstance(remote_llm, OpenResponsesLLM)
-        assert local_llm._base_url() == "http://localhost:8080/v1"
-        assert remote_llm._base_url() == "https://remote.example/v1"
-        assert local_llm._api_key() == ""
-        assert remote_llm._api_key() == "remote-key"
-        assert local_llm.default_request_params.maxTokens == 4096
+            assert isinstance(local_llm, OpenResponsesLLM)
+            assert isinstance(remote_llm, OpenResponsesLLM)
+            assert local_llm._base_url() == "http://localhost:8080/v1"
+            assert remote_llm._base_url() == "https://remote.example/v1"
+            assert local_llm._api_key() == ""
+            assert remote_llm._api_key() == "remote-key"
+            assert local_llm.default_request_params.maxTokens == 4096
     finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
-
         if previous_remote_key is None:
             os.environ.pop("REMOTE_QWEN_KEY", None)
         else:
@@ -175,10 +216,7 @@ metadata:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         presets = ModelFactory.get_runtime_presets()
         assert presets["picker-local"] == (
             "openresponses.overlay-tests/Qwen-Picker?temperature=0.65&top_p=0.95"
@@ -215,12 +253,6 @@ metadata:
         )
         assert picker_entry.local is True
         assert picker_entry.description == "Local picker entry"
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_same_wire_model_overlays_keep_distinct_resolved_metadata(tmp_path: Path) -> None:
@@ -260,10 +292,7 @@ metadata:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         tiny_resolved = ModelFactory.resolve_model_spec("tiny-local")
         big_resolved = ModelFactory.resolve_model_spec("big-local")
 
@@ -290,12 +319,6 @@ metadata:
         assert big_llm.usage_accumulator is not None
         assert tiny_llm.usage_accumulator.context_window_size == 8192
         assert big_llm.usage_accumulator.context_window_size == 131072
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_overlay_resolution_precedence_beats_custom_preset(tmp_path: Path) -> None:
@@ -316,10 +339,7 @@ metadata:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec(
             "picker-local",
             presets={"picker-local": "responses.gpt-5.2"},
@@ -330,12 +350,6 @@ metadata:
         assert resolved.wire_model_name == "overlay-tests/Qwen-Picker"
         assert resolved.context_window == 65536
         assert resolved.max_output_tokens == 2048
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_new_overlay_model_defaults_to_schema_json_mode(tmp_path: Path) -> None:
@@ -356,20 +370,11 @@ metadata:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec("schema-default")
 
         assert resolved.model_params is not None
         assert resolved.model_params.json_mode == "schema"
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_overlay_known_model_metadata_applies_to_llm_model_info(tmp_path: Path) -> None:
@@ -390,10 +395,7 @@ metadata:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         llm = ModelFactory.create_factory("haikutiny")(LlmAgent(AgentConfig(name="haikutiny")))
 
         assert llm.resolved_model is not None
@@ -406,12 +408,6 @@ metadata:
         assert llm.model_info.max_output_tokens == 1024
         assert llm.usage_accumulator is not None
         assert llm.usage_accumulator.context_window_size == 8192
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_overlay_resolution_uses_config_relative_environment_dir_when_cwd_differs(
@@ -437,6 +433,7 @@ metadata:
 """.strip(),
     )
 
+    previous_settings = get_settings()
     settings = Settings(environment_dir=".fast-agent")
     settings._config_file = str(project_dir / "fastagent.config.yaml")
     update_global_settings(settings)
@@ -444,9 +441,12 @@ metadata:
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     monkeypatch.chdir(work_dir)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
 
-    resolved = ModelFactory.resolve_model_spec("picker-local")
+    with _isolated_overlay_environment(None, cleanup_base=tmp_path):
+        try:
+            resolved = ModelFactory.resolve_model_spec("picker-local")
+        finally:
+            update_global_settings(previous_settings)
 
     assert resolved.source == "overlay"
     assert resolved.overlay_name == "picker-local"
@@ -484,12 +484,12 @@ metadata:
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     monkeypatch.chdir(work_dir)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
 
-    try:
-        resolved = ModelFactory.resolve_model_spec("picker-local")
-    finally:
-        update_global_settings(previous_settings)
+    with _isolated_overlay_environment(None, cleanup_base=tmp_path):
+        try:
+            resolved = ModelFactory.resolve_model_spec("picker-local")
+        finally:
+            update_global_settings(previous_settings)
 
     assert resolved.source == "overlay"
     assert resolved.overlay_name == "picker-local"
@@ -534,10 +534,7 @@ metadata:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         agent = LlmAgent(AgentConfig(name="switcher"))
         await agent.attach_llm(ModelFactory.create_factory("big-local"))
 
@@ -550,12 +547,6 @@ metadata:
         assert agent.llm.default_request_params.maxTokens == 1024
         assert agent.llm.resolved_model is not None
         assert agent.llm.resolved_model.overlay_name == "tiny-local"
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_overlay_secret_ref_resolves_api_key_from_companion_file(tmp_path: Path) -> None:
@@ -581,20 +572,11 @@ remote-qwen:
         encoding="utf-8",
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         llm = ModelFactory.create_factory("qwen-secret")(LlmAgent(AgentConfig(name="secret")))
         assert isinstance(llm, OpenResponsesLLM)
         assert llm._base_url() == "https://secret.example/v1"
         assert llm._api_key() == "secret-token"
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_overlay_context_window_survives_missing_max_output_tokens(tmp_path: Path) -> None:
@@ -621,10 +603,7 @@ metadata:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec("llamacpp-qwen")
         assert resolved.context_window == 75264
         assert resolved.max_output_tokens is None
@@ -635,12 +614,6 @@ metadata:
         assert llm.model_info.max_output_tokens is None
         assert llm.usage_accumulator is not None
         assert llm.usage_accumulator.context_window_size == 75264
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_overlay_legacy_metadata_default_temperature_is_still_used(tmp_path: Path) -> None:
@@ -662,16 +635,7 @@ metadata:
 """.strip(),
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-
-    try:
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec("legacy-temp")
         assert resolved.model_params is not None
         assert resolved.model_params.default_temperature == 0.7
-    finally:
-        _cleanup_overlay_runtime_state(tmp_path)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir

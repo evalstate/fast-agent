@@ -153,6 +153,8 @@ def test_convert_log_event_generic_tool_progress_includes_context_and_details() 
                 "agent_name": "assistant",
                 "tool_name": "index",
                 "server_name": "fs",
+                "tool_state": "completed",
+                "tool_terminal": True,
                 "details": "chunk 1",
             }
         },
@@ -161,6 +163,8 @@ def test_convert_log_event_generic_tool_progress_includes_context_and_details() 
     progress_event = convert_log_event(event)
     assert progress_event is not None
     assert progress_event.details == "index - chunk 1"
+    assert progress_event.tool_state == "completed"
+    assert progress_event.tool_terminal is True
 
 
 def test_convert_log_event_fatal_error_uses_server_name_as_target_when_agent_missing() -> None:

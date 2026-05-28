@@ -167,6 +167,8 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         ),
         tool_name=event_data.get("tool_name"),
         tool_event=event_data.get("tool_event"),
+        tool_state=event_data.get("tool_state"),
+        tool_terminal=bool(event_data.get("tool_terminal", False)),
         streaming_tokens=streaming_tokens,
         progress=progress,
         total=total,

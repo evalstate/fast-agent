@@ -582,7 +582,7 @@ def build_model_overlay_manifest_from_database(
 
     # The manifest should store the bare model name (without our own prefix)
     manifest_model = bare_model
-    name = overlay_name or _safe_overlay_filename(manifest_model)
+    name = overlay_name or _default_export_overlay_name(resolved_provider, manifest_model)
 
     # Map ModelParameters fields that are supported by ModelOverlayMetadata
     json_mode: Literal["schema", "object"] | None = None
@@ -654,6 +654,11 @@ def _safe_overlay_filename(name: str) -> str:
         last_was_dash = True
     safe_name = "".join(safe_chars).strip("-.")
     return safe_name or "overlay"
+
+
+def _default_export_overlay_name(provider: Provider, model: str) -> str:
+    model_without_query = model.split("?", 1)[0]
+    return _safe_overlay_filename(f"{provider.value}-{model_without_query}")
 
 
 def _settings_environment_override(

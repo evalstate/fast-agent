@@ -53,9 +53,74 @@ def _tui_shell_scenario() -> TerminalCastScenario:
     )
 
 
+def _model_picker_scenario() -> TerminalCastScenario:
+    command = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_COMMAND", "fast-agent go")
+    return TerminalCastScenario(
+        name="model-picker",
+        title="fast-agent model picker",
+        output=ASSETS / "models" / "model-picker.cast",
+        cols=int(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_COLS", "96")),
+        rows=int(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_ROWS", "21")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_IDLE_TIME_LIMIT", "1.3")),
+        prompt="",
+        shell_command=command,
+    )
+
+
 def _scenarios() -> dict[str, TerminalCastScenario]:
-    scenario = _tui_shell_scenario()
-    return {scenario.name: scenario}
+    scenarios = [_tui_shell_scenario(), _model_picker_scenario()]
+    return {scenario.name: scenario for scenario in scenarios}
+
+
+def _model_picker_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_STARTUP_WAIT", "5")
+    navigation_wait = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_NAVIGATION_WAIT", "0.55")
+    final_wait = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_FINAL_WAIT", "1.2")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-model-picker.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV FAST_AGENT_MODEL && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep 1
+  type_slow "$SESSION" '{command}' 0.035
+  tmux send-keys -t "$SESSION" Enter
+  sleep {startup_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {navigation_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {navigation_wait}
+  tmux send-keys -t "$SESSION" Right
+  sleep {navigation_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {navigation_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {final_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
 
 
 def _missing_tools(tools: tuple[str, ...]) -> list[str]:
@@ -99,6 +164,9 @@ def build() -> int:
 
 
 def _record_script(scenario: TerminalCastScenario) -> str:
+    if scenario.name == "model-picker":
+        return _model_picker_record_script(scenario)
+
     typing_delay = os.environ.get("FAST_AGENT_TUI_DEMO_TYPING_DELAY", "0.055")
     shell_delay = os.environ.get("FAST_AGENT_TUI_DEMO_SHELL_TYPING_DELAY", "0.045")
     startup_wait = os.environ.get("FAST_AGENT_TUI_DEMO_STARTUP_WAIT", "8")

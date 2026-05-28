@@ -26,6 +26,7 @@ from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
     truncate_shell_output_lines,
 )
+from fast_agent.ui.tool_call_ids import format_tool_call_id
 
 if TYPE_CHECKING:
     from mcp.types import CallToolResult
@@ -38,10 +39,6 @@ if TYPE_CHECKING:
 class ToolDisplay:
     """Encapsulates rendering logic for tool calls and results."""
 
-    _TOOL_CALL_ID_MAX_LENGTH = 12
-    _TOOL_CALL_ID_PREFIX_LENGTH = 5
-    _TOOL_CALL_ID_SUFFIX_LENGTH = 6
-    _TOOL_CALL_ID_ELLIPSIS = "…"
     _PATH_ELLIPSIS = "…"
     _READ_TEXT_FILE_LANGUAGE_BY_EXTENSION: dict[str, str] = {
         ".py": "python",
@@ -216,15 +213,7 @@ class ToolDisplay:
 
     @classmethod
     def _format_tool_call_id(cls, tool_call_id: str | None) -> str | None:
-        if not tool_call_id:
-            return None
-        if len(tool_call_id) <= cls._TOOL_CALL_ID_MAX_LENGTH:
-            return tool_call_id
-        return (
-            f"{tool_call_id[: cls._TOOL_CALL_ID_PREFIX_LENGTH]}"
-            f"{cls._TOOL_CALL_ID_ELLIPSIS}"
-            f"{tool_call_id[-cls._TOOL_CALL_ID_SUFFIX_LENGTH :]}"
-        )
+        return format_tool_call_id(tool_call_id)
 
     @classmethod
     def _build_tool_right_info(cls, base_label: str | None, tool_call_id: str | None) -> str:

@@ -1149,7 +1149,7 @@ table.fa-table {
   border-left: 3px solid var(--a-0);
   border-radius: var(--r-1);
   box-shadow: none;
-  font-size: 15.5px;
+  font-size: var(--t-body);
   color: var(--fg-1);
 }
 .md-typeset .admonition > .admonition-title,

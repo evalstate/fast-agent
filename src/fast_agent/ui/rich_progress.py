@@ -17,6 +17,7 @@ from rich.text import Text
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
+from fast_agent.ui.tool_call_ids import format_tool_call_id
 
 
 class SpinnerDescriptionColumn(ProgressColumn):
@@ -342,10 +343,7 @@ class RichProgressDisplay:
     @staticmethod
     def _short_correlation_id(correlation_id: str) -> str:
         """Return a concise correlation identifier for display."""
-        normalized = correlation_id.strip()
-        if len(normalized) <= 16:
-            return normalized
-        return f"{normalized[:13]}…"
+        return format_tool_call_id(correlation_id.strip()) or ""
 
     def _max_details_chars(self) -> int:
         """Estimate available width for the details column."""
@@ -385,7 +383,7 @@ class RichProgressDisplay:
         if not correlation_id:
             return details
 
-        correlation_marker = f"id:{self._short_correlation_id(correlation_id)}"
+        correlation_marker = f"id: {self._short_correlation_id(correlation_id)}"
         if not force_show_id:
             budget = self._max_details_chars()
             if len(details) + 3 + len(correlation_marker) > budget:
@@ -417,47 +415,39 @@ class RichProgressDisplay:
             return False
         return normalized in {
             "stop",
-            "stopped",
-            "done",
-            "complete",
             "completed",
-            "cancel",
             "canceled",
             "cancelled",
+            "denied",
             "error",
-            "fail",
             "failed",
         }
 
     @staticmethod
-    def _is_terminal_tool_progress(
-        *, progress: float | None, total: float | None, details: str | None
-    ) -> bool:
-        """Return True when progress payload indicates terminal completion/failure."""
-        if progress is not None and total is not None and total > 0 and progress >= total:
-            return True
-
-        normalized_details = (details or "").strip().lower()
+    def _is_terminal_tool_state(tool_state: str | None) -> bool:
+        """Return True for final tool lifecycle states."""
+        normalized_details = (tool_state or "").strip().lower()
         if not normalized_details:
             return False
 
         terminal_details = {
-            "stop",
-            "stopped",
-            "done",
-            "complete",
             "completed",
-            "cancel",
             "canceled",
             "cancelled",
+            "denied",
             "error",
-            "fail",
             "failed",
         }
-        if normalized_details in terminal_details:
-            return True
+        return normalized_details in terminal_details
 
-        return normalized_details.startswith(("failed:", "error:"))
+    @classmethod
+    def _is_terminal_tool_progress_event(cls, event: ProgressEvent) -> bool:
+        """Return True when a tool progress event explicitly reaches a final state."""
+        return (
+            event.tool_terminal
+            or cls._is_terminal_tool_state(event.tool_state)
+            or cls._is_terminal_tool_event(event.tool_event)
+        )
 
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
@@ -497,18 +487,7 @@ class RichProgressDisplay:
             task_name = f"{task_name}::{event.correlation_id}"
 
         should_drop_tool_task = is_correlated_tool_event and (
-            (
-                event.action == ProgressAction.CALLING_TOOL
-                and self._is_terminal_tool_event(event.tool_event)
-            )
-            or (
-                event.action == ProgressAction.TOOL_PROGRESS
-                and self._is_terminal_tool_progress(
-                    progress=event.progress,
-                    total=event.total,
-                    details=event.details,
-                )
-            )
+            self._is_terminal_tool_progress_event(event)
         )
 
         # Create new task if needed

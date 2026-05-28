@@ -37,15 +37,38 @@ nav = [
   ] },
   { "Models" = [
     { "Getting Started" = "models/index.md" },
+    { "Primary Providers" = [
+      { "OpenAI" = "models/providers/openai.md" },
+      { "Anthropic" = "models/providers/anthropic.md" },
+      { "Google" = "models/providers/google.md" },
+      { "Hugging Face" = "models/providers/huggingface.md" },
+      { "DeepSeek" = "models/providers/deepseek.md" },
+      { "xAI" = "models/providers/xai.md" },
+      { "Groq" = "models/providers/groq.md" },
+      { "Aliyun" = "models/providers/aliyun.md" },
+    ] },
+    { "Other Providers" = [
+      { "OpenRouter" = "models/providers/openrouter.md" },
+      { "Azure" = "models/providers/azure.md" },
+      { "Bedrock" = "models/providers/bedrock.md" },
+      { "Generic Providers" = "models/providers/generic.md" },
+    ] },
+    { "Reference" = [
     { "Model Overlays" = "models/model_overlays.md" },
     { "Providers and Models" = "models/llm_providers.md" },
     { "Models Reference" = "models/models_reference.md" },
     { "Internal Models" = "models/internal_models.md" },
+    ]}
   ] },
   { "ACP" = [
+    {"Agent Client Protocol"  = [
     { "Using as an Agent" = "acp/index.md" },
     { "Customizing Agents" = "acp/customizing_agents.md" },
-  ] },
+  ]}
+  ] 
+  
+  
+  },
   { "MCP" = [
     { "Configuring Servers" = "mcp/index.md" },
     { "Deploying as an MCP Server" = "mcp/mcp-server.md" },

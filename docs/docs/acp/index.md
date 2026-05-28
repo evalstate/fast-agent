@@ -21,25 +21,25 @@ Why use **`fast-agent`**?:
 
 | Feature | Support | Notes |
 |---------|---------|-------|
-| Modes   | ✅ | Each defined Agent appears as a Modes |
+| Modes   | ✅ | Each defined Agent appears as a _Mode_ |
 | Tool / Workflow Progress | ✅ | MCP Tool Progress and Agent Workflow Progress updates |
 | Agent Plan | ✅ | Iterative Planner reports progress using [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan) |
 | Cancellation | ✅  | LLM Streaming Cancellation |
 | Multimodal | ✅ | Support for Images  | 
 | Slash Commands | ✅ | Save, Load, Status and Clear/Clear Last message |
 | File System / Terminal | ✅ | Start with `-x` option to enable access to Client terminal |
-| MCP Servers | ⚠️ | Add via command line switches or configuration file |
-| Sessions | ⚠️ | Use `save` and `load` slash commands. Plan to implement with [Session List](https://agentclientprotocol.com/rfds/session-list) |
-
+| MCP Servers | ✅ | MCP Servers supplied by the Client are attached to the Agent |
+| Sessions | ✅ | Session listing supported  |
 
 ## Getting Started
 
-## Customizing Agents
+### Customizing Agents
 
-See [Customizing Agents](customizing_agents/) for ACP-aware agents, slash commands, and controlling the ACP Mode display name/description.
+See [Customizing Agents](customizing_agents/) for building ACP-aware agents, slash commands, and controlling the ACP Mode display name/description.
 
-### No Install Quick Start:
-To try it out straight away with your Client, set an API Key environment variable and add:
+## No Install Quick Start:
+
+To try it out immediately with your Client: simply set an API Key environment variable and run:
 
 **Hugging Face**
 
@@ -153,3 +153,7 @@ Conflicts (fail fast):
 
 - `--noenv` + `--env`
 - `--noenv` + `--resume`
+
+## Structured Outputs
+
+Experimental support for returning [Structured Outputs](../guides/structured-outputs.md#acp-agent-client-protocol) is available.

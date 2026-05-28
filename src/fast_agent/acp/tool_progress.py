@@ -41,11 +41,16 @@ from fast_agent.acp.tool_call_context import get_acp_tool_call_meta
 from fast_agent.acp.tool_titles import build_tool_title
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
+from fast_agent.ui.tool_call_ids import format_tool_call_id
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
 logger = get_logger(__name__)
+
+
+def _display_tool_id(tool_id: str | None) -> str:
+    return format_tool_call_id(tool_id) or "unknown"
 
 
 def _merge_meta(
@@ -251,7 +256,8 @@ class ACPToolProgressManager:
                 session_id=self._session_id, update=tool_call_start
             )
             logger.debug(
-                f"Created tool call notification (non-streaming): {tool_call_start.tool_call_id}",
+                "Created tool call notification (non-streaming): "
+                f"{_display_tool_id(tool_call_start.tool_call_id)}",
                 name="acp_tool_call_ensure",
                 tool_call_id=tool_call_start.tool_call_id,
                 external_id=external_id,
@@ -341,7 +347,8 @@ class ACPToolProgressManager:
             external_id: Pre-generated external ID for SDK tracker
         """
         logger.debug(
-            f"_send_stream_start_notification called: tool={tool_name}, tool_use_id={tool_use_id}",
+            "_send_stream_start_notification called: "
+            f"tool={tool_name}, tool_use_id={_display_tool_id(tool_use_id)}",
             name="acp_tool_stream_start_entry",
         )
         try:
@@ -386,7 +393,8 @@ class ACPToolProgressManager:
             )
 
             logger.debug(
-                f"Sent early stream tool call notification: {tool_call_start.tool_call_id}",
+                "Sent early stream tool call notification: "
+                f"{_display_tool_id(tool_call_start.tool_call_id)}",
                 name="acp_tool_stream_start",
                 tool_call_id=tool_call_start.tool_call_id,
                 external_id=external_id,
@@ -584,7 +592,8 @@ class ACPToolProgressManager:
             pending_task = self._stream_tasks.get(tool_use_id)
             if pending_task and not pending_task.done():
                 logger.debug(
-                    f"Waiting for pending stream notification task to complete: {tool_use_id}",
+                    "Waiting for pending stream notification task to complete: "
+                    f"{_display_tool_id(tool_use_id)}",
                     name="acp_tool_await_stream_task",
                     tool_use_id=tool_use_id,
                 )
@@ -602,14 +611,16 @@ class ACPToolProgressManager:
                 existing_external_id = self._tool_use_id_to_external_id.get(tool_use_id)
                 if existing_external_id:
                     logger.debug(
-                        f"Found existing stream notification for tool_use_id: {tool_use_id}",
+                        "Found existing stream notification for tool_use_id: "
+                        f"{_display_tool_id(tool_use_id)}",
                         name="acp_tool_execution_match",
                         tool_use_id=tool_use_id,
                         external_id=existing_external_id,
                     )
                 else:
                     logger.debug(
-                        f"No stream notification found for tool_use_id: {tool_use_id}",
+                        "No stream notification found for tool_use_id: "
+                        f"{_display_tool_id(tool_use_id)}",
                         name="acp_tool_execution_no_match",
                         tool_use_id=tool_use_id,
                         available_ids=list(self._tool_use_id_to_external_id.keys()),
@@ -667,7 +678,8 @@ class ACPToolProgressManager:
                     self._stream_tool_use_ids.pop(tool_use_id, None)
 
                 logger.debug(
-                    f"Updated stream tool call with execution details: {tool_call_id}",
+                    "Updated stream tool call with execution details: "
+                    f"{_display_tool_id(tool_call_id)}",
                     name="acp_tool_execution_update",
                     tool_call_id=tool_call_id,
                     external_id=existing_external_id,
@@ -706,7 +718,7 @@ class ACPToolProgressManager:
                 self._raw_inputs[tool_call_id] = arguments
 
                 logger.debug(
-                    f"Started tool call tracking: {tool_call_id}",
+                    f"Started tool call tracking: {_display_tool_id(tool_call_id)}",
                     name="acp_tool_call_start",
                     tool_call_id=tool_call_id,
                     external_id=external_id,
@@ -831,7 +843,7 @@ class ACPToolProgressManager:
             external_id = self._tool_call_id_to_external_id.get(tool_call_id)
             if not external_id:
                 logger.warning(
-                    f"Tool call {tool_call_id} not found for progress update",
+                    f"Tool call {_display_tool_id(tool_call_id)} not found for progress update",
                     name="acp_tool_progress_not_found",
                 )
                 return
@@ -887,7 +899,7 @@ class ACPToolProgressManager:
             await self._connection.session_update(session_id=self._session_id, update=update_data)
 
             logger.debug(
-                f"Updated tool call progress: {tool_call_id}",
+                f"Updated tool call progress: {_display_tool_id(tool_call_id)}",
                 name="acp_tool_progress_update",
                 progress=progress,
                 total=total,
@@ -924,14 +936,14 @@ class ACPToolProgressManager:
             external_id = self._tool_call_id_to_external_id.get(tool_call_id)
             if not external_id:
                 logger.warning(
-                    f"Tool call {tool_call_id} not found for completion",
+                    f"Tool call {_display_tool_id(tool_call_id)} not found for completion",
                     name="acp_tool_complete_not_found",
                 )
                 return
 
         # Build content blocks
         logger.debug(
-            f"on_tool_complete called: {tool_call_id}",
+            f"on_tool_complete called: {_display_tool_id(tool_call_id)}",
             name="acp_tool_complete_entry",
             success=success,
             has_content=content is not None,
@@ -985,7 +997,7 @@ class ACPToolProgressManager:
             await self._connection.session_update(session_id=self._session_id, update=update_data)
 
             logger.info(
-                f"Completed tool call: {tool_call_id}",
+                f"Completed tool call: {_display_tool_id(tool_call_id)}",
                 name="acp_tool_call_complete",
                 status=status,
                 content_blocks=len(content_blocks) if content_blocks else 0,

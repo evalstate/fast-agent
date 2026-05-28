@@ -28,7 +28,9 @@ if TYPE_CHECKING:
     from fast_agent.llm.internal.slow import SlowLLM
 
 # Type alias for LLM classes
-LLMClass = Union[Type["PassthroughLLM"], Type["PlaybackLLM"], Type["SilentLLM"], Type["SlowLLM"], type]
+LLMClass = Union[
+    Type["PassthroughLLM"], Type["PlaybackLLM"], Type["SilentLLM"], Type["SlowLLM"], type
+]
 TransportSetting = Literal["sse", "websocket", "auto"]
 ServiceTierSetting = Literal["fast", "flex"]
 
@@ -636,8 +638,6 @@ class ModelFactory:
         "opus4": "claude-opus-4-7",
         "opus46": "claude-opus-4-6",
         "opus47": "claude-opus-4-7",
-        "deepseekv3": "deepseek-chat",
-        "deepseek3": "deepseek-chat",
         "deepseek": "deepseek.deepseek-v4-pro",
         "deepseek4": "deepseek.deepseek-v4-pro",
         "deepseek4pro": "deepseek.deepseek-v4-pro",

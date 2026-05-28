@@ -42,6 +42,7 @@ from fast_agent.ui.streaming import (
 from fast_agent.ui.streaming import (
     StreamingMessageHandle as _StreamingMessageHandle,
 )
+from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.ui.tool_display import ToolDisplay
 from fast_agent.utils.time import format_duration
 
@@ -305,7 +306,7 @@ class ConsoleDisplay:
         if no_output:
             detail_parts.append("(no output)")
 
-        formatted_id = ToolDisplay._format_tool_call_id(tool_call_id)
+        formatted_id = format_tool_call_id(tool_call_id)
         if formatted_id:
             detail_parts.append(f"id: {formatted_id}")
 

@@ -77,6 +77,7 @@ from fast_agent.mcp.skybridge import (
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler, ToolPermissionHandler
 from fast_agent.mcp.transport_tracking import TransportSnapshot
+from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
@@ -86,6 +87,10 @@ if TYPE_CHECKING:
 
 
 logger = get_logger(__name__)  # This will be replaced per-instance when agent_name is available
+
+
+def _display_tool_id(tool_id: str | None) -> str:
+    return format_tool_call_id(tool_id) or "unknown"
 
 
 def _progress_trace_enabled() -> bool:
@@ -460,7 +465,7 @@ class MCPAggregator(ContextDependent):
                 "callback-progress "
                 f"server={server_name} "
                 f"tool={tool_name} "
-                f"tool_call_id={tool_call_id} "
+                f"tool_call_id={_display_tool_id(tool_call_id)} "
                 f"progress={progress!r} "
                 f"total={total!r} "
                 f"message={message!r}"
@@ -2298,9 +2303,9 @@ class MCPAggregator(ContextDependent):
                         agent_name=self.agent_name,
                         tool_call_id=tool_call_id,
                         tool_use_id=tool_use_id,
-                        progress=1.0,
-                        total=1.0,
                         details=completion_state,
+                        tool_state=completion_state,
+                        tool_terminal=True,
                     ),
                 )
 
@@ -2310,7 +2315,8 @@ class MCPAggregator(ContextDependent):
                     content = result.content if result.content else None
 
                     logger.debug(
-                        f"Tool execution completed, notifying handler: {tool_call_id}",
+                        "Tool execution completed, notifying handler: "
+                        f"{_display_tool_id(tool_call_id)}",
                         name="mcp_tool_complete_notify",
                         tool_call_id=tool_call_id,
                         has_content=content is not None,
@@ -2331,7 +2337,7 @@ class MCPAggregator(ContextDependent):
                     )
 
                     logger.debug(
-                        f"Tool handler notified successfully: {tool_call_id}",
+                        f"Tool handler notified successfully: {_display_tool_id(tool_call_id)}",
                         name="mcp_tool_complete_done",
                     )
                 except Exception as e:
@@ -2349,9 +2355,9 @@ class MCPAggregator(ContextDependent):
                         agent_name=self.agent_name,
                         tool_call_id=tool_call_id,
                         tool_use_id=tool_use_id,
-                        progress=1.0,
-                        total=1.0,
                         details=f"failed: {e}",
+                        tool_state="failed",
+                        tool_terminal=True,
                     ),
                 )
                 # Notify tool handler of error
