@@ -188,49 +188,15 @@ def test_apply_instruction_context_sets_agent_metadata_on_mcp_agent(tmp_path: Pa
     assert agent.instruction == "Agent planner @ /workspace"
 
 
-def test_apply_instruction_context_resolves_agent_skills_for_non_mcp_agent(
-    tmp_path: Path,
-) -> None:
-    skills_dir = tmp_path / ".fast-agent" / "skills" / "test-skill"
-    skills_dir.mkdir(parents=True)
-    (skills_dir / "SKILL.md").write_text(
-        """---
-name: test-skill
-description: A test skill for unit testing
----
-""",
-        encoding="utf-8",
-    )
-
-    context: dict[str, str] = {}
-    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
-    import fast_agent.config as config_module
-
-    original_settings = getattr(config_module, "_settings", None)
-    config_module._settings = None
-    try:
-        enrich_with_environment_context(
-            context,
-            str(tmp_path),
-            {"name": "test-client"},
-        )
-    finally:
-        config_module._settings = original_settings
-        if original_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
-
-    agent = StubAgent(
-        name="workflow",
-        instruction_template="Workflow skills:\n{{agentSkills}}",
-        source_path=tmp_path / "cards" / "workflow.md",
-        agent_type=AgentType.CHAIN,
-    )
-
-    asyncio.run(apply_instruction_context([agent], context))
-
-    assert "{{agentSkills}}" not in agent.instruction
-    assert "test-skill" in agent.instruction
-    assert "A test skill for unit testing" in agent.instruction
+# NOTE: `test_apply_instruction_context_resolves_agent_skills_for_non_mcp_agent`
+# removed during chore/sync-upstream-2026-05. It asserted that any
+# agent with a ``{{agentSkills}}`` template automatically receives all
+# workspace skills via the static ``agentSkills`` context key. This
+# fork resolves skills per-agent through the dynamic resolver in
+# ``instruction_refresh.build_instruction``; agents that need skills
+# must opt in via ``set_skill_manifests`` — covered by
+# ``test_apply_instruction_context_uses_filtered_agent_skills_per_mcp_agent``
+# below.
 
 
 def test_apply_instruction_context_uses_filtered_agent_skills_per_mcp_agent(
@@ -295,49 +261,11 @@ description: {description}
     assert "skill-a" not in agent_b.instruction
 
 
-def test_apply_instruction_context_preserves_shared_skills_for_mcp_agent_without_override(
-    tmp_path: Path,
-) -> None:
-    skills_dir = tmp_path / ".fast-agent" / "skills" / "test-skill"
-    skills_dir.mkdir(parents=True)
-    (skills_dir / "SKILL.md").write_text(
-        """---
-name: test-skill
-description: A test skill for unit testing
----
-""",
-        encoding="utf-8",
-    )
-
-    context: dict[str, str] = {}
-    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
-    import fast_agent.config as config_module
-
-    original_settings = getattr(config_module, "_settings", None)
-    config_module._settings = None
-    try:
-        enrich_with_environment_context(
-            context,
-            str(tmp_path),
-            {"name": "test-client"},
-        )
-    finally:
-        config_module._settings = original_settings
-        if original_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
-
-    agent = StubMcpAgent(
-        name="planner",
-        instruction_template="Skills:\n{{agentSkills}}",
-        source_path=tmp_path / "cards" / "planner.md",
-        agent_type=AgentType.SMART,
-    )
-
-    asyncio.run(apply_instruction_context([agent], context))
-
-    assert "{{agentSkills}}" not in agent.instruction
-    assert "test-skill" in agent.instruction
-    assert "A test skill for unit testing" in agent.instruction
+# NOTE: `test_apply_instruction_context_preserves_shared_skills_for_mcp_agent_without_override`
+# removed during chore/sync-upstream-2026-05 for the same reason as
+# the non-mcp variant above — MCP agents in this fork must opt into
+# skills explicitly via ``set_skill_manifests``; there is no global
+# fallback that auto-injects every workspace skill.
 
 
 def test_apply_instruction_context_blanks_shared_skills_for_explicit_mcp_disable(
