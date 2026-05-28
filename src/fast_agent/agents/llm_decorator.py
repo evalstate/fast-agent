@@ -287,6 +287,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     async def _run_lifecycle_hook(
         self, hook_type: Literal["on_start", "on_shutdown"]
     ) -> None:
+        if not self.config.lifecycle_hooks:
+            return
+
         hooks = self._load_lifecycle_hooks()
         hook = hooks.on_start if hook_type == "on_start" else hooks.on_shutdown
         if hook is None:

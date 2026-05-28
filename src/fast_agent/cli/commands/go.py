@@ -9,7 +9,6 @@ from typing import Any, Literal
 
 import typer
 
-from fast_agent.cards import service as card_service
 from fast_agent.cli.command_support import ensure_context_object, get_settings_or_exit
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.runtime.agent_setup import run_agent_request
@@ -49,6 +48,16 @@ from fast_agent.paths import resolve_environment_paths
 CARD_EXTENSIONS = _CARD_EXTENSIONS
 DEFAULT_AGENT_CARDS_DIR = _DEFAULT_AGENT_CARDS_DIR
 DEFAULT_TOOL_CARDS_DIR = _DEFAULT_TOOL_CARDS_DIR
+
+
+class _LazyCardService:
+    def __getattr__(self, name: str) -> Any:
+        from fast_agent.cards import service as loaded_card_service
+
+        return getattr(loaded_card_service, name)
+
+
+card_service = _LazyCardService()
 
 
 app = typer.Typer(
@@ -128,6 +137,7 @@ def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
         model=kwargs.get("model"),
         message=kwargs.get("message"),
         prompt_file=kwargs.get("prompt_file"),
+        attachments=kwargs.get("attachments"),
         json_schema=kwargs.get("json_schema"),
         schema_model=kwargs.get("schema_model"),
         structured_tool_policy=kwargs.get("structured_tool_policy"),
@@ -186,6 +196,7 @@ def run_async_agent(
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
+    attachments: list[str] | None = None,
     json_schema: str | None = None,
     schema_model: str | None = None,
     structured_tool_policy: str | None = None,
@@ -228,6 +239,7 @@ def run_async_agent(
             target_agent_name=target_agent_name,
             message=message,
             prompt_file=prompt_file,
+            attachments=attachments,
             json_schema=json_schema,
             schema_model=schema_model,
             structured_tool_policy=structured_tool_policy,
@@ -361,6 +373,13 @@ def go(
         metavar="<path-or-uri>",
         help="Path, HTTP(S) URL, file:// URI, or hf:// URI to a prompt file to send once and exit (either text or JSON)",
     ),
+    attach: list[str] | None = typer.Option(
+        None,
+        "--attach",
+        "-a",
+        metavar="<path-or-url>",
+        help="Attach a local file or HTTP(S) URL to the one-shot message. May be repeated.",
+    ),
     json_schema: str | None = CommonAgentOptions.json_schema(),
     schema_model: str | None = CommonAgentOptions.schema_model(),
     structured_tool_policy: str | None = CommonAgentOptions.structured_tool_policy(),
@@ -468,6 +487,7 @@ def go(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        attachments=attach,
         json_schema=json_schema,
         schema_model=schema_model,
         structured_tool_policy=structured_tool_policy,

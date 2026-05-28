@@ -1,5 +1,6 @@
 import os
 
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
@@ -25,7 +26,7 @@ class GenericLLM(OpenAILLM):
             model=chosen_model,
             systemPrompt=self.instruction,
             parallel_tool_calls=True,
-            max_iterations=10,
+            max_iterations=DEFAULT_MAX_ITERATIONS,
             use_history=True,
         )
 

@@ -53,6 +53,7 @@ from fast_agent.ui.command_payloads import (
     ModelWebSearchCommand,
     ModelXSearchCommand,
     PinSessionCommand,
+    PluginsCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -595,6 +596,13 @@ def _parse_slash_alias_command(
         action = tokens[0].lower()
         argument = tokens[1].strip() if len(tokens) > 1 else None
         return CardsCommand(action=action, argument=argument)
+    if cmd == "plugins":
+        if not remainder:
+            return PluginsCommand(action="list", argument=None)
+        tokens = remainder.split(maxsplit=1)
+        action = tokens[0].lower()
+        argument = tokens[1].strip() if len(tokens) > 1 else None
+        return PluginsCommand(action=action, argument=argument)
     return None
 
 

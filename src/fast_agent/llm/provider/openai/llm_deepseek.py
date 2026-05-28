@@ -1,18 +1,13 @@
-from copy import copy
-from typing import Type, cast
-
-from openai.types.chat import (
-    ChatCompletionAssistantMessageParam,
-    ChatCompletionMessage,
-)
+from typing import Any, Type
 
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.types import RequestParams
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEFAULT_DEEPSEEK_MODEL = "deepseekchat"  # current Deepseek only has two type models
+DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 
 class DeepSeekLLM(OpenAICompatibleLLM):
@@ -30,6 +25,55 @@ class DeepSeekLLM(OpenAICompatibleLLM):
             base_url = self.context.config.deepseek.base_url
 
         return base_url if base_url else DEEPSEEK_BASE_URL
+
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
+        if setting is not None and setting.kind == "effort":
+            if setting.value in {"none"}:
+                setting = ReasoningEffortSetting(kind="toggle", value=False)
+            elif setting.value in {"minimal", "low", "medium", "high"}:
+                setting = ReasoningEffortSetting(kind="effort", value="high")
+            elif setting.value in {"xhigh", "max"}:
+                setting = ReasoningEffortSetting(kind="effort", value="max")
+        super().set_reasoning_effort(setting)
+
+    def _resolve_reasoning_effort(self) -> str | None:
+        setting = self.reasoning_effort
+        if setting is None:
+            return "high"
+        if setting.kind == "toggle":
+            return None if setting.value is False else "high"
+        if setting.kind == "budget":
+            self.logger.warning("Ignoring budget reasoning setting for DeepSeek models.")
+            return "high"
+        effort = str(setting.value)
+        if effort == "none":
+            return None
+        if effort in {"minimal", "low", "medium", "high"}:
+            return "high"
+        if effort in {"xhigh", "max"}:
+            return "max"
+        return "high"
+
+    def _prepare_api_request(
+        self,
+        messages,
+        tools: list | None,
+        request_params: RequestParams,
+    ) -> dict[str, Any]:
+        arguments = super()._prepare_api_request(messages, tools, request_params)
+        if self._reasoning_mode != "reasoning_content":
+            return arguments
+
+        effort = self._resolve_reasoning_effort()
+        extra_body_raw = arguments.get("extra_body", {})
+        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
+        extra_body["thinking"] = {"type": "enabled" if effort else "disabled"}
+        arguments["extra_body"] = extra_body
+        if effort:
+            arguments["reasoning_effort"] = effort
+        else:
+            arguments.pop("reasoning_effort", None)
+        return arguments
 
     def _build_structured_prompt_instruction(self, model: Type[ModelT]) -> str | None:
         full_schema = model.model_json_schema()
@@ -58,13 +102,3 @@ IMPORTANT RULES:
 - Do NOT use code fences or markdown
 - The response must be valid JSON that matches the format above
 - All required fields must be included"""
-
-    @classmethod
-    def convert_message_to_message_param(
-        cls, message: ChatCompletionMessage, **kwargs
-    ) -> ChatCompletionAssistantMessageParam:
-        """Convert a response object to an input parameter object to allow LLM calls to be chained."""
-        if hasattr(message, "reasoning_content"):
-            message = copy(message)
-            del message.reasoning_content
-        return cast("ChatCompletionAssistantMessageParam", message)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from fast_agent.commands.model_capabilities import (
     resolve_web_fetch_enabled,
@@ -20,9 +20,12 @@ from fast_agent.interfaces import (
     SmartToolingCapable,
 )
 from fast_agent.mcp.common import is_namespaced_name
+from fast_agent.tools.tool_sources import TOOL_SOURCE_LABELS, tool_source
 
 if TYPE_CHECKING:
     from mcp.types import Tool
+
+    from fast_agent.mcp.provider_management import ProviderManagedMCPState
 
 
 @dataclass(slots=True)
@@ -33,13 +36,94 @@ class ToolSummary:
     args: list[str] | None
     suffix: str | None
     template: str | None
+    is_mcp: bool = False
 
 
 @dataclass(slots=True)
 class ProviderToolSummary:
     name: str
-    enabled: bool
+    enabled: bool | None
     description: str
+    suffix: str = "provider-hosted"
+
+
+@runtime_checkable
+class _ProviderManagedMCPStateCapable(Protocol):
+    @property
+    def provider_managed_mcp_state(self) -> "ProviderManagedMCPState": ...
+
+
+def _provider_managed_description(
+    *,
+    base_description: str,
+    allowlist: tuple[str, ...] | None,
+) -> str:
+    if allowlist is None:
+        return f"{base_description}; tools loaded by provider"
+    if not allowlist:
+        return f"{base_description}; no allowed tools configured"
+    return base_description
+
+
+def _provider_managed_tool_summaries(agent: object) -> list[ProviderToolSummary]:
+    llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
+    if llm is None:
+        return []
+
+    if not isinstance(llm, _ProviderManagedMCPStateCapable):
+        return [
+            ProviderToolSummary(
+                name="provider_managed_mcp",
+                enabled=None,
+                description="Provider-managed MCP state is unavailable for this model.",
+                suffix="provider-managed MCP",
+            )
+        ]
+
+    state = llm.provider_managed_mcp_state
+    summaries: list[ProviderToolSummary] = []
+    for attachment in state.attachments:
+        suffix = (
+            "provider-managed connector"
+            if attachment.connector_id is not None
+            else "provider-managed MCP"
+        )
+        base_description = attachment.server_description
+        if base_description is None:
+            base_description = (
+                f"OpenAI connector {attachment.connector_id}"
+                if attachment.connector_id is not None
+                else "Provider-managed MCP server"
+            )
+
+        allowlist = state.tool_allowlists.get(attachment.server_name)
+        description = _provider_managed_description(
+            base_description=base_description,
+            allowlist=allowlist,
+        )
+        enabled = allowlist != ()
+
+        if allowlist:
+            summaries.extend(
+                ProviderToolSummary(
+                    name=f"{attachment.server_name}/{tool_name}",
+                    enabled=True,
+                    description=description,
+                    suffix=suffix,
+                )
+                for tool_name in allowlist
+            )
+        else:
+            summaries.append(
+                ProviderToolSummary(
+                    name=attachment.server_name,
+                    enabled=enabled,
+                    description=description,
+                    suffix=suffix,
+                )
+            )
+
+    return summaries
 
 
 def build_provider_tool_summaries(agent: object) -> list[ProviderToolSummary]:
@@ -64,11 +148,13 @@ def build_provider_tool_summaries(agent: object) -> list[ProviderToolSummary]:
             "Provider-hosted X search tool.",
         ),
     )
-    return [
+    summaries = [
         ProviderToolSummary(name=name, enabled=enabled, description=description)
         for name, supported, enabled, description in candidates
         if supported and enabled
     ]
+    summaries.extend(_provider_managed_tool_summaries(agent))
+    return summaries
 
 
 def _format_tool_args(schema: dict[str, Any] | None) -> list[str] | None:
@@ -114,7 +200,6 @@ def _collect_tool_name_sets(agent: object) -> tuple[set[str], set[str], set[str]
 def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
     card_tool_names, smart_tool_names, agent_tool_names = _collect_tool_name_sets(agent)
     child_agent_tool_names = agent_tool_names
-    internal_tool_names = {"execute", "read_skill"}
 
     summaries: list[ToolSummary] = []
 
@@ -123,17 +208,20 @@ def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
         title = tool.title
         description = (tool.description or "").strip() or None
         meta = _tool_meta(tool)
+        source = tool_source(tool)
 
+        is_mcp = False
         suffix = None
-        if name in internal_tool_names:
-            suffix = "(Internal)"
-        elif name in smart_tool_names:
+        if name in smart_tool_names:
             suffix = "(Smart)"
         elif name in card_tool_names:
             suffix = "(Card Function)"
         elif name in child_agent_tool_names:
             suffix = "(Subagent)"
+        elif source is not None:
+            suffix = f"({TOOL_SOURCE_LABELS[source]})"
         elif name not in agent_tool_names and is_namespaced_name(name):
+            is_mcp = True
             suffix = "(MCP)"
 
         if meta.get("openai/skybridgeEnabled"):
@@ -152,7 +240,8 @@ def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
                 args=args,
                 suffix=suffix,
                 template=template,
+                is_mcp=is_mcp,
             )
         )
 
-    return summaries
+    return sorted(summaries, key=lambda summary: summary.is_mcp)

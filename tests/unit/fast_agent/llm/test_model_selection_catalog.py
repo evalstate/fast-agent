@@ -64,6 +64,11 @@ def test_list_curated_aliases_for_provider() -> None:
     assert aliases == ["opus", "opus46", "sonnet", "haiku"]
 
 
+def test_deepseek_curated_order_prefers_pro_above_flash() -> None:
+    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.DEEPSEEK)
+    assert aliases[:2] == ["deepseek", "deepseek4flash"]
+
+
 def test_legacy_aliases_are_listed_but_not_curated() -> None:
     curated_aliases = ModelSelectionCatalog.list_curated_aliases(Provider.HUGGINGFACE)
     legacy_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
@@ -71,7 +76,7 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
     assert set(curated_aliases).isdisjoint(legacy_aliases)
     assert "glm51" in curated_aliases
     assert "kimi26instant" in curated_aliases
-    assert "deepseek4" in curated_aliases
+    assert "deepseek-hf" in curated_aliases
     assert "kimi-k2-instruct" not in curated_aliases
     assert "kimi25" in curated_aliases
     assert "kimi25instant" in curated_aliases
@@ -79,7 +84,7 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
     assert "glm47" not in curated_aliases
-    assert "deepseek4" not in legacy_aliases
+    assert "deepseek-hf" not in legacy_aliases
     assert "deepseek32" in legacy_aliases
 
 
@@ -263,6 +268,17 @@ def test_suggestions_for_providers_returns_curated_and_fast_models() -> None:
     assert suggestion.current_models
     assert suggestion.fast_models
     assert suggestion.all_models
+
+
+def test_google_picker_lists_gemini35_flash_first() -> None:
+    entries = ModelSelectionCatalog.list_entries(Provider.GOOGLE)
+    current_entries = [entry for entry in entries if entry.current]
+
+    assert current_entries
+    first = current_entries[0]
+    assert first.alias == "gemini35flash"
+    assert first.model == "google.gemini-3.5-flash"
+    assert first.fast is True
 
 
 def test_suggestions_include_legacy_aliases_when_configured() -> None:

@@ -95,6 +95,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 # Get the application version
 try:
@@ -704,6 +705,15 @@ def _build_cycle_callbacks(
     )
 
 
+def _llm_supports_clipboard_image_paste(llm: "FastAgentLLMProtocol | None") -> bool:
+    if llm is None:
+        return False
+    model_info = llm.model_info
+    if model_info is None:
+        return False
+    return model_info.supports_vision
+
+
 def _resolve_shell_context(
     *,
     agent_name: str,
@@ -825,15 +835,22 @@ def _show_stop_hint_message(
 def _show_input_help_banner(
     *,
     is_human_input: bool,
+    supports_clipboard_image_paste: bool,
 ) -> None:
     if is_human_input:
         rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         return
 
+    attachment_hint = (
+        "Use /attach, `^file:`, `^url:`, or [yellow]Ctrl+Alt+V[/yellow] "
+        "for attachments [dim](experimental)[/dim]."
+        if supports_clipboard_image_paste
+        else "Use /attach, `^file:`, or `^url:` for attachments."
+    )
     rich_print(
         """[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\n"""
         """CTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.\n"""
-        """CTRL+Space or Tab for path completion. Use /attach, `^file:`, or `^url:` for attachments. F10 to clear.[/dim]"""
+        f"""CTRL+Space or Tab for path completion. {attachment_hint} F10 to clear.[/dim]"""
     )
 
 
@@ -975,13 +992,17 @@ async def _show_input_startup(
     shell_context: ShellInputContext,
     shell_agent: object | None,
     agent_provider: "AgentApp | None",
+    supports_clipboard_image_paste: bool,
 ) -> None:
     global help_message_shown
     _show_stop_hint_message(default=default, show_stop_hint=show_stop_hint)
     if help_message_shown:
         return
 
-    _show_input_help_banner(is_human_input=is_human_input)
+    _show_input_help_banner(
+        is_human_input=is_human_input,
+        supports_clipboard_image_paste=supports_clipboard_image_paste,
+    )
     _show_model_shortcut_hints(agent_name=agent_name, agent_provider=agent_provider)
     if agent_provider and not is_human_input:
         _show_fast_agent_home_summary(agent_provider)
@@ -1076,6 +1097,9 @@ async def get_enhanced_input(
         agent_name=agent_name,
         agent_provider=agent_provider,
     )
+    supports_clipboard_image_paste = _llm_supports_clipboard_image_paste(
+        resolve_active_llm(agent_provider, agent_name)
+    )
     bindings = create_keybindings(
         on_toggle_multiline=_build_multiline_toggle(session_factory),
         on_cycle_service_tier=cycle_callbacks.on_cycle_service_tier,
@@ -1083,6 +1107,7 @@ async def get_enhanced_input(
         on_cycle_verbosity=cycle_callbacks.on_cycle_verbosity,
         on_cycle_web_search=cycle_callbacks.on_cycle_web_search,
         on_cycle_web_fetch=cycle_callbacks.on_cycle_web_fetch,
+        enable_clipboard_image_paste=supports_clipboard_image_paste,
         app=session.app,
         agent_provider=agent_provider,
         agent_name=agent_name,
@@ -1104,6 +1129,7 @@ async def get_enhanced_input(
         shell_context=shell_context,
         shell_agent=shell_agent,
         agent_provider=agent_provider,
+        supports_clipboard_image_paste=supports_clipboard_image_paste,
     )
     buffer_default = pre_populate_buffer if pre_populate_buffer else default
     default_agent_name = _resolve_default_agent_name(agent_provider)

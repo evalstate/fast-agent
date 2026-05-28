@@ -18,7 +18,12 @@ from fast_agent.command_actions.accessors import (
     plugin_commands_for_provider,
 )
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.ui.prompt.attachment_tokens import strip_local_attachment_tokens
+from fast_agent.ui.prompt.attachment_tokens import (
+    append_attachment_tokens,
+    build_local_attachment_token,
+    strip_local_attachment_tokens,
+)
+from fast_agent.ui.prompt.clipboard_image import paste_clipboard_image_to_temp_png
 from fast_agent.ui.prompt.editor import get_text_from_editor
 from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
 
@@ -60,6 +65,30 @@ class PromptInputInterrupt(Exception):
 
 
 logger = get_logger(__name__)
+
+
+async def paste_clipboard_image_attachment_into_buffer(
+    buffer: Buffer,
+    *,
+    app_ref: Any | None = None,
+) -> None:
+    """Paste the clipboard image into the input buffer as a local attachment token."""
+    try:
+        pasted = await asyncio.to_thread(paste_clipboard_image_to_temp_png)
+    except asyncio.CancelledError:
+        rich_print("[yellow]Clipboard image paste cancelled.[/yellow]")
+        return
+    except Exception as exc:
+        rich_print(f"[red]Failed to paste clipboard image: {exc}[/red]")
+        if app_ref:
+            app_ref.invalidate()
+        return
+
+    token = build_local_attachment_token(pasted.path)
+    buffer.text = append_attachment_tokens(buffer.text, [token])
+    buffer.cursor_position = len(buffer.text)
+    if app_ref:
+        app_ref.invalidate()
 
 
 def _cycle_completion(buffer: Buffer, *, backwards: bool) -> bool:
@@ -111,6 +140,7 @@ def create_keybindings(
     on_cycle_verbosity: Callable[[], None] | None = None,
     on_cycle_web_search: Callable[[], None] | None = None,
     on_cycle_web_fetch: Callable[[], None] | None = None,
+    enable_clipboard_image_paste: bool = False,
     app: Any | None = None,
     agent_provider: "AgentApp | None" = None,
     agent_name: str | None = None,
@@ -213,6 +243,17 @@ def create_keybindings(
             event.app.invalidate()
         elif app:
             app.invalidate()
+
+    if enable_clipboard_image_paste:
+
+        @kb.add("escape", "c-v")
+        @kb.add("escape", "v")
+        async def _(event) -> None:
+            """Ctrl+Alt+V / Alt+V: Paste an image from the clipboard as a local attachment."""
+            await paste_clipboard_image_attachment_into_buffer(
+                event.current_buffer,
+                app_ref=event.app or app,
+            )
 
     @kb.add("c-m", filter=Condition(lambda: _has_any_completions()), eager=True)
     @kb.add("enter", filter=Condition(lambda: _has_any_completions()), eager=True)

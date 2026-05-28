@@ -107,6 +107,7 @@ def _make_request(
     target_agent_name: str | None = None,
     message: str | None = "hello",
     prompt_file: str | None = None,
+    attachments: list[str] | None = None,
     json_schema: str | None = None,
 ) -> AgentRunRequest:
     return AgentRunRequest(
@@ -142,6 +143,7 @@ def _make_request(
         permissions_enabled=True,
         reload=False,
         watch=False,
+        attachments=attachments,
     )
 
 
@@ -399,6 +401,85 @@ async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_res
     assert exported[1].last_text() == "done"
     captured = capsys.readouterr()
     assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_message_attaches_files(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    attachment = tmp_path / "report.txt"
+    attachment.write_text("attached text", encoding="utf-8")
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message="summarize",
+            attachments=[attachment.as_posix()],
+        ),
+    )
+
+    sent = agent.generated_messages[0]
+    assert isinstance(sent, PromptMessageExtended)
+    assert sent.first_text() == "summarize"
+    assert len(sent.content) == 2
+    assert capsys.readouterr().out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_prompt_file_attaches_to_last_user_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    attachment = tmp_path / "report.txt"
+    attachment.write_text("attached text", encoding="utf-8")
+    prompt = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="first")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="middle")],
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="last")],
+        ),
+    ]
+    prompt_file = tmp_path / "prompt.json"
+    prompt_file.write_text("[]", encoding="utf-8")
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.prompts.prompt_load.load_prompt",
+        lambda _path: prompt,
+    )
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message=None,
+            prompt_file=str(prompt_file),
+            attachments=[attachment.as_posix()],
+        ),
+    )
+
+    sent = agent.generated_messages[0]
+    assert isinstance(sent, list)
+    sent_messages = cast("list[PromptMessageExtended]", sent)
+    assert [len(message.content) for message in sent_messages] == [1, 1, 2]
+    assert sent_messages[2].first_text() == "last"
+    assert len(prompt[2].content) == 1
+    assert capsys.readouterr().out.strip() == "done"
 
 
 @pytest.mark.asyncio

@@ -43,9 +43,25 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
     assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
+    assert ModelDatabase.get_context_window("deepseek-v4-flash") == 1_048_576
+    assert ModelDatabase.get_context_window("deepseek-v4-pro") == 1_048_576
 
     # Test unknown model
     assert ModelDatabase.get_context_window("unknown-model") is None
+
+
+def test_deepseek_v4_direct_model_metadata():
+    assert ModelDatabase.get_max_output_tokens("deepseek-v4-flash") == 393_216
+    assert ModelDatabase.get_max_output_tokens("deepseek-v4-pro") == 393_216
+    assert ModelDatabase.get_reasoning("deepseek-v4-flash") == "reasoning_content"
+    assert ModelDatabase.get_reasoning("deepseek-v4-pro") == "reasoning_content"
+
+    spec = ModelDatabase.get_reasoning_effort_spec("deepseek-v4-pro")
+    assert spec is not None
+    assert spec.default is not None
+    assert spec.default.value == "high"
+    assert spec.allowed_efforts == ["high", "max"]
+    assert spec.allow_toggle_disable is True
 
 
 def test_model_database_long_context_windows():
@@ -134,7 +150,7 @@ def test_google_native_catalog_uses_schema_mode() -> None:
 def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
     gemini_models = {model for model, _ in _google_native_catalog_entries()}
 
-    assert {"gemini-2.5-flash", "gemini-2.5-pro"} <= gemini_models
+    assert {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash"} <= gemini_models
     assert not {
         model
         for model in gemini_models
@@ -146,6 +162,28 @@ def test_google_native_schema_tool_policy_matches_catalog_entries() -> None:
     policies = {params.structured_tool_policy for _, params in _google_native_catalog_entries()}
 
     assert policies == {None, "no_tools"}
+
+
+def test_gemini35_flash_specs_match_api_guide() -> None:
+    params = ModelDatabase.get_model_params("gemini-3.5-flash")
+
+    assert params is not None
+    assert params.context_window == 1_048_576
+    assert params.max_output_tokens == 65_536
+    assert params.fast is True
+    assert params.structured_tool_policy is None
+    assert params.reasoning == "google_thinking"
+    assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.default is not None
+    assert params.reasoning_effort_spec.default.kind == "effort"
+    assert params.reasoning_effort_spec.default.value == "medium"
+
+
+def test_gemini31_pro_allows_tools_with_structured_output() -> None:
+    params = ModelDatabase.get_model_params("gemini-3.1-pro-preview")
+
+    assert params is not None
+    assert params.structured_tool_policy is None
 
 
 def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -> None:
@@ -363,7 +401,8 @@ def test_model_database_xai_image_input_mime_types_match_docs():
     assert ModelDatabase.supports_mime(vision_model, "jpg")
     assert ModelDatabase.supports_mime(vision_model, "image/png")
     assert not ModelDatabase.supports_mime(vision_model, "image/webp")
-    assert not ModelDatabase.supports_mime("grok-4.3", "image/png")
+    assert ModelDatabase.supports_mime("grok-4.3", "image/png")
+    assert not ModelDatabase.supports_mime("grok-4.3", "image/webp")
 
 
 def test_model_database_google_video_audio_mime_types():
@@ -821,6 +860,7 @@ def test_gemini_model_specific_mentions_youtube_capability():
     for model_name in (
         "gemini-2.0-flash",
         "gemini-2.5-pro",
+        "gemini-3.5-flash",
         "gemini-3-pro-preview",
         "gemini-3-flash-preview",
     ):

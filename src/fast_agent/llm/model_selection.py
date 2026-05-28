@@ -95,6 +95,12 @@ class ModelSelectionCatalog:
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
+                alias="gemini35flash",
+                display_label="Gemini 3.5 Flash",
+                model="google.gemini-3.5-flash",
+                fast=True,
+            ),
+            CatalogModelEntry(
                 alias="gemini3.1",
                 display_label="Gemini 3.1 Pro",
                 model="google.gemini-3.1-pro-preview",
@@ -106,10 +112,9 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="gemini3-flash",
+                alias="gemini3flash",
                 display_label="Gemini 3 Flash",
                 model="google.gemini-3-flash-preview",
-                fast=True,
             ),
         ),
         Provider.XAI: (
@@ -124,7 +129,23 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.DEEPSEEK: (
-            CatalogModelEntry(alias="deepseek3", model="deepseek.deepseek-chat", fast=True),
+            CatalogModelEntry(
+                alias="deepseek",
+                display_label="DeepSeek V4 Pro",
+                model="deepseek.deepseek-v4-pro",
+            ),
+            CatalogModelEntry(
+                alias="deepseek4flash",
+                display_label="DeepSeek V4 Flash",
+                model="deepseek.deepseek-v4-flash",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="deepseek3",
+                model="deepseek.deepseek-chat",
+                fast=True,
+                current=False,
+            ),
         ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
@@ -133,8 +154,9 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             CatalogModelEntry(
-                alias="deepseek4",
-                model="hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
+                alias="deepseek-hf",
+                display_label="DeepSeek V4 Pro (HF)",
+                model="hf.deepseek-ai/DeepSeek-V4-Pro:together",
                 current=True,
             ),
             CatalogModelEntry(

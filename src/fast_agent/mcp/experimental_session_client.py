@@ -134,6 +134,15 @@ class JsonFileSessionCookieStore:
         os.replace(temp_path, self._path)
 
 
+def default_session_cookie_store() -> SessionCookieStore:
+    """Return the default MCP session cookie store for the current run mode."""
+    from fast_agent.config import get_settings
+
+    if get_settings()._fast_agent_noenv:
+        return InMemorySessionCookieStore()
+    return JsonFileSessionCookieStore.from_environment()
+
+
 @dataclass(frozen=True, slots=True)
 class SessionJarEntry:
     """Snapshot of one server's MCP session state."""
@@ -160,7 +169,7 @@ class ExperimentalSessionClient:
         cookie_store: SessionCookieStore | None = None,
     ) -> None:
         self._aggregator = aggregator
-        self._cookie_store = cookie_store or JsonFileSessionCookieStore.from_environment()
+        self._cookie_store = cookie_store or default_session_cookie_store()
 
     def store_size_bytes(self) -> int | None:
         sized_store = getattr(self._cookie_store, "size_bytes", None)

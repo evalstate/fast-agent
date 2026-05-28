@@ -99,8 +99,6 @@ def main():
     except RuntimeError:
         # No running loop yet (rare for sync entry), safe to ignore
         pass
-    normalize_resume_flag_args(sys.argv, start_index=1)
-
     # Check if we should auto-route to 'go'
     if len(sys.argv) > 1:
         # Detect explicit subcommands even when global options (like --env)
@@ -125,6 +123,9 @@ def main():
                     break
             # Auto-route to go command
             sys.argv.insert(insert_pos, "go")
+
+        if _first_positional_argument(sys.argv[1:]) == "go":
+            normalize_resume_flag_args(sys.argv, start_index=1)
 
     try:
         app()

@@ -1,17 +1,13 @@
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Callable, Literal, Self, Type, Union, cast
+from typing import TYPE_CHECKING, Callable, Literal, Self, Type, Union, cast
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
-from fast_agent.llm.internal.passthrough import PassthroughLLM
-from fast_agent.llm.internal.playback import PlaybackLLM
-from fast_agent.llm.internal.silent import SilentLLM
-from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.provider_types import Provider
@@ -25,8 +21,14 @@ from fast_agent.llm.task_budget import parse_task_budget_tokens, validate_task_b
 from fast_agent.llm.text_verbosity import TextVerbosityLevel, parse_text_verbosity
 from fast_agent.types import RequestParams, StructuredToolPolicy
 
+if TYPE_CHECKING:
+    from fast_agent.llm.internal.passthrough import PassthroughLLM
+    from fast_agent.llm.internal.playback import PlaybackLLM
+    from fast_agent.llm.internal.silent import SilentLLM
+    from fast_agent.llm.internal.slow import SlowLLM
+
 # Type alias for LLM classes
-LLMClass = Union[Type[PassthroughLLM], Type[PlaybackLLM], Type[SilentLLM], Type[SlowLLM], type]
+LLMClass = Union[Type["PassthroughLLM"], Type["PlaybackLLM"], Type["SilentLLM"], Type["SlowLLM"], type]
 TransportSetting = Literal["sse", "websocket", "auto"]
 ServiceTierSetting = Literal["fast", "flex"]
 
@@ -636,10 +638,21 @@ class ModelFactory:
         "opus47": "claude-opus-4-7",
         "deepseekv3": "deepseek-chat",
         "deepseek3": "deepseek-chat",
+        "deepseek": "deepseek.deepseek-v4-pro",
+        "deepseek4": "deepseek.deepseek-v4-pro",
+        "deepseek4pro": "deepseek.deepseek-v4-pro",
+        "deepseekv4pro": "deepseek.deepseek-v4-pro",
+        "deepseek-direct": "deepseek.deepseek-v4-pro",
+        "deepseek4flash": "deepseek.deepseek-v4-flash",
+        "deepseek4pro-direct": "deepseek.deepseek-v4-pro",
+        "deepseek-reasoner": "deepseek.deepseek-reasoner",
         "gemini": "gemini-3.1-pro-preview",
         "gemini2": "gemini-2.0-flash",
         "gemini25": "gemini-2.5-flash",
         "gemini25pro": "gemini-2.5-pro",
+        "gemini35": "gemini-3.5-flash",
+        "gemini35flash": "gemini-3.5-flash",
+        "gemini3.5flash": "gemini-3.5-flash",
         "gemini3": "gemini-3-pro-preview",
         "gemini3.1": "gemini-3.1-pro-preview",
         "gemini31pro": "gemini-3.1-pro-preview",
@@ -662,11 +675,11 @@ class ModelFactory:
         "glm51": "hf.zai-org/GLM-5.1:together",
         "glm5": "hf.zai-org/GLM-5:novita",
         "glm": "hf.zai-org/GLM-5.1:together",
-        "deepseek": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "deepseek-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-        "deepseek4": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
-        "deepseek4pro": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
-        "deepseekv4pro": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "deepseek4-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "deepseek4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "deepseekv4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
         "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "kimi26instant": (
             "hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"
@@ -705,13 +718,11 @@ class ModelFactory:
     # Mapping of providers to their LLM classes
     PROVIDER_CLASSES: dict[Provider, LLMClass] = {}
 
-    # Mapping of special model names to their specific LLM classes
-    # This overrides the provider-based class selection
-    MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {
-        "playback": PlaybackLLM,
-        "silent": SilentLLM,
-        "slow": SlowLLM,
-    }
+    # Extension point for model names that should use a custom LLM class.
+    MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {}
+
+    # Built-in model-specific classes are imported lazily to keep CLI startup light.
+    MODEL_SPECIFIC_NAMES = {"playback", "silent", "slow"}
 
     @classmethod
     def get_runtime_presets(cls) -> dict[str, str]:
@@ -878,13 +889,16 @@ class ModelFactory:
 
         # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
         # Lazily ensure provider class map is populated and supports this provider
-        if config.model_name not in cls.MODEL_SPECIFIC_CLASSES:
+        model_specific_class = cls.MODEL_SPECIFIC_CLASSES.get(config.model_name)
+        if model_specific_class is None and config.model_name not in cls.MODEL_SPECIFIC_NAMES:
             llm_class = cls._load_provider_class(config.provider)
             # Stash for next time
             cls.PROVIDER_CLASSES[config.provider] = llm_class
 
-        if config.model_name in cls.MODEL_SPECIFIC_CLASSES:
-            llm_class = cls.MODEL_SPECIFIC_CLASSES[config.model_name]
+        if model_specific_class is not None:
+            llm_class = model_specific_class
+        elif config.model_name in cls.MODEL_SPECIFIC_NAMES:
+            llm_class = cls._load_model_specific_class(config.model_name)
         else:
             llm_class = cls.PROVIDER_CLASSES[config.provider]
 
@@ -916,6 +930,8 @@ class ModelFactory:
         """Import provider-specific LLM classes lazily to avoid heavy deps at import time."""
         try:
             if provider == Provider.FAST_AGENT:
+                from fast_agent.llm.internal.passthrough import PassthroughLLM
+
                 return PassthroughLLM
             if provider == Provider.ANTHROPIC:
                 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
@@ -997,3 +1013,20 @@ class ModelFactory:
                 f"Provider '{provider.value}' is unavailable or missing dependencies: {e}"
             )
         raise ModelConfigError(f"Unsupported provider: {provider}")
+
+    @classmethod
+    def _load_model_specific_class(cls, model_name: str) -> type:
+        """Import built-in model-specific LLM classes lazily."""
+        if model_name == "playback":
+            from fast_agent.llm.internal.playback import PlaybackLLM
+
+            return PlaybackLLM
+        if model_name == "silent":
+            from fast_agent.llm.internal.silent import SilentLLM
+
+            return SilentLLM
+        if model_name == "slow":
+            from fast_agent.llm.internal.slow import SlowLLM
+
+            return SlowLLM
+        raise ModelConfigError(f"Unsupported fast-agent model: {model_name}")

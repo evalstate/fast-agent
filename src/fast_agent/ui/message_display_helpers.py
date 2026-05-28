@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.types import PromptMessageExtended
+    from fast_agent.ui.terminal_images import ImageRenderItem
 
 
 def extract_user_attachments(message: PromptMessageExtended) -> list[str]:
@@ -38,6 +39,34 @@ def extract_user_attachments(message: PromptMessageExtended) -> list[str]:
             label = getattr(content.resource, "name", None) or str(content.resource.uri)
             attachments.append(label)
     return attachments
+
+
+def extract_user_local_image_previews(message: PromptMessageExtended) -> list["ImageRenderItem"]:
+    """Extract renderable previews for local image attachments in a user message."""
+    image_blocks: list[object] = []
+    for content in message.content:
+        if not is_image_content(content):
+            continue
+        source_uri = _content_source_uri(content)
+        if source_uri is None or not source_uri.startswith("file://"):
+            continue
+        image_blocks.append(content)
+
+    if not image_blocks:
+        return []
+
+    from fast_agent.ui.terminal_images import extract_image_render_items
+
+    return extract_image_render_items(image_blocks)
+
+
+def build_user_message_image_previews(
+    messages: Sequence[PromptMessageExtended],
+) -> list["ImageRenderItem"]:
+    previews: list[ImageRenderItem] = []
+    for message in messages:
+        previews.extend(extract_user_local_image_previews(message))
+    return previews
 
 
 def _content_source_uri(content: object) -> str | None:
@@ -209,8 +238,10 @@ def tool_use_requests_file_read_access(
 
 __all__ = [
     "build_tool_use_additional_message",
+    "build_user_message_image_previews",
     "build_user_message_display",
     "extract_user_attachments",
+    "extract_user_local_image_previews",
     "resolve_highlight_index",
     "tool_use_requests_file_read_access",
     "tool_use_requests_shell_access",

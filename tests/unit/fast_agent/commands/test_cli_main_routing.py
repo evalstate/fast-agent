@@ -90,6 +90,54 @@ def test_auto_routes_to_go_when_no_shell_used_at_root() -> None:
     assert "--no-shell" in output
 
 
+def test_resume_sentinel_is_not_added_for_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[str] = []
+
+    def capture_app() -> None:
+        captured.extend(sys.argv)
+
+    monkeypatch.setattr(sys, "argv", ["fast-agent", "batch", "run", "--resume"])
+    monkeypatch.setattr(cli_main, "app", capture_app)
+
+    cli_main.main()
+
+    assert captured == ["fast-agent", "batch", "run", "--resume"]
+
+
+def test_resume_sentinel_is_added_for_go(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[str] = []
+
+    def capture_app() -> None:
+        captured.extend(sys.argv)
+
+    monkeypatch.setattr(sys, "argv", ["fast-agent", "go", "--resume"])
+    monkeypatch.setattr(cli_main, "app", capture_app)
+
+    cli_main.main()
+
+    assert captured == ["fast-agent", "go", "--resume", "__latest__"]
+
+
+def test_root_resume_auto_routes_to_go_and_adds_sentinel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[str] = []
+
+    def capture_app() -> None:
+        captured.extend(sys.argv)
+
+    monkeypatch.setattr(sys, "argv", ["fast-agent", "--resume"])
+    monkeypatch.setattr(cli_main, "app", capture_app)
+
+    cli_main.main()
+
+    assert captured == ["fast-agent", "go", "--resume", "__latest__"]
+
+
 def test_demo_subcommand_still_detected_after_env_option_value() -> None:
     result = _run_fast_agent_cli("--env", "demo", "demo", "--help")
     output = strip_ansi(result.stdout)

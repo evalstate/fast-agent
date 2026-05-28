@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DocsVisualAssessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "overall_score", "summary", "findings"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["pass", "needs-work", "fail"]
+    },
+    "overall_score": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "summary": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["screenshot", "severity", "category", "description"],
+        "properties": {
+          "screenshot": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["minor", "major", "critical"]
+          },
+          "category": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "recommended_changes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

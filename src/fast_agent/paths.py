@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class EnvironmentPaths:
     root: Path
     card_packs: Path
+    plugins: Path
     agent_cards: Path
     tool_cards: Path
     skills: Path
@@ -86,6 +87,7 @@ def resolve_environment_paths(
     return EnvironmentPaths(
         root=root,
         card_packs=root / "card-packs",
+        plugins=root / "plugins",
         agent_cards=root / "agent-cards",
         tool_cards=root / "tool-cards",
         skills=root / "skills",

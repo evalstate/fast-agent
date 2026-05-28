@@ -696,6 +696,13 @@ def test_gemini25_alias_resolves_to_current_google_flash():
     assert config.model_name == "gemini-2.5-flash"
 
 
+@pytest.mark.parametrize("alias", ["gemini35", "gemini35flash", "gemini3.5flash"])
+def test_gemini35_flash_aliases_resolve_to_current_google_flash(alias: str):
+    config = ModelFactory.parse_model_string(alias)
+    assert config.provider == Provider.GOOGLE
+    assert config.model_name == "gemini-3.5-flash"
+
+
 def test_grok_aliases_resolve_to_xai_grok_43():
     config = ModelFactory.parse_model_string("grok")
     assert config.provider == Provider.XAI
@@ -706,16 +713,36 @@ def test_grok_aliases_resolve_to_xai_grok_43():
     assert config.model_name == "grok-4.3"
 
 
-def test_deepseek_alias_resolves_to_hf_deepseek_v4_pro():
+def test_deepseek_alias_resolves_to_direct_deepseek_v4_pro():
     config = ModelFactory.parse_model_string("deepseek")
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
+    assert config.provider == Provider.DEEPSEEK
+    assert config.model_name == "deepseek-v4-pro"
 
 
-def test_deepseek4_alias_resolves_to_hf_deepseek_v4_pro():
-    config = ModelFactory.parse_model_string("deepseek4")
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
+def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
+    for alias in ("deepseek-hf", "deepseek4-hf", "deepseek4pro-hf", "deepseekv4pro-hf"):
+        config = ModelFactory.parse_model_string(alias)
+        assert config.provider == Provider.HUGGINGFACE
+        assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
+
+
+def test_deepseek_direct_aliases_resolve_to_official_provider():
+    config = ModelFactory.parse_model_string("deepseek-v4-pro")
+    assert config.provider == Provider.DEEPSEEK
+    assert config.model_name == "deepseek-v4-pro"
+
+    for alias in ("deepseek4", "deepseek4pro", "deepseekv4pro"):
+        config = ModelFactory.parse_model_string(alias)
+        assert config.provider == Provider.DEEPSEEK
+        assert config.model_name == "deepseek-v4-pro"
+
+    config = ModelFactory.parse_model_string("deepseek4flash")
+    assert config.provider == Provider.DEEPSEEK
+    assert config.model_name == "deepseek-v4-flash"
+
+    config = ModelFactory.parse_model_string("deepseek4pro-direct")
+    assert config.provider == Provider.DEEPSEEK
+    assert config.model_name == "deepseek-v4-pro"
 
 
 def test_hf_routed_gpt_oss_alias_resolves_model_metadata():

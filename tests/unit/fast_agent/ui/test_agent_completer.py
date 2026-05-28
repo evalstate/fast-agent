@@ -19,6 +19,7 @@ from fast_agent.config import (
     CardsSettings,
     MCPServerSettings,
     MCPSettings,
+    PluginsSettings,
     Settings,
     SkillsSettings,
     get_settings,
@@ -835,6 +836,21 @@ def test_get_completions_for_cards_subcommands() -> None:
     assert "registry" in names
 
 
+def test_get_completions_for_plugins_subcommands() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/plugins ", cursor_position=len("/plugins "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "list" in names
+    assert "available" in names
+    assert "add" in names
+    assert "remove" in names
+    assert "update" in names
+    assert "registry" in names
+
+
 def test_get_completions_for_model_subcommands() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
@@ -1386,6 +1402,31 @@ def test_get_completions_for_cards_update_only_managed() -> None:
             assert "3" not in names
         finally:
             update_global_settings(old_settings)
+
+
+def test_get_completions_for_plugins_registry() -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "plugins": PluginsSettings(
+                marketplace_urls=[
+                    "https://example.com/plugins-one.json",
+                    "https://example.com/plugins-two.json",
+                ]
+            )
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/plugins registry ", cursor_position=len("/plugins registry "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+
+        assert "1" in names
+        assert "2" in names
+    finally:
+        update_global_settings(old_settings)
 
 
 def test_get_completions_for_cards_publish_flags() -> None:

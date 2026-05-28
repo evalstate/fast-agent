@@ -25,6 +25,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "scaffold": "fast_agent.cli.commands.setup:app",
     "check": "fast_agent.cli.commands.check_config:app",
     "cards": "fast_agent.cli.commands.cards:app",
+    "plugins": "fast_agent.cli.commands.plugins:app",
     "skills": "fast_agent.cli.commands.skills:app",
     "config": "fast_agent.cli.commands.config:app",
     "model": "fast_agent.cli.commands.model:app",
@@ -41,7 +42,8 @@ class LazyGroup(TyperGroup):
     lazy_subcommands: dict[str, str] = {}
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        normalize_resume_flag_args(args)
+        if _first_root_command(args) == "go":
+            normalize_resume_flag_args(args)
         return super().parse_args(ctx, args)
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -65,6 +67,25 @@ app = typer.Typer(
     add_completion=False,  # We'll add this later when we have more commands
 )
 LazyGroup.lazy_subcommands = LAZY_SUBCOMMANDS
+
+
+def _first_root_command(args: list[str]) -> str | None:
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            return args[index + 1] if index + 1 < len(args) else None
+        if arg in {"--env"}:
+            index += 2
+            continue
+        if arg.startswith("--env="):
+            index += 1
+            continue
+        if arg.startswith("-") and arg != "-":
+            index += 1
+            continue
+        return arg
+    return None
 
 # Shared application context
 application = Application()
@@ -98,6 +119,7 @@ def show_welcome(update_notice: str | None = None) -> None:
     table.add_row("[bold]export[/bold]", "Export a persisted session trace")
     table.add_row("check", "Show current configuration")
     table.add_row("cards", "Manage card packs (list/add/remove/update/publish)")
+    table.add_row("plugins", "Manage command plugins (list/add/remove/update)")
     table.add_row("skills", "Manage skills (list/available/search/add/remove/update)")
     table.add_row("config", "Configure settings interactively (shell, model)")
     table.add_row("auth", "Manage OAuth tokens in the OS keyring for MCP servers")

@@ -41,6 +41,7 @@ from fast_agent.tools.filesystem_tool_definitions import (
     build_read_text_file_tool,
     build_write_text_file_tool,
 )
+from fast_agent.tools.tool_sources import set_tool_source
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -89,13 +90,23 @@ class LocalFilesystemRuntime:
         self._model_info = model_info
         self._tool_handler_resolver = tool_handler_resolver
 
-        self._read_tool = build_read_text_file_tool()
-        self._write_tool = build_write_text_file_tool()
-        self._apply_patch_tool = build_apply_patch_tool()
-        self._edit_file_tool = build_edit_file_tool()
+        self._read_tool = set_tool_source(build_read_text_file_tool(), "shell")
+        self._write_tool = set_tool_source(build_write_text_file_tool(), "shell")
+        self._apply_patch_tool = set_tool_source(build_apply_patch_tool(), "shell")
+        self._edit_file_tool = set_tool_source(build_edit_file_tool(), "shell")
         self._pending_media_attachments: list[ContentBlock] = []
-        self._attach_media_tool = build_attach_media_tool(
-            supported_attach_media_mime_types(self._model_info)
+
+        is_google = False
+        if self._model_info is not None:
+            provider_val = getattr(self._model_info.provider, "config_name", None) or getattr(self._model_info.provider, "value", None)
+            is_google = provider_val == "google" or "gemini" in (self._model_info.name or "").lower()
+
+        self._attach_media_tool = set_tool_source(
+            build_attach_media_tool(
+                supported_attach_media_mime_types(self._model_info),
+                is_google=is_google,
+            ),
+            "shell",
         )
 
     @property
@@ -139,8 +150,17 @@ class LocalFilesystemRuntime:
     def set_model_info(self, model_info: "ModelInfo | None") -> None:
         """Update model capability metadata used by attach_media."""
         self._model_info = model_info
-        self._attach_media_tool = build_attach_media_tool(
-            supported_attach_media_mime_types(self._model_info)
+        is_google = False
+        if self._model_info is not None:
+            provider_val = getattr(self._model_info.provider, "config_name", None) or getattr(self._model_info.provider, "value", None)
+            is_google = provider_val == "google" or "gemini" in (self._model_info.name or "").lower()
+
+        self._attach_media_tool = set_tool_source(
+            build_attach_media_tool(
+                supported_attach_media_mime_types(self._model_info),
+                is_google=is_google,
+            ),
+            "shell",
         )
 
     def set_working_directory(self, working_directory: Path | None) -> None:

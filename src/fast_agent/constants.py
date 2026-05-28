@@ -2,6 +2,8 @@
 Global constants for fast_agent with minimal dependencies to avoid circular imports.
 """
 
+from dataclasses import dataclass
+
 # Canonical tool name for the human input/elicitation tool
 HUMAN_INPUT_TOOL_NAME = "__human_input"
 MCP_UI = "mcp-ui"
@@ -46,7 +48,7 @@ def should_parallelize_tool_calls(tool_call_count: int) -> bool:
 
 
 # should we have MAX_TOOL_CALLS instead to constrain by number of tools rather than turns...?
-DEFAULT_MAX_ITERATIONS = 99
+DEFAULT_MAX_ITERATIONS = 199
 """Maximum number of User/Assistant turns to take"""
 
 DEFAULT_STREAMING_TIMEOUT = 300.0
@@ -106,5 +108,31 @@ FAST_AGENT_SHELL_CHILD_ENV = "FAST_AGENT_SHELL_CHILD"
 
 FAST_AGENT_RUNTIME_ENVIRONMENT = "FAST_AGENT_RUNTIME_ENVIRONMENT"
 """Resolved active fast-agent home exported to shell commands and automation."""
+
+
+@dataclass(frozen=True)
+class DocumentedEnvVar:
+    """Environment variable that is part of a documented fast-agent surface."""
+
+    symbol: str
+    value: str
+    purpose: str
+    surface: str
+
+
+DOCUMENTED_ENV_VARS = (
+    DocumentedEnvVar(
+        symbol="FAST_AGENT_SHELL_CHILD_ENV",
+        value=FAST_AGENT_SHELL_CHILD_ENV,
+        purpose="Set to `1` in child shells opened from the TUI with `!`.",
+        surface="tui",
+    ),
+    DocumentedEnvVar(
+        symbol="FAST_AGENT_RUNTIME_ENVIRONMENT",
+        value=FAST_AGENT_RUNTIME_ENVIRONMENT,
+        purpose="Resolved active fast-agent home exported to shell commands and automation.",
+        surface="runtime",
+    ),
+)
 
 SHELL_NOTICE_PREFIX = "[yellow][bold]Agents have shell[/bold][/yellow]"

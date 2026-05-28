@@ -18,6 +18,7 @@ from rich.text import Text
 
 if TYPE_CHECKING:
     from fast_agent.config import Settings
+
 # Import tool progress context for reporting shell execution progress
 from fast_agent.agents.tool_agent import _tool_progress_context
 from fast_agent.constants import (
@@ -28,6 +29,7 @@ from fast_agent.constants import (
 from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
 from fast_agent.home import build_child_environment
+from fast_agent.tools.tool_sources import set_tool_source
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.display_suppression import display_tools_enabled
@@ -126,20 +128,23 @@ class ShellRuntime:
             runtime_info = self.runtime_info()
             shell_name = runtime_info.get("name", "shell")
 
-            self._tool = Tool(
-                name="execute",
-                description=f"Run a shell command directly in {shell_name}.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "command": {
-                            "type": "string",
-                            "description": "Command string only - no shell executable prefix (correct: 'pwd', incorrect: 'bash -c pwd').",
-                        }
+            self._tool = set_tool_source(
+                Tool(
+                    name="execute",
+                    description=f"Run a shell command directly in {shell_name}.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "Command string only - no shell executable prefix (correct: 'pwd', incorrect: 'bash -c pwd').",
+                            }
+                        },
+                        "required": ["command"],
+                        "additionalProperties": False,
                     },
-                    "required": ["command"],
-                    "additionalProperties": False,
-                },
+                ),
+                "shell",
             )
 
     @property

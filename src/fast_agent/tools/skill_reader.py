@@ -20,6 +20,8 @@ from mcp.types import BlobResourceContents, CallToolResult, TextContent, TextRes
 
 from fast_agent.mcp.skill_uri import strip_skill_md
 
+from fast_agent.tools.tool_sources import set_tool_source
+
 if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
     from fast_agent.skills.registry import SkillManifest
@@ -58,29 +60,32 @@ class SkillReader:
             if manifest.uri:
                 self._allowed_uri_roots.add(strip_skill_md(manifest.uri))
 
-        self._tool = Tool(
-            name="read_skill",
-            description=(
-                "Read a skill's SKILL.md file or associated resources. "
-                "Use this to load skill instructions before using the skill."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": (
-                            "Absolute filesystem path or resource URI of the file to "
-                            "read. Pass whatever appears in <location> verbatim — most "
-                            "often a `skill://...` URI for MCP-served skills, though "
-                            "other schemes (`github://`, `repo://`) are valid per the "
-                            "SEP. Filesystem skills use absolute paths."
-                        ),
-                    }
+        self._tool = set_tool_source(
+            Tool(
+                name="read_skill",
+                description=(
+                    "Read a skill's SKILL.md file or associated resources. "
+                    "Use this to load skill instructions before using the skill."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": (
+                                "Absolute filesystem path or resource URI of the file to "
+                                "read. Pass whatever appears in <location> verbatim — most "
+                                "often a `skill://...` URI for MCP-served skills, though "
+                                "other schemes (`github://`, `repo://`) are valid per the "
+                                "SEP. Filesystem skills use absolute paths."
+                            ),
+                        }
+                    },
+                    "required": ["path"],
+                    "additionalProperties": False,
                 },
-                "required": ["path"],
-                "additionalProperties": False,
-            },
+            ),
+            "skill",
         )
 
     @property

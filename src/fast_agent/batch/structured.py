@@ -16,7 +16,14 @@ from typing import TYPE_CHECKING, Any, TextIO, TypeAlias, cast
 
 from pydantic import BaseModel
 
-from fast_agent.batch.input import RowCandidate, RowError, iter_input_rows, select_rows
+from fast_agent.batch.input import (
+    RowCandidate,
+    RowError,
+    count_parquet_input_rows,
+    is_parquet_input_source,
+    iter_input_rows,
+    select_rows,
+)
 from fast_agent.batch.output import (
     ensure_parent,
     error_envelope,
@@ -29,6 +36,8 @@ from fast_agent.batch.template import DEFAULT_ROW_TEMPLATE, render_row_template
 from fast_agent.batch.traces import BatchTraceOptions, BatchTraceRecorder
 from fast_agent.cli.runtime.request_builders import resolve_default_instruction
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_USAGE
+from fast_agent.core.instruction_source import resolve_instruction_source
+from fast_agent.io.source_resolver import read_text_source
 from fast_agent.llm.request_params import BatchRequestContext, RequestParams
 from fast_agent.llm.structured_schema import (
     StructuredSchemaSource,
@@ -45,17 +54,19 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class StructuredBatchOptions:
-    input_path: Path
+    input_path: str | Path
     output_path: Path
-    schema_path: Path | None = None
+    prompt_template: str | None = None
+    schema_source: str | Path | None = None
     schema_model: str | None = None
-    template_path: Path | None = None
-    instruction_path: Path | None = None
+    template_source: str | Path | None = None
+    instruction_source: str | Path | None = None
     model: str | None = None
     include_input: bool = False
     limit: int | None = None
     offset: int | None = None
     sample: int | None = None
+    sql: str | None = None
     seed: int | None = None
     resume: bool = False
     overwrite: bool = False
@@ -98,40 +109,44 @@ class ParallelManifest:
     shards: list[BatchShard]
 
 
-SchemaSource: TypeAlias = StructuredSchemaSource
+LoadedSchemaSource: TypeAlias = StructuredSchemaSource
 
 
 def utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def load_json_schema(path: Path) -> dict[str, Any]:
+def load_json_schema(path: str | Path) -> dict[str, Any]:
     return load_json_schema_file(path)
 
 
-def load_schema_source(options: StructuredBatchOptions) -> SchemaSource | None:
-    if options.agent_card_source is not None and options.instruction_path is not None:
+def load_text_template(path: str | Path) -> str:
+    return read_text_source(path, label="batch template")
+
+
+def load_schema_source(options: StructuredBatchOptions) -> LoadedSchemaSource | None:
+    if options.agent_card_source is not None and options.instruction_source is not None:
         raise ValueError("--agent-card and --instruction cannot be used together")
     if options.agent_name is not None and options.agent_card_source is None:
         raise ValueError("--agent requires --agent-card")
-    if options.schema_path is not None and options.schema_model is not None:
+    if options.schema_source is not None and options.schema_model is not None:
         raise ValueError("--schema and --schema-model cannot be used together")
     if options.hf_dataset_path is not None and options.hf_dataset is None:
         raise ValueError("--hf-dataset-path requires --hf-dataset")
     if options.hf_dataset is not None and options.export_traces_path is None:
         raise ValueError("--hf-dataset requires --export-traces")
+    if options.sql is not None:
+        if not is_parquet_input_source(options.input_path):
+            raise ValueError("--sql is only supported for parquet input")
+        if options.limit is not None or options.offset is not None or options.sample is not None:
+            raise ValueError("--sql cannot be used with --limit, --offset, or --sample")
+        if options.parallel is not None and options.parallel > 1:
+            raise ValueError("--sql cannot be used with --parallel")
     if options.schema_model is not None:
         return load_pydantic_model(options.schema_model)
-    if options.schema_path is not None:
-        return load_json_schema(options.schema_path)
+    if options.schema_source is not None:
+        return load_json_schema(options.schema_source)
     return None
-
-
-def load_text_file(path: Path, label: str) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ValueError(f"Could not read {label} file {path}: {exc}") from exc
 
 
 def _identity_for_candidate(candidate: RowCandidate, id_field: str | None) -> tuple[str | int, RowError | None]:
@@ -234,6 +249,52 @@ def _emit_row_progress(options: StructuredBatchOptions, summary: BatchSummary) -
     )
 
 
+def _can_push_down_input_selection(options: StructuredBatchOptions) -> bool:
+    return (
+        options.sql is None
+        and options.sample is None
+        and not options.resume
+        and is_parquet_input_source(options.input_path)
+        and (options.offset is not None or options.limit is not None)
+    )
+
+
+def _load_input_candidates(options: StructuredBatchOptions) -> tuple[int, list[RowCandidate]]:
+    if options.sql is not None:
+        selected = list(iter_input_rows(options.input_path, sql=options.sql))
+        return len(selected), selected
+    if _can_push_down_input_selection(options):
+        selected = list(
+            iter_input_rows(
+                options.input_path,
+                offset=options.offset,
+                limit=options.limit,
+            )
+        )
+        return count_parquet_input_rows(options.input_path), selected
+    all_candidates = list(iter_input_rows(options.input_path))
+    selected = select_rows(
+        all_candidates,
+        offset=options.offset,
+        sample=options.sample,
+        seed=options.seed,
+        limit=options.limit,
+    )
+    return len(all_candidates), selected
+
+
+def _load_parallel_input_counts(options: StructuredBatchOptions) -> tuple[int, int]:
+    if options.sample is None and is_parquet_input_source(options.input_path):
+        input_rows = count_parquet_input_rows(options.input_path)
+        offset = options.offset or 0
+        available = max(0, input_rows - offset)
+        selected_rows = available if options.limit is None else min(options.limit, available)
+        return input_rows, selected_rows
+
+    input_rows, selected = _load_input_candidates(options)
+    return input_rows, len(selected)
+
+
 def _prepare_output_files(options: StructuredBatchOptions) -> None:
     if options.resume and options.overwrite:
         raise ValueError("--resume and --overwrite cannot be used together")
@@ -279,44 +340,38 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
 
     schema_source = load_schema_source(options)
     template = (
-        load_text_file(options.template_path, "template")
-        if options.template_path is not None
-        else DEFAULT_ROW_TEMPLATE
+        load_text_template(options.template_source)
+        if options.template_source is not None
+        else options.prompt_template if options.prompt_template is not None else DEFAULT_ROW_TEMPLATE
     )
     if options.agent_card_source is None:
         instruction: str | None = (
-            load_text_file(options.instruction_path, "instruction")
-            if options.instruction_path is not None
+            resolve_instruction_source(options.instruction_source)
+            if options.instruction_source is not None
             else resolve_default_instruction(options.model, "interactive")
         )
     else:
         instruction = None
 
-    all_candidates = list(iter_input_rows(options.input_path))
-    selected = select_rows(
-        all_candidates,
-        offset=options.offset,
-        sample=options.sample,
-        seed=options.seed,
-        limit=options.limit,
-    )
+    input_rows, selected = _load_input_candidates(options)
     completed_ids = load_completed_ids(options.output_path) if options.resume else set()
 
     started_at = utc_now_iso()
     summary = BatchSummary(
-        input_rows=len(all_candidates),
+        input_rows=input_rows,
         selected_rows=len(selected),
         started_at=started_at,
         metadata={
             "model": options.model,
             "input": str(options.input_path),
+            "sql": options.sql,
             "output": str(options.output_path),
-            "schema": str(options.schema_path) if options.schema_path is not None else None,
+            "schema": str(options.schema_source) if options.schema_source is not None else None,
             "schema_model": options.schema_model,
-            "instruction": str(options.instruction_path) if options.instruction_path else None,
+            "instruction": str(options.instruction_source) if options.instruction_source else None,
             "agent_card": options.agent_card_source,
             "agent": None,
-            "template": str(options.template_path) if options.template_path else "<default>",
+            "template": str(options.template_source) if options.template_source else "<default>",
             "shell_runtime": options.shell_runtime,
             "output_mode": "structured" if schema_source is not None else "text",
             "export_traces": str(options.export_traces_path) if options.export_traces_path else None,
@@ -560,35 +615,26 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
     _validate_parallel_final_outputs_outside_work_dir(options, work_dir)
     _prepare_parallel_output_files(options)
 
-    all_candidates = list(iter_input_rows(options.input_path))
-    selected = select_rows(
-        all_candidates,
-        offset=options.offset,
-        sample=options.sample,
-        seed=options.seed,
-        limit=options.limit,
-    )
+    input_rows, selected_rows = _load_parallel_input_counts(options)
     started_at = utc_now_iso()
     started_monotonic = time.monotonic()
     _prepare_parallel_work_dir(work_dir, resume=options.resume, overwrite=options.overwrite)
 
     if options.resume:
-        manifest = _load_parallel_manifest(options, work_dir, input_rows=len(all_candidates))
+        manifest = _load_parallel_manifest(options, work_dir, input_rows=input_rows)
         shards = manifest.shards
         selected_rows = manifest.selected_rows
-    else:
-        selected_rows = len(selected)
 
     if not selected_rows:
         _write_empty_parallel_outputs(options)
-        payload = _empty_parallel_summary(options, started_at, len(all_candidates), work_dir)
+        payload = _empty_parallel_summary(options, started_at, input_rows, work_dir)
         _write_parallel_summary(options, payload)
         _cleanup_parallel_work_dir(options, work_dir)
         return payload
 
     if not options.resume:
         shards = _plan_parallel_shards(options, work_dir, selected_rows, parallel)
-        _write_parallel_manifest(options, work_dir, shards, len(all_candidates), selected_rows)
+        _write_parallel_manifest(options, work_dir, shards, input_rows, selected_rows)
     _emit_progress(
         options,
         f"planned {len(shards)} shards for {selected_rows} selected rows work_dir={work_dir}",
@@ -635,7 +681,7 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
         started_at=started_at,
         completed_at=utc_now_iso(),
         duration_ms=round((time.monotonic() - started_monotonic) * 1000, 2),
-        input_rows=len(all_candidates),
+        input_rows=input_rows,
         selected_rows=selected_rows,
         work_dir=work_dir,
         shards=shards,
@@ -797,7 +843,7 @@ def _write_parallel_manifest(
     selected_rows: int,
 ) -> None:
     manifest = {
-        "input": str(options.input_path),
+        "input": _input_source_identity(options.input_path),
         "output": str(options.output_path),
         "parallel": options.parallel,
         "input_rows": input_rows,
@@ -843,7 +889,7 @@ def _load_parallel_manifest(
     manifest_mapping = cast("Mapping[str, object]", manifest)
 
     manifest_input = manifest_mapping.get("input")
-    if not isinstance(manifest_input, str) or Path(manifest_input).resolve() != options.input_path.resolve():
+    if not isinstance(manifest_input, str) or manifest_input != _input_source_identity(options.input_path):
         raise ValueError("--parallel --resume input does not match the saved manifest")
 
     manifest_input_rows = manifest_mapping.get("input_rows")
@@ -908,6 +954,13 @@ def _load_parallel_manifest_shard(item: object) -> BatchShard:
     )
 
 
+def _input_source_identity(source: str | Path) -> str:
+    source_text = str(source)
+    if source_text.startswith("hf://"):
+        return source_text
+    return str(Path(source_text).expanduser().resolve())
+
+
 def _merge_jsonl_shards(source_paths: list[Path], output_path: Path, work_dir: Path) -> None:
     ensure_parent(output_path)
     tmp_path = work_dir / f"{output_path.name}.tmp"
@@ -937,12 +990,12 @@ def _merge_parallel_summaries(
         "model": options.model,
         "input": str(options.input_path),
         "output": str(options.output_path),
-        "schema": str(options.schema_path) if options.schema_path is not None else None,
+        "schema": str(options.schema_source) if options.schema_source is not None else None,
         "schema_model": options.schema_model,
-        "instruction": str(options.instruction_path) if options.instruction_path else None,
+        "instruction": str(options.instruction_source) if options.instruction_source else None,
         "agent_card": options.agent_card_source,
         "agent": _first_summary_value(shard_summaries, "agent"),
-        "template": str(options.template_path) if options.template_path else "<default>",
+        "template": str(options.template_source) if options.template_source else "<default>",
         "shell_runtime": options.shell_runtime,
         "output_mode": "structured" if schema_source is not None else "text",
         "export_traces": None,
@@ -983,15 +1036,15 @@ def _empty_parallel_summary(
         "model": options.model,
         "input": str(options.input_path),
         "output": str(options.output_path),
-        "schema": str(options.schema_path) if options.schema_path is not None else None,
+        "schema": str(options.schema_source) if options.schema_source is not None else None,
         "schema_model": options.schema_model,
-        "instruction": str(options.instruction_path) if options.instruction_path else None,
+        "instruction": str(options.instruction_source) if options.instruction_source else None,
         "agent_card": options.agent_card_source,
         "agent": None,
-        "template": str(options.template_path) if options.template_path else "<default>",
+        "template": str(options.template_source) if options.template_source else "<default>",
         "shell_runtime": options.shell_runtime,
         "output_mode": "structured"
-        if options.schema_path is not None or options.schema_model is not None
+        if options.schema_source is not None or options.schema_model is not None
         else "text",
         "export_traces": None,
         "hf_dataset": None,
@@ -1138,7 +1191,7 @@ async def _row_call(
     worker: Any,
     *,
     rendered: str,
-    schema_source: SchemaSource | None,
+    schema_source: LoadedSchemaSource | None,
     batch_context: BatchRequestContext,
 ) -> tuple[Any | None, Any]:
     request_params = RequestParams(use_history=False, batch_context=batch_context)

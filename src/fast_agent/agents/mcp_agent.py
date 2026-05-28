@@ -21,7 +21,6 @@ from typing import (
     Sequence,
     TypeVar,
     Union,
-    cast,
 )
 
 import mcp
@@ -295,15 +294,15 @@ class McpAgent(ABC, ToolAgent):
         # Register the MCP UI handler as the elicitation callback so fast_agent.tools can call it
         # without importing MCP types. This avoids circular imports and ensures the callback is ready.
         try:
-            from fast_agent.human_input.elicitation_handler import elicitation_input_callback
-            from fast_agent.human_input.types import HumanInputRequest
-
             async def _mcp_elicitation_adapter(
                 request_payload: dict,
                 agent_name: str | None = None,
                 server_name: str | None = None,
                 server_info: dict | None = None,
             ) -> str:
+                from fast_agent.human_input.elicitation_handler import elicitation_input_callback
+                from fast_agent.human_input.types import HumanInputRequest
+
                 req = HumanInputRequest(**request_payload)
                 resp = await elicitation_input_callback(
                     request=req,
@@ -1085,8 +1084,7 @@ class McpAgent(ABC, ToolAgent):
                     "Provider-managed MCP is only supported for Anthropic Messages "
                     "and the OpenAI Responses provider."
                 )
-            if hasattr(llm, "set_provider_managed_mcp_state"):
-                cast("Any", llm).set_provider_managed_mcp_state(self._provider_managed_mcp_state)
+            llm.set_provider_managed_mcp_state(self._provider_managed_mcp_state)
 
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is not None:

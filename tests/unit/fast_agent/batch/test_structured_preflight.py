@@ -39,7 +39,7 @@ async def test_resume_and_overwrite_are_mutually_exclusive(tmp_path):
     options = StructuredBatchOptions(
         input_path=input_path,
         output_path=tmp_path / "out.jsonl",
-        schema_path=schema,
+        schema_source=schema,
         resume=True,
         overwrite=True,
     )
@@ -54,7 +54,7 @@ def test_schema_file_and_schema_model_are_mutually_exclusive(tmp_path):
     options = StructuredBatchOptions(
         input_path=tmp_path / "rows.jsonl",
         output_path=tmp_path / "out.jsonl",
-        schema_path=schema,
+        schema_source=schema,
         schema_model="example:Result",
     )
 
@@ -69,6 +69,62 @@ def test_schema_source_is_optional(tmp_path):
     )
 
     assert load_schema_source(options) is None
+
+
+def test_sql_requires_parquet_input(tmp_path):
+    options = StructuredBatchOptions(
+        input_path=tmp_path / "rows.jsonl",
+        output_path=tmp_path / "out.jsonl",
+        sql="SELECT * FROM input",
+    )
+
+    with pytest.raises(ValueError, match="only supported for parquet"):
+        load_schema_source(options)
+
+
+@pytest.mark.parametrize("field", ["limit", "offset", "sample"])
+def test_sql_rejects_row_selection_options(tmp_path, field):
+    options = StructuredBatchOptions(
+        input_path=tmp_path / "rows.parquet",
+        output_path=tmp_path / "out.jsonl",
+        sql="SELECT * FROM input",
+    )
+    if field == "limit":
+        options = StructuredBatchOptions(
+            input_path=tmp_path / "rows.parquet",
+            output_path=tmp_path / "out.jsonl",
+            sql="SELECT * FROM input",
+            limit=1,
+        )
+    elif field == "offset":
+        options = StructuredBatchOptions(
+            input_path=tmp_path / "rows.parquet",
+            output_path=tmp_path / "out.jsonl",
+            sql="SELECT * FROM input",
+            offset=1,
+        )
+    else:
+        options = StructuredBatchOptions(
+            input_path=tmp_path / "rows.parquet",
+            output_path=tmp_path / "out.jsonl",
+            sql="SELECT * FROM input",
+            sample=1,
+        )
+
+    with pytest.raises(ValueError, match="cannot be used with --limit, --offset, or --sample"):
+        load_schema_source(options)
+
+
+def test_sql_rejects_parallel(tmp_path):
+    options = StructuredBatchOptions(
+        input_path=tmp_path / "rows.parquet",
+        output_path=tmp_path / "out.jsonl",
+        sql="SELECT * FROM input",
+        parallel=2,
+    )
+
+    with pytest.raises(ValueError, match="cannot be used with --parallel"):
+        load_schema_source(options)
 
 
 def test_load_pydantic_model_from_import_path():
@@ -141,7 +197,7 @@ async def test_optional_output_paths_cannot_match_primary_output(
     options = StructuredBatchOptions(
         input_path=input_path,
         output_path=output_path,
-        schema_path=schema,
+        schema_source=schema,
         **{duplicate_field: output_path},
     )
 
@@ -161,7 +217,7 @@ async def test_optional_output_paths_cannot_match_each_other_after_resolution(tm
     options = StructuredBatchOptions(
         input_path=input_path,
         output_path=tmp_path / "out.jsonl",
-        schema_path=schema,
+        schema_source=schema,
         error_output_path=error_output,
         telemetry_output_path=telemetry_link,
     )
