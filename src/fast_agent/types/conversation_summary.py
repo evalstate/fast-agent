@@ -11,6 +11,12 @@ from collections import Counter
 from pydantic import BaseModel, computed_field
 
 from fast_agent.constants import FAST_AGENT_TIMING
+from fast_agent.history.tool_activities import (
+    message_tool_call_count,
+    message_tool_error_count,
+    message_tool_success_count,
+    tool_activities_for_message,
+)
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -112,27 +118,33 @@ class ConversationSummary(BaseModel):
     @property
     def tool_calls(self) -> int:
         """Total number of tool calls made across all messages."""
-        return sum(
-            len(msg.tool_calls) for msg in self.messages if msg.tool_calls
-        )
+        return sum(message_tool_call_count(msg) for msg in self.messages)
 
     @computed_field
     @property
     def tool_errors(self) -> int:
         """Total number of tool calls that resulted in errors."""
-        return sum(
-            sum(1 for result in msg.tool_results.values() if result.isError)
-            for msg in self.messages if msg.tool_results
-        )
+        tool_id_to_name: dict[str, str] = {}
+        total = 0
+        for msg in self.messages:
+            for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
+                if activity.kind == "call":
+                    tool_id_to_name[activity.tool_use_id] = activity.tool_name
+            total += message_tool_error_count(msg, tool_name_lookup=tool_id_to_name)
+        return total
 
     @computed_field
     @property
     def tool_successes(self) -> int:
         """Total number of tool calls that completed successfully."""
-        return sum(
-            sum(1 for result in msg.tool_results.values() if not result.isError)
-            for msg in self.messages if msg.tool_results
-        )
+        tool_id_to_name: dict[str, str] = {}
+        total = 0
+        for msg in self.messages:
+            for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
+                if activity.kind == "call":
+                    tool_id_to_name[activity.tool_use_id] = activity.tool_name
+            total += message_tool_success_count(msg, tool_name_lookup=tool_id_to_name)
+        return total
 
     @computed_field
     @property
@@ -156,10 +168,11 @@ class ConversationSummary(BaseModel):
         """
         tool_names: list[str] = []
         for msg in self.messages:
-            if msg.tool_calls:
-                tool_names.extend(
-                    call.params.name for call in msg.tool_calls.values()
-                )
+            tool_names.extend(
+                activity.tool_name
+                for activity in tool_activities_for_message(msg)
+                if activity.kind == "call"
+            )
         return dict(Counter(tool_names))
 
     @computed_field
@@ -176,19 +189,23 @@ class ConversationSummary(BaseModel):
         # First, build a map from tool_id -> tool_name by scanning tool_calls
         tool_id_to_name: dict[str, str] = {}
         for msg in self.messages:
-            if msg.tool_calls:
-                for tool_id, call in msg.tool_calls.items():
-                    tool_id_to_name[tool_id] = call.params.name
+            for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
+                if activity.kind == "call":
+                    tool_id_to_name[activity.tool_use_id] = activity.tool_name
 
         # Then, count errors by tool name
         error_names: list[str] = []
         for msg in self.messages:
-            if msg.tool_results:
-                for tool_id, result in msg.tool_results.items():
-                    if result.isError:
-                        # Look up the tool name from the tool_id
-                        tool_name = tool_id_to_name.get(tool_id, "unknown")
-                        error_names.append(tool_name)
+            for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
+                if activity.kind == "result" and activity.is_error:
+                    tool_name = tool_id_to_name.get(activity.tool_use_id)
+                    if tool_name is None:
+                        tool_name = (
+                            "unknown"
+                            if activity.tool_name == activity.tool_use_id
+                            else activity.tool_name
+                        )
+                    error_names.append(tool_name)
 
         return dict(Counter(error_names))
 

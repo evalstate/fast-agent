@@ -59,3 +59,22 @@ async def test_agent_clear_delegates_to_llm():
     agent.clear(clear_prompts=True)
     assert agent.message_history == []
     assert llm.message_history == []
+
+
+@pytest.mark.asyncio
+async def test_agent_clear_resets_usage_accumulator():
+    ctx = Context()
+    agent = LlmAgent(config=AgentConfig(name="agent-under-test"), context=ctx)
+    llm = PassthroughLLM(provider=Provider.FAST_AGENT, context=ctx)
+    agent._llm = llm
+
+    await agent.generate(_make_user_message("hello"))
+    await agent.generate(_make_user_message("again"))
+
+    assert llm.usage_accumulator.turn_count == 2
+    assert llm.usage_accumulator.current_context_tokens > 0
+
+    agent.clear()
+
+    assert llm.usage_accumulator.turn_count == 0
+    assert llm.usage_accumulator.current_context_tokens == 0

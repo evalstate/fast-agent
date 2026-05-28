@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from fast_agent.tools.tool_sources import set_tool_source
+
 if TYPE_CHECKING:
     from fast_agent.skills.registry import SkillManifest
 
@@ -42,23 +44,26 @@ class SkillReader:
                 # Allow reading from the skill's directory and subdirectories
                 self._allowed_directories.add(manifest.path.parent.resolve())
 
-        self._tool = Tool(
-            name="read_skill",
-            description=(
-                "Read a skill's SKILL.md file or associated resources. "
-                "Use this to load skill instructions before using the skill."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Absolute path to the file to read (from the <location> in available_skills)",
-                    }
+        self._tool = set_tool_source(
+            Tool(
+                name="read_skill",
+                description=(
+                    "Read a skill's SKILL.md file or associated resources. "
+                    "Use this to load skill instructions before using the skill."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute path to the file to read (from the <location> in available_skills)",
+                        }
+                    },
+                    "required": ["path"],
+                    "additionalProperties": False,
                 },
-                "required": ["path"],
-                "additionalProperties": False,
-            },
+            ),
+            "skill",
         )
 
     @property

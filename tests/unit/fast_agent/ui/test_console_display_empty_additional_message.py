@@ -3,14 +3,26 @@ import json
 
 from mcp.types import CallToolResult, TextContent
 from rich.console import Group
+from rich.syntax import Syntax
 from rich.text import Text
 
+from fast_agent.config import LoggerSettings, Settings
 from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.message_primitives import MessageType
+
+
+def _contains_renderable_type(renderable: object, renderable_type: type[object]) -> bool:
+    if isinstance(renderable, renderable_type):
+        return True
+    if isinstance(renderable, Group):
+        return any(
+            _contains_renderable_type(child, renderable_type) for child in renderable.renderables
+        )
+    return False
 
 
 class _CaptureContentDisplay(ConsoleDisplay):
@@ -28,6 +40,38 @@ class _CaptureContentDisplay(ConsoleDisplay):
         render_markdown: bool | None = None,
     ) -> None:
         self.displayed_content.append(content)
+
+
+def test_console_display_uses_logger_render_settings_by_default() -> None:
+    display = ConsoleDisplay(
+        config=Settings(
+            logger=LoggerSettings(
+                code_theme="monokai",
+                render_fences_with_syntax=False,
+                code_word_wrap=True,
+            )
+        )
+    )
+
+    assert display.code_style == "monokai"
+    assert display.render_fences_with_syntax is False
+    assert display.code_word_wrap is True
+
+
+def test_console_display_wraps_code_by_default() -> None:
+    display = ConsoleDisplay(config=None)
+
+    assert display.code_word_wrap is True
+
+
+def test_normalize_assistant_display_text_trims_trailing_blank_lines() -> None:
+    assert ConsoleDisplay._normalize_assistant_display_text("hello\n\n") == "hello"
+
+    text = Text("hello\n\n", style="green")
+    normalized = ConsoleDisplay._normalize_assistant_display_text(text)
+
+    assert isinstance(normalized, Text)
+    assert normalized.plain == "hello"
 
 
 def test_display_message_skips_empty_string_when_additional_message_present() -> None:
@@ -63,6 +107,88 @@ def test_display_message_keeps_empty_content_without_additional_message() -> Non
     )
 
     assert display.displayed_content == [""]
+
+
+def test_show_stream_reprint_banner_renders_three_lines() -> None:
+    display = ConsoleDisplay(config=None)
+
+    with console.console.capture() as capture:
+        display.show_stream_reprint_banner()
+
+    rendered_lines = capture.get().splitlines()
+    assert len(rendered_lines) == 3
+    assert "FINAL RESPONSE" in rendered_lines[1]
+
+
+def test_show_stream_reprint_banner_respects_logger_setting() -> None:
+    display = ConsoleDisplay(
+        config=Settings(
+            logger=LoggerSettings(
+                show_chat=True,
+                stream_reprint_banner=False,
+            )
+        )
+    )
+
+    with console.console.capture() as capture:
+        display.show_stream_reprint_banner()
+
+    assert capture.get() == ""
+
+
+def test_assistant_reprint_banner_is_rendered_with_final_assistant_message() -> None:
+    display = ConsoleDisplay(config=None)
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Final answer")],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=message,
+                name="dev",
+                model="gpt-test",
+                show_reprint_banner=True,
+            )
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "FINAL RESPONSE" in rendered
+    assert rendered.index("FINAL RESPONSE") < rendered.index("▎◀ dev")
+    assert rendered.index("▎◀ dev") < rendered.index("Final answer")
+
+
+def test_assistant_reprint_banner_can_be_disabled_in_logger_settings() -> None:
+    display = ConsoleDisplay(
+        config=Settings(
+            logger=LoggerSettings(
+                show_chat=True,
+                stream_reprint_banner=False,
+            )
+        )
+    )
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Final answer")],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=message,
+                name="dev",
+                model="gpt-test",
+                show_reprint_banner=True,
+            )
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "FINAL RESPONSE" not in rendered
+    assert "▎◀ dev" in rendered
+    assert "Final answer" in rendered
 
 
 def test_display_message_skips_empty_content_when_pre_content_present() -> None:
@@ -206,6 +332,7 @@ def test_openai_phase_blocks_render_with_friendly_labels_in_assistant_output() -
 
 
 def test_openai_phase_blocks_use_renderable_group_for_dim_labels() -> None:
+    display = ConsoleDisplay(config=None)
     message = PromptMessageExtended(
         role="assistant",
         content=[TextContent(type="text", text="Final answer")],
@@ -226,6 +353,52 @@ def test_openai_phase_blocks_use_renderable_group_for_dim_labels() -> None:
         stop_reason=LlmStopReason.END_TURN,
     )
 
-    extracted = ConsoleDisplay._extract_openai_phase_content(message)
+    extracted = display._extract_openai_phase_content(message)
 
     assert isinstance(extracted, Group)
+
+
+def test_openai_phase_blocks_render_code_fences_with_syntax() -> None:
+    display = ConsoleDisplay(config=None)
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="```python\nprint('hi')\n```")],
+        channels={
+            OPENAI_ASSISTANT_MESSAGE_ITEMS: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "message",
+                            "phase": "final_answer",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "```python\nprint('hi')\n```",
+                                }
+                            ],
+                        }
+                    ),
+                ),
+            ]
+        },
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    extracted = display._extract_openai_phase_content(message)
+
+    assert isinstance(extracted, Group)
+    assert _contains_renderable_type(extracted, Syntax)
+
+
+def test_user_message_header_uses_rule_fill_for_turn_info() -> None:
+    display = ConsoleDisplay(config=None)
+
+    with console.console.capture() as capture:
+        display.show_user_message("Hello", name="dev", chat_turn=3, total_turns=12)
+
+    rendered = capture.get()
+    header = rendered.splitlines()[1]
+    assert header.startswith("▎▶ dev ")
+    assert "─" in header
+    assert header.endswith(" turn 3 (12)")

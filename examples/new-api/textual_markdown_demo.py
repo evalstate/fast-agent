@@ -36,7 +36,7 @@ DEFAULT_PROMPT = (
 )
 DEFAULT_MODEL = "kimi"
 CHAT_AGENT_NAME = "textual_markdown_chat"
-CONFIG_PATH = Path(__file__).with_name("fastagent.config.yaml")
+CONFIG_PATH = Path(__file__).with_name("fast-agent.yaml")
 
 fast = FastAgent(
     "Textual Markdown Demo",

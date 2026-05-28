@@ -10,8 +10,9 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 
 import json
 import os
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
+from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Tuple
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
@@ -28,24 +29,35 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.history.tool_activities import (
+    display_remote_tool_activities,
+    remote_tool_activities,
+)
 from fast_agent.llm.model_display_name import resolve_llm_display_name
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationDisplayItem,
+    URLElicitationRequiredDisplayPayload,
+)
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.citation_display import (
     collect_citation_sources,
-    render_sources_pre_content,
+    render_sources_additional_text,
     web_tool_badges,
 )
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
     build_user_message_display,
+    build_user_message_image_previews,
     resolve_highlight_index,
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
 )
+from fast_agent.utils.type_narrowing import is_str_object_dict
 from fast_agent.workflow_telemetry import (
     NoOpWorkflowTelemetryProvider,
     WorkflowTelemetryProvider,
@@ -53,15 +65,13 @@ from fast_agent.workflow_telemetry import (
 
 if TYPE_CHECKING:
     from fast_agent.agents.llm_decorator import RemovedContentSummary
-    from fast_agent.agents.tool_runner import ToolRunnerHooks
+    from fast_agent.agents.tool_runner import HistoryRollbackState, ToolRunnerHooks
     from fast_agent.ui.streaming import StreamingHandle
 # TODO -- decide what to do with type safety for model/chat_turn()
 
 logger = get_logger(__name__)
 
-DEFAULT_CAPABILITIES = AgentCapabilities(
-    streaming=False, push_notifications=False, state_transition_history=False
-)
+DEFAULT_CAPABILITIES = AgentCapabilities(streaming=False, push_notifications=False)
 
 
 class LlmAgent(LlmDecorator):
@@ -85,10 +95,15 @@ class LlmAgent(LlmDecorator):
         self._force_non_streaming_once = False
         self._force_non_streaming_reason: str | None = None
         self._active_stream_handle: "StreamingHandle | None" = None
+        self._deferred_hook_status_bucket_stack: list[str] = []
+        self._deferred_hook_status_lines_by_bucket: dict[str, list[Text]] = {}
         self.tool_runner_hooks: "ToolRunnerHooks | None" = None
         self._workflow_telemetry_provider: WorkflowTelemetryProvider = (
             NoOpWorkflowTelemetryProvider()
         )
+        self._last_turn_cancelled = False
+        self._last_turn_cancel_reason = "cancelled"
+        self._last_turn_history_state: "HistoryRollbackState | None" = None
 
     @property
     def display(self) -> ConsoleDisplay:
@@ -110,6 +125,72 @@ class LlmAgent(LlmDecorator):
             provider = NoOpWorkflowTelemetryProvider()
         self._workflow_telemetry_provider = provider
 
+    @property
+    def last_turn_cancelled(self) -> bool:
+        return self._last_turn_cancelled
+
+    @property
+    def last_turn_cancel_reason(self) -> str:
+        return self._last_turn_cancel_reason
+
+    @property
+    def last_turn_history_state(self) -> "HistoryRollbackState | None":
+        return self._last_turn_history_state
+
+    def record_last_turn_cancellation(
+        self,
+        *,
+        reason: str,
+        rollback_state: "HistoryRollbackState",
+    ) -> None:
+        self._last_turn_cancelled = True
+        self._last_turn_cancel_reason = reason
+        self._last_turn_history_state = rollback_state
+
+    def clear_last_turn_cancellation(self) -> None:
+        self._last_turn_cancelled = False
+        self._last_turn_history_state = None
+
+    @contextmanager
+    def defer_hook_status_messages(self, bucket: str = "default") -> Iterator[None]:
+        """Buffer hook status lines until the current hook boundary finishes."""
+        self._deferred_hook_status_bucket_stack.append(bucket)
+        try:
+            yield
+        finally:
+            if self._deferred_hook_status_bucket_stack:
+                self._deferred_hook_status_bucket_stack.pop()
+
+    def queue_hook_status_messages(self, lines: Sequence[Text]) -> bool:
+        """Queue hook status lines when hook-output deferral is active."""
+        if not self._deferred_hook_status_bucket_stack:
+            return False
+        bucket = self._deferred_hook_status_bucket_stack[-1]
+        queued_lines = self._deferred_hook_status_lines_by_bucket.setdefault(bucket, [])
+        queued_lines.extend(line.copy() for line in lines)
+        return True
+
+    def flush_deferred_hook_status_messages(self, bucket: str | None = None) -> None:
+        """Emit buffered hook status lines after the current hook/display boundary."""
+        if bucket is not None:
+            lines = self._deferred_hook_status_lines_by_bucket.pop(bucket, [])
+        else:
+            lines = [
+                line
+                for bucket_lines in self._deferred_hook_status_lines_by_bucket.values()
+                for line in bucket_lines
+            ]
+            self._deferred_hook_status_lines_by_bucket.clear()
+        for line in lines:
+            self.display.show_status_message(line)
+
+    def clear_deferred_hook_status_messages(self, bucket: str | None = None) -> None:
+        """Drop buffered hook status lines without rendering them."""
+        if bucket is None:
+            self._deferred_hook_status_lines_by_bucket.clear()
+            return
+        self._deferred_hook_status_lines_by_bucket.pop(bucket, None)
+
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
@@ -122,6 +203,7 @@ class LlmAgent(LlmDecorator):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -176,21 +258,35 @@ class LlmAgent(LlmDecorator):
         hook_indicator = self._resolve_assistant_hook_indicator(show_hook_indicator)
         message_text = message
         if render_message:
-            await self.display.show_assistant_message(
-                message_text,
-                bottom_items=bottom_items,
-                highlight_index=highlight_index,
-                max_item_length=max_item_length,
+            rendered_remote_activities = display_remote_tool_activities(
+                self.display,
+                message,
                 name=display_name,
-                model=display_model,
-                additional_message=additional_message_text,
-                pre_content=pre_content,
-                render_markdown=render_markdown,
-                show_hook_indicator=hook_indicator,
             )
+            should_render_assistant_message = not (
+                rendered_remote_activities
+                and message.last_text() is None
+                and additional_message_text is None
+                and pre_content is None
+            )
+            if should_render_assistant_message:
+                await self.display.show_assistant_message(
+                    message_text,
+                    bottom_items=bottom_items,
+                    highlight_index=highlight_index,
+                    max_item_length=max_item_length,
+                    name=display_name,
+                    model=display_model,
+                    additional_message=additional_message_text,
+                    pre_content=pre_content,
+                    render_markdown=render_markdown,
+                    show_hook_indicator=hook_indicator,
+                    show_reprint_banner=show_reprint_banner,
+                )
         else:
             if status_message_text is not None:
                 self.display.show_status_message(status_message_text)
+            self.display.show_pending_tool_result_images()
             self.display.show_mermaid_diagrams_from_message_text(message_text)
         self._display_url_elicitations_from_history(display_name)
 
@@ -285,7 +381,7 @@ class LlmAgent(LlmDecorator):
         pre_segments: list[Text] = []
         additional_segments: list[Text] = []
         show_post_turn_metadata = self._should_show_post_turn_metadata(message)
-        sources_text = render_sources_pre_content(message) if show_post_turn_metadata else None
+        sources_text = render_sources_additional_text(message) if show_post_turn_metadata else None
         badge_items = web_tool_badges(message) if show_post_turn_metadata else []
         self._log_web_metadata_debug(
             message,
@@ -295,7 +391,7 @@ class LlmAgent(LlmDecorator):
         )
 
         if sources_text is not None:
-            pre_segments.append(sources_text)
+            additional_segments.append(sources_text)
 
         if badge_items:
             additional_segments.append(
@@ -370,8 +466,9 @@ class LlmAgent(LlmDecorator):
             context_percentage = (
                 usage_accumulator.context_usage_percentage if usage_accumulator else None
             )
-            if context_percentage is not None:
-                display_model = f"{display_model} ({context_percentage:.1f}%)"
+            context_label = format_compact_context_usage_percent(context_percentage)
+            if context_label is not None:
+                display_model = f"{display_model} ({context_label})"
 
         return display_model
 
@@ -424,6 +521,11 @@ class LlmAgent(LlmDecorator):
             return False
         if collect_citation_sources(message):
             return False
+        remote_activities = remote_tool_activities(message)
+        if any(activity.kind == "result" for activity in remote_activities):
+            return False
+        if remote_activities:
+            return True
 
         display_text = message.all_text() or message.last_text() or ""
         if not display_text.strip():
@@ -440,7 +542,7 @@ class LlmAgent(LlmDecorator):
         if not payload_blocks:
             return
 
-        payload_entries: list[dict[str, object]] = []
+        payload_entries: list[URLElicitationRequiredDisplayPayload] = []
         for block in payload_blocks:
             raw_text = get_text(block)
             if not raw_text:
@@ -451,9 +553,15 @@ class LlmAgent(LlmDecorator):
                 continue
 
             if isinstance(decoded, list):
-                payload_entries.extend(item for item in decoded if isinstance(item, dict))
+                payload_entries.extend(
+                    payload
+                    for item in decoded
+                    if (payload := self._url_elicitation_payload_from_json(item)) is not None
+                )
             elif isinstance(decoded, dict):
-                payload_entries.append(decoded)
+                payload = self._url_elicitation_payload_from_json(decoded)
+                if payload is not None:
+                    payload_entries.append(payload)
 
         for payload in payload_entries:
             self._display_single_url_elicitation_payload(payload, agent_name)
@@ -473,37 +581,28 @@ class LlmAgent(LlmDecorator):
 
     def _display_single_url_elicitation_payload(
         self,
-        payload: dict[str, object],
+        payload: URLElicitationRequiredDisplayPayload,
         agent_name: str | None,
     ) -> None:
         from fast_agent.ui import console
 
-        server_name = str(payload.get("server_name", "unknown"))
-        raw_elicitations = payload.get("elicitations")
-        raw_issues = payload.get("issues")
-
-        elicitations = (
-            [item for item in raw_elicitations if isinstance(item, dict)]
-            if isinstance(raw_elicitations, list)
-            else []
-        )
-        issues = [str(item) for item in raw_issues] if isinstance(raw_issues, list) else []
+        server_name = payload.server_name
+        elicitations = payload.elicitations
+        issues = payload.issues
 
         if elicitations:
             count = len(elicitations)
             for index, elicitation in enumerate(elicitations, start=1):
-                message = str(elicitation.get("message", "Authorization required."))
+                message = elicitation.message
                 if count > 1:
                     message = f"[{index}/{count}] {message}"
-                url = str(elicitation.get("url", ""))
-                elicitation_id = str(elicitation.get("elicitation_id", ""))
 
                 self.display.show_url_elicitation(
                     message=message,
-                    url=url,
+                    url=elicitation.url,
                     server_name=server_name,
                     agent_name=agent_name,
-                    elicitation_id=elicitation_id,
+                    elicitation_id=elicitation.elicitation_id,
                 )
 
         if issues:
@@ -536,6 +635,35 @@ class LlmAgent(LlmDecorator):
                     "[/dim yellow]"
                 )
 
+    @staticmethod
+    def _url_elicitation_payload_from_json(
+        value: object,
+    ) -> URLElicitationRequiredDisplayPayload | None:
+        if not is_str_object_dict(value):
+            return None
+
+        raw_elicitations = value.get("elicitations")
+        if not isinstance(raw_elicitations, list):
+            return None
+
+        elicitations = [
+            URLElicitationDisplayItem(
+                message=str(item.get("message", "Authorization required.")),
+                url=str(item.get("url", "")),
+                elicitation_id=str(item.get("elicitation_id", "")),
+            )
+            for item in raw_elicitations
+            if is_str_object_dict(item)
+        ]
+        raw_issues = value.get("issues")
+        issues = [str(item) for item in raw_issues] if isinstance(raw_issues, list) else []
+        return URLElicitationRequiredDisplayPayload(
+            server_name=str(value.get("server_name", "unknown")),
+            request_method=str(value.get("request_method", "")),
+            elicitations=elicitations,
+            issues=issues,
+        )
+
     def _display_user_messages(
         self,
         messages: list[PromptMessageExtended],
@@ -554,12 +682,14 @@ class LlmAgent(LlmDecorator):
         part_count = len(display_messages)
 
         message_text, attachments = build_user_message_display(display_messages)
+        image_previews = build_user_message_image_previews(display_messages)
 
         self.display.show_user_message(
             message_text,
             chat_turn=0,
             name=self.name,
             attachments=attachments if attachments else None,
+            image_previews=image_previews or None,
             part_count=part_count if part_count > 1 else None,
             show_hook_indicator=getattr(self, "has_before_llm_call_hook", False),
         )
@@ -599,6 +729,11 @@ class LlmAgent(LlmDecorator):
         self._force_non_streaming_reason = reason
         return True
 
+    def resolve_stream_tool_metadata(self, tool_name: str) -> Mapping[str, Any] | None:
+        """Resolve display metadata for a streamed tool call, if available."""
+        _ = tool_name
+        return None
+
     async def generate_impl(
         self,
         messages: List[PromptMessageExtended],
@@ -632,10 +767,12 @@ class LlmAgent(LlmDecorator):
 
             remove_listener: Callable[[], None] | None = None
             remove_tool_listener: Callable[[], None] | None = None
+            stream_scrolled = False
 
             with self.display.streaming_assistant_message(
                 name=display_name,
                 model=display_model,
+                tool_metadata_resolver=self.resolve_stream_tool_metadata,
             ) as stream_handle:
                 self._active_stream_handle = stream_handle
                 write_interactive_trace(
@@ -667,6 +804,7 @@ class LlmAgent(LlmDecorator):
 
                     await stream_handle.wait_for_drain()
                     self._maybe_close_streaming_for_tool_calls(result)
+                    stream_scrolled = stream_handle.has_scrolled()
                     preserve_streamed_frame = self._can_preserve_streamed_final_frame(
                         message=result,
                         summary_text=summary_text,
@@ -694,6 +832,9 @@ class LlmAgent(LlmDecorator):
                     result,
                     additional_message=summary_text,
                     render_markdown=render_markdown,
+                    show_reprint_banner=(
+                        stream_scrolled and result.stop_reason == LlmStopReason.END_TURN
+                    ),
                 )
         else:
             result, summary = await self._generate_with_summary(messages, request_params, tools)
@@ -773,6 +914,29 @@ class LlmAgent(LlmDecorator):
 
         (result, message), summary = await self._structured_with_summary(
             messages, model, request_params
+        )
+        summary_text = self._summary_text_for_result(message, summary)
+        await self.show_assistant_message(message=message, additional_message=summary_text)
+        return result, message
+
+    async def structured_schema_impl(
+        self,
+        messages: List[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> Tuple[Any | None, PromptMessageExtended]:
+        if "user" == messages[-1].role:
+            trailing_users: list[PromptMessageExtended] = []
+            for message in reversed(messages):
+                if message.role != "user":
+                    break
+                trailing_users.append(message)
+            self._display_user_messages(
+                list(reversed(trailing_users)), request_params=request_params
+            )
+
+        (result, message), summary = await self._structured_schema_via_generate_with_summary(
+            messages, schema, request_params
         )
         summary_text = self._summary_text_for_result(message, summary)
         await self.show_assistant_message(message=message, additional_message=summary_text)

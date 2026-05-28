@@ -6,12 +6,26 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
 from rich import print as rich_print
 
+from fast_agent.command_actions.accessors import (
+    lookup_agent,
+    plugin_commands_for_agent,
+    plugin_commands_for_provider,
+)
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.ui.prompt.attachment_tokens import (
+    append_attachment_tokens,
+    build_local_attachment_token,
+    strip_local_attachment_tokens,
+)
+from fast_agent.ui.prompt.clipboard_image import paste_clipboard_image_to_temp_png
 from fast_agent.ui.prompt.editor import get_text_from_editor
+from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -25,12 +39,16 @@ class ShellPrefixLexer(Lexer):
     """Lexer that highlights shell (!) and comment (#) commands."""
 
     def lex_document(self, document):
+        first_line = document.lines[0] if document.lines else ""
+        first_stripped = first_line.lstrip()
+        first_line_is_shell = first_stripped.startswith("!")
+        first_line_is_hash_command = try_parse_hash_agent_command(first_stripped) is not None
+
         def get_line_tokens(line_number):
             line = document.lines[line_number]
-            stripped = line.lstrip()
-            if stripped.startswith("!"):
+            if line_number == 0 and first_line_is_shell:
                 return [("class:shell-command", line)]
-            if stripped.startswith("#"):
+            if line_number == 0 and first_line_is_hash_command:
                 return [("class:comment-command", line)]
             return [("", line)]
 
@@ -40,6 +58,37 @@ class ShellPrefixLexer(Lexer):
 class AgentKeyBindings(KeyBindings):
     agent_provider: "AgentApp | None" = None
     current_agent_name: str | None = None
+
+
+class PromptInputInterrupt(Exception):
+    """Internal prompt-toolkit interrupt used instead of raw KeyboardInterrupt."""
+
+
+logger = get_logger(__name__)
+
+
+async def paste_clipboard_image_attachment_into_buffer(
+    buffer: Buffer,
+    *,
+    app_ref: Any | None = None,
+) -> None:
+    """Paste the clipboard image into the input buffer as a local attachment token."""
+    try:
+        pasted = await asyncio.to_thread(paste_clipboard_image_to_temp_png)
+    except asyncio.CancelledError:
+        rich_print("[yellow]Clipboard image paste cancelled.[/yellow]")
+        return
+    except Exception as exc:
+        rich_print(f"[red]Failed to paste clipboard image: {exc}[/red]")
+        if app_ref:
+            app_ref.invalidate()
+        return
+
+    token = build_local_attachment_token(pasted.path)
+    buffer.text = append_attachment_tokens(buffer.text, [token])
+    buffer.cursor_position = len(buffer.text)
+    if app_ref:
+        app_ref.invalidate()
 
 
 def _cycle_completion(buffer: Buffer, *, backwards: bool) -> bool:
@@ -91,6 +140,7 @@ def create_keybindings(
     on_cycle_verbosity: Callable[[], None] | None = None,
     on_cycle_web_search: Callable[[], None] | None = None,
     on_cycle_web_fetch: Callable[[], None] | None = None,
+    enable_clipboard_image_paste: bool = False,
     app: Any | None = None,
     agent_provider: "AgentApp | None" = None,
     agent_name: str | None = None,
@@ -109,7 +159,9 @@ def create_keybindings(
             return True
         if stripped.startswith("!"):
             return True
-        if stripped.startswith(("/", "@", "#")):
+        if stripped.startswith(("/", "@")):
+            return True
+        if try_parse_hash_agent_command(stripped) is not None:
             return True
         return True
 
@@ -180,6 +232,29 @@ def create_keybindings(
         if _invoke_callback(on_cycle_web_fetch, event):
             return
 
+    @kb.add("f10")
+    def _(event) -> None:
+        cleared = strip_local_attachment_tokens(event.current_buffer.text)
+        if cleared == event.current_buffer.text:
+            return
+        event.current_buffer.text = cleared
+        event.current_buffer.cursor_position = len(cleared)
+        if event.app:
+            event.app.invalidate()
+        elif app:
+            app.invalidate()
+
+    if enable_clipboard_image_paste:
+
+        @kb.add("escape", "c-v")
+        @kb.add("escape", "v")
+        async def _(event) -> None:
+            """Ctrl+Alt+V / Alt+V: Paste an image from the clipboard as a local attachment."""
+            await paste_clipboard_image_attachment_into_buffer(
+                event.current_buffer,
+                app_ref=event.app or app,
+            )
+
     @kb.add("c-m", filter=Condition(lambda: _has_any_completions()), eager=True)
     @kb.add("enter", filter=Condition(lambda: _has_any_completions()), eager=True)
     def _(event) -> None:
@@ -243,7 +318,7 @@ def create_keybindings(
     @kb.add("c-c")
     def _(event) -> None:
         """Ctrl+C: interrupt prompt input (handled by caller policy)."""
-        event.app.exit(exception=KeyboardInterrupt())
+        event.app.exit(exception=PromptInputInterrupt())
 
     @kb.add("c-d")
     def _(event) -> None:
@@ -253,20 +328,23 @@ def create_keybindings(
     @kb.add("c-e")
     async def _(event) -> None:
         """Ctrl+E: Edit current buffer in $EDITOR."""
-        current_text = event.app.current_buffer.text
+        app_ref = event.app
+        current_text = app_ref.current_buffer.text
         try:
-            edited_text = await event.app.loop.run_in_executor(
-                None, get_text_from_editor, current_text
+            edited_text = await run_in_terminal(
+                lambda: get_text_from_editor(current_text),
+                render_cli_done=False,
+                in_executor=True,
             )
-            event.app.current_buffer.text = edited_text
-            event.app.current_buffer.cursor_position = len(edited_text)
+            app_ref.current_buffer.text = edited_text
+            app_ref.current_buffer.cursor_position = len(edited_text)
         except asyncio.CancelledError:
             rich_print("[yellow]Editor interaction cancelled.[/yellow]")
         except Exception as exc:
             rich_print(f"[red]Error during editor interaction: {exc}[/red]")
         finally:
-            if event.app:
-                event.app.invalidate()
+            app_ref.renderer.clear()
+            app_ref.invalidate()
 
     kb.agent_provider = agent_provider
     kb.current_agent_name = agent_name
@@ -309,4 +387,50 @@ def create_keybindings(
             except Exception:
                 pass
 
+    _add_plugin_command_keybindings(kb, agent_provider=agent_provider, agent_name=agent_name)
+
     return kb
+
+
+def _add_plugin_command_keybindings(
+    kb: AgentKeyBindings,
+    *,
+    agent_provider: "AgentApp | None",
+    agent_name: str | None,
+) -> None:
+    if agent_provider is None or agent_name is None:
+        return
+
+    commands = {}
+    global_commands = plugin_commands_for_provider(agent_provider)
+    if global_commands:
+        commands.update(global_commands)
+    agent = lookup_agent(agent_provider, agent_name)
+    agent_commands = plugin_commands_for_agent(agent)
+    if agent_commands:
+        commands.update(agent_commands)
+
+    for command_name, spec in commands.items():
+        if not spec.key:
+            continue
+        keys = tuple(part for part in spec.key.split() if part)
+        if not keys:
+            continue
+
+        try:
+
+            @kb.add(*keys)
+            def _(event, command_name=command_name) -> None:
+                command = f"/{command_name}"
+                event.current_buffer.text = command
+                event.current_buffer.cursor_position = len(command)
+                event.current_buffer.validate_and_handle()
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Ignoring invalid plugin command keybinding",
+                agent=agent_name,
+                command=command_name,
+                key=spec.key,
+                error=str(exc),
+            )

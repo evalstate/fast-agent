@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
 
 from fast_agent.acp.permission_store import (
     DEFAULT_PERMISSIONS_FILE,
@@ -33,24 +34,6 @@ from fast_agent.acp.tool_titles import ARGUMENT_TRUNCATION_LIMIT, build_tool_tit
 # =============================================================================
 # Test Doubles for ACPToolPermissionManager Testing
 # =============================================================================
-
-
-class FakeOutcome:
-    """Fake outcome object matching ACP schema structure."""
-
-    def __init__(self, outcome: str, optionId: str | None = None):
-        self.outcome = outcome
-        self.optionId = optionId
-
-
-class FakePermissionResponse:
-    """Fake response matching ACP RequestPermissionResponse structure."""
-
-    def __init__(self, option_id: str):
-        if option_id == "cancelled":
-            self.outcome = FakeOutcome(outcome="cancelled", optionId=None)
-        else:
-            self.outcome = FakeOutcome(outcome="selected", optionId=option_id)
 
 
 class FakeAgentSideConnection:
@@ -82,7 +65,7 @@ class FakeAgentSideConnection:
         session_id: str = "",
         tool_call: Any = None,
         **kwargs: Any,
-    ) -> FakePermissionResponse:
+    ) -> RequestPermissionResponse:
         """Fake implementation that returns configured responses (new SDK kwargs style)."""
         # Store the call for assertions
         self.permission_requests.append({
@@ -106,7 +89,11 @@ class FakeAgentSideConnection:
             key = "unknown"
 
         option_id = self._responses.get(key, "reject_once")
-        return FakePermissionResponse(option_id)
+        if option_id == "cancelled":
+            return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+        return RequestPermissionResponse(
+            outcome=AllowedOutcome(outcome="selected", option_id=option_id)
+        )
 
 
 class TestPermissionResult:

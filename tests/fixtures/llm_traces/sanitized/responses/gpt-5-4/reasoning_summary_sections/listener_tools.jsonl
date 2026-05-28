@@ -1,0 +1,612 @@
+{"event_type": "text", "payload": {"chunk": "Short"}}
+{"event_type": "text", "payload": {"chunk": " version"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "not"}}
+{"event_type": "text", "payload": {"chunk": " many"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": "."}}
+{"event_type": "text", "payload": {"chunk": " The"}}
+{"event_type": "text", "payload": {"chunk": " plan"}}
+{"event_type": "text", "payload": {"chunk": " already"}}
+{"event_type": "text", "payload": {"chunk": " settles"}}
+{"event_type": "text", "payload": {"chunk": " most"}}
+{"event_type": "text", "payload": {"chunk": " of"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " product"}}
+{"event_type": "text", "payload": {"chunk": " shape"}}
+{"event_type": "text", "payload": {"chunk": ".\n\n"}}
+{"event_type": "text", "payload": {"chunk": "The"}}
+{"event_type": "text", "payload": {"chunk": " main"}}
+{"event_type": "text", "payload": {"chunk": " decisions"}}
+{"event_type": "text", "payload": {"chunk": " I"}}
+{"event_type": "text", "payload": {"chunk": "\u2019d"}}
+{"event_type": "text", "payload": {"chunk": " want"}}
+{"event_type": "text", "payload": {"chunk": " locked"}}
+{"event_type": "text", "payload": {"chunk": " before"}}
+{"event_type": "text", "payload": {"chunk": " coding"}}
+{"event_type": "text", "payload": {"chunk": " are"}}
+{"event_type": "text", "payload": {"chunk": ":\n\n"}}
+{"event_type": "text", "payload": {"chunk": "1"}}
+{"event_type": "text", "payload": {"chunk": "."}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Phase"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": "1"}}
+{"event_type": "text", "payload": {"chunk": " scope"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Small"}}
+{"event_type": "text", "payload": {"chunk": "est"}}
+{"event_type": "text", "payload": {"chunk": " PR"}}
+{"event_type": "text", "payload": {"chunk": ":**"}}
+{"event_type": "text", "payload": {"chunk": " config"}}
+{"event_type": "text", "payload": {"chunk": " +"}}
+{"event_type": "text", "payload": {"chunk": " Open"}}
+{"event_type": "text", "payload": {"chunk": "AI"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "responses"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " payload"}}
+{"event_type": "text", "payload": {"chunk": " support"}}
+{"event_type": "text", "payload": {"chunk": " under"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "m"}}
+{"event_type": "text", "payload": {"chunk": "cp"}}
+{"event_type": "text", "payload": {"chunk": ".serv"}}
+{"event_type": "text", "payload": {"chunk": "ers"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " only"}}
+{"event_type": "text", "payload": {"chunk": ".\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "B"}}
+{"event_type": "text", "payload": {"chunk": "igger"}}
+{"event_type": "text", "payload": {"chunk": " PR"}}
+{"event_type": "text", "payload": {"chunk": ":**"}}
+{"event_type": "text", "payload": {"chunk": " include"}}
+{"event_type": "text", "payload": {"chunk": " Agent"}}
+{"event_type": "text", "payload": {"chunk": "Card"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "m"}}
+{"event_type": "text", "payload": {"chunk": "cp"}}
+{"event_type": "text", "payload": {"chunk": "_connect"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " support"}}
+{"event_type": "text", "payload": {"chunk": " too"}}
+{"event_type": "text", "payload": {"chunk": ".\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " My"}}
+{"event_type": "text", "payload": {"chunk": " recommendation"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "dec"}}
+{"event_type": "text", "payload": {"chunk": "ide"}}
+{"event_type": "text", "payload": {"chunk": " explicitly"}}
+{"event_type": "text", "payload": {"chunk": " whether"}}
+{"event_type": "text", "payload": {"chunk": " Agent"}}
+{"event_type": "text", "payload": {"chunk": "Cards"}}
+{"event_type": "text", "payload": {"chunk": " are"}}
+{"event_type": "text", "payload": {"chunk": " in"}}
+{"event_type": "text", "payload": {"chunk": " or"}}
+{"event_type": "text", "payload": {"chunk": " out"}}
+{"event_type": "text", "payload": {"chunk": " for"}}
+{"event_type": "text", "payload": {"chunk": " PR"}}
+{"event_type": "text", "payload": {"chunk": "1"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": "."}}
+{"event_type": "text", "payload": {"chunk": " Everything"}}
+{"event_type": "text", "payload": {"chunk": " else"}}
+{"event_type": "text", "payload": {"chunk": " can"}}
+{"event_type": "text", "payload": {"chunk": " stay"}}
+{"event_type": "text", "payload": {"chunk": " phase"}}
+{"event_type": "text", "payload": {"chunk": " "}}
+{"event_type": "text", "payload": {"chunk": "2"}}
+{"event_type": "text", "payload": {"chunk": ".\n\n"}}
+{"event_type": "text", "payload": {"chunk": "2"}}
+{"event_type": "text", "payload": {"chunk": "."}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Internal"}}
+{"event_type": "text", "payload": {"chunk": " rename"}}
+{"event_type": "text", "payload": {"chunk": " now"}}
+{"event_type": "text", "payload": {"chunk": " vs"}}
+{"event_type": "text", "payload": {"chunk": " later"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " Current"}}
+{"event_type": "text", "payload": {"chunk": " code"}}
+{"event_type": "text", "payload": {"chunk": " is"}}
+{"event_type": "text", "payload": {"chunk": " URL"}}
+{"event_type": "text", "payload": {"chunk": "/M"}}
+{"event_type": "text", "payload": {"chunk": "CP"}}
+{"event_type": "text", "payload": {"chunk": "-n"}}
+{"event_type": "text", "payload": {"chunk": "amed"}}
+{"event_type": "text", "payload": {"chunk": ":\n"}}
+{"event_type": "text", "payload": {"chunk": "    "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "Provider"}}
+{"event_type": "text", "payload": {"chunk": "Managed"}}
+{"event_type": "text", "payload": {"chunk": "M"}}
+{"event_type": "text", "payload": {"chunk": "CP"}}
+{"event_type": "text", "payload": {"chunk": "Attachment"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "    "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "Provider"}}
+{"event_type": "text", "payload": {"chunk": "Managed"}}
+{"event_type": "text", "payload": {"chunk": "M"}}
+{"event_type": "text", "payload": {"chunk": "CP"}}
+{"event_type": "text", "payload": {"chunk": "State"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " Plan"}}
+{"event_type": "text", "payload": {"chunk": " suggests"}}
+{"event_type": "text", "payload": {"chunk": " neutral"}}
+{"event_type": "text", "payload": {"chunk": " names"}}
+{"event_type": "text", "payload": {"chunk": ":\n"}}
+{"event_type": "text", "payload": {"chunk": "    "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "Provider"}}
+{"event_type": "text", "payload": {"chunk": "Managed"}}
+{"event_type": "text", "payload": {"chunk": "Tool"}}
+{"event_type": "text", "payload": {"chunk": "Attachment"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "    "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "Provider"}}
+{"event_type": "text", "payload": {"chunk": "Managed"}}
+{"event_type": "text", "payload": {"chunk": "Tool"}}
+{"event_type": "text", "payload": {"chunk": "State"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " This"}}
+{"event_type": "text", "payload": {"chunk": " is"}}
+{"event_type": "text", "payload": {"chunk": " mostly"}}
+{"event_type": "text", "payload": {"chunk": " a"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "diff"}}
+{"event_type": "text", "payload": {"chunk": "-size"}}
+{"event_type": "text", "payload": {"chunk": " vs"}}
+{"event_type": "text", "payload": {"chunk": " cleanliness"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": " call"}}
+{"event_type": "text", "payload": {"chunk": ".\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " My"}}
+{"event_type": "text", "payload": {"chunk": " recommendation"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "de"}}
+{"event_type": "text", "payload": {"chunk": "fer"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " rename"}}
+{"event_type": "text", "payload": {"chunk": " unless"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " touched"}}
+{"event_type": "text", "payload": {"chunk": " surface"}}
+{"event_type": "text", "payload": {"chunk": " is"}}
+{"event_type": "text", "payload": {"chunk": " already"}}
+{"event_type": "text", "payload": {"chunk": " small"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ".\n\n"}}
+{"event_type": "text", "payload": {"chunk": "3"}}
+{"event_type": "text", "payload": {"chunk": "."}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Strict"}}
+{"event_type": "text", "payload": {"chunk": " validation"}}
+{"event_type": "text", "payload": {"chunk": " policy"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " These"}}
+{"event_type": "text", "payload": {"chunk": " are"}}
+{"event_type": "text", "payload": {"chunk": " product"}}
+{"event_type": "text", "payload": {"chunk": " decisions"}}
+{"event_type": "text", "payload": {"chunk": " more"}}
+{"event_type": "text", "payload": {"chunk": " than"}}
+{"event_type": "text", "payload": {"chunk": " implementation"}}
+{"event_type": "text", "payload": {"chunk": " details"}}
+{"event_type": "text", "payload": {"chunk": ":\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "management"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " provider"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " +"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "exact"}}
+{"event_type": "text", "payload": {"chunk": "ly"}}
+{"event_type": "text", "payload": {"chunk": " one"}}
+{"event_type": "text", "payload": {"chunk": " of"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "url"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " or"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "connector"}}
+{"event_type": "text", "payload": {"chunk": "_id"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "connector"}}
+{"event_type": "text", "payload": {"chunk": "_id"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " must"}}
+{"event_type": "text", "payload": {"chunk": " hard"}}
+{"event_type": "text", "payload": {"chunk": "-match"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "SDK"}}
+{"event_type": "text", "payload": {"chunk": "-derived"}}
+{"event_type": "text", "payload": {"chunk": " literal"}}
+{"event_type": "text", "payload": {"chunk": " set"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "access"}}
+{"event_type": "text", "payload": {"chunk": "_token"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " required"}}
+{"event_type": "text", "payload": {"chunk": " for"}}
+{"event_type": "text", "payload": {"chunk": " connectors"}}
+{"event_type": "text", "payload": {"chunk": "\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " explicit"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "transport"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " rejected"}}
+{"event_type": "text", "payload": {"chunk": " for"}}
+{"event_type": "text", "payload": {"chunk": " connectors"}}
+{"event_type": "text", "payload": {"chunk": "\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " My"}}
+{"event_type": "text", "payload": {"chunk": " recommendation"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "t"}}
+{"event_type": "text", "payload": {"chunk": "reat"}}
+{"event_type": "text", "payload": {"chunk": " all"}}
+{"event_type": "text", "payload": {"chunk": " of"}}
+{"event_type": "text", "payload": {"chunk": " those"}}
+{"event_type": "text", "payload": {"chunk": " as"}}
+{"event_type": "text", "payload": {"chunk": " hard"}}
+{"event_type": "text", "payload": {"chunk": " errors"}}
+{"event_type": "text", "payload": {"chunk": "**,"}}
+{"event_type": "text", "payload": {"chunk": " not"}}
+{"event_type": "text", "payload": {"chunk": " warnings"}}
+{"event_type": "text", "payload": {"chunk": ".\n\n"}}
+{"event_type": "text", "payload": {"chunk": "4"}}
+{"event_type": "text", "payload": {"chunk": "."}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Whether"}}
+{"event_type": "text", "payload": {"chunk": " to"}}
+{"event_type": "text", "payload": {"chunk": " support"}}
+{"event_type": "text", "payload": {"chunk": " connectors"}}
+{"event_type": "text", "payload": {"chunk": " anywhere"}}
+{"event_type": "text", "payload": {"chunk": " outside"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "m"}}
+{"event_type": "text", "payload": {"chunk": "cp"}}
+{"event_type": "text", "payload": {"chunk": ".serv"}}
+{"event_type": "text", "payload": {"chunk": "ers"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " right"}}
+{"event_type": "text", "payload": {"chunk": " now"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " The"}}
+{"event_type": "text", "payload": {"chunk": " plan"}}
+{"event_type": "text", "payload": {"chunk": " says"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "no"}}
+{"event_type": "text", "payload": {"chunk": " free"}}
+{"event_type": "text", "payload": {"chunk": "form"}}
+{"event_type": "text", "payload": {"chunk": " `/"}}
+{"event_type": "text", "payload": {"chunk": "m"}}
+{"event_type": "text", "payload": {"chunk": "cp"}}
+{"event_type": "text", "payload": {"chunk": " connect"}}
+{"event_type": "text", "payload": {"chunk": " connector"}}
+{"event_type": "text", "payload": {"chunk": "_*"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " syntax"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " Optional"}}
+{"event_type": "text", "payload": {"chunk": " later"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " structured"}}
+{"event_type": "text", "payload": {"chunk": " Agent"}}
+{"event_type": "text", "payload": {"chunk": "Card"}}
+{"event_type": "text", "payload": {"chunk": " entries"}}
+{"event_type": "text", "payload": {"chunk": " only"}}
+{"event_type": "text", "payload": {"chunk": "\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " My"}}
+{"event_type": "text", "payload": {"chunk": " recommendation"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "keep"}}
+{"event_type": "text", "payload": {"chunk": " runtime"}}
+{"event_type": "text", "payload": {"chunk": " target"}}
+{"event_type": "text", "payload": {"chunk": " parsing"}}
+{"event_type": "text", "payload": {"chunk": " out"}}
+{"event_type": "text", "payload": {"chunk": " of"}}
+{"event_type": "text", "payload": {"chunk": " scope"}}
+{"event_type": "text", "payload": {"chunk": " entirely"}}
+{"event_type": "text", "payload": {"chunk": "**\n\n"}}
+{"event_type": "text", "payload": {"chunk": "5"}}
+{"event_type": "text", "payload": {"chunk": "."}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Provider"}}
+{"event_type": "text", "payload": {"chunk": " scope"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " Plan"}}
+{"event_type": "text", "payload": {"chunk": " recommends"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Open"}}
+{"event_type": "text", "payload": {"chunk": "AI"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "responses"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " only"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " Explicit"}}
+{"event_type": "text", "payload": {"chunk": "ly"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "not"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "cod"}}
+{"event_type": "text", "payload": {"chunk": "ex"}}
+{"event_type": "text", "payload": {"chunk": "responses"}}
+{"event_type": "text", "payload": {"chunk": "`,"}}
+{"event_type": "text", "payload": {"chunk": " Open"}}
+{"event_type": "text", "payload": {"chunk": "AI"}}
+{"event_type": "text", "payload": {"chunk": "-compatible"}}
+{"event_type": "text", "payload": {"chunk": " providers"}}
+{"event_type": "text", "payload": {"chunk": ","}}
+{"event_type": "text", "payload": {"chunk": " Anth"}}
+{"event_type": "text", "payload": {"chunk": "ropic"}}
+{"event_type": "text", "payload": {"chunk": ","}}
+{"event_type": "text", "payload": {"chunk": " etc"}}
+{"event_type": "text", "payload": {"chunk": ".\n"}}
+{"event_type": "text", "payload": {"chunk": "  "}}
+{"event_type": "text", "payload": {"chunk": " -"}}
+{"event_type": "text", "payload": {"chunk": " My"}}
+{"event_type": "text", "payload": {"chunk": " recommendation"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "say"}}
+{"event_type": "text", "payload": {"chunk": " no"}}
+{"event_type": "text", "payload": {"chunk": " to"}}
+{"event_type": "text", "payload": {"chunk": " all"}}
+{"event_type": "text", "payload": {"chunk": " of"}}
+{"event_type": "text", "payload": {"chunk": " those"}}
+{"event_type": "text", "payload": {"chunk": " for"}}
+{"event_type": "text", "payload": {"chunk": " initial"}}
+{"event_type": "text", "payload": {"chunk": " implementation"}}
+{"event_type": "text", "payload": {"chunk": "**\n\n"}}
+{"event_type": "text", "payload": {"chunk": "If"}}
+{"event_type": "text", "payload": {"chunk": " you"}}
+{"event_type": "text", "payload": {"chunk": " want"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " practical"}}
+{"event_type": "text", "payload": {"chunk": " answer"}}
+{"event_type": "text", "payload": {"chunk": ","}}
+{"event_type": "text", "payload": {"chunk": " I"}}
+{"event_type": "text", "payload": {"chunk": "\u2019d"}}
+{"event_type": "text", "payload": {"chunk": " lock"}}
+{"event_type": "text", "payload": {"chunk": " in"}}
+{"event_type": "text", "payload": {"chunk": " this"}}
+{"event_type": "text", "payload": {"chunk": " exact"}}
+{"event_type": "text", "payload": {"chunk": " set"}}
+{"event_type": "text", "payload": {"chunk": " and"}}
+{"event_type": "text", "payload": {"chunk": " start"}}
+{"event_type": "text", "payload": {"chunk": " coding"}}
+{"event_type": "text", "payload": {"chunk": ":\n\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Yes"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "m"}}
+{"event_type": "text", "payload": {"chunk": "cp"}}
+{"event_type": "text", "payload": {"chunk": ".serv"}}
+{"event_type": "text", "payload": {"chunk": "ers"}}
+{"event_type": "text", "payload": {"chunk": ".<"}}
+{"event_type": "text", "payload": {"chunk": "name"}}
+{"event_type": "text", "payload": {"chunk": ">."}}
+{"event_type": "text", "payload": {"chunk": "management"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " provider"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " +"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "connector"}}
+{"event_type": "text", "payload": {"chunk": "_id"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Yes"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " exactly"}}
+{"event_type": "text", "payload": {"chunk": " one"}}
+{"event_type": "text", "payload": {"chunk": " of"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "url"}}
+{"event_type": "text", "payload": {"chunk": " |"}}
+{"event_type": "text", "payload": {"chunk": " connector"}}
+{"event_type": "text", "payload": {"chunk": "_id"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Yes"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " strict"}}
+{"event_type": "text", "payload": {"chunk": " SDK"}}
+{"event_type": "text", "payload": {"chunk": "-backed"}}
+{"event_type": "text", "payload": {"chunk": " connector"}}
+{"event_type": "text", "payload": {"chunk": " validation"}}
+{"event_type": "text", "payload": {"chunk": "\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Yes"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " auto"}}
+{"event_type": "text", "payload": {"chunk": " reuse"}}
+{"event_type": "text", "payload": {"chunk": " of"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "de"}}
+{"event_type": "text", "payload": {"chunk": "fer"}}
+{"event_type": "text", "payload": {"chunk": "_loading"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " /"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "tool"}}
+{"event_type": "text", "payload": {"chunk": "_search"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "No"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " `/"}}
+{"event_type": "text", "payload": {"chunk": "m"}}
+{"event_type": "text", "payload": {"chunk": "cp"}}
+{"event_type": "text", "payload": {"chunk": " connect"}}
+{"event_type": "text", "payload": {"chunk": "`"}}
+{"event_type": "text", "payload": {"chunk": " connector"}}
+{"event_type": "text", "payload": {"chunk": " syntax"}}
+{"event_type": "text", "payload": {"chunk": "\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "No"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " `"}}
+{"event_type": "text", "payload": {"chunk": "cod"}}
+{"event_type": "text", "payload": {"chunk": "ex"}}
+{"event_type": "text", "payload": {"chunk": "responses"}}
+{"event_type": "text", "payload": {"chunk": "`\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Maybe"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " Agent"}}
+{"event_type": "text", "payload": {"chunk": "Cards"}}
+{"event_type": "text", "payload": {"chunk": " in"}}
+{"event_type": "text", "payload": {"chunk": " PR"}}
+{"event_type": "text", "payload": {"chunk": "1"}}
+{"event_type": "text", "payload": {"chunk": "\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Probably"}}
+{"event_type": "text", "payload": {"chunk": " no"}}
+{"event_type": "text", "payload": {"chunk": "**"}}
+{"event_type": "text", "payload": {"chunk": ":"}}
+{"event_type": "text", "payload": {"chunk": " internal"}}
+{"event_type": "text", "payload": {"chunk": " type"}}
+{"event_type": "text", "payload": {"chunk": " rename"}}
+{"event_type": "text", "payload": {"chunk": " in"}}
+{"event_type": "text", "payload": {"chunk": " PR"}}
+{"event_type": "text", "payload": {"chunk": "1"}}
+{"event_type": "text", "payload": {"chunk": "\n\n"}}
+{"event_type": "text", "payload": {"chunk": "So"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " only"}}
+{"event_type": "text", "payload": {"chunk": " real"}}
+{"event_type": "text", "payload": {"chunk": " calls"}}
+{"event_type": "text", "payload": {"chunk": " you"}}
+{"event_type": "text", "payload": {"chunk": " still"}}
+{"event_type": "text", "payload": {"chunk": " need"}}
+{"event_type": "text", "payload": {"chunk": " to"}}
+{"event_type": "text", "payload": {"chunk": " make"}}
+{"event_type": "text", "payload": {"chunk": " are"}}
+{"event_type": "text", "payload": {"chunk": ":\n\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Do"}}
+{"event_type": "text", "payload": {"chunk": " Agent"}}
+{"event_type": "text", "payload": {"chunk": "Cards"}}
+{"event_type": "text", "payload": {"chunk": " ship"}}
+{"event_type": "text", "payload": {"chunk": " in"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " first"}}
+{"event_type": "text", "payload": {"chunk": " PR"}}
+{"event_type": "text", "payload": {"chunk": "?"}}
+{"event_type": "text", "payload": {"chunk": "**\n"}}
+{"event_type": "text", "payload": {"chunk": "-"}}
+{"event_type": "text", "payload": {"chunk": " **"}}
+{"event_type": "text", "payload": {"chunk": "Do"}}
+{"event_type": "text", "payload": {"chunk": " you"}}
+{"event_type": "text", "payload": {"chunk": " want"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " internal"}}
+{"event_type": "text", "payload": {"chunk": " rename"}}
+{"event_type": "text", "payload": {"chunk": " now"}}
+{"event_type": "text", "payload": {"chunk": ","}}
+{"event_type": "text", "payload": {"chunk": " or"}}
+{"event_type": "text", "payload": {"chunk": " keep"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " diff"}}
+{"event_type": "text", "payload": {"chunk": " minimal"}}
+{"event_type": "text", "payload": {"chunk": "?"}}
+{"event_type": "text", "payload": {"chunk": "**\n\n"}}
+{"event_type": "text", "payload": {"chunk": "Everything"}}
+{"event_type": "text", "payload": {"chunk": " else"}}
+{"event_type": "text", "payload": {"chunk": " in"}}
+{"event_type": "text", "payload": {"chunk": " the"}}
+{"event_type": "text", "payload": {"chunk": " plan"}}
+{"event_type": "text", "payload": {"chunk": " reads"}}
+{"event_type": "text", "payload": {"chunk": " as"}}
+{"event_type": "text", "payload": {"chunk": " already"}}
+{"event_type": "text", "payload": {"chunk": " decided"}}
+{"event_type": "text", "payload": {"chunk": ".\n\n"}}
+{"event_type": "text", "payload": {"chunk": "If"}}
+{"event_type": "text", "payload": {"chunk": " you"}}
+{"event_type": "text", "payload": {"chunk": " want"}}
+{"event_type": "text", "payload": {"chunk": ","}}
+{"event_type": "text", "payload": {"chunk": " I"}}
+{"event_type": "text", "payload": {"chunk": " can"}}
+{"event_type": "text", "payload": {"chunk": " turn"}}
+{"event_type": "text", "payload": {"chunk": " that"}}
+{"event_type": "text", "payload": {"chunk": " into"}}
+{"event_type": "text", "payload": {"chunk": " a"}}
+{"event_type": "text", "payload": {"chunk": " concrete"}}
+{"event_type": "text", "payload": {"chunk": " implementation"}}
+{"event_type": "text", "payload": {"chunk": " checklist"}}
+{"event_type": "text", "payload": {"chunk": " by"}}
+{"event_type": "text", "payload": {"chunk": " file"}}
+{"event_type": "text", "payload": {"chunk": "."}}

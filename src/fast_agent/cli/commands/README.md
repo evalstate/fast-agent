@@ -16,15 +16,18 @@ fast-agent go [OPTIONS]
 ### Options
 
 - `--name TEXT`: Name for the agent (default: "FastAgent CLI")
-- `--instruction`, `-i TEXT`: Instruction for the agent (default: "You are a helpful AI Agent.")
-- `--config-path`, `-c TEXT`: Path to config file
+- `--instruction`, `-i <path-or-uri>`: Instruction file path, HTTP(S) URL, `file://` URI, or `hf://` URI for the agent
+- `--config-path`, `-c <path-or-uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to config file
 - `--servers TEXT`: Comma-separated list of server names to enable from config
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
-- `--message`, `-m TEXT`: Message to send to the agent (skips interactive mode)
-- `--prompt-file`, `-p TEXT`: Path to a prompt file to use (either text or JSON)
+- `--pack`, `--card-pack TEXT`: Install or reuse a named card pack in the selected environment before launch
+- `--pack-registry <path-or-uri>`: Marketplace path, HTTP(S) URL, `file://` URI, or `hf://` URI used to resolve `--pack` when it is not already installed
+- `--message`, `-m TEXT`: Message to send to the agent once, then exit
+- `--prompt-file`, `-p <path-or-uri>`: Prompt file path, HTTP(S) URL, `file://` URI, or `hf://` URI to send to the agent once, then exit (either text or JSON)
+- `--json-schema <path-or-uri>`: JSON Schema file path, HTTP(S) URL, `file://` URI, or `hf://` URI for one-shot structured output
 - `--quiet`: Disable progress display and logging
 
 The `--model` value can include query overrides such as
@@ -33,11 +36,20 @@ The `--model` value can include query overrides such as
 earlier Sonnet 4 / Sonnet 4.5 models; Sonnet 4.6 and Opus 4.6 already have long
 context enabled by default.
 
+When you use `--pack`, the `--model` value is still a fallback. If an AgentCard
+inside the pack declares an explicit model, that card model takes precedence.
+
 ### Examples
 
 ```bash
 # Basic usage with interactive mode
 fast-agent go --model=haiku
+
+# Install or reuse a card pack, then launch immediately
+fast-agent go --pack analyst --model haiku
+
+# Resolve the pack from a specific marketplace file and target a specific agent
+fast-agent go --pack analyst --pack-registry ./marketplace.json --agent planner --model haiku
 
 # Specifying servers from configuration
 fast-agent go --servers=fetch,filesystem --model=haiku
@@ -51,8 +63,11 @@ fast-agent go --url=https://api.example.com/mcp --auth=YOUR_API_TOKEN
 # Non-interactive mode with a single message
 fast-agent go --message="What is the weather today?" --model=haiku
 
-# Using a prompt file
+# Non-interactive mode with a prompt file
 fast-agent go --prompt-file=my-prompt.txt --model=haiku
+
+# Non-interactive mode with a prompt from Hugging Face Hub generic storage
+fast-agent go --prompt-file hf://buckets/evalstate/home/demo.md --model=haiku
 ```
 
 ### URL Connection Details
@@ -87,10 +102,10 @@ fast-agent serve [OPTIONS]
 ### Options
 
 - `--name TEXT`: Name for the MCP server (default: "fast-agent")
-- `--instruction`, `-i TEXT`: Instruction for the agent (defaults to the standard FastAgent instruction)
-- `--config-path`, `-c TEXT`: Path to config file
+- `--instruction`, `-i <path-or-uri>`: Instruction file path, HTTP(S) URL, `file://` URI, or `hf://` URI for the agent
+- `--config-path`, `-c <path-or-uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to config file
 - `--servers TEXT`: Comma-separated list of server names to enable from config
-- `--card`, `--agent-cards TEXT`: Path or URL to an AgentCard file or directory (repeatable)
+- `--card`, `--agent-cards <path-or-uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to an AgentCard file or directory (repeatable)
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers
@@ -105,7 +120,7 @@ fast-agent serve [OPTIONS]
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
 - `--tool-name-template TEXT`: Template for exposed agent tool names (supports `{agent}` placeholder)
-- `--instance-scope [shared|connection|request]`: Control how MCP clients receive isolated agent instances (default: shared)
+- `--instance-scope [shared|connection|request]`: Control how clients receive isolated agent instances (default: shared; ACP is always connection-scoped)
 - `--reload`: Enable manual AgentCard reloads (ACP: `/reload`, MCP: `reload_agent_cards`)
 - `--watch`: Watch AgentCard paths and reload
 

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from mcp.types import Completion as MCPCompletion
 from mcp.types import ResourceTemplate, TextContent
-from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.completion import CompleteEvent, Completion
 from prompt_toolkit.document import Document
 
 import fast_agent.config as config_module
@@ -19,11 +19,13 @@ from fast_agent.config import (
     CardsSettings,
     MCPServerSettings,
     MCPSettings,
+    PluginsSettings,
     Settings,
     SkillsSettings,
     get_settings,
     update_global_settings,
 )
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import get_session_manager, reset_session_manager
 from fast_agent.skills.models import (
@@ -54,6 +56,16 @@ class _ProviderStub:
 
     def _agent(self, _name: str) -> object:
         return self._agent_obj
+
+
+class _ReasoningLlmStub:
+    reasoning_effort_spec = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+        allow_auto=True,
+        allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="auto"),
+    )
 
 
 class _McpSessionClientStub:
@@ -179,6 +191,21 @@ class _HistoryAgentStub:
         ]
 
 
+def test_model_reasoning_values_prefer_adaptive_label_over_auto() -> None:
+    agent = SimpleNamespace(llm=_ReasoningLlmStub())
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(agent)),
+    )
+
+    values = completer._resolve_reasoning_values()
+
+    assert "adaptive" in values
+    assert "auto" not in values
+    assert values.count("adaptive") == 1
+
+
 def test_complete_history_files_finds_json_and_md():
     """Test that _complete_history_files finds .json and .md files."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -228,6 +255,26 @@ def test_complete_history_files_includes_directories():
             assert "subdir/" in names
         finally:
             os.chdir(original_cwd)
+
+
+def test_configured_mcp_server_target_uses_provider_base_url_only_for_provider_servers() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    provider_target = completer._configured_mcp_server_target(
+        {
+            "management": "provider",
+            "url": "https://example.com/api/mcp",
+        }
+    )
+    client_target = completer._configured_mcp_server_target(
+        {
+            "management": "client",
+            "url": "https://example.com/api/mcp",
+        }
+    )
+
+    assert provider_target == "https://example.com/api"
+    assert client_target == "https://example.com/api/mcp"
 
 
 def test_complete_history_files_filters_by_prefix():
@@ -438,6 +485,7 @@ def test_get_completions_for_model_subcommands_includes_web_search_when_supporte
         text_verbosity_spec = None
         service_tier_supported = True
         available_service_tiers = ("fast", "flex")
+        task_budget_supported = True
         web_search_supported = True
         web_fetch_supported = False
 
@@ -455,6 +503,7 @@ def test_get_completions_for_model_subcommands_includes_web_search_when_supporte
     names = [c.text for c in completions]
 
     assert "reasoning" in names
+    assert "task_budget" in names
     assert "fast" in names
     assert "web_search" in names
     assert "web_fetch" not in names
@@ -464,6 +513,8 @@ def test_get_completions_for_model_subcommands_includes_web_fetch_when_supported
     class _LlmStub:
         reasoning_effort_spec = None
         text_verbosity_spec = None
+        service_tier_supported = False
+        available_service_tiers = ()
         web_search_supported = True
         web_fetch_supported = True
 
@@ -512,6 +563,32 @@ def test_get_completions_for_model_fast_values() -> None:
     assert "status" in names
 
 
+def test_get_completions_for_model_task_budget_values() -> None:
+    class _LlmStub:
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        service_tier_supported = False
+        available_service_tiers = ()
+        task_budget_supported = True
+        web_search_supported = False
+        web_fetch_supported = False
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model task_budget ", cursor_position=len("/model task_budget "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert names == ["off", "20k", "64k", "128k", "256k"]
+
+
 def test_get_completions_for_model_fast_values_codexresponses_omit_flex() -> None:
     class _LlmStub:
         reasoning_effort_spec = None
@@ -541,6 +618,8 @@ def test_get_completions_for_model_web_search_values() -> None:
     class _LlmStub:
         reasoning_effort_spec = None
         text_verbosity_spec = None
+        service_tier_supported = False
+        available_service_tiers = ()
         web_search_supported = True
         web_fetch_supported = False
 
@@ -566,6 +645,8 @@ def test_get_completions_for_model_web_fetch_values_omits_unsupported_setting() 
     class _LlmStub:
         reasoning_effort_spec = None
         text_verbosity_spec = None
+        service_tier_supported = False
+        available_service_tiers = ()
         web_search_supported = True
         web_fetch_supported = False
 
@@ -607,6 +688,29 @@ def test_get_completions_for_session_pin(tmp_path: Path) -> None:
         doc = Document("/session pin on ", cursor_position=len("/session pin on "))
         completions = list(completer.get_completions(doc, None))
         names = [c.text for c in completions]
+        assert session.info.name in names
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+def test_get_completions_for_session_export(tmp_path: Path) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        manager = get_session_manager()
+        session = manager.create_session()
+
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/session export ", cursor_position=len("/session export "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+
+        assert "latest" in names
         assert session.info.name in names
     finally:
         update_global_settings(old_settings)
@@ -729,6 +833,21 @@ def test_get_completions_for_cards_subcommands() -> None:
     assert "remove" in names
     assert "update" in names
     assert "publish" in names
+    assert "registry" in names
+
+
+def test_get_completions_for_plugins_subcommands() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/plugins ", cursor_position=len("/plugins "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "list" in names
+    assert "available" in names
+    assert "add" in names
+    assert "remove" in names
+    assert "update" in names
     assert "registry" in names
 
 
@@ -949,6 +1068,8 @@ def test_get_completions_for_mcp_session_jar_suppresses_single_server_noise() ->
 
 
 def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -973,6 +1094,8 @@ def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None
 
 
 def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -993,10 +1116,12 @@ def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeyp
     docs_completion = next((c for c in completions if c.text == "docs"), None)
 
     assert docs_completion is not None
-    assert docs_completion.display_meta_text == "https://example.test/mcp/docs"
+    assert docs_completion.display_meta_text == "https://example.test/mcp/docs/mcp"
 
 
 def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1017,6 +1142,8 @@ def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) ->
 
 
 def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1049,6 +1176,8 @@ def test_get_completions_for_connect_alias_connect_flags() -> None:
 
 def test_get_completions_for_skills_remove(monkeypatch):
     """Test get_completions suggests local skills for /skills remove."""
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
         skills_root = Path(tmpdir) / "skills"
         _write_skill(skills_root, "alpha")
@@ -1275,6 +1404,31 @@ def test_get_completions_for_cards_update_only_managed() -> None:
             update_global_settings(old_settings)
 
 
+def test_get_completions_for_plugins_registry() -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "plugins": PluginsSettings(
+                marketplace_urls=[
+                    "https://example.com/plugins-one.json",
+                    "https://example.com/plugins-two.json",
+                ]
+            )
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/plugins registry ", cursor_position=len("/plugins registry "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+
+        assert "1" in names
+        assert "2" in names
+    finally:
+        update_global_settings(old_settings)
+
+
 def test_get_completions_for_cards_publish_flags() -> None:
     completer = AgentCompleter(agents=["agent1"])
     doc = Document("/cards publish --", cursor_position=len("/cards publish --"))
@@ -1435,8 +1589,26 @@ def test_resource_mention_server_completion_filters_connected_resource_servers()
     names = [c.text for c in completions]
 
     assert "demo:" in names
+    assert "file:" in names
+    assert "url:" in names
     assert "offline:" not in names
     assert "nores:" not in names
+
+
+def test_resource_mention_builtin_attachment_server_completion_meta() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionFilteredAgentStub())),
+    )
+
+    doc = Document("^", cursor_position=1)
+    completions = list(completer.get_completions(doc, None))
+    meta_by_text = {completion.text: completion.display_meta_text for completion in completions}
+
+    assert meta_by_text["file:"] == "local file attachment"
+    assert meta_by_text["url:"] == "remote URL attachment"
+    assert meta_by_text["demo:"] == "connected mcp server (resources)"
 
 
 def test_resource_mention_resource_and_template_completion() -> None:
@@ -1452,6 +1624,129 @@ def test_resource_mention_resource_and_template_completion() -> None:
 
     assert "repo://items/123" in names
     assert "repo://items/{id}{" in names
+
+
+def test_resource_mention_local_file_completion_encodes_spaces() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "two words.txt").write_text("hi", encoding="utf-8")
+
+        completer = AgentCompleter(agents=["agent1"])
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+            doc = Document("^file:./two", cursor_position=len("^file:./two"))
+            completions = list(completer.get_completions(doc, None))
+        finally:
+            os.chdir(original_cwd)
+
+    assert any(completion.text == "./two%20words.txt" for completion in completions)
+
+
+def test_resource_mention_local_file_completion_uses_completer_cwd() -> None:
+    with tempfile.TemporaryDirectory() as shell_dir, tempfile.TemporaryDirectory() as process_dir:
+        shell_base = Path(shell_dir)
+        process_base = Path(process_dir)
+        (shell_base / "shell note.txt").write_text("shell", encoding="utf-8")
+        (process_base / "process note.txt").write_text("process", encoding="utf-8")
+
+        completer = AgentCompleter(agents=["agent1"], cwd=shell_base)
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(process_base)
+            doc = Document("^file:./shell", cursor_position=len("^file:./shell"))
+            completions = list(completer.get_completions(doc, None))
+        finally:
+            os.chdir(original_cwd)
+
+    names = [completion.text for completion in completions]
+    assert "./shell%20note.txt" in names
+    assert "./process%20note.txt" not in names
+
+
+def test_resource_mention_url_completion_offers_http_schemes() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("^url:h", cursor_position=len("^url:h"))
+    completions = list(completer.get_completions(doc, None))
+
+    names = [completion.text for completion in completions]
+    assert "https://" in names
+    assert "http://" in names
+
+
+def test_attach_command_completion_offers_clear_and_paths() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "report.pdf").write_bytes(b"%PDF-1.4")
+        (base / "two words.pdf").write_bytes(b"%PDF-1.4")
+
+        completer = AgentCompleter(agents=["agent1"])
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+            doc = Document("/attach t", cursor_position=len("/attach t"))
+            completions = list(completer.get_completions(doc, None))
+        finally:
+            os.chdir(original_cwd)
+
+    names = [completion.text for completion in completions]
+    assert "'two words.pdf'" in names
+
+
+def test_attach_command_completion_uses_completer_cwd() -> None:
+    with tempfile.TemporaryDirectory() as shell_dir, tempfile.TemporaryDirectory() as process_dir:
+        shell_base = Path(shell_dir)
+        process_base = Path(process_dir)
+        (shell_base / "two words.pdf").write_bytes(b"%PDF-1.4")
+        (process_base / "temp.pdf").write_bytes(b"%PDF-1.4")
+
+        completer = AgentCompleter(agents=["agent1"], cwd=shell_base)
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(process_base)
+            doc = Document("/attach t", cursor_position=len("/attach t"))
+            completions = list(completer.get_completions(doc, None))
+        finally:
+            os.chdir(original_cwd)
+
+    names = [completion.text for completion in completions]
+    assert "'two words.pdf'" in names
+    assert "temp.pdf" not in names
+
+
+def test_attach_command_completion_offers_https_hint() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/attach h", cursor_position=len("/attach h"))
+    completions = list(completer.get_completions(doc, None))
+
+    names = [completion.text for completion in completions]
+    assert "https://" in names
+
+
+def test_attach_command_completion_quotes_windows_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("fast_agent.utils.commandline.os.name", "nt")
+
+    completer = AgentCompleter(agents=["agent1"])
+    completion = Completion(
+        r"C:\Program Files\Tool\tool.exe",
+        start_position=0,
+        display=r"C:\Program Files\Tool\tool.exe",
+        display_meta="path",
+    )
+
+    def _complete_shell_paths(partial: str, delete_len: int, max_results: int = 100) -> list[Completion]:
+        del partial, delete_len, max_results
+        return [completion]
+
+    monkeypatch.setattr(completer, "_complete_shell_paths", _complete_shell_paths)
+
+    doc = Document("/attach C:\\Pro", cursor_position=len("/attach C:\\Pro"))
+    completions = list(completer.get_completions(doc, None))
+
+    names = [item.text for item in completions]
+    assert '"C:\\Program Files\\Tool\\tool.exe"' in names
 
 
 def test_resource_mention_argument_value_completion() -> None:

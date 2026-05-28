@@ -43,6 +43,22 @@ def test_parse_mcp_connect_preserves_quoted_target_arguments() -> None:
     assert result.server_name == "docs"
 
 
+def test_parse_mcp_connect_preserves_quoted_windows_path() -> None:
+    result = parse_special_input('/mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag')
+    assert isinstance(result, McpConnectCommand)
+    assert result.request is not None
+    assert result.request.target.command == "C:\\Program Files\\Tool\\tool.exe"
+    assert result.request.target.args == ("--flag",)
+
+
+def test_connect_alias_matches_mcp_connect() -> None:
+    alias = parse_special_input('/connect demo-server --root "My Folder" --name docs')
+    explicit = parse_special_input('/mcp connect demo-server --root "My Folder" --name docs')
+    assert isinstance(alias, McpConnectCommand)
+    assert isinstance(explicit, McpConnectCommand)
+    assert alias.request == explicit.request
+
+
 def test_parse_mcp_disconnect() -> None:
     result = parse_special_input("/mcp disconnect local")
     assert isinstance(result, McpDisconnectCommand)

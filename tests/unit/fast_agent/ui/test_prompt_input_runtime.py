@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from typing import TextIO, cast
+from typing import TYPE_CHECKING, TextIO, cast
+
+import pytest
 
 from fast_agent.ui.prompt import input_runtime
+from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
+
+if TYPE_CHECKING:
+    from prompt_toolkit import PromptSession
 
 
 class _FakeStream:
@@ -57,3 +63,28 @@ def test_format_prompt_prefix_omits_default_agent_name() -> None:
     assert input_runtime._format_prompt_prefix("dev", default_agent_name="dev") == "❯"
     assert input_runtime._format_prompt_prefix("default") == "default ❯"
     assert input_runtime._format_prompt_prefix("dev") == "dev ❯"
+
+
+@pytest.mark.asyncio
+async def test_run_prompt_once_converts_prompt_input_interrupt_to_interrupt_command() -> None:
+    class _Buffer:
+        def __init__(self) -> None:
+            self.accept_handler = None
+
+    class _Session:
+        def __init__(self) -> None:
+            self.default_buffer = _Buffer()
+
+        async def prompt_async(self, *_args, **_kwargs):
+            raise PromptInputInterrupt()
+
+    result = await input_runtime.run_prompt_once(
+        session=cast("PromptSession", _Session()),
+        agent_name="agent",
+        default_agent_name="agent",
+        default_buffer="",
+        resolve_prompt_text=lambda: "❯ ",
+        parse_special_input=lambda value: value,
+    )
+
+    assert type(result).__name__ == "InterruptCommand"

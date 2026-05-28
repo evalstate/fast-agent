@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.agent_app import AgentRefreshResult
 from fast_agent.ui import enhanced_prompt, interactive_prompt
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 
@@ -20,6 +21,8 @@ class _FakeAgentApp:
     def __init__(self) -> None:
         self._agents: dict[str, _FakeAgent] = {"vertex-rag": _FakeAgent()}
         self._refreshed = False
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:
         if self._refreshed:
@@ -27,6 +30,9 @@ class _FakeAgentApp:
         self._agents["sizer"] = _FakeAgent()
         self._refreshed = True
         return True
+
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return AgentRefreshResult(changed=self._refreshed)
 
     def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
         del force_include
@@ -59,6 +65,8 @@ class _FakeAgentAppRemove:
             "sizer": _FakeAgent(),
         }
         self._refreshed = False
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:
         if self._refreshed:
@@ -66,6 +74,9 @@ class _FakeAgentAppRemove:
         self._agents.pop("sizer", None)
         self._refreshed = True
         return True
+
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return AgentRefreshResult(changed=self._refreshed)
 
     def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
         del force_include
@@ -99,12 +110,17 @@ class _FakeToolOnlyAgentApp:
         }
         self._tool_only = {"tool-only"}
         self._refreshed = False
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:
         if self._refreshed:
             return False
         self._refreshed = True
         return True
+
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return AgentRefreshResult(changed=self._refreshed)
 
     def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
         names = [name for name in self._agents.keys() if name not in self._tool_only]

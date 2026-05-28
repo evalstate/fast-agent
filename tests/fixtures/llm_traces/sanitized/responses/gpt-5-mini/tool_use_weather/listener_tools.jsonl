@@ -1,7 +1,7 @@
-{"event_type": "start", "payload": {"index": 1, "tool_name": "weather", "tool_use_id": "call_1"}}
-{"event_type": "delta", "payload": {"chunk": "{\"", "index": 1, "tool_name": "weather", "tool_use_id": "call_1"}}
-{"event_type": "delta", "payload": {"chunk": "city", "index": 1, "tool_name": "weather", "tool_use_id": "call_1"}}
-{"event_type": "delta", "payload": {"chunk": "\":\"", "index": 1, "tool_name": "weather", "tool_use_id": "call_1"}}
-{"event_type": "delta", "payload": {"chunk": "Paris", "index": 1, "tool_name": "weather", "tool_use_id": "call_1"}}
-{"event_type": "delta", "payload": {"chunk": "\"}", "index": 1, "tool_name": "weather", "tool_use_id": "call_1"}}
-{"event_type": "stop", "payload": {"index": 1, "tool_display_name": null, "tool_name": "weather", "tool_use_id": "call_1"}}
+{"event_type": "start", "payload": {"index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "{\"", "index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "city", "index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "\":\"", "index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "Paris", "index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "\"}", "index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_use_id": "call_1"}}
+{"event_type": "stop", "payload": {"index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_use_id": "call_1"}}

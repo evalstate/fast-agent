@@ -57,3 +57,19 @@ async def test_retry_attempts_and_backoff_are_configurable():
 
     assert llm.attempts == 2  # initial + 1 retry
     assert response.stop_reason == LlmStopReason.ERROR
+
+
+@pytest.mark.asyncio
+async def test_retry_notices_are_emitted_on_stderr(capsys):
+    ctx = SimpleNamespace(executor=None, config=None)
+    llm = FailingOpenAILLM(context=ctx, name="fail-llm")
+    llm.retry_count = 1
+    llm.retry_backoff_seconds = 0.01
+
+    await llm.generate([Prompt.user("hi")])
+
+    captured = capsys.readouterr()
+    assert "Provider Error" not in captured.out
+    assert "Retrying in" not in captured.out
+    assert "Provider Error" in captured.err
+    assert "Retrying in" in captured.err

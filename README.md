@@ -7,10 +7,65 @@
 <a href="https://github.com/evalstate/fast-agent-mcp/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/fast-agent-mcp" /></a>
 </p>
 
-## Overview
+## Start Here
 
 > [!TIP]
-> Please see : https://fast-agent.ai for latest documentation. There is also an LLMs.txt [here](https://fast-agent.ai/llms.txt)
+> Please see https://fast-agent.ai for latest documentation.
+
+**`fast-agent`** is a flexible way to interact with LLMs, excellent for use as a Coding Agent, Development Toolkit, Evaluation or Workflow platform.
+
+To start an interactive session with shell support, install [uv](https://astral.sh/uv) and run
+
+```bash
+uvx fast-agent-mcp@latest -x
+```
+
+To start coding with Hugging Face inference providers or use your OpenAI Codex plan:
+
+```bash
+# Code with Hugging Face Inference Providers
+uvx fast-agent-mcp@latest --pack hf-dev
+
+# Code with Codex (agents optimized for OpenAI)
+uvx fast-agent-mcp@latest --pack codex
+```
+
+Enter a shell with `!`, or run shell commands e.g. `! cd web && npm run build`.
+
+Manage skills with the `/skills` command, and connect to MCP Servers with `/connect`. The default **`fast-agent`** registry contains skills to let you set up LSP, Agent and Tool Hooks, Compaction strategies, Automation and more.
+
+```bash
+# /connect supports stdio or streamable http (with OAuth)
+
+# Start a STDIO server
+/connect @modelcontextprotocol/server-everything
+
+# Connect to a Streamable HTTP Server
+/connect https://huggingface.co/mcp
+```
+
+It's recommended to install **`fast-agent`** to set up the shell aliases and other tooling.
+
+```bash
+# Install fast-agent
+uv tool install -U fast-agent-mcp
+
+# Run fast-agent with opus, shell support and subagent/smart mode
+fast-agent --model opus -x --smart
+```
+
+Use local models with the generic provider, or automatically create the correct configuration for `llama.cpp`:
+
+```bash
+fast-agent model llamacpp
+```
+
+Any **`fast-agent`** setup or program can be used with any ACP client - the simplest way is to use `fast-agent-acp`:
+
+```bash
+# Run fast-agent inside Toad
+toad acp "fast-agent-acp -x --model sonnet"
+```
 
 **`fast-agent`** enables you to create and interact with sophisticated multimodal Agents and Workflows in minutes. It is the first framework with complete, end-to-end tested MCP Feature support including Sampling and Elicitations.
 
@@ -23,33 +78,22 @@ The simple declarative syntax lets you concentrate on composing your Prompts and
 Model support is comprehensive with native support for Anthropic, OpenAI and Google providers as well as Azure, Ollama, Deepseek and dozens of others via TensorZero. Structured Outputs, PDF and Vision support is simple to use and well tested. Passthrough and Playback LLMs enable rapid development and test of Python glue-code for your applications.
 
 Recent features include:
- - Agent Skills (SKILL.md)
- - MCP-UI Support |
- - OpenAI Apps SDK (Skybridge)
- - Shell Mode
- - Advanced MCP Transport Diagnsotics
- - MCP Elicitations
+
+- Agent Skills (SKILL.md)
+- MCP-UI Support |
+- OpenAI Apps SDK (Skybridge)
+- Shell Mode
+- Advanced MCP Transport Diagnsotics
+- MCP Elicitations
 
 <img width="800"  alt="MCP Transport Diagnostics" src="https://github.com/user-attachments/assets/e26472de-58d9-4726-8bdd-01eb407414cf" />
 
-
 `fast-agent` is the only tool that allows you to inspect Streamable HTTP Transport usage - a critical feature for ensuring reliable, compliant deployments. OAuth is supported with KeyRing storage for secrets. Use the `fast-agent auth` command to manage.
-
-
-
-
 
 > [!IMPORTANT]
 >
-> Documentation is included as a submodule. When cloning, use `--recurse-submodules` to get everything:
-> ```bash
-> git clone --recurse-submodules https://github.com/evalstate/fast-agent.git
-> ```
-> Or if you've already cloned:
-> ```bash
-> git submodule update --init --recursive
-> ```
-> The documentation source is also available at: https://github.com/evalstate/fast-agent-docs
+> Documentation is included in this repository under `docs/`. Use the docs helper script from the
+> repository root to install, generate, build, serve, screenshot, and assess the site.
 
 ### Agent Application Development
 
@@ -70,6 +114,7 @@ uv pip install fast-agent-mcp          # install fast-agent!
 fast-agent go                          # start an interactive session
 fast-agent go --url https://hf.co/mcp  # with a remote MCP
 fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
+fast-agent go --pack analyst --model haiku  # install/reuse a card pack and launch it
 fast-agent scaffold                    # create an example agent and config files
 uv run agent.py                        # run your first agent
 uv run agent.py --model='o3-mini?reasoning=low'    # specify a model
@@ -78,6 +123,11 @@ fast-agent quickstart workflow  # create "building effective agents" examples
 ```
 
 `--server` remains available for backward compatibility but is deprecated; `--transport` now automatically switches an agent into server mode.
+
+For packaged starter agents, use `fast-agent go --pack <name> --model <model>`.
+This installs the pack into the selected fast-agent environment if needed, then
+starts `go` normally. `--model` is a fallback for cards without an explicit
+model setting; a model declared directly in an AgentCard still wins.
 
 Other quickstart examples include a Researcher Agent (with Evaluator-Optimizer workflow) and Data Analysis Agent (similar to the ChatGPT experience), demonstrating MCP Roots support.
 
@@ -146,15 +196,15 @@ is accepted for backward compatibility but is unnecessary there.
 
 ### Combining Agents and using MCP Servers
 
-_To generate examples use `fast-agent quickstart workflow`. This example can be run with `uv run workflow/chaining.py`. fast-agent looks for configuration files in the current directory before checking parent directories recursively._
+_To generate examples use `fast-agent quickstart workflow`. This example can be run with `uv run workflow/chaining.py`. Place `fast-agent.yaml` in the active fast-agent home, or pass an explicit config path when needed._
 
-Agents can be chained to build a workflow, using MCP Servers defined in the `fastagent.config.yaml` file:
+Agents can be chained to build a workflow, using MCP Servers defined in the `fast-agent.yaml` file:
 
 ```python
 @fast.agent(
     "url_fetcher",
     "Given a URL, provide a complete and comprehensive summary",
-    servers=["fetch"], # Name of an MCP Server defined in fastagent.config.yaml
+    servers=["fetch"], # Name of an MCP Server defined in fast-agent.yaml
 )
 @fast.agent(
     "social_media",
@@ -255,7 +305,7 @@ Extended example and all params sample is available in the repository as
 
 For SSE and HTTP MCP servers, OAuth is enabled by default with minimal configuration. A local callback server is used to capture the authorization code, with a paste-URL fallback if the port is unavailable.
 
-- Minimal per-server settings in `fastagent.config.yaml`:
+- Minimal per-server settings in `fast-agent.yaml`:
 
 ```yaml
 mcp:
@@ -542,6 +592,40 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
 )
 ```
 
+### Function Tools
+
+Register Python functions as tools directly in code — no MCP server or external file needed. Both sync and async functions are supported. The function name and docstring are used as the tool name and description by default, or you can override them with `name=` and `description=`.
+
+**Per-agent tools (`@agent.tool`)** — scope a tool to a specific agent:
+
+```python
+@fast.agent(name="writer", instruction="You write things.")
+async def writer(): ...
+
+@writer.tool
+def translate(text: str, language: str) -> str:
+    """Translate text to the given language."""
+    return f"[{language}] {text}"
+
+@writer.tool(name="summarize", description="Produce a one-line summary")
+def summarize(text: str) -> str:
+    return f"Summary: {text[:80]}..."
+```
+
+**Global tools (`@fast.tool`)** — available to all agents that don't declare their own tools:
+
+```python
+@fast.tool
+def get_weather(city: str) -> str:
+    """Return the current weather for a city."""
+    return f"Sunny in {city}"
+
+@fast.agent(name="assistant", instruction="You are helpful.")
+# assistant gets get_weather (global @fast.tool)
+```
+
+Agents with `@agent.tool` or `function_tools=` only see their own tools — globals are not injected. Use `function_tools=[]` to explicitly opt out of globals with no tools.
+
 ### Multimodal Support
 
 Add Resources to prompts using either the inbuilt `prompt-server` or MCP Types directly. Convenience class are made available to do so simply, for example:
@@ -573,7 +657,7 @@ Prompts can also be applied interactively through the interactive interface by u
 
 ### Sampling
 
-Sampling LLMs are configured per Client/Server pair. Specify the model name in fastagent.config.yaml as follows:
+Sampling LLMs are configured per Client/Server pair. Specify the model name in fast-agent.yaml as follows:
 
 ```yaml
 mcp:
@@ -588,7 +672,7 @@ mcp:
 ### Secrets File
 
 > [!TIP]
-> fast-agent will look recursively for a fastagent.secrets.yaml file, so you only need to manage this at the root folder of your agent definitions.
+> Put `fast-agent.secrets.yaml` alongside `fast-agent.yaml` in your active fast-agent home. Select a different home with `--env` or `FAST_AGENT_HOME`.
 
 ### Interactive Shell
 
@@ -596,7 +680,7 @@ mcp:
 
 ## Documentation
 
-The documentation site is included as a submodule in `docs/`. To work with the docs locally:
+The documentation site lives in `docs/`. To work with the docs locally:
 
 ```bash
 # Install docs dependencies (first time only)
@@ -607,6 +691,10 @@ uv run scripts/docs.py generate
 
 # Run the dev server (http://127.0.0.1:8000)
 uv run scripts/docs.py serve
+
+# Capture and assess screenshots of the built docs
+uv run scripts/docs.py screenshot
+uv run scripts/docs.py assess
 
 # Or generate and serve in one command
 uv run scripts/docs.py all

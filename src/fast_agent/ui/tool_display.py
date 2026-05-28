@@ -18,6 +18,7 @@ from fast_agent.ui.apply_patch_preview import (
     extract_non_command_args,
     format_apply_patch_preview,
     is_shell_execution_tool,
+    shell_syntax_language,
     style_apply_patch_preview_text,
 )
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
@@ -28,6 +29,7 @@ from fast_agent.ui.shell_output_truncation import (
 
 if TYPE_CHECKING:
     from mcp.types import CallToolResult
+    from rich.console import RenderableType
 
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
     from fast_agent.ui.console_display import ConsoleDisplay
@@ -147,6 +149,40 @@ class ToolDisplay:
         display_path = self._fit_path_for_display(stripped_path, max_width)
         return f"{prefix}{display_path}{offset_suffix}"
 
+    def _build_code_tool_call_syntax(
+        self,
+        tool_args: Mapping[str, Any],
+        metadata: Mapping[str, Any],
+    ) -> tuple[Syntax, list[str]]:
+        code_arg = str(metadata.get("code_arg") or "code")
+        language = str(metadata.get("language") or "text")
+        raw_code = tool_args.get(code_arg)
+
+        if isinstance(raw_code, str):
+            code_text = raw_code.rstrip()
+        elif raw_code is None:
+            code_text = ""
+        else:
+            code_text = json.dumps(raw_code, ensure_ascii=False, indent=2).rstrip()
+
+        footer_items: list[str] = []
+        for key, value in tool_args.items():
+            if key == code_arg:
+                continue
+            rendered = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            footer_items.append(f"{key}: {rendered}")
+
+        return (
+            Syntax(
+                code_text,
+                language,
+                theme=self._display.code_style,
+                line_numbers=False,
+                word_wrap=self._display.code_word_wrap,
+            ),
+            footer_items,
+        )
+
     def _configured_output_line_limit(self) -> int | None:
         config = self._display.config
         if not config:
@@ -161,6 +197,22 @@ class ToolDisplay:
         if tool_name.startswith("agent__"):
             return tool_name[7:]
         return tool_name
+
+    @classmethod
+    def _normalize_tool_footer_items(
+        cls,
+        bottom_items: list[str] | None,
+        *,
+        display_tool_name: str,
+    ) -> list[str] | None:
+        if not bottom_items:
+            return bottom_items
+        if len(bottom_items) != 1:
+            return bottom_items
+        only_item = cls._display_tool_name(bottom_items[0])
+        if only_item == display_tool_name:
+            return None
+        return bottom_items
 
     @classmethod
     def _format_tool_call_id(cls, tool_call_id: str | None) -> str | None:
@@ -451,7 +503,9 @@ class ToolDisplay:
         )
         limit = (
             limit_value
-            if isinstance(limit_value, int) and not isinstance(limit_value, bool) and limit_value >= 1
+            if isinstance(limit_value, int)
+            and not isinstance(limit_value, bool)
+            and limit_value >= 1
             else None
         )
 
@@ -503,11 +557,15 @@ class ToolDisplay:
         self,
         *,
         content,
+        structured_content: object = None,
         tool_name: str | None,
         truncate_content: bool,
     ) -> tuple[object, object, bool, int]:
         source_content = content
-        display_content = content
+        display_content = self._structured_tool_result_display_content(
+            content=content,
+            structured_content=structured_content,
+        )
         read_omitted_line_count = 0
 
         if not truncate_content:
@@ -528,10 +586,35 @@ class ToolDisplay:
             return display_content, source_content, truncate_content, read_omitted_line_count
 
         display_content, read_omitted_line_count = self._limit_read_text_output_content(
-            content,
+            display_content,
             read_line_limit,
         )
         return display_content, source_content, False, read_omitted_line_count
+
+    @staticmethod
+    def _structured_tool_result_display_content(
+        *,
+        content,
+        structured_content: object = None,
+    ):
+        from mcp.types import TextContent
+
+        from fast_agent.mcp.helpers.content_helpers import is_text_content
+
+        if not (
+            isinstance(structured_content, (dict, list))
+            and isinstance(content, list)
+            and len(content) > 1
+            and all(is_text_content(item) for item in content)
+        ):
+            return content
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(structured_content, ensure_ascii=False, indent=2),
+            )
+        ]
 
     @staticmethod
     def _resolve_skybridge_result_details(
@@ -555,7 +638,10 @@ class ToolDisplay:
     def _default_tool_result_status(self, result: "CallToolResult") -> str:
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
-        content = result.content
+        content = self._structured_tool_result_display_content(
+            content=result.content,
+            structured_content=getattr(result, "structuredContent", None),
+        )
         if result.isError:
             return "ERROR"
 
@@ -620,9 +706,44 @@ class ToolDisplay:
             bottom_metadata_items.append(self._display._format_elapsed(timing_seconds))
 
         if has_structured:
-            bottom_metadata_items.append("Structured ■")
+            structured_label = "Structured ■"
+            if self._has_structured_text_content_mismatch(result):
+                structured_label += " (TextContent mismatch)"
+            bottom_metadata_items.append(structured_label)
 
         return bottom_metadata_items or None
+
+    @staticmethod
+    def _has_structured_text_content_mismatch(result: "CallToolResult") -> bool:
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        structured_content = getattr(result, "structuredContent", None)
+        content = getattr(result, "content", None)
+        if not (
+            isinstance(structured_content, (dict, list))
+            and isinstance(content, list)
+            and len(content) > 1
+            and all(is_text_content(item) for item in content)
+        ):
+            return False
+
+        parsed_blocks: list[object] = []
+        for item in content:
+            text = get_text(item)
+            if text is None:
+                return False
+            try:
+                parsed_blocks.append(json.loads(text))
+            except json.JSONDecodeError:
+                return False
+
+        if structured_content == parsed_blocks:
+            return False
+
+        if isinstance(structured_content, dict):
+            return all(value != parsed_blocks for value in structured_content.values())
+
+        return True
 
     def _prepare_read_text_file_result_display(
         self,
@@ -688,7 +809,7 @@ class ToolDisplay:
     ) -> None:
         total_width = console.console.size.width
         resource_label = (
-            f"skybridge resource: {resource_uri}" if resource_uri else "skybridge resource"
+            f"app resource: {resource_uri}" if resource_uri else "app resource"
         )
         resource_text = Text(resource_label, style="magenta")
         line = self._display.style.metadata_line(resource_text, total_width)
@@ -701,6 +822,7 @@ class ToolDisplay:
             "json",
             theme=self._display.code_style,
             background_color="default",
+            word_wrap=self._display.code_word_wrap,
         )
         console.console.print(syntax_obj, markup=self._markup)
 
@@ -717,6 +839,7 @@ class ToolDisplay:
         is_skybridge_tool: bool,
         skybridge_resource_uri: str | None,
         show_hook_indicator: bool,
+        post_content: RenderableType | None = None,
     ) -> None:
         config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
         block_color = "red" if result.isError else config_map["block_color"]
@@ -740,6 +863,9 @@ class ToolDisplay:
             MessageType.TOOL_RESULT,
             check_markdown_markers=False,
         )
+        if post_content:
+            console.console.print()
+            console.console.print(post_content, markup=self._markup)
         console.console.print()
 
         if is_skybridge_tool:
@@ -779,6 +905,7 @@ class ToolDisplay:
             display_content, source_content, truncate_content, read_omitted_line_count = (
                 self._prepare_tool_result_content(
                     content=result.content,
+                    structured_content=structured_content,
                     tool_name=tool_name,
                     truncate_content=truncate_content,
                 )
@@ -886,6 +1013,10 @@ class ToolDisplay:
             metadata = metadata or {}
 
             display_tool_name = self._display_tool_name(tool_name)
+            bottom_items = self._normalize_tool_footer_items(
+                bottom_items,
+                display_tool_name=display_tool_name,
+            )
             right_info = self._build_tool_right_info(
                 f"{type_label} - {display_tool_name}",
                 tool_call_id,
@@ -900,10 +1031,14 @@ class ToolDisplay:
                 highlight_index = None
                 max_item_length = 50
                 command = metadata.get("command") or tool_args.get("command")
+                preview = None
 
                 command_text = Text()
                 if command and isinstance(command, str):
-                    preview = build_apply_patch_preview(command)
+                    preview = build_apply_patch_preview(
+                        command,
+                        max_lines=self._display.apply_patch_preview_max_lines,
+                    )
                     if preview is not None:
                         command_text.append("$ ", style="magenta")
                         command_text.append("apply_patch (preview)", style="white")
@@ -914,18 +1049,31 @@ class ToolDisplay:
                                     preview,
                                     other_args=extract_non_command_args(tool_args),
                                 ),
-                                default_style="white",
+                                default_style="dim",
                             )
                         )
                     else:
-                        command_text.append("$ ", style="magenta")
-                        command_text.append(command, style="white")
+                        shell_language = shell_syntax_language(
+                            metadata.get("shell_name"),
+                            shell_path=cast("str | None", metadata.get("shell_path")),
+                        )
+                        content = Syntax(
+                            command.rstrip(),
+                            shell_language,
+                            theme=self._display.code_style,
+                            line_numbers=False,
+                            word_wrap=self._display.code_word_wrap,
+                        )
+                        render_markdown = False
                 else:
                     command_text.append("$ ", style="magenta")
                     command_text.append("(no shell command provided)", style="dim")
+                    content = command_text
+                    render_markdown = False
 
-                content = command_text
-                render_markdown = False
+                if preview is not None:
+                    content = command_text
+                    render_markdown = False
 
                 shell_name = metadata.get("shell_name") or "shell"
                 shell_path = metadata.get("shell_path")
@@ -938,6 +1086,10 @@ class ToolDisplay:
                 elif shell_name:
                     right_parts.append(shell_name)
 
+                timeout_seconds = metadata.get("timeout_seconds")
+                if timeout_seconds:
+                    right_parts.append(f"timeout {timeout_seconds}s")
+
                 base_label = " | ".join(right_parts) if right_parts else None
                 right_info = self._build_tool_right_info(base_label, tool_call_id)
                 truncate_content = False
@@ -948,17 +1100,26 @@ class ToolDisplay:
                 if working_dir_display:
                     bottom_items.append(f"cwd: {working_dir_display}")
 
-                timeout_seconds = metadata.get("timeout_seconds")
                 warning_interval = metadata.get("warning_interval_seconds")
 
                 if timeout_seconds and warning_interval:
                     bottom_items.append(
                         f"timeout: {timeout_seconds}s, warning every {warning_interval}s"
                     )
+            elif metadata.get("variant") == "code":
+                content, footer_items = self._build_code_tool_call_syntax(tool_args, metadata)
+                render_markdown = False
+                truncate_content = False
+                max_item_length = max(max_item_length or 0, 50) or None
+                if footer_items:
+                    bottom_items = [*(bottom_items or []), *footer_items]
             elif is_apply_patch_tool_name(tool_name):
                 patch_input = extract_apply_patch_input(tool_args)
                 preview = (
-                    build_apply_patch_preview_from_input(patch_input)
+                    build_apply_patch_preview_from_input(
+                        patch_input,
+                        max_lines=self._display.apply_patch_preview_max_lines,
+                    )
                     if patch_input is not None
                     else None
                 )
@@ -974,7 +1135,7 @@ class ToolDisplay:
                                     key: value for key, value in tool_args.items() if key != "input"
                                 },
                             ),
-                            default_style="white",
+                            default_style="dim",
                         )
                     )
                 elif patch_input is not None:
@@ -1072,7 +1233,17 @@ class ToolDisplay:
             if not has_skybridge_signal:
                 continue
 
-            valid_resource_count = sum(1 for resource in resources if resource.is_skybridge)
+            valid_resource_count = sum(
+                1 for resource in resources if resource.is_valid_app_resource
+            )
+            mcp_app_resource_count = sum(1 for resource in resources if resource.is_mcp_app)
+            skybridge_resource_count = sum(1 for resource in resources if resource.is_skybridge)
+            mcp_app_tool_count = sum(
+                1 for tool in config.tools if tool.is_valid and tool.kind == "mcp_app"
+            )
+            skybridge_tool_count = sum(
+                1 for tool in config.tools if tool.is_valid and tool.kind == "skybridge"
+            )
 
             server_rows.append(
                 {
@@ -1080,11 +1251,16 @@ class ToolDisplay:
                     "config": config,
                     "resources": resources,
                     "valid_resource_count": valid_resource_count,
+                    "mcp_app_resource_count": mcp_app_resource_count,
+                    "skybridge_resource_count": skybridge_resource_count,
+                    "mcp_app_tool_count": mcp_app_tool_count,
+                    "skybridge_tool_count": skybridge_tool_count,
                     "total_resource_count": len(resources),
                     "active_tools": [
                         {
                             "name": tool.display_name,
                             "template": str(tool.template_uri) if tool.template_uri else None,
+                            "kind": tool.kind,
                         }
                         for tool in config.tools
                         if tool.is_valid
@@ -1114,7 +1290,7 @@ class ToolDisplay:
         if not server_rows and not warnings:
             return
 
-        heading = "[dim]OpenAI Apps SDK ([/dim][cyan]skybridge[/cyan][dim]) detected:[/dim]"
+        heading = "[dim]Interactive MCP app integrations detected:[/dim]"
         console.console.print()
         console.console.print(heading, markup=self._markup)
 
@@ -1123,23 +1299,33 @@ class ToolDisplay:
         else:
             for row in server_rows:
                 server_name = row["server_name"]
-                resource_count = row["valid_resource_count"]
                 tool_infos = row["active_tools"]
                 enabled = row["enabled"]
 
-                tool_count = len(tool_infos)
-                tool_word = "tool" if tool_count == 1 else "tools"
-                resource_word = (
-                    "skybridge resource" if resource_count == 1 else "skybridge resources"
+                segments: list[str] = []
+                if row["mcp_app_tool_count"] or row["mcp_app_resource_count"]:
+                    segments.append(
+                        "[cyan]MCP Apps[/cyan][dim]: "
+                        f"{row['mcp_app_tool_count']} tools, "
+                        f"{row['mcp_app_resource_count']} resources[/dim]"
+                    )
+                if row["skybridge_tool_count"] or row["skybridge_resource_count"]:
+                    segments.append(
+                        "[cyan]OpenAI Apps SDK[/cyan][dim]: "
+                        f"{row['skybridge_tool_count']} tools, "
+                        f"{row['skybridge_resource_count']} resources[/dim]"
+                    )
+                integration_segment = (
+                    "[dim]; [/dim]".join(segments)
+                    if segments
+                    else "[dim]no active app integrations[/dim]"
                 )
-                tool_segment = f"[cyan]{tool_count}[/cyan][dim] {tool_word}[/dim]"
-                resource_segment = f"[cyan]{resource_count}[/cyan][dim] {resource_word}[/dim]"
                 name_style = "cyan" if enabled else "yellow"
                 status_suffix = "" if enabled else "[dim] (issues detected)[/dim]"
 
                 console.console.print(
                     f"[dim]  ● [/dim][{name_style}]{server_name}[/{name_style}]{status_suffix}"
-                    f"[dim] — [/dim]{tool_segment}[dim], [/dim]{resource_segment}",
+                    f"[dim] — [/dim]{integration_segment}",
                     markup=self._markup,
                 )
 

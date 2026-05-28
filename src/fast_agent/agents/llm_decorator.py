@@ -7,6 +7,7 @@ import json
 from collections import Counter, defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.tool_runner import ToolRunnerHooks
     from fast_agent.hooks.lifecycle_hook_loader import AgentLifecycleHooks
 
-from a2a.types import AgentCard
+from a2a.types import AgentCard, AgentInterface
 from mcp import ListToolsResult, Tool
 from mcp.types import (
     CallToolResult,
@@ -65,12 +66,13 @@ from fast_agent.interfaces import (
     StreamingAgentProtocol,
     ToolRunnerHookCapable,
 )
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
+from fast_agent.mcp.prompt_metadata import prompt_display_name
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 # Define a TypeVar for models
@@ -204,6 +206,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         # Initialize the LLM to None (will be set by attach_llm)
         self._llm: FastAgentLLMProtocol | None = None
         self._initialized = False
+        self._shutdown_complete = False
         self._llm_factory_ref: LLMFactoryProtocol | None = None
         self._llm_attach_kwargs: dict[str, Any] | None = None
         self._lifecycle_hooks: "AgentLifecycleHooks | None" = None
@@ -226,15 +229,19 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     async def initialize(self) -> None:
         await self._run_lifecycle_hook("on_start")
         self.initialized = True
+        self._shutdown_complete = False
 
     async def shutdown(self) -> None:
         await self._finalize_shutdown()
 
     async def _finalize_shutdown(self, *, run_hook: bool = True) -> None:
+        if self._shutdown_complete:
+            return
         if run_hook:
             await self._run_lifecycle_hook("on_shutdown")
         await self._close_llm_resources()
         self.initialized = False
+        self._shutdown_complete = True
 
     async def _close_llm_resources(self) -> None:
         """Close optional LLM-owned resources (for example persistent transports)."""
@@ -280,6 +287,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     async def _run_lifecycle_hook(
         self, hook_type: Literal["on_start", "on_shutdown"]
     ) -> None:
+        if not self.config.lifecycle_hooks:
+            return
+
         hooks = self._load_lifecycle_hooks()
         hook = hooks.on_start if hook_type == "on_start" else hooks.on_shutdown
         if hook is None:
@@ -653,7 +663,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """
         # If a prompt template object is provided
         if isinstance(prompt, GetPromptResult):
-            namespaced_name = getattr(prompt, "namespaced_name", "template")
+            namespaced_name = prompt_display_name(prompt, "template")
             if as_template:
                 return await self.apply_prompt_template(prompt, namespaced_name)
 
@@ -714,6 +724,32 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
             return await self.structured_impl(multipart_messages, model, final_request_params)
 
+    async def structured_schema(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """
+        Apply the prompt and return structured JSON validated against a raw schema.
+        """
+        multipart_messages = normalize_to_extended_list(messages)
+        final_request_params = (
+            self.llm.get_request_params(request_params) if self.llm else request_params
+        )
+
+        with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured_schema"):
+            return await self.structured_schema_impl(
+                multipart_messages,
+                schema,
+                final_request_params,
+            )
+
     async def structured_impl(
         self,
         messages: list[PromptMessageExtended],
@@ -736,6 +772,20 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             A tuple of (parsed model instance or None, assistant response message)
         """
         result, _ = await self._structured_with_summary(messages, model, request_params)
+        return result
+
+    async def structured_schema_impl(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """
+        Implementation method for structured_schema.
+        """
+        result, _ = await self._structured_schema_via_generate_with_summary(
+            messages, schema, request_params
+        )
         return result
 
     async def _generate_with_summary(
@@ -777,11 +827,42 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                 pass
         return structured_result, call_ctx.summary
 
+    async def _structured_schema_via_generate_with_summary(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[tuple[Any | None, PromptMessageExtended], RemovedContentSummary | None]:
+        assert self._llm, "LLM is not attached"
+        normalized_schema = validate_json_schema_definition(schema)
+        call_ctx = self._prepare_llm_call(messages, request_params)
+        call_params = (call_ctx.call_params or RequestParams()).model_copy(
+            update={"structured_schema": normalized_schema}
+        )
+
+        response = await self._llm.generate(
+            call_ctx.full_history,
+            call_params,
+        )
+        structured_result = self._llm.parse_structured_schema_response(
+            response,
+            normalized_schema,
+        )
+
+        if call_ctx.persist_history:
+            try:
+                _, assistant_message = structured_result
+                self._persist_history(call_ctx.sanitized_messages, assistant_message)
+            except Exception:
+                pass
+        return structured_result, call_ctx.summary
+
     def _prepare_llm_call(
         self, messages: list[PromptMessageExtended], request_params: RequestParams | None = None
     ) -> _CallContext:
         """Normalize template/history handling for both generate and structured."""
         sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
+        self._timestamp_messages(sanitized_messages)
         final_request_params = self._require_llm().get_request_params(request_params)
 
         use_history = final_request_params.use_history if final_request_params else True
@@ -851,8 +932,16 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return
 
         history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
+        assistant_message.ensure_timestamp()
         self._message_history.extend(history_messages)
         self._message_history.append(assistant_message)
+
+    @staticmethod
+    def _timestamp_messages(messages: list[PromptMessageExtended]) -> None:
+        """Attach UTC wall-clock timestamps to new turn messages before LLM execution."""
+        for message in messages:
+            if message.timestamp is None:
+                message.timestamp = datetime.now(timezone.utc)
 
     @staticmethod
     def _strip_removed_metadata(message: PromptMessageExtended) -> PromptMessageExtended:
@@ -958,7 +1047,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         for block in blocks or []:
             mime_type, category = self._extract_block_metadata(block)
-            if self._block_supported(mime_type, category):
+            if self._block_supported(block, mime_type, category):
                 kept.append(block)
             else:
                 removed_block = _RemovedBlock(
@@ -985,25 +1074,30 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         return kept
 
-    def _block_supported(self, mime_type: str | None, category: str) -> bool:
+    def _block_supported(
+        self,
+        block: ContentBlock,
+        mime_type: str | None,
+        category: str,
+    ) -> bool:
         """Determine if the current model can process a content block."""
         if category == "text":
             return True
 
-        model_name = self.llm.model_name if self.llm else None
-        if not model_name:
+        model_info = self.llm.model_info if self.llm else None
+        if not model_info:
             return False
 
+        resource_source = "link" if isinstance(block, ResourceLink) else "embedded"
+
         if mime_type:
-            return ModelDatabase.supports_mime(model_name, mime_type)
+            return model_info.supports_mime(mime_type, resource_source=resource_source)
 
         if category == "vision":
-            return ModelDatabase.supports_any_mime(
-                model_name, ["image/jpeg", "image/png", "image/webp"]
-            )
+            return model_info.supports_vision
 
         if category == "document":
-            return ModelDatabase.supports_mime(model_name, "application/pdf")
+            return model_info.supports_document
 
         return False
 
@@ -1355,7 +1449,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             skills=[],
             name=self._name,
             description=self.config.description or self.instruction,
-            url=f"fast-agent://agents/{self._name}/",
+            supported_interfaces=[
+                AgentInterface(
+                    url=f"fast-agent://agents/{self._name}/",
+                    protocol_binding="fast-agent",
+                )
+            ],
             version="0.1",
             capabilities=DEFAULT_CAPABILITIES,
             # TODO -- get these from the _llm
@@ -1384,5 +1483,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         pass

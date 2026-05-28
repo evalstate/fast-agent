@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui.console_display import ConsoleDisplay
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from fast_agent.config import Settings
 
 logger = get_logger(__name__)
 
@@ -27,16 +32,48 @@ HOOK_KIND_LABELS: dict[HookKind, str] = {
     "agent_shutdown": "agent shutdown",
 }
 
+@runtime_checkable
+class HookDisplayAgent(Protocol):
+    @property
+    def display(self) -> ConsoleDisplay: ...
+
+
+@runtime_checkable
+class HookContextCarrier(Protocol):
+    @property
+    def config(self) -> "Settings | None": ...
+
+
+@runtime_checkable
+class HookContextAgent(Protocol):
+    @property
+    def context(self) -> HookContextCarrier | None: ...
+
+
+@runtime_checkable
+class HookTargetCarrier(Protocol):
+    @property
+    def agent(self) -> object: ...
+
+
+@runtime_checkable
+class HookQueueAgent(Protocol):
+    def queue_hook_status_messages(self, lines: Sequence[Text]) -> bool: ...
+
+
+def _resolve_hook_agent(target: object) -> object:
+    if isinstance(target, HookTargetCarrier):
+        return target.agent
+    return target
+
 
 def _resolve_display(agent: object) -> ConsoleDisplay:
-    display = getattr(agent, "display", None)
-    if isinstance(display, ConsoleDisplay):
-        return display
+    if isinstance(agent, HookDisplayAgent):
+        return agent.display
 
     config = None
-    agent_context = getattr(agent, "context", None)
-    if agent_context is not None:
-        config = getattr(agent_context, "config", None)
+    if isinstance(agent, HookContextAgent) and agent.context is not None:
+        config = agent.context.config
 
     return ConsoleDisplay(config=config)
 
@@ -73,6 +110,45 @@ def _build_metadata_line(content: Text, *, prefix_style: str) -> Text:
     return line
 
 
+def _build_hook_message_lines(
+    message: str | Text | None,
+    *,
+    hook_name: str | None,
+    hook_kind: HookKind,
+    style: str,
+) -> list[Text]:
+    prefix_style = f"bold {style}"
+    indent = " " * 2
+
+    header = _build_hook_header(hook_kind, hook_name, style=style)
+    lines = _normalize_message_lines(message)
+
+    if not lines:
+        return [
+            _build_metadata_line(
+                header,
+                prefix_style=prefix_style,
+            )
+        ]
+
+    first_line = Text()
+    first_line.append_text(header)
+    first_line.append(" — ", style="dim")
+    first_line.append_text(lines[0])
+
+    rendered = [
+        _build_metadata_line(
+            first_line,
+            prefix_style=prefix_style,
+        )
+    ]
+    for line in lines[1:]:
+        indented = Text(indent, style="dim")
+        indented.append_text(line)
+        rendered.append(indented)
+    return rendered
+
+
 def show_hook_message(
     target: object,
     message: str | Text | None,
@@ -83,39 +159,20 @@ def show_hook_message(
 ) -> None:
     """Render a hook status line using the active message style (A3 by default)."""
     try:
-        agent = getattr(target, "agent", target)
-        display = _resolve_display(agent)
-        prefix_style = f"bold {style}"
-        prefix_text = "  "
-        indent = " " * len(prefix_text)
-
-        header = _build_hook_header(hook_kind, hook_name, style=style)
-        lines = _normalize_message_lines(message)
-
-        if not lines:
-            display.show_status_message(
-                _build_metadata_line(
-                    header,
-                    prefix_style=prefix_style,
-                )
-            )
-            return
-
-        first_line = Text()
-        first_line.append_text(header)
-        first_line.append(" — ", style="dim")
-        first_line.append_text(lines[0])
-        display.show_status_message(
-            _build_metadata_line(
-                first_line,
-                prefix_style=prefix_style,
-            )
+        agent = _resolve_hook_agent(target)
+        rendered_lines = _build_hook_message_lines(
+            message,
+            hook_name=hook_name,
+            hook_kind=hook_kind,
+            style=style,
         )
 
-        for line in lines[1:]:
-            indented = Text(indent, style="dim")
-            indented.append_text(line)
-            display.show_status_message(indented)
+        if isinstance(agent, HookQueueAgent) and agent.queue_hook_status_messages(rendered_lines):
+            return
+
+        display = _resolve_display(agent)
+        for line in rendered_lines:
+            display.show_status_message(line)
     except Exception as exc:  # noqa: BLE001
         logger.debug("Failed to render hook message", data={"error": str(exc)})
 

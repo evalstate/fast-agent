@@ -398,6 +398,7 @@ def _build_custom_tool_call(call_id: str, input_text: str) -> dict[str, Any]:
         "input": input_text,
     }
 
+
 def _build_tool_result(call_id: str, output: str) -> dict[str, Any]:
     return {
         "type": "function_call_output",
@@ -481,6 +482,7 @@ def test_continuation_planner_strips_replayed_custom_tool_calls_from_incremental
         _build_tool_result("call_patch", "ok"),
         _build_input_message("two"),
     ]
+
 
 def test_continuation_planner_replayed_assistant_only_suffix_forces_create() -> None:
     planner = StatefulContinuationResponsesWsPlanner()
@@ -678,6 +680,81 @@ async def test_websocket_stream_terminal_events_and_final_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_websocket_stream_reconstructs_empty_terminal_response_output() -> None:
+    messages = [
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "sequence_number": 1,
+                    "output_index": 0,
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_123",
+                        "call_id": "call_exec",
+                        "name": "execute",
+                        "arguments": '{"command":"pwd"}',
+                        "status": "completed",
+                    },
+                }
+            ),
+        ),
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "sequence_number": 2,
+                    "output_index": 1,
+                    "item": {
+                        "type": "message",
+                        "id": "msg_123",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": "hello"}],
+                    },
+                }
+            ),
+        ),
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.completed",
+                    "sequence_number": 3,
+                    "response": {
+                        "status": "completed",
+                        "output_text": "hello",
+                        "output": [],
+                    },
+                }
+            ),
+        ),
+    ]
+    stream = WebSocketResponsesStream(_FakeWebSocket(messages))
+
+    collected: list[Any] = []
+    async for event in stream:
+        collected.append(event)
+
+    completed_response = getattr(collected[-1], "response", None)
+    assert completed_response is not None
+    assert [getattr(item, "type", None) for item in completed_response.output] == [
+        "function_call",
+        "message",
+    ]
+    assert getattr(completed_response.output[1].content[0], "text", None) == "hello"
+
+    final_response = await stream.get_final_response()
+    assert [getattr(item, "type", None) for item in final_response.output] == [
+        "function_call",
+        "message",
+    ]
+    assert getattr(final_response.output[0], "call_id", None) == "call_exec"
+
+
+@pytest.mark.asyncio
 async def test_websocket_stream_close_before_completion_raises() -> None:
     websocket = _FakeWebSocket([SimpleNamespace(type=WSMsgType.CLOSED, data=None)])
     stream = WebSocketResponsesStream(websocket)
@@ -716,6 +793,31 @@ async def test_websocket_stream_error_payload_exposes_error_details() -> None:
     assert excinfo.value.error_code == "previous_response_not_found"
     assert excinfo.value.status == 400
     assert excinfo.value.error_param == "previous_response_id"
+
+
+@pytest.mark.asyncio
+async def test_websocket_stream_top_level_error_payload_exposes_error_details() -> None:
+    websocket = _FakeWebSocket(
+        [
+            SimpleNamespace(
+                type=WSMsgType.TEXT,
+                data=json.dumps(
+                    {
+                        "error": {
+                            "message": "gRPC error: Incorrect API key provided.",
+                            "type": "api_error",
+                        }
+                    }
+                ),
+            )
+        ]
+    )
+    stream = WebSocketResponsesStream(websocket)
+
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        await stream.__anext__()
+
+    assert "Incorrect API key" in str(excinfo.value)
 
 
 @dataclass
@@ -1048,6 +1150,10 @@ class _PlannedAcquireConnectionManager:
         self.release_keep_values.append(keep)
 
 
+def _set_ws_connection_manager(harness: Any, manager: object) -> None:
+    harness._ws_connections = manager
+
+
 def _ws_input_items(*texts: str) -> list[dict[str, Any]]:
     return [_build_input_message(text) for text in texts]
 
@@ -1086,6 +1192,32 @@ async def test_websocket_completion_ws_uses_create_on_first_turn() -> None:
     assert len(payloads) == 1
     first_payload = json.loads(payloads[0])
     assert first_payload["type"] == RESPONSES_CREATE_EVENT_TYPE
+
+
+@pytest.mark.asyncio
+async def test_websocket_completion_ws_records_phase_diagnostics() -> None:
+    harness = _ContinuationConnectionLifecycleHarness()
+    params = RequestParams(model="gpt-5.3-codex")
+
+    await harness._responses_completion_ws(
+        input_items=_ws_input_items("hello"),
+        request_params=params,
+        tools=None,
+        model_name="gpt-5.3-codex",
+    )
+    harness._last_transport_used = "websocket"
+
+    diagnostics = harness._websocket_diagnostics_payload()
+    phase_timings = diagnostics.get("websocket_phase_ms")
+
+    assert isinstance(phase_timings, dict)
+    assert "normalize_input" in phase_timings
+    assert "build_args" in phase_timings
+    assert "acquire_connection" in phase_timings
+    assert "plan_request" in phase_timings
+    assert "send_request" in phase_timings
+    assert "stream_total" in phase_timings
+    assert "total" in phase_timings
 
 
 @pytest.mark.asyncio
@@ -1267,7 +1399,7 @@ async def test_temporary_connection_has_isolated_planner_state() -> None:
     manager = _PlannedAcquireConnectionManager(
         [(temporary_connection, False), (reusable_connection, True)]
     )
-    harness._ws_connections = manager
+    _set_ws_connection_manager(harness, manager)
     params = RequestParams(model="gpt-5.3-codex")
 
     await harness._responses_completion_ws(
@@ -1531,7 +1663,7 @@ async def test_websocket_reestablishes_stale_reused_socket_once() -> None:
     )
     fresh = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
     sequence_manager = _SequenceConnectionManager([stale_reused, fresh])
-    harness._ws_connections = sequence_manager
+    _set_ws_connection_manager(harness, sequence_manager)
     params = RequestParams(model="gpt-5.3-codex")
     input_items = [
         {
@@ -1582,7 +1714,7 @@ async def test_websocket_reestablish_debug_status_includes_diagnostics() -> None
         last_used_monotonic=123.0,
     )
     fresh = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
-    harness._ws_connections = _SequenceConnectionManager([stale_reused, fresh])
+    _set_ws_connection_manager(harness, _SequenceConnectionManager([stale_reused, fresh]))
     params = RequestParams(model="gpt-5.3-codex")
 
     response, streamed_summary, normalized_input = await harness._responses_completion_ws(
@@ -1624,7 +1756,7 @@ async def test_websocket_retries_on_recoverable_server_error_codes(error_code: s
             (second_connection, False),
         ]
     )
-    harness._ws_connections = manager
+    _set_ws_connection_manager(harness, manager)
     harness.raise_stream_error_once = ResponsesWebSocketError(
         "recoverable websocket error",
         stream_started=False,

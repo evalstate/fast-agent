@@ -99,6 +99,100 @@ def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     assert config.mcp_connect[1].auth == {"oauth": False}
 
 
+def test_load_agent_card_rejects_skill_manifest_with_clear_error(tmp_path: Path) -> None:
+    skill_path = tmp_path / "SKILL.md"
+    skill_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "name: sample-skill",
+                "description: Skill description",
+                "metadata:",
+                "  source: test",
+                "---",
+                "Skill body",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError) as exc_info:
+        load_agent_cards(skill_path)
+
+    message = str(exc_info.value)
+    assert "Agent Skill manifest, not an AgentCard" in message
+    assert "read_text_file/read_skill" in message
+
+
+def test_load_agent_card_parses_provider_managed_mcp_connect_entries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("STRIPE_TOKEN", "secret-token")
+    card_path = tmp_path / "provider_mcp_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: provider_mcp_agent",
+                "mcp_connect:",
+                "  - target: https://mcp.stripe.com",
+                "    name: stripe",
+                "    description: Stripe official MCP",
+                "    management: provider",
+                "    access_token: ${STRIPE_TOKEN}",
+                "    defer_loading: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    config = loaded[0].agent_data["config"]
+
+    assert len(config.mcp_connect) == 1
+    entry = config.mcp_connect[0]
+    assert entry.target == "https://mcp.stripe.com"
+    assert entry.name == "stripe"
+    assert entry.description == "Stripe official MCP"
+    assert entry.management == "provider"
+    assert entry.access_token == "secret-token"
+    assert entry.defer_loading is True
+
+
+def test_load_agent_card_parses_provider_managed_connector_entries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("DROPBOX_TOKEN", "secret-token")
+    card_path = tmp_path / "provider_connector_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: provider_connector_agent",
+                "mcp_connect:",
+                "  - name: dropbox",
+                "    management: provider",
+                "    connector_id: connector_dropbox",
+                "    access_token: ${DROPBOX_TOKEN}",
+                "    defer_loading: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    config = loaded[0].agent_data["config"]
+
+    assert len(config.mcp_connect) == 1
+    entry = config.mcp_connect[0]
+    assert entry.target is None
+    assert entry.name == "dropbox"
+    assert entry.management == "provider"
+    assert entry.connector_id == "connector_dropbox"
+    assert entry.access_token == "secret-token"
+    assert entry.defer_loading is True
+
+
 def test_dump_agent_card_preserves_mcp_connect_auth_fields(tmp_path: Path) -> None:
     card_path = tmp_path / "mcp_agent.yaml"
     card_path.write_text(
@@ -124,6 +218,58 @@ def test_dump_agent_card_preserves_mcp_connect_auth_fields(tmp_path: Path) -> No
     assert "headers:" in dumped
     assert "auth:" in dumped
     assert "Authorization: Bearer abc" in dumped
+
+
+def test_dump_agent_card_preserves_provider_mcp_connect_fields(tmp_path: Path) -> None:
+    card_path = tmp_path / "provider_mcp_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: provider_mcp_agent",
+                "mcp_connect:",
+                "  - target: https://mcp.stripe.com",
+                "    name: stripe",
+                "    description: Stripe official MCP",
+                "    management: provider",
+                "    access_token: token-123",
+                "    defer_loading: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    dumped = dump_agent_to_string("provider_mcp_agent", loaded[0].agent_data, as_yaml=True)
+
+    assert "management: provider" in dumped
+    assert "access_token: token-123" in dumped
+    assert "defer_loading: true" in dumped
+
+
+def test_dump_agent_card_preserves_provider_connector_fields(tmp_path: Path) -> None:
+    card_path = tmp_path / "provider_connector_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: provider_connector_agent",
+                "mcp_connect:",
+                "  - name: dropbox",
+                "    management: provider",
+                "    connector_id: connector_dropbox",
+                "    access_token: token-123",
+                "    defer_loading: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    dumped = dump_agent_to_string("provider_connector_agent", loaded[0].agent_data, as_yaml=True)
+
+    assert "connector_id: connector_dropbox" in dumped
+    assert "management: provider" in dumped
+    assert "access_token: token-123" in dumped
+    assert "defer_loading: true" in dumped
 
 
 def test_load_agent_card_rejects_mcp_connect_unknown_keys(tmp_path: Path) -> None:
@@ -194,6 +340,57 @@ def test_load_agent_card_parses_tool_input_schema(tmp_path: Path) -> None:
     }
 
 
+def test_load_agent_card_parses_structured_function_tool_metadata(tmp_path: Path) -> None:
+    card_path = tmp_path / "code_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: code_agent",
+                "function_tools:",
+                "  - entrypoint: tools.py:run_query",
+                "    variant: code",
+                "    code_arg: code",
+                "    language: python",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    config = loaded[0].agent_data["config"]
+
+    assert config.function_tools is not None
+    spec = config.function_tools[0]
+    assert getattr(spec, "entrypoint") == "tools.py:run_query"
+    assert getattr(spec, "variant") == "code"
+    assert getattr(spec, "code_arg") == "code"
+    assert getattr(spec, "language") == "python"
+
+
+def test_dump_agent_card_preserves_structured_function_tool_metadata(tmp_path: Path) -> None:
+    card_path = tmp_path / "code_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: code_agent",
+                "function_tools:",
+                "  - entrypoint: tools.py:run_query",
+                "    variant: code",
+                "    language: python",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    dumped = dump_agent_to_string("code_agent", loaded[0].agent_data, as_yaml=True)
+
+    assert "function_tools:" in dumped
+    assert "entrypoint: tools.py:run_query" in dumped
+    assert "variant: code" in dumped
+    assert "language: python" in dumped
+
+
 def test_load_agent_card_rejects_invalid_tool_input_schema(tmp_path: Path) -> None:
     card_path = tmp_path / "bad_schema_agent.yaml"
     card_path.write_text(
@@ -258,3 +455,54 @@ def test_dump_agent_card_preserves_tool_input_schema(tmp_path: Path) -> None:
     assert "tool_input_schema:" in dumped
     assert "query:" in dumped
     assert "required:" in dumped
+
+
+def test_load_agent_card_parses_plugin_command_actions(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: command_agent",
+                "commands:",
+                "  draft-next:",
+                "    description: Draft the next user message",
+                "    input_hint: \"[format]\"",
+                "    handler: \"commands.py:draft_next\"",
+                "    key: \"c-x d\"",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    commands = loaded[0].agent_data["config"].commands
+
+    assert commands is not None
+    assert commands["draft-next"].description == "Draft the next user message"
+    assert commands["draft-next"].handler == "commands.py:draft_next"
+    assert commands["draft-next"].input_hint == "[format]"
+    assert commands["draft-next"].key == "c-x d"
+
+
+def test_dump_agent_card_preserves_plugin_command_actions(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: command_agent",
+                "commands:",
+                "  review-last:",
+                "    description: Review the last response",
+                "    handler: \"commands.py:review_last\"",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    dumped = dump_agent_to_string("command_agent", loaded[0].agent_data, as_yaml=True)
+
+    assert "commands:" in dumped
+    assert "review-last:" in dumped
+    assert "description: Review the last response" in dumped
+    assert "handler: commands.py:review_last" in dumped

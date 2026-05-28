@@ -16,11 +16,14 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 
 from fast_agent.config import Settings, get_settings
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import parse_model_reference_token
+from fast_agent.home import CONFIG_FILENAMES, PREFERRED_CONFIG_FILENAME, find_config_in_directory
 from fast_agent.marketplace import formatting as marketplace_formatting
 from fast_agent.marketplace import registry_urls as marketplace_registry_urls
 from fast_agent.marketplace import source_utils as marketplace_source_utils
@@ -30,6 +33,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
 logger = get_logger(__name__)
+
+_ROUND_TRIP_YAML = YAML()
+_ROUND_TRIP_YAML.preserve_quotes = True
 
 DEFAULT_CARD_REGISTRIES = [
     "https://github.com/fast-agent-ai/card-packs",
@@ -132,6 +138,8 @@ class CardPackManifest:
     files: tuple[str, ...]
     model_references_required: tuple[str, ...] = ()
     model_references_recommended: tuple[str, ...] = ()
+    plugins_required: tuple[str, ...] = ()
+    plugins_recommended: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -191,6 +199,7 @@ class _CardPackManifestModel(BaseModel):
     install: _InstallModel = Field(default_factory=_InstallModel)
     model_references_required: list[str] = Field(default_factory=list)
     model_references_recommended: list[str] = Field(default_factory=list)
+    plugins: dict[str, list[str]] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -401,6 +410,17 @@ def get_card_pack_source_sidecar_path(pack_dir: Path) -> Path:
     return pack_dir / CARD_PACK_SOURCE_FILENAME
 
 
+def load_card_pack_readme(pack_dir: Path) -> str | None:
+    for candidate in ("README.md", "README.markdown", "readme.md", "readme.markdown"):
+        path = pack_dir / candidate
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    return None
+
+
 def compute_card_pack_content_fingerprint(
     env_root: Path,
     installed_files: Sequence[str],
@@ -484,7 +504,7 @@ def load_card_pack_manifest(pack_root: Path) -> CardPackManifest:
         data = {}
 
     model = _CardPackManifestModel.model_validate(data)
-    if model.schema_version != 1:
+    if model.schema_version not in {1, 2}:
         raise ValueError(f"Unsupported card pack schema_version: {model.schema_version}")
 
     agent_cards = tuple(_validate_manifest_install_path(entry) for entry in model.install.agent_cards)
@@ -501,7 +521,24 @@ def load_card_pack_manifest(pack_root: Path) -> CardPackManifest:
         files=files,
         model_references_required=tuple(model.model_references_required),
         model_references_recommended=tuple(model.model_references_recommended),
+        plugins_required=tuple(_validate_plugin_refs(model.plugins.get("required", []))),
+        plugins_recommended=tuple(_validate_plugin_refs(model.plugins.get("recommended", []))),
     )
+
+
+def _validate_plugin_refs(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("card pack plugins.required/recommended must be lists")
+    refs: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("card pack plugin references must be non-empty strings")
+        cleaned = item.strip()
+        if cleaned not in refs:
+            refs.append(cleaned)
+    return refs
 
 
 async def fetch_marketplace_card_packs(url: str) -> list[MarketplaceCardPack]:
@@ -1138,6 +1175,14 @@ def _install_marketplace_card_pack_sync(
             manifest,
             env_root=environment_paths.root,
         )
+        plan, mergeable_unmanaged_files = _merge_last_used_model_into_copy_plan(
+            copy_plan=plan,
+            temp_dir=temp_dir,
+            env_root=environment_paths.root,
+            owners=owners,
+            current_pack=pack.name,
+            current_owned_files=current_owned_files,
+        )
 
         conflicts, overwritten_by_owner = _collect_install_conflicts(
             copy_plan=plan,
@@ -1145,6 +1190,7 @@ def _install_marketplace_card_pack_sync(
             owners=owners,
             current_pack=pack.name,
             current_owned_files=current_owned_files,
+            mergeable_unmanaged_files=mergeable_unmanaged_files,
             force=force,
         )
         if conflicts:
@@ -1273,7 +1319,10 @@ def _build_install_copy_plan(
 
     for entry in manifest.files:
         source = _resolve_pack_source_path(pack_root, entry)
-        destination_relative = _validate_manifest_install_path(entry)
+        destination_relative = _resolve_manifest_file_install_path(
+            _validate_manifest_install_path(entry),
+            env_root=env_root,
+        )
         _ensure_env_target_path(destination_relative, env_root)
         plan.append(_PlannedCopy(source=source, destination_relative=destination_relative))
 
@@ -1290,6 +1339,7 @@ def _collect_install_conflicts(
     owners: dict[str, set[str]],
     current_pack: str,
     current_owned_files: set[str],
+    mergeable_unmanaged_files: set[str],
     force: bool,
 ) -> tuple[list[str], dict[str, set[str]]]:
     conflicts: list[str] = []
@@ -1307,7 +1357,12 @@ def _collect_install_conflicts(
             conflicts.append(f"{relative} is owned by another pack: {owner_list}")
             continue
 
-        if target.exists() and not owner_set and relative not in current_owned_files:
+        if (
+            target.exists()
+            and not owner_set
+            and relative not in current_owned_files
+            and relative not in mergeable_unmanaged_files
+        ):
             conflicts.append(f"{relative} already exists and is unmanaged")
             continue
 
@@ -1316,6 +1371,183 @@ def _collect_install_conflicts(
                 overwritten_by_owner[owner].add(relative)
 
     return conflicts, overwritten_by_owner
+
+
+def _merge_last_used_model_into_copy_plan(
+    *,
+    copy_plan: Sequence[_PlannedCopy],
+    temp_dir: Path,
+    env_root: Path,
+    owners: dict[str, set[str]],
+    current_pack: str,
+    current_owned_files: set[str],
+) -> tuple[list[_PlannedCopy], set[str]]:
+    merged_plan: list[_PlannedCopy] = []
+    mergeable_unmanaged_files: set[str] = set()
+
+    for item in copy_plan:
+        if item.destination_relative not in CONFIG_FILENAMES:
+            merged_plan.append(item)
+            continue
+
+        target = (env_root / item.destination_relative).resolve()
+        if not target.exists() or not target.is_file():
+            merged_plan.append(item)
+            continue
+
+        owner_set = set(owners.get(item.destination_relative, set()))
+        owner_set.discard(current_pack)
+        if owner_set:
+            merged_plan.append(item)
+            continue
+
+        is_unmanaged_target = item.destination_relative not in current_owned_files
+        preserved_last_used = _extract_installable_last_used_model(
+            target,
+            require_last_used_only=is_unmanaged_target,
+        )
+        if preserved_last_used is None:
+            merged_plan.append(item)
+            continue
+
+        merged_source = temp_dir / f".merged-{Path(item.destination_relative).name}"
+        _write_merged_last_used_config(
+            source_path=item.source,
+            destination_path=merged_source,
+            last_used_model=preserved_last_used,
+        )
+        merged_plan.append(
+            _PlannedCopy(
+                source=merged_source,
+                destination_relative=item.destination_relative,
+            )
+        )
+        if is_unmanaged_target:
+            mergeable_unmanaged_files.add(item.destination_relative)
+
+    return merged_plan, mergeable_unmanaged_files
+
+
+def _resolve_manifest_file_install_path(relative: str, *, env_root: Path) -> str:
+    if relative not in CONFIG_FILENAMES:
+        return relative
+
+    existing_config = find_config_in_directory(env_root)
+    if existing_config is not None:
+        return existing_config.name
+
+    return PREFERRED_CONFIG_FILENAME
+
+
+def _extract_installable_last_used_model(
+    config_path: Path,
+    *,
+    require_last_used_only: bool,
+) -> str | None:
+    try:
+        with open(config_path, "r", encoding="utf-8") as handle:
+            payload = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    model_references = payload.get("model_references")
+    if not isinstance(model_references, dict):
+        return None
+
+    system_references = model_references.get("system")
+    if not isinstance(system_references, dict):
+        return None
+
+    raw_last_used = system_references.get("last_used")
+    if not isinstance(raw_last_used, str):
+        return None
+
+    last_used_model = raw_last_used.strip()
+    if not last_used_model:
+        return None
+
+    if require_last_used_only and not _is_last_used_only_config(payload):
+        return None
+
+    return last_used_model
+
+
+def _is_last_used_only_config(payload: dict[str, Any]) -> bool:
+    normalized_payload = _prune_empty_config_nodes(payload)
+    return normalized_payload == {
+        "model_references": {
+            "system": {
+                "last_used": normalized_payload["model_references"]["system"]["last_used"],
+            }
+        }
+    }
+
+
+def _prune_empty_config_nodes(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized_mapping: dict[str, Any] = {}
+        for key, child in value.items():
+            normalized_child = _prune_empty_config_nodes(child)
+            if normalized_child in ({}, [], None):
+                continue
+            normalized_mapping[key] = normalized_child
+        return normalized_mapping
+
+    if isinstance(value, list):
+        normalized_list = [
+            normalized_child
+            for child in value
+            if (normalized_child := _prune_empty_config_nodes(child)) not in ({}, [], None)
+        ]
+        return normalized_list
+
+    return value
+
+
+def _write_merged_last_used_config(
+    *,
+    source_path: Path,
+    destination_path: Path,
+    last_used_model: str,
+) -> None:
+    document = _load_round_trip_mapping(source_path)
+    _set_last_used_model_reference(document, last_used_model)
+    _write_round_trip_mapping(document, destination_path)
+
+
+def _load_round_trip_mapping(path: Path) -> CommentedMap:
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = _ROUND_TRIP_YAML.load(handle)
+
+    if payload is None:
+        return CommentedMap()
+    if isinstance(payload, CommentedMap):
+        return payload
+    if isinstance(payload, dict):
+        return CommentedMap(payload)
+    raise ValueError(f"Top-level YAML at {path} must be a mapping")
+
+
+def _set_last_used_model_reference(document: CommentedMap, last_used_model: str) -> None:
+    model_references = document.get("model_references")
+    if not isinstance(model_references, dict):
+        model_references = CommentedMap()
+        document["model_references"] = model_references
+
+    system_references = model_references.get("system")
+    if not isinstance(system_references, dict):
+        system_references = CommentedMap()
+        model_references["system"] = system_references
+
+    system_references["last_used"] = last_used_model
+
+
+def _write_round_trip_mapping(document: CommentedMap, path: Path) -> None:
+    with open(path, "w", encoding="utf-8") as handle:
+        _ROUND_TRIP_YAML.dump(document, handle)
 
 
 def _apply_copy_plan(

@@ -1,0 +1,8 @@
+.cache/
+site/
+.venv/
+__pycache__/
+screenshots/
+visual-assessments/
+*Zone.Identifier
+fast-agent wordmarks v2.html

@@ -10,27 +10,50 @@ import time
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
+from urllib.parse import unquote
 
 from mcp.types import ResourceTemplate
 from prompt_toolkit.completion import Completer, Completion
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.command_actions.accessors import (
+    lookup_agent,
+    plugin_commands_for_agent,
+    plugin_commands_for_provider,
+)
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.config import get_settings
 from fast_agent.llm.reasoning_effort import available_reasoning_values
 from fast_agent.llm.text_verbosity import available_text_verbosity_values
+from fast_agent.mcp.provider_management import provider_managed_base_url
+from fast_agent.ui.prompt.attachment_tokens import (
+    FILE_MENTION_SERVER,
+    URL_MENTION_SERVER,
+    encode_local_attachment_reference,
+)
 from fast_agent.ui.prompt.resource_mentions import template_argument_names
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterable, Iterator, Sequence
 
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.types import PromptMessageExtended
 
 
 CompletionResultT = TypeVar("CompletionResultT")
+
+
+class CompleterHistoryAgent(Protocol):
+    @property
+    def message_history(self) -> list["PromptMessageExtended"]: ...
+
+
+class CompleterLlmAgent(Protocol):
+    @property
+    def llm(self) -> FastAgentLLMProtocol | None: ...
 
 
 class AgentCompleter(Completer):
@@ -62,11 +85,13 @@ class AgentCompleter(Completer):
         current_agent: str | None = None,
         agent_provider: "AgentApp | None" = None,
         noenv_mode: bool = False,
+        cwd: Path | None = None,
     ) -> None:
         self.agents = agents
         self.current_agent = current_agent
         self.agent_provider = agent_provider
         self.noenv_mode = noenv_mode
+        self.cwd = cwd
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect|session)",
@@ -78,7 +103,7 @@ class AgentCompleter(Completer):
             "tools": "List tools",
             "model": (
                 "Inspect/switch models and update runtime settings "
-                "(/model reasoning|verbosity|fast|web_search|web_fetch|switch [starts new session]|doctor|references|catalog)"
+                "(/model reasoning|task_budget|verbosity|fast|web_search|web_fetch|switch [starts new session]|doctor|references|catalog)"
             ),
             "skills": (
                 "Manage skills "
@@ -89,12 +114,18 @@ class AgentCompleter(Completer):
                 "Manage card packs "
                 "(/cards, /cards add, /cards remove, /cards update, /cards publish, /cards registry)"
             ),
+            "plugins": (
+                "Manage command plugins "
+                "(/plugins, /plugins available, /plugins add, "
+                "/plugins remove, /plugins update, /plugins registry, /plugins help)"
+            ),
             "prompt": "Load a Prompt File or use MCP Prompt",
+            "attach": "Stage file path or remote URL attachment token(s) for the next prompt",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "resume": "Resume the last session or specified session id",
-            "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin)",
+            "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin|export)",
             "card": "Load an AgentCard (add --tool to attach/remove as tool)",
             "agent": "Attach/remove an agent as a tool or dump an AgentCard",
             "reload": "Reload AgentCards from disk",
@@ -106,6 +137,7 @@ class AgentCompleter(Completer):
             self.commands.pop("prompt", None)  # Remove prompt command in human input mode
             self.commands.pop("tools", None)  # Remove tools command in human input mode
             self.commands.pop("usage", None)  # Remove usage command in human input mode
+        self._add_plugin_commands()
         self.agent_types = agent_types or {}
         self._mention_cache: dict[tuple[Any, ...], AgentCompleter._CacheEntry] = {}
         self._mention_cache_ttl_seconds = 3.0
@@ -115,14 +147,32 @@ class AgentCompleter(Completer):
         except RuntimeError:
             self._owner_loop = None
 
+    def _add_plugin_commands(self) -> None:
+        if self.agent_provider is None or self.current_agent is None:
+            return
+
+        commands = {}
+        global_commands = plugin_commands_for_provider(self.agent_provider)
+        if global_commands:
+            commands.update(global_commands)
+
+        agent = lookup_agent(self.agent_provider, self.current_agent)
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent_commands:
+            commands.update(agent_commands)
+
+        for name, spec in commands.items():
+            if name in self.commands:
+                continue
+            description = spec.description
+            if spec.input_hint:
+                description = f"{description} {spec.input_hint}"
+            if spec.key:
+                description = f"{description} (key: {spec.key})"
+            self.commands[name] = description
+
     def _current_agent_has_web_tools_enabled(self) -> bool:
-        if self.agent_provider is None or not self.current_agent:
-            return False
-        try:
-            agent_obj = self.agent_provider._agent(self.current_agent)
-        except Exception:
-            return False
-        return history_handlers.web_tools_enabled_for_agent(agent_obj)
+        return history_handlers.web_tools_enabled_for_agent(self._current_llm_agent())
 
     @dataclass(frozen=True)
     class _CompletionSearch:
@@ -150,6 +200,9 @@ class AgentCompleter(Completer):
 
         raw_dir = raw_dir or "."
         expanded_dir = Path(os.path.expandvars(os.path.expanduser(raw_dir)))
+        if not expanded_dir.is_absolute():
+            expanded_dir = (self.cwd or Path.cwd()) / expanded_dir
+        expanded_dir = expanded_dir.resolve(strict=False)
         if not expanded_dir.exists() or not expanded_dir.is_dir():
             return None
 
@@ -242,13 +295,10 @@ class AgentCompleter(Completer):
         return normalized[: limit - 1] + "…"
 
     def _iter_user_turns(self):
-        if not self.agent_provider or not self.current_agent:
+        agent_obj = self._current_history_agent()
+        if agent_obj is None:
             return []
-        try:
-            agent_obj = self.agent_provider._agent(self.current_agent)
-        except Exception:
-            return []
-        history = getattr(agent_obj, "message_history", [])
+        history = agent_obj.message_history
         turns: list[list[PromptMessageExtended]] = []
         current: list[PromptMessageExtended] = []
         saw_assistant = False
@@ -285,21 +335,49 @@ class AgentCompleter(Completer):
             user_turns.append(first)
         return user_turns
 
-    def _current_agent_llm(self) -> object | None:
+    def _current_history_agent(self) -> CompleterHistoryAgent | None:
         if not self.agent_provider or not self.current_agent:
             return None
         try:
             agent_obj = self.agent_provider._agent(self.current_agent)
         except Exception:
             return None
-        llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
-        return llm
+        return cast("CompleterHistoryAgent", agent_obj)
+
+    def _current_llm_agent(self) -> CompleterLlmAgent | None:
+        if not self.agent_provider or not self.current_agent:
+            return None
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return None
+        return cast("CompleterLlmAgent", agent_obj)
+
+    def _current_agent_llm(self) -> FastAgentLLMProtocol | None:
+        agent_obj = self._current_llm_agent()
+        if agent_obj is None:
+            return None
+        return agent_obj.llm
 
     def _resolve_reasoning_values(self) -> list[str]:
         llm = self._current_agent_llm()
         if not llm:
             return []
-        return available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
+        values = available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
+        if "auto" in values:
+            values = ["adaptive" if value == "auto" else value for value in values]
+        return values
+
+    def _supports_task_budget_setting(self) -> bool:
+        llm = self._current_agent_llm()
+        if llm is None:
+            return False
+        return bool(getattr(llm, "task_budget_supported", False))
+
+    def _resolve_task_budget_values(self) -> list[str]:
+        if not self._supports_task_budget_setting():
+            return []
+        return ["off", "20k", "64k", "128k", "256k"]
 
     def _resolve_verbosity_values(self) -> list[str]:
         llm = self._current_agent_llm()
@@ -312,6 +390,12 @@ class AgentCompleter(Completer):
         if llm is None:
             return False
         return model_handlers.model_supports_web_search(llm)
+
+    def _supports_x_search_setting(self) -> bool:
+        llm = self._current_agent_llm()
+        if llm is None:
+            return False
+        return model_handlers.model_supports_x_search(llm)
 
     def _supports_service_tier_setting(self) -> bool:
         llm = self._current_agent_llm()
@@ -564,6 +648,58 @@ class AgentCompleter(Completer):
             display_formatter=format_marketplace_display_url,
         )
 
+    def _complete_local_plugin_names(
+        self,
+        partial: str,
+        *,
+        managed_only: bool = False,
+        include_indices: bool = True,
+    ):
+        """Generate completions for installed plugins."""
+        from fast_agent.paths import resolve_environment_paths
+        from fast_agent.plugins.operations import list_local_plugins
+
+        env_paths = resolve_environment_paths(get_settings())
+        plugins = list_local_plugins(destination_root=env_paths.plugins)
+        if not plugins:
+            return
+
+        partial_lower = partial.lower()
+        include_numbers = include_indices and (not partial or partial.isdigit())
+        for entry in plugins:
+            if managed_only and entry.source is None:
+                continue
+
+            name = entry.name
+            if name and (not partial or name.lower().startswith(partial_lower)):
+                yield Completion(
+                    name,
+                    start_position=-len(partial),
+                    display=name,
+                    display_meta="managed plugin" if entry.source else "local plugin",
+                )
+
+            if include_numbers:
+                index_text = str(entry.index)
+                if not partial or index_text.startswith(partial):
+                    yield Completion(
+                        index_text,
+                        start_position=-len(partial),
+                        display=index_text,
+                        display_meta=name,
+                    )
+
+    def _complete_plugin_registries(self, partial: str):
+        """Generate completions for configured plugin registries."""
+        from fast_agent.plugins.configuration import resolve_registries
+
+        configured_urls = resolve_registries(get_settings())
+        yield from self._complete_registry_urls(
+            partial,
+            configured_urls=configured_urls,
+            display_formatter=lambda value: value,
+        )
+
     def _complete_executables(self, partial: str, max_results: int = 100):
         """Complete executable names from PATH.
 
@@ -653,6 +789,51 @@ class AgentCompleter(Completer):
         except (PermissionError, FileNotFoundError, NotADirectoryError):
             pass
 
+    def _complete_local_attachment_paths(self, partial: str) -> list[Completion]:
+        decoded_partial = unquote(partial)
+        if decoded_partial.lower().startswith("file://"):
+            from fast_agent.ui.prompt.attachment_tokens import normalize_local_attachment_reference
+
+            try:
+                decoded_partial = str(
+                    normalize_local_attachment_reference(decoded_partial, cwd=self.cwd)
+                )
+            except ValueError:
+                return []
+
+        resolved = self._resolve_completion_search(decoded_partial)
+        if not resolved:
+            return []
+
+        search_dir = resolved.search_dir
+        prefix = resolved.prefix
+        completion_prefix = resolved.completion_prefix
+        completions: list[Completion] = []
+        try:
+            for entry in sorted(search_dir.iterdir()):
+                name = entry.name
+                if name.startswith(".") and not prefix.startswith("."):
+                    continue
+                if not name.lower().startswith(prefix.lower()):
+                    continue
+
+                completion_text = f"{completion_prefix}{name}" if completion_prefix else name
+                if entry.is_dir():
+                    completion_text += "/"
+
+                completions.append(
+                    Completion(
+                        encode_local_attachment_reference(completion_text),
+                        start_position=-len(partial),
+                        display=name + ("/" if entry.is_dir() else ""),
+                        display_meta="directory" if entry.is_dir() else "file",
+                    )
+                )
+        except (PermissionError, FileNotFoundError, NotADirectoryError):
+            return []
+
+        return completions
+
     def _complete_subcommands(
         self,
         parts: Sequence[str],
@@ -679,15 +860,20 @@ class AgentCompleter(Completer):
 
     @staticmethod
     def _configured_mcp_server_target(server_config: Any) -> str | None:
+        management_value: Any
         url_value: Any
         if isinstance(server_config, dict):
+            management_value = server_config.get("management")
             url_value = server_config.get("url")
         else:
+            management_value = getattr(server_config, "management", None)
             url_value = getattr(server_config, "url", None)
 
         if isinstance(url_value, str):
             normalized = url_value.strip()
             if normalized:
+                if management_value == "provider":
+                    return provider_managed_base_url(normalized)
                 return normalized
 
         command_value: Any
@@ -1267,13 +1453,24 @@ class AgentCompleter(Completer):
                 return list(cached)
 
             server_names = self._run_async_completion(self._list_connected_resource_servers()) or []
+            server_names = list(
+                dict.fromkeys([*server_names, FILE_MENTION_SERVER, URL_MENTION_SERVER])
+            )
             partial = context.partial.lower()
             completions = [
                 Completion(
                     f"{server_name}:",
                     start_position=-len(context.partial),
                     display=server_name,
-                    display_meta="connected mcp server (resources)",
+                    display_meta=(
+                        "local file attachment"
+                        if server_name == FILE_MENTION_SERVER
+                        else (
+                            "remote URL attachment"
+                            if server_name == URL_MENTION_SERVER
+                            else "connected mcp server (resources)"
+                        )
+                    ),
                 )
                 for server_name in server_names
                 if not partial or server_name.lower().startswith(partial)
@@ -1285,6 +1482,21 @@ class AgentCompleter(Completer):
             return []
 
         if context.kind == "resource":
+            if context.server_name == FILE_MENTION_SERVER:
+                return self._complete_local_attachment_paths(context.partial)
+            if context.server_name == URL_MENTION_SERVER:
+                prefix = context.partial.lower()
+                return [
+                    Completion(
+                        scheme,
+                        start_position=-len(context.partial),
+                        display=scheme,
+                        display_meta="remote URL attachment",
+                    )
+                    for scheme in ("https://", "http://")
+                    if not prefix or scheme.startswith(prefix)
+                ]
+
             cache_key = (
                 "resource",
                 self.current_agent,

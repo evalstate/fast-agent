@@ -193,6 +193,8 @@ async def test_anthropic_server_tool_start_stop_without_delta() -> None:
             "event_type": "start",
             "payload": {
                 "tool_name": "web_search",
+                "presentation_family": "web_search",
+                "preserve_details": False,
                 "tool_display_name": "Searching the web",
                 "chunk": '{"query": "capital of France"}',
                 "tool_use_id": "srvtoolu_1",
@@ -203,8 +205,96 @@ async def test_anthropic_server_tool_start_stop_without_delta() -> None:
             "event_type": "stop",
             "payload": {
                 "tool_name": "web_search",
+                "presentation_family": "web_search",
+                "preserve_details": False,
                 "tool_display_name": "Searching the web",
                 "tool_use_id": "srvtoolu_1",
+                "index": 2,
+            },
+        },
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
+    harness = _AnthropicReplayHarness()
+    stream = _SyntheticAnthropicStream(
+        [
+            RawContentBlockStartEvent.model_validate(
+                {
+                    "type": "content_block_start",
+                    "index": 2,
+                    "content_block": {
+                        "type": "mcp_tool_use",
+                        "id": "mcptoolu_1",
+                        "name": "hf_hub_query",
+                        "server_name": "huggingface_mcp",
+                        "input": {},
+                    },
+                }
+            ),
+            RawContentBlockStopEvent.model_validate(
+                {
+                    "type": "content_block_stop",
+                    "index": 2,
+                    "content_block": {
+                        "type": "mcp_tool_use",
+                        "id": "mcptoolu_1",
+                        "name": "hf_hub_query",
+                        "server_name": "huggingface_mcp",
+                        "input": {"message": "top models"},
+                    },
+                }
+            ),
+        ],
+        final_message=_anthropic_message(),
+    )
+
+    message, thinking_segments, streamed_text_segments = await harness._process_stream(
+        cast("Any", stream),
+        model="claude-sonnet-4-6",
+        capture_filename=None,
+    )
+
+    assert thinking_segments == []
+    assert streamed_text_segments == []
+    assert message.stop_reason == "end_turn"
+    assert harness.tool_events == [
+        {
+            "event_type": "start",
+            "payload": {
+                "tool_name": "huggingface_mcp/hf_hub_query",
+                "server_name": "huggingface_mcp",
+                "presentation_family": "remote_tool",
+                "preserve_details": True,
+                "tool_display_name": "remote tool: hf_hub_query",
+                "chunk": "{}",
+                "tool_use_id": "mcptoolu_1",
+                "index": 2,
+            },
+        },
+        {
+            "event_type": "replace",
+            "payload": {
+                "tool_name": "huggingface_mcp/hf_hub_query",
+                "server_name": "huggingface_mcp",
+                "presentation_family": "remote_tool",
+                "preserve_details": True,
+                "tool_use_id": "mcptoolu_1",
+                "index": 2,
+                "chunk": '{"message": "top models"}',
+            },
+        },
+        {
+            "event_type": "stop",
+            "payload": {
+                "tool_name": "huggingface_mcp/hf_hub_query",
+                "server_name": "huggingface_mcp",
+                "presentation_family": "remote_tool",
+                "preserve_details": True,
+                "tool_display_name": "remote tool: hf_hub_query",
+                "tool_use_id": "mcptoolu_1",
                 "index": 2,
             },
         },

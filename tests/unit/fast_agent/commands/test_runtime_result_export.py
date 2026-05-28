@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,9 +9,11 @@ from typing import Any, cast
 
 import pytest
 import typer
-from mcp.types import TextContent
+from mcp import CallToolRequest
+from mcp.types import CallToolRequestParams, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.cli.runtime import runner
 from fast_agent.cli.runtime.agent_setup import (
     _apply_shell_cwd_policy_preflight,
     _build_fan_out_result_paths,
@@ -20,12 +23,14 @@ from fast_agent.cli.runtime.agent_setup import (
     _resume_session_if_requested,
     _run_single_agent_cli_flow,
     _sanitize_result_suffix,
+    _select_loaded_card_agent,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import ResumeSessionAgentsResult
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
 class _DummyAgent:
@@ -43,6 +48,27 @@ class _NonPersistentMessageAgent(_DummyAgent):
     async def generate(self, messages: object) -> PromptMessageExtended:
         self.generated_messages.append(messages)
         return PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text=self.reply_text)],
+        )
+
+
+class _StructuredMessageAgent(_DummyAgent):
+    def __init__(self, name: str, payload: object | None, reply_text: str) -> None:
+        super().__init__(name)
+        self.payload = payload
+        self.reply_text = reply_text
+        self.generated_messages: list[object] = []
+        self.schemas: list[dict[str, Any]] = []
+
+    async def structured_schema(
+        self,
+        messages: object,
+        schema: dict[str, Any],
+    ) -> tuple[object | None, PromptMessageExtended]:
+        self.generated_messages.append(messages)
+        self.schemas.append(schema)
+        return self.payload, PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text=self.reply_text)],
         )
@@ -81,6 +107,8 @@ def _make_request(
     target_agent_name: str | None = None,
     message: str | None = "hello",
     prompt_file: str | None = None,
+    attachments: list[str] | None = None,
+    json_schema: str | None = None,
 ) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
@@ -92,6 +120,7 @@ def _make_request(
         model=None,
         message=message,
         prompt_file=prompt_file,
+        json_schema=json_schema,
         result_file=result_file,
         resume=None,
         url_servers=None,
@@ -103,6 +132,7 @@ def _make_request(
         noenv=False,
         force_smart=False,
         shell_runtime=False,
+        no_shell=False,
         mode="interactive",
         transport="http",
         host="127.0.0.1",
@@ -113,11 +143,37 @@ def _make_request(
         permissions_enabled=True,
         reload=False,
         watch=False,
+        attachments=attachments,
     )
 
 
 def test_build_result_file_with_suffix_without_extension() -> None:
     assert _build_result_file_with_suffix(Path("foo"), "haiku35") == Path("foo-haiku35")
+
+
+def test_select_loaded_card_agent_targets_single_runnable_card() -> None:
+    request = _make_request(result_file=None, message=None)
+    fast = SimpleNamespace(agents={"news": {"tool_only": False}})
+
+    selected = _select_loaded_card_agent(fast, request, ["news"])
+
+    assert selected == "news"
+    assert request.target_agent_name == "news"
+
+
+def test_select_loaded_card_agent_leaves_ambiguous_cards_unselected() -> None:
+    request = _make_request(result_file=None, message=None)
+    fast = SimpleNamespace(
+        agents={
+            "news": {"tool_only": False},
+            "summary": {"tool_only": False},
+        }
+    )
+
+    selected = _select_loaded_card_agent(fast, request, ["news", "summary"])
+
+    assert selected is None
+    assert request.target_agent_name is None
 
 
 def test_should_convert_keyboard_interrupt_to_task_cancel_only_for_interactive_repl() -> None:
@@ -126,6 +182,76 @@ def test_should_convert_keyboard_interrupt_to_task_cancel_only_for_interactive_r
 
     one_shot_request = _make_request(result_file=None, message="hello")
     assert _should_convert_keyboard_interrupt_to_task_cancel(one_shot_request) is False
+
+    prompt_file_request = _make_request(
+        result_file=None,
+        message=None,
+        prompt_file="prompt.txt",
+    )
+    assert _should_convert_keyboard_interrupt_to_task_cancel(prompt_file_request) is False
+
+
+def test_run_request_closes_loop_when_cleanup_is_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeTask:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    class _FakeLoop:
+        def __init__(self) -> None:
+            self.task = _FakeTask()
+            self.main_gather = object()
+            self.shutdown_marker = object()
+            self.closed = False
+
+        def is_running(self) -> bool:
+            return False
+
+        def create_task(self, coro: Any) -> _FakeTask:
+            coro.close()
+            return self.task
+
+        def run_until_complete(self, awaitable: object) -> None:
+            if awaitable is self.task:
+                raise KeyboardInterrupt()
+            if awaitable is self.main_gather:
+                raise KeyboardInterrupt()
+
+        def shutdown_asyncgens(self) -> object:
+            return self.shutdown_marker
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_loop = _FakeLoop()
+
+    async def _fake_run_agent_request(_request: AgentRunRequest) -> None:
+        return None
+
+    def _fake_gather(*aws: object, return_exceptions: bool = False) -> object:
+        del return_exceptions
+        if aws == (fake_loop.task,):
+            return fake_loop.main_gather
+        return object()
+
+    monkeypatch.setattr(runner, "configure_uvloop", lambda: (False, False))
+    monkeypatch.setattr(runner, "ensure_event_loop", lambda: fake_loop)
+    monkeypatch.setattr(runner, "set_asyncio_exception_handler", lambda _loop: None)
+    monkeypatch.setattr(runner, "run_agent_request", _fake_run_agent_request)
+    monkeypatch.setattr(asyncio, "all_tasks", lambda _loop: set())
+    monkeypatch.setattr(asyncio, "gather", _fake_gather)
+
+    with pytest.raises(KeyboardInterrupt):
+        runner.run_request(_make_request(result_file=None, message="hello"))
+
+    assert fake_loop.closed is True
 
 
 def test_sanitize_result_suffix() -> None:
@@ -168,6 +294,42 @@ def test_find_last_assistant_text_returns_none_without_assistant_messages() -> N
     assert _find_last_assistant_text(history) is None
 
 
+def test_find_last_assistant_text_falls_back_to_pending_tool_summary() -> None:
+    history = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")]),
+        PromptMessageExtended(
+            role="assistant",
+            tool_calls={
+                "call-1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="read_text_file", arguments={}),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+    ]
+
+    assert _find_last_assistant_text(history) == "Pending tool call: read_text_file"
+
+
+def test_find_last_assistant_text_prefers_text_over_pending_tool_summary() -> None:
+    history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="partial answer")],
+            tool_calls={
+                "call-1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="read_text_file", arguments={}),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        )
+    ]
+
+    assert _find_last_assistant_text(history) == "partial answer"
+
+
 @pytest.mark.asyncio
 async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_disabled(
     tmp_path: Path,
@@ -187,6 +349,256 @@ async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_dis
     assert exported[1].last_text() == "done"
     captured = capsys.readouterr()
     assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _TrackingAgentApp(_DummyAgentApp):
+        def __init__(self) -> None:
+            super().__init__(["agent"])
+            self.interactive_calls = 0
+
+        async def interactive(self, agent_name: str | None = None) -> None:
+            del agent_name
+            self.interactive_calls += 1
+
+    prompt = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello from prompt")],
+        )
+    ]
+    prompt_file = tmp_path / "prompt.json"
+    prompt_file.write_text("[]", encoding="utf-8")
+    output = tmp_path / "out.json"
+
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _TrackingAgentApp()
+    app._agents["agent"] = agent
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.prompts.prompt_load.load_prompt",
+        lambda _path: prompt,
+    )
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=str(output),
+            message=None,
+            prompt_file=str(prompt_file),
+        ),
+    )
+
+    assert app.interactive_calls == 0
+    exported = load_messages(str(output))
+    assert [message.role for message in exported] == ["user", "assistant"]
+    assert exported[0].first_text() == "hello from prompt"
+    assert exported[1].last_text() == "done"
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_message_attaches_files(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    attachment = tmp_path / "report.txt"
+    attachment.write_text("attached text", encoding="utf-8")
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message="summarize",
+            attachments=[attachment.as_posix()],
+        ),
+    )
+
+    sent = agent.generated_messages[0]
+    assert isinstance(sent, PromptMessageExtended)
+    assert sent.first_text() == "summarize"
+    assert len(sent.content) == 2
+    assert capsys.readouterr().out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_prompt_file_attaches_to_last_user_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    attachment = tmp_path / "report.txt"
+    attachment.write_text("attached text", encoding="utf-8")
+    prompt = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="first")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="middle")],
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="last")],
+        ),
+    ]
+    prompt_file = tmp_path / "prompt.json"
+    prompt_file.write_text("[]", encoding="utf-8")
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.prompts.prompt_load.load_prompt",
+        lambda _path: prompt,
+    )
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message=None,
+            prompt_file=str(prompt_file),
+            attachments=[attachment.as_posix()],
+        ),
+    )
+
+    sent = agent.generated_messages[0]
+    assert isinstance(sent, list)
+    sent_messages = cast("list[PromptMessageExtended]", sent)
+    assert [len(message.content) for message in sent_messages] == [1, 1, 2]
+    assert sent_messages[2].first_text() == "last"
+    assert len(prompt[2].content) == 1
+    assert capsys.readouterr().out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_json_schema_message_emits_only_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    schema_path = tmp_path / "schema.json"
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+    agent = _StructuredMessageAgent("agent", {"answer": "done"}, '{"answer":"done"}')
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message="hello",
+            json_schema=str(schema_path),
+        ),
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == '{"answer": "done"}'
+    assert captured.err == ""
+    assert agent.schemas == [schema]
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_json_schema_prompt_file_emits_only_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    schema_path = tmp_path / "schema.json"
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+    prompt = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello from prompt")],
+        )
+    ]
+    prompt_file = tmp_path / "prompt.json"
+    prompt_file.write_text("[]", encoding="utf-8")
+
+    agent = _StructuredMessageAgent("agent", {"answer": "done"}, '{"answer":"done"}')
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.prompts.prompt_load.load_prompt",
+        lambda _path: prompt,
+    )
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message=None,
+            prompt_file=str(prompt_file),
+            json_schema=str(schema_path),
+        ),
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == '{"answer": "done"}'
+    assert captured.err == ""
+    assert agent.generated_messages == [prompt]
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_json_schema_invalid_output_exits_nonzero(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    agent = _StructuredMessageAgent("agent", None, "not-json")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    with pytest.raises(typer.Exit) as exc_info:
+        await _run_single_agent_cli_flow(
+            app,
+            _make_request(
+                result_file=None,
+                message="hello",
+                json_schema=str(schema_path),
+            ),
+        )
+
+    assert exc_info.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "valid JSON matching the structured output schema" in captured.err
 
 
 @pytest.mark.asyncio
@@ -276,13 +688,15 @@ async def test_resume_session_interactive_queues_markdown_preview(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
-    manager = SimpleNamespace(
-        resume_session_agents=lambda *args, **kwargs: ResumeSessionAgentsResult(
+    async def _resume_session_agents_async(*args, **kwargs):
+        del args, kwargs
+        return ResumeSessionAgentsResult(
             session=cast("Any", session),
             loaded={"alpha": Path("history_alpha.json")},
             missing_agents=[],
         )
-    )
+
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
 
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
     plain_notices: list[str] = []
@@ -300,9 +714,9 @@ async def test_resume_session_interactive_queues_markdown_preview(
     await _resume_session_if_requested(app, request)
 
     assert any("Resumed session" in notice for notice in plain_notices)
-    assert any("Last assistant message" in notice for notice in plain_notices)
     assert markdown_notices
     assert markdown_notices[0][0] == "## Welcome back\n\n- item"
+    assert markdown_notices[0][1]["title"] == "Last assistant message"
 
 
 @pytest.mark.asyncio
@@ -327,14 +741,16 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
-    manager = SimpleNamespace(
-        resume_session_agents=lambda *args, **kwargs: ResumeSessionAgentsResult(
+    async def _resume_session_agents_async(*args, **kwargs):
+        del args, kwargs
+        return ResumeSessionAgentsResult(
             session=cast("Any", session),
             loaded={"agent": Path("history_agent.json")},
             missing_agents=[],
             usage_notices=["[dim]Usage restored[/dim]"],
         )
-    )
+
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
 
     plain_notices: list[str] = []
 
@@ -348,6 +764,69 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
     await _resume_session_if_requested(app, request)
 
     assert any("Usage restored" in notice for notice in plain_notices)
+
+
+@pytest.mark.asyncio
+async def test_resume_session_applies_hydrated_active_agent_to_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _make_request(result_file=None, message=None, prompt_file=None)
+    request.resume = "latest"
+
+    alpha_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="alpha preview")],
+    )
+    beta_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="beta preview")],
+    )
+    alpha = _DummyAgent("alpha")
+    alpha.message_history = [alpha_message]
+    beta = _DummyAgent("beta")
+    beta.message_history = [beta_message]
+
+    app = _DummyAgentApp(["alpha", "beta"], default_agent="beta")
+    app._agents["alpha"] = alpha
+    app._agents["beta"] = beta
+
+    session = SimpleNamespace(
+        info=SimpleNamespace(
+            name="session-2b",
+            last_activity=datetime(2026, 2, 26, 12, 0, 0),
+        )
+    )
+    async def _resume_session_agents_async(*args, **kwargs):
+        del args, kwargs
+        return ResumeSessionAgentsResult(
+            session=cast("Any", session),
+            loaded={
+                "alpha": Path("history_alpha.json"),
+                "beta": Path("history_beta.json"),
+            },
+            missing_agents=[],
+            active_agent="alpha",
+        )
+
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+
+    markdown_notices: list[tuple[str, dict[str, str | None]]] = []
+
+    def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
+        markdown_notices.append((text, kwargs))
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
+    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        _capture_markdown_notice,
+    )
+
+    await _resume_session_if_requested(app, request)
+
+    assert request.target_agent_name == "alpha"
+    assert markdown_notices
+    assert markdown_notices[0][0] == "alpha preview"
 
 
 @pytest.mark.asyncio
@@ -371,7 +850,7 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
         )
     )
 
-    def _resume_session_agents(*args, **kwargs):
+    async def _resume_session_agents_async(*args, **kwargs):
         del args
         captured_kwargs.update(kwargs)
         return ResumeSessionAgentsResult(
@@ -380,7 +859,7 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
             missing_agents=[],
         )
 
-    manager = SimpleNamespace(resume_session_agents=_resume_session_agents)
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
 
     monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)

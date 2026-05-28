@@ -7,9 +7,11 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from fast_agent.config import get_settings
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
+from fast_agent.llm.provider.anthropic.vertex_config import (
+    anthropic_vertex_ready,
+)
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
@@ -28,16 +30,17 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.CODEX_RESPONSES,
     Provider.ANTHROPIC,
     Provider.HUGGINGFACE,
-    Provider.OPENAI,
-    Provider.GENERIC,
     Provider.GOOGLE,
     Provider.XAI,
-    Provider.GROQ,
     Provider.DEEPSEEK,
-    Provider.ALIYUN,
-    Provider.OPENROUTER,
+    Provider.GENERIC,
+    Provider.ANTHROPIC_VERTEX,
+    Provider.OPENAI,
+    Provider.GROQ,
     Provider.AZURE,
     Provider.BEDROCK,
+    Provider.ALIYUN,
+    Provider.OPENROUTER,
     Provider.FAST_AGENT,
 )
 
@@ -49,6 +52,9 @@ REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
 
 GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
 CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
+ANTHROPIC_VERTEX_PROVIDER_KEY = "anthropic-vertex"
+LLAMACPP_PROVIDER_KEY = "llamacpp"
+LLAMACPP_IMPORT_SENTINEL = "llamacpp.__import__"
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,7 @@ class ProviderOption:
     key: str | None = None
     display_name: str | None = None
     overlay_group: bool = False
+    disabled_reason: str | None = None
 
     @property
     def option_key(self) -> str:
@@ -107,6 +114,10 @@ class ModelPickerSnapshot:
 
 
 def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> bool:
+    if provider == Provider.ANTHROPIC_VERTEX:
+        ready, _ = anthropic_vertex_ready(config_payload)
+        return ready
+
     config_key = ProviderKeyManager.get_config_file_key(provider.config_name, config_payload)
     if config_key:
         return True
@@ -143,6 +154,113 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
         return True
 
     return False
+
+
+def _catalog_options_from_entries(
+    entries: tuple[CatalogModelEntry, ...],
+    *,
+    provider: Provider,
+    source: ModelSource,
+    spec_transform: Any = None,
+    filter_current: bool = True,
+) -> list[ModelOption]:
+    transform = spec_transform or (lambda value: value)
+
+    entry_options: list[ModelOption] = []
+    for entry in entries:
+        spec = transform(entry.model)
+        tags: list[str] = []
+        if entry.local:
+            tags.append("local")
+        if entry.fast:
+            tags.append("fast")
+        if not entry.current:
+            tags.append("legacy")
+
+        suffix = f" ({', '.join(tags)})" if tags else ""
+        entry_label = entry.display_label or entry.alias
+        label = f"{entry_label:<19} → {spec}{suffix}"
+        if entry.description:
+            label = f"{label} — {entry.description}"
+        entry_options.append(
+            ModelOption(
+                spec=spec,
+                label=label,
+                preset_token=entry.alias,
+                fast=entry.fast,
+                curated=entry.current,
+            )
+        )
+
+    if source == "curated":
+        if not filter_current:
+            return entry_options
+        return [option for entry, option in zip(entries, entry_options) if entry.current]
+
+    seen_identities: set[tuple[Provider, str]] = set()
+    options: list[ModelOption] = list(entry_options)
+    for option in entry_options:
+        identity = model_identity(option.spec)
+        if identity is not None:
+            seen_identities.add(identity)
+
+    for spec in _static_provider_models(provider):
+        transformed_spec = transform(spec)
+        identity = model_identity(transformed_spec)
+        if identity is not None and identity in seen_identities:
+            continue
+        if identity is not None:
+            seen_identities.add(identity)
+        options.append(ModelOption(spec=transformed_spec, label=f"{transformed_spec} (catalog)"))
+
+    return options
+
+
+def model_options_for_option(
+    snapshot: ModelPickerSnapshot,
+    option: ProviderOption,
+    *,
+    source: ModelSource,
+) -> list[ModelOption]:
+    provider = option.provider
+    if provider == Provider.GENERIC:
+        return [
+            ModelOption(
+                spec=GENERIC_CUSTOM_MODEL_SENTINEL,
+                label="Enter local model string (e.g. llama3.2)",
+            )
+        ]
+
+    if provider in REFER_TO_DOCS_PROVIDERS:
+        return [
+            ModelOption(
+                spec=f"{provider.config_name}.refer-to-docs",
+                label="Refer to docs (provider-specific setup)",
+            )
+        ]
+
+    if option.option_key == LLAMACPP_PROVIDER_KEY:
+        return [
+            ModelOption(
+                spec=LLAMACPP_IMPORT_SENTINEL,
+                label="Discover local llama.cpp models and write overlay",
+            )
+        ]
+
+    if option.overlay_group:
+        return _catalog_options_from_entries(
+            option.curated_entries,
+            provider=Provider.ANTHROPIC,
+            source="curated",
+            filter_current=False,
+        )
+
+    assert provider is not None
+    return _catalog_options_from_entries(
+        option.curated_entries,
+        provider=provider,
+        source=source,
+    )
 
 
 def build_snapshot(
@@ -192,7 +310,6 @@ def build_snapshot(
             overlay_group=True,
         )
     )
-
     for provider in PICKER_PROVIDER_ORDER:
         entries = tuple(
             entry
@@ -207,11 +324,29 @@ def build_snapshot(
         )
         if not entries and not has_special_picker_flow:
             continue
+        if provider == Provider.DEEPSEEK:
+            providers.append(
+                ProviderOption(
+                    provider=None,
+                    active=False,
+                    curated_entries=(),
+                    key=LLAMACPP_PROVIDER_KEY,
+                    display_name="llama.cpp",
+                )
+            )
         providers.append(
             ProviderOption(
                 provider=provider,
                 active=provider in active_providers,
                 curated_entries=entries,
+                display_name=(
+                    "Generic (ollama)" if provider == Provider.GENERIC else None
+                ),
+                disabled_reason=(
+                    anthropic_vertex_ready(config_payload)[1]
+                    if provider == Provider.ANTHROPIC_VERTEX and provider not in active_providers
+                    else None
+                ),
             )
         )
 
@@ -286,7 +421,12 @@ def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> Provider
 
 
 def build_provider_label(option: ProviderOption) -> str:
-    status = "active" if option.active else "inactive"
+    if option.option_key == LLAMACPP_PROVIDER_KEY:
+        status = "active"
+        count_text = "import flow"
+        return f"{option.option_display_name:<16} [{status}] · {count_text}"
+
+    status = "active" if option.active else "disabled" if option.disabled_reason else "inactive"
     curated_count = len(option.curated_entries)
     if option.overlay_group:
         entry_text = "overlay" if curated_count == 1 else "overlays"
@@ -327,6 +467,28 @@ def normalize_generic_model_spec(raw_model: str) -> str | None:
     return f"generic.{candidate}"
 
 
+def infer_initial_picker_provider(model_spec: str | None) -> str | None:
+    if model_spec is None:
+        return None
+
+    normalized = model_spec.strip()
+    if not normalized:
+        return None
+
+    from fast_agent.llm.model_factory import ModelFactory
+
+    try:
+        parsed = ModelFactory.parse_model_string(
+            normalized,
+            presets=ModelFactory.MODEL_PRESETS,
+        )
+    except Exception:
+        return None
+
+    config_name = parsed.provider.config_name.strip()
+    return config_name or None
+
+
 def provider_activation_action(
     snapshot: ModelPickerSnapshot,
     provider: Provider,
@@ -338,6 +500,8 @@ def provider_activation_action(
 
 
 def model_identity(model_spec: str) -> tuple[Provider, str] | None:
+    from fast_agent.llm.model_factory import ModelFactory
+
     try:
         parsed = ModelFactory.parse_model_string(model_spec)
     except Exception:
@@ -348,7 +512,13 @@ def model_identity(model_spec: str) -> tuple[Provider, str] | None:
 def _static_provider_models(provider: Provider) -> list[str]:
     models: list[str] = []
     for model in ModelDatabase.list_models():
-        if ModelDatabase.get_default_provider(model) != provider:
+        default_provider = ModelDatabase.get_default_provider(model)
+        if provider == Provider.ANTHROPIC_VERTEX:
+            if default_provider != Provider.ANTHROPIC:
+                continue
+            models.append(f"{provider.config_name}.{model}")
+            continue
+        if default_provider != provider:
             continue
         models.append(f"{provider.config_name}.{model}")
     return models
@@ -386,55 +556,16 @@ def model_options_for_provider(
                 activation_action=activation_action,
             )
         ]
-
-    curated_options: list[ModelOption] = []
-    for entry in provider_option.curated_entries:
-        tags: list[str] = []
-        if entry.local:
-            tags.append("local")
-        if entry.fast:
-            tags.append("fast")
-        if not entry.current:
-            tags.append("legacy")
-
-        suffix = f" ({', '.join(tags)})" if tags else ""
-        entry_label = entry.display_label or entry.alias
-        label = f"{entry_label:<19} → {entry.model}{suffix}"
-        if entry.description:
-            label = f"{label} — {entry.description}"
-        curated_options.append(
-            ModelOption(
-                spec=entry.model,
-                label=label,
-                preset_token=entry.alias,
-                fast=entry.fast,
-                curated=entry.current,
-            )
-        )
-
-    if source == "curated":
-        return curated_options
-
-    seen_identities: set[tuple[Provider, str]] = set()
-    options: list[ModelOption] = list(curated_options)
-
-    for curated in curated_options:
-        identity = model_identity(curated.spec)
-        if identity is not None:
-            seen_identities.add(identity)
-
-    for spec in _static_provider_models(provider):
-        identity = model_identity(spec)
-        if identity is not None and identity in seen_identities:
-            continue
-        if identity is not None:
-            seen_identities.add(identity)
-        options.append(ModelOption(spec=spec, label=f"{spec} (catalog)"))
-
-    return options
+    return _catalog_options_from_entries(
+        provider_option.curated_entries,
+        provider=provider,
+        source=source,
+    )
 
 
 def model_capabilities(model_spec: str) -> ModelCapabilities:
+    from fast_agent.llm.model_factory import ModelFactory
+
     resolved = ModelFactory.resolve_model_spec(model_spec)
     parsed = resolved.model_config
     reasoning_spec = resolved.reasoning_effort_spec
@@ -453,7 +584,7 @@ def model_capabilities(model_spec: str) -> ModelCapabilities:
         current_reasoning=format_reasoning_setting(parsed.reasoning_effort),
         default_reasoning=default_reasoning,
         web_search_supported=(
-            parsed.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}
+            parsed.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.XAI}
             or (
                 parsed.provider == Provider.ANTHROPIC
                 and resolved.anthropic_web_search_version is not None

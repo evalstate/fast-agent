@@ -1,25 +1,27 @@
 """Command to check FastAgent configuration."""
 
+import asyncio
 import json
 import os
 import platform
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import typer
 import yaml
 from rich.table import Table
 
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
-from fast_agent.config import resolve_config_search_root
+from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.keyring_utils import KeyringStatus, get_keyring_status
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.home import discover_config_files, resolve_fast_agent_home
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overlay_registry
 from fast_agent.llm.model_selection import ModelSelectionCatalog
@@ -30,10 +32,12 @@ from fast_agent.paths import EnvironmentPaths, default_skill_paths, resolve_envi
 from fast_agent.skills import SkillManifest, SkillRegistry
 from fast_agent.ui.a3_headers import build_a3_section_header
 from fast_agent.ui.console import console
+from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
 app = typer.Typer(
     help="Check and diagnose FastAgent configuration",
     no_args_is_help=False,  # Allow showing our custom help instead
+    add_completion=False,
 )
 logger = get_logger(__name__)
 
@@ -67,6 +71,10 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         display_name="Anthropic",
         providers=(Provider.ANTHROPIC,),
     ),
+    "anthropic-vertex": ProviderCatalogScope(
+        display_name="Anthropic (Vertex)",
+        providers=(Provider.ANTHROPIC_VERTEX,),
+    ),
     "google": ProviderCatalogScope(
         display_name="Google",
         providers=(Provider.GOOGLE,),
@@ -84,7 +92,7 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         providers=(Provider.HUGGINGFACE,),
     ),
     "xai": ProviderCatalogScope(
-        display_name="XAI",
+        display_name="xAI",
         providers=(Provider.XAI,),
     ),
     "openrouter": ProviderCatalogScope(
@@ -97,11 +105,13 @@ _PROVIDER_CATALOG_SCOPE_ALIASES: dict[str, str] = {
     "hf": "huggingface",
     "codex-responses": "codexresponses",
     "codex_responses": "codexresponses",
+    "anthropicvertex": "anthropic-vertex",
 }
 
 _PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
     "openai",
     "anthropic",
+    "anthropic-vertex",
     "google",
     "deepseek",
     "aliyun",
@@ -202,19 +212,12 @@ def _resolve_active_model_providers(
 
 
 def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
-    """Find FastAgent configuration files, preferring secrets file next to config file."""
-    from fast_agent.config import (
-        find_fastagent_config_files,
-        resolve_config_search_root,
-        resolve_layered_config_file,
-    )
-
-    search_root = resolve_config_search_root(start_path, env_dir=env_dir)
-    config_path = resolve_layered_config_file(start_path, env_dir=env_dir)
-    _, secrets_path = find_fastagent_config_files(search_root)
+    """Find FastAgent configuration files using home then cwd discovery."""
+    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
+    discovery = discover_config_files(cwd=start_path, home=home)
     return {
-        "config": config_path,
-        "secrets": secrets_path,
+        "config": discovery.config_path,
+        "secrets": discovery.secrets_path,
     }
 
 
@@ -265,7 +268,7 @@ def _empty_api_key_results() -> dict[str, dict[str, str]]:
     return {
         provider.config_name: {"env": "", "config": ""}
         for provider in Provider
-        if provider != Provider.FAST_AGENT
+        if provider not in {Provider.FAST_AGENT, Provider.ANTHROPIC_VERTEX}
     }
 
 
@@ -340,12 +343,7 @@ def _resolve_huggingface_login_label(provider_name: str) -> str | None:
     if provider_name not in {Provider.HUGGINGFACE.config_name, "huggingface"}:
         return None
 
-    try:
-        from huggingface_hub import get_token  # ty: ignore[unresolved-import]
-
-        hub_token = get_token()
-    except Exception:
-        hub_token = None
+    hub_token = get_huggingface_hub_token()
 
     return "Hub login" if hub_token else None
 
@@ -392,7 +390,7 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
 
     for provider_name, status in results.items():
         env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
-        env_key_value = os.environ.get(env_key_name)
+        env_key_value = os.environ.get(env_key_name) if env_key_name else None
         if env_key_value:
             status["env"] = _mask_configured_secret(env_key_value)
 
@@ -443,6 +441,11 @@ def _default_logger_summary(default_settings: Any) -> dict[str, Any]:
         "level": default_settings.logger.level,
         "type": default_settings.logger.type,
         "streaming": default_settings.logger.streaming,
+        "theme_file": default_settings.logger.theme_file,
+        "code_theme": default_settings.logger.code_theme,
+        "apply_patch_preview_max_lines": default_settings.logger.apply_patch_preview_max_lines,
+        "render_fences_with_syntax": default_settings.logger.render_fences_with_syntax,
+        "code_word_wrap": default_settings.logger.code_word_wrap,
         "progress_display": default_settings.logger.progress_display,
         "show_chat": default_settings.logger.show_chat,
         "show_tools": default_settings.logger.show_tools,
@@ -477,6 +480,20 @@ def _build_logger_summary(
         "level": logger_config.get("level", default_settings.logger.level),
         "type": logger_config.get("type", default_settings.logger.type),
         "streaming": logger_config.get("streaming", default_settings.logger.streaming),
+        "theme_file": logger_config.get("theme_file", default_settings.logger.theme_file),
+        "code_theme": logger_config.get("code_theme", default_settings.logger.code_theme),
+        "apply_patch_preview_max_lines": logger_config.get(
+            "apply_patch_preview_max_lines",
+            default_settings.logger.apply_patch_preview_max_lines,
+        ),
+        "render_fences_with_syntax": logger_config.get(
+            "render_fences_with_syntax",
+            default_settings.logger.render_fences_with_syntax,
+        ),
+        "code_word_wrap": logger_config.get(
+            "code_word_wrap",
+            default_settings.logger.code_word_wrap,
+        ),
         "progress_display": logger_config.get(
             "progress_display",
             default_settings.logger.progress_display,
@@ -655,9 +672,9 @@ def get_config_summary(config_path: Path | None) -> dict:
 
 
 def _load_catalog_config(env_dir: Path | None) -> dict[str, Any] | None:
-    from fast_agent.config import load_layered_settings
+    from fast_agent.config import load_implicit_settings
 
-    config_payload, _ = load_layered_settings(start_path=Path.cwd(), env_dir=env_dir)
+    config_payload, _ = load_implicit_settings(start_path=Path.cwd(), env_dir=env_dir)
     return config_payload or None
 
 
@@ -720,7 +737,7 @@ def show_models_overview(env_dir: Path | None = None) -> None:
             alias_table.add_row(alias_token, model)
         console.print(alias_table)
     else:
-        console.print("[dim]No model_references configured in fastagent.config.yaml[/dim]")
+        console.print("[dim]No model_references configured in fast-agent.yaml[/dim]")
 
     console.print()
     console.print(
@@ -1106,14 +1123,14 @@ def _validate_effective_settings(
     from fast_agent.config import (
         Settings,
         deep_merge,
-        load_layered_settings,
+        load_implicit_settings,
         load_yaml_mapping,
     )
 
     try:
-        merged_settings, _ = load_layered_settings(start_path=cwd, env_dir=env_override)
+        merged_settings, discovery = load_implicit_settings(start_path=cwd, env_dir=env_override)
 
-        secrets_path = config_files.get("secrets")
+        secrets_path = discovery.secrets_path or config_files.get("secrets")
         if isinstance(secrets_path, Path):
             merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
 
@@ -1170,7 +1187,8 @@ def _load_optional_keyring_module() -> Any | None:
 
 def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
     cwd = Path.cwd()
-    search_root = resolve_config_search_root(cwd, env_dir=env_dir)
+    home = resolve_fast_agent_home(cwd=cwd, cli_override=env_dir)
+    search_root = home.path if home is not None else cwd
     config_files = find_config_files(cwd, env_dir=env_dir)
     system_info = get_system_info()
     config_summary = get_config_summary(config_files["config"])
@@ -1375,7 +1393,19 @@ def _build_application_settings_rows(
         ("Log Type", logger.get("type", "file (default)")),
         ("MCP-UI", mcp_ui_display),
         ("Streaming Mode", f"[green]{logger.get('streaming', 'markdown')}[/green]"),
+        ("Theme File", logger.get("theme_file") or "[dim]default[/dim]"),
+        ("Code Theme", f"[green]{logger.get('code_theme', 'native')}[/green]"),
+        (
+            "Patch Preview Lines",
+            (
+                "[dim]unlimited[/dim]"
+                if logger.get("apply_patch_preview_max_lines") is None
+                else f"[green]{logger.get('apply_patch_preview_max_lines')}[/green]"
+            ),
+        ),
         ("Streaming Display", _bool_to_symbol(logger.get("streaming_display", True))),
+        ("Syntax Fences", _bool_to_symbol(logger.get("render_fences_with_syntax", True))),
+        ("Wrap Code", _bool_to_symbol(logger.get("code_word_wrap", True))),
         ("Progress Display", _bool_to_symbol(logger.get("progress_display", True))),
         ("Show Chat", _bool_to_symbol(logger.get("show_chat", True))),
         ("Show Tools", _bool_to_symbol(logger.get("show_tools", True))),
@@ -1789,6 +1819,8 @@ def _should_warn_for_provider(
         vertex_cfg = google_cfg.get("vertex_ai", {}) if isinstance(google_cfg, dict) else {}
         if isinstance(vertex_cfg, dict) and vertex_cfg.get("enabled") is True:
             return False
+    if provider == Provider.ANTHROPIC_VERTEX:
+        return False
     return True
 
 
@@ -2023,13 +2055,16 @@ def _render_check_summary_guidance(context: _CheckSummaryContext) -> None:
         console.print(
             "\n[yellow]No API keys configured. Set up API keys to use LLM services:[/yellow]"
         )
-        console.print("1. Add keys to fastagent.secrets.yaml")
+        console.print("1. Add keys to fast-agent.secrets.yaml")
         env_vars = ", ".join(
-            [
-                ProviderKeyManager.get_env_key_name(p.config_name)
-                for p in Provider
-                if p != Provider.FAST_AGENT
-            ]
+            filter(
+                None,
+                (
+                    ProviderKeyManager.get_env_key_name(p.config_name)
+                    for p in Provider
+                    if p != Provider.FAST_AGENT
+                ),
+            )
         )
         console.print(f"2. Or set environment variables ({env_vars})")
 
@@ -2111,6 +2146,26 @@ def _context_env_dir(ctx: typer.Context) -> Path | None:
     return None
 
 
+def _resolve_check_update_notice(
+    ctx: typer.Context,
+    env_dir: Path | None,
+) -> str | None:
+    if ctx.invoked_subcommand is not None:
+        return None
+
+    payload = ctx.obj
+    no_update_check = False
+    if isinstance(payload, dict):
+        raw_no_update_check = payload.get("no_update_check")
+        if isinstance(raw_no_update_check, bool):
+            no_update_check = raw_no_update_check
+
+    if not should_run_update_check(disabled=no_update_check):
+        return None
+
+    return check_for_update_notice(environment_dir=env_dir)
+
+
 @app.command("models")
 def models(
     ctx: typer.Context,
@@ -2173,6 +2228,112 @@ def models(
         raise typer.BadParameter(str(exc), param_hint="provider") from exc
 
 
+@app.command("structured-tools")
+def structured_tools(
+    models: str = typer.Option(
+        ...,
+        "--models",
+        "--model",
+        help="Model id, alias, or comma-separated list of models to probe.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON output."),
+    structured_tool_policy: str = typer.Option(
+        "auto",
+        "--structured-tool-policy",
+        help="Policy to probe: auto, always, defer, or no_tools.",
+    ),
+) -> None:
+    """Probe structured output compatibility when tools are available."""
+    _run_structured_output_probe(
+        models=models,
+        json_output=json_output,
+        structured_tool_policy=structured_tool_policy,
+        mode="tools",
+    )
+
+
+@app.command("structured")
+@app.command("structured-output")
+def structured_output(
+    models: str = typer.Option(
+        ...,
+        "--models",
+        "--model",
+        help="Model id, alias, or comma-separated list of models to probe.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON output."),
+    mode: str = typer.Option(
+        "all",
+        "--mode",
+        help=(
+            "Probe mode: direct, pydantic, tools, both, or all. "
+            "Default runs direct JSON Schema, direct Pydantic, then tools."
+        ),
+    ),
+    structured_tool_policy: str = typer.Option(
+        "auto",
+        "--structured-tool-policy",
+        help="Tool policy for --mode tools/both/all: auto, always, defer, or no_tools.",
+    ),
+) -> None:
+    """Probe direct structured output, Pydantic structured output, and tools."""
+    _run_structured_output_probe(
+        models=models,
+        json_output=json_output,
+        structured_tool_policy=structured_tool_policy,
+        mode=mode,
+    )
+
+
+def _run_structured_output_probe(
+    *,
+    models: str,
+    json_output: bool,
+    structured_tool_policy: str,
+    mode: str,
+) -> None:
+    if structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
+        raise typer.BadParameter(
+            "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'",
+            param_hint="--structured-tool-policy",
+        )
+    if mode not in {"direct", "pydantic", "tools", "both", "all"}:
+        raise typer.BadParameter(
+            "mode must be 'direct', 'pydantic', 'tools', 'both', or 'all'",
+            param_hint="--mode",
+        )
+
+    model_names = [model.strip() for model in models.split(",") if model.strip()]
+    if not model_names:
+        raise typer.BadParameter("At least one model is required.", param_hint="--models")
+
+    from fast_agent.cli.checks.structured_tools_probe import (
+        StructuredProbeMode,
+        StructuredToolPolicy,
+        _print_text_summary,
+        run_probe_suite,
+    )
+
+    modes = {
+        "both": ["direct", "tools"],
+        "all": ["direct", "pydantic", "tools"],
+    }.get(mode, [cast("StructuredProbeMode", mode)])
+    results = asyncio.run(
+        run_probe_suite(
+            model_names,
+            structured_tool_policy=cast("StructuredToolPolicy", structured_tool_policy),
+            modes=cast("list[StructuredProbeMode]", modes),
+        )
+    )
+    if json_output:
+        console.print_json(json.dumps([asdict(result) for result in results]))
+    else:
+        _print_text_summary(results)
+
+    if not all(result.passed for result in results):
+        raise typer.Exit(1)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -2186,6 +2347,10 @@ def main(
         ctx.obj["env_dir"] = env_dir
     else:
         ctx.obj = {"env_dir": env_dir}
+
+    update_notice = _resolve_check_update_notice(ctx, env_dir)
+    if update_notice:
+        console.print(update_notice)
 
     if ctx.invoked_subcommand is None:
         show_check_summary(env_dir=env_dir)

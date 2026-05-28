@@ -10,8 +10,10 @@ from typing import Any, TypeAlias
 
 from mcp.client.session import ElicitationFnT
 
+from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
+from fast_agent.tools.function_tool_config import FunctionToolSpec
 
 # Forward imports to avoid circular dependencies
 from fast_agent.types import RequestParams
@@ -46,7 +48,18 @@ SkillConfig: TypeAlias = (
 # Function tools can be:
 # - A callable (Python function)
 # - A string spec like "module.py:function_name" (for dynamic loading)
-FunctionToolConfig: TypeAlias = Callable[..., Any] | str
+@dataclass(frozen=True)
+class ScopedFunctionToolConfig:
+    """A single local Python tool registration with scoped metadata."""
+
+    function: Callable[..., Any]
+    name: str | None = None
+    description: str | None = None
+
+
+FunctionToolConfig: TypeAlias = (
+    Callable[..., Any] | str | ScopedFunctionToolConfig | FunctionToolSpec
+)
 
 FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 
@@ -55,30 +68,43 @@ FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 # e.g., {"after_turn_complete": "hooks.py:my_hook"}
 ToolHooksConfig: TypeAlias = dict[str, str] | None
 LifecycleHooksConfig: TypeAlias = dict[str, str] | None
+PluginCommandsConfig: TypeAlias = dict[str, PluginCommandActionSpec] | None
 
 
 @dataclass(frozen=True, slots=True)
 class MCPConnectTarget:
     """Runtime MCP connect target declared on an AgentCard."""
 
-    target: str
+    target: str | None = None
     name: str | None = None
+    description: str | None = None
+    management: str | None = None
+    connector_id: str | None = None
     headers: dict[str, str] | None = None
+    access_token: str | None = None
+    defer_loading: bool | None = None
     auth: dict[str, Any] | None = None
 
 
 @dataclass
 class AgentConfig:
-    """Configuration for an Agent instance"""
+    """Configuration for an Agent instance.
+
+    Naming note:
+    - ``tools`` filters MCP-discovered tools by server name.
+    - ``function_tools`` configures local Python function tools.
+    - Runtime constructors such as ``ToolAgent(..., tools=...)`` use ``tools``
+      for the resolved executable function-tool objects, not these MCP filters.
+    """
 
     name: str
     instruction: str = DEFAULT_AGENT_INSTRUCTION
     description: str | None = None
     tool_input_schema: dict[str, Any] | None = None
     servers: list[str] = field(default_factory=list)
-    tools: dict[str, list[str]] = field(default_factory=dict)  # filters for tools
-    resources: dict[str, list[str]] = field(default_factory=dict)  # filters for resources
-    prompts: dict[str, list[str]] = field(default_factory=dict)  # filters for prompts
+    tools: dict[str, list[str]] = field(default_factory=dict)  # MCP tool filters by server
+    resources: dict[str, list[str]] = field(default_factory=dict)  # MCP resource filters by server
+    prompts: dict[str, list[str]] = field(default_factory=dict)  # MCP prompt filters by server
     skills: SkillConfig = SKILLS_DEFAULT
     skill_manifests: list[SkillManifest] = field(default_factory=list, repr=False)
     model: str | None = None
@@ -90,11 +116,12 @@ class AgentConfig:
     tool_only: bool = False
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
-    function_tools: FunctionToolsConfig = None
+    function_tools: FunctionToolsConfig = None  # Local Python function tools
     shell: bool = False
     cwd: Path | None = None
     tool_hooks: ToolHooksConfig = None
     lifecycle_hooks: LifecycleHooksConfig = None
+    commands: PluginCommandsConfig = None
     trim_tool_history: bool = False
     mcp_connect: list[MCPConnectTarget] = field(default_factory=list)
     source_path: Path | None = field(default=None, repr=False)

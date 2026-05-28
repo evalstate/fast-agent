@@ -3,6 +3,7 @@ from fast_agent.ui.model_chip_display import MODEL_CHIP_COLOR, render_model_chip
 WEB_INDICATOR = "<style bg='ansigreen'>⊕</style>"
 WEB_FETCH_INDICATOR = "<style bg='ansigreen'> ⇣</style>"
 SERVICE_TIER_INDICATOR = "<style bg='ansired'>»</style>"
+ATTACHMENT_INDICATOR = "<style bg='ansigreen'>▲2</style>"
 
 
 def test_render_model_chip_places_indicators_after_model_label() -> None:
@@ -11,11 +12,12 @@ def test_render_model_chip_places_indicators_after_model_label() -> None:
         web_search_indicator=WEB_INDICATOR,
         service_tier_indicator=SERVICE_TIER_INDICATOR,
         web_fetch_indicator=WEB_FETCH_INDICATOR,
+        attachment_indicator=ATTACHMENT_INDICATOR,
     )
 
     assert chip == (
         f"<style bg='{MODEL_CHIP_COLOR}'>gpt-5</style>"
-        f"{SERVICE_TIER_INDICATOR}{WEB_INDICATOR}{WEB_FETCH_INDICATOR}"
+        f"{SERVICE_TIER_INDICATOR}{WEB_INDICATOR}{WEB_FETCH_INDICATOR}{ATTACHMENT_INDICATOR}"
     )
 
 

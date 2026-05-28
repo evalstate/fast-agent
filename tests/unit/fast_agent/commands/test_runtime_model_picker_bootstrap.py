@@ -1,3 +1,14 @@
+"""
+Testing notes:
+
+- This module owns runtime bootstrap behavior around when the model picker is
+  shown, how initial model selection is resolved, and how last-used model state
+  is persisted.
+- Prefer seam tests through the bootstrap helpers over rebuilding picker or
+  settings internals by hand.
+- Exact picker option construction belongs in ui/test_model_picker*.py.
+"""
+
 from __future__ import annotations
 
 import os
@@ -7,6 +18,8 @@ import pytest
 import yaml
 
 from fast_agent.cli.runtime.agent_setup import (
+    _emit_model_picker_keyring_notice,
+    _explicit_agent_cards_define_startup_model,
     _generic_model_prompt_default,
     _load_request_settings,
     _normalize_generic_model_spec,
@@ -20,6 +33,24 @@ from fast_agent.cli.runtime.agent_setup import (
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.config import Settings
 from fast_agent.ui.model_picker import ModelPickerResult
+from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY, LLAMACPP_PROVIDER_KEY
+
+
+def _picker_result(
+    *,
+    provider: str = "overlays",
+    selected_model: str = "haikutiny",
+    resolved_model: str | None = "haikutiny",
+) -> ModelPickerResult:
+    return ModelPickerResult(
+        provider=provider,
+        provider_available=True,
+        selected_model=selected_model,
+        resolved_model=resolved_model,
+        source="curated",
+        refer_to_docs=False,
+        activation_action=None,
+    )
 
 
 def _make_request(
@@ -51,6 +82,7 @@ def _make_request(
         noenv=False,
         force_smart=False,
         shell_runtime=False,
+        no_shell=False,
         mode="interactive",
         transport="http",
         host="127.0.0.1",
@@ -84,6 +116,16 @@ def test_should_not_prompt_for_model_picker_when_message_mode() -> None:
     )
 
 
+def test_should_not_prompt_for_model_picker_when_prompt_file_mode() -> None:
+    request = _make_request(prompt_file="prompt.txt")
+
+    assert not _should_prompt_for_model_picker(
+        request,
+        stdin_is_tty=True,
+        stdout_is_tty=True,
+    )
+
+
 def test_should_prompt_for_model_picker_when_cards_present() -> None:
     request = _make_request(agent_cards=["cards/"])
 
@@ -92,6 +134,125 @@ def test_should_prompt_for_model_picker_when_cards_present() -> None:
         stdin_is_tty=True,
         stdout_is_tty=True,
     )
+
+
+def test_explicit_remote_agent_card_model_suppresses_startup_model_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.io import source_resolver
+
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"
+        assert label == "AgentCard URL"
+        return "\n".join(
+            [
+                "---",
+                "type: agent",
+                "name: ai_news_summary",
+                "model: passthrough",
+                "---",
+                "Summarize news.",
+                "",
+            ]
+        )
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+    request = _make_request(
+        agent_cards=["hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"]
+    )
+
+    assert _explicit_agent_cards_define_startup_model(request) is True
+
+
+def test_explicit_remote_agent_card_without_model_keeps_startup_model_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.io import source_resolver
+
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"
+        assert label == "AgentCard URL"
+        return "\n".join(
+            [
+                "---",
+                "type: agent",
+                "name: ai_news_summary",
+                "---",
+                "Summarize news.",
+                "",
+            ]
+        )
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+    request = _make_request(
+        agent_cards=["hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"]
+    )
+
+    assert _explicit_agent_cards_define_startup_model(request) is False
+
+
+@pytest.mark.parametrize(
+    ("model_references", "expected"),
+    [
+        (None, False),
+        ({"system": {"fast": "passthrough"}}, True),
+    ],
+)
+def test_explicit_remote_agent_card_model_reference_only_suppresses_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+    model_references: dict[str, dict[str, str]] | None,
+    expected: bool,
+) -> None:
+    from fast_agent.io import source_resolver
+
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"
+        assert label == "AgentCard URL"
+        return "\n".join(
+            [
+                "---",
+                "type: agent",
+                "name: ai_news_summary",
+                "model: $system.fast",
+                "---",
+                "Summarize news.",
+                "",
+            ]
+        )
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+    request = _make_request(
+        agent_cards=["hf://buckets/evalstate/demo-bucket/ai-news-summary-card.md"]
+    )
+
+    assert (
+        _explicit_agent_cards_define_startup_model(
+            request,
+            model_references=model_references,
+        )
+        is expected
+    )
+
+
+def test_model_picker_keyring_notice_is_emitted_immediately(monkeypatch) -> None:
+    emitted: list[tuple[str, bool]] = []
+    queued: list[object] = []
+
+    def fake_emit_keyring_access_notice(*, purpose=None, emitter=None):
+        assert purpose == "checking stored Codex OAuth tokens for model setup"
+        assert emitter is not None
+        emitter("keyring notice")
+        return True
+
+    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.emit_keyring_access_notice", fake_emit_keyring_access_notice)
+    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.typer.echo", lambda message, err=False: emitted.append((message, err)))
+    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.sys.stderr.isatty", lambda: True)
+    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", queued.append)
+
+    _emit_model_picker_keyring_notice(_make_request())
+
+    assert emitted == [("keyring notice", True)]
+    assert queued == []
 
 
 def test_resolve_model_without_hardcoded_default_returns_none_without_sources() -> None:
@@ -153,15 +314,7 @@ async def test_select_model_from_picker_preserves_overlay_token_when_resolved_mo
 
     async def fake_run_model_picker_async(**kwargs):
         del kwargs
-        return ModelPickerResult(
-            provider="overlays",
-            provider_available=True,
-            selected_model="haikutiny",
-            resolved_model="haikutiny",
-            source="curated",
-            refer_to_docs=False,
-            activation_action=None,
-        )
+        return _picker_result()
 
     monkeypatch.setattr(
         "fast_agent.ui.model_picker.run_model_picker_async",
@@ -175,7 +328,7 @@ async def test_select_model_from_picker_preserves_overlay_token_when_resolved_mo
 
 @pytest.mark.asyncio
 async def test_select_model_from_picker_passes_config_start_path(monkeypatch, tmp_path: Path) -> None:
-    config_path = tmp_path / "project" / "fastagent.config.yaml"
+    config_path = tmp_path / "project" / "fast-agent.yaml"
     config_path.parent.mkdir(parents=True)
     config_path.write_text("default_model: haikutiny\n", encoding="utf-8")
     request = _make_request(config_path=str(config_path))
@@ -183,15 +336,7 @@ async def test_select_model_from_picker_passes_config_start_path(monkeypatch, tm
 
     async def fake_run_model_picker_async(**kwargs):
         captured_kwargs.update(kwargs)
-        return ModelPickerResult(
-            provider="overlays",
-            provider_available=True,
-            selected_model="haikutiny",
-            resolved_model="haikutiny",
-            source="curated",
-            refer_to_docs=False,
-            activation_action=None,
-        )
+        return _picker_result()
 
     monkeypatch.setattr(
         "fast_agent.ui.model_picker.run_model_picker_async",
@@ -202,6 +347,39 @@ async def test_select_model_from_picker_passes_config_start_path(monkeypatch, tm
 
     assert selected == "haikutiny"
     assert captured_kwargs["start_path"] == config_path.parent
+
+
+@pytest.mark.asyncio
+async def test_select_model_from_picker_can_import_llamacpp_overlay(monkeypatch) -> None:
+    request = _make_request()
+    captured_import_kwargs: dict[str, object] = {}
+
+    async def fake_run_model_picker_async(**kwargs):
+        del kwargs
+        return _picker_result(
+            provider=LLAMACPP_PROVIDER_KEY,
+            selected_model="llamacpp.__import__",
+            resolved_model=None,
+        )
+
+    async def fake_import_llamacpp_overlay_from_default_url(**kwargs):
+        captured_import_kwargs.update(kwargs)
+        return "llamacpp-qwen"
+
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+    monkeypatch.setattr(
+        "fast_agent.cli.commands.model.import_llamacpp_overlay_from_default_url",
+        fake_import_llamacpp_overlay_from_default_url,
+    )
+
+    selected = await _select_model_from_picker(request, config_payload={})
+
+    assert selected == "llamacpp-qwen"
+    assert isinstance(captured_import_kwargs["start_path"], Path)
+    assert captured_import_kwargs["env_dir"] is not None
 
 
 def test_normalize_generic_model_spec_adds_generic_prefix_when_missing() -> None:
@@ -238,6 +416,21 @@ def test_resolve_model_picker_initial_selection_uses_last_used_alias() -> None:
 
     assert provider == "anthropic"
     assert model_spec == "claude-haiku-4-5"
+
+
+def test_resolve_model_picker_initial_selection_uses_vertex_group_for_anthropic_vertex() -> None:
+    provider, model_spec = _resolve_model_picker_initial_selection(
+        settings=Settings(
+            model_references={
+                "system": {
+                    "last_used": "anthropic-vertex.claude-sonnet-4-6",
+                }
+            }
+        )
+    )
+
+    assert provider == ANTHROPIC_VERTEX_PROVIDER_KEY
+    assert model_spec == "anthropic-vertex.claude-sonnet-4-6"
 
 
 def test_resolve_model_picker_initial_selection_preserves_overlay_alias(tmp_path: Path) -> None:
@@ -285,7 +478,7 @@ def test_resolve_model_picker_initial_selection_uses_config_relative_overlay_dir
     workspace = tmp_path / "workspace"
     project_dir = workspace / "project"
     env_dir = project_dir / ".fast-agent"
-    config_path = project_dir / "fastagent.config.yaml"
+    config_path = project_dir / "fast-agent.yaml"
     overlays_dir = env_dir / "model-overlays"
     overlays_dir.mkdir(parents=True)
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -326,7 +519,7 @@ def test_load_request_settings_refreshes_stale_cached_settings(tmp_path: Path) -
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     env_dir.mkdir(parents=True)
-    (env_dir / "fastagent.config.yaml").write_text(
+    (env_dir / "fast-agent.yaml").write_text(
         "model_references:\n"
         "  system:\n"
         "    last_used: gpt-4.1-mini\n",
@@ -349,7 +542,7 @@ def test_load_request_settings_refreshes_stale_cached_settings(tmp_path: Path) -
         config_module._settings = old_settings
 
     assert settings.model_references["system"]["last_used"] == "gpt-4.1-mini"
-    assert settings._config_file == str((env_dir / "fastagent.config.yaml").resolve())
+    assert settings._config_file == str((env_dir / "fast-agent.yaml").resolve())
 
 
 def test_persist_model_picker_last_used_selection_writes_env_overlay(tmp_path: Path) -> None:
@@ -374,7 +567,7 @@ def test_persist_model_picker_last_used_selection_writes_env_overlay(tmp_path: P
 
     assert persisted is True
 
-    with open(env_dir / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -405,7 +598,7 @@ def test_persist_model_picker_last_used_selection_uses_request_environment_dir(
 
     assert persisted is True
 
-    with open(env_dir / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -418,7 +611,7 @@ def test_persist_model_picker_last_used_selection_uses_runtime_cwd_env_root(
     nested = workspace / "nested"
     workspace.mkdir(parents=True)
     nested.mkdir(parents=True)
-    (workspace / "fastagent.config.yaml").write_text("default_model: null\n", encoding="utf-8")
+    (workspace / "fast-agent.yaml").write_text("default_model: null\n", encoding="utf-8")
 
     previous_cwd = Path.cwd()
     previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
@@ -438,9 +631,9 @@ def test_persist_model_picker_last_used_selection_uses_runtime_cwd_env_root(
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
     assert persisted is True
-    assert not (workspace / ".fast-agent" / "fastagent.config.yaml").exists()
+    assert not (workspace / ".fast-agent" / "fast-agent.yaml").exists()
 
-    with open(nested / ".fast-agent" / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(nested / ".fast-agent" / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -470,7 +663,7 @@ def test_persist_model_picker_last_used_selection_creates_env_overlay_on_first_r
 
     assert persisted is True
 
-    with open(env_dir / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -481,7 +674,7 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
 ) -> None:
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".fast-agent"
-    config_path = env_dir / "fastagent.config.yaml"
+    config_path = env_dir / "fast-agent.yaml"
     workspace.mkdir(parents=True)
     env_dir.mkdir(parents=True)
     config_path.write_text(
@@ -509,7 +702,7 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
     assert persisted is True
-    assert not (env_dir / ".fast-agent" / "fastagent.config.yaml").exists()
+    assert not (env_dir / ".fast-agent" / "fast-agent.yaml").exists()
 
     with open(config_path, "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
@@ -539,7 +732,7 @@ def test_persist_model_picker_last_used_selection_respects_noenv(tmp_path: Path)
         os.chdir(previous_cwd)
 
     assert persisted is False
-    assert not (env_dir / "fastagent.config.yaml").exists()
+    assert not (env_dir / "fast-agent.yaml").exists()
 
 
 def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
@@ -550,7 +743,7 @@ def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
     config_root.mkdir(parents=True)
     workspace.mkdir(parents=True)
 
-    config_path = config_root / "fastagent.config.yaml"
+    config_path = config_root / "fast-agent.yaml"
     config_path.write_text("default_model: claude-haiku-4-5\n", encoding="utf-8")
 
     request = _make_request(config_path=str(config_path))
@@ -571,7 +764,7 @@ def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
     assert persisted is True
-    assert not (workspace / ".fast-agent" / "fastagent.config.yaml").exists()
+    assert not (workspace / ".fast-agent" / "fast-agent.yaml").exists()
 
     with open(config_path, "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
@@ -640,7 +833,7 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
         config_module._settings = old_settings
 
-    config_path = workspace / ".fast-agent" / "fastagent.config.yaml"
+    config_path = workspace / ".fast-agent" / "fast-agent.yaml"
     assert config_path.exists()
 
     with open(config_path, "r", encoding="utf-8") as handle:
@@ -651,3 +844,56 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
         "openai",
         "gpt-4.1-mini",
     )
+
+
+@pytest.mark.asyncio
+async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import fast_agent
+    from fast_agent import config as config_module
+
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".cdx"
+    env_dir.mkdir(parents=True)
+    (env_dir / "fast-agent.yaml").write_text(
+        "default_model: null\n"
+        "model_references:\n"
+        "  system:\n"
+        "    last_used: claude-haiku-4-5\n",
+        encoding="utf-8",
+    )
+
+    request = _make_request()
+    request.mode = "serve"
+    request.transport = "acp"
+    request.environment_dir = env_dir
+
+    class _AbortFastAgent:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+            raise RuntimeError("stop-after-model-resolution")
+
+    old_settings = config_module._settings
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    try:
+        config_module._settings = None
+        os.chdir(workspace)
+        os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+        monkeypatch.setattr(fast_agent, "FastAgent", _AbortFastAgent)
+
+        with pytest.raises(RuntimeError, match="stop-after-model-resolution"):
+            await run_agent_request(request)
+    finally:
+        os.chdir(previous_cwd)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        config_module._settings = old_settings
+
+    assert request.model == "claude-haiku-4-5"

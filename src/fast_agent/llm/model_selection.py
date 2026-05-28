@@ -47,6 +47,14 @@ class ModelSelectionCatalog:
 
     CATALOG_ENTRIES_BY_PROVIDER: dict[Provider, tuple[CatalogModelEntry, ...]] = {
         Provider.RESPONSES: (
+            CatalogModelEntry(
+                alias="gpt-5.5",
+                model="responses.gpt-5.5?reasoning=medium",
+            ),
+            CatalogModelEntry(
+                alias="chat-latest",
+                model="responses.chat-latest",
+            ),
             CatalogModelEntry(alias="gpt-5.4", model="responses.gpt-5.4?reasoning=medium"),
             CatalogModelEntry(
                 alias="gpt-5.4-mini",
@@ -57,10 +65,6 @@ class ModelSelectionCatalog:
                 alias="gpt-5.4-nano",
                 model="responses.gpt-5.4-nano?reasoning=medium",
                 fast=True,
-            ),
-            CatalogModelEntry(
-                alias="gpt-5.3-chat-latest",
-                model="responses.gpt-5.3-chat-latest?transport=auto",
             ),
             CatalogModelEntry(
                 alias="gpt-5.3-codex", model="responses.gpt-5.3-codex?reasoning=high"
@@ -74,28 +78,74 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="gpt-4.1-nano", model="openai.gpt-4.1-nano", fast=True),
         ),
         Provider.ANTHROPIC: (
+            CatalogModelEntry(alias="opus", model="claude-opus-4-7"),
+            CatalogModelEntry(alias="opus46", model="claude-opus-4-6"),
             CatalogModelEntry(alias="sonnet", model="claude-sonnet-4-6"),
             CatalogModelEntry(alias="haiku", model="claude-haiku-4-5", fast=True),
-            CatalogModelEntry(alias="opus", model="claude-opus-4-6"),
+        ),
+        Provider.ANTHROPIC_VERTEX: (
+            CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),
+            CatalogModelEntry(alias="opus46", model="anthropic-vertex.claude-opus-4-6"),
+            CatalogModelEntry(alias="sonnet", model="anthropic-vertex.claude-sonnet-4-6"),
+            CatalogModelEntry(
+                alias="haiku",
+                model="anthropic-vertex.claude-haiku-4-5",
+                fast=True,
+            ),
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
-                alias="gemini3-flash",
-                model="google.gemini-3-flash-preview",
+                alias="gemini35flash",
+                display_label="Gemini 3.5 Flash",
+                model="google.gemini-3.5-flash",
                 fast=True,
             ),
-            CatalogModelEntry(alias="gemini3", model="google.gemini-3-pro-preview"),
-            CatalogModelEntry(alias="gemini3.1", model="google.gemini-3.1-pro-preview"),
+            CatalogModelEntry(
+                alias="gemini3.1",
+                display_label="Gemini 3.1 Pro",
+                model="google.gemini-3.1-pro-preview",
+            ),
+            CatalogModelEntry(
+                alias="gemini3.1flashlite",
+                display_label="Gemini 3.1 Flash Lite",
+                model="google.gemini-3.1-flash-lite-preview",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="gemini3flash",
+                display_label="Gemini 3 Flash",
+                model="google.gemini-3-flash-preview",
+            ),
         ),
         Provider.XAI: (
-            CatalogModelEntry(alias="grok41fast", model="grok-4-1-fast-reasoning", fast=True),
+            CatalogModelEntry(alias="Grok 4.3", model="xai.grok-4.3"),
+            CatalogModelEntry(alias="Grok 4.3 (instant)", model="xai.grok-4.3?reasoning=none"),
+            CatalogModelEntry(alias="Grok 4.3 (X Search)", model="xai.grok-4.3?x_search=true"),
             CatalogModelEntry(
-                alias="grok41fast-nr", model="grok-4-1-fast-non-reasoning", fast=True
+                alias="grok41fast", model="grok-4-1-fast-reasoning", fast=True, current=False
             ),
-            CatalogModelEntry(alias="grok4", model="xai.grok-4"),
+            CatalogModelEntry(
+                alias="grok41fast-nr", model="grok-4-1-fast-non-reasoning", fast=True, current=False
+            ),
         ),
         Provider.DEEPSEEK: (
-            CatalogModelEntry(alias="deepseek", model="deepseek.deepseek-chat", fast=True),
+            CatalogModelEntry(
+                alias="deepseek",
+                display_label="DeepSeek V4 Pro",
+                model="deepseek.deepseek-v4-pro",
+            ),
+            CatalogModelEntry(
+                alias="deepseek4flash",
+                display_label="DeepSeek V4 Flash",
+                model="deepseek.deepseek-v4-flash",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="deepseek3",
+                model="deepseek.deepseek-chat",
+                fast=True,
+                current=False,
+            ),
         ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
@@ -104,7 +154,36 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             CatalogModelEntry(
+                alias="deepseek-hf",
+                display_label="DeepSeek V4 Pro (HF)",
+                model="hf.deepseek-ai/DeepSeek-V4-Pro:together",
+                current=True,
+            ),
+            CatalogModelEntry(
+                alias="kimi26",
+                display_label="Kimi 2.6",
+                description="thinking mode",
+                model=("hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on"),
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="kimi26instant",
+                display_label="Kimi 2.6 (instant)",
+                description="instant mode",
+                model=("hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"),
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="glm51", display_label="GLM 5.1", model="hf.zai-org/GLM-5.1:together"
+            ),
+            CatalogModelEntry(
+                alias="minimax27",
+                display_label="Minimax 2.7",
+                model="hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+            ),
+            CatalogModelEntry(
                 alias="qwen35",
+                display_label="Qwen 3.5-397B-A17B",
                 model=(
                     "hf.Qwen/Qwen3.5-397B-A17B:novita"
                     "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
@@ -112,26 +191,40 @@ class ModelSelectionCatalog:
                 ),
             ),
             CatalogModelEntry(
-                alias="kimi25",
-                model=(
-                    "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
-                ),
-                fast=True,
-            ),
-            CatalogModelEntry(alias="glm5", model="hf.zai-org/GLM-5:novita"),
-            CatalogModelEntry(
-                alias="minimax25",
-                model="hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
-            ),
-            CatalogModelEntry(
                 alias="qwen35instruct",
+                display_label="Qwen 3.5-397B-A17B (instruct)",
                 model=(
                     "hf.Qwen/Qwen3.5-397B-A17B:novita"
                     "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
                     "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
                 ),
             ),
-            CatalogModelEntry(alias="gpt-oss", model="hf.openai/gpt-oss-120b:sambanova", fast=True),
+            CatalogModelEntry(
+                alias="minimax25",
+                display_label="Minimax 2.5",
+                model="hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+                current=False,
+            ),
+            CatalogModelEntry(
+                alias="kimi25",
+                display_label="Kimi 2.5",
+                model=("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
+                fast=True,
+                current=True,
+            ),
+            CatalogModelEntry(
+                alias="kimi25instant",
+                display_label="Kimi 2.5 (instant)",
+                model=("hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"),
+                fast=True,
+                current=True,
+            ),
+            CatalogModelEntry(
+                alias="glm5",
+                model="hf.zai-org/GLM-5:novita",
+                current=False,
+            ),
+            CatalogModelEntry(alias="gpt-oss", model="hf.openai/gpt-oss-120b:cerebras", fast=True),
             CatalogModelEntry(
                 alias="glm47",
                 model="hf.zai-org/GLM-4.7:cerebras",
@@ -142,17 +235,16 @@ class ModelSelectionCatalog:
             CatalogModelEntry(
                 alias="deepseek32",
                 model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-            ),
-            CatalogModelEntry(
-                alias="kimi-k2-instruct", model="hf.moonshotai/Kimi-K2-Instruct-0905:groq"
-            ),
-            CatalogModelEntry(
-                alias="kimi-k2-thinking", model="hf.moonshotai/Kimi-K2-Thinking:together"
+                current=False,
             ),
         ),
         Provider.CODEX_RESPONSES: (
             CatalogModelEntry(
                 alias="codexplan",
+                model="codexresponses.gpt-5.5?reasoning=medium",
+            ),
+            CatalogModelEntry(
+                alias="codexplan54",
                 model="codexresponses.gpt-5.4?reasoning=high",
             ),
             CatalogModelEntry(
@@ -169,15 +261,16 @@ class ModelSelectionCatalog:
                 model="codexresponses.gpt-5.4-mini?reasoning=medium",
                 fast=True,
             ),
-            CatalogModelEntry(
-                alias="codexplan52",
-                model="codexresponses.gpt-5.2-codex?reasoning=high",
-            ),
         ),
         Provider.GROQ: (
             CatalogModelEntry(
-                alias="kimigroq",
-                model="kimigroq",
+                alias="qwen3-32b",
+                model="groq.qwen/qwen3-32b",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="deepseek-r1-distill-llama-70b",
+                model="groq.deepseek-r1-distill-llama-70b",
             ),
         ),
         Provider.FAST_AGENT: (
@@ -593,6 +686,14 @@ class ModelSelectionCatalog:
         ):
             provider_name = provider.config_name
 
+            if provider == Provider.ANTHROPIC_VERTEX:
+                from fast_agent.llm.provider.anthropic.vertex_config import anthropic_vertex_ready
+
+                ready, _ = anthropic_vertex_ready(config_payload)
+                if ready:
+                    providers.append(provider)
+                continue
+
             # Google Vertex can run without an API key.
             if provider == Provider.GOOGLE and cls._google_vertex_enabled(config_payload):
                 providers.append(provider)
@@ -647,6 +748,13 @@ class ModelSelectionCatalog:
             ).entries_for_provider(provider)
         ]
         models = ModelDatabase.list_models()
+        if provider == Provider.ANTHROPIC_VERTEX:
+            static_models = [
+                f"{provider.config_name}.{model}"
+                for model in models
+                if ModelDatabase.get_default_provider(model) == Provider.ANTHROPIC
+            ]
+            return ModelSelectionCatalog._dedupe_preserve_order([*overlay_models, *static_models])
         static_models = [
             model for model in models if ModelDatabase.get_default_provider(model) == provider
         ]

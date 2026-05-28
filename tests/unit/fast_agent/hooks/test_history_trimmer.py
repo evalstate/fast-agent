@@ -1,5 +1,7 @@
 """Unit tests for the history trimmer hook."""
 
+from types import SimpleNamespace
+
 import pytest
 from mcp.types import CallToolResult, TextContent
 
@@ -187,6 +189,10 @@ class TestTrimToolLoopHistory:
         # Create a mock agent with message history
         class MockAgent:
             name = "mock"
+            usage_accumulator = None
+            context = None
+            config = SimpleNamespace(tool_only=False, model=None)
+            agent_registry = None
 
             def __init__(self):
                 self._history = [
@@ -206,6 +212,10 @@ class TestTrimToolLoopHistory:
                 self, messages: list[PromptMessageExtended] | None
             ) -> None:
                 self._history = list(messages or [])
+
+            def get_agent(self, name: str):
+                del name
+                return None
 
         # Create mock runner
         class MockRunner:
@@ -237,6 +247,10 @@ class TestTrimToolLoopHistory:
 
         class MockAgent:
             name = "mock"
+            usage_accumulator = None
+            context = None
+            config = SimpleNamespace(tool_only=False, model=None)
+            agent_registry = None
 
             def __init__(self):
                 self._history = [
@@ -252,6 +266,10 @@ class TestTrimToolLoopHistory:
                 self, messages: list[PromptMessageExtended] | None
             ) -> None:
                 self._history = list(messages or [])
+
+            def get_agent(self, name: str):
+                del name
+                return None
 
         class MockRunner:
             iteration = 1
@@ -280,6 +298,10 @@ class TestTrimToolLoopHistory:
 
         class MockAgent:
             name = "mock"
+            usage_accumulator = None
+            context = None
+            config = SimpleNamespace(tool_only=False, model=None)
+            agent_registry = None
 
             def __init__(self):
                 self._history = [
@@ -303,6 +325,10 @@ class TestTrimToolLoopHistory:
                 self, messages: list[PromptMessageExtended] | None
             ) -> None:
                 self._history = list(messages or [])
+
+            def get_agent(self, name: str):
+                del name
+                return None
 
         class MockRunner:
             iteration = 2

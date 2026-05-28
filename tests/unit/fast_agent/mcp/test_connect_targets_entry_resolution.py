@@ -54,6 +54,20 @@ def test_resolve_target_entry_explicit_overrides_win() -> None:
     assert settings.auth.oauth is False
 
 
+def test_resolve_target_entry_provider_managed_keeps_normalized_url() -> None:
+    resolved_name, settings = resolve_target_entry(
+        target="https://demo.hf.space",
+        default_name="demo",
+        overrides={"management": "provider"},
+        source_path="mcp.servers.demo.target",
+    )
+
+    assert resolved_name == "demo"
+    assert settings.management == "provider"
+    assert settings.transport == "http"
+    assert settings.url == "https://demo.hf.space/mcp"
+
+
 def test_resolve_target_entry_rejects_url_targets_with_cli_flags() -> None:
     with pytest.raises(ValueError, match="pure target string"):
         resolve_target_entry(

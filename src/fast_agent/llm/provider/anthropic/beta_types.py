@@ -4,6 +4,12 @@ from anthropic.types.beta import (
     BetaInputJSONDelta as InputJSONDelta,
 )
 from anthropic.types.beta import (
+    BetaMCPToolResultBlock as MCPToolResultBlock,
+)
+from anthropic.types.beta import (
+    BetaMCPToolUseBlock as MCPToolUseBlock,
+)
+from anthropic.types.beta import (
     BetaMessage as Message,
 )
 from anthropic.types.beta import (
@@ -89,6 +95,8 @@ __all__ = [
     "InputJSONDelta",
     "Message",
     "MessageParam",
+    "MCPToolResultBlock",
+    "MCPToolUseBlock",
     "RawContentBlockDeltaEvent",
     "RawContentBlockStartEvent",
     "RawContentBlockStopEvent",

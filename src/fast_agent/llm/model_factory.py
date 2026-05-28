@@ -1,17 +1,13 @@
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Callable, Literal, Self, Type, Union
+from typing import TYPE_CHECKING, Callable, Literal, Self, Type, Union, cast
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
-from fast_agent.llm.internal.passthrough import PassthroughLLM
-from fast_agent.llm.internal.playback import PlaybackLLM
-from fast_agent.llm.internal.silent import SilentLLM
-from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.provider_types import Provider
@@ -21,11 +17,18 @@ from fast_agent.llm.structured_output_mode import (
     StructuredOutputMode,
     parse_structured_output_mode,
 )
+from fast_agent.llm.task_budget import parse_task_budget_tokens, validate_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbosityLevel, parse_text_verbosity
-from fast_agent.types import RequestParams
+from fast_agent.types import RequestParams, StructuredToolPolicy
+
+if TYPE_CHECKING:
+    from fast_agent.llm.internal.passthrough import PassthroughLLM
+    from fast_agent.llm.internal.playback import PlaybackLLM
+    from fast_agent.llm.internal.silent import SilentLLM
+    from fast_agent.llm.internal.slow import SlowLLM
 
 # Type alias for LLM classes
-LLMClass = Union[Type[PassthroughLLM], Type[PlaybackLLM], Type[SilentLLM], Type[SlowLLM], type]
+LLMClass = Union[Type["PassthroughLLM"], Type["PlaybackLLM"], Type["SilentLLM"], Type["SlowLLM"], type]
 TransportSetting = Literal["sse", "websocket", "auto"]
 ServiceTierSetting = Literal["fast", "flex"]
 
@@ -38,11 +41,15 @@ class ModelConfig(BaseModel):
     reasoning_effort: ReasoningEffortSetting | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
+    structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool = False
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
+    x_search: bool | None = None
     web_fetch: bool | None = None
+    task_budget_tokens: int | None = None
+    task_budget_configured: bool = False
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
@@ -59,11 +66,15 @@ class ModelQueryOverrides:
     instant: bool | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
+    structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool = False
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
+    x_search: bool | None = None
     web_fetch: bool | None = None
+    task_budget_tokens: int | None = None
+    task_budget_configured: bool = False
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
@@ -88,13 +99,25 @@ class ModelQueryOverrides:
                 if self.structured_output_mode is not None
                 else defaults.structured_output_mode
             ),
+            structured_tool_policy=(
+                self.structured_tool_policy
+                if self.structured_tool_policy is not None
+                else defaults.structured_tool_policy
+            ),
             long_context=self.long_context or defaults.long_context,
             transport=self.transport if self.transport is not None else defaults.transport,
             service_tier=(
                 self.service_tier if self.service_tier is not None else defaults.service_tier
             ),
             web_search=self.web_search if self.web_search is not None else defaults.web_search,
+            x_search=self.x_search if self.x_search is not None else defaults.x_search,
             web_fetch=self.web_fetch if self.web_fetch is not None else defaults.web_fetch,
+            task_budget_tokens=(
+                self.task_budget_tokens
+                if self.task_budget_configured
+                else defaults.task_budget_tokens
+            ),
+            task_budget_configured=self.task_budget_configured or defaults.task_budget_configured,
             temperature=self.temperature if self.temperature is not None else defaults.temperature,
             top_p=self.top_p if self.top_p is not None else defaults.top_p,
             top_k=self.top_k if self.top_k is not None else defaults.top_k,
@@ -131,11 +154,15 @@ class ParsedModelSpec:
             reasoning_effort=self.reasoning_effort,
             text_verbosity=self.query_overrides.text_verbosity,
             structured_output_mode=self.query_overrides.structured_output_mode,
+            structured_tool_policy=self.query_overrides.structured_tool_policy,
             long_context=self.query_overrides.long_context,
             transport=self.query_overrides.transport,
             service_tier=self.query_overrides.service_tier,
             web_search=self.query_overrides.web_search,
+            x_search=self.query_overrides.x_search,
             web_fetch=self.query_overrides.web_fetch,
+            task_budget_tokens=self.query_overrides.task_budget_tokens,
+            task_budget_configured=self.query_overrides.task_budget_configured,
             temperature=self.query_overrides.temperature,
             top_p=self.query_overrides.top_p,
             top_k=self.query_overrides.top_k,
@@ -220,15 +247,53 @@ def _parse_query_overrides(
     query_params: Mapping[str, list[str]],
     model_spec: str,
 ) -> ModelQueryOverrides:
+    supported_keys = {
+        "reasoning",
+        "verbosity",
+        "structured",
+        "structured_tools",
+        "structuredToolPolicy",
+        "structured_tool_policy",
+        "instant",
+        "context",
+        "transport",
+        "service_tier",
+        "web_search",
+        "x_search",
+        "web_fetch",
+        "task_budget",
+        "taskBudget",
+        "temperature",
+        "temp",
+        "top_p",
+        "topP",
+        "top_k",
+        "topK",
+        "min_p",
+        "minP",
+        "presence_penalty",
+        "presencePenalty",
+        "repetition_penalty",
+        "repetitionPenalty",
+    }
+    unsupported_keys = sorted(set(query_params) - supported_keys)
+    if unsupported_keys:
+        joined = ", ".join(f"'{key}'" for key in unsupported_keys)
+        raise ModelConfigError(f"Unsupported model query parameter(s) {joined} in '{model_spec}'")
+
     reasoning_effort: ReasoningEffortSetting | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
+    structured_tool_policy: StructuredToolPolicy | None = None
     instant: bool | None = None
     long_context = False
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
+    x_search: bool | None = None
     web_fetch: bool | None = None
+    task_budget_tokens: int | None = None
+    task_budget_configured = False
 
     if "reasoning" in query_params:
         raw_value = _collect_query_values(query_params, ("reasoning",))[-1]
@@ -256,6 +321,19 @@ def _parse_query_overrides(
                 f"Invalid structured query value: '{raw_value}' in '{model_spec}'"
             )
         structured_output_mode = parsed_structured
+
+    structured_tool_keys = (
+        "structured_tools",
+        "structuredToolPolicy",
+        "structured_tool_policy",
+    )
+    if any(key in query_params for key in structured_tool_keys):
+        raw_value = _collect_query_values(query_params, structured_tool_keys)[-1].strip()
+        if raw_value not in {"auto", "always", "defer", "no_tools"}:
+            raise ModelConfigError(
+                f"Invalid structured_tools query value: '{raw_value}' in '{model_spec}'"
+            )
+        structured_tool_policy = cast("StructuredToolPolicy", raw_value)
 
     if "instant" in query_params:
         raw_value = _collect_query_values(query_params, ("instant",))[-1]
@@ -300,20 +378,39 @@ def _parse_query_overrides(
         raw_value = _collect_query_values(query_params, ("web_search",))[-1]
         web_search = _parse_on_off_query(raw_value, "web_search", model_spec)
 
+    if "x_search" in query_params:
+        raw_value = _collect_query_values(query_params, ("x_search",))[-1]
+        x_search = _parse_on_off_query(raw_value, "x_search", model_spec)
+
     if "web_fetch" in query_params:
         raw_value = _collect_query_values(query_params, ("web_fetch",))[-1]
         web_fetch = _parse_on_off_query(raw_value, "web_fetch", model_spec)
+
+    task_budget_keys = ("task_budget", "taskBudget")
+    if any(key in query_params for key in task_budget_keys):
+        raw_value = _collect_query_values(query_params, task_budget_keys)[-1]
+        try:
+            task_budget_tokens = validate_task_budget_tokens(parse_task_budget_tokens(raw_value))
+        except ValueError as exc:
+            raise ModelConfigError(
+                f"Invalid task_budget query value: '{raw_value}' in '{model_spec}'"
+            ) from exc
+        task_budget_configured = True
 
     return ModelQueryOverrides(
         reasoning_effort=reasoning_effort,
         instant=instant,
         text_verbosity=text_verbosity,
         structured_output_mode=structured_output_mode,
+        structured_tool_policy=structured_tool_policy,
         long_context=long_context,
         transport=transport,
         service_tier=service_tier,
         web_search=web_search,
+        x_search=x_search,
         web_fetch=web_fetch,
+        task_budget_tokens=task_budget_tokens,
+        task_budget_configured=task_budget_configured,
         temperature=_parse_float_query(
             query_params,
             model_spec,
@@ -462,10 +559,14 @@ def _validate_transport_constraints(
     if transport not in {"websocket", "auto"}:
         return
 
-    if provider not in {Provider.CODEX_RESPONSES, Provider.RESPONSES}:
+    if provider not in {
+        Provider.CODEX_RESPONSES,
+        Provider.RESPONSES,
+        Provider.XAI,
+    }:
         raise ModelConfigError(
             "WebSocket transport is experimental and currently supported only for "
-            "the codexresponses and responses providers."
+            "the codexresponses, responses, and xai providers."
         )
 
     supports_transport = ModelDatabase.supports_response_transport(model_name, "websocket")
@@ -515,65 +616,80 @@ class ModelFactory:
         "gpt51": "responses.gpt-5.1",
         "gpt52": "responses.gpt-5.2",
         "gpt54": "responses.gpt-5.4",
+        "gpt55": "responses.gpt-5.5",
         "gpt54-mini": "responses.gpt-5.4-mini",
         "gpt54-nano": "responses.gpt-5.4-nano",
-        "chatgpt": "responses.gpt-5.3-chat-latest",
+        "chatgpt": "responses.chat-latest",
+        "chat-latest": "responses.chat-latest",
         "codex": "responses.gpt-5.3-codex",
-        "codexplan": "codexresponses.gpt-5.4",
-        "codexplan53": "codexresponses.gpt-5.3-codex",
-        "codexplan52": "codexresponses.gpt-5.2-codex",
-        "codexplan51": "codexresponses.gpt-5.1-codex",
+        "codexplan": "codexresponses.gpt-5.5?reasoning=medium",
+        "codexplan54": "codexresponses.gpt-5.4?reasoning=high",
+        "codexplan53": "codexresponses.gpt-5.3-codex?reasoning=medium",
         "codexspark": "codexresponses.gpt-5.3-codex-spark",
         "sonnet": "claude-sonnet-4-6",
-        "sonnet4": "claude-sonnet-4-0",
-        "sonnet45": "claude-sonnet-4-5",
+        "sonnet4": "claude-sonnet-4-6",
         "sonnet46": "claude-sonnet-4-6",
-        "sonnet35": "claude-3-5-sonnet-latest",
-        "sonnet37": "claude-3-7-sonnet-latest",
         "claude": "claude-sonnet-4-6",
         "haiku": "claude-haiku-4-5",
-        "haiku3": "claude-3-haiku-20240307",
-        "haiku35": "claude-3-5-haiku-latest",
         "haiku45": "claude-haiku-4-5",
-        "opus": "claude-opus-4-6",
-        "opus4": "claude-opus-4-1",
-        "opus45": "claude-opus-4-5",
+        "opus": "claude-opus-4-7",
+        "opus4": "claude-opus-4-7",
         "opus46": "claude-opus-4-6",
-        "opus3": "claude-3-opus-latest",
+        "opus47": "claude-opus-4-7",
         "deepseekv3": "deepseek-chat",
         "deepseek3": "deepseek-chat",
-        "deepseek": "deepseek-chat",
+        "deepseek": "deepseek.deepseek-v4-pro",
+        "deepseek4": "deepseek.deepseek-v4-pro",
+        "deepseek4pro": "deepseek.deepseek-v4-pro",
+        "deepseekv4pro": "deepseek.deepseek-v4-pro",
+        "deepseek-direct": "deepseek.deepseek-v4-pro",
+        "deepseek4flash": "deepseek.deepseek-v4-flash",
+        "deepseek4pro-direct": "deepseek.deepseek-v4-pro",
+        "deepseek-reasoner": "deepseek.deepseek-reasoner",
+        "gemini": "gemini-3.1-pro-preview",
         "gemini2": "gemini-2.0-flash",
-        "gemini25": "gemini-2.5-flash-preview-09-2025",
+        "gemini25": "gemini-2.5-flash",
         "gemini25pro": "gemini-2.5-pro",
+        "gemini35": "gemini-3.5-flash",
+        "gemini35flash": "gemini-3.5-flash",
+        "gemini3.5flash": "gemini-3.5-flash",
         "gemini3": "gemini-3-pro-preview",
         "gemini3.1": "gemini-3.1-pro-preview",
+        "gemini31pro": "gemini-3.1-pro-preview",
+        "gemini3.1flashlite": "gemini-3.1-flash-lite-preview",
         "gemini3flash": "gemini-3-flash-preview",
+        "grok": "xai.grok-4.3",
+        "grok4": "xai.grok-4.3",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
-        "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
-        "minimax": "hf.MiniMaxAI/MiniMax-M2.5:novita",
-        "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax27": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
         "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
         "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
-        "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905:groq",
-        "gpt-oss": "hf.openai/gpt-oss-120b:sambanova",
+        "kimi": ("hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on"),
+        "kimithink": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
+        "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm47": "hf.zai-org/GLM-4.7:cerebras",
+        "glm51": "hf.zai-org/GLM-5.1:together",
         "glm5": "hf.zai-org/GLM-5:novita",
-        "glm": "hf.zai-org/GLM-5:novita",
-        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
-        "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
-        "kimithink": "hf.moonshotai/Kimi-K2-Thinking:fireworks-ai",
+        "glm": "hf.zai-org/GLM-5.1:together",
+        "deepseek-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-        "kimi25": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
-        # "kimi25instant": (
-        #     "hf.moonshotai/Kimi-K2.5:fireworks-ai"
-        #     "?temperature=0.6&top_p=0.95&reasoning=off"
-        # ),
-        "kimi-2.5": (
-            "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
+        "deepseek4-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "deepseek4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "deepseekv4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
+        "kimi26instant": (
+            "hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"
         ),
+        "kimi-2.6": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
+        "kimi25": ("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
+        "kimi25instant": (
+            "hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"
+        ),
+        "kimi-2.5": ("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
         "qwen35": (
             "hf.Qwen/Qwen3.5-397B-A17B:novita"
             "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
@@ -602,13 +718,11 @@ class ModelFactory:
     # Mapping of providers to their LLM classes
     PROVIDER_CLASSES: dict[Provider, LLMClass] = {}
 
-    # Mapping of special model names to their specific LLM classes
-    # This overrides the provider-based class selection
-    MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {
-        "playback": PlaybackLLM,
-        "silent": SilentLLM,
-        "slow": SlowLLM,
-    }
+    # Extension point for model names that should use a custom LLM class.
+    MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {}
+
+    # Built-in model-specific classes are imported lazily to keep CLI startup light.
+    MODEL_SPECIFIC_NAMES = {"playback", "silent", "slow"}
 
     @classmethod
     def get_runtime_presets(cls) -> dict[str, str]:
@@ -667,9 +781,10 @@ class ModelFactory:
                     f"Multiple reasoning settings provided for '{expanded_model_spec}'."
                 )
             base_model = model_name.rsplit(":", 1)[0].strip().lower()
-            if base_model != "moonshotai/kimi-k2.5":
+            if base_model not in {"moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6"}:
                 raise ModelConfigError(
-                    f"Instant mode is only supported for moonshotai/kimi-k2.5, got '{model_name}'."
+                    "Instant mode is only supported for moonshotai/kimi-k2.5 "
+                    f"and moonshotai/kimi-k2.6, got '{model_name}'."
                 )
             reasoning_effort = ReasoningEffortSetting(
                 kind="toggle",
@@ -678,7 +793,6 @@ class ModelFactory:
 
         _validate_transport_constraints(provider, model_name, merged_overrides.transport)
         _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
-
         return ParsedModelSpec(
             raw_input=raw_input,
             expanded_input=expanded_model_spec,
@@ -740,6 +854,10 @@ class ModelFactory:
                 provider=parsed.provider,
                 model_name=parsed.model_name,
             )
+        wire_model_name = ModelDatabase.resolve_wire_model_name(
+            provider=parsed.provider,
+            model_name=parsed.model_name,
+        )
 
         return ResolvedModelSpec(
             raw_input=model_string,
@@ -747,7 +865,7 @@ class ModelFactory:
             source=source,
             model_config=model_config,
             provider=model_config.provider,
-            wire_model_name=model_config.model_name,
+            wire_model_name=wire_model_name,
             overlay=selected_overlay,
             model_params=model_params,
         )
@@ -771,13 +889,16 @@ class ModelFactory:
 
         # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
         # Lazily ensure provider class map is populated and supports this provider
-        if config.model_name not in cls.MODEL_SPECIFIC_CLASSES:
+        model_specific_class = cls.MODEL_SPECIFIC_CLASSES.get(config.model_name)
+        if model_specific_class is None and config.model_name not in cls.MODEL_SPECIFIC_NAMES:
             llm_class = cls._load_provider_class(config.provider)
             # Stash for next time
             cls.PROVIDER_CLASSES[config.provider] = llm_class
 
-        if config.model_name in cls.MODEL_SPECIFIC_CLASSES:
-            llm_class = cls.MODEL_SPECIFIC_CLASSES[config.model_name]
+        if model_specific_class is not None:
+            llm_class = model_specific_class
+        elif config.model_name in cls.MODEL_SPECIFIC_NAMES:
+            llm_class = cls._load_model_specific_class(config.model_name)
         else:
             llm_class = cls.PROVIDER_CLASSES[config.provider]
 
@@ -809,11 +930,19 @@ class ModelFactory:
         """Import provider-specific LLM classes lazily to avoid heavy deps at import time."""
         try:
             if provider == Provider.FAST_AGENT:
+                from fast_agent.llm.internal.passthrough import PassthroughLLM
+
                 return PassthroughLLM
             if provider == Provider.ANTHROPIC:
                 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 
                 return AnthropicLLM
+            if provider == Provider.ANTHROPIC_VERTEX:
+                from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import (
+                    AnthropicVertexLLM,
+                )
+
+                return AnthropicVertexLLM
             if provider == Provider.OPENAI:
                 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 
@@ -840,9 +969,9 @@ class ModelFactory:
 
                 return HuggingFaceLLM
             if provider == Provider.XAI:
-                from fast_agent.llm.provider.openai.llm_xai import XAILLM
+                from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
 
-                return XAILLM
+                return XAIResponsesLLM
             if provider == Provider.OPENROUTER:
                 from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
 
@@ -879,9 +1008,25 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 
                 return OpenResponsesLLM
-
         except Exception as e:
             raise ModelConfigError(
                 f"Provider '{provider.value}' is unavailable or missing dependencies: {e}"
             )
         raise ModelConfigError(f"Unsupported provider: {provider}")
+
+    @classmethod
+    def _load_model_specific_class(cls, model_name: str) -> type:
+        """Import built-in model-specific LLM classes lazily."""
+        if model_name == "playback":
+            from fast_agent.llm.internal.playback import PlaybackLLM
+
+            return PlaybackLLM
+        if model_name == "silent":
+            from fast_agent.llm.internal.silent import SilentLLM
+
+            return SilentLLM
+        if model_name == "slow":
+            from fast_agent.llm.internal.slow import SlowLLM
+
+            return SlowLLM
+        raise ModelConfigError(f"Unsupported fast-agent model: {model_name}")

@@ -60,7 +60,7 @@ Algorithm
    - Partition them into **child-agent tools** and **regular MCP/local tools**.
    - Child-agent tools are executed in parallel:
      - For each child tool call, spawn a detached clone with its own LLM + MCP aggregator and suffixed name.
-     - Emit `ProgressAction.CHATTING` / `ProgressAction.READY` events for each instance and keep parent status untouched.
+     - Emit `ProgressAction.SENDING` / `ProgressAction.READY` events for each instance and keep parent status untouched.
      - Merge each clone's usage back into the template child after shutdown.
    - Remaining MCP/local tools are delegated to `McpAgent.run_tools()`.
    - Child and MCP results (and their error text from `FAST_AGENT_ERROR_CHANNEL`) are merged into a single `PromptMessageExtended` that is returned to the parent LLM.
@@ -72,14 +72,14 @@ table) undergoes dynamic updates:
 
 **Before parallel execution:**
 ```
-▎▶ Chatting      ▎ PM-1-DayStatusSummarizer     gpt-5 turn 1
+▎▶ Sending      ▎ PM-1-DayStatusSummarizer     gpt-5 turn 1
 ```
 
 **During parallel execution (2+ instances):**
 - Parent line stays in whatever lifecycle state it already had; no forced "Ready" flips.
 - New lines appear for each detached instance with suffixed names:
 ```
-▎▶ Chatting      ▎ PM-1-DayStatusSummarizer[1]   gpt-5 turn 2
+▎▶ Sending      ▎ PM-1-DayStatusSummarizer[1]   gpt-5 turn 2
 ▎▶ Calling tool  ▎ PM-1-DayStatusSummarizer[2]   tg-ro (list_messages)
 ```
 
@@ -179,7 +179,7 @@ The parent LLM can now naturally call researcher and writer as tools.
 References
 ----------
 - Design doc: ``agetns_as_tools_plan_scratch.md`` (repo root).
-- Docs: [`evalstate/fast-agent-docs`](https://github.com/evalstate/fast-agent-docs) (Agents-as-Tools section).
+- Docs: `docs/agents/workflows.md` (Agents-as-Tools section).
 - OpenAI Agents SDK: <https://openai.github.io/openai-agents-python/tools>
 - GitHub Issue: [#458](https://github.com/evalstate/fast-agent/issues/458)
 """
@@ -192,7 +192,7 @@ from contextlib import contextmanager, nullcontext
 from copy import copy, deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
@@ -364,6 +364,15 @@ class AgentsAsToolsAgent(McpAgent):
         """
         return f"agent__{child_name}"
 
+    @property
+    def agent_backed_tools(self) -> Mapping[str, LlmAgent]:
+        """Return all child agents exposed as tool invocations."""
+        if not self._agent_tools:
+            return self._child_agents
+        if not self._child_agents:
+            return self._agent_tools
+        return {**self._agent_tools, **self._child_agents}
+
     async def initialize(self) -> None:
         """Initialize this agent and all child agents."""
         await super().initialize()
@@ -405,7 +414,9 @@ class AgentsAsToolsAgent(McpAgent):
     @staticmethod
     def _child_tool_result_mode(child: LlmAgent) -> ToolResultMode:
         config = getattr(child, "config", None)
-        request_params = getattr(config, "default_request_params", None) if config is not None else None
+        request_params = (
+            getattr(config, "default_request_params", None) if config is not None else None
+        )
         if request_params is None:
             return "postprocess"
         return request_params.tool_result_mode
@@ -440,7 +451,9 @@ class AgentsAsToolsAgent(McpAgent):
     @classmethod
     def _resolved_child_tool_schema(cls, child: LlmAgent) -> dict[str, Any]:
         configured_schema = cls._configured_child_tool_schema(child)
-        schema = configured_schema if configured_schema is not None else cls._default_child_tool_schema()
+        schema = (
+            configured_schema if configured_schema is not None else cls._default_child_tool_schema()
+        )
         if cls._child_response_mode_enabled(child):
             return cls._augment_schema_with_response_mode(schema)
         return schema
@@ -554,9 +567,7 @@ class AgentsAsToolsAgent(McpAgent):
                 if original_config is not None and hasattr(child, "display") and child.display:
                     child.display.config = original_config
 
-    async def _merge_history(
-        self, target: LlmAgent, clone: LlmAgent, start_index: int
-    ) -> None:
+    async def _merge_history(self, target: LlmAgent, clone: LlmAgent, start_index: int) -> None:
         """Append clone history from start_index into target with a global merge lock."""
         async with self._history_merge_lock:
             new_messages = clone.message_history[start_index:]
@@ -660,9 +671,7 @@ class AgentsAsToolsAgent(McpAgent):
             before_tool_call = previous_hooks.before_tool_call if previous_hooks else None
             after_llm_call = previous_hooks.after_llm_call if previous_hooks else None
             after_tool_call = previous_hooks.after_tool_call if previous_hooks else None
-            after_turn_complete = (
-                previous_hooks.after_turn_complete if previous_hooks else None
-            )
+            after_turn_complete = previous_hooks.after_turn_complete if previous_hooks else None
 
             async def handle_before_llm_call(runner, messages):
                 if before_llm_call:
@@ -685,9 +694,7 @@ class AgentsAsToolsAgent(McpAgent):
 
         try:
             scope = (
-                acp_tool_call_context(
-                    parent_tool_call_id=tool_call_id
-                )
+                acp_tool_call_context(parent_tool_call_id=tool_call_id)
                 if tool_handler and tool_call_id
                 else acp_tool_call_context()
             )
@@ -750,9 +757,7 @@ class AgentsAsToolsAgent(McpAgent):
             if tool_handler and tool_call_id:
                 try:
                     with acp_tool_call_context():
-                        await tool_handler.on_tool_complete(
-                            tool_call_id, False, None, str(exc)
-                        )
+                        await tool_handler.on_tool_complete(tool_call_id, False, None, str(exc))
                 except Exception:
                     pass
             return CallToolResult(content=[text_content(f"Error: {exc}")], isError=True)
@@ -789,9 +794,7 @@ class AgentsAsToolsAgent(McpAgent):
                 request_params=request_params,
             )
 
-        return await super().call_tool(
-            name, arguments, tool_use_id, request_params=request_params
-        )
+        return await super().call_tool(name, arguments, tool_use_id, request_params=request_params)
 
     def _show_parallel_tool_calls(
         self,
@@ -1079,7 +1082,7 @@ class AgentsAsToolsAgent(McpAgent):
             try:
                 outer_progress_display.update(
                     ProgressEvent(
-                        action=ProgressAction.CHATTING,
+                        action=ProgressAction.SENDING,
                         target=instance_name,
                         details="",
                         agent_name=instance_name,
@@ -1128,9 +1131,7 @@ class AgentsAsToolsAgent(McpAgent):
                     )
                 elif history_merge_target == HistoryMergeTarget.CHILD:
                     try:
-                        await self._merge_history(
-                            target=child, clone=clone, start_index=fork_index
-                        )
+                        await self._merge_history(target=child, clone=clone, start_index=fork_index)
                     except Exception as merge_hist_exc:
                         logger.warning(
                             "Failed to merge child history",
@@ -1141,9 +1142,7 @@ class AgentsAsToolsAgent(McpAgent):
                         )
                 elif history_merge_target == HistoryMergeTarget.ORCHESTRATOR:
                     try:
-                        await self._merge_history(
-                            target=self, clone=clone, start_index=fork_index
-                        )
+                        await self._merge_history(target=self, clone=clone, start_index=fork_index)
                     except Exception as merge_hist_exc:
                         logger.warning(
                             "Failed to merge orchestrator history",

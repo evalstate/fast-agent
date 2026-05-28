@@ -25,9 +25,9 @@ MAX_LEVEL = MAX_GAUGE_LEVEL
 EFFORT_LEVEL_MAPPING = {
     "none": 0,
     "minimal": 1,
-    "low": 2,
-    "medium": 3,
-    "high": 4,
+    "low": 1,
+    "medium": 2,
+    "high": 3,
     "xhigh": 4,
     "max": 4,
 }
@@ -36,18 +36,75 @@ EFFORT_COLOR_MAPPING = {
     "none": INACTIVE_COLOR,
     "minimal": "ansigreen",
     "low": "ansigreen",
-    "medium": "ansiyellow",
+    "medium": "ansigreen",
     "high": "ansiyellow",
-    "xhigh": "ansired",
+    "xhigh": "ansiyellow",
     "max": "ansired",
 }
 
+EFFORT_ORDER_MAPPING = {
+    "none": 0,
+    "minimal": 1,
+    "low": 2,
+    "medium": 3,
+    "high": 4,
+    "xhigh": 5,
+    "max": 6,
+}
 
-def _effort_to_level(value: str) -> int:
+
+def _uses_none_low_medium_high_scale(spec: ReasoningEffortSpec) -> bool:
+    return spec.allowed_efforts == ["none", "low", "medium", "high"]
+
+
+def _uses_minimal_low_medium_high_scale(spec: ReasoningEffortSpec) -> bool:
+    return spec.allowed_efforts == ["minimal", "low", "medium", "high"]
+
+
+def _effort_to_level(value: str, spec: ReasoningEffortSpec | None = None) -> int:
+    if spec is not None and _uses_none_low_medium_high_scale(spec):
+        return {
+            "none": 0,
+            "low": 2,
+            "medium": 3,
+            "high": 4,
+        }.get(value, 0)
+    if spec is not None and _uses_minimal_low_medium_high_scale(spec):
+        return {
+            "minimal": 1,
+            "low": 2,
+            "medium": 3,
+            "high": 4,
+        }.get(value, 0)
     return EFFORT_LEVEL_MAPPING.get(value, 0)
 
 
-def _effort_color(value: str) -> str:
+def _is_spec_highest_effort(value: str, spec: ReasoningEffortSpec) -> bool:
+    allowed_efforts = spec.allowed_efforts
+    if not allowed_efforts:
+        return False
+
+    highest_effort = max(allowed_efforts, key=lambda effort: EFFORT_ORDER_MAPPING.get(effort, -1))
+    return value == highest_effort and _effort_to_level(value, spec) == MAX_LEVEL
+
+
+def _effort_color(value: str, spec: ReasoningEffortSpec) -> str:
+    if _uses_none_low_medium_high_scale(spec):
+        return {
+            "none": INACTIVE_COLOR,
+            "low": "ansigreen",
+            "medium": "ansiyellow",
+            "high": "ansired",
+        }.get(value, "ansiyellow")
+    if _uses_minimal_low_medium_high_scale(spec):
+        return {
+            "minimal": "ansigreen",
+            "low": "ansigreen",
+            "medium": "ansiyellow",
+            "high": "ansired",
+        }.get(value, "ansiyellow")
+    if value == "xhigh" and _is_spec_highest_effort(value, spec):
+        return "ansired"
     return EFFORT_COLOR_MAPPING.get(value, "ansiyellow")
 
 
@@ -108,7 +165,7 @@ def render_reasoning_effort_gauge(
         level = 0 if not effective.value else MAX_LEVEL
     elif effective.kind == "effort":
         effort_value = str(effective.value)
-        level = _effort_to_level(effort_value)
+        level = _effort_to_level(effort_value, spec)
     elif effective.kind == "budget":
         level = _budget_to_level(int(effective.value), spec)
     else:
@@ -121,7 +178,7 @@ def render_reasoning_effort_gauge(
     if effective is None:
         color = INACTIVE_COLOR
     elif effective.kind == "effort":
-        color = _effort_color(effort_value)
+        color = _effort_color(effort_value, spec)
     elif effective.kind == "toggle":
         color = "ansigreen" if effective.value else INACTIVE_COLOR
     else:

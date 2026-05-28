@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import re
@@ -28,6 +29,10 @@ from fast_agent.llm.reasoning_effort import (
     validate_reasoning_setting,
 )
 from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
+    tool_result_text_for_llm,
+)
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.type_narrowing import is_str_object_dict
@@ -42,21 +47,32 @@ BEDROCK_TO_MCP_STOP_REASON = {
 if TYPE_CHECKING:
     from mcp import ListToolsResult
 
+_boto3: Any | None
+_BOTOCORE_ERRORS: tuple[type[Exception], ...]
+_NO_CREDENTIALS_ERROR: type[Exception]
 try:
-    import boto3
+    _boto3 = importlib.import_module("boto3")
     from botocore.exceptions import (
         BotoCoreError,
         ClientError,
         NoCredentialsError,
     )
+
+    _BOTOCORE_ERRORS = (ClientError, BotoCoreError)
+    _NO_CREDENTIALS_ERROR = NoCredentialsError
 except ImportError:
-    boto3 = None  # type: ignore[assignment]
-    BotoCoreError = Exception  # type: ignore[assignment, misc]
-    ClientError = Exception  # type: ignore[assignment, misc]
-    NoCredentialsError = Exception  # type: ignore[assignment, misc]
+    _boto3 = None
+    _BOTOCORE_ERRORS = (Exception,)
+    _NO_CREDENTIALS_ERROR = Exception
 
 
 DEFAULT_BEDROCK_MODEL = "amazon.nova-lite-v1:0"
+
+
+def _require_boto3() -> Any:
+    if _boto3 is None:
+        raise ImportError("boto3 is required for Bedrock support. Install with: pip install boto3")
+    return _boto3
 
 
 # Reasoning effort to token budget mapping
@@ -209,10 +225,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
     def __init__(self, *args, **kwargs) -> None:
         """Initialize the Bedrock LLM with AWS credentials and region."""
-        if boto3 is None:
-            raise ImportError(
-                "boto3 is required for Bedrock support. Install with: pip install boto3"
-            )
+        _require_boto3()
 
         # Initialize logger
         self.logger = get_logger(__name__)
@@ -316,9 +329,10 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         """Get or create Bedrock client."""
         if self._bedrock_client is None:
             try:
+                boto3 = _require_boto3()
                 session = boto3.Session(profile_name=self.aws_profile)
                 self._bedrock_client = session.client("bedrock", region_name=self.aws_region)
-            except NoCredentialsError as e:
+            except _NO_CREDENTIALS_ERROR as e:
                 raise ProviderKeyError(
                     "AWS credentials not found",
                     "Please configure AWS credentials using AWS CLI, environment variables, or IAM roles.",
@@ -329,11 +343,12 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         """Get or create Bedrock Runtime client."""
         if self._bedrock_runtime_client is None:
             try:
+                boto3 = _require_boto3()
                 session = boto3.Session(profile_name=self.aws_profile)
                 self._bedrock_runtime_client = session.client(
                     "bedrock-runtime", region_name=self.aws_region
                 )
-            except NoCredentialsError as e:
+            except _NO_CREDENTIALS_ERROR as e:
                 raise ProviderKeyError(
                     "AWS credentials not found",
                     "Please configure AWS credentials using AWS CLI, environment variables, or IAM roles.",
@@ -981,8 +996,10 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 # For system prompt models: format as human-readable text
                 tool_result_parts = []
                 for tool_id, tool_result in msg.tool_results.items():
-                    result_text = "".join(
-                        part.text for part in tool_result.content if isinstance(part, TextContent)
+                    result_text = tool_result_text_for_llm(
+                        tool_result,
+                        logger=self.logger,
+                        source="bedrock",
                     )
                     result_payload = {
                         "tool_name": tool_id,  # Use tool_id as name for system prompt
@@ -998,10 +1015,13 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 # For Nova/Anthropic models: use structured tool_result format
                 for tool_id, tool_result in msg.tool_results.items():
                     result_content_blocks = []
-                    if tool_result.content:
-                        for part in tool_result.content:
-                            if isinstance(part, TextContent):
-                                result_content_blocks.append({"text": part.text})
+                    for part in canonicalize_tool_result_content_for_llm(
+                        tool_result,
+                        logger=self.logger,
+                        source="bedrock",
+                    ):
+                        if isinstance(part, TextContent):
+                            result_content_blocks.append({"text": part.text})
 
                     if not result_content_blocks:
                         result_content_blocks.append({"text": "[No content in tool result]"})
@@ -1317,7 +1337,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         try:
             messages: list[BedrockMessageParam] = list(pre_messages) if pre_messages else []
             params = self.get_request_params(request_params)
-        except (ClientError, BotoCoreError) as e:
+        except _BOTOCORE_ERRORS as e:
             error_msg = str(e)
             if "UnauthorizedOperation" in error_msg or "AccessDenied" in error_msg:
                 raise ProviderKeyError(
@@ -1751,7 +1771,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         processed_response = await self._process_stream(
                             response, model
                         )
-                except (ClientError, BotoCoreError) as e:
+                except _BOTOCORE_ERRORS as e:
                     # Check if this is a reasoning-related error
                     if reasoning_budget > 0 and (
                         "reasoning" in str(e).lower() or "performance" in str(e).lower()
@@ -1814,7 +1834,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     caps.stream_with_tools = StreamPreference.STREAM_OK
                 self.capabilities[model] = caps
                 break
-            except (ClientError, BotoCoreError) as e:
+            except _BOTOCORE_ERRORS as e:
                 error_msg = str(e)
                 last_error_msg = error_msg
                 self.logger.debug(f"Bedrock API error (schema={schema_choice}): {error_msg}")
@@ -1832,7 +1852,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                             caps.schema = ToolSchemaType(schema_choice)
                         self.capabilities[model] = caps
                         break
-                    except (ClientError, BotoCoreError) as e_fallback:
+                    except _BOTOCORE_ERRORS as e_fallback:
                         last_error_msg = str(e_fallback)
                         self.logger.debug(
                             f"Bedrock API error after non-streaming fallback: {last_error_msg}"
@@ -1948,7 +1968,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                             caps.schema = ToolSchemaType(schema_choice)
                         self.capabilities[model] = caps
                         break
-                    except (ClientError, BotoCoreError) as e2:
+                    except _BOTOCORE_ERRORS as e2:
                         last_error_msg = str(e2)
                         self.logger.debug(
                             f"Bedrock API error after system inject fallback: {last_error_msg}"
@@ -2118,6 +2138,16 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # For assistant messages: Return the last message (no completion needed)
             return last_message
 
+        effective_params = self.get_request_params(request_params)
+        if effective_params.structured_schema:
+            _, response = await self._apply_prompt_provider_specific_structured_schema(
+                multipart_messages,
+                effective_params.structured_schema,
+                effective_params,
+                tools,
+            )
+            return response
+
         # Convert the last user message to Bedrock message parameter format
         message_param = BedrockConverter.convert_to_bedrock(last_message)
 
@@ -2126,7 +2156,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         # via _convert_to_provider_format()
         return await self._bedrock_completion(
             message_param,
-            request_params,
+            effective_params,
             tools,
             pre_messages=None,
             history=multipart_messages,
@@ -2215,7 +2245,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # Fall through to normal generation path
             pass
 
-        request_params = self.get_request_params(request_params)
+        request_params = self.get_request_params(request_params).model_copy(
+            update={"structured_schema": None}
+        )
 
         # For structured outputs: disable reasoning entirely and set temperature=0 for deterministic JSON
         # This avoids conflicts between reasoning (requires temperature=1) and structured output (wants temperature=0)
@@ -2256,8 +2288,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         ]
 
         # IMPORTANT: Do NOT mutate the caller's messages. Create a deep copy of the last
-        # user message, append the schema to the copy only, and pass just that copy into
-        # the provider-specific path. This prevents contamination of routed messages.
+        # user message, append the schema to the copy only, and pass the full conversation
+        # with that copied last turn into the provider-specific path. This preserves tool
+        # and history context while preventing contamination of routed messages.
         try:
             temp_last = multipart_messages[-1].model_copy(deep=True)
         except Exception:
@@ -2273,8 +2306,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         )
 
         try:
+            structured_messages = [*multipart_messages[:-1], temp_last]
             result: PromptMessageExtended = await self._apply_prompt_provider_specific(
-                [temp_last], request_params
+                structured_messages, request_params
             )
             try:
                 parsed_model, _ = self._structured_from_multipart(result, model)
@@ -2305,13 +2339,133 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     )
                 temp_last_retry.add_text("\n".join(strict_parts + [simplified_schema_text]))
 
+                retry_messages = [*multipart_messages[:-1], temp_last_retry]
                 retry_result: PromptMessageExtended = await self._apply_prompt_provider_specific(
-                    [temp_last_retry], request_params
+                    retry_messages, request_params
                 )
                 return self._structured_from_multipart(retry_result, model)
         finally:
             # Restore original reasoning effort
             self.set_reasoning_effort(original_reasoning_effort)
+
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        try:
+            if multipart_messages and multipart_messages[-1].role == "assistant":
+                parsed_data, parsed_mp = self._structured_schema_from_multipart(
+                    multipart_messages[-1],
+                    schema,
+                )
+                if parsed_data is not None:
+                    return parsed_data, parsed_mp
+        except Exception:
+            pass
+
+        request_params = self.get_request_params(request_params).model_copy(
+            update={"structured_schema": None}
+        )
+
+        original_reasoning_effort = self.reasoning_effort
+        self.set_reasoning_effort(ReasoningEffortSetting(kind="toggle", value=False))
+
+        if request_params:
+            request_params = request_params.model_copy(update={"temperature": 0.0})
+        else:
+            request_params = RequestParams(temperature=0.0)
+
+        caps_struct = self.capabilities.get(self.model) or ModelCapabilities()
+        strategy = caps_struct.structured_strategy or StructuredStrategy.STRICT_SCHEMA
+        schema_text = (
+            json.dumps(schema, indent=2)
+            if strategy == StructuredStrategy.SIMPLIFIED_SCHEMA
+            else self.schema_to_schema_str(schema)
+        )
+
+        prompt_parts = [
+            "You are a JSON generator. Respond with JSON that strictly follows the provided schema. Do not add any commentary or explanation.",
+            "",
+            "JSON Schema:",
+            schema_text,
+            "",
+            "IMPORTANT RULES:",
+            "- You MUST respond with only raw JSON data. No other text, commentary, or markdown is allowed.",
+            "- All field names and enum values are case-sensitive and must match the schema exactly.",
+            "- Do not add any extra fields to the JSON response. Only include the fields specified in the schema.",
+            "- Do not use code fences or backticks (no ```json and no ```).",
+            "- Your output must start with '{' and end with '}'.",
+            "- Valid JSON requires double quotes for all field names and string values. Other types (int, float, boolean, etc.) should not be quoted.",
+            "",
+            "Now, generate the valid JSON response for the following request:",
+        ]
+
+        try:
+            temp_last = multipart_messages[-1].model_copy(deep=True)
+        except Exception:
+            temp_last = PromptMessageExtended(
+                role=multipart_messages[-1].role,
+                content=list(multipart_messages[-1].content),
+            )
+
+        temp_last.add_text("\n".join(prompt_parts))
+
+        try:
+            structured_messages = [*multipart_messages[:-1], temp_last]
+            result = await self._apply_prompt_provider_specific(
+                structured_messages,
+                request_params,
+                tools,
+            )
+            if result.tool_calls:
+                return None, result
+            parsed, _ = self._structured_schema_from_multipart(result, schema)
+            if parsed is None:
+                raise ValueError("structured parse returned None; triggering retry")
+            return parsed, result
+        except Exception:
+            strict_parts = [
+                "STRICT MODE:",
+                "Return ONLY a single JSON object that matches the schema.",
+                "Do not include any prose, explanations, code fences, or extra characters.",
+                "Start with '{' and end with '}'.",
+                "",
+                "JSON Schema:",
+                json.dumps(schema, indent=2),
+            ]
+            try:
+                temp_last_retry = multipart_messages[-1].model_copy(deep=True)
+            except Exception:
+                temp_last_retry = PromptMessageExtended(
+                    role=multipart_messages[-1].role,
+                    content=list(multipart_messages[-1].content),
+                )
+            temp_last_retry.add_text("\n".join(strict_parts))
+
+            retry_messages = [*multipart_messages[:-1], temp_last_retry]
+            retry_result = await self._apply_prompt_provider_specific(
+                retry_messages,
+                request_params,
+                tools,
+            )
+            if retry_result.tool_calls:
+                return None, retry_result
+            return self._structured_schema_from_multipart(retry_result, schema)
+        finally:
+            self.set_reasoning_effort(original_reasoning_effort)
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        if not self._should_defer_structured_schema_for_tools(messages, request_params, tools):
+            return messages, request_params
+        return messages, request_params.model_copy(update={"structured_schema": None})
 
     def _clean_json_response(self, text: str) -> str:
         """Clean up JSON response by removing text before first { and after last }.

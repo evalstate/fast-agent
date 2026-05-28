@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
 import pytest
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
+from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.config import get_settings
+from fast_agent.skills import SKILLS_DEFAULT
 
 if TYPE_CHECKING:
     from fast_agent.core.fastagent import AgentInstance
@@ -38,6 +41,8 @@ class SkillAgent:
     _aggregator: StubAggregator = field(default_factory=StubAggregator)
     message_history: list[Any] = field(default_factory=list)
     llm: Any = None
+    context: Any = None
+    usage_accumulator: Any = None
 
     @property
     def instruction(self) -> str:
@@ -84,10 +89,35 @@ class SkillAgent:
     def skill_read_tool_name(self) -> str:
         return "read_skill"
 
+    @property
+    def config(self) -> object:
+        return SimpleNamespace(
+            model=None,
+            skills=SKILLS_DEFAULT,
+            skill_manifests=list(self._skill_manifests),
+        )
+
+    def clear(self, clear_prompts: bool = False) -> None:
+        self.message_history.clear()
+
+    def load_message_history(self, messages: list[Any]) -> None:
+        self.message_history = list(messages)
+
+
+class _StubAppProvider(StaticAgentProvider):
+    def __init__(self, agents: dict[str, object]) -> None:
+        super().__init__(agents)
+        self.card_collision_warnings: list[str] = []
+
 
 @dataclass
 class StubAgentInstance:
     agents: dict[str, Any] = field(default_factory=dict)
+    app: Any = None
+
+    def __post_init__(self) -> None:
+        if self.app is None:
+            self.app = _StubAppProvider(self.agents)
 
 
 def _handler(instance: StubAgentInstance, agent_name: str) -> SlashCommandHandler:

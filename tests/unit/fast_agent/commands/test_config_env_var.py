@@ -175,6 +175,8 @@ def test_env_var_in_mcp_server_settings(temp_config_files):
         # With both URL and command present, transport inference prefers HTTP and clears command
         assert server_settings.transport == "http"  # Transport should be inferred as http
         assert server_settings.command is None  # Command should be cleared due to URL preference
-        assert server_settings.url == "http://mcp.env.url"  # URL should be resolved from env var
+        assert (
+            server_settings.url == "http://mcp.env.url/mcp"
+        )  # URL should be resolved from env var and normalized
         assert server_settings.env is not None
         assert server_settings.env["SERVER_SPECIFIC_ENV"] == "value_for_specific"

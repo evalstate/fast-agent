@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from rich.text import Text
 
@@ -15,13 +15,70 @@ from fast_agent.ui.enhanced_prompt import get_argument_input, get_selection_inpu
 from fast_agent.ui.history_actions import display_history_turn
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_picker_common import normalize_generic_model_spec
+from fast_agent.ui.model_reference_picker import (
+    ModelReferencePickerItem,
+    run_model_reference_picker_async,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.commands.context import AgentProvider
+    from fast_agent.config import Settings
+    from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
     from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.types import PromptMessageExtended
+
+
+@runtime_checkable
+class TuiStatusDisplay(Protocol):
+    @property
+    def markup_enabled(self) -> bool: ...
+
+    def show_status_message(self, content: Text) -> None: ...
+
+
+@runtime_checkable
+class TuiMarkdownDisplay(TuiStatusDisplay, Protocol):
+    def display_message(
+        self,
+        *,
+        content: str,
+        message_type: MessageType,
+        name: str,
+        right_info: str,
+        truncate_content: bool,
+        render_markdown: bool,
+    ) -> None: ...
+
+
+@runtime_checkable
+class TuiSystemDisplay(TuiStatusDisplay, Protocol):
+    def show_system_message(
+        self,
+        system_prompt: str,
+        *,
+        agent_name: str,
+        server_count: int = 0,
+    ) -> None: ...
+
+
+@runtime_checkable
+class TuiContextCarrier(Protocol):
+    @property
+    def config(self) -> "Settings | None": ...
+
+
+@runtime_checkable
+class TuiDisplayAgent(Protocol):
+    @property
+    def display(self) -> TuiStatusDisplay: ...
+
+
+@runtime_checkable
+class TuiContextAgent(Protocol):
+    @property
+    def context(self) -> TuiContextCarrier | None: ...
 
 
 @dataclass(slots=True)
@@ -33,24 +90,33 @@ class TuiCommandIO(CommandIO):
     settings: Settings | None = None
     config_payload: dict[str, Any] | None = None
 
+    @staticmethod
+    def _normalize_reference_token(token: str | None) -> str | None:
+        if token is None:
+            return None
+        stripped = token.strip()
+        if not stripped:
+            return stripped
+        if stripped.startswith("$"):
+            return stripped
+        return f"${stripped}"
+
     def _resolve_display(self, agent_name: str | None):
         from fast_agent.ui.console_display import ConsoleDisplay
 
         target_agent = None
-        if agent_name and hasattr(self.prompt_provider, "_agent"):
+        if agent_name:
             try:
                 target_agent = self.prompt_provider._agent(agent_name)
             except Exception:
                 target_agent = None
 
-        display = getattr(target_agent, "display", None) if target_agent is not None else None
-        if display is not None:
-            return display
+        if isinstance(target_agent, TuiDisplayAgent):
+            return target_agent.display
 
         config = None
-        if target_agent is not None:
-            agent_context = getattr(target_agent, "context", None)
-            config = getattr(agent_context, "config", None) if agent_context else None
+        if isinstance(target_agent, TuiContextAgent) and target_agent.context is not None:
+            config = target_agent.context.config
 
         if config is None:
             config = self.settings or get_settings()
@@ -66,20 +132,21 @@ class TuiCommandIO(CommandIO):
         elif channel == "info":
             content.stylize("cyan")
 
-    async def _emit_markdown_message(self, display: object, message: CommandMessage) -> None:
+    async def _emit_markdown_message(
+        self,
+        display: TuiStatusDisplay,
+        message: CommandMessage,
+    ) -> None:
         content = message.text
         markdown_text = content.plain if isinstance(content, Text) else str(content)
 
         if message.title:
             title = Text(message.title, style="bold")
             self._apply_channel_style(title, message.channel)
-            show_status_message = getattr(display, "show_status_message", None)
-            if callable(show_status_message):
-                show_status_message(title)
+            display.show_status_message(title)
 
-        display_message = getattr(display, "display_message", None)
-        if callable(display_message):
-            display_message(
+        if isinstance(display, TuiMarkdownDisplay):
+            display.display_message(
                 content=markdown_text,
                 message_type=MessageType.ASSISTANT,
                 name=message.agent_name or self.agent_name,
@@ -91,9 +158,7 @@ class TuiCommandIO(CommandIO):
 
         fallback = Text(markdown_text)
         self._apply_channel_style(fallback, message.channel)
-        show_status_message = getattr(display, "show_status_message", None)
-        if callable(show_status_message):
-            show_status_message(fallback)
+        display.show_status_message(fallback)
 
     async def emit(self, message: CommandMessage) -> None:
         display = self._resolve_display(message.agent_name or self.agent_name)
@@ -104,7 +169,7 @@ class TuiCommandIO(CommandIO):
         content = message.text
 
         if not isinstance(content, Text):
-            if getattr(display, "_markup", True):
+            if display.markup_enabled:
                 content = Text.from_markup(str(content))
             else:
                 content = Text(str(content))
@@ -277,6 +342,35 @@ class TuiCommandIO(CommandIO):
 
             return picker_result.resolved_model or picker_result.selected_model
 
+    async def pick_model_reference_token(
+        self,
+        *,
+        items: tuple["ModelReferenceSetupItem", ...],
+    ) -> str | None:
+        picker_items = tuple(
+            ModelReferencePickerItem(
+                token=item.token,
+                priority=item.priority,
+                status=f"{item.priority}/{item.status}",
+                summary=item.summary,
+                current_value=item.current_value,
+                references=item.references,
+                removable=False,
+            )
+            for item in items
+        )
+        result = await run_model_reference_picker_async(picker_items)
+        if result is None:
+            return None
+        if result.action == "custom":
+            return self._normalize_reference_token(
+                await self.prompt_text(
+                    "Reference token ($namespace.key):",
+                    allow_empty=False,
+                )
+            )
+        return result.token
+
     async def prompt_argument(
         self,
         arg_name: str,
@@ -329,9 +423,12 @@ class TuiCommandIO(CommandIO):
         server_count: int = 0,
     ) -> None:
         display = self._resolve_display(agent_name)
-        show_system = getattr(display, "show_system_message", None)
-        if callable(show_system):
-            show_system(system_prompt, agent_name=agent_name, server_count=server_count)
+        if isinstance(display, TuiSystemDisplay):
+            display.show_system_message(
+                system_prompt,
+                agent_name=agent_name,
+                server_count=server_count,
+            )
             return
 
         from fast_agent.ui.console_display import ConsoleDisplay

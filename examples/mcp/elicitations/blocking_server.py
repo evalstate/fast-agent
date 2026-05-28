@@ -107,7 +107,7 @@ async def deploy_dissociated() -> str:
     - With fix: Elicitation completes immediately
     """
     ctx = get_context()
-    session = ctx.request_context.session
+    session = ctx.session
 
     logger.info("deploy_dissociated: Sending elicitation via GET stream (no related_request_id)")
 

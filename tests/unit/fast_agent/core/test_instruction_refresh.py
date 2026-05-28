@@ -1,6 +1,7 @@
 """Tests for instruction building and refresh utilities."""
 
 import asyncio
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.core.instruction_refresh import (
@@ -8,9 +9,16 @@ from fast_agent.core.instruction_refresh import (
     build_instruction,
     format_server_instructions,
     rebuild_agent_instruction,
+    resolve_instruction_skill_manifests,
 )
+from fast_agent.core.instruction_utils import (
+    InstructionContextAgent,
+    build_agent_instruction_context,
+)
+from fast_agent.skills import SKILLS_DEFAULT
 
 if TYPE_CHECKING:
+    from fast_agent.core.instruction_refresh import ConfiguredMcpInstructionCapable
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
 
 
@@ -32,10 +40,12 @@ class StubAgent:
         template: str = "Test instruction",
         aggregator: StubAggregator | None = None,
     ) -> None:
+        self.name = "stub"
         self._instruction = template
         self._instruction_template = template
         self._instruction_context: dict[str, str] = {}
         self._skill_manifests: list = []
+        self.config = SimpleNamespace(skills=SKILLS_DEFAULT)
         self._skill_registry = None
         self._aggregator = aggregator or StubAggregator()
         self._has_filesystem_runtime = False
@@ -141,12 +151,54 @@ def test_build_instruction_with_context() -> None:
     assert result == "Root: /test/path"
 
 
+def test_build_instruction_with_model_specific_context() -> None:
+    agent = SimpleNamespace(
+        name="gpt-agent",
+        instruction="",
+        agent_type="basic",
+        config=SimpleNamespace(
+            name="gpt-agent",
+            agent_type="basic",
+            source_path=None,
+            model="gpt-5.4",
+        ),
+    )
+    context = build_agent_instruction_context(cast("InstructionContextAgent", agent))
+
+    result = asyncio.run(
+        build_instruction("Base\n{{model_specific}}", context=context)
+    )
+
+    assert "Before making tool calls, send a brief preamble" in result
+    assert "{{model_specific}}" not in result
+
+
 def test_build_instruction_with_aggregator() -> None:
     template = "{{serverInstructions}}"
     aggregator = StubAggregator({"my-server": ("Be helpful", ["do_thing"])})
     result = asyncio.run(build_instruction(template, aggregator=cast("MCPAggregator", aggregator)))
     assert "my-server" in result
     assert "Be helpful" in result
+
+
+def test_resolve_instruction_skill_manifests_inherits_shared_context_for_default_skills() -> None:
+    agent = StubAgent()
+    agent.set_instruction_context({"agentSkills": "shared skills"})
+
+    assert resolve_instruction_skill_manifests(cast("ConfiguredMcpInstructionCapable", agent), []) is None
+
+
+def test_resolve_instruction_skill_manifests_blanks_default_skills_without_shared_context() -> None:
+    agent = StubAgent()
+
+    resolved_manifests = resolve_instruction_skill_manifests(
+        cast("ConfiguredMcpInstructionCapable", agent),
+        [],
+    )
+
+    assert resolved_manifests == []
+    result = asyncio.run(build_instruction("Skills:\n{{agentSkills}}", skill_manifests=resolved_manifests))
+    assert "{{agentSkills}}" not in result
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -2,7 +2,6 @@
 
 from typing import TYPE_CHECKING
 
-# Configuration and settings (safe - pure Pydantic models)
 from fast_agent.config import (
     AnthropicSettings,
     AzureSettings,
@@ -27,8 +26,6 @@ from fast_agent.config import (
     TensorZeroSettings,
     XAISettings,
 )
-
-# Type definitions and enums (safe - no dependencies)
 from fast_agent.types import (
     ConversationSummary,
     LlmStopReason,

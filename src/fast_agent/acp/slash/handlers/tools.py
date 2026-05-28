@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fast_agent.commands.renderers.tools_markdown import render_tools_markdown
-from fast_agent.commands.tool_summaries import build_tool_summaries
+from fast_agent.commands.tool_summaries import build_provider_tool_summaries, build_tool_summaries
 from fast_agent.interfaces import AgentProtocol
 
 if TYPE_CHECKING:
@@ -42,15 +42,20 @@ async def handle_tools(handler: "SlashCommandHandler") -> str:
             ]
         )
 
-    tools = tools_result.tools if tools_result else None
-    if not tools:
+    tools = tools_result.tools if tools_result else []
+    provider_summaries = build_provider_tool_summaries(agent)
+    if not tools and not provider_summaries:
         return "\n".join(
             [
                 f"# {heading}",
                 "",
-                "No MCP tools available for this agent.",
+                "No tools available for this agent.",
             ]
         )
 
     summaries = build_tool_summaries(agent, list(tools))
-    return render_tools_markdown(summaries, heading=heading)
+    return render_tools_markdown(
+        summaries,
+        heading=heading,
+        provider_summaries=provider_summaries,
+    )

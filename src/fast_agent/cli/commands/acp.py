@@ -18,8 +18,9 @@ if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
 
 app = typer.Typer(
-    help="Run FastAgent as an ACP stdio server without specifying --transport=acp explicitly.",
+    help="Start fast-agent as an ACP stdio server (convenience wrapper for 'serve --transport acp').",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    add_completion=False,
 )
 
 ROOT_SUBCOMMANDS = {
@@ -57,12 +58,13 @@ def _build_run_request(
     host: str,
     port: int,
     shell: bool,
-    instance_scope: serve.InstanceScope,
     no_permissions: bool,
     resume: str | None,
     reload: bool,
     watch: bool,
+    prefer_local_shell: bool = False,
     missing_shell_cwd: serve.MissingShellCwdPolicy | None = None,
+    no_shell: bool = False,
 ) -> AgentRunRequest:
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
     return build_command_run_request(
@@ -89,13 +91,15 @@ def _build_run_request(
         noenv=noenv,
         force_smart=force_smart,
         shell_enabled=shell,
+        no_shell=no_shell,
+        prefer_local_shell=prefer_local_shell,
         mode="serve",
         transport=serve.ServeTransport.ACP.value,
         host=host,
         port=port,
         tool_description=description,
         tool_name_template=None,
-        instance_scope=instance_scope.value,
+        instance_scope=serve.InstanceScope.CONNECTION.value,
         permissions_enabled=not no_permissions,
         reload=reload,
         watch=watch,
@@ -140,10 +144,14 @@ def run_acp(
         help="Description used for the exposed send tool (use {agent} to reference the agent name)",
     ),
     shell: bool = CommonAgentOptions.shell(),
-    instance_scope: serve.InstanceScope = typer.Option(
-        serve.InstanceScope.SHARED,
-        "--instance-scope",
-        help="Control how ACP clients receive isolated agent instances (shared, connection, request)",
+    no_shell: bool = CommonAgentOptions.no_shell(),
+    prefer_local_shell: bool = typer.Option(
+        False,
+        "--prefer-local-shell",
+        help=(
+            "In ACP shell mode, use fast-agent's local shell runtime instead of the "
+            "ACP client's terminal capability"
+        ),
     ),
     no_permissions: bool = typer.Option(
         False,
@@ -187,7 +195,8 @@ def run_acp(
         host=host,
         port=port,
         shell=shell,
-        instance_scope=instance_scope,
+        no_shell=no_shell,
+        prefer_local_shell=prefer_local_shell,
         no_permissions=no_permissions,
         resume=resume,
         reload=reload,

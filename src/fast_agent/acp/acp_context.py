@@ -13,13 +13,20 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from acp.schema import (
     AvailableCommandsUpdate,
     CurrentModeUpdate,
+    FileSystemCapabilities,
     SessionInfoUpdate,
     SessionMode,
+)
+from acp.schema import (
+    ClientCapabilities as ACPClientCapabilities,
+)
+from acp.schema import (
+    Implementation as ACPImplementation,
 )
 
 from fast_agent.core.logging.logger import get_logger
@@ -34,6 +41,7 @@ if TYPE_CHECKING:
     from fast_agent.acp.tool_progress import ACPToolProgressManager
 
 logger = get_logger(__name__)
+_SESSION_INFO_UNSET = object()
 
 
 @dataclass
@@ -46,23 +54,19 @@ class ClientCapabilities:
     _meta: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_acp_capabilities(cls, caps: Any) -> "ClientCapabilities":
+    def from_acp_capabilities(cls, caps: ACPClientCapabilities | None) -> "ClientCapabilities":
         """Create from ACP ClientCapabilities object."""
-        result = cls()
         if caps is None:
-            return result
+            return cls()
 
-        result.terminal = bool(getattr(caps, "terminal", False))
-
-        if hasattr(caps, "fs") and caps.fs:
-            fs_caps = caps.fs
-            result.fs_read = bool(getattr(fs_caps, "read_text_file", False))
-            result.fs_write = bool(getattr(fs_caps, "write_text_file", False))
-
-        if hasattr(caps, "_meta") and caps._meta:
-            result._meta = dict(caps._meta) if isinstance(caps._meta, dict) else {}
-
-        return result
+        fs_caps: FileSystemCapabilities | None = caps.fs
+        meta = caps.field_meta or {}
+        return cls(
+            terminal=bool(caps.terminal),
+            fs_read=bool(fs_caps.read_text_file) if fs_caps else False,
+            fs_write=bool(fs_caps.write_text_file) if fs_caps else False,
+            _meta=dict(meta) if isinstance(meta, dict) else {},
+        )
 
 
 @dataclass
@@ -74,14 +78,14 @@ class ClientInfo:
     title: str | None = None
 
     @classmethod
-    def from_acp_info(cls, info: Any) -> "ClientInfo":
+    def from_acp_info(cls, info: ACPImplementation | None) -> "ClientInfo":
         """Create from ACP Implementation object."""
         if info is None:
             return cls()
         return cls(
-            name=getattr(info, "name", "unknown"),
-            version=getattr(info, "version", "unknown"),
-            title=getattr(info, "title", None),
+            name=info.name,
+            version=info.version,
+            title=info.title,
         )
 
 
@@ -115,6 +119,9 @@ class ACPContext:
         connection: "AgentSideConnection",
         session_id: str,
         *,
+        session_cwd: str | None = None,
+        session_store_scope: Literal["workspace", "app"] = "workspace",
+        session_store_cwd: str | None = None,
         client_capabilities: ClientCapabilities | None = None,
         client_info: ClientInfo | None = None,
         protocol_version: int | None = None,
@@ -125,12 +132,18 @@ class ACPContext:
         Args:
             connection: The ACP connection for sending requests/notifications
             session_id: The ACP session ID
+            session_cwd: The session-associated working directory, if known
+            session_store_scope: Which session store should persist this session
+            session_store_cwd: Workspace cwd to use when the session store is workspace-scoped
             client_capabilities: Client capabilities from initialization
             client_info: Client information from initialization
             protocol_version: ACP protocol version
         """
         self._connection = connection
         self._session_id = session_id
+        self._session_cwd = session_cwd
+        self._session_store_scope = session_store_scope
+        self._session_store_cwd = session_store_cwd
         self._client_capabilities = client_capabilities or ClientCapabilities()
         self._client_info = client_info or ClientInfo()
         self._protocol_version = protocol_version
@@ -172,6 +185,21 @@ class ACPContext:
     def session_id(self) -> str:
         """Get the ACP session ID."""
         return self._session_id
+
+    @property
+    def session_cwd(self) -> str | None:
+        """Get the session-associated working directory, if known."""
+        return self._session_cwd
+
+    @property
+    def session_store_scope(self) -> Literal["workspace", "app"]:
+        """Get the backing session store scope for persistence operations."""
+        return self._session_store_scope
+
+    @property
+    def session_store_cwd(self) -> str | None:
+        """Get the workspace cwd used for workspace-scoped session persistence."""
+        return self._session_store_cwd
 
     @property
     def connection(self) -> "AgentSideConnection":
@@ -331,6 +359,19 @@ class ACPContext:
         """Set the filesystem runtime (called by server)."""
         self._filesystem_runtime = runtime
 
+    def set_session_cwd(self, cwd: str | None) -> None:
+        """Set the session-associated working directory (called by server)."""
+        self._session_cwd = cwd
+
+    def set_session_store(
+        self,
+        scope: Literal["workspace", "app"],
+        cwd: str | None = None,
+    ) -> None:
+        """Set the backing session store for persistence operations."""
+        self._session_store_scope = scope
+        self._session_store_cwd = cwd
+
     # =========================================================================
     # Properties - Handlers
     # =========================================================================
@@ -370,6 +411,10 @@ class ACPContext:
         so that updates are reflected in both places.
         """
         self._resolved_instructions = resolved_instructions
+
+    def resolved_instructions_snapshot(self) -> dict[str, str]:
+        """Return a copy of the current session-resolved instruction cache."""
+        return dict(self._resolved_instructions or {})
 
     # =========================================================================
     # Slash Command Updates
@@ -433,15 +478,16 @@ class ACPContext:
     async def send_session_info_update(
         self,
         *,
-        title: str | None,
-        updated_at: str | None = None,
+        title: str | None | object = _SESSION_INFO_UNSET,
+        updated_at: str | None | object = _SESSION_INFO_UNSET,
     ) -> None:
         """Send a session_info_update notification to the client."""
-        info_update = SessionInfoUpdate(
-            session_update="session_info_update",
-            title=title,
-            updated_at=updated_at,
-        )
+        payload: dict[str, Any] = {"session_update": "session_info_update"}
+        if title is not _SESSION_INFO_UNSET:
+            payload["title"] = title
+        if updated_at is not _SESSION_INFO_UNSET:
+            payload["updated_at"] = updated_at
+        info_update = SessionInfoUpdate(**payload)
         await self.send_session_update(info_update)
 
     async def invalidate_instruction_cache(

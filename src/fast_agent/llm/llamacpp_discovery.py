@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final, Literal
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from fast_agent.llm.model_overlays import (
     ModelOverlayConnection,
@@ -73,6 +73,7 @@ class LlamaCppModelListing:
     model_id: str
     owned_by: str | None
     training_context_window: int | None
+    child_server_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +83,7 @@ class LlamaCppDiscoveryCatalog:
     endpoints: LlamaCppServerEndpoints
     models: tuple[LlamaCppModelListing, ...]
     models_url: str
+    router_mode: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +101,18 @@ class LlamaCppDiscoveredModel:
     tokenizes: tuple[str, ...]
     model_alias: str | None
 
+    @property
+    def effective_context_window(self) -> int | None:
+        return self.runtime_context_window or self.listing.training_context_window
+
+    @property
+    def context_window_source(self) -> Literal["runtime", "catalog"] | None:
+        if self.runtime_context_window is not None:
+            return "runtime"
+        if self.listing.training_context_window is not None:
+            return "catalog"
+        return None
+
 
 class _LlamaCppModelMetaPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -111,7 +125,14 @@ class _LlamaCppModelPayload(BaseModel):
 
     id: str
     owned_by: str | None = None
-    meta: _LlamaCppModelMetaPayload = Field(default_factory=_LlamaCppModelMetaPayload)
+    meta: _LlamaCppModelMetaPayload | None = None
+
+
+class _LlamaCppModelStatusPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    value: str | None = None
+    args: list[str] = Field(default_factory=list)
 
 
 class _LlamaCppGenerationParamsPayload(BaseModel):
@@ -129,9 +150,7 @@ class _LlamaCppGenerationSettingsPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     n_ctx: int | None = None
-    params: _LlamaCppGenerationParamsPayload = Field(
-        default_factory=_LlamaCppGenerationParamsPayload
-    )
+    params: _LlamaCppGenerationParamsPayload | None = None
 
 
 class _LlamaCppModalitiesPayload(BaseModel):
@@ -214,8 +233,13 @@ async def discover_llamacpp_models(
             headers=headers,
             endpoint_name="llama.cpp model discovery",
         )
-
-    models = _parse_models_payload(payload)
+        models, router_mode = _parse_models_payload(payload)
+        if router_mode:
+            models = await _enrich_router_models_with_child_metadata(
+                client=client,
+                headers=headers,
+                models=models,
+            )
     if not models:
         raise LlamaCppDiscoveryError(
             f"No models were returned by llama.cpp discovery at {resolved_url}."
@@ -225,6 +249,7 @@ async def discover_llamacpp_models(
         endpoints=endpoints,
         models=models,
         models_url=resolved_url,
+        router_mode=router_mode,
     )
 
 
@@ -253,7 +278,7 @@ async def interrogate_llamacpp_model(
         )
         props = _parse_props_payload(payload)
         generation = props.default_generation_settings
-        params = generation.params
+        params = generation.params or _LlamaCppGenerationParamsPayload()
         max_output_tokens = _positive_int_or_none(params.n_predict)
         if max_output_tokens is None:
             max_output_tokens = _positive_int_or_none(params.max_tokens)
@@ -262,6 +287,13 @@ async def interrogate_llamacpp_model(
                 client=client,
                 catalog=catalog,
                 headers=headers,
+            )
+        if catalog.router_mode and listing.training_context_window is None:
+            listing = await _refresh_router_model_listing(
+                client=client,
+                catalog=catalog,
+                headers=headers,
+                listing=listing,
             )
 
     return LlamaCppDiscoveredModel(
@@ -283,7 +315,7 @@ def build_llamacpp_overlay_manifest(
     overlay_name: str,
     discovered_model: LlamaCppDiscoveredModel,
     base_url: str,
-    auth: LlamaCppAuthMode,
+    auth: LlamaCppAuthMode | None,
     api_key_env: str | None,
     secret_ref: str | None,
     current: bool,
@@ -321,10 +353,7 @@ def build_llamacpp_overlay_manifest(
             max_tokens=discovered_model.max_output_tokens,
         ),
         metadata=ModelOverlayMetadata(
-            context_window=(
-                discovered_model.runtime_context_window
-                or discovered_model.listing.training_context_window
-            ),
+            context_window=discovered_model.effective_context_window,
             max_output_tokens=discovered_model.max_output_tokens,
             tokenizes=list(discovered_model.tokenizes),
         ),
@@ -465,7 +494,7 @@ async def _maybe_get_json_from_candidates(
     return None
 
 
-def _parse_models_payload(payload: object) -> tuple[LlamaCppModelListing, ...]:
+def _parse_models_payload(payload: object) -> tuple[tuple[LlamaCppModelListing, ...], bool]:
     if isinstance(payload, list):
         raw_items = payload
     elif isinstance(payload, dict):
@@ -475,27 +504,44 @@ def _parse_models_payload(payload: object) -> tuple[LlamaCppModelListing, ...]:
         raise LlamaCppDiscoveryError("Unexpected llama.cpp models payload shape.")
 
     models: list[LlamaCppModelListing] = []
+    router_mode = False
     for raw_item in raw_items:
         if not isinstance(raw_item, dict):
             continue
-        parsed = _LlamaCppModelPayload.model_validate(raw_item)
+        raw_payload = _string_keyed_payload(raw_item)
+        try:
+            parsed = _LlamaCppModelPayload.model_validate(raw_item)
+        except ValidationError as exc:
+            raise LlamaCppDiscoveryError("Unexpected llama.cpp models payload shape.") from exc
+        raw_status = raw_payload.get("status")
+        if isinstance(raw_status, dict):
+            router_mode = True
         model_id = parsed.id.strip()
         if not model_id:
             continue
+        status = None
+        if isinstance(raw_status, dict):
+            status = _LlamaCppModelStatusPayload.model_validate(raw_status)
         models.append(
             LlamaCppModelListing(
                 model_id=model_id,
                 owned_by=_normalize_text(parsed.owned_by),
-                training_context_window=_positive_int_or_none(parsed.meta.n_ctx_train),
+                training_context_window=(
+                    _positive_int_or_none(parsed.meta.n_ctx_train) if parsed.meta is not None else None
+                ),
+                child_server_url=_child_server_url_from_status(status),
             )
         )
-    return tuple(models)
+    return tuple(models), router_mode
 
 
 def _parse_props_payload(payload: object) -> _LlamaCppPropsPayload:
     if not isinstance(payload, dict):
         raise LlamaCppDiscoveryError("Unexpected llama.cpp props payload shape.")
-    return _LlamaCppPropsPayload.model_validate(payload)
+    try:
+        return _LlamaCppPropsPayload.model_validate(payload)
+    except ValidationError as exc:
+        raise LlamaCppDiscoveryError("Unexpected llama.cpp props payload shape.") from exc
 
 
 async def _discover_slots_max_output_tokens(
@@ -524,7 +570,10 @@ def _parse_slots_max_output_tokens(payload: object) -> int | None:
     for raw_slot in payload:
         if not isinstance(raw_slot, dict):
             continue
-        slots.append(_LlamaCppSlotPayload.model_validate(raw_slot))
+        try:
+            slots.append(_LlamaCppSlotPayload.model_validate(raw_slot))
+        except ValidationError as exc:
+            raise LlamaCppDiscoveryError("Unexpected llama.cpp slots payload shape.") from exc
 
     for slot in slots:
         if not slot.is_processing or slot.params is None:
@@ -567,6 +616,105 @@ def _positive_int_or_none(value: int | None) -> int | None:
     if value is None or value <= 0:
         return None
     return value
+
+
+def _child_server_url_from_status(status: _LlamaCppModelStatusPayload | None) -> str | None:
+    if status is None or _normalize_text(status.value) != "loaded":
+        return None
+
+    host: str | None = None
+    port: int | None = None
+    args = status.args
+    for index, arg in enumerate(args):
+        if arg == "--host" and index + 1 < len(args):
+            host = _normalize_text(args[index + 1])
+        if arg == "--port" and index + 1 < len(args):
+            port = _positive_int_or_none(_parse_int_or_none(args[index + 1]))
+
+    if host is None or port is None:
+        return None
+    return f"http://{host}:{port}"
+
+
+def _parse_int_or_none(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+async def _enrich_router_models_with_child_metadata(
+    *,
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    models: tuple[LlamaCppModelListing, ...],
+) -> tuple[LlamaCppModelListing, ...]:
+    enriched: list[LlamaCppModelListing] = []
+    for model in models:
+        if model.training_context_window is not None or model.child_server_url is None:
+            enriched.append(model)
+            continue
+        enriched.append(
+            await _refresh_model_listing_from_child(
+                client=client,
+                headers=headers,
+                listing=model,
+            )
+        )
+    return tuple(enriched)
+
+
+async def _refresh_router_model_listing(
+    *,
+    client: httpx.AsyncClient,
+    catalog: LlamaCppDiscoveryCatalog,
+    headers: dict[str, str],
+    listing: LlamaCppModelListing,
+) -> LlamaCppModelListing:
+    payload, _resolved_url = await _get_json_from_candidates(
+        client,
+        catalog.endpoints.models_urls(),
+        headers=headers,
+        endpoint_name="llama.cpp model discovery",
+    )
+    models, _router_mode = _parse_models_payload(payload)
+    updated = next((item for item in models if item.model_id == listing.model_id), None)
+    if updated is None:
+        return listing
+    if updated.training_context_window is not None or updated.child_server_url is None:
+        return updated
+    return await _refresh_model_listing_from_child(
+        client=client,
+        headers=headers,
+        listing=updated,
+    )
+
+
+async def _refresh_model_listing_from_child(
+    *,
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    listing: LlamaCppModelListing,
+) -> LlamaCppModelListing:
+    child_server_url = listing.child_server_url
+    if child_server_url is None:
+        return listing
+
+    payload, _resolved_url = await _get_json_from_candidates(
+        client,
+        (_join_url(child_server_url, "/v1/models"), _join_url(child_server_url, "/models")),
+        headers=headers,
+        endpoint_name="llama.cpp child model discovery",
+    )
+    child_models, _router_mode = _parse_models_payload(payload)
+    child_listing = next((item for item in child_models if item.model_id == listing.model_id), None)
+    if child_listing is None and child_models:
+        child_listing = child_models[0]
+    if child_listing is None or child_listing.training_context_window is None:
+        return listing
+    return replace(listing, training_context_window=child_listing.training_context_window)
 
 
 def _slugify_name(value: str) -> str:

@@ -1,21 +1,20 @@
 import asyncio
 import contextvars
 import functools
+import inspect
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterator,
-    Callable,
-    Coroutine,
+    TypeGuard,
     TypeVar,
     Union,
-    cast,
 )
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.executor.workflow_signal import (
@@ -25,7 +24,6 @@ from fast_agent.core.executor.workflow_signal import (
     SignalValueT,
 )
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -34,6 +32,15 @@ logger = get_logger(__name__)
 
 # Type variable for the return type of tasks
 R = TypeVar("R")
+ExecutorTask = Awaitable[R] | Callable[..., R]
+
+
+def _is_awaitable_task(task: ExecutorTask[R]) -> TypeGuard[Awaitable[R]]:
+    return inspect.isawaitable(task)
+
+
+def _is_callable_task(task: ExecutorTask[R]) -> TypeGuard[Callable[..., R]]:
+    return callable(task)
 
 
 class ExecutorConfig(BaseModel):
@@ -41,9 +48,22 @@ class ExecutorConfig(BaseModel):
 
     max_concurrent_activities: int | None = None  # Unbounded by default
     timeout_seconds: timedelta | None = None  # No timeout by default
-    retry_policy: dict[str, Any] | None = None
 
-    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("max_concurrent_activities")
+    @classmethod
+    def _validate_max_concurrent_activities(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("max_concurrent_activities must be greater than zero")
+        return value
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def _validate_timeout_seconds(cls, value: timedelta | None) -> timedelta | None:
+        if value is not None and value.total_seconds() <= 0:
+            raise ValueError("timeout_seconds must be greater than zero")
+        return value
 
 
 class Executor(ABC, ContextDependent):
@@ -69,27 +89,18 @@ class Executor(ABC, ContextDependent):
 
         self.signal_bus = signal_bus
 
-    @asynccontextmanager
-    async def execution_context(self):
-        """Context manager for execution setup/teardown."""
-        try:
-            yield
-        except Exception as e:
-            # TODO: saqadri - add logging or other error handling here
-            raise e
-
     @abstractmethod
     async def execute(
         self,
-        *tasks: Callable[..., R] | Coroutine[Any, Any, R],
+        *tasks: ExecutorTask[R],
         **kwargs: Any,
     ) -> list[R | BaseException]:
         """Execute a list of tasks and return their results"""
 
     @abstractmethod
-    async def execute_streaming(
+    def execute_streaming(
         self,
-        *tasks: Callable[..., R] | Coroutine[Any, Any, R],
+        *tasks: ExecutorTask[R],
         **kwargs: Any,
     ) -> AsyncIterator[R | BaseException]:
         """Execute tasks and yield results as they complete"""
@@ -103,34 +114,11 @@ class Executor(ABC, ContextDependent):
         """
         Run `func(item)` for each item in `inputs` with concurrency limit.
         """
-        results: list[R | BaseException] = []
-
-        async def run(item):
-            if self.config.max_concurrent_activities:
-                semaphore = asyncio.Semaphore(self.config.max_concurrent_activities)
-                async with semaphore:
-                    return await self.execute(functools.partial(func, item), **kwargs)
-            else:
-                return await self.execute(functools.partial(func, item), **kwargs)
-
-        coros = [run(x) for x in inputs]
-        # gather all, each returns a single-element list
-        list_of_lists = await gather_with_cancel(coros)
-
-        # Flatten results
-        for entry in list_of_lists:
-            if isinstance(entry, list):
-                results.extend(entry)
-            else:
-                # Means we got an exception at the gather level
-                results.append(entry)
-
-        return results
-
-    async def validate_task(self, task: Callable[..., R] | Coroutine[Any, Any, R]) -> None:
-        """Validate a task before execution."""
-        if not (asyncio.iscoroutine(task) or asyncio.iscoroutinefunction(task)):
-            raise TypeError(f"Task must be async: {task}")
+        if inspect.iscoroutinefunction(func):
+            tasks: list[ExecutorTask[R]] = [func(item, **kwargs) for item in inputs]
+        else:
+            tasks = [functools.partial(func, item, **kwargs) for item in inputs]
+        return await self.execute(*tasks)
 
     async def signal(
         self,
@@ -198,67 +186,101 @@ class AsyncioExecutor(Executor):
         if self.config.max_concurrent_activities is not None:
             self._activity_semaphore = asyncio.Semaphore(self.config.max_concurrent_activities)
 
+    @asynccontextmanager
+    async def _activity_limit(self) -> AsyncIterator[None]:
+        if self._activity_semaphore is None:
+            yield
+            return
+        async with self._activity_semaphore:
+            yield
+
+    async def _run_awaitable(self, task: Awaitable[R], kwargs: dict[str, Any]) -> R:
+        if kwargs:
+            if inspect.iscoroutine(task):
+                task.close()
+            raise TypeError("Keyword arguments cannot be passed to awaitable tasks")
+        return await task
+
+    async def _run_callable(self, task: Callable[..., R], kwargs: dict[str, Any]) -> R:
+        if inspect.iscoroutinefunction(task):
+            raise TypeError(f"Pass coroutine objects, not coroutine functions: {task}")
+        loop = asyncio.get_running_loop()
+        ctx = contextvars.copy_context()
+        fn = functools.partial(task, **kwargs) if kwargs else task
+        result = await loop.run_in_executor(None, lambda: ctx.run(fn))
+        if inspect.isawaitable(result):
+            raise TypeError(
+                "Executor callables must return plain values. "
+                "Pass async work as an awaitable task instead."
+            )
+        return result
+
+    async def _run_task_once(self, task: ExecutorTask[R], kwargs: dict[str, Any]) -> R:
+        if _is_awaitable_task(task):
+            return await self._run_awaitable(task, kwargs)
+        if _is_callable_task(task):
+            return await self._run_callable(task, kwargs)
+        raise TypeError(f"Task must be an awaitable or callable: {task}")
+
     async def _execute_task(
-        self, task: Callable[..., R] | Coroutine[Any, Any, R], **kwargs: Any
+        self,
+        task: ExecutorTask[R],
+        kwargs: dict[str, Any],
     ) -> R | BaseException:
-        async def run_task(
-            task: Callable[..., R] | Coroutine[Any, Any, R],
-        ) -> R | BaseException:
-            try:
-                if asyncio.iscoroutine(task):
-                    # iscoroutine doesn't narrow types, so cast the result
-                    return cast("R", await task)
-                elif asyncio.iscoroutinefunction(task):
-                    return await task(**kwargs)
-                else:
-                    # Execute the callable and await if it returns a coroutine
-                    loop = asyncio.get_running_loop()
-                    ctx = contextvars.copy_context()
-                    # If kwargs are provided, wrap the function with partial
-                    if kwargs:
-                        wrapped_task = functools.partial(task, **kwargs)
-                        result = await loop.run_in_executor(None, lambda: ctx.run(wrapped_task))
-                    else:
-                        result = await loop.run_in_executor(None, lambda: ctx.run(task))
+        try:
+            async with self._activity_limit():
+                if self.config.timeout_seconds is None:
+                    return await self._run_task_once(task, kwargs)
 
-                    # Handle case where the sync function returns a coroutine
-                    if asyncio.iscoroutine(result):
-                        return await result
-
-                    return result
-            except Exception as e:
-                return e
-
-        if self._activity_semaphore:
-            async with self._activity_semaphore:
-                return await run_task(task)
-        else:
-            return await run_task(task)
+                timeout = self.config.timeout_seconds.total_seconds()
+                async with asyncio.timeout(timeout):
+                    return await self._run_task_once(task, kwargs)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            return e
 
     async def execute(
         self,
-        *tasks: Callable[..., R] | Coroutine[Any, Any, R],
+        *tasks: ExecutorTask[R],
         **kwargs: Any,
     ) -> list[R | BaseException]:
-        return await gather_with_cancel(
-            self._execute_task(task, **kwargs) for task in tasks
-        )
+        running = [asyncio.create_task(self._execute_task(task, kwargs)) for task in tasks]
+        results: list[R | BaseException] = []
 
-    async def execute_streaming(  # ty: ignore[invalid-method-override]
+        try:
+            for task in running:
+                results.append(await task)
+        except BaseException:
+            for task in running:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*running, return_exceptions=True)
+            raise
+
+        return results
+
+    def execute_streaming(
         self,
-        *tasks: Callable[..., R] | Coroutine[Any, Any, R],
+        *tasks: ExecutorTask[R],
         **kwargs: Any,
-    ) -> AsyncIterator[R | BaseException]:
-        # TODO: saqadri - validate if async with self.execution_context() is needed here
-        async with self.execution_context():
-            # Create futures for all tasks
-            futures = [asyncio.create_task(self._execute_task(task, **kwargs)) for task in tasks]
-            pending = set(futures)
+    ) -> AsyncGenerator[R | BaseException, None]:
+        async def stream() -> AsyncGenerator[R | BaseException, None]:
+            pending = {asyncio.create_task(self._execute_task(task, kwargs)) for task in tasks}
+            try:
+                while pending:
+                    done, pending = await asyncio.wait(
+                        pending, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for future in done:
+                        yield await future
+            finally:
+                for future in pending:
+                    future.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
 
-            while pending:
-                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                for future in done:
-                    yield await future
+        return stream()
 
     async def signal(
         self,

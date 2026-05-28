@@ -2,10 +2,12 @@ import asyncio
 import inspect
 import json
 import os
+import sys
 import time
 import traceback
 from abc import abstractmethod
 from collections.abc import Mapping
+from contextlib import nullcontext
 from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
@@ -25,10 +27,7 @@ from mcp.types import (
     GetPromptResult,
     PromptMessage,
 )
-from openai import NotGiven
-from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
 from pydantic_core import from_json
-from rich import print as rich_print
 
 from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
@@ -65,6 +64,10 @@ from fast_agent.llm.response_telemetry import (
     start_request_timing_capture,
 )
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.structured_schema import (
+    validate_json_instance,
+    validate_json_schema_definition,
+)
 from fast_agent.llm.text_verbosity import (
     TextVerbosityLevel,
     TextVerbositySpec,
@@ -72,7 +75,9 @@ from fast_agent.llm.text_verbosity import (
 )
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.provider_management import ProviderManagedMCPState
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.ui.console import error_console
 
 # Define type variables locally
 MessageParamT = TypeVar("MessageParamT")
@@ -104,8 +109,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_TOOL_HANDLER = "tool_execution_handler"
     PARAM_LOOP_PROGRESS = "emit_loop_progress"
     PARAM_TOOL_RESULT_MODE = "tool_result_mode"
+    PARAM_BATCH_CONTEXT = "batch_context"
     PARAM_STREAMING_TIMEOUT = "streaming_timeout"
     PARAM_SERVICE_TIER = "service_tier"
+    PARAM_STRUCTURED_SCHEMA = "structured_schema"
+    PARAM_STRUCTURED_TOOL_POLICY = "structured_tool_policy"
 
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS = {
@@ -113,8 +121,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_TOOL_HANDLER,
         PARAM_LOOP_PROGRESS,
         PARAM_TOOL_RESULT_MODE,
+        PARAM_BATCH_CONTEXT,
         PARAM_STREAMING_TIMEOUT,
         PARAM_SERVICE_TIER,
+        PARAM_STRUCTURED_SCHEMA,
+        PARAM_STRUCTURED_TOOL_POLICY,
     }
 
     """
@@ -171,6 +182,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._provider = provider
         # memory contains provider specific API types.
         self.history: Memory[MessageParamT] = SimpleMemory[MessageParamT]()
+        self._structured_tool_defer_info_logged = False
 
         # Initialize the display component
         from fast_agent.ui.console_display import ConsoleDisplay
@@ -255,6 +267,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
         self.retry_count = self._resolve_retry_count()
         self.retry_backoff_seconds: float = 10.0
+        self._provider_managed_mcp_state = ProviderManagedMCPState()
 
     def _resolved_model_matches(self, model_name: str | None) -> bool:
         if not model_name:
@@ -291,6 +304,86 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _get_model_json_mode(self, model_name: str | None) -> str | None:
         params = self._get_model_params(model_name)
         return params.json_mode if params is not None else None
+
+    def _get_model_structured_tool_policy(
+        self, model_name: str | None
+    ) -> Literal["always", "defer", "no_tools"] | None:
+        params = self._get_model_params(model_name)
+        return params.structured_tool_policy if params is not None else None
+
+    def _default_structured_tool_policy(
+        self, model_name: str | None
+    ) -> Literal["always", "defer", "no_tools"]:
+        del model_name
+        return "always"
+
+    def _resolve_structured_tool_policy(
+        self,
+        request_params: RequestParams,
+    ) -> Literal["always", "defer", "no_tools"]:
+        policy = request_params.structured_tool_policy
+        if policy != "auto":
+            return policy
+
+        model_name = request_params.model or self.default_request_params.model or self._model_name
+        model_policy = self._get_model_structured_tool_policy(model_name)
+        if model_policy is not None:
+            return model_policy
+        return self._default_structured_tool_policy(model_name)
+
+    def resolve_structured_tool_policy(
+        self,
+        request_params: RequestParams,
+    ) -> Literal["always", "defer", "no_tools"]:
+        return self._resolve_structured_tool_policy(request_params)
+
+    def _should_defer_structured_schema_for_tools(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> bool:
+        return self._should_suppress_structured_schema_for_tools(messages, request_params, tools)
+
+    def _has_tool_results(self, messages: list[PromptMessageExtended]) -> bool:
+        return any(message.tool_results for message in messages)
+
+    def _has_structured_intent(self, request_params: RequestParams) -> bool:
+        return (
+            request_params.structured_schema is not None
+            or request_params.response_format is not None
+        )
+
+    def _should_suppress_structured_schema_for_tools(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> bool:
+        return (
+            request_params.structured_schema is not None
+            and bool(tools)
+            and self._resolve_structured_tool_policy(request_params) == "defer"
+            and not self._has_tool_results(messages)
+        )
+
+    def _should_suppress_tools_for_structured_final(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> bool:
+        return (
+            self._has_structured_intent(request_params)
+            and bool(tools)
+            and (
+                self._resolve_structured_tool_policy(request_params) == "no_tools"
+                or (
+                    self._resolve_structured_tool_policy(request_params) == "defer"
+                    and self._has_tool_results(messages)
+                )
+            )
+        )
 
     def _get_model_context_window(self, model_name: str | None) -> int | None:
         params = self._get_model_params(model_name)
@@ -337,11 +430,13 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.anthropic_web_fetch_version if params is not None else None
 
-    def _get_model_anthropic_required_betas(
-        self, model_name: str | None
-    ) -> tuple[str, ...] | None:
+    def _get_model_anthropic_required_betas(self, model_name: str | None) -> tuple[str, ...] | None:
         params = self._get_model_params(model_name)
         return params.anthropic_required_betas if params is not None else None
+
+    def _get_model_anthropic_task_budget_supported(self, model_name: str | None) -> bool:
+        params = self._get_model_params(model_name)
+        return bool(params.anthropic_task_budget_supported) if params is not None else False
 
     def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
         if setting is None:
@@ -393,6 +488,20 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             raise ValueError("Current model does not support web search configuration.")
 
     @property
+    def x_search_supported(self) -> bool:
+        """Whether provider-side X Search is supported by this model/provider."""
+        return False
+
+    @property
+    def x_search_enabled(self) -> bool:
+        """Whether provider-side X Search is enabled for this LLM instance."""
+        return False
+
+    def set_x_search_enabled(self, value: bool | None) -> None:
+        if value is not None and not self.x_search_supported:
+            raise ValueError("Current model does not support X Search configuration.")
+
+    @property
     def web_fetch_supported(self) -> bool:
         """Whether provider-side web fetch is supported by this model/provider."""
         return False
@@ -405,6 +514,20 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def set_web_fetch_enabled(self, value: bool | None) -> None:
         if value is not None and not self.web_fetch_supported:
             raise ValueError("Current model does not support web fetch configuration.")
+
+    @property
+    def task_budget_supported(self) -> bool:
+        """Whether provider-side task_budget selection is supported."""
+        return False
+
+    @property
+    def task_budget_tokens(self) -> int | None:
+        """Current provider-side task_budget selection for this LLM instance."""
+        return None
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        if value is not None and not self.task_budget_supported:
+            raise ValueError("Current model does not support task budget configuration.")
 
     @property
     def service_tier_supported(self) -> bool:
@@ -435,7 +558,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         )
 
     def _provider_config_sections(self) -> tuple[str, ...]:
-        section_name = getattr(self, "config_section", None) or getattr(self.provider, "value", None)
+        section_name = getattr(self, "config_section", None) or getattr(
+            self.provider, "value", None
+        )
         return (section_name,) if section_name else ()
 
     def _provider_config_fallback_sections(self) -> tuple[str, ...]:
@@ -555,22 +680,25 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                         print(
                             "[webdebug] provider call failed "
                             f"attempt={attempt + 1}/{retries + 1} "
-                            f"error_type={type(e).__name__}"
+                            f"error_type={type(e).__name__}",
+                            file=sys.stderr,
                         )
                         traceback.print_exception(type(e), e, e.__traceback__)
 
-                    # Try to import progress_display safely
                     try:
                         from fast_agent.ui.progress_display import progress_display
-
-                        with progress_display.paused():
-                            rich_print(f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]")
-                            rich_print(
-                                f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
-                            )
                     except ImportError:
-                        print(f"▲ Provider Error: {str(e)[:300]}...")
-                        print(f"⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})")
+                        paused_progress = nullcontext()
+                    else:
+                        paused_progress = progress_display.paused()
+
+                    with paused_progress:
+                        error_console.print(
+                            f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]"
+                        )
+                        error_console.print(
+                            f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
+                        )
 
                     await asyncio.sleep(wait_time)
 
@@ -597,7 +725,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return None
 
     def _resolve_retry_count(self) -> int:
-        """Resolve retries from config first, then env, defaulting to 1."""
+        """Resolve retries from config first, then env, defaulting to 2."""
         config_retries = None
         try:
             config_retries = getattr(self.context.config, "llm_retries", None)
@@ -617,7 +745,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             except (TypeError, ValueError):
                 pass
 
-        return 1
+        return 2
 
     async def generate(
         self,
@@ -656,18 +784,65 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             await self._save_history(filename, messages)
             return Prompt.assistant(f"History saved to {filename}")
 
-        # Store MCP metadata in context variable
         final_request_params = self.get_request_params(request_params)
-        if final_request_params.mcp_metadata:
-            _mcp_metadata_var.set(final_request_params.mcp_metadata)
+        prepared_messages, prepared_request_params = self._prepare_structured_request(
+            messages,
+            final_request_params,
+            tools,
+        )
+        prepared_tools = tools
+        suppress_final_tools = self._should_suppress_tools_for_structured_final(
+            prepared_messages,
+            prepared_request_params,
+            tools,
+        )
+        if suppress_final_tools:
+            prepared_tools = None
+        suppress_schema = self._should_suppress_structured_schema_for_tools(
+            messages,
+            final_request_params,
+            tools,
+        )
+        if suppress_schema or suppress_final_tools:
+            policy = self._resolve_structured_tool_policy(final_request_params)
+            model_name = (
+                prepared_request_params.model
+                or self.default_request_params.model
+                or self._model_name
+            )
+            if policy == "defer" and not self._structured_tool_defer_info_logged:
+                self.logger.info(
+                    "Model/provider does not reliably support tools and structured output "
+                    "in the same request; using two-phase structured tool flow: tools first, "
+                    "schema-only final answer."
+                )
+                self._structured_tool_defer_info_logged = True
+            self.logger.debug(
+                "structured_tools_policy",
+                data={
+                    "model": model_name,
+                    "json_mode": self._get_model_json_mode(model_name),
+                    "structured_tool_policy": policy,
+                    "phase": "structured_final" if suppress_final_tools else "tool_selection",
+                    "suppressed_schema": suppress_schema,
+                    "suppressed_tools": suppress_final_tools,
+                },
+            )
+
+        # Store MCP metadata in context variable
+        if prepared_request_params.mcp_metadata:
+            _mcp_metadata_var.set(prepared_request_params.mcp_metadata)
 
         # The caller supplies the full conversation to send
-        full_history = messages
+        full_history = prepared_messages
 
         timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
         try:
             assistant_response = await self._execute_with_retry(
-                self._apply_prompt_provider_specific, full_history, request_params, tools
+                self._apply_prompt_provider_specific,
+                full_history,
+                prepared_request_params,
+                prepared_tools,
             )
         finally:
             cleanup_timing_capture()
@@ -717,7 +892,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         return build_usage_payload(self.usage_accumulator)
 
-    def _serialize_raw_usage(self, raw_usage: object) -> object:
+    def _serialize_raw_usage(self, raw_usage: object | None) -> object:
         from fast_agent.llm.response_telemetry import serialize_raw_usage
 
         return serialize_raw_usage(raw_usage)
@@ -768,30 +943,30 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             Tuple of (parsed model instance or None, assistant response message)
         """
 
-        # Store MCP metadata in context variable
         final_request_params = self.get_request_params(request_params)
-
-        # TODO -- this doesn't need to go here anymore.
         if final_request_params.mcp_metadata:
             _mcp_metadata_var.set(final_request_params.mcp_metadata)
-
-        full_history = messages
 
         timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
         try:
             result_or_response = await self._execute_with_retry(
                 self._apply_prompt_provider_specific_structured,
-                full_history,
+                messages,
                 model,
-                request_params,
+                final_request_params,
                 on_final_error=self._handle_retry_failure,
             )
         finally:
             cleanup_timing_capture()
+
         if isinstance(result_or_response, PromptMessageExtended):
-            result, assistant_response = self._structured_from_multipart(result_or_response, model)
+            result, assistant_response = self._structured_from_multipart(
+                result_or_response,
+                model,
+            )
         else:
             result, assistant_response = result_or_response
+
         end_time = time.perf_counter()
         self._add_timing_channel(
             assistant_response,
@@ -805,6 +980,43 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._append_usage_channel(assistant_response)
 
         return result, assistant_response
+
+    async def structured_schema(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """
+        Generate a structured response using a raw JSON Schema.
+
+        Args:
+            messages: List of PromptMessageExtended objects
+            schema: JSON Schema object used to constrain and validate the response
+            request_params: Optional parameters to configure the LLM request
+
+        Returns:
+            Tuple of (parsed JSON-compatible data or None, assistant response message)
+        """
+
+        normalized_schema = validate_json_schema_definition(schema)
+        final_request_params = self.get_request_params(request_params).model_copy(
+            update={"structured_schema": normalized_schema}
+        )
+
+        assistant_response = await self.generate(messages, final_request_params)
+        return self.parse_structured_schema_response(
+            assistant_response,
+            normalized_schema,
+        )
+
+    def parse_structured_schema_response(
+        self,
+        message: PromptMessageExtended,
+        schema: dict[str, Any],
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """Parse and validate an assistant response against a raw JSON Schema."""
+        return self._structured_schema_from_multipart(message, schema)
 
     @staticmethod
     def model_to_response_format(
@@ -820,6 +1032,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Provider-agnostic schema representation or NotGiven if conversion fails
         """
+        from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
+
         return _type_to_response_format(model)
 
     @staticmethod
@@ -844,6 +1058,31 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         except Exception:
             return ""
 
+    @staticmethod
+    def schema_to_response_format(
+        schema: dict[str, Any],
+        *,
+        name: str = "structured_output",
+        strict: bool = True,
+    ) -> dict[str, Any]:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": name,
+                "strict": strict,
+                "schema": schema,
+            },
+        }
+
+    @staticmethod
+    def schema_to_schema_str(
+        schema: dict[str, Any],
+    ) -> str:
+        try:
+            return json.dumps(schema)
+        except Exception:
+            return ""
+
     async def _apply_prompt_provider_specific_structured(
         self,
         multipart_messages: list[PromptMessageExtended],
@@ -856,6 +1095,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         if not request_params.response_format:
             schema = self.model_to_response_format(model)
+            from openai import NotGiven
+
             if schema is not NotGiven:
                 request_params.response_format = schema
 
@@ -863,6 +1104,22 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             multipart_messages, request_params
         )
         return self._structured_from_multipart(result, model)
+
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended | tuple[Any | None, PromptMessageExtended]:
+        """Base class attempts structured JSON parsing after a normal provider call."""
+
+        del schema
+        request_params = self.get_request_params(request_params)
+
+        if multipart_messages and multipart_messages[-1].role == "assistant":
+            return multipart_messages[-1]
+
+        return await self._apply_prompt_provider_specific(multipart_messages, request_params)
 
     def _structured_from_multipart(
         self, message: PromptMessageExtended, model: Type[ModelT]
@@ -879,9 +1136,38 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             logger.warning(f"Failed to parse structured response: {str(e)}")
             return None, message
 
+    def _structured_schema_from_multipart(
+        self,
+        message: PromptMessageExtended,
+        schema: dict[str, Any],
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """Parse and validate a JSON response against a raw JSON Schema."""
+        try:
+            text = ""
+            if message.content:
+                text = get_text(message.content[-1]) or ""
+            text = self._prepare_structured_text(text)
+            json_data = json.loads(text)
+            validate_json_instance(json_data, schema)
+            return json_data, message
+        except Exception as e:
+            logger = get_logger(__name__)
+            logger.warning(f"Failed to parse structured response: {str(e)}")
+            return None, message
+
     def _prepare_structured_text(self, text: str) -> str:
         """Hook for subclasses to adjust structured output text before parsing."""
         return text
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        """Hook for providers to adapt structured-output intent before generation."""
+        del tools
+        return messages, request_params
 
     def record_templates(self, templates: list[PromptMessageExtended]) -> None:
         """Hook for providers that need template visibility (e.g., caching)."""
@@ -985,7 +1271,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             # Use verb directly regardless of type
             act = self.verb
         else:
-            act = ProgressAction.CHATTING
+            act = ProgressAction.SENDING
 
         data = {
             "progress_action": act,
@@ -1185,14 +1471,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             String representation of the assistant's response if generated,
             or the last assistant message in the prompt
         """
+        from fast_agent.mcp.prompt_metadata import prompt_arguments
         from fast_agent.types import PromptMessageExtended
 
         # Check if we have any messages
         if not prompt_result.messages:
             return "Prompt contains no messages"
 
-        # Extract arguments if they were stored in the result
-        arguments = getattr(prompt_result, "arguments", None)
+        arguments = prompt_arguments(prompt_result)
 
         # Display information about the loaded prompt
         await self.show_prompt_loaded(
@@ -1249,6 +1535,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """Reset stored message history while optionally retaining prompt templates."""
 
         self.history.clear(clear_prompts=clear_prompts)
+        self._usage_accumulator.reset()
 
     def _api_key(self):
         if self._init_api_key is not None:
@@ -1307,6 +1594,13 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             The Provider enum value representing the LLM provider
         """
         return self._provider
+
+    @property
+    def provider_managed_mcp_state(self) -> ProviderManagedMCPState:
+        return self._provider_managed_mcp_state
+
+    def set_provider_managed_mcp_state(self, state: ProviderManagedMCPState) -> None:
+        self._provider_managed_mcp_state = state
 
     @property
     def model_name(self) -> str | None:

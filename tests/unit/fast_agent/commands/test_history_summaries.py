@@ -3,7 +3,12 @@ import json
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.commands.history_summaries import build_history_turn_report
-from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING, FAST_AGENT_USAGE
+from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
+    FAST_AGENT_TIMING,
+    FAST_AGENT_TOOL_TIMING,
+    FAST_AGENT_USAGE,
+)
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
@@ -123,3 +128,34 @@ def test_build_history_turn_report_calculates_turn_metrics() -> None:
     assert turn.output_tokens == 20
     assert turn.tps is not None
     assert round(turn.tps, 1) == 27.0
+
+
+def test_build_history_turn_report_counts_provider_mcp_tools() -> None:
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="Who am I?")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="You're evalstate.")],
+            channels={
+                ANTHROPIC_ASSISTANT_RAW_CONTENT: [
+                    TextContent(
+                        type="text",
+                        text='{"type":"mcp_tool_use","id":"mcptoolu_1","name":"hf_whoami","server_name":"huggingface_mcp","input":{}}',
+                    ),
+                    TextContent(
+                        type="text",
+                        text='{"type":"mcp_tool_result","tool_use_id":"mcptoolu_1","is_error":false,"content":[{"type":"text","text":"evalstate"}]}',
+                    ),
+                ]
+            },
+        ),
+    ]
+
+    report = build_history_turn_report(messages)
+
+    assert report.turn_count == 1
+    assert report.total_tool_calls == 1
+    assert report.total_tool_errors == 0

@@ -1,3 +1,4 @@
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
@@ -21,7 +22,7 @@ class GoogleOaiLLM(OpenAILLM):
             model=chosen_model,
             systemPrompt=self.instruction,
             parallel_tool_calls=False,
-            max_iterations=20,
+            max_iterations=DEFAULT_MAX_ITERATIONS,
             use_history=True,
         )
 

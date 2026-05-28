@@ -29,7 +29,6 @@ def test_acp_command_builds_request_with_watch() -> None:
         host="127.0.0.1",
         port=8010,
         shell=False,
-        instance_scope=acp_command.serve.InstanceScope.CONNECTION,
         no_permissions=False,
         resume=None,
         reload=True,
@@ -42,6 +41,7 @@ def test_acp_command_builds_request_with_watch() -> None:
     assert request.port == 8010
     assert request.agent_cards == ["./agents"]
     assert request.card_tools == ["./tool-cards"]
+    assert request.instance_scope == "connection"
     assert request.reload is True
     assert request.watch is True
 
@@ -71,7 +71,6 @@ def test_acp_command_noenv_forces_permissions_disabled() -> None:
         host="127.0.0.1",
         port=8010,
         shell=False,
-        instance_scope=acp_command.serve.InstanceScope.CONNECTION,
         no_permissions=False,
         resume=None,
         reload=False,
@@ -107,7 +106,6 @@ def test_acp_command_builds_request_with_missing_shell_cwd_override() -> None:
         host="127.0.0.1",
         port=8010,
         shell=False,
-        instance_scope=acp_command.serve.InstanceScope.CONNECTION,
         no_permissions=False,
         resume=None,
         reload=False,
@@ -116,3 +114,39 @@ def test_acp_command_builds_request_with_missing_shell_cwd_override() -> None:
     )
 
     assert request.missing_shell_cwd_policy == "create"
+
+
+def test_acp_command_builds_request_with_prefer_local_shell() -> None:
+    ctx = typer.Context(click.Command("acp"))
+    request = acp_command._build_run_request(
+        ctx=ctx,
+        name="fast-agent-acp",
+        instruction=None,
+        config_path=None,
+        servers=None,
+        agent_cards=None,
+        card_tools=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        model=None,
+        env_dir=None,
+        noenv=False,
+        force_smart=False,
+        skills_dir=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        description=None,
+        host="127.0.0.1",
+        port=8010,
+        shell=True,
+        prefer_local_shell=True,
+        no_permissions=False,
+        resume=None,
+        reload=False,
+        watch=False,
+    )
+
+    assert request.shell_runtime is True
+    assert request.prefer_local_shell is True

@@ -6,6 +6,7 @@ import shlex
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.acp.command_io import ACPCommandIO
+from fast_agent.commands.command_discovery import render_direct_command_help
 from fast_agent.commands.context import CommandContext, StaticAgentProvider
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import models_manager as models_manager_handlers
@@ -27,6 +28,10 @@ async def _handle_model_like(
     *,
     heading_prefix: str,
 ) -> str:
+    direct_help = render_direct_command_help(heading_prefix, arguments)
+    if direct_help is not None:
+        return direct_help
+
     remainder = (arguments or "").strip()
     value = None
     command_kind = "reasoning" if heading_prefix == "model" else "doctor"
@@ -42,6 +47,9 @@ async def _handle_model_like(
             if subcmd == "verbosity":
                 command_kind = "verbosity"
                 value = argument or None
+            elif subcmd == "task_budget":
+                command_kind = "task_budget"
+                value = argument or None
             elif subcmd == "fast":
                 command_kind = "fast"
                 value = argument or None
@@ -49,6 +57,9 @@ async def _handle_model_like(
                 value = argument or None
             elif subcmd == "web_search":
                 command_kind = "web_search"
+                value = argument or None
+            elif subcmd == "x_search":
+                command_kind = "x_search"
                 value = argument or None
             elif subcmd == "web_fetch":
                 command_kind = "web_fetch"
@@ -100,6 +111,12 @@ async def _handle_model_like(
             agent_name=handler.current_agent_name,
             value=value,
         )
+    elif command_kind == "task_budget":
+        outcome = await model_handlers.handle_model_task_budget(
+            ctx,
+            agent_name=handler.current_agent_name,
+            value=value,
+        )
     elif command_kind == "fast":
         outcome = await model_handlers.handle_model_fast(
             ctx,
@@ -108,6 +125,12 @@ async def _handle_model_like(
         )
     elif command_kind == "web_search":
         outcome = await model_handlers.handle_model_web_search(
+            ctx,
+            agent_name=handler.current_agent_name,
+            value=value,
+        )
+    elif command_kind == "x_search":
+        outcome = await model_handlers.handle_model_x_search(
             ctx,
             agent_name=handler.current_agent_name,
             value=value,

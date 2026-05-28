@@ -4,10 +4,17 @@ import sys
 import typer
 from rich import print
 
+TYPECHECK_TARGETS = [
+    "./tests",
+    "./src",
+    "./publish/fast-agent-acp/src",
+    "./publish/hf-inference-acp/src",
+]
+
 
 def main() -> None:
     try:
-        command = ["ty", "check", "./tests", "./src"]
+        command = ["ty", "check", *TYPECHECK_TARGETS]
         process = subprocess.run(
             command,
             check=True,

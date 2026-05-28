@@ -78,6 +78,55 @@ def test_operations_scan_local_registry_and_install_into_managed_path(tmp_path: 
     assert (managed_root / "alpha" / "SKILL.md").exists()
 
 
+def test_operations_expands_plugin_source_with_multiple_nested_skills(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    plugin_dir = repo / "plugins" / "mcp-apps"
+    for name in ("create-mcp-app", "convert-web-app"):
+        skill_dir = plugin_dir / "skills" / name
+        skill_dir.mkdir(parents=True)
+        skill_dir.joinpath("SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {name} skill\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+
+    registry_path = repo / ".claude-plugin" / "marketplace.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "plugins": [
+                    {
+                        "name": "mcp-apps",
+                        "description": "Skills for MCP Apps development",
+                        "source": "./plugins/mcp-apps",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+
+    skills, resolved_source = asyncio.run(
+        fetch_marketplace_skills_with_source(registry_path.as_posix())
+    )
+
+    assert resolved_source == registry_path.as_posix()
+    assert [skill.name for skill in skills] == ["convert-web-app", "create-mcp-app"]
+    assert [skill.repo_path for skill in skills] == [
+        "plugins/mcp-apps/skills/convert-web-app",
+        "plugins/mcp-apps/skills/create-mcp-app",
+    ]
+    assert all(skill.bundle_name == "mcp-apps" for skill in skills)
+
+    managed_root = tmp_path / "managed"
+    install_marketplace_skill_sync(skills[0], managed_root)
+
+    assert (managed_root / "convert-web-app" / "SKILL.md").exists()
+
+
 def test_install_skill_rolls_back_when_installed_skill_cannot_be_reloaded(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)

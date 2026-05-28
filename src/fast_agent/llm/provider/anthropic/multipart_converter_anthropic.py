@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import Literal, Mapping, Sequence, Union, cast
+from typing import Any, Literal, Mapping, Sequence, Union, cast
 from urllib.parse import urlparse
 
 from anthropic.types.beta import (
@@ -12,6 +12,9 @@ from anthropic.types.beta import (
 )
 from anthropic.types.beta import (
     BetaContentBlockParam as ContentBlockParam,
+)
+from anthropic.types.beta import (
+    BetaFileDocumentSourceParam as FileDocumentSourceParam,
 )
 from anthropic.types.beta import (
     BetaImageBlockParam as ImageBlockParam,
@@ -59,6 +62,7 @@ from mcp.types import (
     EmbeddedResource,
     ImageContent,
     PromptMessage,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
@@ -72,14 +76,17 @@ from fast_agent.constants import (
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.anthropic.web_tools import is_server_tool_trace_payload
 from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
     get_image_data,
     get_resource_uri,
     get_text,
     is_image_content,
     is_resource_content,
+    is_resource_link,
     is_text_content,
 )
 from fast_agent.mcp.mime_utils import (
+    DOCUMENT_MIME_TYPES,
     guess_mime_type,
     is_image_mime_type,
     is_text_mime_type,
@@ -87,6 +94,7 @@ from fast_agent.mcp.mime_utils import (
 from fast_agent.types import PromptMessageExtended
 
 _logger = get_logger("multipart_converter_anthropic")
+ANTHROPIC_FILE_ID_META_KEY = "fast_agent_anthropic_file_id"
 
 # Validate and normalize replay blocks against *input* content block params.
 # Using output block schemas preserves output-only fields (for example
@@ -345,7 +353,14 @@ class AnthropicConverter:
             if not isinstance(normalized, dict):
                 continue
 
-            deserialized.append(cast("ContentBlockParam", normalized))
+            # Strip output-only fields that survive TypedDict validation and
+            # that Anthropic rejects when replayed in message history. Mirrors
+            # the tool-block handling in web_tools.py.
+            mutable_payload = cast("dict[str, Any]", normalized)
+            if mutable_payload.get("type") == "text":
+                mutable_payload.pop("parsed_output", None)
+
+            deserialized.append(cast("ContentBlockParam", mutable_payload))
 
         return deserialized
 
@@ -482,6 +497,10 @@ class AnthropicConverter:
                 # Handle embedded resource
                 block = AnthropicConverter._convert_embedded_resource(content_item, document_mode)
                 anthropic_blocks.append(block)
+            elif is_resource_link(content_item):
+                anthropic_blocks.append(
+                    AnthropicConverter._convert_resource_link(content_item, document_mode)
+                )
 
         return anthropic_blocks
 
@@ -513,6 +532,20 @@ class AnthropicConverter:
         from fast_agent.mcp.resource_utils import extract_title_from_uri
 
         title = extract_title_from_uri(uri) if uri else "resource"
+        meta = getattr(resource_content, "meta", None)
+        file_id = meta.get(ANTHROPIC_FILE_ID_META_KEY) if isinstance(meta, dict) else None
+
+        if (
+            isinstance(file_id, str)
+            and file_id
+            and mime_type in DOCUMENT_MIME_TYPES
+            and mime_type != "application/pdf"
+        ):
+            return DocumentBlockParam(
+                type="document",
+                title=title,
+                source=FileDocumentSourceParam(type="file", file_id=file_id),
+            )
 
         # Convert based on MIME type
         if mime_type == "image/svg+xml":
@@ -609,6 +642,52 @@ class AnthropicConverter:
         )
 
     @staticmethod
+    def _convert_resource_link(
+        resource: ResourceLink,
+        document_mode: bool = True,
+    ) -> ContentBlockParam:
+        """Convert ResourceLink to an Anthropic block when URL sources are supported."""
+        del document_mode
+        uri_str = str(resource.uri) if resource.uri else None
+        parsed_uri = urlparse(uri_str) if uri_str else None
+        is_url: bool = bool(parsed_uri and parsed_uri.scheme in ("http", "https"))
+        mime_type = resource.mimeType or (guess_mime_type(uri_str) if uri_str else None) or ""
+
+        from fast_agent.mcp.resource_utils import extract_title_from_uri
+
+        title = (
+            extract_title_from_uri(resource.uri)
+            if resource.uri
+            else (resource.name or "resource")
+        )
+
+        if is_url and is_image_mime_type(mime_type):
+            assert uri_str is not None
+            if not AnthropicConverter._is_supported_image_type(mime_type):
+                return TextBlockParam(
+                    type="text",
+                    text=f"Image with unsupported format '{mime_type}'",
+                )
+            return ImageBlockParam(
+                type="image",
+                source=URLImageSourceParam(type="url", url=uri_str),
+            )
+
+        if is_url and mime_type == "application/pdf":
+            assert uri_str is not None
+            return DocumentBlockParam(
+                type="document",
+                title=title,
+                source=URLPDFSourceParam(type="url", url=uri_str),
+            )
+
+        text = get_text(resource)
+        if text:
+            return TextBlockParam(type="text", text=text)
+
+        return TextBlockParam(type="text", text=f"[Resource link: {title}]")
+
+    @staticmethod
     def _determine_mime_type(
         resource: Union[TextResourceContents, BlobResourceContents],
     ) -> str:
@@ -693,7 +772,11 @@ class AnthropicConverter:
             tool_result_blocks = []
 
             # Process each content item in the result
-            for item in result.content:
+            for item in canonicalize_tool_result_content_for_llm(
+                result,
+                logger=_logger,
+                source="anthropic",
+            ):
                 if isinstance(item, (TextContent, ImageContent)):
                     blocks = AnthropicConverter._convert_content_items([item], document_mode=False)
                     tool_result_blocks.extend(blocks)
@@ -705,6 +788,9 @@ class AnthropicConverter:
                     block = AnthropicConverter._convert_embedded_resource(
                         item, document_mode=document_mode
                     )
+                    tool_result_blocks.append(block)
+                elif isinstance(item, ResourceLink):
+                    block = AnthropicConverter._convert_resource_link(item, document_mode=True)
                     tool_result_blocks.append(block)
 
             # Create the tool result block if we have content

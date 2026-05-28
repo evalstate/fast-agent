@@ -10,14 +10,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import to_formatted_text
 from prompt_toolkit.styles import Style
 from rich import print as rich_print
 
 from fast_agent.ui.command_payloads import CommandPayload, InterruptCommand
-from fast_agent.ui.prompt_marks import emit_prompt_mark
+from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
+from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
+from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from prompt_toolkit.formatted_text.base import AnyFormattedText
 
 
 _ERASE_PREVIOUS_LINE_SEQ = "\x1b[1A\x1b[2K\r"
@@ -97,11 +102,12 @@ async def run_prompt_once(
     agent_name: str,
     default_agent_name: str | None,
     default_buffer: str,
-    resolve_prompt_text: "Callable[[], object]",
+    resolve_prompt_text: "Callable[[], AnyFormattedText]",
     parse_special_input: "Callable[[str], str | CommandPayload]",
 ) -> str | CommandPayload:
     """Run a single prompt cycle and normalize command/signal outcomes."""
     prompt_mark_started = False
+    prompt_end_mark_emitted = False
     accept_state: dict[str, Any] = {}
     prompt_shutdown_warn_seconds = 0.5
     buffer = session.default_buffer
@@ -116,17 +122,37 @@ async def run_prompt_once(
             return original_accept_handler(buffer_obj)
         return True
 
+    def _resolve_prompt_text_with_marks() -> object:
+        nonlocal prompt_end_mark_emitted
+
+        fragments = list(to_formatted_text(resolve_prompt_text()))
+        if not prompt_end_mark_emitted:
+            sequence = prompt_mark_sequence("B")
+            if sequence:
+                fragments.append(("[ZeroWidthEscape]", sequence))
+                prompt_end_mark_emitted = True
+        return fragments
+
+    reserve_space_for_menu = 8
+    try:
+        from fast_agent.config import get_settings
+
+        reserve_space_for_menu = get_settings().tui.completion_menu_reserved_lines
+    except Exception:
+        pass
+
     buffer.accept_handler = _track_accept
     try:
         emit_prompt_mark("A")
         prompt_mark_started = True
-        result = await session.prompt_async(
-            resolve_prompt_text,
-            default=default_buffer,
-            set_exception_handler=False,
-        )
+        with suppress_known_runtime_warnings():
+            result = await session.prompt_async(
+                _resolve_prompt_text_with_marks,
+                default=default_buffer,
+                set_exception_handler=False,
+                reserve_space_for_menu=reserve_space_for_menu,
+            )
         prompt_returned_at = time.perf_counter()
-        emit_prompt_mark("B")
 
         _clear_prompt_echo_line(result)
 
@@ -154,16 +180,16 @@ async def run_prompt_once(
             rich_print(f"[dim]{prompt_prefix} {stripped.splitlines()[0]}[/dim]")
 
         return parse_special_input(result)
-    except KeyboardInterrupt:
-        if prompt_mark_started:
+    except (KeyboardInterrupt, PromptInputInterrupt):
+        if prompt_mark_started and not prompt_end_mark_emitted:
             emit_prompt_mark("B")
         return InterruptCommand()
     except EOFError:
-        if prompt_mark_started:
+        if prompt_mark_started and not prompt_end_mark_emitted:
             emit_prompt_mark("B")
         return "STOP"
     except Exception as exc:
-        if prompt_mark_started:
+        if prompt_mark_started and not prompt_end_mark_emitted:
             emit_prompt_mark("B")
         print(f"\nInput error: {type(exc).__name__}: {exc}")
         return "STOP"

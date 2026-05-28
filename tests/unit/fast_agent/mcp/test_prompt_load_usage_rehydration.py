@@ -15,7 +15,11 @@ from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
 from fast_agent.mcp.prompt_serialization import save_messages
-from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.mcp.prompts.prompt_load import (
+    load_history_into_agent,
+    load_transcript_into_agent,
+    rehydrate_usage_from_history,
+)
 
 
 def _usage_payload(
@@ -24,9 +28,10 @@ def _usage_payload(
     input_tokens: int,
     output_tokens: int,
     provider: str = "responses",
+    raw_usage: object | None = None,
 ) -> dict[str, object]:
     total_tokens = input_tokens + output_tokens
-    return {
+    payload: dict[str, object] = {
         "turn": {
             "provider": provider,
             "model": model,
@@ -39,6 +44,9 @@ def _usage_payload(
             "model": model,
         },
     }
+    if raw_usage is not None:
+        payload["raw_usage"] = raw_usage
+    return payload
 
 
 def _history_with_usage(
@@ -47,6 +55,7 @@ def _history_with_usage(
     input_tokens: int,
     output_tokens: int,
     provider: str = "responses",
+    raw_usage: object | None = None,
 ):
     assistant = Prompt.assistant("done")
     assistant.channels = {
@@ -59,12 +68,63 @@ def _history_with_usage(
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         provider=provider,
+                        raw_usage=raw_usage,
                     )
                 ),
             )
         ]
     }
     return [Prompt.user("hello"), assistant]
+
+
+@pytest.mark.unit
+def test_load_transcript_into_agent_restores_messages_without_rehydrating_usage(tmp_path) -> None:
+    history_path = tmp_path / "history.json"
+    save_messages(
+        _history_with_usage(model="gpt-5.3-codex", input_tokens=120, output_tokens=30),
+        str(history_path),
+    )
+
+    agent = LlmAgent(AgentConfig("transcript-only"))
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    llm.usage_accumulator.add_turn(
+        TurnUsage.from_fast_agent(
+            FastAgentUsage(input_chars=10, output_chars=5, model_type="test"),
+            model="gpt-5.3-codex",
+        )
+    )
+    agent._llm = llm
+
+    summary_before = llm.usage_accumulator.get_summary()
+
+    load_transcript_into_agent(agent, history_path)
+
+    assert [message.role for message in agent.message_history] == ["user", "assistant"]
+    assert agent.message_history[0].first_text() == "hello"
+    assert agent.message_history[1].first_text() == "done"
+    assert llm.usage_accumulator.get_summary() == summary_before
+
+
+@pytest.mark.unit
+def test_rehydrate_usage_from_history_does_not_load_transcript(tmp_path) -> None:
+    history_path = tmp_path / "history.json"
+    save_messages(
+        _history_with_usage(model="gpt-5.3-codex", input_tokens=120, output_tokens=30),
+        str(history_path),
+    )
+
+    agent = LlmAgent(AgentConfig("usage-only"))
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    agent._llm = llm
+    agent.message_history.append(Prompt.user("keep existing transcript"))
+
+    notice = rehydrate_usage_from_history(agent, history_path)
+
+    assert notice is None
+    assert len(agent.message_history) == 1
+    assert agent.message_history[0].first_text() == "keep existing transcript"
+    assert llm.usage_accumulator.turn_count == 1
+    assert llm.usage_accumulator.get_summary()["cumulative_billing_tokens"] == 150
 
 
 @pytest.mark.unit
@@ -82,6 +142,9 @@ def test_load_history_rehydrates_responses_usage_when_model_matches(tmp_path) ->
     notice = load_history_into_agent(agent, history_path)
 
     assert notice is None
+    assert [message.role for message in agent.message_history] == ["user", "assistant"]
+    assert agent.message_history[0].first_text() == "hello"
+    assert agent.message_history[1].first_text() == "done"
     assert llm.usage_accumulator.turn_count == 1
     turn = llm.usage_accumulator.turns[0]
     assert turn.provider == Provider.RESPONSES
@@ -159,3 +222,61 @@ def test_load_history_rehydrates_openresponses_usage(tmp_path) -> None:
     assert turn.model == "openai/gpt-5"
     assert turn.input_tokens == 80
     assert turn.output_tokens == 20
+
+
+@pytest.mark.unit
+def test_load_history_preserves_raw_usage_snapshot_shape(tmp_path) -> None:
+    history_path = tmp_path / "history.json"
+    save_messages(
+        _history_with_usage(
+            model="gpt-5.3-codex",
+            input_tokens=102,
+            output_tokens=108,
+            raw_usage={
+                "input_tokens": 102,
+                "input_tokens_details": {"cached_tokens": 5},
+                "output_tokens": 108,
+                "output_tokens_details": {"reasoning_tokens": 64},
+                "total_tokens": 210,
+            },
+        ),
+        str(history_path),
+    )
+
+    agent = LlmAgent(AgentConfig("rehydrate-raw-usage"))
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    agent._llm = llm
+
+    notice = load_history_into_agent(agent, history_path)
+
+    assert notice is None
+    assert llm.usage_accumulator.turn_count == 1
+    turn = llm.usage_accumulator.turns[0]
+    assert turn.raw_usage == {
+        "input_tokens": 102,
+        "input_tokens_details": {"cached_tokens": 5},
+        "output_tokens": 108,
+        "output_tokens_details": {"reasoning_tokens": 64},
+        "total_tokens": 210,
+    }
+
+
+@pytest.mark.unit
+def test_load_history_clears_stale_usage_when_history_has_no_usage_payload(tmp_path) -> None:
+    history_path = tmp_path / "history.json"
+    save_messages([Prompt.user("hello"), Prompt.assistant("done")], str(history_path))
+
+    agent = LlmAgent(AgentConfig("rehydrate-no-usage"))
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    llm.usage_accumulator.add_turn(
+        TurnUsage.from_fast_agent(
+            FastAgentUsage(input_chars=10, output_chars=5, model_type="test"),
+            model="gpt-5.3-codex",
+        )
+    )
+    agent._llm = llm
+
+    notice = load_history_into_agent(agent, history_path)
+
+    assert notice is None
+    assert llm.usage_accumulator.turn_count == 0

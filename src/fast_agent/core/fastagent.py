@@ -25,6 +25,7 @@ from typing import (
     Sequence,
     TypeAlias,
     TypeVar,
+    cast,
 )
 
 import yaml
@@ -33,9 +34,9 @@ from opentelemetry import trace
 
 from fast_agent import config
 from fast_agent.core import Core
-from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.agent_app import AgentApp, AgentRefreshResult
 from fast_agent.core.agent_tools import add_tools_for_agents
-from fast_agent.core.default_agent import resolve_default_agent_name
+from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.direct_decorators import DecoratorMixin
 from fast_agent.core.direct_factory import (
     create_agents_in_dependency_order,
@@ -63,10 +64,13 @@ from fast_agent.core.validation import (
 from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
+from fast_agent.tools.function_tool_config import function_tool_entrypoint
 from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
+    from fastmcp.tools import FunctionTool
+
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.core.agent_card_loader import LoadedAgentCard
@@ -74,6 +78,7 @@ if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
     from fast_agent.mcp.types import McpAgentProtocol
+    from fast_agent.session import Session, SessionHydrationResult
     from fast_agent.types import PromptMessageExtended
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
@@ -81,6 +86,7 @@ logger = get_logger(__name__)
 SkillEntry: TypeAlias = SkillManifest | SkillRegistry | Path | str
 SkillConfig: TypeAlias = SkillEntry | list[SkillEntry | None] | None | SkillsDefault
 FileSignature: TypeAlias = tuple[int, int]
+_PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -116,8 +122,8 @@ class ManagedRunState:
 class RuntimeCallbacks:
     create_instance: Callable[[], Awaitable[AgentInstance]]
     dispose_instance: Callable[[AgentInstance], Awaitable[None]]
-    refresh_shared_instance: Callable[[], Awaitable[bool]]
-    reload_and_refresh: Callable[[], Awaitable[bool]]
+    refresh_shared_instance: Callable[[], Awaitable[AgentRefreshResult]]
+    reload_and_refresh: Callable[[], Awaitable[AgentRefreshResult]]
     reload_source: Callable[[], Awaitable[bool]] | None
     load_card_and_refresh: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
     load_card_source: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
@@ -175,6 +181,7 @@ class FastAgent(DecoratorMixin):
         quiet: bool = False,  # Add quiet parameter
         environment_dir: str | pathlib.Path | None = None,
         skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None = None,
+        noenv: bool = False,
         **kwargs,
     ) -> None:
         """
@@ -257,7 +264,10 @@ class FastAgent(DecoratorMixin):
                 "--instance-scope",
                 choices=["shared", "connection", "request"],
                 default="shared",
-                help="Control MCP agent instancing behaviour (shared, connection, request)",
+                help=(
+                    "Control MCP agent instancing behaviour (shared, connection, request). "
+                    "ACP is always connection-scoped."
+                ),
             )
             parser.add_argument(
                 "--env",
@@ -303,10 +313,16 @@ class FastAgent(DecoratorMixin):
                 help="Watch AgentCard paths and reload when files change",
             )
             parser.add_argument(
+                "--noenv",
+                "--no-env",
+                action="store_true",
+                help="Disable fast-agent home/environment directory use",
+            )
+            parser.add_argument(
                 "--card-tool",
                 action="append",
                 dest="card_tools",
-                help="Path or URL to an AgentCard file to load as a tool (repeatable)",
+                help="Path, HTTP(S) URL, file:// URI, or hf:// URI to an AgentCard file to load as a tool (repeatable)",
             )
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
@@ -363,11 +379,19 @@ class FastAgent(DecoratorMixin):
         if self._programmatic_quiet:
             self.args.quiet = True
 
+        if noenv:
+            self.args.noenv = True
+        elif not hasattr(self.args, "noenv"):
+            self.args.noenv = False
+
         # Apply CLI environment directory if not already set programmatically
         if self._environment_dir_override is None and hasattr(self.args, "env") and self.args.env:
             self._environment_dir_override = self._normalize_environment_dir(self.args.env)
 
         if self._environment_dir_override is not None:
+            from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
+
+            os.environ[FAST_AGENT_RUNTIME_ENVIRONMENT] = str(self._environment_dir_override)
             os.environ["ENVIRONMENT_DIR"] = str(self._environment_dir_override)
 
         # Apply CLI skills directory if not already set programmatically
@@ -410,6 +434,13 @@ class FastAgent(DecoratorMixin):
             if instance_settings is not None:
                 instance_settings._config_file = getattr(self, "_loaded_config_file", None)
                 instance_settings._secrets_file = getattr(self, "_loaded_secrets_file", None)
+                instance_settings._fast_agent_home = getattr(self, "_loaded_fast_agent_home", None)
+                instance_settings._fast_agent_home_source = getattr(
+                    self, "_loaded_fast_agent_home_source", None
+                )
+                instance_settings._fast_agent_noenv = bool(
+                    getattr(self, "_loaded_fast_agent_noenv", False)
+                )
             if instance_settings is not None:
                 config.update_global_settings(instance_settings)
 
@@ -440,6 +471,9 @@ class FastAgent(DecoratorMixin):
 
         # Dictionary to store agent configurations from decorators
         self.agents: dict[str, AgentCardData] = {}
+        # Global function-tool registry populated by @fast.tool.
+        # These are local Python tools, not AgentConfig.tools MCP filter maps.
+        self._registered_tools: list[FunctionTool] = []
         # Tracking for AgentCard-loaded agents
         self._agent_card_sources: dict[str, Path] = {}
         self._agent_card_roots: dict[Path, set[str]] = {}
@@ -461,7 +495,7 @@ class FastAgent(DecoratorMixin):
         self._agent_registry_version: int = 0
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
-        self._agent_card_watch_reload: Callable[[], Awaitable[bool]] | None = None
+        self._agent_card_watch_reload: Callable[[], Awaitable[AgentRefreshResult]] | None = None
         self._card_collision_warnings: list[str] = []
 
     @staticmethod
@@ -490,6 +524,7 @@ class FastAgent(DecoratorMixin):
         but without relying on the global cache."""
 
         import fast_agent.config as _config_module
+        from fast_agent.io.source_resolver import materialize_text_source
 
         # Temporarily clear the global settings to ensure a fresh load
         old_settings = _config_module._settings
@@ -497,9 +532,23 @@ class FastAgent(DecoratorMixin):
 
         try:
             # Use get_settings to load config - this handles all paths and secrets merging
-            settings = _config_module.get_settings(self.config_path)
+            resolved_config_path = (
+                materialize_text_source(self.config_path, label="config file", suffix=".yaml")
+                if self.config_path is not None
+                else None
+            )
+            settings = _config_module.get_settings(
+                resolved_config_path,
+                env_dir=self._environment_dir_override,
+                noenv=bool(getattr(self.args, "noenv", False)),
+            )
             self._loaded_config_file = settings._config_file if settings else None
             self._loaded_secrets_file = settings._secrets_file if settings else None
+            self._loaded_fast_agent_home = settings._fast_agent_home if settings else None
+            self._loaded_fast_agent_home_source = (
+                settings._fast_agent_home_source if settings else None
+            )
+            self._loaded_fast_agent_noenv = settings._fast_agent_noenv if settings else False
             # Convert to dict for backward compatibility
             self.config = settings.model_dump() if settings else {}
         finally:
@@ -508,9 +557,10 @@ class FastAgent(DecoratorMixin):
 
     def _is_acp_server_mode(self) -> bool:
         """Return True when this instance is serving the ACP transport."""
-        return bool(getattr(self.args, "server", False)) and getattr(
-            self.args, "transport", None
-        ) == "acp"
+        return (
+            bool(getattr(self.args, "server", False))
+            and getattr(self.args, "transport", None) == "acp"
+        )
 
     @property
     def context(self) -> Context:
@@ -519,7 +569,7 @@ class FastAgent(DecoratorMixin):
 
     def load_agents(self, path: str | Path) -> list[str]:
         """
-        Load AgentCards from a file or directory and register them as agents.
+        Load AgentCards from a file, directory, or URI and register them as agents.
 
         Loading is idempotent for the provided path: any previously loaded agents
         from the same path that are no longer present are removed.
@@ -527,7 +577,20 @@ class FastAgent(DecoratorMixin):
         Returns:
             Sorted list of agent names loaded from the provided path.
         """
-        root = Path(path).expanduser().resolve()
+        from urllib.parse import urlparse
+
+        from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
+
+        source = str(path)
+        parsed = urlparse(source)
+        if parsed.scheme in REMOTE_TEXT_SCHEMES:
+            return self.load_agents_from_url(source)
+
+        root = (
+            materialize_text_source(source, label="AgentCard source")
+            if parsed.scheme == "file"
+            else Path(path)
+        ).expanduser().resolve()
         changed = self._load_agent_cards_from_root(root, incremental=False)
         if changed:
             self._agent_registry_version += 1
@@ -618,28 +681,18 @@ class FastAgent(DecoratorMixin):
         return sorted(new_names)
 
     def load_agents_from_url(self, url: str) -> list[str]:
-        """Load an AgentCard from a URL (markdown or YAML)."""
-        import tempfile
+        """Load an AgentCard from a remote URL or hf:// URI (markdown or YAML)."""
+        from urllib.parse import urlparse
 
         from fast_agent.core.agent_card_loader import load_agent_cards
-        from fast_agent.core.direct_decorators import _fetch_url_content
+        from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
 
-        content = _fetch_url_content(url)
+        parsed = urlparse(url)
+        if parsed.scheme not in REMOTE_TEXT_SCHEMES:
+            return self.load_agents(url)
 
-        # Determine extension from URL
-        suffix = ".md"
-        url_lower = url.lower()
-        if url_lower.endswith((".yaml", ".yml")):
-            suffix = ".yaml"
-        elif url_lower.endswith((".md", ".markdown")):
-            suffix = ".md"
-
-        # Write to temp file and parse
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=suffix, delete=False, encoding="utf-8"
-        ) as f:
-            f.write(content)
-            temp_path = Path(f.name)
+        suffix = Path(parsed.path).suffix or ".md"
+        temp_path = materialize_text_source(url, label="AgentCard URL", suffix=suffix)
 
         try:
             cards = load_agent_cards(temp_path)
@@ -1075,15 +1128,16 @@ class FastAgent(DecoratorMixin):
     @staticmethod
     def _resolve_function_tool_paths(
         card_path: Path,
-        function_tools: Sequence[str] | None,
+        function_tools: Sequence[object] | None,
     ) -> set[Path]:
         tool_paths: set[Path] = set()
         if not function_tools:
             return tool_paths
         for spec in function_tools:
-            if not isinstance(spec, str) or ":" not in spec:
+            entrypoint = function_tool_entrypoint(spec)
+            if not entrypoint or ":" not in entrypoint:
                 continue
-            module_path_str, _func_name = spec.rsplit(":", 1)
+            module_path_str, _func_name = entrypoint.rsplit(":", 1)
             module_path = Path(module_path_str)
             if not module_path.is_absolute():
                 module_path = (card_path.parent / module_path).resolve()
@@ -1314,41 +1368,84 @@ class FastAgent(DecoratorMixin):
 
             owner = str(getattr(config_obj, "source_path", None) or f"agent:{agent_name}")
             for index, entry in enumerate(entries):
-                target = getattr(entry, "target", None)
-                explicit_name = getattr(entry, "name", None)
-                if not isinstance(target, str) or not target.strip():
-                    raise AgentConfigError(
-                        f"Invalid mcp_connect entry for agent '{agent_name}'",
-                        f"Entry {index}: target must be a non-empty string",
-                    )
+                explicit_name = entry.name
 
-                overrides: dict[str, Any] = {}
-                entry_headers = getattr(entry, "headers", None)
-                if isinstance(entry_headers, dict):
-                    overrides["headers"] = dict(entry_headers)
-                entry_auth = getattr(entry, "auth", None)
-                if isinstance(entry_auth, dict):
-                    overrides["auth"] = dict(entry_auth)
+                if entry.connector_id is not None:
+                    if entry.target is not None:
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index}: target must be omitted when connector_id is set",
+                        )
+                    if explicit_name is None:
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index}: name is required when connector_id is set",
+                        )
 
-                try:
-                    resolved_name, resolved_settings = resolve_target_entry(
-                        target=target,
-                        default_name=explicit_name,
-                        overrides=overrides,
-                        source_path=f"mcp_connect[{index}].target",
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    raise AgentConfigError(
-                        f"Invalid mcp_connect entry for agent '{agent_name}'",
-                        f"Entry {index} target '{target}': {exc}",
-                    ) from exc
+                    payload: dict[str, Any] = {
+                        "name": explicit_name,
+                        "description": entry.description,
+                        "management": entry.management,
+                        "connector_id": entry.connector_id,
+                        "headers": dict(entry.headers) if entry.headers is not None else None,
+                        "access_token": entry.access_token,
+                        "auth": dict(entry.auth) if entry.auth is not None else None,
+                    }
+                    if entry.defer_loading is not None:
+                        payload["defer_loading"] = entry.defer_loading
+                    try:
+                        resolved_settings = config.MCPServerSettings.model_validate(payload)
+                    except Exception as exc:  # noqa: BLE001
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index} connector_id '{entry.connector_id}': {exc}",
+                        ) from exc
+                    resolved_name = explicit_name
+                    target_label = entry.connector_id
+                else:
+                    target = entry.target
+                    if target is None:
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index}: target must be a non-empty string",
+                        )
+
+                    overrides: dict[str, Any] = {}
+                    if entry.description is not None:
+                        overrides["description"] = entry.description
+                    if entry.management is not None:
+                        overrides["management"] = entry.management
+                    if entry.headers is not None:
+                        overrides["headers"] = dict(entry.headers)
+                    if entry.access_token is not None:
+                        overrides["access_token"] = entry.access_token
+                    if entry.defer_loading is not None:
+                        overrides["defer_loading"] = entry.defer_loading
+                    if entry.auth is not None:
+                        overrides["auth"] = dict(entry.auth)
+
+                    try:
+                        resolved_name, resolved_settings = resolve_target_entry(
+                            target=target,
+                            default_name=explicit_name,
+                            overrides=overrides,
+                            source_path=f"mcp_connect[{index}].target",
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index} target '{target}': {exc}",
+                        ) from exc
+                    target_label = target
 
                 existing = effective_servers.get(resolved_name)
-                if existing is not None and not self._settings_equivalent(existing, resolved_settings):
+                if existing is not None and not self._settings_equivalent(
+                    existing, resolved_settings
+                ):
                     raise AgentConfigError(
                         (
                             f"Server name collision for '{resolved_name}' from mcp_connect "
-                            f"target '{target}'."
+                            f"target '{target_label}'."
                         ),
                         "Set an explicit unique `name` or change target.",
                     )
@@ -1375,7 +1472,9 @@ class FastAgent(DecoratorMixin):
 
             base_servers = list(self._agent_declared_servers.get(name, []))
             self._agent_declared_servers[name] = base_servers
-            merged_servers = list(dict.fromkeys(base_servers + resolved_servers_by_agent.get(name, [])))
+            merged_servers = list(
+                dict.fromkeys(base_servers + resolved_servers_by_agent.get(name, []))
+            )
             config_obj.servers = merged_servers
 
         for name in list(self._agent_declared_servers.keys()):
@@ -1423,7 +1522,10 @@ class FastAgent(DecoratorMixin):
         reload_callback = self._agent_card_watch_reload
         if reload_callback is None:
             return await self.reload_agents()
-        return await reload_callback()
+        result = await reload_callback()
+        if isinstance(result, AgentRefreshResult):
+            return result.changed
+        return result
 
     # Decorator methods with precise signatures for IDE completion
 
@@ -1451,19 +1553,23 @@ class FastAgent(DecoratorMixin):
             quiet_mode = True
             configure_console_stream("stderr")
 
-        cli_model_override = getattr(self.args, "model", None)
+        cli_model_arg = getattr(self.args, "model", None)
+        cli_model_override = cli_model_arg if isinstance(cli_model_arg, str) else None
         noenv_mode = bool(getattr(self.args, "noenv", False))
 
         cfg = self.context.config
-        model_source_override = getattr(self.args, "model_source_override", None)
+        model_source_override_arg = getattr(self.args, "model_source_override", None)
+        model_source_override = (
+            model_source_override_arg if isinstance(model_source_override_arg, str) else None
+        )
         model_source = model_source_override or get_default_model_source(
             config_default_model=cfg.default_model if cfg else None,
             cli_model=cli_model_override,
             model_references=cfg.model_references if cfg else None,
         )
         if cfg:
-            cfg.model_source = model_source  # type: ignore[attr-defined]
-            cfg.cli_model_override = cli_model_override  # type: ignore[attr-defined]
+            cfg.model_source = model_source
+            cfg.cli_model_override = cli_model_override
             if noenv_mode:
                 cfg.session_history = False
 
@@ -1544,7 +1650,7 @@ class FastAgent(DecoratorMixin):
         return model_factory_func
 
     def _build_global_prompt_context(
-        self, *, apply_global_prompt_context: bool
+        self, *, apply_global_prompt_context: bool, noenv_mode: bool
     ) -> dict[str, str] | None:
         """Build environment-derived prompt variables for non-ACP runs."""
         if not apply_global_prompt_context:
@@ -1561,6 +1667,7 @@ class FastAgent(DecoratorMixin):
             str(Path.cwd()),
             client_info,
             self._skills_directory_override,
+            noenv=noenv_mode,
         )
         return context_variables or None
 
@@ -1569,7 +1676,8 @@ class FastAgent(DecoratorMixin):
         return RunRuntime(
             model_factory_func=self._build_model_factory_func(settings.cli_model_override),
             global_prompt_context=self._build_global_prompt_context(
-                apply_global_prompt_context=not settings.is_acp_server_mode
+                apply_global_prompt_context=not settings.is_acp_server_mode,
+                noenv_mode=settings.noenv_mode,
             ),
             is_acp_server_mode=settings.is_acp_server_mode,
             noenv_mode=settings.noenv_mode,
@@ -1587,6 +1695,7 @@ class FastAgent(DecoratorMixin):
                 self.app,
                 self.agents,
                 runtime.model_factory_func,
+                global_function_tools=self._registered_tools,
             )
             if not runtime.is_acp_server_mode:
                 validate_provider_keys_post_creation(agents_map)
@@ -1594,11 +1703,18 @@ class FastAgent(DecoratorMixin):
             tool_only_agents = {
                 name for name, data in self.agents.items() if data.get("tool_only", False)
             }
+            settings = config.get_settings()
+            plugin_command_base_path = (
+                Path(settings._config_file).parent if settings._config_file is not None else None
+            )
             if app_override is None:
                 app = AgentApp(
                     agents_map,
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
+                    noenv_mode=runtime.noenv_mode,
+                    plugin_commands=settings.commands,
+                    plugin_command_base_path=plugin_command_base_path,
                 )
             else:
                 app_override.set_agents(
@@ -1606,9 +1722,13 @@ class FastAgent(DecoratorMixin):
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
                 )
+                app_override.set_plugin_commands(
+                    settings.commands,
+                    base_path=plugin_command_base_path,
+                )
+                app_override.noenv_mode = runtime.noenv_mode
                 app = app_override
 
-            setattr(app, "_noenv_mode", runtime.noenv_mode)
             instance = AgentInstance(
                 app,
                 agents_map,
@@ -1683,36 +1803,16 @@ class FastAgent(DecoratorMixin):
                 self.app,
                 self.agents,
                 model_factory_func,
+                self._registered_tools,
                 group_targets,
                 active_agents,
             )
 
-    def _copy_updated_agent_histories(
-        self,
-        updated_agents: dict[str, AgentProtocol],
-        old_agents: dict[str, AgentProtocol | None],
-    ) -> None:
-        for name, new_agent in updated_agents.items():
-            old_agent = old_agents.get(name)
-            if old_agent is None or old_agent is new_agent:
-                continue
-            if new_agent.message_history:
-                continue
-
-            history = old_agent.message_history
-            if not history:
-                continue
-
-            copied_history = [
-                msg.model_copy(deep=True) if hasattr(msg, "model_copy") else msg for msg in history
-            ]
-            new_agent.message_history.extend(copied_history)
-            existing_mtime = self._agent_card_history_mtime.get(name)
-            self._record_history_snapshot(name, len(new_agent.message_history), existing_mtime)
-
     def _reload_updated_agent_file_histories(
         self,
         updated_agents: dict[str, AgentProtocol],
+        *,
+        allow_unchanged_empty: bool = False,
     ) -> None:
         for name, new_agent in updated_agents.items():
             history_files = self._agent_card_histories.get(name)
@@ -1729,6 +1829,8 @@ class FastAgent(DecoratorMixin):
             if last_mtime is None:
                 if current_len != 0:
                     continue
+            elif allow_unchanged_empty and current_len == 0 and files_mtime == last_mtime:
+                pass
             elif files_mtime <= last_mtime:
                 continue
             elif last_len is not None and current_len != last_len:
@@ -1758,9 +1860,95 @@ class FastAgent(DecoratorMixin):
         if runtime.global_prompt_context:
             await apply_instruction_context(updated_agents.values(), runtime.global_prompt_context)
 
-    async def _refresh_shared_instance(self, state: ManagedRunState) -> bool:
+    def _load_current_persisted_session(self) -> "Session | None":
+        from fast_agent.session import get_session_manager
+
+        manager = get_session_manager()
+        current_session = manager.current_session
+        if current_session is None:
+            return None
+        loaded_session = manager.load_session(current_session.info.name)
+        return loaded_session or current_session
+
+    def _log_local_hydration_messages(self, warnings: list[str]) -> None:
+        for warning in warnings:
+            logger.warning(
+                "Shared runtime reload hydration warning",
+                name="shared_reload_hydration_warning",
+                warning=warning,
+            )
+
+    async def _hydrate_active_agents_from_session(
+        self,
+        agents: dict[str, AgentProtocol],
+    ) -> "SessionHydrationResult | None":
+        from fast_agent.session import SessionHydrationPolicy, SessionHydrator
+
+        persisted_session = self._load_current_persisted_session()
+        if persisted_session is None:
+            return None
+
+        fallback_agent_name = resolve_default_agent_name(
+            agents,
+            is_default=lambda _name, agent: agent_is_default(agent),
+        )
+        hydration = SessionHydrator().hydrate_session(
+            session=persisted_session,
+            agents=agents,
+            fallback_agent_name=fallback_agent_name,
+            policy=SessionHydrationPolicy.for_refresh(),
+        )
+        result = await hydration if inspect.isawaitable(hydration) else hydration
+        warnings = [warning.message for warning in result.warnings]
+        warnings.extend(result.usage_notices)
+        self._log_local_hydration_messages(warnings)
+        return result
+
+    async def _refresh_result_from_session_restore(
+        self,
+        agents: dict[str, AgentProtocol],
+        updated_agents: dict[str, AgentProtocol] | None = None,
+    ) -> AgentRefreshResult:
+        agents_to_hydrate = updated_agents if updated_agents is not None else agents
+        hydration_result = self._hydrate_active_agents_from_session(agents_to_hydrate)
+        hydration = (
+            await hydration_result if inspect.isawaitable(hydration_result) else hydration_result
+        )
+        if hydration is None:
+            if updated_agents:
+                self._reload_updated_agent_file_histories(
+                    updated_agents,
+                    allow_unchanged_empty=True,
+                )
+            return AgentRefreshResult(changed=True)
+
+        snapshot_agent_names = set(hydration.snapshot.continuation.agents)
+        if updated_agents:
+            unpersisted_agents = {
+                name: agent
+                for name, agent in updated_agents.items()
+                if name not in snapshot_agent_names
+            }
+            if unpersisted_agents:
+                self._reload_updated_agent_file_histories(
+                    unpersisted_agents,
+                    allow_unchanged_empty=True,
+                )
+
+        warnings = [warning.message for warning in hydration.warnings]
+        warnings.extend(hydration.usage_notices)
+        active_agent = hydration.active_agent
+        if updated_agents is not None and active_agent not in updated_agents:
+            active_agent = None
+        return AgentRefreshResult(
+            changed=True,
+            active_agent=active_agent,
+            warnings=warnings,
+        )
+
+    async def _refresh_shared_instance(self, state: ManagedRunState) -> AgentRefreshResult:
         if self._agent_registry_version <= state.primary_instance.registry_version:
-            return False
+            return AgentRefreshResult(changed=False)
 
         self._sync_agent_card_mcp_servers()
         changed_names = set(self._agent_card_last_changed)
@@ -1773,11 +1961,12 @@ class FastAgent(DecoratorMixin):
                 state.runtime,
                 app_override=state.wrapper,
             )
+            refresh_result = await self._refresh_result_from_session_restore(new_instance.agents)
             old_instance = state.primary_instance
             state.primary_instance = new_instance
             state.active_agents = new_instance.agents
             await self._dispose_agent_instance(state.runtime, old_instance)
-            return True
+            return refresh_result
 
         async with state.runtime.instance_lock:
             impacted = set(changed_names)
@@ -1792,7 +1981,9 @@ class FastAgent(DecoratorMixin):
                 await agent.shutdown()
 
             old_agents = {
-                name: active_agents_local.get(name) for name in impacted if name in active_agents_local
+                name: active_agents_local.get(name)
+                for name in impacted
+                if name in active_agents_local
             }
 
             await self._rebuild_impacted_agents(
@@ -1811,23 +2002,29 @@ class FastAgent(DecoratorMixin):
 
             if impacted:
                 updated_agents = {
-                    name: active_agents_local[name] for name in impacted if name in active_agents_local
+                    name: active_agents_local[name]
+                    for name in impacted
+                    if name in active_agents_local
                 }
-                self._copy_updated_agent_histories(updated_agents, old_agents)
-                self._reload_updated_agent_file_histories(updated_agents)
                 await self._finalize_updated_agents(updated_agents, state.runtime)
+                refresh_result = await self._refresh_result_from_session_restore(
+                    active_agents_local,
+                    updated_agents,
+                )
+            else:
+                refresh_result = AgentRefreshResult(changed=True)
 
             state.primary_instance.registry_version = self._agent_registry_version
             state.active_agents = active_agents_local
             self._agent_card_last_changed.clear()
             self._agent_card_last_removed.clear()
             self._agent_card_last_dependents.clear()
-            return True
+            return refresh_result
 
-    async def _reload_and_refresh(self, state: ManagedRunState) -> bool:
+    async def _reload_and_refresh(self, state: ManagedRunState) -> AgentRefreshResult:
         changed = await self.reload_agents()
         if not changed:
-            return False
+            return AgentRefreshResult(changed=False)
         return await self._refresh_shared_instance(state)
 
     async def _load_card_core(
@@ -1838,10 +2035,7 @@ class FastAgent(DecoratorMixin):
         *,
         should_refresh: bool,
     ) -> tuple[list[str], list[str]]:
-        if source.startswith(("http://", "https://")):
-            loaded_names = self.load_agents_from_url(source)
-        else:
-            loaded_names = self.load_agents(source)
+        loaded_names = self.load_agents(source)
 
         added_names: list[str] = []
         if parent_name:
@@ -1978,16 +2172,20 @@ class FastAgent(DecoratorMixin):
         state: ManagedRunState,
         settings: RunSettings,
     ) -> RuntimeCallbacks:
+        callbacks: RuntimeCallbacks
+
         async def create_instance() -> AgentInstance:
-            return await self._instantiate_agent_instance(state.runtime)
+            instance = await self._instantiate_agent_instance(state.runtime)
+            self._configure_runtime_mcp_callbacks(instance.app)
+            return instance
 
         async def dispose_instance(instance: AgentInstance) -> None:
             await self._dispose_agent_instance(state.runtime, instance)
 
-        async def refresh_shared_instance() -> bool:
+        async def refresh_shared_instance() -> AgentRefreshResult:
             return await self._refresh_shared_instance(state)
 
-        async def reload_and_refresh() -> bool:
+        async def reload_and_refresh() -> AgentRefreshResult:
             return await self._reload_and_refresh(state)
 
         async def load_card_and_refresh(
@@ -2073,7 +2271,7 @@ class FastAgent(DecoratorMixin):
                 agent_name,
             )
 
-        return RuntimeCallbacks(
+        callbacks = RuntimeCallbacks(
             create_instance=create_instance,
             dispose_instance=dispose_instance,
             refresh_shared_instance=refresh_shared_instance,
@@ -2093,6 +2291,49 @@ class FastAgent(DecoratorMixin):
             list_configured_detached_mcp_servers=list_configured_detached_mcp_servers,
             dump_agent_card=self._dump_agent_card_callback,
         )
+        return callbacks
+
+    def _configure_runtime_mcp_callbacks(self, app: AgentApp) -> None:
+        def active_agents() -> dict[str, AgentProtocol]:
+            return cast("dict[str, AgentProtocol]", app.registered_agents())
+
+        async def attach_mcp_server(
+            agent_name: str,
+            server_name: str,
+            server_config: MCPServerSettings | None = None,
+            options: MCPAttachOptions | None = None,
+        ) -> MCPAttachResult:
+            return await self._attach_mcp_server_and_refresh(
+                active_agents(),
+                agent_name,
+                server_name,
+                server_config,
+                options,
+            )
+
+        async def detach_mcp_server(
+            agent_name: str,
+            server_name: str,
+        ) -> MCPDetachResult:
+            return await self._detach_mcp_server_and_refresh(
+                active_agents(),
+                agent_name,
+                server_name,
+            )
+
+        async def list_attached_mcp_servers(agent_name: str) -> list[str]:
+            return await self._list_attached_mcp_servers(active_agents(), agent_name)
+
+        async def list_configured_detached_mcp_servers(agent_name: str) -> list[str]:
+            return await self._list_configured_detached_mcp_servers(
+                active_agents(),
+                agent_name,
+            )
+
+        app.set_attach_mcp_server_callback(attach_mcp_server)
+        app.set_detach_mcp_server_callback(detach_mcp_server)
+        app.set_list_attached_mcp_servers_callback(list_attached_mcp_servers)
+        app.set_list_configured_detached_mcp_servers_callback(list_configured_detached_mcp_servers)
 
     def _configure_wrapper_callbacks(
         self,
@@ -2112,12 +2353,7 @@ class FastAgent(DecoratorMixin):
         wrapper.set_attach_agent_tools_callback(callbacks.attach_agent_tools_and_refresh)
         wrapper.set_detach_agent_tools_callback(callbacks.detach_agent_tools_and_refresh)
         wrapper.set_dump_agent_callback(callbacks.dump_agent_card)
-        wrapper.set_attach_mcp_server_callback(callbacks.attach_mcp_server)
-        wrapper.set_detach_mcp_server_callback(callbacks.detach_mcp_server)
-        wrapper.set_list_attached_mcp_servers_callback(callbacks.list_attached_mcp_servers)
-        wrapper.set_list_configured_detached_mcp_servers_callback(
-            callbacks.list_configured_detached_mcp_servers
-        )
+        self._configure_runtime_mcp_callbacks(wrapper)
 
         self._agent_card_watch_reload = (
             callbacks.reload_and_refresh if settings.reload_enabled else None
@@ -2146,7 +2382,7 @@ class FastAgent(DecoratorMixin):
     async def _apply_card_tool_cli_option(
         self,
         state: ManagedRunState,
-        refresh_callback: Callable[[], Awaitable[bool]],
+        refresh_callback: Callable[[], Awaitable[AgentRefreshResult]],
     ) -> None:
         card_tools = getattr(self.args, "card_tools", None)
         if not card_tools:
@@ -2155,10 +2391,7 @@ class FastAgent(DecoratorMixin):
         card_tool_agent_names: list[str] = []
         try:
             for card_source in card_tools:
-                if card_source.startswith(("http://", "https://")):
-                    names = self.load_agents_from_url(card_source)
-                else:
-                    names = self.load_agents(card_source)
+                names = self.load_agents(card_source)
                 card_tool_agent_names.extend(names)
         except AgentConfigError as exc:
             self._handle_error(exc)
@@ -2189,6 +2422,24 @@ class FastAgent(DecoratorMixin):
             print(f"Listening on {self.args.host}:{self.args.port}", file=output_stream)
         print("Press Ctrl+C to stop", file=output_stream)
 
+    @staticmethod
+    def _resolve_server_instance_scope(
+        *,
+        transport: str,
+        instance_scope: str | None,
+    ) -> str:
+        if transport == "acp":
+            if instance_scope is None:
+                return "connection"
+            if instance_scope != "connection":
+                raise ValueError(
+                    "ACP is always connection-scoped; instance_scope must be omitted or set to 'connection'."
+                )
+            return "connection"
+        if instance_scope is None:
+            return "shared"
+        return instance_scope
+
     async def _run_acp_server(
         self,
         state: ManagedRunState,
@@ -2197,27 +2448,22 @@ class FastAgent(DecoratorMixin):
         AgentACPServer = self._get_acp_server_class()
 
         server_name = getattr(self.args, "server_name", None)
-        instance_scope = getattr(self.args, "instance_scope", "shared")
+        self._resolve_server_instance_scope(
+            transport="acp",
+            instance_scope=getattr(self.args, "instance_scope", None),
+        )
         permissions_enabled = getattr(self.args, "permissions_enabled", True)
 
         acp_server = AgentACPServer(
-            primary_instance=state.primary_instance,
+            bootstrap_instance=state.primary_instance,
             create_instance=callbacks.create_instance,
             dispose_instance=callbacks.dispose_instance,
-            instance_scope=instance_scope,
             server_name=server_name or f"{self.name}",
-            get_registry_version=self._get_registry_version,
             skills_directory_override=self._skills_directory_override,
             permissions_enabled=permissions_enabled,
             load_card_callback=callbacks.load_card_source,
             attach_agent_tools_callback=callbacks.attach_agent_tools_source,
             detach_agent_tools_callback=callbacks.detach_agent_tools_source,
-            attach_mcp_server_callback=callbacks.attach_mcp_server,
-            detach_mcp_server_callback=callbacks.detach_mcp_server,
-            list_attached_mcp_servers_callback=callbacks.list_attached_mcp_servers,
-            list_configured_detached_mcp_servers_callback=(
-                callbacks.list_configured_detached_mcp_servers
-            ),
             dump_agent_card_callback=callbacks.dump_agent_card,
             reload_callback=callbacks.reload_source,
         )
@@ -2298,7 +2544,9 @@ class FastAgent(DecoratorMixin):
     ) -> AgentProtocol:
         if agent_name and agent_name not in active_agents:
             available_agents = ", ".join(active_agents.keys())
-            print(f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}")
+            print(
+                f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}"
+            )
             raise SystemExit(1)
         return wrapper._agent(agent_name)
 
@@ -2335,7 +2583,7 @@ class FastAgent(DecoratorMixin):
             return
 
         agent_name = getattr(self.args, "agent", None)
-        prompt: list[PromptMessageExtended] = load_prompt(Path(prompt_file))
+        prompt: list[PromptMessageExtended] = load_prompt(prompt_file)
         try:
             agent = self._get_selected_agent(state.wrapper, state.active_agents, agent_name)
             prompt_result = await agent.generate(prompt)
@@ -2405,6 +2653,7 @@ class FastAgent(DecoratorMixin):
         *,
         had_error: bool,
         settings: RunSettings,
+        shutdown_timeout: float | None = None,
     ) -> None:
         try:
             from fast_agent.ui.progress_display import progress_display
@@ -2420,7 +2669,20 @@ class FastAgent(DecoratorMixin):
             had_error=had_error,
             settings=settings,
         )
-        await self._dispose_managed_instances(active_agents)
+        if shutdown_timeout is None:
+            await self._dispose_managed_instances(active_agents)
+            return
+
+        try:
+            await asyncio.wait_for(
+                self._dispose_managed_instances(active_agents),
+                timeout=shutdown_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timed out while shutting down agents after exit request",
+                timeout_seconds=shutdown_timeout,
+            )
 
     @asynccontextmanager
     async def run(self) -> AsyncIterator["AgentApp"]:
@@ -2431,6 +2693,7 @@ class FastAgent(DecoratorMixin):
         active_agents: dict[str, AgentProtocol] = {}
         had_error = False
         run_state: ManagedRunState | None = None
+        shutdown_timeout: float | None = None
         await self.app.initialize()
         settings = self._prepare_run_settings()
 
@@ -2464,6 +2727,7 @@ class FastAgent(DecoratorMixin):
 
             except PromptExitError as e:
                 # User requested exit - not an error, show usage report
+                shutdown_timeout = _PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS
                 self._handle_error(e)
                 raise SystemExit(0)
             except (
@@ -2484,6 +2748,7 @@ class FastAgent(DecoratorMixin):
                     active_agents,
                     had_error=had_error,
                     settings=settings,
+                    shutdown_timeout=shutdown_timeout,
                 )
 
     async def _apply_instruction_context(
@@ -2678,13 +2943,13 @@ class FastAgent(DecoratorMixin):
             handle_error(
                 e,
                 "Server Configuration Error",
-                "Please check your 'fastagent.config.yaml' configuration file and add the missing server definitions.",
+                "Please check your 'fast-agent.yaml' configuration file and add the missing server definitions.",
             )
         elif isinstance(e, ProviderKeyError):
             handle_error(
                 e,
                 "Provider Configuration Error",
-                "Please check your 'fastagent.secrets.yaml' configuration file and ensure all required API keys are set.",
+                "Please check your 'fast-agent.secrets.yaml' configuration file and ensure all required API keys are set.",
             )
         elif isinstance(e, AgentConfigError):
             handle_error(
@@ -2702,7 +2967,7 @@ class FastAgent(DecoratorMixin):
             handle_error(
                 e,
                 "Model Configuration Error",
-                "Common models: gpt-5.1, kimi, sonnet, haiku. Set reasoning effort on supported models with gpt-5-mini?reasoning=high",
+                "Common models: gpt-5.5, kimi, sonnet, haiku. Set reasoning effort on supported models with gpt-5.4-mini?reasoning=high",
             )
         elif isinstance(e, CircularDependencyError):
             handle_error(
@@ -2736,7 +3001,7 @@ class FastAgent(DecoratorMixin):
         server_name: str | None = None,
         server_description: str | None = None,
         tool_description: str | None = None,
-        instance_scope: str = "shared",
+        instance_scope: str | None = None,
         permissions_enabled: bool = True,
         tool_name_template: str | None = None,
     ) -> None:
@@ -2753,7 +3018,7 @@ class FastAgent(DecoratorMixin):
             server_description: Optional description/instructions for the MCP server
             tool_description: Optional description template for the exposed send tool.
                               Use {agent} to reference the agent name.
-            permissions_enabled: Whether to request tool permissions from ACP clients (default: True)
+            permissions_enabled: Whether to request tool permissions from connected clients (default: True)
             tool_name_template: Optional template for exposed agent tool names.
                                 Use {agent} to reference the agent name.
         """
@@ -2777,7 +3042,10 @@ class FastAgent(DecoratorMixin):
         self.args.tool_name_template = tool_name_template
         self.args.server_description = server_description
         self.args.server_name = server_name
-        self.args.instance_scope = instance_scope
+        self.args.instance_scope = self._resolve_server_instance_scope(
+            transport=transport,
+            instance_scope=instance_scope,
+        )
         self.args.permissions_enabled = permissions_enabled
         # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
         self.args.quiet = (
@@ -2813,7 +3081,7 @@ class FastAgent(DecoratorMixin):
         server_name: str | None = None,
         server_description: str | None = None,
         tool_description: str | None = None,
-        instance_scope: str = "shared",
+        instance_scope: str | None = None,
         tool_name_template: str | None = None,
     ) -> None:
         """

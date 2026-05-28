@@ -1,21 +1,29 @@
 import asyncio
+import base64
+import hashlib
 import inspect
 import json
 import os
-from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence, Type, Union, cast
+from typing import Any, Literal, Mapping, Sequence, Type, Union, cast
 
-from anthropic import APIError, AsyncAnthropic, AuthenticationError, transform_schema
+from anthropic import (
+    APIError,
+    AsyncAnthropic,
+    AuthenticationError,
+    transform_schema,
+)
 from anthropic.lib.streaming import BetaAsyncMessageStream
 from mcp import Tool
 from mcp.types import (
+    BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     ContentBlock,
+    EmbeddedResource,
     TextContent,
 )
 from opentelemetry import trace
@@ -24,6 +32,7 @@ from opentelemetry.semconv._incubating.attributes import (
 )
 from opentelemetry.semconv_ai import LLMRequestTypeValues, SpanAttributes
 from opentelemetry.trace import Span, Status, StatusCode
+from pydantic import BaseModel
 
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
@@ -44,6 +53,8 @@ from fast_agent.llm.fastagent_llm import (
 )
 from fast_agent.llm.provider.anthropic.beta_types import (
     InputJSONDelta,
+    MCPToolResultBlock,
+    MCPToolUseBlock,
     Message,
     MessageParam,
     RawContentBlockDeltaEvent,
@@ -65,6 +76,7 @@ from fast_agent.llm.provider.anthropic.beta_types import (
 )
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
+    ANTHROPIC_FILE_ID_META_KEY,
     AnthropicConverter,
 )
 from fast_agent.llm.provider.anthropic.web_tools import (
@@ -86,16 +98,26 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
+from fast_agent.llm.task_budget import (
+    format_task_budget_tokens,
+    parse_task_budget_tokens,
+    validate_task_budget_tokens,
+)
 from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
+from fast_agent.mcp.provider_management import build_anthropic_provider_managed_mcp_payload
+from fast_agent.tool_activity_presentation import build_tool_activity_presentation
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
 DEFAULT_ANTHROPIC_MODEL = "sonnet"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
+TASK_BUDGETS_BETA = "task-budgets-2026-03-13"
 
 # Explicit 1M context is still opt-in for pre-4.6 Anthropic models.
 LONG_CONTEXT_BETA = "context-1m-2025-08-07"
@@ -103,6 +125,7 @@ LONG_CONTEXT_BETA = "context-1m-2025-08-07"
 # Beta for fine-grained tool streaming - enables incremental tool input streaming
 # https://docs.anthropic.com/en/docs/build-with-claude/tool-use#streaming-tool-inputs
 FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14"
+MCP_CLIENT_BETA = "mcp-client-2025-11-20"
 
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
 # Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
@@ -111,10 +134,12 @@ STREAM_CAPTURE_DIR = Path("stream-debug")
 
 # Type alias for system field - can be string or list of text blocks with cache control
 SystemParam = Union[str, list[TextBlockParam]]
+CacheTTL = Literal["5m", "1h"]
 
 logger = get_logger(__name__)
 
 _OTEL_STREAM_WRAPPER_WARNED = False
+_UNSET_TASK_BUDGET = object()
 
 
 @dataclass(slots=True)
@@ -138,6 +163,64 @@ def _server_tool_preview_chunk(tool_input: object) -> str:
     if len(preview_chunk) > 120:
         return f"{preview_chunk[:117]}..."
     return preview_chunk
+
+
+def _mcp_tool_preview_chunk(tool_input: object) -> str:
+    if tool_input is None:
+        return "…"
+    try:
+        preview_chunk = json.dumps(tool_input)
+    except Exception:
+        return "…"
+    if len(preview_chunk) > 120:
+        return f"{preview_chunk[:117]}..."
+    return preview_chunk
+
+
+def _mcp_tool_result_preview_chunk(result_content: object) -> str:
+    if isinstance(result_content, Sequence) and not isinstance(result_content, (str, bytes)):
+        for item in result_content:
+            text_value = getattr(item, "text", None)
+            if isinstance(text_value, str) and text_value:
+                preview_chunk = text_value
+                break
+            if isinstance(item, Mapping):
+                item_map = {key: value for key, value in item.items() if isinstance(key, str)}
+                mapped_text = item_map.get("text")
+                if isinstance(mapped_text, str) and mapped_text:
+                    preview_chunk = mapped_text
+                    break
+        else:
+            try:
+                preview_chunk = json.dumps(result_content)
+            except Exception:
+                return "…"
+    else:
+        try:
+            preview_chunk = json.dumps(result_content)
+        except Exception:
+            return "…"
+
+    if len(preview_chunk) > 120:
+        return f"{preview_chunk[:117]}..."
+    return preview_chunk or "…"
+
+
+def _provider_tool_display_name(
+    *,
+    tool_name: str,
+    server_name: str | None = None,
+    phase: Literal["call", "result"] = "call",
+) -> str:
+    if server_name is None:
+        return web_tool_progress_label(tool_name)
+    combined_name = f"{server_name}/{tool_name}" if server_name else tool_name
+    return build_tool_activity_presentation(
+        tool_name=combined_name,
+        phase="result" if phase == "result" else "call",
+        server_name=server_name,
+        remote=bool(server_name),
+    ).display_name
 
 
 def _is_beta_text_block_validation_error(error: Exception) -> bool:
@@ -301,35 +384,14 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
         logger.debug(f"Failed to save stream chunk: {e}")
 
 
-def _ensure_additional_properties_false(schema: dict[str, Any]) -> dict[str, Any]:
-    """Ensure object schemas explicitly set additionalProperties=false."""
-    result = deepcopy(schema)
+def _transform_anthropic_schema(schema: type[BaseModel] | dict[str, Any]) -> dict[str, Any]:
+    """Return an Anthropic-compatible schema using the SDK's schema transformer.
 
-    def visit(node: Any) -> None:
-        if isinstance(node, dict):
-            if node.get("type") == "object" and "additionalProperties" not in node:
-                node["additionalProperties"] = False
-
-            for key, value in node.items():
-                if key in {"properties", "$defs", "definitions", "patternProperties"}:
-                    if isinstance(value, dict):
-                        for child in value.values():
-                            visit(child)
-                    continue
-                if key in {"items", "anyOf", "oneOf", "allOf"}:
-                    if isinstance(value, list):
-                        for child in value:
-                            visit(child)
-                    else:
-                        visit(value)
-                    continue
-                visit(value)
-        elif isinstance(node, list):
-            for item in node:
-                visit(item)
-
-    visit(result)
-    return result
+    Anthropic accepts both Pydantic models and raw JSON-schema dicts through the
+    same SDK transformer. Keep fast-agent out of this normalization path so the
+    model and raw-schema routes match Anthropic SDK behavior exactly.
+    """
+    return transform_schema(schema)
 
 
 class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
@@ -358,7 +420,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         long_context_requested = kwargs.pop("long_context", False)
         web_search_override = kwargs.pop("web_search", None)
         web_fetch_override = kwargs.pop("web_fetch", None)
-        super().__init__(provider=Provider.ANTHROPIC, **kwargs)
+        raw_task_budget = kwargs.pop("task_budget_tokens", _UNSET_TASK_BUDGET)
+        super().__init__(provider=self.provider_identity(), **kwargs)
         self._structured_output_mode_override: StructuredOutputMode | None = structured_override
         self._web_search_override: bool | None = (
             bool(web_search_override) if isinstance(web_search_override, bool) else None
@@ -366,6 +429,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self._web_fetch_override: bool | None = (
             bool(web_fetch_override) if isinstance(web_fetch_override, bool) else None
         )
+        self._file_id_cache: dict[str, str] = {}
 
         raw_setting = kwargs.get("reasoning_effort", None)
         reasoning_source: str | None = None
@@ -373,10 +437,17 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             reasoning_source = "llm_kwargs"
         config = self.context.config.anthropic if self.context and self.context.config else None
         model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+        task_budget_source: str | None = None
         if raw_setting is None and config:
             raw_setting = config.reasoning
             if raw_setting is not None:
                 reasoning_source = "config_reasoning"
+        if raw_task_budget is not _UNSET_TASK_BUDGET:
+            task_budget_source = "llm_kwargs"
+        elif config:
+            raw_task_budget = config.task_budget
+            if raw_task_budget is not None:
+                task_budget_source = "config_task_budget"
 
         from fast_agent.llm.model_database import ModelDatabase
 
@@ -414,6 +485,23 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         else:
             self.set_reasoning_effort(None)
 
+        self._task_budget_tokens: int | None = None
+        if raw_task_budget is not _UNSET_TASK_BUDGET:
+            if not self._supports_task_budget(model_name):
+                self.logger.warning(
+                    "Task budget ignored for model without Anthropic task budget support."
+                )
+            else:
+                try:
+                    parsed_task_budget = parse_task_budget_tokens(
+                        raw_task_budget if isinstance(raw_task_budget, (int, str)) else None
+                    )
+                    self.set_task_budget_tokens(parsed_task_budget)
+                except ValueError as exc:
+                    self.logger.warning(f"Invalid task budget setting: {exc}")
+                    self.set_task_budget_tokens(None)
+                    task_budget_source = None
+
         if self._get_model_reasoning(model_name) == "anthropic_thinking":
             resolved_setting = self.reasoning_effort
             thinking_enabled = self._is_thinking_enabled(model_name)
@@ -444,6 +532,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     None,
                     payload,
                 )
+
+        if task_budget_source is not None or self.task_budget_tokens is not None:
+            self.logger.event(
+                "info",
+                "anthropic_task_budget",
+                "Anthropic task budget resolved",
+                None,
+                {
+                    "model": model_name,
+                    "task_budget": format_task_budget_tokens(self.task_budget_tokens),
+                    "task_budget_source": task_budget_source or "unknown",
+                },
+            )
 
         # Explicit long-context (1M) opt-in setup for pre-4.6 models.
         self._long_context = False
@@ -478,6 +579,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         """Initialize Anthropic-specific default parameters"""
         return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_ANTHROPIC_MODEL)
 
+    @classmethod
+    def provider_identity(cls) -> Provider:
+        return Provider.ANTHROPIC
+
     def _list_supported_long_context_models(self) -> list[str]:
         """Return models that support explicit long-context overrides."""
         from fast_agent.llm.model_database import ModelDatabase
@@ -495,6 +600,40 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             self.context.config.anthropic.default_headers if self.context.config.anthropic else None
         )
 
+    def _provider_api_key(self):
+        from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+        return ProviderKeyManager.get_api_key(
+            self.provider.config_name,
+            self.context.config,
+        )
+
+    def _initialize_anthropic_client(self) -> Any:
+        base_url = self._base_url()
+        default_headers = self._default_headers()
+
+        api_key = self._api_key()
+        if base_url and base_url.endswith("/v1"):
+            base_url = base_url.rstrip("/v1")
+        return AsyncAnthropic(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=default_headers,
+        )
+
+    def supports_files_api(self) -> bool:
+        return True
+
+    def supports_document_uploads(self) -> bool:
+        return self.supports_files_api()
+
+    def supports_web_tools(self) -> bool:
+        return True
+
+    def supports_direct_anthropic_beta(self, feature: str) -> bool:
+        del feature
+        return True
+
     def _get_cache_mode(self) -> str:
         """Get the cache mode configuration."""
         cache_mode = "auto"  # Default to auto
@@ -502,9 +641,94 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
 
-    def _get_cache_ttl(self) -> str:
+    @staticmethod
+    def _anthropic_file_cache_key(data: bytes, filename: str, mime_type: str) -> str:
+        digest = hashlib.sha256(data).hexdigest()
+        return f"{mime_type}:{filename}:{digest}"
+
+    async def _upload_anthropic_file_bytes(
+        self,
+        anthropic: Any,
+        *,
+        data: bytes,
+        filename: str,
+        mime_type: str,
+    ) -> str | None:
+        files_api = getattr(getattr(anthropic, "beta", None), "files", None)
+        upload = getattr(files_api, "upload", None)
+        if not callable(upload):
+            return None
+
+        cache_key = self._anthropic_file_cache_key(data, filename, mime_type)
+        cached = self._file_id_cache.get(cache_key)
+        if cached:
+            return cached
+
+        file_metadata = await upload(file=(filename, data, mime_type))
+        file_id = getattr(file_metadata, "id", None)
+        if not isinstance(file_id, str) or not file_id:
+            return None
+
+        self._file_id_cache[cache_key] = file_id
+        return file_id
+
+    async def _prepare_anthropic_file_resources(
+        self,
+        anthropic: Any,
+        messages: Sequence[PromptMessageExtended],
+    ) -> None:
+        if not self.supports_document_uploads():
+            return
+
+        from fast_agent.mcp.resource_utils import extract_title_from_uri
+
+        for message in messages:
+            for content in message.content:
+                if not isinstance(content, EmbeddedResource):
+                    continue
+
+                resource = content.resource
+                if not isinstance(resource, BlobResourceContents):
+                    continue
+
+                mime_type = normalize_mime_type(resource.mimeType)
+                if not mime_type and getattr(resource, "uri", None):
+                    mime_type = guess_mime_type(str(resource.uri))
+                if mime_type not in DOCUMENT_MIME_TYPES or mime_type == "application/pdf":
+                    continue
+
+                meta = dict(getattr(resource, "meta", None) or {})
+                existing = meta.get(ANTHROPIC_FILE_ID_META_KEY)
+                if isinstance(existing, str) and existing:
+                    continue
+
+                try:
+                    data = base64.b64decode(resource.blob)
+                except Exception:
+                    logger.warning(
+                        "Unable to decode Anthropic document upload bytes",
+                        data={"mime_type": mime_type, "uri": str(getattr(resource, "uri", ""))},
+                    )
+                    continue
+
+                filename = (
+                    extract_title_from_uri(resource.uri) if getattr(resource, "uri", None) else None
+                ) or "document"
+                file_id = await self._upload_anthropic_file_bytes(
+                    anthropic,
+                    data=data,
+                    filename=filename,
+                    mime_type=mime_type,
+                )
+                if not file_id:
+                    continue
+
+                meta[ANTHROPIC_FILE_ID_META_KEY] = file_id
+                resource.meta = meta
+
+    def _get_cache_ttl(self) -> CacheTTL:
         """Get the cache TTL configuration ('5m' or '1h')."""
-        cache_ttl = "5m"  # Default to 5 minutes
+        cache_ttl: CacheTTL = "5m"  # Default to 5 minutes
         if self.context.config and self.context.config.anthropic:
             cache_ttl = self.context.config.anthropic.cache_ttl
         return cache_ttl
@@ -537,7 +761,35 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return self._supports_adaptive_thinking(model)
         return False
 
-    def _resolve_adaptive_effort(self) -> str | None:
+    def _uses_summarized_thinking_display(self, model: str) -> bool:
+        """Return True when summarized thinking should be requested explicitly."""
+        return self._normalize_model_name(model) == "claude-opus-4-7"
+
+    def _supports_task_budget(self, model: str) -> bool:
+        """Return True when Anthropic task budgets are supported for the model/provider."""
+        return self.provider_identity() in {
+            Provider.ANTHROPIC,
+            Provider.ANTHROPIC_VERTEX,
+        } and self._get_model_anthropic_task_budget_supported(model)
+
+    @property
+    def task_budget_supported(self) -> bool:
+        model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+        return self._supports_task_budget(model_name)
+
+    @property
+    def task_budget_tokens(self) -> int | None:
+        return self._task_budget_tokens
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        if value is None:
+            self._task_budget_tokens = None
+            return
+        if not self.task_budget_supported:
+            raise ValueError("Current model does not support task budget configuration.")
+        self._task_budget_tokens = validate_task_budget_tokens(value)
+
+    def _resolve_adaptive_effort(self, model: str) -> str | None:
         """Resolve adaptive effort for Anthropic output_config."""
         setting = self.reasoning_effort
         if setting is None or setting.kind != "effort":
@@ -546,6 +798,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return None
         effort = str(setting.value).lower()
         if effort == "xhigh":
+            spec = self._get_model_reasoning_effort_spec(model)
+            if spec and "xhigh" in (spec.allowed_efforts or []):
+                return "xhigh"
             return "max"
         if effort == "none":
             return None
@@ -580,8 +835,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return args, False
 
         if adaptive_supported:
-            args["thinking"] = {"type": "adaptive"}
-            effort = self._resolve_adaptive_effort()
+            thinking: dict[str, str] = {"type": "adaptive"}
+            if self._uses_summarized_thinking_display(model):
+                thinking["display"] = "summarized"
+            args["thinking"] = thinking
+            effort = self._resolve_adaptive_effort(model)
             if effort:
                 args["output_config"] = {"effort": effort}
             args["max_tokens"] = max_tokens if max_tokens is not None else 16000
@@ -600,9 +858,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return args, True
 
     def _resolve_structured_output_mode(
-        self, model: str, structured_model: Type[ModelT] | None
+        self,
+        model: str,
+        structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
     ) -> StructuredOutputMode | None:
-        if structured_model is None:
+        if structured_model is None and structured_schema is None:
             return None
         if self._structured_output_mode_override is not None:
             return self._structured_output_mode_override
@@ -612,25 +873,98 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         json_mode = self._get_model_json_mode(model)
         if json_mode == "schema":
-            return "json"
+            if self.supports_direct_anthropic_beta("structured_output"):
+                return "json"
+            return "tool_use"
         return "tool_use"
 
-    def _build_output_format(self, structured_model: Type[ModelT]) -> dict[str, Any]:
-        try:
-            schema = transform_schema(structured_model)
-        except Exception:
-            schema = structured_model.model_json_schema()
+    def _resolve_structured_tool_policy(
+        self,
+        request_params: RequestParams,
+    ) -> Literal["always", "defer", "no_tools"]:
+        if request_params.structured_tool_policy != "auto":
+            return request_params.structured_tool_policy
+
+        model_name = request_params.model or self.default_request_params.model or self._model_name
+        if model_name:
+            structured_mode = self._resolve_structured_output_mode(
+                model_name,
+                None,
+                request_params.structured_schema,
+            )
+            if structured_mode == "tool_use":
+                return "no_tools"
+
+        return super()._resolve_structured_tool_policy(request_params)
+
+    def _is_auto_tool_use_structured_fallback(
+        self,
+        model: str,
+        structured_mode: StructuredOutputMode | None,
+        structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
+    ) -> bool:
+        if structured_mode != "tool_use":
+            return False
+        if structured_model is None and structured_schema is None:
+            return False
+        if self._structured_output_mode_override is not None:
+            return False
+        config = self.context.config.anthropic if self.context and self.context.config else None
+        if config and config.structured_output_mode != "auto":
+            return False
+        return self._get_model_json_mode(model) != "schema"
+
+    def _build_output_format(
+        self,
+        structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if structured_schema is not None:
+            schema = _transform_anthropic_schema(structured_schema)
+        elif structured_model is not None:
+            schema = _transform_anthropic_schema(cast("type[BaseModel]", structured_model))
+        else:
+            schema = _transform_anthropic_schema({"type": "object"})
         return {"type": "json_schema", "schema": schema}
 
     async def _prepare_tools(
         self,
+        model: str,
         structured_model: Type[ModelT] | None = None,
+        structured_schema: dict[str, Any] | None = None,
         tools: list[Tool] | None = None,
         structured_mode: StructuredOutputMode | None = None,
+        auto_tool_use_fallback: bool = False,
     ) -> list[ToolParam]:
         """Prepare tools based on whether we're in structured output mode."""
-        if structured_model and structured_mode == "tool_use":
-            schema = _ensure_additional_properties_false(structured_model.model_json_schema())
+        regular_tools = [
+            ToolParam(
+                name=tool.name,
+                description=tool.description or "",
+                input_schema=tool.inputSchema,
+            )
+            for tool in tools or []
+        ]
+        if (structured_model or structured_schema) and structured_mode == "tool_use":
+            if auto_tool_use_fallback and regular_tools:
+                logger.warning(
+                    "Anthropic structured output fell back to legacy tool_use mode; "
+                    "normal tools will be suppressed for this structured request.",
+                    model=model,
+                    structured_mode=structured_mode,
+                    tool_count=len(regular_tools),
+                )
+            schema: dict[str, object]
+            if structured_schema is not None:
+                schema = cast("dict[str, object]", _transform_anthropic_schema(structured_schema))
+            elif structured_model is not None:
+                schema = cast(
+                    "dict[str, object]",
+                    _transform_anthropic_schema(cast("type[BaseModel]", structured_model)),
+                )
+            else:
+                schema = cast("dict[str, object]", _transform_anthropic_schema({"type": "object"}))
             return [
                 ToolParam(
                     name=STRUCTURED_OUTPUT_TOOL_NAME,
@@ -639,19 +973,14 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     strict=True,
                 )
             ]
-        if structured_model:
-            return []
-        # Regular mode - use tools from aggregator
-        return [
-            ToolParam(
-                name=tool.name,
-                description=tool.description or "",
-                input_schema=tool.inputSchema,
-            )
-            for tool in tools or []
-        ]
+        if structured_model or structured_schema:
+            return regular_tools
+        return regular_tools
 
     def _prepare_web_tools(self, model: str) -> tuple[list[ToolParam], tuple[str, ...]]:
+        if not self.supports_web_tools():
+            return [], ()
+
         anthropic_settings = self.context.config.anthropic if self.context.config else None
         resolved = resolve_web_tools(
             anthropic_settings,
@@ -668,6 +997,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     @property
     def web_tools_enabled(self) -> tuple[bool, bool]:
         """Return (search_enabled, fetch_enabled) for toolbar display."""
+        if not self.supports_web_tools():
+            return False, False
         anthropic_settings = self.context.config.anthropic if self.context.config else None
         resolved = resolve_web_tools(
             anthropic_settings,
@@ -678,6 +1009,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     @property
     def web_search_supported(self) -> bool:
+        if not self.supports_web_tools():
+            return False
         model_name = self.model_name
         if not model_name:
             return False
@@ -693,6 +1026,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     @property
     def web_fetch_supported(self) -> bool:
+        if not self.supports_web_tools():
+            return False
         model_name = self.model_name
         if not model_name:
             return False
@@ -745,7 +1080,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return 0
 
     @staticmethod
-    def _apply_cache_control_to_message(message: MessageParam, ttl: str = "5m") -> bool:
+    def _apply_cache_control_to_message(message: MessageParam, ttl: CacheTTL = "5m") -> bool:
         """Apply cache control to the last content block of a message."""
         if not is_str_object_dict(message) or "content" not in message:
             return False
@@ -798,7 +1133,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     async def _handle_structured_output_response(
         self,
         tool_use_block: ToolUseBlock,
-        structured_model: Type[ModelT],
+        structured_model: Type[ModelT] | None,
         messages: list[MessageParam],
     ) -> tuple[LlmStopReason, list[ContentBlock]]:
         """
@@ -814,7 +1149,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         Args:
             tool_use_block: The tool use block containing structured output
-            structured_model: The model class for structured output
+            structured_model: The model class for structured output, when one was supplied
             messages: The message list to append tool results to
 
         Returns:
@@ -846,7 +1181,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         estimated_tokens = 0
         tool_tracker = ToolCallTracker()
         tool_input_buffers: dict[str, _AnthropicToolInputBuffer] = {}
-        thinking_segments: list[str] = []
+        provider_tool_names: dict[str, tuple[str, str | None]] = {}
+        thinking_segments = ReasoningTextAccumulator()
         streamed_text_segments: list[str] = []
         thinking_indices: set[int] = set()
 
@@ -868,7 +1204,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             name=content_block.name,
                             index=event.index,
                         )
-                        tool_input_buffers.setdefault(state.tool_use_id, _AnthropicToolInputBuffer())
+                        tool_input_buffers.setdefault(
+                            state.tool_use_id, _AnthropicToolInputBuffer()
+                        )
                         self._notify_tool_stream_listeners(
                             "start",
                             {
@@ -896,11 +1234,17 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             index=event.index,
                             kind="server_tool",
                         )
-                        progress_label = web_tool_progress_label(state.name)
+                        presentation = build_tool_activity_presentation(
+                            tool_name=state.name,
+                            phase="call",
+                        )
+                        progress_label = _provider_tool_display_name(tool_name=state.name)
                         self._notify_tool_stream_listeners(
                             "start",
                             {
                                 "tool_name": state.name,
+                                "presentation_family": presentation.family,
+                                "preserve_details": False,
                                 "tool_display_name": progress_label,
                                 "chunk": _server_tool_preview_chunk(content_block.input),
                                 "tool_use_id": state.tool_use_id,
@@ -917,6 +1261,88 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 "tool_use_id": state.tool_use_id,
                                 "tool_event": "start",
                                 "details": progress_label,
+                            },
+                        )
+                        continue
+                    if isinstance(content_block, MCPToolUseBlock):
+                        combined_name = f"{content_block.server_name}/{content_block.name}"
+                        provider_tool_names[content_block.id] = (
+                            content_block.name,
+                            content_block.server_name,
+                        )
+                        state = tool_tracker.register(
+                            tool_use_id=content_block.id,
+                            name=combined_name,
+                            index=event.index,
+                            kind="server_tool",
+                        )
+                        progress_label = _provider_tool_display_name(
+                            tool_name=content_block.name,
+                            server_name=content_block.server_name,
+                        )
+                        self._notify_tool_stream_listeners(
+                            "start",
+                            {
+                                "tool_name": combined_name,
+                                "server_name": content_block.server_name,
+                                "presentation_family": "remote_tool",
+                                "preserve_details": True,
+                                "tool_display_name": progress_label,
+                                "chunk": _mcp_tool_preview_chunk(content_block.input),
+                                "tool_use_id": state.tool_use_id,
+                                "index": event.index,
+                            },
+                        )
+                        self.logger.info(
+                            "Anthropic MCP tool started",
+                            data={
+                                "progress_action": ProgressAction.CALLING_TOOL,
+                                "agent_name": self.name,
+                                "model": model,
+                                "tool_name": combined_name,
+                                "tool_use_id": state.tool_use_id,
+                                "tool_event": "start",
+                                "details": progress_label,
+                            },
+                        )
+                        continue
+                    if isinstance(content_block, MCPToolResultBlock):
+                        raw_tool_name, server_name = provider_tool_names.get(
+                            content_block.tool_use_id,
+                            ("mcp_tool", None),
+                        )
+                        combined_name = (
+                            f"{server_name}/{raw_tool_name}" if server_name else raw_tool_name
+                        )
+                        display_name = _provider_tool_display_name(
+                            tool_name=raw_tool_name,
+                            server_name=server_name,
+                            phase="result",
+                        )
+                        result_tool_use_id = f"{content_block.tool_use_id}:result"
+                        self._notify_tool_stream_listeners(
+                            "replace",
+                            {
+                                "tool_name": combined_name,
+                                "server_name": server_name,
+                                "presentation_family": "remote_tool",
+                                "preserve_details": True,
+                                "tool_display_name": display_name,
+                                "tool_use_id": result_tool_use_id,
+                                "index": event.index,
+                                "chunk": _mcp_tool_result_preview_chunk(content_block.content),
+                            },
+                        )
+                        self._notify_tool_stream_listeners(
+                            "stop",
+                            {
+                                "tool_name": combined_name,
+                                **({"server_name": server_name} if server_name else {}),
+                                "presentation_family": "remote_tool",
+                                "preserve_details": True,
+                                "tool_display_name": display_name,
+                                "tool_use_id": result_tool_use_id,
+                                "index": event.index,
                             },
                         )
                         continue
@@ -968,7 +1394,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     state = tool_tracker.resolve_open(index=event.index)
                     if state is not None and state.kind == "tool":
                         tool_tracker.close(index=event.index)
-                        preview_raw = tool_input_buffers.get(state.tool_use_id, _AnthropicToolInputBuffer()).joined()
+                        preview_raw = tool_input_buffers.get(
+                            state.tool_use_id, _AnthropicToolInputBuffer()
+                        ).joined()
                         if preview_raw:
                             preview = (
                                 preview_raw
@@ -1006,11 +1434,67 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
                     if state is not None and state.kind == "server_tool":
                         tool_tracker.close(index=event.index)
-                        progress_label = web_tool_progress_label(state.name)
+                        content_block = getattr(event, "content_block", None)
+                        server_name: str | None = None
+                        tool_name = state.name
+                        content_block_type = (
+                            content_block.get("type")
+                            if isinstance(content_block, Mapping)
+                            else getattr(content_block, "type", None)
+                        )
+                        if content_block_type == "mcp_tool_use":
+                            raw_server_name = (
+                                content_block.get("server_name")
+                                if isinstance(content_block, Mapping)
+                                else getattr(content_block, "server_name", None)
+                            )
+                            raw_tool_name = (
+                                content_block.get("name")
+                                if isinstance(content_block, Mapping)
+                                else getattr(content_block, "name", None)
+                            )
+                            raw_input = (
+                                content_block.get("input")
+                                if isinstance(content_block, Mapping)
+                                else getattr(content_block, "input", None)
+                            )
+                            if isinstance(raw_server_name, str) and isinstance(raw_tool_name, str):
+                                server_name = raw_server_name
+                                tool_name = f"{raw_server_name}/{raw_tool_name}"
+                            if raw_input is not None:
+                                input_preview = _mcp_tool_preview_chunk(raw_input)
+                                self._notify_tool_stream_listeners(
+                                    "replace",
+                                    {
+                                        "tool_name": tool_name,
+                                        "server_name": server_name,
+                                        "presentation_family": "remote_tool",
+                                        "preserve_details": True,
+                                        "tool_use_id": state.tool_use_id,
+                                        "index": event.index,
+                                        "chunk": input_preview,
+                                    },
+                                )
+                        elif isinstance(content_block, ServerToolUseBlock):
+                            tool_name = content_block.name
+
+                        presentation = build_tool_activity_presentation(
+                            tool_name=tool_name,
+                            phase="call",
+                        )
+                        progress_label = _provider_tool_display_name(
+                            tool_name=tool_name.split("/", 1)[-1],
+                            server_name=server_name,
+                        )
                         self._notify_tool_stream_listeners(
                             "stop",
                             {
-                                "tool_name": state.name,
+                                "tool_name": tool_name,
+                                **({"server_name": server_name} if server_name else {}),
+                                "presentation_family": (
+                                    "remote_tool" if server_name else presentation.family
+                                ),
+                                "preserve_details": bool(server_name),
                                 "tool_display_name": progress_label,
                                 "tool_use_id": state.tool_use_id,
                                 "index": event.index,
@@ -1022,7 +1506,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 "progress_action": ProgressAction.CALLING_TOOL,
                                 "agent_name": self.name,
                                 "model": model,
-                                "tool_name": state.name,
+                                "tool_name": tool_name,
                                 "tool_use_id": state.tool_use_id,
                                 "tool_event": "stop",
                                 "details": progress_label,
@@ -1068,9 +1552,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
             incomplete_tools = tool_tracker.incomplete()
             if incomplete_tools:
-                tool_labels = [
-                    f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools
-                ]
+                tool_labels = [f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools]
                 logger.error(
                     "Anthropic stream ended with incomplete tool state",
                     data={
@@ -1080,8 +1562,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     },
                 )
                 raise RuntimeError(
-                    "Streaming completed but tool call(s) never finished: "
-                    + ", ".join(tool_labels)
+                    "Streaming completed but tool call(s) never finished: " + ", ".join(tool_labels)
                 )
 
             # Get the final message with complete usage data
@@ -1113,7 +1594,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         stop_reason="end_turn",
                         usage=None,
                     )
-                    return fallback_message, thinking_segments, streamed_text_segments
+                    return fallback_message, thinking_segments.parts(), streamed_text_segments
                 raise
 
             # Log final usage information
@@ -1122,7 +1603,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     f"Streaming complete - Model: {model}, Input tokens: {message.usage.input_tokens}, Output tokens: {message.usage.output_tokens}"
                 )
 
-            return message, thinking_segments, streamed_text_segments
+            return message, thinking_segments.parts(), streamed_text_segments
         except APIError as error:
             logger.error("Streaming APIError during Anthropic completion", exc_info=error)
             raise  # Re-raise to be handled by _anthropic_completion
@@ -1225,6 +1706,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         request_tools: list[ToolParam],
         structured_mode: StructuredOutputMode | None,
         structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
+        auto_tool_use_fallback: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         base_args: dict[str, Any] = {
             "model": model,
@@ -1244,16 +1727,22 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if structured_mode:
             if structured_mode == "tool_use":
                 if self._is_thinking_enabled(model):
-                    logger.warning(
-                        "Extended thinking is incompatible with tool-forced structured output. "
-                        "Disabling thinking for this request."
-                    )
+                    if auto_tool_use_fallback:
+                        logger.warning(
+                            "Anthropic structured output fell back to legacy tool_use mode; "
+                            "extended thinking is not compatible and will be disabled for this request.",
+                            model=model,
+                            structured_mode=structured_mode,
+                        )
+                    else:
+                        logger.warning(
+                            "Extended thinking is incompatible with tool-forced structured output. "
+                            "Disabling thinking for this request."
+                        )
                 base_args["tool_choice"] = {
                     "type": "tool",
                     "name": STRUCTURED_OUTPUT_TOOL_NAME,
                 }
-            if structured_mode == "json" and structured_model:
-                base_args["output_format"] = self._build_output_format(structured_model)
 
         thinking_args, thinking_enabled = self._resolve_thinking_arguments(
             model=model,
@@ -1261,7 +1750,41 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             structured_mode=structured_mode,
         )
         base_args.update(thinking_args)
+        if self.task_budget_tokens is not None and self._supports_task_budget(model):
+            output_config = dict(base_args.get("output_config") or {})
+            output_config["task_budget"] = {
+                "type": "tokens",
+                "total": self.task_budget_tokens,
+            }
+            base_args["output_config"] = output_config
+        if structured_mode == "json" and (structured_model or structured_schema):
+            output_config = dict(base_args.get("output_config") or {})
+            output_config["format"] = self._build_output_format(
+                structured_model,
+                structured_schema,
+            )
+            base_args["output_config"] = output_config
         return base_args, thinking_enabled
+
+    def prepare_provider_arguments(
+        self,
+        base_args: dict,
+        request_params: RequestParams,
+        exclude_fields: set | None = None,
+    ) -> dict:
+        arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
+        if self._normalize_model_name(str(arguments.get("model", ""))) != "claude-opus-4-7":
+            return arguments
+
+        removed_fields = [
+            key for key in ("temperature", "top_p", "top_k") if arguments.pop(key, None) is not None
+        ]
+        if removed_fields:
+            removed = ", ".join(removed_fields)
+            self.logger.warning(
+                f"Anthropic Opus 4.7 ignores unsupported sampling parameters; removed {removed}."
+            )
+        return arguments
 
     def _resolve_anthropic_beta_flags(
         self,
@@ -1271,18 +1794,29 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         thinking_enabled: bool,
         request_tools: list[ToolParam],
         web_tool_betas: Sequence[str],
+        provider_mcp_enabled: bool = False,
     ) -> list[str]:
         beta_flags: list[str] = []
         adaptive_thinking = self._supports_adaptive_thinking(model)
-        if structured_mode:
+        if structured_mode == "json" and self.supports_direct_anthropic_beta("structured_output"):
             beta_flags.append(STRUCTURED_OUTPUT_BETA)
-        if thinking_enabled and request_tools and not adaptive_thinking:
+        if (
+            thinking_enabled
+            and request_tools
+            and not adaptive_thinking
+            and self.supports_direct_anthropic_beta("interleaved_thinking")
+        ):
             beta_flags.append(INTERLEAVED_THINKING_BETA)
-        if self._long_context:
+        if self._long_context and self.supports_direct_anthropic_beta("long_context"):
             beta_flags.append(LONG_CONTEXT_BETA)
-        if request_tools:
+        if request_tools and self.supports_direct_anthropic_beta("fine_grained_tool_streaming"):
             beta_flags.append(FINE_GRAINED_TOOL_STREAMING_BETA)
-        beta_flags.extend(web_tool_betas)
+        if self.supports_direct_anthropic_beta("web_tools"):
+            beta_flags.extend(web_tool_betas)
+        if provider_mcp_enabled:
+            beta_flags.append(MCP_CLIENT_BETA)
+        if self.task_budget_tokens is not None and self._supports_task_budget(model):
+            beta_flags.append(TASK_BUDGETS_BETA)
         return dedupe_preserve_order(beta_flags)
 
     def _apply_anthropic_cache_plan(
@@ -1318,7 +1852,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     async def _execute_anthropic_stream(
         self,
         *,
-        anthropic: AsyncAnthropic,
+        anthropic: Any,
         arguments: dict[str, Any],
         model: str,
         capture_filename: Path | None,
@@ -1339,14 +1873,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if otel_span is not None:
                 with trace.use_span(otel_span, end_on_exit=False):
                     async with stream_manager as stream:
-                        response, thinking_segments, streamed_text_segments = await self._process_stream(
-                            stream, model, capture_filename
-                        )
+                        (
+                            response,
+                            thinking_segments,
+                            streamed_text_segments,
+                        ) = await self._process_stream(stream, model, capture_filename)
             else:
                 async with stream_manager as stream:
-                    response, thinking_segments, streamed_text_segments = await self._process_stream(
-                        stream, model, capture_filename
-                    )
+                    (
+                        response,
+                        thinking_segments,
+                        streamed_text_segments,
+                    ) = await self._process_stream(stream, model, capture_filename)
         except APIError as error:
             if otel_span is not None and otel_span.is_recording():
                 otel_span.record_exception(error)
@@ -1378,6 +1916,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         streamed_text_segments: list[str],
         structured_mode: StructuredOutputMode | None,
         structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
     ) -> PromptMessageExtended:
         response_content_blocks: list[ContentBlock] = []
         tool_calls: dict[str, CallToolRequest] | None = None
@@ -1432,7 +1971,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 ]
                 if (
                     structured_mode == "tool_use"
-                    and structured_model
+                    and (structured_model is not None or structured_schema is not None)
                     and self._is_structured_output_request(tool_uses)
                 ):
                     stop_reason, structured_blocks = await self._handle_structured_output_response(
@@ -1554,6 +2093,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         message_param,
         request_params: RequestParams | None = None,
         structured_model: Type[ModelT] | None = None,
+        structured_schema: dict[str, Any] | None = None,
         tools: list[Tool] | None = None,
         pre_messages: list[MessageParam] | None = None,
         history: list[PromptMessageExtended] | None = None,
@@ -1564,17 +2104,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         Override this method to use a different LLM.
         """
 
-        api_key = self._api_key()
-        base_url = self._base_url()
-        if base_url and base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/v1")
-        default_headers = self._default_headers()
-
         try:
-            anthropic = AsyncAnthropic(
-                api_key=api_key, base_url=base_url, default_headers=default_headers
-            )
+            anthropic = self._initialize_anthropic_client()
             params = self.get_request_params(request_params)
+            messages_to_prepare: list[PromptMessageExtended] = []
+            if history:
+                messages_to_prepare.extend(history)
+            if current_extended is not None:
+                messages_to_prepare.append(current_extended)
+            if messages_to_prepare:
+                await self._prepare_anthropic_file_resources(anthropic, messages_to_prepare)
+            if current_extended is not None:
+                message_param = AnthropicConverter.convert_to_anthropic(current_extended)
             messages = self._build_request_messages(
                 params, message_param, pre_messages, history=history
             )
@@ -1590,12 +2131,35 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
-        structured_mode = self._resolve_structured_output_mode(model, structured_model)
+        effective_structured_schema = (
+            params.structured_schema if params.structured_schema is not None else structured_schema
+        )
+        structured_mode = self._resolve_structured_output_mode(
+            model,
+            structured_model,
+            effective_structured_schema,
+        )
+        auto_tool_use_fallback = self._is_auto_tool_use_structured_fallback(
+            model,
+            structured_mode,
+            structured_model,
+            effective_structured_schema,
+        )
         available_tools = await self._prepare_tools(
-            structured_model, tools, structured_mode=structured_mode
+            model,
+            structured_model,
+            effective_structured_schema,
+            tools,
+            structured_mode=structured_mode,
+            auto_tool_use_fallback=auto_tool_use_fallback,
         )
         web_tools, web_tool_betas = self._prepare_web_tools(model)
         request_tools = [*available_tools, *web_tools]
+        provider_mcp_servers, provider_mcp_tools = build_anthropic_provider_managed_mcp_payload(
+            self.provider_managed_mcp_state
+        )
+        if provider_mcp_tools:
+            request_tools.extend(cast("list[ToolParam]", provider_mcp_tools))
 
         base_args, thinking_enabled = self._build_anthropic_base_args(
             model=model,
@@ -1606,6 +2170,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             request_tools=request_tools,
             structured_mode=structured_mode,
             structured_model=structured_model,
+            structured_schema=effective_structured_schema,
+            auto_tool_use_fallback=auto_tool_use_fallback,
         )
 
         beta_flags = self._resolve_anthropic_beta_flags(
@@ -1614,9 +2180,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             thinking_enabled=thinking_enabled,
             request_tools=request_tools,
             web_tool_betas=web_tool_betas,
+            provider_mcp_enabled=bool(provider_mcp_servers),
         )
         if beta_flags:
             base_args["betas"] = beta_flags
+        if provider_mcp_servers:
+            base_args["mcp_servers"] = provider_mcp_servers
 
         self._log_chat_progress(self.chat_turn(), model=model)
         # Use the base class method to prepare all arguments with Anthropic-specific exclusions
@@ -1641,7 +2210,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         _save_stream_request(capture_filename, arguments)
 
         try:
-            response, thinking_segments, streamed_text_segments = await self._execute_anthropic_stream(
+            (
+                response,
+                thinking_segments,
+                streamed_text_segments,
+            ) = await self._execute_anthropic_stream(
                 anthropic=anthropic,
                 arguments=arguments,
                 model=model,
@@ -1664,7 +2237,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         ):
             try:
                 turn_usage = TurnUsage.from_anthropic(
-                    response.usage, model or DEFAULT_ANTHROPIC_MODEL
+                    response.usage,
+                    model or DEFAULT_ANTHROPIC_MODEL,
+                    provider=self.provider,
                 )
                 self._finalize_turn_usage(turn_usage)
             except Exception as e:
@@ -1694,6 +2269,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             streamed_text_segments=streamed_text_segments,
             structured_mode=structured_mode,
             structured_model=structured_model,
+            structured_schema=effective_structured_schema,
         )
 
         # Update diagnostic snapshot (never read again)
@@ -1702,6 +2278,16 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         self._log_chat_finished(model=model)
         return result
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        if not self._should_suppress_structured_schema_for_tools(messages, request_params, tools):
+            return messages, request_params
+        return messages, request_params.model_copy(update={"structured_schema": None})
 
     async def _apply_prompt_provider_specific(
         self,
@@ -1768,6 +2354,32 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # For assistant messages: Return the last message content
             logger.debug("Last message in prompt is from assistant, returning it directly")
             return None, last_message
+
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        request_params = self.get_request_params(request_params)
+        last_message = multipart_messages[-1]
+
+        if last_message.role == "user":
+            logger.debug(
+                "Last message in prompt is from user, generating structured schema response"
+            )
+            message_param = AnthropicConverter.convert_to_anthropic(last_message)
+            result = await self._anthropic_completion(
+                message_param,
+                request_params,
+                structured_schema=schema,
+                history=multipart_messages,
+                current_extended=last_message,
+            )
+            return self._structured_schema_from_multipart(result, schema)
+
+        logger.debug("Last message in prompt is from assistant, returning it directly")
+        return self._structured_schema_from_multipart(last_message, schema)
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]

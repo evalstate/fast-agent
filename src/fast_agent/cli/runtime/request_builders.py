@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import shlex
 import sys
-from pathlib import Path
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
+from urllib.parse import urlparse
 
 import typer
 
@@ -19,7 +19,18 @@ from fast_agent.constants import (
 )
 from fast_agent.paths import resolve_environment_paths
 
-from .run_request import AgentRunRequest, StdioServerConfig, UrlServerConfig
+from .run_request import (
+    AgentRunRequest,
+    ExecutionMode,
+    StdioServerConfig,
+    UrlServerConfig,
+    resolve_execution_mode,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from fast_agent.llm.request_params import StructuredToolPolicy
 
 CARD_EXTENSIONS: Final[frozenset[str]] = frozenset({".md", ".markdown", ".yaml", ".yml"})
 
@@ -120,6 +131,90 @@ def validate_noenv_conflicts(
         raise typer.BadParameter("Cannot combine --noenv with --resume.")
 
 
+def validate_shell_conflicts(*, shell_enabled: bool, no_shell: bool) -> None:
+    """Validate unsupported shell option combinations."""
+    if shell_enabled and no_shell:
+        raise typer.BadParameter("Cannot combine --shell with --no-shell.")
+
+
+def validate_execution_mode_inputs(
+    *,
+    message: str | None,
+    prompt_file: str | None,
+) -> ExecutionMode:
+    try:
+        return resolve_execution_mode(
+            message=message,
+            prompt_file=prompt_file,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(
+            str(exc),
+            param_hint="--message/--prompt-file",
+        ) from exc
+
+
+def validate_attachment_inputs(
+    *,
+    attachments: list[str] | None,
+    execution_mode: ExecutionMode,
+) -> None:
+    if attachments and execution_mode == "repl":
+        raise typer.BadParameter(
+            "--attach requires --message or --prompt-file",
+            param_hint="--attach",
+        )
+
+
+def validate_json_schema_inputs(
+    *,
+    json_schema: str | None,
+    schema_model: str | None = None,
+    structured_tool_policy: str | None = None,
+    execution_mode: ExecutionMode,
+    model: str | None,
+) -> StructuredToolPolicy | None:
+    if json_schema is not None and schema_model is not None:
+        raise typer.BadParameter(
+            "Cannot combine --json-schema with --schema-model.",
+            param_hint="--schema-model",
+        )
+    if structured_tool_policy is not None:
+        if structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
+            raise typer.BadParameter(
+                "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'",
+                param_hint="--structured-tool-policy",
+            )
+        if schema_model is not None:
+            raise typer.BadParameter(
+                "--structured-tool-policy cannot be combined with --schema-model.",
+                param_hint="--structured-tool-policy",
+            )
+        if json_schema is None:
+            raise typer.BadParameter(
+                "--structured-tool-policy requires --json-schema.",
+                param_hint="--structured-tool-policy",
+            )
+        resolved_policy = cast("StructuredToolPolicy", structured_tool_policy)
+    else:
+        resolved_policy = None
+    if json_schema is None and schema_model is None:
+        return resolved_policy
+    if execution_mode == "repl":
+        option = "--schema-model" if schema_model is not None else "--json-schema"
+        raise typer.BadParameter(
+            f"{option} requires --message or --prompt-file",
+            param_hint=option,
+        )
+    if is_multi_model(model):
+        option = "--schema-model" if schema_model is not None else "--json-schema"
+        raise typer.BadParameter(
+            f"Cannot combine {option} with multiple models.",
+            param_hint=option,
+        )
+    return resolved_policy
+
+
 def validate_multi_model_card_conflicts(
     *,
     model: str | None,
@@ -164,15 +259,13 @@ def resolve_instruction_option(
 
     if instruction:
         try:
-            from pydantic import AnyUrl
+            from fast_agent.core.instruction_source import resolve_instruction_source
+            from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
 
-            from fast_agent.core.direct_decorators import _resolve_instruction
-
-            if instruction.startswith(("http://", "https://")):
-                resolved_instruction = _resolve_instruction(AnyUrl(instruction))
-            else:
-                resolved_instruction = _resolve_instruction(Path(instruction))
-                instruction_path = Path(instruction)
+            resolved_instruction = resolve_instruction_source(instruction)
+            parsed_instruction = urlparse(str(instruction))
+            if parsed_instruction.scheme not in REMOTE_TEXT_SCHEMES:
+                instruction_path = materialize_text_source(instruction, label="instruction")
                 if instruction_path.exists() and instruction_path.is_file():
                     agent_name = instruction_path.stem
         except Exception as exc:
@@ -194,6 +287,24 @@ def collect_stdio_commands(npx: str | None, uvx: str | None, stdio: str | None) 
         stdio_commands.append(stdio)
 
     return stdio_commands
+
+
+def resolve_instance_scope(
+    *,
+    transport: str,
+    instance_scope: str | None,
+) -> str:
+    if transport == "acp":
+        if instance_scope is None:
+            return "connection"
+        if instance_scope != "connection":
+            raise ValueError(
+                "ACP is always connection-scoped; --instance-scope must be omitted or set to connection."
+            )
+        return "connection"
+    if instance_scope is None:
+        return "shared"
+    return instance_scope
 
 
 def _merge_url_servers(
@@ -317,20 +428,39 @@ def build_agent_run_request(
     port: int,
     tool_description: str | None,
     tool_name_template: str | None,
-    instance_scope: str,
+    instance_scope: str | None,
     permissions_enabled: bool,
     reload: bool,
     watch: bool,
     quiet: bool = False,
+    prefer_local_shell: bool = False,
+    no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
+    json_schema: str | None = None,
+    schema_model: str | None = None,
+    structured_tool_policy: str | None = None,
     force_smart: bool = False,
     noenv: bool = False,
+    attachments: list[str] | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_noenv_conflicts(
         noenv=noenv,
         environment_dir=environment_dir,
         resume=resume,
+    )
+    validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
+    execution_mode = validate_execution_mode_inputs(
+        message=message,
+        prompt_file=prompt_file,
+    )
+    validate_attachment_inputs(attachments=attachments, execution_mode=execution_mode)
+    resolved_structured_tool_policy = validate_json_schema_inputs(
+        json_schema=json_schema,
+        schema_model=schema_model,
+        structured_tool_policy=structured_tool_policy,
+        execution_mode=execution_mode,
+        model=model,
     )
 
     server_list = servers.split(",") if servers else None
@@ -384,6 +514,10 @@ def build_agent_run_request(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        attachments=attachments,
+        json_schema=json_schema,
+        schema_model=schema_model,
+        structured_tool_policy=resolved_structured_tool_policy,
         result_file=result_file,
         resume=resume,
         url_servers=url_servers,
@@ -395,16 +529,22 @@ def build_agent_run_request(
         noenv=noenv,
         force_smart=force_smart,
         shell_runtime=shell_enabled,
+        no_shell=no_shell,
+        prefer_local_shell=prefer_local_shell,
         mode=mode,
         transport=transport,
         host=host,
         port=port,
         tool_description=tool_description,
         tool_name_template=tool_name_template,
-        instance_scope=instance_scope,
+        instance_scope=resolve_instance_scope(
+            transport=transport,
+            instance_scope=instance_scope,
+        ),
         permissions_enabled=effective_permissions_enabled,
         reload=reload,
         watch=watch,
+        execution_mode=execution_mode,
         quiet=quiet,
         missing_shell_cwd_policy=missing_shell_cwd_policy,
     )
@@ -416,6 +556,7 @@ def build_run_agent_kwargs(
     **request_kwargs: Any,
 ) -> dict[str, Any]:
     if request is None:
+        request_kwargs.setdefault("attachments", None)
         request = build_agent_run_request(**request_kwargs)
     return request.to_agent_setup_kwargs()
 
@@ -449,14 +590,20 @@ def build_command_run_request(
     port: int = 8000,
     tool_description: str | None = None,
     tool_name_template: str | None = None,
-    instance_scope: str = "shared",
+    instance_scope: str | None = None,
     permissions_enabled: bool = True,
     reload: bool = False,
     watch: bool = False,
     quiet: bool = False,
+    prefer_local_shell: bool = False,
+    no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
     force_smart: bool = False,
     noenv: bool = False,
+    json_schema: str | None = None,
+    schema_model: str | None = None,
+    structured_tool_policy: str | None = None,
+    attachments: list[str] | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_noenv_conflicts(
@@ -464,6 +611,7 @@ def build_command_run_request(
         environment_dir=environment_dir,
         resume=resume,
     )
+    validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
 
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     resolved_instruction, inferred_agent_name = resolve_instruction_option(
@@ -486,6 +634,10 @@ def build_command_run_request(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        attachments=attachments,
+        json_schema=json_schema,
+        schema_model=schema_model,
+        structured_tool_policy=structured_tool_policy,
         result_file=result_file,
         resume=resume,
         stdio_commands=stdio_commands,
@@ -496,6 +648,8 @@ def build_command_run_request(
         noenv=noenv,
         force_smart=force_smart,
         shell_enabled=shell_enabled,
+        prefer_local_shell=prefer_local_shell,
+        no_shell=no_shell,
         mode=mode,
         transport=transport,
         host=host,

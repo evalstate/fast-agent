@@ -6,7 +6,9 @@ Provides automatic saving and loading of conversation sessions in the fast-agent
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import inspect
 import json
 import os
 import pathlib
@@ -21,14 +23,24 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Mapping
 
-from fast_agent.core.default_agent import resolve_default_agent_name
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_environment_paths
+from fast_agent.session.snapshot import (
+    SessionSnapshot,
+    capture_session_snapshot,
+    clone_session_snapshot_for_fork,
+    load_session_snapshot,
+    session_info_from_snapshot,
+    snapshot_from_session_info,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.session.hydrator import SessionHydrationResult, SessionHydrationWarning
+    from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -47,21 +59,40 @@ HISTORY_PREVIOUS_SUFFIX = "_previous.json"
 
 
 def _normalized_environment_override(cwd: pathlib.Path) -> str | None:
-    """Return ENVIRONMENT_DIR as an absolute path string when set."""
-    override = os.getenv("ENVIRONMENT_DIR")
-    if not override:
+    """Return the active environment override as an absolute path string when set."""
+    from fast_agent.home import resolve_fast_agent_home
+
+    home = resolve_fast_agent_home(cwd=cwd)
+    if home is None or home.source == "default":
         return None
+    return str(home.path)
 
-    path = pathlib.Path(override).expanduser()
-    if not path.is_absolute():
-        path = (cwd / path).resolve()
-    else:
-        path = path.resolve()
 
-    normalized = str(path)
-    if normalized != override:
-        os.environ["ENVIRONMENT_DIR"] = normalized
-    return normalized
+def _session_environment_override(
+    *,
+    cwd: pathlib.Path,
+    explicit_cwd: bool,
+    environment_override: str | pathlib.Path | None,
+    respect_env_override: bool,
+) -> str | pathlib.Path | None:
+    if environment_override is not None or not respect_env_override:
+        return environment_override
+
+    from fast_agent.config import get_settings
+
+    settings = get_settings()
+    if settings.environment_dir is not None:
+        return settings.environment_dir
+
+    env_override = _normalized_environment_override(cwd)
+    if env_override is not None:
+        return env_override
+
+    if explicit_cwd:
+        if settings.environment_dir is None and settings._fast_agent_home_source == "default":
+            return DEFAULT_ENVIRONMENT_DIR
+
+    return None
 
 
 def display_session_name(name: str) -> str:
@@ -195,13 +226,8 @@ class SessionInfo:
     @classmethod
     def from_dict(cls, data: dict) -> SessionInfo:
         """Create SessionInfo from dictionary."""
-        return cls(
-            name=data["name"],
-            created_at=datetime.fromisoformat(data["created_at"]),
-            last_activity=datetime.fromisoformat(data["last_activity"]),
-            history_files=data.get("history_files", []),
-            metadata=data.get("metadata", {}),
-        )
+        snapshot = load_session_snapshot(data)
+        return session_info_from_snapshot(snapshot)
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -222,19 +248,36 @@ class ResumeSessionAgentsResult:
     loaded: dict[str, pathlib.Path]
     missing_agents: list[str]
     usage_notices: list[str] = field(default_factory=list)
+    warnings: list[SessionHydrationWarning] = field(default_factory=list)
+    active_agent: str | None = None
 
 
 class Session:
     """Represents a single conversation session."""
 
-    def __init__(self, info: SessionInfo, directory: pathlib.Path) -> None:
+    def __init__(
+        self,
+        info: SessionInfo,
+        directory: pathlib.Path,
+        *,
+        manager: SessionManager | None = None,
+    ) -> None:
         """Initialize session."""
         self.info = info
         self.directory = directory
+        self._manager = manager
         self._dirty = False
 
 
-    async def save_history(self, agent: AgentProtocol, filename: str | None = None) -> str:
+    async def save_history(
+        self,
+        agent: AgentProtocol,
+        filename: str | None = None,
+        *,
+        agent_registry: Mapping[str, AgentProtocol] | None = None,
+        identity: "SessionSaveIdentity | None" = None,
+        resolved_prompts: Mapping[str, str] | None = None,
+    ) -> str:
         """Save agent history to this session."""
         from fast_agent.history.history_exporter import HistoryExporter
 
@@ -291,7 +334,14 @@ class Session:
             if preview:
                 self.info.metadata["first_user_preview"] = preview
 
-        self._save_metadata()
+        snapshot = capture_session_snapshot(
+            session=self,
+            active_agent=agent,
+            agent_registry=agent_registry,
+            identity=identity or self._default_save_identity(),
+            resolved_prompts=resolved_prompts,
+        )
+        self._save_snapshot(snapshot)
         return result
 
     async def _save_rotating_history(
@@ -339,10 +389,41 @@ class Session:
 
     def _save_metadata(self) -> None:
         """Save session metadata."""
+        self._save_snapshot(snapshot_from_session_info(self.info))
+
+    def _save_snapshot(self, snapshot: SessionSnapshot) -> None:
+        """Save a typed snapshot payload."""
         metadata_file = self.directory / "session.json"
+        payload = snapshot.model_dump(mode="json")
         with self._metadata_lock():
-            self._atomic_write_json(metadata_file, self.info.to_dict())
+            self._atomic_write_json(metadata_file, payload)
         self._dirty = False
+
+    def _default_save_identity(self) -> "SessionSaveIdentity":
+        """Build a compatibility save identity when a caller does not supply one."""
+        from fast_agent.session.identity import SessionSaveIdentity
+
+        metadata = self.info.metadata if isinstance(self.info.metadata, dict) else {}
+        raw_session_cwd = metadata.get("cwd")
+        session_cwd = None
+        if isinstance(raw_session_cwd, str) and raw_session_cwd:
+            session_cwd = pathlib.Path(raw_session_cwd).expanduser().resolve()
+
+        acp_session_id = metadata.get("acp_session_id")
+        manager = self._manager
+        if manager is None:
+            manager = SessionManager(cwd=self.directory.parent)
+            self._manager = manager
+
+        return SessionSaveIdentity(
+            manager=manager,
+            session=self,
+            created=False,
+            acp_session_id=acp_session_id if isinstance(acp_session_id, str) else None,
+            session_cwd=session_cwd,
+            session_store_scope="workspace",
+            session_store_cwd=manager.workspace_dir,
+        )
 
     def set_pinned(self, pinned: bool) -> None:
         """Pin or unpin the session to prevent auto-pruning."""
@@ -503,11 +584,24 @@ class Session:
 class SessionManager:
     """Manages conversation sessions stored in the fast-agent environment."""
 
-    def __init__(self, *, cwd: pathlib.Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        cwd: pathlib.Path | None = None,
+        environment_override: str | pathlib.Path | None = None,
+        respect_env_override: bool = True,
+    ) -> None:
         """Initialize session manager."""
+        explicit_cwd = cwd is not None
         base = (cwd or pathlib.Path.cwd()).resolve()
-        env_override = _normalized_environment_override(base)
+        env_override = _session_environment_override(
+            cwd=base,
+            explicit_cwd=explicit_cwd,
+            environment_override=environment_override,
+            respect_env_override=respect_env_override,
+        )
         env_paths = resolve_environment_paths(cwd=base, override=env_override)
+        self.workspace_dir = base
         self.base_dir = env_paths.sessions
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._current_session: Session | None = None
@@ -547,7 +641,7 @@ class SessionManager:
             metadata=session_metadata,
         )
 
-        session = Session(info, session_dir)
+        session = Session(info, session_dir, manager=self)
         session._save_metadata()
         self._current_session = session
         self._prune_sessions()
@@ -586,7 +680,7 @@ class SessionManager:
             history_files=[],
             metadata=session_metadata,
         )
-        session = Session(info, session_dir)
+        session = Session(info, session_dir, manager=self)
         session._save_metadata()
         self._current_session = session
         self._prune_sessions()
@@ -606,7 +700,7 @@ class SessionManager:
             metadata_file = session_dir / "session.json"
             if metadata_file.exists():
                 try:
-                    with open(metadata_file) as f:
+                    with open(metadata_file, encoding="utf-8") as f:
                         data = json.load(f)
                         info = SessionInfo.from_dict(data)
                         sessions.append(info)
@@ -625,13 +719,14 @@ class SessionManager:
             return None
 
         try:
-            with open(metadata_file) as f:
+            with open(metadata_file, encoding="utf-8") as f:
                 data = json.load(f)
-                info = SessionInfo.from_dict(data)
+                snapshot = load_session_snapshot(data)
 
-            session = Session(info, session_dir)
-            session.info.last_activity = datetime.now()
-            session._save_metadata()
+            snapshot.last_activity = datetime.now()
+            info = session_info_from_snapshot(snapshot)
+            session = Session(info, session_dir, manager=self)
+            session._save_snapshot(snapshot)
             self._current_session = session
             logger.info(f"Loaded session: {name}")
             return session
@@ -657,9 +752,18 @@ class SessionManager:
             return False
 
     async def save_current_session(
-        self, agent: AgentProtocol, filename: str | None = None
+        self,
+        agent: AgentProtocol,
+        filename: str | None = None,
+        *,
+        agent_registry: Mapping[str, AgentProtocol] | None = None,
+        identity: "SessionSaveIdentity | None" = None,
+        resolved_prompts: Mapping[str, str] | None = None,
     ) -> str | None:
         """Save history to the current session."""
+        if identity is not None:
+            self._current_session = identity.session
+
         if self._current_session and not self._current_session.directory.exists():
             logger.warning(
                 "Current session directory is missing; creating a replacement session",
@@ -669,12 +773,11 @@ class SessionManager:
 
         if not self._current_session:
             # Auto-create a session if none exists
-            agent_name = getattr(agent, "name", None)
+            agent_name = agent.name
             metadata: dict[str, Any] = {}
             if agent_name:
                 metadata["agent_name"] = agent_name
-            agent_config = getattr(agent, "config", None)
-            model_name = getattr(agent_config, "model", None) if agent_config else None
+            model_name = agent.config.model
             if model_name:
                 metadata["model"] = model_name
             self.create_session(metadata=metadata or None)
@@ -685,7 +788,13 @@ class SessionManager:
             )
 
         assert self._current_session is not None
-        return await self._current_session.save_history(agent, filename)
+        return await self._current_session.save_history(
+            agent,
+            filename,
+            agent_registry=agent_registry,
+            identity=identity,
+            resolved_prompts=resolved_prompts,
+        )
 
     def load_latest_session(self) -> Session | None:
         """Load the most recently used session."""
@@ -694,25 +803,111 @@ class SessionManager:
             return None
         return self.load_session(sessions[0].name)
 
+    async def _hydrate_session_agents_async(
+        self,
+        agents: Mapping[str, AgentProtocol],
+        name: str | None = None,
+        fallback_agent_name: str | None = None,
+    ) -> SessionHydrationResult | None:
+        from fast_agent.session.hydrator import SessionHydrator
+
+        session_name = self._resolve_session_name(name)
+        session = self.load_latest_session() if session_name is None else self.load_session(session_name)
+        if session is None:
+            return None
+
+        hydration = SessionHydrator().hydrate_session(
+            session=session,
+            agents=agents,
+            fallback_agent_name=fallback_agent_name,
+        )
+        if inspect.isawaitable(hydration):
+            return await hydration
+        return hydration
+
+    def _hydrate_session_agents(
+        self,
+        agents: Mapping[str, AgentProtocol],
+        name: str | None = None,
+        fallback_agent_name: str | None = None,
+    ) -> SessionHydrationResult | None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self._hydrate_session_agents_async(
+                    agents,
+                    name,
+                    fallback_agent_name=fallback_agent_name,
+                )
+            )
+        raise RuntimeError(
+            'SessionManager._hydrate_session_agents() cannot be used from an async context; '
+            'use _hydrate_session_agents_async() instead.'
+        )
+
     def resume_session(
         self, agent: AgentProtocol, name: str | None = None
     ) -> tuple[Session, pathlib.Path | None, list[str]] | None:
-        """Resume a session and load its latest history into the agent."""
-        session_name = self._resolve_session_name(name)
-        session = self.load_latest_session() if session_name is None else self.load_session(session_name)
-        if not session:
+        """Resume a session through the hydrator compatibility path."""
+        result = self.resume_session_agents(
+            {agent.name: agent},
+            name,
+            fallback_agent_name=agent.name,
+        )
+        if result is None:
             return None
 
-        history_path = session.latest_history_path(getattr(agent, "name", None))
-        notices: list[str] = []
-        if history_path and history_path.exists():
-            from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+        notices = list(result.usage_notices)
+        notices.extend(warning.message for warning in result.warnings)
+        return result.session, result.loaded.get(agent.name), notices
 
-            notice = load_history_into_agent(agent, history_path)
-            if notice:
-                notices.append(notice)
+    async def resume_session_async(
+        self, agent: AgentProtocol, name: str | None = None
+    ) -> tuple[Session, pathlib.Path | None, list[str]] | None:
+        """Async resume_session companion for callers already running in an event loop."""
+        result = await self.resume_session_agents_async(
+            {agent.name: agent},
+            name,
+            fallback_agent_name=agent.name,
+        )
+        if result is None:
+            return None
 
-        return session, history_path, notices
+        notices = list(result.usage_notices)
+        notices.extend(warning.message for warning in result.warnings)
+        return result.session, result.loaded.get(agent.name), notices
+
+    async def resume_session_agents_async(
+        self,
+        agents: Mapping[str, AgentProtocol],
+        name: str | None = None,
+        fallback_agent_name: str | None = None,
+    ) -> ResumeSessionAgentsResult | None:
+        """Resume a session and adapt hydrator output for local callers."""
+        hydration = await self._hydrate_session_agents_async(
+            agents,
+            name,
+            fallback_agent_name=fallback_agent_name,
+        )
+        if hydration is None:
+            return None
+
+        missing_agents = list(hydration.skipped_agents)
+        if missing_agents:
+            logger.warning(
+                "Session metadata references missing agents",
+                data={"session": hydration.session.info.name, "agents": missing_agents},
+            )
+
+        return ResumeSessionAgentsResult(
+            session=hydration.session,
+            loaded=dict(hydration.loaded_agents),
+            missing_agents=missing_agents,
+            usage_notices=list(hydration.usage_notices),
+            warnings=list(hydration.warnings),
+            active_agent=hydration.active_agent,
+        )
 
     def resume_session_agents(
         self,
@@ -720,134 +915,43 @@ class SessionManager:
         name: str | None = None,
         fallback_agent_name: str | None = None,
     ) -> ResumeSessionAgentsResult | None:
-        """Resume a session and load histories for all known agents."""
-        session_name = self._resolve_session_name(name)
-        session = self.load_latest_session() if session_name is None else self.load_session(session_name)
-        if not session:
-            return None
-
-        history_map = session.info.metadata.get("last_history_by_agent")
-        loaded: dict[str, pathlib.Path] = {}
-        missing_agents: list[str] = []
-        notices: list[str] = []
-
-        if isinstance(history_map, dict) and history_map:
-            for agent_name, filename in history_map.items():
-                if agent_name not in agents:
-                    missing_agents.append(agent_name)
-                    continue
-                if not filename:
-                    continue
-                history_path = session.directory / filename
-                if history_path.exists():
-                    from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
-
-                    try:
-                        notice = load_history_into_agent(agents[agent_name], history_path)
-                        if notice:
-                            notices.append(notice)
-                        loaded[agent_name] = history_path
-                    except Exception as exc:
-                        logger.warning(
-                            "Failed to load session history file",
-                            data={
-                                "session": session.info.name,
-                                "agent": agent_name,
-                                "file": str(history_path),
-                                "error": str(exc),
-                            },
-                        )
-                else:
-                    logger.warning(
-                        "Session history file missing",
-                        data={"session": session.info.name, "agent": agent_name, "file": filename},
-                    )
-        else:
-            fallback_name = resolve_default_agent_name(
-                agents,
-                is_default=lambda name, _agent: fallback_agent_name is not None
-                and name == fallback_agent_name,
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.resume_session_agents_async(
+                    agents,
+                    name,
+                    fallback_agent_name=fallback_agent_name,
+                )
             )
-            fallback_agent = agents.get(fallback_name) if fallback_name else None
-            if fallback_agent:
-                history_path = session.latest_history_path(getattr(fallback_agent, "name", None))
-                if history_path and history_path.exists():
-                    from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
-
-                    try:
-                        notice = load_history_into_agent(fallback_agent, history_path)
-                        if notice:
-                            notices.append(notice)
-                        loaded[fallback_agent.name] = history_path
-                    except Exception as exc:
-                        logger.warning(
-                            "Failed to load fallback session history file",
-                            data={
-                                "session": session.info.name,
-                                "agent": fallback_agent.name,
-                                "file": str(history_path),
-                                "error": str(exc),
-                            },
-                        )
-
-        if missing_agents:
-            logger.warning(
-                "Session metadata references missing agents",
-                data={"session": session.info.name, "agents": missing_agents},
-            )
-
-        return ResumeSessionAgentsResult(
-            session=session,
-            loaded=loaded,
-            missing_agents=missing_agents,
-            usage_notices=notices,
+        raise RuntimeError(
+            'SessionManager.resume_session_agents() cannot be used from an async context; '
+            'use resume_session_agents_async() instead.'
         )
 
     def fork_current_session(self, title: str | None = None) -> Session | None:
-        """Fork the current or latest session into a new session."""
+        """Fork the current or latest session by cloning its typed snapshot."""
         source = self._current_session or self.load_latest_session()
         if not source:
             return None
 
-        source_metadata = source.info.metadata or {}
-        new_metadata: dict[str, Any] = {"forked_from": source.info.name}
-        if title:
-            new_metadata["title"] = title
-        elif isinstance(source_metadata.get("title"), str):
-            new_metadata["title"] = source_metadata["title"]
-        if isinstance(source_metadata.get("first_user_preview"), str):
-            new_metadata["first_user_preview"] = source_metadata["first_user_preview"]
-
-        new_session = self.create_session(metadata=new_metadata)
-        history_map = source_metadata.get("last_history_by_agent")
-        new_history_map: dict[str, str] = {}
-
-        if isinstance(history_map, dict) and history_map:
-            for agent_name, filename in history_map.items():
-                if not filename:
-                    continue
-                src_path = source.directory / filename
-                if not src_path.exists():
-                    logger.warning(
-                        "Session history file missing",
-                        data={"session": source.info.name, "agent": agent_name, "file": filename},
-                    )
-                    continue
-                dest_name = self._copy_history_file(src_path, new_session.directory)
-                new_session.info.history_files.append(dest_name)
-                new_history_map[agent_name] = dest_name
-        else:
-            for filename in source.info.history_files:
-                src_path = source.directory / filename
-                if not src_path.exists():
-                    continue
-                dest_name = self._copy_history_file(src_path, new_session.directory)
-                new_session.info.history_files.append(dest_name)
-
-        if new_history_map:
-            new_session.info.metadata["last_history_by_agent"] = new_history_map
-
-        new_session._save_metadata()
+        source_snapshot = self._load_authoritative_snapshot(source)
+        new_session = self.create_session()
+        copied_history_files = self._copy_fork_history_files(
+            source=source,
+            snapshot=source_snapshot,
+            dest_dir=new_session.directory,
+        )
+        forked_snapshot = clone_session_snapshot_for_fork(
+            source_snapshot,
+            new_session_id=new_session.info.name,
+            copied_history_files=copied_history_files,
+            cloned_at=new_session.info.created_at,
+            title=title,
+        )
+        new_session.info = session_info_from_snapshot(forked_snapshot)
+        new_session._save_snapshot(forked_snapshot)
         return new_session
 
     def get_session(self, name: str) -> Session | None:
@@ -859,10 +963,10 @@ class SessionManager:
             return None
 
         try:
-            with open(metadata_file) as f:
+            with open(metadata_file, encoding="utf-8") as f:
                 data = json.load(f)
                 info = SessionInfo.from_dict(data)
-            return Session(info, session_dir)
+            return Session(info, session_dir, manager=self)
         except Exception as e:
             logger.error(f"Failed to get session {name}: {e}")
             return None
@@ -949,6 +1053,42 @@ class SessionManager:
         shutil.copy2(src_path, dest_path)
         return dest_name
 
+    def _load_authoritative_snapshot(self, session: Session) -> SessionSnapshot:
+        metadata_file = session.directory / "session.json"
+        try:
+            with open(metadata_file, encoding="utf-8") as handle:
+                return load_session_snapshot(json.load(handle))
+        except Exception as exc:
+            logger.warning(
+                "Failed to load typed session snapshot; using compatibility projection",
+                data={"session": session.info.name, "error": str(exc)},
+            )
+            return snapshot_from_session_info(session.info)
+
+    def _copy_fork_history_files(
+        self,
+        *,
+        source: Session,
+        snapshot: SessionSnapshot,
+        dest_dir: pathlib.Path,
+    ) -> dict[str, str]:
+        copied_history_files: dict[str, str] = {}
+        for agent_snapshot in snapshot.continuation.agents.values():
+            history_file = agent_snapshot.history_file
+            if history_file is None or history_file in copied_history_files:
+                continue
+
+            src_path = source.directory / history_file
+            if not src_path.exists():
+                logger.warning(
+                    "Session history file missing during fork",
+                    data={"session": source.info.name, "file": history_file},
+                )
+                continue
+
+            copied_history_files[history_file] = self._copy_history_file(src_path, dest_dir)
+        return copied_history_files
+
     def set_current_session(self, session: Session) -> None:
         """Set the current session."""
         self._current_session = session
@@ -963,15 +1103,36 @@ def reset_session_manager() -> None:
     _session_manager = None
 
 
-def get_session_manager(*, cwd: pathlib.Path | None = None) -> SessionManager:
+def get_session_manager(
+    *,
+    cwd: pathlib.Path | None = None,
+    environment_override: str | pathlib.Path | None = None,
+    respect_env_override: bool = True,
+) -> SessionManager:
     """Get or create the global session manager."""
     global _session_manager
+    explicit_cwd = cwd is not None
     resolved_cwd = cwd.resolve() if cwd is not None else pathlib.Path.cwd().resolve()
-    env_override = _normalized_environment_override(resolved_cwd)
+    env_override = _session_environment_override(
+        cwd=resolved_cwd,
+        explicit_cwd=explicit_cwd,
+        environment_override=environment_override,
+        respect_env_override=respect_env_override,
+    )
     expected_paths = resolve_environment_paths(cwd=resolved_cwd, override=env_override)
     if _session_manager is None:
-        _session_manager = SessionManager(cwd=cwd)
+        _session_manager = SessionManager(
+            cwd=cwd,
+            environment_override=env_override,
+            respect_env_override=respect_env_override,
+        )
         return _session_manager
     if _session_manager.base_dir != expected_paths.sessions:
-        _session_manager = SessionManager(cwd=cwd)
+        _session_manager = SessionManager(
+            cwd=cwd,
+            environment_override=env_override,
+            respect_env_override=respect_env_override,
+        )
+    elif _session_manager.workspace_dir != resolved_cwd:
+        _session_manager.workspace_dir = resolved_cwd
     return _session_manager

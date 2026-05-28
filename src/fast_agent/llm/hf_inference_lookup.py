@@ -6,19 +6,25 @@ has inference providers available through the HuggingFace Inference API.
 
 from __future__ import annotations
 
+import asyncio
 import random
 from enum import Enum
 from typing import TYPE_CHECKING
 
-import httpx
+from huggingface_hub import HfApi
+from huggingface_hub.errors import HfHubHTTPError, RepositoryNotFoundError
 from pydantic import BaseModel, Field, computed_field
 
-from fast_agent.mcp.hf_auth import add_hf_auth_header
 from fast_agent.utils.async_utils import run_sync
+
+INFERENCE_PROVIDER_MAPPING_EXPAND: list[ExpandModelProperty_T] = ["inferenceProviderMapping"]
+
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from typing import Any
+
+    from huggingface_hub.hf_api import ExpandModelProperty_T, InferenceProviderMapping
 
     # Type alias for lookup function - allows dependency injection for testing
     InferenceLookupFn = Callable[[str], Awaitable["InferenceProviderLookupResult"]]
@@ -38,7 +44,6 @@ class InferenceProvider(BaseModel):
     status: str = InferenceProviderStatus.LIVE.value
     provider_id: str = Field(default="", alias="providerId")
     task: str = ""
-    is_model_author: bool = Field(default=False, alias="isModelAuthor")
 
     model_config = {"populate_by_name": True}
 
@@ -85,9 +90,6 @@ class ModelValidationResult(BaseModel):
     valid: bool
     display_message: str = ""
     error: str | None = None
-
-
-HF_API_BASE = "https://huggingface.co/api/models"
 
 
 def normalize_hf_model_id(model: str) -> str | None:
@@ -139,7 +141,7 @@ async def lookup_inference_providers(
     """Look up available inference providers for a HuggingFace model.
 
     Args:
-        model_id: The HuggingFace model ID (e.g., "moonshotai/Kimi-K2-Thinking")
+        model_id: The HuggingFace model ID (e.g., "deepseek-ai/DeepSeek-V4-Pro")
         timeout: Request timeout in seconds
         lookup_fn: Optional function to use for lookup (for testing)
 
@@ -147,7 +149,7 @@ async def lookup_inference_providers(
         InferenceProviderLookupResult with provider information
 
     Example:
-        >>> result = await lookup_inference_providers("moonshotai/Kimi-K2-Thinking")
+        >>> result = await lookup_inference_providers("deepseek-ai/DeepSeek-V4-Pro")
         >>> if result.has_providers:
         ...     print(f"Available providers: {result.format_provider_list()}")
         ...     for model_str in result.format_model_strings():
@@ -165,51 +167,38 @@ async def lookup_inference_providers(
     if ":" in model_id:
         model_id = model_id.rsplit(":", 1)[0]
 
-    url = f"{HF_API_BASE}/{model_id}?expand=inferenceProviderMapping"
-    params = None
-
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            headers = add_hf_auth_header(url, None)
-            response = await client.get(url, params=params, headers=headers)
-
-            if response.status_code == 401:
-                # Model does not exist
-                return InferenceProviderLookupResult(
-                    model_id=model_id,
-                    exists=False,
-                    providers=[],
-                    error=f"Model '{model_id}' not found on HuggingFace",
-                )
-
-            response.raise_for_status()
-            data = response.json()
-
-            # Parse inference provider mapping
-            provider_mapping = data.get("inferenceProviderMapping", {})
-            providers = [
-                InferenceProvider.from_dict(name, info) for name, info in provider_mapping.items()
-            ]
-
-            return InferenceProviderLookupResult(
-                model_id=model_id,
-                exists=True,
-                providers=providers,
-            )
-
-    except httpx.TimeoutException:
-        return InferenceProviderLookupResult(
-            model_id=model_id,
-            exists=False,
-            providers=[],
-            error=f"Timeout looking up model '{model_id}'",
+        info = await asyncio.to_thread(
+            HfApi().model_info,
+            model_id,
+            expand=INFERENCE_PROVIDER_MAPPING_EXPAND,
+            timeout=timeout,
         )
-    except httpx.HTTPStatusError as e:
+        providers = [
+            _provider_from_hub_mapping(mapping)
+            for mapping in (info.inference_provider_mapping or [])
+        ]
+
+        return InferenceProviderLookupResult(
+            model_id=model_id,
+            exists=True,
+            providers=providers,
+        )
+
+    except RepositoryNotFoundError:
         return InferenceProviderLookupResult(
             model_id=model_id,
             exists=False,
             providers=[],
-            error=f"HTTP error {e.response.status_code} looking up model '{model_id}'",
+            error=f"Model '{model_id}' not found on HuggingFace",
+        )
+    except HfHubHTTPError as e:
+        status_code = e.response.status_code if e.response is not None else "unknown"
+        return InferenceProviderLookupResult(
+            model_id=model_id,
+            exists=False,
+            providers=[],
+            error=f"HTTP error {status_code} looking up model '{model_id}'",
         )
     except Exception as e:
         return InferenceProviderLookupResult(
@@ -218,6 +207,15 @@ async def lookup_inference_providers(
             providers=[],
             error=f"Error looking up model '{model_id}': {e}",
         )
+
+
+def _provider_from_hub_mapping(mapping: InferenceProviderMapping) -> InferenceProvider:
+    return InferenceProvider(
+        name=mapping.provider,
+        status=mapping.status,
+        providerId=mapping.provider_id,
+        task=mapping.task,
+    )
 
 
 def lookup_inference_providers_sync(
@@ -296,7 +294,7 @@ async def validate_hf_model(
     """Validate that an HF model exists and has inference providers.
 
     Args:
-        model: The model string (e.g., "hf.moonshotai/Kimi-K2-Thinking:together")
+        model: The model string (e.g., "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai")
             Can also be an alias like "kimi" or "glm" that resolves to an HF model.
         presets: Optional dict of model presets (e.g., {"kimi": "hf.moonshotai/..."}).
             If not provided, no preset resolution is performed.
@@ -305,7 +303,7 @@ async def validate_hf_model(
     Returns:
         ModelValidationResult with validation status and messages
     """
-    # Resolve presets first (e.g., "kimi" -> "hf.moonshotai/Kimi-K2-Instruct-0905:groq")
+    # Resolve presets first (e.g., "kimi" -> "hf.moonshotai/Kimi-K2.5:fireworks-ai?...")
     if presets:
         model = presets.get(model, model)
 

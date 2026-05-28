@@ -29,6 +29,13 @@ class ServerConfigError(FastAgentError):
         super().__init__(message, details)
 
 
+class ConfigFileError(FastAgentError):
+    """Raised when a YAML-backed config file cannot be loaded or parsed."""
+
+    def __init__(self, message: str, details: str = "") -> None:
+        super().__init__(message, details)
+
+
 class AgentConfigError(FastAgentError):
     """Raised when there are issues with Agent or Workflow configuration
     Example: Parallel fan-in references unknown agent

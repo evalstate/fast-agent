@@ -10,6 +10,7 @@ from fast_agent.cli.runtime.shell_cwd_policy import (
     effective_missing_shell_cwd_policy,
     resolve_missing_shell_cwd_policy,
 )
+from fast_agent.skills import SkillManifest
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_card_types import AgentCardData
@@ -90,6 +91,47 @@ def test_collect_shell_cwd_issues_respects_shell_flag_request(tmp_path: Path) ->
     assert with_flag[0].kind == "missing"
 
 
+def test_collect_shell_cwd_issues_respects_no_shell(tmp_path: Path) -> None:
+    agents: dict[str, "AgentCardData"] = {
+        "shell": {
+            "config": AgentConfig(
+                name="shell",
+                instruction="x",
+                servers=[],
+                shell=True,
+                cwd=Path("missing"),
+            )
+        },
+        "skill": {
+            "config": AgentConfig(
+                name="skill",
+                instruction="x",
+                servers=[],
+                shell=False,
+                cwd=Path("missing-skill"),
+            )
+        },
+    }
+    agents["skill"]["config"].skill_manifests = [
+        SkillManifest(
+            name="skill",
+            description="test skill",
+            body="",
+            path=tmp_path / "SKILL.md",
+        )
+    ]
+
+    assert (
+        collect_shell_cwd_issues(
+            agents,
+            shell_runtime_requested=True,
+            no_shell=True,
+            cwd=tmp_path,
+        )
+        == []
+    )
+
+
 def test_collect_shell_cwd_issues_from_runtime_agents(tmp_path: Path) -> None:
     class RuntimeAgent:
         def __init__(self, shell_runtime_enabled: bool, cwd: Path | None) -> None:
@@ -159,8 +201,7 @@ def test_can_prompt_for_missing_cwd_requires_interactive_tty() -> None:
     assert (
         can_prompt_for_missing_cwd(
             mode="interactive",
-            message=None,
-            prompt_file=None,
+            execution_mode="repl",
             stdin_is_tty=True,
             tty_device_available=False,
         )
@@ -170,8 +211,7 @@ def test_can_prompt_for_missing_cwd_requires_interactive_tty() -> None:
     assert (
         can_prompt_for_missing_cwd(
             mode="serve",
-            message=None,
-            prompt_file=None,
+            execution_mode="repl",
             stdin_is_tty=True,
             tty_device_available=False,
         )
@@ -181,8 +221,7 @@ def test_can_prompt_for_missing_cwd_requires_interactive_tty() -> None:
     assert (
         can_prompt_for_missing_cwd(
             mode="interactive",
-            message="run",
-            prompt_file=None,
+            execution_mode="one_shot_message",
             stdin_is_tty=True,
             tty_device_available=False,
         )
@@ -192,11 +231,9 @@ def test_can_prompt_for_missing_cwd_requires_interactive_tty() -> None:
     assert (
         can_prompt_for_missing_cwd(
             mode="interactive",
-            message=None,
-            prompt_file=None,
+            execution_mode="repl",
             stdin_is_tty=False,
             tty_device_available=True,
         )
         is True
     )
-

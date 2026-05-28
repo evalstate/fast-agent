@@ -12,6 +12,8 @@ uvx hf-inference-acp
 
 This package provides an ACP-compatible agent for Hugging Face Inference API. It allows you to use Hugging Face's Inference Providers through any ACP-compatible client (like Toad).
 
+ACP sessions are always connection-scoped.
+
 ## Features
 
 - **Setup Mode**: Configure Hugging Face credentials and model settings
@@ -43,7 +45,7 @@ This package provides an ACP-compatible agent for Hugging Face Inference API. It
 - `kimi`
 - `glm`
 - `minimax`
-- `deepseek32`
+- `deepseek4pro`
 - `kimi25` (thinking profile)
 - `qwen35` (thinking profile)
 - `qwen35instruct` (instruct profile)

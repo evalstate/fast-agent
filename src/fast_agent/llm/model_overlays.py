@@ -9,12 +9,14 @@ from typing import Literal
 from urllib.parse import urlencode
 
 import yaml
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import fast_agent.config as config_module
-from fast_agent.config import load_yaml_mapping, resolve_environment_config_file
+from fast_agent.config import load_yaml_mapping
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.home import resolve_fast_agent_home
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
 
@@ -52,11 +54,7 @@ def _overlay_model_key(provider: Provider, model_name: str) -> str:
 
 
 def _existing_model_params(provider: Provider, model_name: str) -> ModelParameters | None:
-    normalized = _overlay_model_key(provider, model_name)
-    params = ModelDatabase.MODELS.get(normalized)
-    if params is not None:
-        return params
-    return ModelDatabase._RUNTIME_MODEL_PARAMS.get(normalized)
+    return ModelDatabase.get_model_params(model_name, provider=provider)
 
 
 class ModelOverlayConnection(BaseModel):
@@ -147,10 +145,20 @@ class ModelOverlayMetadata(BaseModel):
     context_window: int | None = None
     max_output_tokens: int | None = None
     tokenizes: list[str] | None = None
+    json_mode: Literal["schema", "object"] | None = None
+    structured_tool_policy: Literal["always", "defer", "no_tools"] | None = None
+    model_specific: str | None = None
     # Legacy fallback retained for older overlay files. New overlays should use
     # defaults.temperature instead.
     default_temperature: float | None = None
     fast: bool | None = None
+
+    @field_validator("json_mode", mode="before")
+    @classmethod
+    def _normalize_json_mode(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() == "none":
+            return None
+        return value
 
 
 class ModelOverlayPicker(BaseModel):
@@ -324,6 +332,14 @@ class LoadedModelOverlay:
             }
             if self.manifest.metadata.tokenizes is not None:
                 update_payload["tokenizes"] = self.manifest.metadata.tokenizes
+            if "json_mode" in self.manifest.metadata.model_fields_set:
+                update_payload["json_mode"] = self.manifest.metadata.json_mode
+            if self.manifest.metadata.structured_tool_policy is not None:
+                update_payload["structured_tool_policy"] = (
+                    self.manifest.metadata.structured_tool_policy
+                )
+            if self.manifest.metadata.model_specific is not None:
+                update_payload["model_specific"] = self.manifest.metadata.model_specific
             if default_temperature is not None:
                 update_payload["default_temperature"] = default_temperature
             if self.manifest.metadata.fast is not None:
@@ -331,10 +347,16 @@ class LoadedModelOverlay:
             return existing.model_copy(update=update_payload)
 
         tokenizes = self.manifest.metadata.tokenizes or list(ModelDatabase.TEXT_ONLY)
+        json_mode: str | None = "schema"
+        if "json_mode" in self.manifest.metadata.model_fields_set:
+            json_mode = self.manifest.metadata.json_mode
         return ModelParameters(
             context_window=context_window,
             max_output_tokens=max_output_tokens,
             tokenizes=tokenizes,
+            json_mode=json_mode,
+            structured_tool_policy=self.manifest.metadata.structured_tool_policy,
+            model_specific=self.manifest.metadata.model_specific,
             default_provider=self.provider,
             default_temperature=default_temperature,
             fast=bool(self.manifest.metadata.fast),
@@ -453,13 +475,12 @@ def resolve_model_overlay_paths(
     base_path = (start_path or Path.cwd()).resolve()
     override = env_dir
     if override is None:
-        override = os.getenv("ENVIRONMENT_DIR")
-    if override is None:
         configured = _settings_environment_override(start_path=start_path)
         if configured is not None:
             base_path, override = configured
 
-    env_root = resolve_environment_config_file(base_path, env_dir=override).parent
+    home = resolve_fast_agent_home(cwd=base_path, cli_override=override)
+    env_root = home.path if home is not None else base_path
     return ModelOverlayPaths(
         env_root=env_root,
         overlays_dir=env_root / "model-overlays",
@@ -483,6 +504,114 @@ def serialize_model_overlay_manifest(manifest: ModelOverlayManifest) -> str:
 
     payload = manifest.model_dump(mode="json", exclude_none=True)
     return f"{yaml.safe_dump(payload, sort_keys=False).rstrip()}\n"
+
+
+def _split_provider_prefix(model_name: str) -> tuple[Provider | None, str]:
+    """Split an optional provider prefix from a model string.
+
+    Accepts forms like "openrouter.gpt-4o", "anthropic/claude-4-sonnet-20250514",
+    "hf.openai/gpt-oss-120b:cerebras", or bare namespaced HF IDs like "openai/gpt-oss-120b".
+
+    Hugging Face namespaced models (those containing "/") are special: the namespace
+    may collide with another provider name (e.g. "openai/...", "meta-llama/...").
+    In those cases we must not strip the first segment as a provider prefix.
+    """
+    raw = model_name.strip()
+    if not raw:
+        return None, raw
+
+    # Explicit dot-prefixed providers must win before slash handling so specs
+    # like "openrouter.moonshotai/kimi-k2" do not look like bare HF repo IDs.
+    if "." in raw:
+        head, tail = raw.split(".", 1)
+        if head.lower() == "huggingface":
+            return Provider.HUGGINGFACE, tail
+        try:
+            return Provider(head.lower()), tail
+        except ValueError:
+            pass
+
+    # HF-style namespaced models contain a slash in the model part.
+    # The namespace may collide with a provider name, so a remaining slash here
+    # is treated as part of the model ID rather than a provider separator.
+    if "/" in raw:
+        return None, raw
+
+    return None, raw
+
+
+def build_model_overlay_manifest_from_database(
+    model_name: str,
+    *,
+    provider: Provider | None = None,
+    overlay_name: str | None = None,
+    description: str | None = None,
+) -> ModelOverlayManifest:
+    """Create a ModelOverlayManifest seeded from a ModelDatabase entry.
+
+    This allows users to export a known-good catalog model (with its model_specific
+    prompt text, modalities, context window, etc.) into a local overlay that they
+    can then customize.
+
+    If model_name contains an explicit provider prefix (e.g. "openrouter.gpt-4o"),
+    that prefix is used unless an explicit provider override is supplied.
+    """
+    prefix_provider, bare_model = _split_provider_prefix(model_name)
+
+    lookup_name = model_name if prefix_provider is not None else bare_model
+    if prefix_provider == Provider.HUGGINGFACE and model_name.lower().startswith("huggingface."):
+        lookup_name = f"{Provider.HUGGINGFACE.value}.{bare_model}"
+    effective_provider = provider or prefix_provider
+    if effective_provider is None and "/" in bare_model:
+        effective_provider = Provider.HUGGINGFACE
+
+    existing = None
+    if effective_provider is not None:
+        existing = _existing_model_params(effective_provider, lookup_name)
+    if existing is None:
+        existing = ModelDatabase.get_model_params(lookup_name)
+
+    if existing is None:
+        raise ModelConfigError(
+            f"Model '{model_name}' was not found in the model database",
+            "Check the model name or use a fully-qualified provider.model string.",
+        )
+
+    # Final provider decision: explicit arg > parsed prefix > catalog default > OPENAI
+    resolved_provider = effective_provider or existing.default_provider or Provider.OPENAI
+
+    # The manifest should store the bare model name (without our own prefix)
+    manifest_model = bare_model
+    name = overlay_name or _safe_overlay_filename(manifest_model)
+
+    # Map ModelParameters fields that are supported by ModelOverlayMetadata
+    json_mode: Literal["schema", "object"] | None = None
+    if existing.json_mode in ("schema", "object"):
+        json_mode = "schema" if existing.json_mode == "schema" else "object"
+
+    metadata = ModelOverlayMetadata(
+        context_window=existing.context_window,
+        max_output_tokens=existing.max_output_tokens,
+        tokenizes=existing.tokenizes if existing.tokenizes else None,
+        model_specific=existing.model_specific,
+        json_mode=json_mode,
+        structured_tool_policy=existing.structured_tool_policy,
+        fast=existing.fast,
+        default_temperature=existing.default_temperature,
+    )
+
+    return ModelOverlayManifest(
+        name=name,
+        provider=resolved_provider,
+        model=manifest_model,
+        metadata=metadata,
+        picker=ModelOverlayPicker(
+            label=name,
+            description=description or "Exported from model database",
+            current=True,
+            featured=False,
+        ),
+    )
 
 
 def write_model_overlay_manifest(
@@ -535,14 +664,20 @@ def _settings_environment_override(
     if settings is None:
         return None
 
+    raw_config_file = getattr(settings, "_config_file", None)
+    config_file = raw_config_file if isinstance(raw_config_file, str) and raw_config_file.strip() else None
     environment_dir = getattr(settings, "environment_dir", None)
-    if environment_dir is None:
+    if environment_dir is None and not (start_path is None and config_file is not None):
         return None
 
     base_path = (start_path or Path.cwd()).resolve()
-    config_file = getattr(settings, "_config_file", None)
-    if start_path is None and isinstance(config_file, str) and config_file.strip():
-        base_path = Path(config_file).expanduser().resolve().parent
+    if start_path is None and config_file is not None:
+        config_parent = Path(config_file).expanduser().resolve().parent
+        base_path = (
+            config_parent.parent
+            if config_parent.name == DEFAULT_ENVIRONMENT_DIR
+            else config_parent
+        )
 
     return base_path, environment_dir
 

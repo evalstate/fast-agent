@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 _STRUCTURAL_SCHEMA_KEYS = frozenset(
@@ -19,7 +20,7 @@ _STRUCTURAL_SCHEMA_KEYS = frozenset(
     }
 )
 
-_STRICT_DEFAULT_MODELS = frozenset({"kimi25", "kimi-2.5"})
+_STRICT_DEFAULT_MODELS = frozenset({"kimi25", "kimi-2.5", "kimi26", "kimi-2.6"})
 
 
 def _infer_json_schema_type(value: Any) -> str | None:
@@ -70,9 +71,28 @@ def sanitize_tool_input_schema(input_schema: dict[str, Any]) -> dict[str, Any]:
     return {"type": "object", "properties": {}}
 
 
+def sanitize_response_format_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return an OpenAI strict-compatible response_format JSON schema.
+
+    OpenAI's SDK owns the strict-schema rules used for Pydantic models. For raw
+    user-supplied schemas we call the same SDK helper behind the model route so
+    dict schemas and Pydantic schemas are normalized consistently. The OpenAI
+    dependency is pinned, but the helper is private and mutates in place, so keep
+    this wrapper as the only direct usage and always copy before calling it.
+    """
+    from openai.lib._pydantic import _ensure_strict_json_schema
+
+    copied = deepcopy(schema)
+    return _ensure_strict_json_schema(copied, path=(), root=copied)
+
+
 def should_strip_tool_schema_defaults(model_name: str | None) -> bool:
     if not model_name:
         return False
 
     normalized = model_name.strip().lower()
-    return normalized in _STRICT_DEFAULT_MODELS or "kimi-k2.5" in normalized
+    return (
+        normalized in _STRICT_DEFAULT_MODELS
+        or "kimi-k2.5" in normalized
+        or "kimi-k2.6" in normalized
+    )

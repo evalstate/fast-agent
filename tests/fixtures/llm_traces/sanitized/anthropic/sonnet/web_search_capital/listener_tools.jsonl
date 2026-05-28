@@ -1,11 +1,11 @@
-{"event_type": "start", "payload": {"chunk": "\u2026", "index": 1, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_1"}}
-{"event_type": "stop", "payload": {"index": 1, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_1"}}
-{"event_type": "start", "payload": {"chunk": "{\"query\": \"capital of France\"}", "index": 2, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_2"}}
-{"event_type": "stop", "payload": {"index": 2, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_2"}}
-{"event_type": "start", "payload": {"chunk": "\u2026", "index": 5, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_3"}}
-{"event_type": "stop", "payload": {"index": 5, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_3"}}
-{"event_type": "start", "payload": {"chunk": "{\"query\": \"capital of France\"}", "index": 6, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_4"}}
-{"event_type": "stop", "payload": {"index": 6, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_4"}}
+{"event_type": "start", "payload": {"chunk": "\u2026", "index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_1"}}
+{"event_type": "stop", "payload": {"index": 1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_1"}}
+{"event_type": "start", "payload": {"chunk": "{\"query\": \"capital of France\"}", "index": 2, "presentation_family": "web_search", "preserve_details": false, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_2"}}
+{"event_type": "stop", "payload": {"index": 2, "presentation_family": "web_search", "preserve_details": false, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_2"}}
+{"event_type": "start", "payload": {"chunk": "\u2026", "index": 5, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_3"}}
+{"event_type": "stop", "payload": {"index": 5, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_3"}}
+{"event_type": "start", "payload": {"chunk": "{\"query\": \"capital of France\"}", "index": 6, "presentation_family": "web_search", "preserve_details": false, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_4"}}
+{"event_type": "stop", "payload": {"index": 6, "presentation_family": "web_search", "preserve_details": false, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_4"}}
 {"event_type": "text", "payload": {"chunk": "**", "index": 11}}
 {"event_type": "text", "payload": {"chunk": "Paris** is the capital and", "index": 11}}
 {"event_type": "text", "payload": {"chunk": " largest city of France,", "index": 11}}

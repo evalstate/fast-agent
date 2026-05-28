@@ -1,3 +1,16 @@
+"""
+Testing notes:
+
+- This module owns catalog-level invariants: current vs non-current aliases,
+  fast-model flags, provider suggestions, and overlay/discovery interactions.
+- Prefer invariant and sentinel tests over reproducing the full curated catalog
+  as exact string-for-string assertions.
+- A few promoted/legacy smoke tests are useful here when they validate the
+  migration state users see in pickers and suggestions.
+- Alias parsing semantics belong in test_model_factory.py; model capability
+  lookups belong in test_model_database.py.
+"""
+
 from __future__ import annotations
 
 import os
@@ -8,6 +21,7 @@ import pytest
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.llm.provider.anthropic.vertex_config import GoogleAdcStatus
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
@@ -41,30 +55,56 @@ def test_list_curated_models_for_provider() -> None:
     models = ModelSelectionCatalog.list_curated_models(Provider.ANTHROPIC)
     assert "claude-haiku-4-5" in models
     assert "claude-sonnet-4-6" in models
+    assert "claude-opus-4-7" in models
     assert "claude-opus-4-6" in models
 
 
 def test_list_curated_aliases_for_provider() -> None:
     aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
-    assert aliases == ["sonnet", "haiku", "opus"]
+    assert aliases == ["opus", "opus46", "sonnet", "haiku"]
+
+
+def test_deepseek_curated_order_prefers_pro_above_flash() -> None:
+    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.DEEPSEEK)
+    assert aliases[:2] == ["deepseek", "deepseek4flash"]
 
 
 def test_legacy_aliases_are_listed_but_not_curated() -> None:
     curated_aliases = ModelSelectionCatalog.list_curated_aliases(Provider.HUGGINGFACE)
     legacy_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
 
-    assert "minimax25" in curated_aliases
-    assert "qwen35" in curated_aliases
-    assert "qwen35instruct" in curated_aliases
+    assert set(curated_aliases).isdisjoint(legacy_aliases)
+    assert "glm51" in curated_aliases
+    assert "kimi26instant" in curated_aliases
+    assert "deepseek-hf" in curated_aliases
+    assert "kimi-k2-instruct" not in curated_aliases
+    assert "kimi25" in curated_aliases
+    assert "kimi25instant" in curated_aliases
+    assert "glm5" not in curated_aliases
+    assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
     assert "glm47" not in curated_aliases
+    assert "deepseek-hf" not in legacy_aliases
+    assert "deepseek32" in legacy_aliases
 
 
 def test_list_fast_models_uses_explicit_curated_designation() -> None:
-    for provider in (Provider.ANTHROPIC, Provider.CODEX_RESPONSES, Provider.HUGGINGFACE):
+    for provider in (
+        Provider.ANTHROPIC,
+        Provider.CODEX_RESPONSES,
+        Provider.HUGGINGFACE,
+        Provider.GROQ,
+    ):
         assert ModelSelectionCatalog.list_fast_models(provider) == [
             entry.model for entry in _static_current_entries(provider) if entry.fast
         ]
+
+
+def test_groq_curated_aliases_drop_deprecated_kimi_entry() -> None:
+    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.GROQ)
+
+    assert "kimigroq" not in aliases
+    assert "qwen3-32b" in aliases
 
 
 @pytest.mark.parametrize(
@@ -125,6 +165,44 @@ def test_configured_providers_reads_config_keys() -> None:
     assert Provider.ANTHROPIC in providers
     assert Provider.OPENAI in providers
     assert Provider.RESPONSES in providers
+
+
+def test_configured_providers_does_not_treat_anthropic_vertex_as_base_provider(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.vertex_config.detect_google_adc",
+        lambda: GoogleAdcStatus(available=True, project_id="proj", credentials=object()),
+    )
+
+    providers = ModelSelectionCatalog.configured_providers(
+        {
+            "anthropic": {
+                "vertex_ai": {
+                    "enabled": True,
+                    "project_id": "proj",
+                    "location": "global",
+                }
+            }
+        }
+    )
+
+    assert Provider.ANTHROPIC not in providers
+
+
+def test_configured_providers_reads_anthropic_vertex_env_only_setup(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.vertex_config.detect_google_adc",
+        lambda: GoogleAdcStatus(available=True, project_id="proj", credentials=object()),
+    )
+    monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
+
+    providers = ModelSelectionCatalog.configured_providers({})
+
+    assert Provider.ANTHROPIC_VERTEX in providers
 
 
 def test_configured_providers_reads_environment_keys() -> None:
@@ -192,11 +270,24 @@ def test_suggestions_for_providers_returns_curated_and_fast_models() -> None:
     assert suggestion.all_models
 
 
+def test_google_picker_lists_gemini35_flash_first() -> None:
+    entries = ModelSelectionCatalog.list_entries(Provider.GOOGLE)
+    current_entries = [entry for entry in entries if entry.current]
+
+    assert current_entries
+    first = current_entries[0]
+    assert first.alias == "gemini35flash"
+    assert first.model == "google.gemini-3.5-flash"
+    assert first.fast is True
+
+
 def test_suggestions_include_legacy_aliases_when_configured() -> None:
     suggestions = ModelSelectionCatalog.suggestions_for_providers([Provider.HUGGINGFACE])
 
     assert len(suggestions) == 1
     suggestion = suggestions[0]
+    assert "glm51" in suggestion.current_aliases
+    assert "glm5" in suggestion.non_current_aliases
     assert "glm47" in suggestion.non_current_aliases
     assert "glm47" not in suggestion.current_aliases
 
@@ -240,6 +331,7 @@ def test_cross_provider_overlay_alias_does_not_hide_curated_model(tmp_path: Path
 def test_codexresponses_curated_entries_use_explicit_transports() -> None:
     curated = ModelSelectionCatalog.list_curated_models(Provider.CODEX_RESPONSES)
     assert "codexresponses.gpt-5.4?reasoning=high" in curated
+    assert "codexresponses.gpt-5.5?reasoning=medium" in curated
     assert "codexresponses.gpt-5.3-codex-spark" in curated
 
 
@@ -336,5 +428,5 @@ def test_overlay_catalog_uses_explicit_environment_context(
 
     assert "openresponses.overlay-tests/project" in models
     assert "openresponses.overlay-tests/ambient" not in models
-    assert suggestions[0].current_aliases[0] == "projectoverlay"
+    assert "projectoverlay" in suggestions[0].current_aliases
     assert "ambientoverlay" not in suggestions[0].current_aliases

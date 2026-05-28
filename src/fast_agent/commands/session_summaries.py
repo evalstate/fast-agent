@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
+from fast_agent.commands.session_export_help import SESSION_EXPORT_USAGE
 from fast_agent.session import (
     SessionEntrySummary,
     apply_session_window,
@@ -11,6 +13,9 @@ from fast_agent.session import (
     format_session_entries,
     get_session_manager,
 )
+
+if TYPE_CHECKING:
+    from fast_agent.session import SessionManager
 
 
 @dataclass(slots=True)
@@ -24,12 +29,16 @@ DEFAULT_SESSION_USAGE = "Usage: /session resume <id|number>"
 FULL_SESSION_USAGE = (
     "Usage: /session list | /session new [title] | /session resume [id|number] | "
     "/session title <text> | /session fork [title] | /session delete <id|number|all> | "
-    "/session pin [on|off|id|number]"
+    f"/session pin [on|off|id|number] | {SESSION_EXPORT_USAGE}"
 )
 
 
-def build_session_list_summary(*, show_help: bool = False) -> SessionListSummary:
-    manager = get_session_manager()
+def build_session_list_summary(
+    *,
+    manager: "SessionManager | None" = None,
+    show_help: bool = False,
+) -> SessionListSummary:
+    manager = manager or get_session_manager()
     sessions = apply_session_window(manager.list_sessions())
 
     current = manager.current_session

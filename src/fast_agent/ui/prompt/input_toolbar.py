@@ -14,6 +14,12 @@ from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
+from fast_agent.ui.attachment_indicator import (
+    DraftAttachmentSummary,
+    render_attachment_indicator,
+    summarize_draft_attachments,
+)
+from fast_agent.ui.context_usage_display import resolve_context_usage_percent
 from fast_agent.ui.model_chip_display import render_model_chip
 from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.toolbar import (
@@ -32,7 +38,16 @@ from fast_agent.ui.web_search_display import render_web_search_indicator
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
-    from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
+    from fast_agent.llm.usage_tracking import UsageAccumulator
+
+
+@dataclass(slots=True)
+class ToolbarRenderCache:
+    agent_state_key: tuple[object, ...] | None = None
+    agent_state: ToolbarAgentState | None = None
+    attachment_summary_key: tuple[object, ...] | None = None
+    attachment_summary: DraftAttachmentSummary | None = None
 
 
 @dataclass(slots=True)
@@ -48,11 +63,15 @@ class ToolbarRenderResult:
     html: HTML
     show_shell_path_segment: bool
     clear_copy_notice: bool = False
+    agent_state_cache_hit: bool = False
+    attachment_summary_cache_hit: bool = False
+    attachment_summary_skipped: bool = False
 
 
 @dataclass(slots=True)
 class ToolbarAgentState:
     agent: object | None = None
+    model_name: str | None = None
     model_display: str | None = None
     tdv_segment: str | None = None
     turn_count: int = 0
@@ -98,16 +117,29 @@ def render_input_toolbar(
     copy_notice: str | None,
     copy_notice_until: float,
     shell_path_switch_delay_seconds: float,
+    current_input_text: str = "",
+    cache: ToolbarRenderCache | None = None,
 ) -> ToolbarRenderResult:
     mode_style, mode_text = _resolve_toolbar_mode(multiline_mode)
     shortcut_text = ""
-    agent_state = _resolve_toolbar_agent_state(agent_name, agent_provider)
+    agent_state, active_llm, agent_state_cache_hit = _resolve_toolbar_agent_state_cached(
+        agent_name, agent_provider, cache=cache
+    )
     agent_identity_segment = _format_toolbar_agent_identity(
         agent_name,
         toolbar_color,
         agent_state.agent,
     )
-    middle = _build_middle_segment(agent_state, shortcut_text)
+    attachment_summary, attachment_summary_cache_hit, attachment_summary_skipped = (
+        _resolve_attachment_summary(
+            current_input_text=current_input_text,
+            model_name=agent_state.model_name,
+            provider=active_llm.provider if active_llm is not None else None,
+            cwd=shell_state.working_dir,
+            cache=cache,
+        )
+    )
+    middle = _build_middle_segment(agent_state, shortcut_text, attachment_summary=attachment_summary)
     notification_segment = _build_notification_segment()
     copy_notice_segment, clear_copy_notice = _build_copy_notice_segment(
         copy_notice,
@@ -138,7 +170,96 @@ def render_input_toolbar(
         html=html,
         show_shell_path_segment=show_shell_path_segment,
         clear_copy_notice=clear_copy_notice,
+        agent_state_cache_hit=agent_state_cache_hit,
+        attachment_summary_cache_hit=attachment_summary_cache_hit,
+        attachment_summary_skipped=attachment_summary_skipped,
     )
+
+
+def _resolve_attachment_summary(
+    *,
+    current_input_text: str,
+    model_name: str | None,
+    provider: Provider | None,
+    cwd: Path | None,
+    cache: ToolbarRenderCache | None,
+) -> tuple[DraftAttachmentSummary | None, bool, bool]:
+    if not _should_resolve_attachment_summary(current_input_text):
+        return None, False, True
+
+    cache_key = _build_attachment_summary_cache_key(
+        current_input_text=current_input_text,
+        model_name=model_name,
+        provider=provider,
+        cwd=cwd,
+    )
+    if cache is not None and cache.attachment_summary_key == cache_key:
+        return cache.attachment_summary, True, False
+
+    attachment_summary = summarize_draft_attachments(
+        current_input_text,
+        model_name=model_name,
+        provider=provider,
+        cwd=cwd,
+    )
+    if cache is not None:
+        cache.attachment_summary_key = cache_key
+        cache.attachment_summary = attachment_summary
+    return attachment_summary, False, False
+
+
+def _build_attachment_summary_cache_key(
+    *,
+    current_input_text: str,
+    model_name: str | None,
+    provider: Provider | None,
+    cwd: Path | None,
+) -> tuple[object, ...]:
+    return (
+        current_input_text,
+        model_name,
+        provider,
+        cwd,
+        _attachment_resource_cache_snapshot(current_input_text, cwd=cwd),
+    )
+
+
+def _attachment_resource_cache_snapshot(
+    current_input_text: str,
+    *,
+    cwd: Path | None,
+) -> tuple[object, ...]:
+    from fast_agent.ui.prompt.attachment_tokens import FILE_MENTION_SERVER, URL_MENTION_SERVER
+    from fast_agent.ui.prompt.resource_mentions import parse_mentions
+
+    parsed = parse_mentions(current_input_text, cwd=cwd)
+    snapshots: list[object] = []
+    for mention in parsed.mentions:
+        if mention.server_name == FILE_MENTION_SERVER:
+            snapshots.append(_snapshot_local_attachment_path(Path(mention.resource_uri)))
+        elif mention.server_name == URL_MENTION_SERVER:
+            snapshots.append((URL_MENTION_SERVER, mention.resource_uri))
+    return tuple(snapshots)
+
+
+def _snapshot_local_attachment_path(path: Path) -> tuple[object, ...]:
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return ("file", str(path), False, False, None, None)
+
+    return (
+        "file",
+        str(path),
+        True,
+        path.is_file(),
+        stat_result.st_mtime_ns,
+        stat_result.st_size,
+    )
+
+
+def _should_resolve_attachment_summary(current_input_text: str) -> bool:
+    return "^file:" in current_input_text or "^url:" in current_input_text
 
 
 def _resolve_toolbar_mode(multiline_mode: bool) -> tuple[str, str]:
@@ -152,19 +273,45 @@ def _resolve_toolbar_agent_state(
     agent_provider: "AgentApp | None",
 ) -> ToolbarAgentState:
     agent = _resolve_current_agent(agent_provider, agent_name)
+    llm = _resolve_agent_llm(agent) if agent is not None else None
+    return _build_toolbar_agent_state(agent, llm=llm)
+
+
+def _resolve_toolbar_agent_state_cached(
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+    *,
+    cache: ToolbarRenderCache | None,
+) -> tuple[ToolbarAgentState, "FastAgentLLMProtocol | None", bool]:
+    agent = _resolve_current_agent(agent_provider, agent_name)
+    llm = _resolve_agent_llm(agent) if agent is not None else None
+    cache_key = _build_toolbar_agent_state_cache_key(agent, llm=llm)
+    if cache is not None and cache.agent_state_key == cache_key and cache.agent_state is not None:
+        return cache.agent_state, llm, True
+
+    state = _build_toolbar_agent_state(agent, llm=llm)
+    if cache is not None:
+        cache.agent_state_key = cache_key
+        cache.agent_state = state
+    return state, llm, False
+
+
+def _build_toolbar_agent_state(
+    agent: AgentProtocol | None, *, llm: "FastAgentLLMProtocol | None"
+) -> ToolbarAgentState:
     if agent is None:
         return ToolbarAgentState()
 
     turn_count = _turn_count_for_agent(agent)
     context_pct, usage_accumulator = _usage_context_for_agent(agent)
-    llm = _resolve_agent_llm(agent)
     model_name = _resolve_model_name(agent, llm)
-    model_display = _resolve_model_display(agent, model_name)
+    model_display = _resolve_model_display(agent, model_name, llm=llm)
     model_visuals = _resolve_model_visuals(model_name, llm)
     context_pct = _resolve_context_pct(context_pct, usage_accumulator, model_name, llm)
     tdv_segment = _resolve_tdv_segment(agent, model_name, llm)
     return ToolbarAgentState(
         agent=agent,
+        model_name=model_name,
         model_display=model_display,
         tdv_segment=tdv_segment,
         turn_count=turn_count,
@@ -178,73 +325,124 @@ def _resolve_toolbar_agent_state(
     )
 
 
+def _build_toolbar_agent_state_cache_key(
+    agent: AgentProtocol | None,
+    *,
+    llm: "FastAgentLLMProtocol | None",
+) -> tuple[object, ...] | None:
+    if agent is None:
+        return None
+
+    model_name = _resolve_model_name(agent, llm)
+    message_history = agent.message_history
+    history_len = len(message_history)
+    last_message_id = id(message_history[-1]) if message_history else None
+
+    usage_accumulator = agent.usage_accumulator
+    return (
+        id(agent),
+        id(llm) if llm is not None else None,
+        model_name,
+        history_len,
+        last_message_id,
+        _safe_cache_value(usage_accumulator.turn_count if usage_accumulator is not None else None),
+        _safe_cache_value(
+            usage_accumulator.current_context_tokens if usage_accumulator is not None else None
+        ),
+        _safe_cache_value(
+            usage_accumulator.context_window_size if usage_accumulator is not None else None
+        ),
+        _safe_cache_value(llm.reasoning_effort if llm is not None else None),
+        _safe_cache_value(llm.text_verbosity if llm is not None else None),
+        _safe_cache_value(llm.service_tier if llm is not None else None),
+        _safe_cache_value(llm.web_search_enabled if llm is not None else None),
+        _safe_cache_value(llm.web_fetch_enabled if llm is not None else None),
+        _parallel_fan_out_model_cache_key(agent),
+    )
+
+
+def _safe_cache_value(value: object) -> object:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return repr(value)
+
+
+def _parallel_fan_out_model_cache_key(agent: AgentProtocol) -> tuple[object, ...] | None:
+    if not isinstance(agent, ParallelAgent):
+        return None
+
+    return tuple(_fan_out_agent_model_cache_key(fan_out_agent) for fan_out_agent in agent.fan_out_agents)
+
+
+def _fan_out_agent_model_cache_key(agent: AgentProtocol) -> tuple[object, ...]:
+    llm = _resolve_agent_llm(agent)
+    model_name = _resolve_model_name(agent, llm)
+    return (
+        id(agent),
+        id(llm) if llm is not None else None,
+        model_name,
+        _safe_cache_value(resolve_model_display_name(model_name, llm=llm)),
+    )
+
+
 def _resolve_current_agent(
     agent_provider: "AgentApp | None",
     agent_name: str,
-) -> object | None:
+) -> AgentProtocol | None:
     if agent_provider is None:
         return None
     try:
-        return agent_provider._agent(agent_name)
+        return cast("AgentProtocol", agent_provider._agent(agent_name))
     except Exception:
         return None
 
 
-def _turn_count_for_agent(agent: object) -> int:
-    message_history = getattr(agent, "message_history", [])
-    return sum(1 for message in message_history if getattr(message, "role", None) == "user")
+def _turn_count_for_agent(agent: AgentProtocol) -> int:
+    return sum(1 for message in agent.message_history if message.role == "user")
 
 
-def _usage_context_for_agent(agent: object) -> tuple[float | None, object | None]:
-    usage_accumulator = getattr(agent, "usage_accumulator", None)
+def _usage_context_for_agent(agent: AgentProtocol) -> tuple[float | None, "UsageAccumulator | None"]:
+    usage_accumulator = agent.usage_accumulator
     if usage_accumulator is None:
         return None, None
-    try:
-        return usage_accumulator.context_usage_percentage, usage_accumulator
-    except Exception:
-        return None, usage_accumulator
+    return usage_accumulator.context_usage_percentage, usage_accumulator
 
 
-def _resolve_agent_llm(agent: object) -> "FastAgentLLMProtocol | None":
-    try:
-        llm = getattr(agent, "llm")
-    except AssertionError:
-        llm = getattr(agent, "_llm", None)
-    except Exception:
-        llm = getattr(agent, "_llm", None)
-    return cast("FastAgentLLMProtocol | None", llm)
+def _resolve_agent_llm(agent: AgentProtocol) -> "FastAgentLLMProtocol | None":
+    return agent.llm
 
 
-def _resolve_model_name(agent: object, llm: object | None) -> str | None:
+def _resolve_model_name(agent: AgentProtocol, llm: "FastAgentLLMProtocol | None") -> str | None:
     if llm is not None:
-        model_name = getattr(llm, "model_name", None)
+        model_name = llm.model_name
         if model_name:
             return model_name
-        default_request_params = getattr(llm, "default_request_params", None)
-        fallback_name = getattr(default_request_params, "model", None)
+        default_request_params = llm.default_request_params
+        fallback_name = default_request_params.model if default_request_params is not None else None
         if fallback_name:
             return fallback_name
 
-    config = getattr(agent, "config", None)
-    model_name = getattr(config, "model", None)
+    config = agent.config
+    model_name = config.model
     if model_name:
         return model_name
 
-    default_request_params = getattr(config, "default_request_params", None)
-    fallback_name = getattr(default_request_params, "model", None)
+    default_request_params = config.default_request_params
+    fallback_name = default_request_params.model if default_request_params is not None else None
     if fallback_name:
         return fallback_name
 
-    try:
-        context = getattr(agent, "context")
-    except Exception:
-        context = None
-    config = getattr(context, "config", None)
-    return getattr(config, "default_model", None)
+    context = agent.context
+    return context.config.default_model if context is not None and context.config is not None else None
 
 
-def _resolve_model_display(agent: object, model_name: str | None) -> str | None:
-    llm = _resolve_agent_llm(agent)
+def _resolve_model_display(
+    agent: AgentProtocol,
+    model_name: str | None,
+    *,
+    llm: "FastAgentLLMProtocol | None" = None,
+) -> str | None:
+    llm = llm or _resolve_agent_llm(agent)
     resolved_display = resolve_model_display_name(model_name, llm=llm)
     if resolved_display:
         return _truncate_model_display(resolved_display)
@@ -281,32 +479,27 @@ def _resolve_model_visuals(
     if model_name is None or llm is None:
         return visuals
 
-    visuals.is_codex_responses_model = getattr(llm, "provider", None) == Provider.CODEX_RESPONSES
-    try:
-        visuals.is_overlay_model = getattr(getattr(llm, "resolved_model", None), "overlay", None) is not None
-    except Exception:
-        visuals.is_overlay_model = False
-    try:
-        visuals.model_gauges = _render_model_gauges(
-            llm.reasoning_effort,
-            llm.reasoning_effort_spec,
-            llm.text_verbosity,
-            llm.text_verbosity_spec,
-        )
-        visuals.service_tier_indicator = render_service_tier_indicator(
-            supported=llm.service_tier_supported,
-            service_tier=llm.service_tier,
-        )
-        visuals.web_search_indicator = render_web_search_indicator(
-            supported=llm.web_search_supported,
-            enabled=llm.web_search_enabled,
-        )
-        visuals.web_fetch_indicator = render_web_fetch_indicator(
-            supported=llm.web_fetch_supported,
-            enabled=llm.web_fetch_enabled,
-        )
-    except Exception:
-        return visuals
+    visuals.is_codex_responses_model = llm.provider == Provider.CODEX_RESPONSES
+    resolved_model = llm.resolved_model
+    visuals.is_overlay_model = resolved_model.overlay is not None if resolved_model is not None else False
+    visuals.model_gauges = _render_model_gauges(
+        llm.reasoning_effort,
+        llm.reasoning_effort_spec,
+        llm.text_verbosity,
+        llm.text_verbosity_spec,
+    )
+    visuals.service_tier_indicator = render_service_tier_indicator(
+        supported=llm.service_tier_supported,
+        service_tier=llm.service_tier,
+    )
+    visuals.web_search_indicator = render_web_search_indicator(
+        supported=llm.web_search_supported,
+        enabled=llm.web_search_enabled,
+    )
+    visuals.web_fetch_indicator = render_web_fetch_indicator(
+        supported=llm.web_fetch_supported,
+        enabled=llm.web_fetch_enabled,
+    )
     return visuals
 
 
@@ -320,27 +513,22 @@ def _resolve_context_pct(
         return context_pct
 
     info = _resolve_model_info(model_name, llm)
-    try:
-        window_size = getattr(usage_accumulator, "context_window_size", None)
-        if (not window_size or window_size <= 0) and info:
-            window_size = info.context_window
-        if window_size and window_size > 0:
-            current_context_tokens = getattr(usage_accumulator, "current_context_tokens", None)
-            if isinstance(current_context_tokens, int | float):
-                return (current_context_tokens / window_size) * 100
-    except Exception:
-        return None
-    return None
+    fallback_window_size = info.context_window if info else None
+    return resolve_context_usage_percent(
+        context_pct=context_pct,
+        usage_accumulator=usage_accumulator,
+        fallback_window_size=fallback_window_size,
+    )
 
 
 def _resolve_tdv_segment(
-    agent: object,
+    agent: AgentProtocol,
     model_name: str | None,
     llm: "FastAgentLLMProtocol | None",
 ) -> str | None:
     info = _resolve_model_info(model_name, llm)
     t, d, v = info.tdv_flags if info else (True, False, False)
-    alert_flags = _resolve_alert_flags_from_history(getattr(agent, "message_history", []))
+    alert_flags = _resolve_alert_flags_from_history(agent.message_history)
     return "".join(
         _style_tdv_flag(letter, supported, alert_flags)
         for letter, supported in (("T", t), ("V", v), ("D", d))
@@ -369,7 +557,12 @@ def _style_tdv_flag(letter: str, supported: bool, alert_flags: set[str]) -> str:
     return f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
 
 
-def _build_middle_segment(agent_state: ToolbarAgentState, shortcut_text: str) -> str:
+def _build_middle_segment(
+    agent_state: ToolbarAgentState,
+    shortcut_text: str,
+    *,
+    attachment_summary=None,
+) -> str:
     middle_segments: list[str] = []
     if agent_state.model_display:
         model_prefix = ""
@@ -378,17 +571,21 @@ def _build_middle_segment(agent_state: ToolbarAgentState, shortcut_text: str) ->
         elif agent_state.is_overlay_model:
             model_prefix = "▼"
         model_label = f"{model_prefix}{agent_state.model_display}"
-        gauge_segment = f" {agent_state.model_gauges}" if agent_state.model_gauges else ""
+        attachment_indicator = render_attachment_indicator(attachment_summary)
         model_chip = render_model_chip(
             model_label=model_label,
             web_search_indicator=agent_state.web_search_indicator,
             web_fetch_indicator=agent_state.web_fetch_indicator,
             service_tier_indicator=agent_state.service_tier_indicator,
         )
+        prefix = ""
         if agent_state.tdv_segment:
-            middle_segments.append(f"{agent_state.tdv_segment}{gauge_segment} {model_chip}")
-        else:
-            middle_segments.append(f"{gauge_segment} {model_chip}")
+            prefix += agent_state.tdv_segment
+        if attachment_indicator:
+            prefix += attachment_indicator
+        if agent_state.model_gauges:
+            prefix += agent_state.model_gauges
+        middle_segments.append(f"{prefix} {model_chip}" if prefix else model_chip)
 
     context_chip = _format_context_usage_percent_for_toolbar(agent_state.context_pct)
     middle_segments.append(

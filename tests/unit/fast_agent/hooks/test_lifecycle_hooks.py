@@ -86,6 +86,14 @@ class _CloseTrackingLLM:
         self.closed = True
 
 
+class _CountingCloseLLM:
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_shutdown_closes_llm_resources_when_supported() -> None:
@@ -97,3 +105,16 @@ async def test_shutdown_closes_llm_resources_when_supported() -> None:
     await agent.shutdown()
 
     assert llm.closed
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_shutdown_is_idempotent() -> None:
+    agent = LlmDecorator(config=AgentConfig("test-agent"))
+    llm = _CountingCloseLLM()
+    agent._llm = cast("Any", llm)
+
+    await agent.shutdown()
+    await agent.shutdown()
+
+    assert llm.close_calls == 1

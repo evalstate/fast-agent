@@ -12,21 +12,21 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from fast_agent.commands.mcp_command_intents import (
-    parse_mcp_connect_tokens,
-    parse_mcp_session_tokens,
-)
+from fast_agent.commands.mcp_command_intents import parse_mcp_session_tokens
 from fast_agent.commands.shared_command_intents import (
     parse_current_agent_history_intent,
     parse_session_command_intent,
 )
+from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.ui.command_payloads import (
     AgentCommand,
+    AttachCommand,
     CardsCommand,
     ClearCommand,
     ClearSessionsCommand,
     CommandPayload,
     CreateSessionCommand,
+    ExportSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
     HistoryFixCommand,
@@ -40,7 +40,6 @@ from fast_agent.ui.command_payloads import (
     LoadHistoryCommand,
     LoadPromptCommand,
     McpConnectCommand,
-    McpConnectMode,
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
@@ -48,10 +47,13 @@ from fast_agent.ui.command_payloads import (
     ModelReasoningCommand,
     ModelsCommand,
     ModelSwitchCommand,
+    ModelTaskBudgetCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
+    ModelXSearchCommand,
     PinSessionCommand,
+    PluginsCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -67,6 +69,8 @@ from fast_agent.ui.command_payloads import (
     TitleSessionCommand,
     UnknownCommand,
 )
+from fast_agent.utils.commandline import split_commandline
+from fast_agent.utils.slash_commands import split_subcommand_and_remainder
 
 
 def _default_shell_command() -> str:
@@ -87,32 +91,6 @@ def _default_shell_command() -> str:
             return shell_path
 
     return "sh"
-
-
-def _infer_mcp_connect_mode(target_text: str) -> McpConnectMode:
-    stripped = target_text.strip().lower()
-    if stripped.startswith(("http://", "https://")):
-        return "url"
-    if stripped.startswith("@"):
-        return "npx"
-    if stripped.startswith("npx "):
-        return "npx"
-    if stripped.startswith("uvx "):
-        return "uvx"
-    return "stdio"
-
-
-def _rebuild_mcp_target_text(tokens: list[str]) -> str:
-    if not tokens:
-        return ""
-
-    rebuilt_parts: list[str] = []
-    for token in tokens:
-        if token == "" or any(char.isspace() for char in token):
-            rebuilt_parts.append(shlex.quote(token))
-        else:
-            rebuilt_parts.append(token)
-    return " ".join(rebuilt_parts)
 
 
 def _parse_quoted_history_target(text: str) -> str | None:
@@ -154,6 +132,52 @@ def _parse_hash_agent_command(body: str, *, quiet: bool) -> HashAgentCommand | s
             return HashAgentCommand(agent_name=agent_name, message=message, quiet=quiet)
 
     return HashAgentCommand(agent_name=stripped, message="", quiet=quiet)
+
+
+def try_parse_hash_agent_command(text: str) -> HashAgentCommand | None:
+    prefix = ""
+    quiet = False
+    if text.startswith("##"):
+        prefix = "##"
+        quiet = True
+    elif text.startswith("#"):
+        prefix = "#"
+    else:
+        return None
+
+    body = text[len(prefix) :]
+    if not body or body[0].isspace():
+        return None
+
+    parsed = _parse_hash_agent_command(body, quiet=quiet)
+    return parsed if isinstance(parsed, HashAgentCommand) else None
+
+
+def _parse_connect_command(remainder: str, *, usage: str) -> McpConnectCommand:
+    if not remainder:
+        return McpConnectCommand(request=None, error=usage)
+    try:
+        return McpConnectCommand(
+            request=parse_connect_command_text(remainder),
+            error=None,
+        )
+    except ValueError as exc:
+        return McpConnectCommand(request=None, error=str(exc))
+
+
+def _parse_attach_command(remainder: str) -> AttachCommand:
+    if not remainder:
+        return AttachCommand(paths=())
+
+    try:
+        tokens = split_commandline(remainder)
+    except ValueError as exc:
+        return AttachCommand(paths=(), error=str(exc))
+
+    if len(tokens) == 1 and tokens[0].lower() == "clear":
+        return AttachCommand(paths=(), clear=True)
+
+    return AttachCommand(paths=tuple(tokens))
 
 
 def _parse_history_command(remainder: str) -> CommandPayload:
@@ -280,6 +304,22 @@ def _parse_session_command(remainder: str) -> CommandPayload:
         return ForkSessionCommand(title=intent.argument)
     if intent.action == "delete":
         return ClearSessionsCommand(target=intent.argument)
+    if intent.action == "export":
+        return ExportSessionCommand(
+            target=intent.export_target,
+            agent_name=intent.export_agent,
+            output_path=intent.export_output,
+            hf_dataset=intent.export_hf_dataset,
+            hf_dataset_path=intent.export_hf_dataset_path,
+            privacy_filter=intent.export_privacy_filter,
+            privacy_filter_path=intent.export_privacy_filter_path,
+            download_privacy_filter=intent.export_download_privacy_filter,
+            privacy_filter_device=intent.export_privacy_filter_device,
+            privacy_filter_variant=intent.export_privacy_filter_variant,
+            show_redactions=intent.export_show_redactions,
+            show_help=intent.export_help,
+            error=intent.export_error,
+        )
     return PinSessionCommand(value=intent.pin_value, target=intent.pin_target)
 
 
@@ -424,20 +464,21 @@ def _parse_mcp_command(remainder: str) -> CommandPayload:
     if not remainder:
         return ShowMcpStatusCommand()
 
+    subcmd, sub_remainder = split_subcommand_and_remainder(remainder)
+    subcmd = subcmd.lower()
+    if subcmd == "connect":
+        return _parse_connect_command(
+            sub_remainder,
+            usage=(
+                "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] "
+                "[--timeout <seconds>] [--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+            ),
+        )
+
     try:
         tokens = shlex.split(remainder)
     except ValueError as exc:
-        return McpConnectCommand(
-            target_text="",
-            parsed_mode="stdio",
-            server_name=None,
-            auth_token=None,
-            timeout_seconds=None,
-            trigger_oauth=None,
-            reconnect_on_disconnect=None,
-            force_reconnect=False,
-            error=f"Invalid arguments: {exc}",
-        )
+        return McpConnectCommand(request=None, error=f"Invalid arguments: {exc}")
 
     subcmd = tokens[0].lower() if tokens else ""
     if subcmd == "list":
@@ -456,35 +497,13 @@ def _parse_mcp_command(remainder: str) -> CommandPayload:
         return McpReconnectCommand(server_name=name, error=error)
     if subcmd == "session":
         return parse_mcp_session_tokens(tokens[1:])
-    if subcmd == "connect":
-        return parse_mcp_connect_tokens(tokens[1:])
     return UnknownCommand(command="mcp")
 
 
 def _parse_connect_alias_command(remainder: str) -> McpConnectCommand:
-    parsed_mode = _infer_mcp_connect_mode(remainder)
-    if not remainder:
-        return McpConnectCommand(
-            target_text="",
-            parsed_mode="stdio",
-            server_name=None,
-            auth_token=None,
-            timeout_seconds=None,
-            trigger_oauth=None,
-            reconnect_on_disconnect=None,
-            force_reconnect=False,
-            error="Usage: /connect <target>",
-        )
-    return McpConnectCommand(
-        target_text=remainder,
-        parsed_mode=parsed_mode,
-        server_name=None,
-        auth_token=None,
-        timeout_seconds=None,
-        trigger_oauth=None,
-        reconnect_on_disconnect=None,
-        force_reconnect=False,
-        error=None,
+    return _parse_connect_command(
+        remainder,
+        usage="Usage: /connect <target>",
     )
 
 
@@ -530,9 +549,11 @@ def _parse_model_command(cmd_line: str, remainder: str) -> CommandPayload:
     value = argument or None
     value_command_factories: dict[str, Callable[[str | None], CommandPayload]] = {
         "reasoning": ModelReasoningCommand,
+        "task_budget": ModelTaskBudgetCommand,
         "verbosity": ModelVerbosityCommand,
         "fast": ModelFastCommand,
         "web_search": ModelWebSearchCommand,
+        "x_search": ModelXSearchCommand,
         "web_fetch": ModelWebFetchCommand,
         "switch": ModelSwitchCommand,
     }
@@ -575,6 +596,13 @@ def _parse_slash_alias_command(
         action = tokens[0].lower()
         argument = tokens[1].strip() if len(tokens) > 1 else None
         return CardsCommand(action=action, argument=argument)
+    if cmd == "plugins":
+        if not remainder:
+            return PluginsCommand(action="list", argument=None)
+        tokens = remainder.split(maxsplit=1)
+        action = tokens[0].lower()
+        argument = tokens[1].strip() if len(tokens) > 1 else None
+        return PluginsCommand(action=action, argument=argument)
     return None
 
 
@@ -606,6 +634,7 @@ def _parse_slash_command(cmd_line: str) -> str | CommandPayload:
         "mcp": _parse_mcp_command,
         "connect": _parse_connect_alias_command,
         "prompt": _parse_prompt_command,
+        "attach": _parse_attach_command,
     }
     parser = command_parsers.get(cmd)
     if parser is not None:
@@ -632,14 +661,9 @@ def parse_special_input(text: str) -> str | CommandPayload:
     if cmd_line and cmd_line.startswith("@"):
         return SwitchAgentCommand(agent_name=cmd_line[1:].strip())
 
-    if cmd_line and cmd_line.startswith("##"):
-        quiet_body = cmd_line[2:]
-        if quiet_body and not quiet_body[0].isspace():
-            return _parse_hash_agent_command(quiet_body, quiet=True)
-        return text
-
-    if cmd_line and cmd_line.startswith("#"):
-        return _parse_hash_agent_command(cmd_line[1:], quiet=False)
+    parsed_hash_command = try_parse_hash_agent_command(cmd_line.lstrip())
+    if parsed_hash_command is not None:
+        return parsed_hash_command
 
     if cmd_line and cmd_line.startswith("!"):
         command = cmd_line[1:].strip()

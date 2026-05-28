@@ -8,6 +8,18 @@ mimetypes.init()
 # Extend with additional types that might be missing
 mimetypes.add_type("text/x-python", ".py")
 mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("application/msword", ".doc")
+mimetypes.add_type("application/vnd.ms-excel", ".xls")
+mimetypes.add_type("application/vnd.ms-powerpoint", ".ppt")
+mimetypes.add_type(
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"
+)
+mimetypes.add_type(
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"
+)
+mimetypes.add_type(
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"
+)
 
 # Known text-based MIME types not starting with "text/"
 TEXT_MIME_TYPES = {
@@ -29,6 +41,16 @@ TEXT_MIME_TYPES = {
 
 # Common text-based MIME type patterns
 TEXT_MIME_PATTERNS = ("+xml", "+json", "+yaml", "+text")
+
+DOCUMENT_MIME_TYPES = (
+    "application/pdf",
+    "application/msword",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+)
 
 
 def guess_mime_type(file_path: str) -> str:
@@ -67,6 +89,11 @@ def is_binary_content(mime_type: str) -> bool:
 def is_image_mime_type(mime_type: str) -> bool:
     """Check if a MIME type represents an image."""
     return mime_type.startswith("image/") and mime_type != "image/svg+xml"
+
+
+def is_document_mime_type(mime_type: str) -> bool:
+    """Check if a MIME type represents a document attachment."""
+    return mime_type in DOCUMENT_MIME_TYPES
 
 
 # Common reference mapping and normalization helpers

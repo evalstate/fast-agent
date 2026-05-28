@@ -1,0 +1,89 @@
+/* fast-agent terminal palettes for asciinema-player.
+   These themes intentionally mirror docs/docs/stylesheets/fast-agent.css tokens
+   instead of using the stock asciinema palettes, so recordings feel native in
+   both Zensical light and dark modes. */
+.asciinema-player-theme-fast-agent-light {
+  --term-color-foreground: #1c1a16;
+  --term-color-background: #f6f3eb;
+  --term-color-0: #4a463d;
+  --term-color-1: #b84a3c;
+  --term-color-2: #1f7d50;
+  --term-color-3: #b67500;
+  --term-color-4: #2c63b0;
+  --term-color-5: #8a5fbf;
+  --term-color-6: #179299;
+  --term-color-7: #4a463d;
+  --term-color-8: #756e5e;
+  --term-color-9: #b84a3c;
+  --term-color-10: #1f7d50;
+  --term-color-11: #d28a00;
+  --term-color-12: #2c63b0;
+  --term-color-13: #8a5fbf;
+  --term-color-14: #179299;
+  --term-color-15: #1c1a16;
+}
+
+.asciinema-player-theme-fast-agent-dark {
+  --term-color-foreground: #f0ece2;
+  --term-color-background: #0b0c0f;
+  --term-color-0: #14161b;
+  --term-color-1: #f06b5a;
+  --term-color-2: #6ad19c;
+  --term-color-3: #f5a400;
+  --term-color-4: #6aa3f7;
+  --term-color-5: #c586f7;
+  --term-color-6: #6ad1c8;
+  --term-color-7: #b9b3a5;
+  --term-color-8: #7d786d;
+  --term-color-9: #f06b5a;
+  --term-color-10: #6ad19c;
+  --term-color-11: #ffc649;
+  --term-color-12: #6aa3f7;
+  --term-color-13: #d5a6ff;
+  --term-color-14: #8be9df;
+  --term-color-15: #f0ece2;
+}
+
+.a2a-terminal-demo .ap-wrapper,
+.fa-terminal-demo .ap-wrapper {
+  border: var(--bw, 1px) solid var(--b-1, #262a33);
+  border-radius: var(--r-2, 4px);
+  box-shadow: var(--shadow-terminal, 0 18px 44px rgba(0, 0, 0, 0.34));
+  overflow: hidden;
+}
+
+.a2a-terminal-theme-switch,
+.fa-terminal-theme-switch {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.a2a-terminal-theme-switch button,
+.fa-terminal-theme-switch button {
+  border: var(--bw, 1px) solid var(--b-1, #262a33);
+  border-radius: var(--r-1, 2px);
+  background: var(--s-1, #14161b);
+  color: var(--fg-1, #b9b3a5);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--t-micro, 11px);
+  letter-spacing: 0.04em;
+  padding: 0.18rem 0.55rem;
+  text-transform: uppercase;
+}
+
+.a2a-terminal-theme-switch button:hover,
+.fa-terminal-theme-switch button:hover {
+  border-color: var(--b-2, #3a3f4a);
+  color: var(--fg-0, #f0ece2);
+}
+
+.a2a-terminal-theme-switch button[aria-pressed],
+.fa-terminal-theme-switch button[aria-pressed] {
+  border-color: var(--a-0, #f5a400);
+  background: var(--a-bg, rgba(245, 164, 0, 0.08));
+  color: var(--a-0, #f5a400);
+  box-shadow: inset 0 -1px 0 var(--a-line, rgba(245, 164, 0, 0.28));
+}

@@ -2,18 +2,24 @@ import asyncio
 
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, Tool
+from mcp.types import CallToolRequestParams, ContentBlock, ImageContent, Tool
+from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
+from fast_agent.constants import FAST_AGENT_PENDING_MEDIA_ATTACHMENTS
 from fast_agent.core.prompt import Prompt
+from fast_agent.hooks import show_hook_message
 from fast_agent.llm.internal.passthrough import PassthroughLLM
+from fast_agent.llm.model_info import ModelInfo
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.ui.console_display import ConsoleDisplay
 
 
 def tool_one() -> int:
@@ -22,6 +28,10 @@ def tool_one() -> int:
 
 def tool_two() -> int:
     return 2
+
+
+def stage_media() -> str:
+    return "staged"
 
 
 class TwoStepToolUseLlm(PassthroughLLM):
@@ -97,6 +107,61 @@ class HookedToolAgent(ToolAgent):
         )
 
 
+class MediaStagingLlm(PassthroughLLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.calls: list[list[tuple[str, list[str], list[str]]]] = []
+        self._turn = 0
+
+    @property
+    def model_info(self) -> ModelInfo:
+        return ModelInfo(
+            name="media-test",
+            provider=Provider.GENERIC,
+            context_window=None,
+            max_output_tokens=None,
+            tokenizes=["image/png"],
+            json_mode=None,
+            reasoning=None,
+        )
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self._turn += 1
+        self.calls.append(
+            [
+                (
+                    msg.role,
+                    [block.type for block in (msg.content or [])],
+                    sorted((msg.channels or {}).keys()),
+                )
+                for msg in multipart_messages
+            ]
+        )
+        if self._turn == 1:
+            return Prompt.assistant(
+                "use tool",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "id_stage_media": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="stage_media", arguments={}),
+                    )
+                },
+            )
+        return Prompt.assistant("done", stop_reason=LlmStopReason.END_TURN)
+
+
+class MediaStagingToolAgent(ToolAgent):
+    def _consume_pending_media_attachments(self) -> list[ContentBlock]:
+        return [ImageContent(type="image", data="abcd", mimeType="image/png")]
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_tool_runner_hooks_fire_and_can_inject_messages():
@@ -117,6 +182,23 @@ async def test_tool_runner_hooks_fire_and_can_inject_messages():
         "before_llm_call:1",
         f"after_llm_call:{LlmStopReason.END_TURN}",
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tool_runner_stages_pending_media_as_followup_user_message():
+    llm = MediaStagingLlm()
+    agent = MediaStagingToolAgent(AgentConfig("media"), [stage_media])
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+
+    assert result.last_text() == "done"
+    assert len(llm.calls) == 2
+    second_call = llm.calls[1]
+    assert all(FAST_AGENT_PENDING_MEDIA_ATTACHMENTS not in channels for _, _, channels in second_call)
+    assert second_call[-1][0] == "user"
+    assert second_call[-1][1] == ["image"]
 
 
 # Track tool invocations globally for the regression test
@@ -361,6 +443,82 @@ class CancelRetryHookAgent(ToolAgent):
         return ToolRunnerHooks(on_pause_cancel=on_pause_cancel)
 
 
+class OneTurnLlm(PassthroughLLM):
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        del multipart_messages, request_params, tools, is_template
+        return Prompt.assistant("done", stop_reason=LlmStopReason.END_TURN)
+
+
+class CapturingConsoleDisplay(ConsoleDisplay):
+    def __init__(self) -> None:
+        super().__init__()
+        self.status_messages: list[str] = []
+
+    def show_status_message(self, content: Text) -> None:
+        self.status_messages.append(content.plain)
+
+
+class HookMessageDeferringAgent(ToolAgent):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.display = CapturingConsoleDisplay()
+        self.status_counts_during_hook: list[int] = []
+
+    def _should_stream(self) -> bool:
+        return False
+
+    def _display_user_messages(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+    ) -> None:
+        del messages, request_params
+
+    async def show_assistant_message(
+        self,
+        message: PromptMessageExtended,
+        bottom_items=None,
+        highlight_items=None,
+        max_item_length=None,
+        name=None,
+        model=None,
+        additional_message=None,
+        render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
+        render_message: bool = True,
+        show_reprint_banner: bool = False,
+    ) -> None:
+        del (
+            message,
+            bottom_items,
+            highlight_items,
+            max_item_length,
+            name,
+            model,
+            additional_message,
+            render_markdown,
+            show_hook_indicator,
+            render_message,
+            show_reprint_banner,
+        )
+
+    def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
+        async def after_llm_call(runner, message):
+            del runner, message
+            show_hook_message(self, "42ms", hook_name="llm_time")
+            display = self.display
+            assert isinstance(display, CapturingConsoleDisplay)
+            self.status_counts_during_hook.append(len(display.status_messages))
+
+        return ToolRunnerHooks(after_llm_call=after_llm_call)
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_on_pause_cancel_retries_llm_call():
@@ -378,6 +536,24 @@ async def test_on_pause_cancel_retries_llm_call():
     assert result.last_text() == "done after retry"
     assert agent.retry_count == 1
     assert llm._calls == 2  # first cancelled, second succeeded
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_hook_messages_flush_after_hook_boundary() -> None:
+    llm = OneTurnLlm()
+    agent = HookMessageDeferringAgent(AgentConfig("hook-message"), [tool_one])
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+
+    display = agent.display
+    assert isinstance(display, CapturingConsoleDisplay)
+    assert result.last_text() == "done"
+    assert agent.status_counts_during_hook == [0]
+    assert len(display.status_messages) == 1
+    assert "llm_time" in display.status_messages[0]
+    assert display.status_messages[0].endswith("42ms")
 
 
 class GenuineCancelHookAgent(ToolAgent):
@@ -723,3 +899,167 @@ async def test_e2e_provider_like_cancel_with_inline_pause_hook():
         "after resume, tool_runner must reissue the LLM call and return its result"
     assert llm._calls == 2, "exactly one retry should happen"
     assert "resumed" in captured_states
+
+
+class OneToolUseThenDoneLlm(PassthroughLLM):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._turn = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        del multipart_messages, request_params, tools, is_template
+        self._turn += 1
+        if self._turn == 1:
+            return Prompt.assistant(
+                "calling tool_one",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "call_1": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="tool_one", arguments={}),
+                    ),
+                },
+            )
+        return Prompt.assistant("done", stop_reason=LlmStopReason.END_TURN)
+
+
+class ToolEventCapturingDisplay(CapturingConsoleDisplay):
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[str] = []
+
+    def show_tool_call(
+        self,
+        tool_name: str,
+        tool_args: dict[str, object] | None,
+        bottom_items: list[str] | None = None,
+        highlight_index: int | None = None,
+        max_item_length: int | None = None,
+        name: str | None = None,
+        metadata: dict[str, object] | None = None,
+        tool_call_id: str | None = None,
+        type_label: str | None = None,
+        show_hook_indicator: bool = False,
+    ) -> None:
+        del (
+            tool_args,
+            bottom_items,
+            highlight_index,
+            max_item_length,
+            name,
+            metadata,
+            tool_call_id,
+            type_label,
+            show_hook_indicator,
+        )
+        self.events.append(f"tool_call:{tool_name}")
+
+    def show_tool_result(
+        self,
+        result,
+        name: str | None = None,
+        tool_name: str | None = None,
+        skybridge_config=None,
+        timing_ms: float | None = None,
+        tool_call_id: str | None = None,
+        type_label: str | None = None,
+        truncate_content: bool = True,
+        show_hook_indicator: bool = False,
+    ) -> None:
+        del (
+            result,
+            name,
+            skybridge_config,
+            timing_ms,
+            tool_call_id,
+            type_label,
+            truncate_content,
+            show_hook_indicator,
+        )
+        self.events.append(f"tool_result:{tool_name}")
+
+    def show_status_message(self, content: Text) -> None:
+        super().show_status_message(content)
+        self.events.append(f"status:{content.plain}")
+
+
+class ToolUseHookMessageDeferringAgent(ToolAgent):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.display = ToolEventCapturingDisplay()
+        self.event_counts_during_after_llm: list[int] = []
+
+    def _should_stream(self) -> bool:
+        return False
+
+    def _display_user_messages(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+    ) -> None:
+        del messages, request_params
+
+    async def show_assistant_message(
+        self,
+        message: PromptMessageExtended,
+        bottom_items=None,
+        highlight_items=None,
+        max_item_length=None,
+        name=None,
+        model=None,
+        additional_message=None,
+        render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
+        render_message: bool = True,
+        show_reprint_banner: bool = False,
+    ) -> None:
+        del (
+            message,
+            bottom_items,
+            highlight_items,
+            max_item_length,
+            name,
+            model,
+            additional_message,
+            render_markdown,
+            show_hook_indicator,
+            render_message,
+            show_reprint_banner,
+        )
+
+    def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
+        async def after_llm_call(runner, message):
+            del runner
+            if message.stop_reason == LlmStopReason.TOOL_USE:
+                show_hook_message(self, "42ms", hook_name="llm_time")
+                display = self.display
+                assert isinstance(display, ToolEventCapturingDisplay)
+                self.event_counts_during_after_llm.append(len(display.events))
+
+        return ToolRunnerHooks(after_llm_call=after_llm_call)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tool_use_hook_messages_flush_after_tool_results() -> None:
+    llm = OneToolUseThenDoneLlm()
+    agent = ToolUseHookMessageDeferringAgent(AgentConfig("hook-message-tool-use"), [tool_one])
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+
+    display = agent.display
+    assert isinstance(display, ToolEventCapturingDisplay)
+    assert result.last_text() == "done"
+    assert agent.event_counts_during_after_llm == [0]
+    assert display.events == [
+        "tool_call:tool_one",
+        "tool_result:tool_one",
+        "status:▎ extension llm_time — 42ms",
+    ]

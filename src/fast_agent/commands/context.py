@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Iterable, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Awaitable, Iterable, Literal, Mapping, Protocol, Sequence
 
 from fast_agent.config import Settings, get_settings
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fast_agent.commands.results import CommandMessage
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.session import SessionManager
     from fast_agent.types import PromptMessageExtended
 
 
@@ -262,6 +265,27 @@ class CommandContext:
     io: CommandIO
     settings: Settings | None = None
     noenv: bool = False
+    session_cwd: Path | None = None
+    session_store_scope: Literal["workspace", "app"] = "workspace"
+    session_store_cwd: Path | None = None
 
     def resolve_settings(self) -> Settings:
         return self.settings or get_settings()
+
+    def resolve_session_manager(self) -> "SessionManager":
+        from fast_agent.session import get_session_manager
+
+        environment_override = self.resolve_settings().environment_dir
+        if self.session_store_scope == "app":
+            return get_session_manager(environment_override=environment_override)
+        if self.session_store_cwd is not None:
+            return get_session_manager(
+                cwd=self.session_store_cwd,
+                environment_override=environment_override,
+            )
+        if self.session_cwd is not None:
+            return get_session_manager(
+                cwd=self.session_cwd,
+                environment_override=environment_override,
+            )
+        return get_session_manager(environment_override=environment_override)

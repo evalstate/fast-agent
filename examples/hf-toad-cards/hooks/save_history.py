@@ -2,9 +2,13 @@
 
 from collections.abc import Iterable
 from datetime import datetime
+from typing import TYPE_CHECKING, cast
 
 from fast_agent.hooks import HookContext
 from fast_agent.mcp.prompt_serialization import save_messages
+
+if TYPE_CHECKING:
+    from fast_agent.types import PromptMessageExtended
 
 
 async def save_history_to_file(ctx: HookContext) -> None:
@@ -21,12 +25,12 @@ async def save_history_to_file(ctx: HookContext) -> None:
     # - delta_messages contains accumulated messages when use_history: false
     # - ctx.message is the final assistant response
     # - message_history is the agent's persisted history (empty if use_history: false)
-    messages = ctx.message_history
+    messages: list[PromptMessageExtended] = ctx.message_history
     if not messages:
         # Fall back to runner's turn messages + final response
         runner_messages = getattr(ctx.runner, "delta_messages", None)
         if isinstance(runner_messages, Iterable):
-            messages = list(runner_messages)
+            messages = [cast("PromptMessageExtended", message) for message in runner_messages]
         else:
             messages = []
         if ctx.message and ctx.message not in messages:

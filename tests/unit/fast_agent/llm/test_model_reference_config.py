@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import yaml
 
-from fast_agent.llm.model_reference_config import ModelReferenceConfigService
+from fast_agent.config import Settings
+from fast_agent.llm.model_reference_config import (
+    ModelReferenceConfigService,
+    resolve_model_reference_start_path,
+)
 
 
 def _write_yaml(path, payload: dict) -> None:
@@ -19,6 +23,19 @@ def _read_yaml(path) -> dict:
     return {}
 
 
+def test_resolve_start_path_treats_config_inside_env_dir_as_env_root_parent(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    config_path = env_dir / "fast-agent.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("default_model: haiku\n", encoding="utf-8")
+
+    settings = Settings(environment_dir=None)
+    settings._config_file = str(config_path)
+
+    assert resolve_model_reference_start_path(settings=settings) == workspace
+
+
 def test_set_reference_dry_run_does_not_mutate_target_file(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".fast-agent"
@@ -33,7 +50,7 @@ def test_set_reference_dry_run_does_not_mutate_target_file(tmp_path) -> None:
         dry_run=True,
     )
 
-    assert result.target_path == env_dir / "fastagent.config.yaml"
+    assert result.target_path == env_dir / "fast-agent.yaml"
     assert result.applied is False
     assert result.dry_run is True
     assert result.changes[0].old is None
@@ -51,7 +68,7 @@ def test_set_reference_writes_env_target_and_creates_config_file(tmp_path) -> No
     result = service.set_reference("$system.fast", "claude-haiku-4-5", target="env")
 
     assert result.applied is True
-    assert result.target_path == env_dir / "fastagent.config.yaml"
+    assert result.target_path == env_dir / "fast-agent.yaml"
     saved = _read_yaml(result.target_path)
     assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
 
@@ -60,7 +77,7 @@ def test_set_reference_preserves_existing_yaml_comments(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
-    config_path = env_dir / "fastagent.config.yaml"
+    config_path = env_dir / "fast-agent.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         (
@@ -89,7 +106,7 @@ def test_set_reference_preserves_existing_yaml_comments(tmp_path) -> None:
 def test_unset_reference_writes_project_target(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True)
-    project_config = workspace / "fastagent.config.yaml"
+    project_config = workspace / "fast-agent.yaml"
     _write_yaml(
         project_config,
         {
@@ -118,7 +135,7 @@ def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None
     workspace.mkdir(parents=True)
 
     _write_yaml(
-        workspace / "fastagent.config.yaml",
+        workspace / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -129,7 +146,7 @@ def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None
         },
     )
     _write_yaml(
-        env_dir / "fastagent.config.yaml",
+        env_dir / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {

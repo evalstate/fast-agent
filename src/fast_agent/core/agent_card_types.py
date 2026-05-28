@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.tools.function_tool_config import FunctionToolSpec
 
 
 class AgentCardData(TypedDict, total=False):
@@ -22,7 +23,7 @@ class AgentCardData(TypedDict, total=False):
     child_agents: list[str]
     mcp_connect: list[dict[str, str]]
     agents_as_tools_options: dict[str, Any]
-    function_tools: list[str] | str | None
+    function_tools: list[str | FunctionToolSpec] | str | None
     sequence: list[str]
     cumulative: bool
     fan_out: list[str]

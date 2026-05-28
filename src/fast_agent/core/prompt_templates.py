@@ -5,7 +5,6 @@ Helpers for applying template variables to system prompts after initial bootstra
 from __future__ import annotations
 
 import platform
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Mapping, MutableMapping, Sequence
 
@@ -14,7 +13,6 @@ from fast_agent.core.internal_resources import (
     list_internal_resources,
 )
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 
 if TYPE_CHECKING:
     from fast_agent.skills import SkillManifest
@@ -22,93 +20,44 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def apply_template_variables(
-    template: str | None, variables: Mapping[str, str | None] | None
+def _display_name_with_version(
+    info: Mapping[str, str],
+    *,
+    title_key: str = "title",
+    name_key: str = "name",
+    version_key: str = "version",
 ) -> str | None:
-    """
-    Apply a mapping of template variables to the provided template string.
+    display_name = info.get(title_key) or info.get(name_key)
+    if not display_name:
+        return None
 
-    This helper intentionally performs no work when either the template or variables
-    are empty so callers can safely execute it during both the initial and late
-    initialization passes without accidentally stripping placeholders too early.
+    version = info.get(version_key)
+    if version and version != "unknown":
+        return f"{display_name} {version}"
+    return display_name
 
-    Supports both simple variable substitution and file template patterns:
-    - {{variable}} - Simple variable replacement
-    - {{file:relative/path}} - Reads file contents (relative to workspaceRoot, errors if missing)
-    - {{file_silent:relative/path}} - Reads file contents (relative to workspaceRoot, empty if missing)
-    - \\{{variable}} - Escape placeholders to render literal braces
-    """
-    if not template or not variables:
-        return template
 
-    resolved = protect_escaped_braces(template)
+def _format_client_info(client_info: Mapping[str, str]) -> str | None:
+    display = _display_name_with_version(client_info)
+    if not display:
+        return None
 
-    # Get workspaceRoot for file resolution
-    workspace_root = variables.get("workspaceRoot")
-
-    # Apply {{file:...}} templates (relative paths required, resolved from workspaceRoot)
-    file_pattern = re.compile(r"\{\{file:([^}]+)\}\}")
-
-    def replace_file(match):
-        file_path_str = match.group(1).strip()
-        file_path = Path(file_path_str).expanduser()
-
-        # Enforce relative paths
-        if file_path.is_absolute():
-            raise ValueError(
-                f"File template paths must be relative, got absolute path: {file_path_str}"
-            )
-
-        # Resolve against workspaceRoot if available
-        if workspace_root:
-            resolved_path = (Path(workspace_root) / file_path).resolve()
-        else:
-            resolved_path = file_path.resolve()
-
-        return resolved_path.read_text(encoding="utf-8")
-
-    resolved = file_pattern.sub(replace_file, resolved)
-
-    # Apply {{file_silent:...}} templates (missing files become empty strings)
-    file_silent_pattern = re.compile(r"\{\{file_silent:([^}]+)\}\}")
-
-    def replace_file_silent(match):
-        file_path_str = match.group(1).strip()
-        file_path = Path(file_path_str).expanduser()
-
-        # Enforce relative paths
-        if file_path.is_absolute():
-            raise ValueError(
-                f"File template paths must be relative, got absolute path: {file_path_str}"
-            )
-
-        # Resolve against workspaceRoot if available
-        if workspace_root:
-            resolved_path = (Path(workspace_root) / file_path).resolve()
-        else:
-            resolved_path = file_path.resolve()
-
-        try:
-            return resolved_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return ""
-
-    resolved = file_silent_pattern.sub(replace_file_silent, resolved)
-
-    # Apply simple variable substitutions
-    for key, value in variables.items():
-        if value is None:
-            continue
-        placeholder = f"{{{{{key}}}}}"
-        if placeholder in resolved:
-            resolved = resolved.replace(placeholder, value)
-
-    return restore_escaped_braces(resolved)
+    via = _display_name_with_version(
+        client_info,
+        title_key="viaTitle",
+        name_key="viaName",
+        version_key="viaVersion",
+    )
+    if via:
+        return f"{display} via {via}"
+    return display
 
 
 def load_skills_for_context(
     workspace_root: str | None,
     skills_directory_override: str | Path | Sequence[str | Path] | None = None,
+    *,
+    noenv: bool = False,
 ) -> list["SkillManifest"]:
     """
     Load skill manifests from the workspace root or override directory.
@@ -142,6 +91,22 @@ def load_skills_for_context(
                 override_dirs.append(override_path)
             else:
                 override_dirs.append(base_dir / override_path)
+    else:
+        from fast_agent.config import get_settings
+        from fast_agent.paths import default_skill_paths
+
+        settings = get_settings()
+        settings_for_skills = (
+            settings
+            if noenv
+            or settings.environment_dir is not None
+            or settings._fast_agent_home_source != "default"
+            else None
+        )
+        override_dirs = default_skill_paths(
+            settings_for_skills,
+            cwd=base_dir,
+        )
 
     registry = SkillRegistry(base_dir=base_dir, directories=override_dirs)
     try:
@@ -156,6 +121,8 @@ def enrich_with_environment_context(
     cwd: str | None,
     client_info: Mapping[str, str] | None,
     skills_directory_override: str | Path | Sequence[str | Path] | None = None,
+    *,
+    noenv: bool = False,
 ) -> None:
     """
     Populate the provided context mapping with environment details used for template replacement.
@@ -168,12 +135,13 @@ def enrich_with_environment_context(
     """
     if cwd:
         context["workspaceRoot"] = cwd
-        from fast_agent.paths import resolve_environment_paths
+        if not noenv:
+            from fast_agent.paths import resolve_environment_paths
 
-        env_paths = resolve_environment_paths(cwd=Path(cwd))
-        context["environmentDir"] = str(env_paths.root)
-        context["environmentAgentCardsDir"] = str(env_paths.agent_cards)
-        context["environmentToolCardsDir"] = str(env_paths.tool_cards)
+            env_paths = resolve_environment_paths(cwd=Path(cwd))
+            context["environmentDir"] = str(env_paths.root)
+            context["environmentAgentCardsDir"] = str(env_paths.agent_cards)
+            context["environmentToolCardsDir"] = str(env_paths.tool_cards)
 
     server_platform = platform.platform()
     python_version = platform.python_version()
@@ -197,13 +165,9 @@ def enrich_with_environment_context(
     if cwd:
         env_lines.append(f"Workspace root: {cwd}")
     if client_info:
-        display_name = client_info.get("title") or client_info.get("name")
-        version = client_info.get("version")
-        if display_name:
-            if version and version != "unknown":
-                env_lines.append(f"Client: {display_name} {version}")
-            else:
-                env_lines.append(f"Client: {display_name}")
+        formatted_client = _format_client_info(client_info)
+        if formatted_client:
+            env_lines.append(f"Client: {formatted_client}")
     if server_platform:
         env_lines.append(f"Host platform: {server_platform}")
 

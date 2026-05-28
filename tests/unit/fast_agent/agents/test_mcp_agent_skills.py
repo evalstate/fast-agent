@@ -67,6 +67,50 @@ async def test_mcp_agent_exposes_skill_tools(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mcp_agent_skills_no_shell_uses_read_skill_fallback(tmp_path: Path) -> None:
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    context = Context()
+    context.no_shell = True
+
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], skills=skills_root)
+    config.skill_manifests = manifests
+
+    agent = McpAgent(config=config, context=context)
+
+    assert agent.shell_runtime_enabled is False
+    tools_result = await agent.list_tools()
+    tool_names = {tool.name for tool in tools_result.tools}
+    assert "execute" not in tool_names
+    assert "read_text_file" not in tool_names
+    assert "read_skill" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_mcp_agent_no_shell_overrides_agent_shell_config(tmp_path: Path) -> None:
+    context = Context()
+    context.no_shell = True
+
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        cwd=tmp_path / "missing",
+    )
+
+    agent = McpAgent(config=config, context=context)
+
+    assert agent.shell_runtime_enabled is False
+    tools_result = await agent.list_tools()
+    tool_names = {tool.name for tool in tools_result.tools}
+    assert "execute" not in tool_names
+    assert "read_text_file" not in tool_names
+
+
+@pytest.mark.asyncio
 async def test_mcp_agent_skills_default_uses_context_registry(tmp_path: Path) -> None:
     skills_root = tmp_path / "skills"
     create_skill(skills_root, "alpha", body="Alpha body")
@@ -199,6 +243,25 @@ async def test_agent_skills_template_substitution(tmp_path: Path) -> None:
     assert "<instructions>" not in agent.instruction
     # Body is not included in the skills listing
     assert "Beta body" not in agent.instruction
+
+
+@pytest.mark.asyncio
+async def test_agent_skills_template_uses_shared_context_when_default_manifests_are_empty() -> None:
+    context = Context()
+
+    config = AgentConfig(
+        name="test",
+        instruction="Instructions:\n\n{{agentSkills}}\nEnd.",
+        servers=[],
+        skills=SKILLS_DEFAULT,
+    )
+
+    agent = McpAgent(config=config, context=context)
+    agent.set_instruction_context({"agentSkills": "<skill><name>shared</name></skill>"})
+    await agent._apply_instruction_templates()
+
+    assert "{{agentSkills}}" not in agent.instruction
+    assert "<name>shared</name>" in agent.instruction
 
 
 @pytest.mark.asyncio

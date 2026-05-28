@@ -11,6 +11,9 @@ class OpenAIToolStreamEntry:
     item_id: str | None = None
     item_type: str | None = None
     stop_notified: bool = False
+    awaiting_output_item_done: bool = False
+    argument_delta_received: bool = False
+    argument_snapshot_present: bool = False
 
     @property
     def tool_name(self) -> str:
@@ -121,6 +124,24 @@ class OpenAIToolStreamState:
         if state is not None:
             entry.state = state
         return entry
+
+    def resolve(
+        self,
+        *,
+        tool_use_id: str | None = None,
+        index: int | None = None,
+        item_id: str | None = None,
+    ) -> OpenAIToolStreamEntry | None:
+        resolved_tool_use_id = self._resolve_tool_use_id(
+            tool_use_id=tool_use_id,
+            item_id=item_id,
+        )
+        state = self._tracker.resolve(tool_use_id=resolved_tool_use_id, index=index)
+        if state is None and item_id:
+            state = self._tracker.resolve(tool_use_id=item_id, index=index)
+        if state is None:
+            return None
+        return self._entry_for_state(state)
 
     def is_completed(
         self,

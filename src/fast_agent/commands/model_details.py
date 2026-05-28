@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from rich.text import Text
 
-from fast_agent.commands.model_capabilities import describe_service_tier_state
+from fast_agent.commands.model_capabilities import (
+    describe_service_tier_state,
+    resolve_service_tier_supported,
+    resolve_task_budget_supported,
+    resolve_task_budget_tokens,
+    resolve_web_fetch_supported,
+    resolve_web_search_supported,
+    resolve_x_search_supported,
+)
 from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
 from fast_agent.llm.model_display_name import (
     resolve_llm_display_name,
     resolve_resolved_model_display_name,
 )
+from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_max_tokens,
     calculate_terminal_output_limit_for_model,
@@ -23,6 +32,22 @@ if TYPE_CHECKING:
     from fast_agent.commands.results import CommandOutcome
     from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.llm.resolved_model import ResolvedModelSpec
+    from fast_agent.mcp.types import McpAgentProtocol
+
+
+@runtime_checkable
+class ResponseTransportAware(Protocol):
+    @property
+    def configured_transport(self) -> str | None: ...
+
+    @property
+    def active_transport(self) -> str | None: ...
+
+
+@runtime_checkable
+class ShellRuntimeAware(Protocol):
+    @property
+    def shell_runtime(self): ...
 
 
 def format_shell_budget(byte_limit: int, source: str) -> str:
@@ -102,24 +127,21 @@ def _enabled_label(value: bool) -> str:
     return "enabled" if value else "disabled"
 
 
-def _render_sampling_overrides(llm: object) -> str | None:
-    request_params = getattr(llm, "default_request_params", None)
+def _render_sampling_overrides(llm: FastAgentLLMProtocol) -> str | None:
+    request_params = llm.default_request_params
     if request_params is None:
         return None
 
-    sampling_fields = (
-        ("temperature", "temperature"),
-        ("top_p", "top_p"),
-        ("top_k", "top_k"),
-        ("min_p", "min_p"),
-        ("presence_penalty", "presence_penalty"),
-        ("frequency_penalty", "frequency_penalty"),
-        ("repetition_penalty", "repetition_penalty"),
-    )
-
     parts: list[str] = []
-    for attribute, label in sampling_fields:
-        value = getattr(request_params, attribute, None)
+    for label, value in (
+        ("temperature", request_params.temperature),
+        ("top_p", request_params.top_p),
+        ("top_k", request_params.top_k),
+        ("min_p", request_params.min_p),
+        ("presence_penalty", request_params.presence_penalty),
+        ("frequency_penalty", request_params.frequency_penalty),
+        ("repetition_penalty", request_params.repetition_penalty),
+    ):
         if value is None:
             continue
         parts.append(f"{label}={_format_sampling_value(value)}")
@@ -138,21 +160,12 @@ def _format_sampling_value(value: object) -> str:
     return str(value)
 
 
-def _resolved_model_or_none(llm: object) -> "ResolvedModelSpec | None":
-    resolved_model = getattr(llm, "resolved_model", None)
-    return resolved_model if resolved_model is not None else None
+def _resolved_model_or_none(llm: FastAgentLLMProtocol) -> "ResolvedModelSpec | None":
+    return llm.resolved_model
 
 
-def _provider_value(llm: object) -> str:
-    provider = getattr(llm, "provider", None)
-    if provider is None:
-        return "<unknown>"
-    value = getattr(provider, "value", None)
-    if isinstance(value, str) and value:
-        return value
-    if isinstance(provider, str) and provider:
-        return provider
-    return str(provider)
+def _provider_value(llm: FastAgentLLMProtocol) -> str:
+    return llm.provider.config_name
 
 
 def _iter_model_identity_lines(
@@ -162,12 +175,12 @@ def _iter_model_identity_lines(
     selected_model = (
         resolved_model.selected_model_name
         if resolved_model is not None
-        else getattr(llm, "model_name", None)
+        else llm.model_name
     )
     wire_model = (
         resolved_model.wire_model_name
         if resolved_model is not None
-        else getattr(llm, "model_name", None)
+        else llm.model_name
     )
     lines = [
         ("Provider", _provider_value(llm), True),
@@ -180,11 +193,43 @@ def _iter_model_identity_lines(
     if isinstance(context_window, int) and context_window > 0:
         lines.append(("Context window", str(context_window), False))
 
+    if resolved_model is not None:
+        lines.extend(_iter_structured_output_lines(resolved_model))
+
     sampling_overrides = _render_sampling_overrides(llm)
     if sampling_overrides:
         lines.append(("Sampling overrides", sampling_overrides, False))
 
     return [(label, value, emphasize) for label, value, emphasize in lines if value]
+
+
+def _iter_structured_output_lines(
+    resolved_model: "ResolvedModelSpec",
+) -> list[tuple[str, str, bool]]:
+    json_mode = resolved_model.json_mode
+    if json_mode == "schema":
+        structured_output = "schema"
+    elif json_mode == "object":
+        structured_output = "object"
+    elif json_mode is None and resolved_model.model_params is not None:
+        structured_output = "prompt-only + local validation"
+    else:
+        structured_output = "unknown (defaulting to provider behavior)"
+
+    policy = resolved_model.structured_tool_policy
+    if policy == "defer":
+        structured_tools = "two-phase (tools first, schema-only final)"
+    elif policy == "no_tools":
+        structured_tools = "structured-only (regular tools suppressed)"
+    elif policy == "always":
+        structured_tools = "same-request compatible"
+    else:
+        structured_tools = "default policy"
+
+    return [
+        ("Structured output", structured_output, False),
+        ("Structured + tools", structured_tools, False),
+    ]
 
 
 def _format_active_transport_value(
@@ -212,7 +257,7 @@ def _emit_transport_details(
 
     _emit_model_line(outcome, "Model transports", ", ".join(response_transports))
 
-    configured_transport = getattr(llm, "configured_transport", None) or getattr(llm, "_transport", None)
+    configured_transport = llm.configured_transport if isinstance(llm, ResponseTransportAware) else None
     if isinstance(configured_transport, str) and configured_transport.strip():
         _emit_model_line(
             outcome,
@@ -223,7 +268,7 @@ def _emit_transport_details(
     else:
         configured_transport = None
 
-    active_transport = getattr(llm, "active_transport", None)
+    active_transport = llm.active_transport if isinstance(llm, ResponseTransportAware) else None
     if isinstance(active_transport, str) and active_transport.strip():
         _emit_model_line(
             outcome,
@@ -246,31 +291,43 @@ def _add_model_runtime_settings(
             format_text_verbosity(llm.text_verbosity or text_verbosity_spec.default),
         )
 
-    if llm.service_tier_supported:
+    if resolve_service_tier_supported(llm):
         _emit_model_line(outcome, "Service tier", describe_service_tier_state(llm))
 
-    if llm.web_search_supported:
+    if resolve_task_budget_supported(llm):
+        _emit_model_line(
+            outcome,
+            "Task budget",
+            format_task_budget_tokens(resolve_task_budget_tokens(llm)),
+        )
+
+    if resolve_web_search_supported(llm):
         _emit_model_line(outcome, "Web search", _enabled_label(llm.web_search_enabled))
 
-    if llm.web_fetch_supported:
+    if resolve_x_search_supported(llm):
+        _emit_model_line(outcome, "X Search", _enabled_label(llm.x_search_enabled))
+
+    if resolve_web_fetch_supported(llm):
         _emit_model_line(outcome, "Web fetch", _enabled_label(llm.web_fetch_enabled))
 
 
 def _resolve_shell_budget_line(
     *,
     ctx: "CommandContext",
-    agent: object,
+    agent: McpAgentProtocol | object,
     max_output_tokens: int | None,
     wire_model_name: str,
 ) -> str | None:
-    shell_runtime = getattr(agent, "shell_runtime", None)
-    runtime_limit = getattr(shell_runtime, "output_byte_limit", None)
-    if isinstance(runtime_limit, int) and runtime_limit > 0:
-        return format_shell_budget(runtime_limit, "active runtime")
+    if isinstance(agent, ShellRuntimeAware):
+        shell_runtime = agent.shell_runtime
+        if shell_runtime is not None:
+            runtime_limit = shell_runtime.output_byte_limit
+            if runtime_limit > 0:
+                return format_shell_budget(runtime_limit, "active runtime")
 
     settings = ctx.resolve_settings()
-    shell_config = getattr(settings, "shell_execution", None)
-    config_limit = getattr(shell_config, "output_byte_limit", None)
+    shell_config = settings.shell_execution
+    config_limit = shell_config.output_byte_limit
     if isinstance(config_limit, int) and config_limit > 0:
         return format_shell_budget(config_limit, "config override")
 
@@ -330,7 +387,7 @@ def add_model_details(
     wire_model_name = (
         resolved_model.wire_model_name
         if resolved_model is not None
-        else getattr(llm, "model_name", "") or ""
+        else llm.model_name or ""
     )
     if wire_model_name:
         _emit_transport_details(outcome, llm=llm, wire_model_name=wire_model_name)

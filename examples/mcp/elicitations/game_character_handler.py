@@ -8,7 +8,7 @@ visual gauges, and animated effects.
 
 import asyncio
 import random
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult
@@ -253,5 +253,8 @@ async def game_character_elicitation_handler(
 
     else:
         # No schema, return a fun message
-        content = {"response": "⚔️ Ready for adventure! ⚔️"}
+        content = cast(
+            "dict[str, str | int | float | bool | list[str] | None]",
+            {"response": "⚔️ Ready for adventure! ⚔️"},
+        )
         return ElicitResult(action="accept", content=content)

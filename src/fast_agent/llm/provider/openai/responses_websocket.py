@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from urllib.parse import urlparse, urlunparse
 
 import aiohttp
-from aiohttp import WSMsgType
+from aiohttp import WSMsgType, WSServerHandshakeError
 
 RESPONSES_WEBSOCKET_BETA_HEADER = "responses_websockets=2026-02-06"
 RESPONSES_WEBSOCKET_BETA_HEADER_NAME = "OpenAI-Beta"
@@ -341,6 +341,12 @@ async def connect_websocket(
         else:
             async with asyncio.timeout(timeout_seconds):
                 websocket = await session.ws_connect(url, headers=dict(headers), autoping=True)
+    except WSServerHandshakeError as exc:
+        await session.close()
+        raise ResponsesWebSocketError(
+            str(exc),
+            status=exc.status,
+        ) from exc
     except Exception:
         await session.close()
         raise
@@ -468,6 +474,40 @@ def _extract_response_id(final_response: Any | None) -> str | None:
     return None
 
 
+def _merge_completed_output_into_response(
+    response: Any,
+    completed_output_items: list[tuple[int | None, int, Any]],
+) -> Any:
+    if not completed_output_items:
+        return response
+
+    response_data = _to_plain_data(response)
+    if not isinstance(response_data, Mapping):
+        return response
+
+    existing_output = response_data.get("output")
+    if isinstance(existing_output, list) and existing_output:
+        return response_data
+
+    merged_output = [
+        _to_plain_data(item)
+        for _output_index, _sequence_number, item in sorted(
+            completed_output_items,
+            key=lambda entry: (
+                entry[0] is None,
+                -1 if entry[0] is None else entry[0],
+                entry[1],
+            ),
+        )
+    ]
+    if not merged_output:
+        return response_data
+
+    merged_response = dict(response_data)
+    merged_response["output"] = merged_output
+    return merged_response
+
+
 class WebSocketResponsesStream:
     """Adapter exposing websocket payloads through the Responses stream interface."""
 
@@ -477,6 +517,8 @@ class WebSocketResponsesStream:
         self._saw_terminal_event = False
         self._stop_after_next = False
         self._final_response: Any | None = None
+        self.first_event_monotonic: float | None = None
+        self._completed_output_items: list[tuple[int | None, int, Any]] = []
         self._events_seen = 0
         self._last_frame_preview: str | None = None
 
@@ -557,8 +599,43 @@ class WebSocketResponsesStream:
 
             self._last_frame_preview = _preview_text(raw_data)
 
-            event = _to_attr_object(payload)
             event_type = payload.get("type")
+            if not isinstance(event_type, str) and "error" in payload:
+                (
+                    error_message,
+                    error_code,
+                    error_status,
+                    error_param,
+                ) = self._extract_error_details(payload)
+                raise ResponsesWebSocketError(
+                    error_message,
+                    stream_started=self._stream_started,
+                    error_code=error_code,
+                    status=error_status,
+                    error_param=error_param,
+                )
+
+            if event_type == "response.output_item.done":
+                item = payload.get("item")
+                output_index = payload.get("output_index")
+                sequence_number = payload.get("sequence_number")
+                if item is not None:
+                    self._completed_output_items.append(
+                        (
+                            output_index if isinstance(output_index, int) else None,
+                            sequence_number if isinstance(sequence_number, int) else self._events_seen,
+                            item,
+                        )
+                    )
+
+            if "response" in payload:
+                payload = dict(payload)
+                payload["response"] = _merge_completed_output_into_response(
+                    payload["response"],
+                    self._completed_output_items,
+                )
+
+            event = _to_attr_object(payload)
             if isinstance(event_type, str) and _stream_event_started(event_type):
                 self._stream_started = True
 
@@ -584,6 +661,8 @@ class WebSocketResponsesStream:
                 self._saw_terminal_event = True
                 self._stop_after_next = True
 
+            if self.first_event_monotonic is None:
+                self.first_event_monotonic = time.perf_counter()
             self._events_seen += 1
             return event
 

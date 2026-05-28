@@ -1,9 +1,12 @@
 import asyncio
 import logging
+import os
 import platform
 import signal
 import subprocess
 import sys
+import time
+from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -94,6 +97,25 @@ class RecordingFastLogger:
         self.error_calls.append((args, kwargs))
 
 
+class _TestShellRuntime(ShellRuntime):
+    def __init__(
+        self,
+        *,
+        runtime_info: Mapping[str, str | None],
+        working_directory: Path = Path("."),
+        **kwargs: Any,
+    ) -> None:
+        self._test_runtime_info = dict(runtime_info)
+        self._test_working_directory = working_directory
+        super().__init__(**kwargs)
+
+    def runtime_info(self) -> dict[str, str | None]:
+        return self._test_runtime_info
+
+    def working_directory(self) -> Path:
+        return self._test_working_directory
+
+
 @contextmanager
 def _no_progress():
     yield
@@ -103,9 +125,11 @@ def _setup_runtime(
     monkeypatch: pytest.MonkeyPatch, runtime_info: dict[str, str]
 ) -> tuple[ShellRuntime, DummyProcess, dict[str, Any]]:
     logger = logging.getLogger("shell-runtime-test")
-    runtime = ShellRuntime(activation_reason="test", logger=logger)
-    runtime.runtime_info = lambda: runtime_info  # type: ignore[assignment]
-    runtime.working_directory = lambda: Path(".")  # type: ignore[assignment]
+    runtime = _TestShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        runtime_info=runtime_info,
+    )
 
     dummy_process = DummyProcess()
     captured: dict[str, Any] = {}
@@ -145,6 +169,48 @@ def _extract_progress_payloads(logger: RecordingFastLogger) -> list[dict[str, An
         if action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}:
             payloads.append(payload)
     return payloads
+
+
+def test_shell_process_plan_exports_runtime_home(tmp_path: Path) -> None:
+    settings = Settings()
+    settings._fast_agent_home = str(tmp_path / ".fast-agent")
+    runtime = ShellRuntime(activation_reason="test", logger=logging.getLogger(__name__), config=settings)
+
+    plan = runtime._build_process_plan(tmp_path)
+
+    assert plan.process_kwargs["env"]["FAST_AGENT_RUNTIME_ENVIRONMENT"] == str(
+        (tmp_path / ".fast-agent").resolve()
+    )
+    assert plan.process_kwargs["env"]["ENVIRONMENT_DIR"] == str((tmp_path / ".fast-agent").resolve())
+
+
+def test_shell_process_plan_strips_runtime_home_in_noenv(tmp_path: Path) -> None:
+    settings = Settings()
+    settings._fast_agent_home = str(tmp_path / ".fast-agent")
+    settings._fast_agent_noenv = True
+    runtime = ShellRuntime(activation_reason="test", logger=logging.getLogger(__name__), config=settings)
+
+    plan = runtime._build_process_plan(tmp_path)
+
+    assert "FAST_AGENT_RUNTIME_ENVIRONMENT" not in plan.process_kwargs["env"]
+    assert "ENVIRONMENT_DIR" not in plan.process_kwargs["env"]
+
+
+def _terminate_pid(pid_path: Path) -> None:
+    if not pid_path.exists():
+        return
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+    except ValueError:
+        return
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            return
+        except OSError:
+            return
+        time.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -201,9 +267,33 @@ async def test_execute_reports_informative_truncation_summary() -> None:
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
-    assert "[Output truncated: retained" in text
+    assert "[Output truncated: showing first" in text
     assert "Increase shell_execution.output_byte_limit to retain more." in text
     assert "omitted" in text
+
+
+@pytest.mark.asyncio
+async def test_execute_truncated_result_includes_tail() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        output_byte_limit=80,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    script = "for i in range(30): print(f'line-{i:02d}')"
+    result = await runtime.execute({"command": f"{sys.executable} -c {script!r}"})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "line-00" in text
+    assert "line-29" in text
+    assert "last" in text
+    assert "omitted" in text
+    assert "process exit code was 0" in text
 
 
 @pytest.mark.asyncio
@@ -226,7 +316,147 @@ async def test_execute_handles_overlong_output_lines_without_timeout() -> None:
     text = result.content[0].text
     assert "timeout after" not in text
     assert "process exit code was 0" in text
-    assert "[Output truncated: retained" in text
+    assert "[Output truncated: showing first" in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix inherited-pipe behavior")
+async def test_execute_returns_when_descendant_keeps_pipe_open(tmp_path: Path) -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+    pid_path = tmp_path / "descendant.pid"
+    script_path = tmp_path / "hold_pipe.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import subprocess, sys",
+                "child = subprocess.Popen(",
+                "    [sys.executable, '-c', 'import time; time.sleep(30)'],",
+                "    stdout=sys.stdout,",
+                "    stderr=sys.stderr,",
+                "    start_new_session=True,",
+                ")",
+                f"open({str(pid_path)!r}, 'w', encoding='utf-8').write(str(child.pid))",
+                "print('parent exiting', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    started = time.monotonic()
+    try:
+        result = await runtime.execute({"command": f'"{sys.executable}" "{script_path}"'})
+    finally:
+        _terminate_pid(pid_path)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 7
+    assert result.isError is False
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "parent exiting" in text
+    assert "output collection stopped after" in text
+    assert "process exit code was 0" in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix inherited-pipe behavior")
+async def test_timeout_with_inherited_pipe_does_not_hang(tmp_path: Path) -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=1,
+        warning_interval_seconds=10,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+    pid_path = tmp_path / "descendant.pid"
+    script_path = tmp_path / "timeout_hold_pipe.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "import subprocess, sys, time",
+                "print('before idle timeout', flush=True)",
+                "child = subprocess.Popen(",
+                "    [sys.executable, '-c', 'import time; time.sleep(30)'],",
+                "    stdout=sys.stdout,",
+                "    stderr=sys.stderr,",
+                "    start_new_session=True,",
+                ")",
+                f"open({str(pid_path)!r}, 'w', encoding='utf-8').write(str(child.pid))",
+                "time.sleep(30)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    started = time.monotonic()
+    try:
+        result = await runtime.execute({"command": f'"{sys.executable}" "{script_path}"'})
+    finally:
+        _terminate_pid(pid_path)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 8
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "before idle timeout" in text
+    assert "output collection stopped after" in text
+    assert "timeout after 1s" in text
+
+
+@pytest.mark.asyncio
+async def test_execute_huge_output_exits_cleanly_with_low_byte_limit() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        output_byte_limit=1024,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    command = f'"{sys.executable}" -c "import sys; sys.stdout.buffer.write(b\'x\' * 5_000_000)"'
+    result = await runtime.execute({"command": command})
+
+    assert result.isError is False
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "process exit code was 0" in text
+    assert "[Output truncated: showing first" in text
+    assert len(text.encode("utf-8")) < 5_000
+
+
+@pytest.mark.asyncio
+async def test_drain_output_tasks_propagates_reader_exceptions() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(activation_reason="test", logger=logger)
+
+    class ReaderError(Exception):
+        pass
+
+    async def fails() -> None:
+        raise ReaderError("boom")
+
+    async def waits() -> None:
+        await asyncio.sleep(30)
+
+    pending_task = asyncio.create_task(waits())
+    with pytest.raises(ReaderError):
+        await runtime._drain_output_tasks(
+            [asyncio.create_task(fails()), pending_task],
+            timeout_seconds=1,
+        )
+    assert pending_task.cancelled()
 
 
 @pytest.mark.asyncio
@@ -411,16 +641,16 @@ async def test_execute_progress_only_mode_suppresses_live_console_output() -> No
 @pytest.mark.asyncio
 async def test_execute_emits_shell_lifecycle_progress_events(monkeypatch: pytest.MonkeyPatch) -> None:
     logger = RecordingFastLogger()
-    runtime = ShellRuntime(
+    runtime = _TestShellRuntime(
         activation_reason="test",
         logger=logger,
         timeout_seconds=10,
         agent_name="assistant",
+        runtime_info={"name": "bash", "path": "/bin/bash"},
     )
-    runtime.runtime_info = lambda: {"name": "bash", "path": "/bin/bash"}  # type: ignore[assignment]
-    runtime.working_directory = lambda: Path(".")  # type: ignore[assignment]
 
     process = DummyProcess()
+    process.returncode = 0
     process.stdout = DummyStream([b"hello\n"])
     process.stderr = DummyStream([])
 
@@ -483,7 +713,7 @@ async def test_execute_emits_terminal_failed_progress_when_subprocess_start_fail
     assert result.isError is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
-    assert "Command failed to start" in result.content[0].text
+    assert "Command execution failed" in result.content[0].text
 
     progress_payloads = _extract_progress_payloads(logger)
     assert len(progress_payloads) == 2

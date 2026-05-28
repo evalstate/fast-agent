@@ -1,14 +1,23 @@
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from mcp.types import PromptMessage, TextContent
+from mcp.types import (
+    ContentBlock,
+    EmbeddedResource,
+    PromptMessage,
+    TextContent,
+    TextResourceContents,
+)
 
 from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.template_render import extract_template_variables, render_template_text
 from fast_agent.interfaces import AgentProtocol
+from fast_agent.io.source_resolver import materialized_text_source
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
+from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_template import (
@@ -100,7 +109,76 @@ def create_resource_message(
         return PromptMessage(role=role, content=embedded_resource)
 
 
-def load_prompt(file: Path | str) -> list[PromptMessageExtended]:
+def _render_text_content(content: TextContent, arguments: Mapping[str, str]) -> TextContent:
+    rendered = render_template_text(content.text, arguments).text
+    if rendered == content.text:
+        return content
+    return content.model_copy(update={"text": rendered})
+
+
+def _render_embedded_text_resource(
+    content: EmbeddedResource, arguments: Mapping[str, str]
+) -> EmbeddedResource:
+    resource = content.resource
+    if not isinstance(resource, TextResourceContents):
+        return content
+    rendered = render_template_text(resource.text, arguments).text
+    if rendered == resource.text:
+        return content
+    return content.model_copy(update={"resource": resource.model_copy(update={"text": rendered})})
+
+
+def _render_message_templates(
+    messages: list[PromptMessageExtended], arguments: Mapping[str, str]
+) -> list[PromptMessageExtended]:
+    rendered_messages: list[PromptMessageExtended] = []
+    for message in messages:
+        content: list[ContentBlock] = []
+        changed = False
+        for item in message.content:
+            rendered_item = item
+            if isinstance(item, TextContent):
+                rendered_item = _render_text_content(item, arguments)
+            elif isinstance(item, EmbeddedResource):
+                rendered_item = _render_embedded_text_resource(item, arguments)
+            changed = changed or rendered_item is not item
+            content.append(rendered_item)
+        rendered_messages.append(
+            message.model_copy(update={"content": content}) if changed else message
+        )
+    return rendered_messages
+
+
+def _message_template_variables(messages: list[PromptMessageExtended]) -> set[str]:
+    variables: set[str] = set()
+    for message in messages:
+        for item in message.content:
+            if isinstance(item, TextContent):
+                variables.update(extract_template_variables(item.text))
+            elif isinstance(item, EmbeddedResource) and isinstance(item.resource, TextResourceContents):
+                variables.update(extract_template_variables(item.resource.text))
+    return variables
+
+
+def prompt_file_template_variables(file: Path | str) -> set[str]:
+    """Return value-only ``{{placeholder}}`` names from a prompt file."""
+    with materialized_text_source(file, label="prompt file") as source_file:
+        path_str = str(source_file).lower()
+
+        if path_str.endswith(".json"):
+            from fast_agent.mcp.prompt_serialization import load_messages
+
+            return _message_template_variables(load_messages(str(source_file)))
+
+        from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
+
+        return PromptTemplateLoader().load_from_file(source_file).template_variables
+
+
+def load_prompt(
+    file: Path | str,
+    arguments: Mapping[str, str] | None = None,
+) -> list[PromptMessageExtended]:
     """
     Load a prompt from a file and return as PromptMessageExtended objects.
 
@@ -110,30 +188,36 @@ def load_prompt(file: Path | str) -> list[PromptMessageExtended]:
 
     Args:
         file: Path to the prompt file (Path object or string)
+        arguments: Optional values for ``{{placeholder}}`` substitutions
 
     Returns:
         List of PromptMessageExtended objects with full conversation state
     """
-    if isinstance(file, str):
-        file = Path(file)
-    path_str = str(file).lower()
+    with materialized_text_source(file, label="prompt file") as source_file:
+        path_str = str(source_file).lower()
 
-    if path_str.endswith(".json"):
-        # JSON files use the serialization module directly
-        from fast_agent.mcp.prompt_serialization import load_messages
+        if path_str.endswith(".json"):
+            # JSON files use the serialization module directly
+            from fast_agent.mcp.prompt_serialization import load_messages
 
-        return load_messages(str(file))
-    else:
+            messages = load_messages(str(source_file))
+            return _render_message_templates(messages, arguments) if arguments else messages
+
         # Non-JSON files need template processing for resource loading
         from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
         loader = PromptTemplateLoader()
-        template = loader.load_from_file(file)
+        template = loader.load_from_file(source_file)
+        content_sections = (
+            template.apply_substitutions(dict(arguments))
+            if arguments
+            else template.content_sections
+        )
 
-        # Render the template without arguments to get the messages
+        # Render the template to get the messages
         messages = create_messages_with_resources(
-            template.content_sections,
-            [file],  # Pass the file path for resource resolution
+            content_sections,
+            [source_file],  # Pass the file path for resource resolution
         )
 
         # Convert to PromptMessageExtended
@@ -160,6 +244,39 @@ def load_prompt_as_get_prompt_result(file: Path):
 
     # Convert to GetPromptResult (loses extended fields)
     return to_get_prompt_result(messages)
+
+
+def _history_messages(
+    history: Path | str | list[PromptMessageExtended],
+) -> list[PromptMessageExtended]:
+    if isinstance(history, list):
+        return history
+    return load_prompt(history)
+
+
+def _copy_messages(messages: list[PromptMessageExtended]) -> list[PromptMessageExtended]:
+    return [message.model_copy(deep=True) for message in messages]
+
+
+def _snapshot_usage_state(agent: AgentProtocol) -> UsageAccumulator | None:
+    usage_accumulator = agent.usage_accumulator
+    if usage_accumulator is None:
+        return None
+    return usage_accumulator.model_copy(deep=True)
+
+
+def _restore_usage_state(agent: AgentProtocol, snapshot: UsageAccumulator | None) -> None:
+    if snapshot is None:
+        return
+
+    usage_accumulator = agent.usage_accumulator
+    if usage_accumulator is None:
+        return
+
+    usage_accumulator.turns = [turn.model_copy(deep=True) for turn in snapshot.turns]
+    usage_accumulator.model = snapshot.model
+    usage_accumulator.last_cache_activity_time = snapshot.last_cache_activity_time
+    usage_accumulator.set_context_window_size(snapshot.context_window_size)
 
 
 def _extract_usage_payloads(messages: list[PromptMessageExtended]) -> list[dict[str, Any]]:
@@ -220,26 +337,14 @@ def _payload_provider(payload: dict[str, Any]) -> Provider | None:
         return None
 
 
-def _coerce_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
 def _turn_usage_from_payload(payload: dict[str, Any]) -> TurnUsage | None:
     turn_data = payload.get("turn")
     if not isinstance(turn_data, dict):
         return None
 
     turn_snapshot = dict(turn_data)
-    input_tokens = _coerce_int(turn_snapshot.get("input_tokens"))
-    output_tokens = _coerce_int(turn_snapshot.get("output_tokens"))
-    turn_snapshot["raw_usage"] = FastAgentUsage(
-        input_chars=input_tokens,
-        output_chars=output_tokens,
-        model_type="rehydrated",
-    )
+    if "raw_usage" in payload:
+        turn_snapshot["raw_usage"] = payload.get("raw_usage")
 
     try:
         return TurnUsage.model_validate(turn_snapshot)
@@ -260,9 +365,7 @@ def _rehydrate_responses_usage(
     if usage_accumulator is None:
         return None
 
-    usage_accumulator.turns = []
-    usage_accumulator.model = None
-    usage_accumulator.last_cache_activity_time = None
+    usage_accumulator.reset()
 
     if not payloads:
         return None
@@ -299,9 +402,34 @@ def _rehydrate_responses_usage(
     return None
 
 
+def load_transcript_into_agent(
+    agent: AgentProtocol,
+    history: Path | str | list[PromptMessageExtended],
+) -> None:
+    """Replace visible conversation transcript without rebuilding usage state."""
+    messages = _history_messages(history)
+    usage_snapshot = _snapshot_usage_state(agent)
+
+    agent.clear(clear_prompts=True)
+    agent.message_history.extend(_copy_messages(messages))
+
+    _restore_usage_state(agent, usage_snapshot)
+
+
+def rehydrate_usage_from_history(
+    agent: AgentProtocol,
+    history: Path | str | list[PromptMessageExtended],
+) -> str | None:
+    """Rebuild usage state from saved history without mutating transcript state."""
+    messages = _history_messages(history)
+    return _rehydrate_responses_usage(agent, messages)
+
+
 def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> str | None:
     """
     Load conversation history directly into agent without triggering LLM call.
+
+    Compatibility wrapper around transcript restore plus usage rehydration.
 
     This function restores saved conversation state by directly setting the
     agent's _message_history. No LLM API calls are made.
@@ -319,10 +447,10 @@ def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> str | None
         Optional resume notice string when usage state cannot be restored.
     """
     messages = load_prompt(file_path)
-
-    # Direct restoration - no LLM call
-    agent.clear(clear_prompts=True)
-    agent.message_history.extend(messages)
+    usage_accumulator = agent.usage_accumulator
+    if usage_accumulator is not None:
+        usage_accumulator.reset()
+    load_transcript_into_agent(agent, messages)
 
     # Note: Provider diagnostic history will be updated on next API call
-    return _rehydrate_responses_usage(agent, messages)
+    return rehydrate_usage_from_history(agent, messages)

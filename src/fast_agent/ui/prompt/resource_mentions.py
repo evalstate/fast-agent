@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from mcp.types import ContentBlock, EmbeddedResource, ReadResourceResult, TextContent
 
+from fast_agent.mcp.helpers.content_helpers import image_link, resource_link
+from fast_agent.mcp.mcp_content import MCPFile, MCPImage
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.ui.prompt.attachment_tokens import (
+    FILE_MENTION_SERVER,
+    URL_MENTION_SERVER,
+    normalize_local_attachment_reference,
+    normalize_remote_attachment_reference,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -45,7 +54,7 @@ class ResolvedMentions:
     text: str
     cleaned_text: str
     mentions: list[ParsedMention]
-    resources: list[EmbeddedResource]
+    resources: list[ContentBlock]
 
 
 class ResourceMentionError(ValueError):
@@ -221,7 +230,13 @@ def _render_template_uri(template_uri: str, args: dict[str, str]) -> str:
     return _PLACEHOLDER_RE.sub(_replace, template_uri)
 
 
-def _parse_token(token: str, *, start: int, end: int) -> ParsedMention | None:
+def _parse_token(
+    token: str,
+    *,
+    start: int,
+    end: int,
+    cwd: Path | None = None,
+) -> ParsedMention | None:
     if not token.startswith("^"):
         return None
 
@@ -235,8 +250,13 @@ def _parse_token(token: str, *, start: int, end: int) -> ParsedMention | None:
     if not server_name or not resource_expr:
         return None
 
-    template_uri, args = _parse_template_args(resource_expr)
-    resource_uri = _render_template_uri(template_uri, args)
+    if server_name == FILE_MENTION_SERVER:
+        resource_uri = str(normalize_local_attachment_reference(resource_expr, cwd=cwd))
+    elif server_name == URL_MENTION_SERVER:
+        resource_uri = normalize_remote_attachment_reference(resource_expr)
+    else:
+        template_uri, args = _parse_template_args(resource_expr)
+        resource_uri = _render_template_uri(template_uri, args)
 
     return ParsedMention(
         raw=token,
@@ -247,7 +267,7 @@ def _parse_token(token: str, *, start: int, end: int) -> ParsedMention | None:
     )
 
 
-def parse_mentions(text: str) -> ParsedMentions:
+def parse_mentions(text: str, *, cwd: Path | None = None) -> ParsedMentions:
     """Parse supported resource mentions from text and strip them from the sent message body."""
     mentions: list[ParsedMention] = []
     warnings: list[str] = []
@@ -263,8 +283,8 @@ def parse_mentions(text: str) -> ParsedMentions:
 
         parsed: ParsedMention | None
         try:
-            parsed = _parse_token(token, start=token_start, end=token_end)
-        except ResourceMentionError as exc:
+            parsed = _parse_token(token, start=token_start, end=token_end, cwd=cwd)
+        except (ResourceMentionError, ValueError) as exc:
             parsed = None
             warnings.append(f"Malformed resource mention '{token}': {exc}")
 
@@ -307,14 +327,27 @@ async def resolve_mentions(agent: Any, parsed: ParsedMentions) -> ResolvedMentio
             resources=[],
         )
 
+    remote_mentions = [
+        mention
+        for mention in parsed.mentions
+        if mention.server_name not in {FILE_MENTION_SERVER, URL_MENTION_SERVER}
+    ]
     get_resource = getattr(agent, "get_resource", None)
-    if not callable(get_resource):
+    if remote_mentions and not callable(get_resource):
         raise ResourceMentionError("Current agent does not support MCP resources")
 
-    resources: list[EmbeddedResource] = []
+    resources: list[ContentBlock] = []
     failures: list[str] = []
     for mention in parsed.mentions:
         try:
+            if mention.server_name == FILE_MENTION_SERVER:
+                resources.append(_resolve_local_content_block(mention.resource_uri))
+                continue
+            if mention.server_name == URL_MENTION_SERVER:
+                resources.append(_resolve_remote_content_block(mention.resource_uri))
+                continue
+            if not callable(get_resource):
+                raise ResourceMentionError("Current agent does not support MCP resources")
             result: ReadResourceResult = await get_resource(
                 mention.resource_uri,
                 namespace=mention.server_name,
@@ -341,11 +374,44 @@ def build_prompt_with_resources(
 ) -> PromptMessageExtended:
     """Build PromptMessageExtended with text content and embedded resources."""
     text = resolved.cleaned_text if resolved.mentions else original_text
-    content: list[ContentBlock] = [TextContent(type="text", text=text)]
+    text_content = TextContent(type="text", text=text)
+    text_meta = dict(getattr(text_content, "meta", None) or {})
+    text_meta["fast_agent_original_text"] = original_text
+    text_content.meta = text_meta
+    content: list[ContentBlock] = [text_content]
     content.extend(resolved.resources)
     return PromptMessageExtended(role="user", content=content)
 
 
-def mentions_in_text(text: str) -> Sequence[ParsedMention]:
+def mentions_in_text(text: str, *, cwd: Path | None = None) -> Sequence[ParsedMention]:
     """Convenience helper primarily for tests."""
-    return parse_mentions(text).mentions
+    return parse_mentions(text, cwd=cwd).mentions
+
+
+def _resolve_local_content_block(path_text: str) -> ContentBlock:
+    path = Path(path_text)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    if not path.is_file():
+        raise IsADirectoryError(path)
+
+    message = MCPImage(path=path) if _is_image_path(path) else MCPFile(path=path)
+    content = message["content"]
+    meta = dict(getattr(content, "meta", None) or {})
+    meta["fast_agent_source_uri"] = path.as_uri()
+    content.meta = meta
+    return content
+
+
+def _resolve_remote_content_block(url: str) -> ContentBlock:
+    inferred = resource_link(url)
+    mime_type = inferred.mimeType or "application/octet-stream"
+    if mime_type.startswith("image/"):
+        return image_link(url, mime_type=mime_type)
+    return inferred
+
+
+def _is_image_path(path: Path) -> bool:
+    from fast_agent.mcp.mime_utils import guess_mime_type, is_image_mime_type
+
+    return is_image_mime_type(guess_mime_type(str(path)))

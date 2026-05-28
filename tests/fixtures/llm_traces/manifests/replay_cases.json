@@ -26,6 +26,14 @@
     },
     {
       "assertion_profile": "plain_text",
+      "family": "responses",
+      "fixture_dir": "responses/gpt-5-4/reasoning_summary_sections",
+      "id": "responses-gpt54-reasoning-summary-sections",
+      "model_label": "gpt-5-4",
+      "scenario": "reasoning_summary_sections"
+    },
+    {
+      "assertion_profile": "plain_text",
       "family": "openresponses",
       "fixture_dir": "openresponses/openai-gpt-oss-120b/plain_text",
       "id": "openresponses-gptoss120b-plain-text",

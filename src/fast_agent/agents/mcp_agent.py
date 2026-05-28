@@ -7,6 +7,7 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 
 import asyncio
 import fnmatch
+import re
 import time
 from abc import ABC
 from pathlib import Path
@@ -17,15 +18,13 @@ from typing import (
     Iterable,
     Literal,
     Mapping,
-    Protocol,
     Sequence,
     TypeVar,
     Union,
-    runtime_checkable,
 )
 
 import mcp
-from a2a.types import AgentCard, AgentSkill
+from a2a.types import AgentCard, AgentInterface, AgentSkill
 from mcp.types import (
     CallToolResult,
     ContentBlock,
@@ -48,15 +47,17 @@ from fast_agent.constants import (
     SHELL_NOTICE_PREFIX,
     should_parallelize_tool_calls,
 )
-from fast_agent.core.exceptions import PromptExitError
+from fast_agent.core.exceptions import AgentConfigError, PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_model,
     calculate_terminal_output_limit_for_resolved_model,
 )
 from fast_agent.mcp.common import (
+    create_namespaced_name,
     get_resource_name,
     get_server_name,
     is_namespaced_name,
@@ -70,14 +71,21 @@ from fast_agent.mcp.mcp_aggregator import (
     NamespacedTool,
     ServerStatus,
 )
+from fast_agent.mcp.prompt_metadata import prompt_display_name
+from fast_agent.mcp.provider_management import (
+    ProviderManagedMCPState,
+    build_provider_managed_mcp_state,
+    split_managed_server_names,
+)
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
-from fast_agent.tools.apply_patch_tool import is_apply_patch_tool_name
+from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
     set_elicitation_input_callback,
 )
+from fast_agent.tools.filesystem_runtime_protocol import FilesystemRuntime
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.skill_reader import SkillReader
@@ -100,28 +108,6 @@ LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 TOOL_DISPLAY_NAMES: dict[str, str] = {
     "read_skill": "skill",
 }
-
-
-@runtime_checkable
-class FilesystemRuntime(Protocol):
-    """Protocol for runtimes that expose filesystem tools via McpAgent."""
-
-    @property
-    def tools(self) -> Sequence[Tool]: ...
-
-    async def read_text_file(
-        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
-    ) -> CallToolResult: ...
-
-    async def write_text_file(
-        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
-    ) -> CallToolResult: ...
-
-    async def apply_patch(
-        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
-    ) -> CallToolResult: ...
-
-    def metadata(self) -> dict[str, Any]: ...
 
 
 if TYPE_CHECKING:
@@ -152,22 +138,42 @@ class McpAgent(ABC, ToolAgent):
             **kwargs,
         )
 
+        configured_servers = tuple(self.config.servers)
+        server_settings_by_name = None
+        if context and context.config and context.config.mcp:
+            server_settings_by_name = context.config.mcp.servers
+        self._provider_managed_mcp_state = ProviderManagedMCPState()
+        client_managed_servers = list(configured_servers)
+        provider_managed_servers: list[str] = []
+        if server_settings_by_name is not None:
+            self._provider_managed_mcp_state = build_provider_managed_mcp_state(
+                agent_config=self.config,
+                server_settings_by_name=server_settings_by_name,
+            )
+            client_managed_servers, provider_managed_servers = split_managed_server_names(
+                configured_servers,
+                server_settings_by_name,
+            )
+        self._configured_server_names = tuple(configured_servers)
+        self._provider_managed_server_names = tuple(provider_managed_servers)
+
         # Create aggregator with composition
         self._aggregator = MCPAggregator(
-            server_names=self.config.servers,
+            server_names=client_managed_servers,
             connection_persistence=connection_persistence,
             name=self.config.name,
             context=context,
             config=self.config,  # Pass the full config for access to elicitation_handler
             **kwargs,
         )
+        self._aggregator.set_supplemental_attached_servers(self._provider_managed_server_names)
 
         # Store the original template - resolved instruction set after build()
         self._instruction_template = self.config.instruction
         self._instruction = self.config.instruction  # Will be replaced by builder output
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
-        manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
+        manifests: list[SkillManifest] = list(self.config.skill_manifests or [])
         if (
             self.config.skills is SKILLS_DEFAULT
             and not manifests
@@ -196,6 +202,7 @@ class McpAgent(ABC, ToolAgent):
         self._skill_manifests: list[SkillManifest] = []
         self._skill_map: dict[str, SkillManifest] = {}
         self._skill_reader: SkillReader | None = None
+        self._no_shell_requested = bool(context and getattr(context, "no_shell", False))
         self.set_skill_manifests(manifests)
         self.skill_registry: SkillRegistry | None = None
         if isinstance(self.config.skills, SkillRegistry):
@@ -204,8 +211,11 @@ class McpAgent(ABC, ToolAgent):
             self.skill_registry = context.skill_registry
         self._warnings: list[str] = []
         self._warning_messages_seen: set[str] = set()
-        shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
-        shell_config_requested = bool(self.config.shell)
+        shell_flag_requested = (
+            bool(context and getattr(context, "shell_runtime", False))
+            and not self._no_shell_requested
+        )
+        shell_config_requested = bool(self.config.shell) and not self._no_shell_requested
         skills_configured = bool(self._skill_manifests)
         self._shell_runtime_activation_reason: str | None = None
 
@@ -214,7 +224,7 @@ class McpAgent(ABC, ToolAgent):
             reasons.append("--shell flag")
         if shell_config_requested:
             reasons.append("agent config")
-        if skills_configured:
+        if skills_configured and not self._no_shell_requested:
             reasons.append("agent skills configuration")
 
         if reasons:
@@ -242,12 +252,13 @@ class McpAgent(ABC, ToolAgent):
                 modes.append("switch")
             self._shell_access_modes = tuple(modes)
 
-        self._activate_shell_runtime(
-            self._shell_runtime_activation_reason,
-            working_directory=self.config.cwd,
-            skills_directory=skills_directory,
-            access_modes=self._shell_access_modes,
-        )
+        if self._shell_runtime_activation_reason is not None:
+            self._activate_shell_runtime(
+                self._shell_runtime_activation_reason,
+                working_directory=self.config.cwd,
+                skills_directory=skills_directory,
+                access_modes=self._shell_access_modes,
+            )
 
         # Store instruction context for template resolution
         self._instruction_context: dict[str, str] = {}
@@ -271,15 +282,15 @@ class McpAgent(ABC, ToolAgent):
         # Register the MCP UI handler as the elicitation callback so fast_agent.tools can call it
         # without importing MCP types. This avoids circular imports and ensures the callback is ready.
         try:
-            from fast_agent.human_input.elicitation_handler import elicitation_input_callback
-            from fast_agent.human_input.types import HumanInputRequest
-
             async def _mcp_elicitation_adapter(
                 request_payload: dict,
                 agent_name: str | None = None,
                 server_name: str | None = None,
                 server_info: dict | None = None,
             ) -> str:
+                from fast_agent.human_input.elicitation_handler import elicitation_input_callback
+                from fast_agent.human_input.types import HumanInputRequest
+
                 req = HumanInputRequest(**request_payload)
                 resp = await elicitation_input_callback(
                     request=req,
@@ -320,6 +331,8 @@ class McpAgent(ABC, ToolAgent):
         Shutdown the agent and close all MCP server connections.
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
+        if self._shutdown_complete:
+            return
         await self._run_lifecycle_hook("on_shutdown")
         await self._aggregator.close()
         await self._finalize_shutdown(run_hook=False)
@@ -339,8 +352,9 @@ class McpAgent(ABC, ToolAgent):
             shell_runtime = self._shell_runtime
             if working_directory is not None and shell_runtime is not None:
                 shell_runtime._working_directory = working_directory
-                if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
-                    self._filesystem_runtime.set_working_directory(working_directory)
+                local_runtime = self._local_filesystem_runtime()
+                if local_runtime is not None:
+                    local_runtime.set_working_directory(working_directory)
 
             self._maybe_enable_local_filesystem_runtime(working_directory)
             return
@@ -355,7 +369,45 @@ class McpAgent(ABC, ToolAgent):
         """Expose server status details for UI and diagnostics consumers."""
         if not self._aggregator:
             return {}
-        return await self._aggregator.collect_server_status()
+        status_map = await self._aggregator.collect_server_status()
+
+        server_settings_by_name = None
+        if self._context and self._context.config and self._context.config.mcp:
+            server_settings_by_name = self._context.config.mcp.servers
+
+        if not server_settings_by_name:
+            return status_map
+
+        auto_sampling = True
+        if self._context and self._context.config:
+            auto_sampling = self._context.config.auto_sampling
+
+        for server_name in self._provider_managed_server_names:
+            if server_name in status_map:
+                continue
+            server_cfg = server_settings_by_name.get(server_name)
+            if server_cfg is None:
+                continue
+
+            roots = server_cfg.roots
+            elicitation = server_cfg.elicitation
+            sampling_cfg = server_cfg.sampling
+            status_map[server_name] = ServerStatus(
+                server_name=server_name,
+                transport=server_cfg.transport,
+                is_connected=True,
+                instructions_enabled=server_cfg.include_instructions,
+                roots_configured=bool(roots),
+                roots_count=len(roots) if roots else 0,
+                elicitation_mode=elicitation.mode if elicitation else None,
+                sampling_mode=(
+                    "configured"
+                    if sampling_cfg is not None
+                    else ("auto" if auto_sampling else "off")
+                ),
+            )
+
+        return status_map
 
     async def attach_mcp_server(
         self,
@@ -364,6 +416,18 @@ class McpAgent(ABC, ToolAgent):
         server_config: MCPServerSettings | None = None,
         options: MCPAttachOptions | None = None,
     ) -> MCPAttachResult:
+        resolved_server_config = server_config
+        if (
+            resolved_server_config is None
+            and self._context
+            and self._context.config
+            and self._context.config.mcp
+        ):
+            resolved_server_config = self._context.config.mcp.servers.get(server_name)
+        if resolved_server_config is not None and resolved_server_config.management == "provider":
+            raise AgentConfigError(
+                f"Provider-managed MCP server '{server_name}' cannot be attached locally."
+            )
         return await self._aggregator.attach_server(
             server_name=server_name,
             server_config=server_config,
@@ -374,7 +438,12 @@ class McpAgent(ABC, ToolAgent):
         return await self._aggregator.detach_server(server_name)
 
     def list_attached_mcp_servers(self) -> list[str]:
-        return self._aggregator.list_attached_servers()
+        return self._unique_preserving_order(self._aggregator.list_attached_servers())
+
+    async def list_servers(self) -> list[str]:
+        return self._unique_preserving_order(
+            [*self._aggregator.server_names, *self._provider_managed_server_names]
+        )
 
     @property
     def aggregator(self) -> MCPAggregator:
@@ -406,6 +475,25 @@ class McpAgent(ABC, ToolAgent):
         """Whether any filesystem runtime is attached."""
         return self._filesystem_runtime is not None
 
+    def _local_filesystem_runtime(self) -> LocalFilesystemRuntime | None:
+        runtime = self._filesystem_runtime
+        if isinstance(runtime, LocalFilesystemRuntime):
+            return runtime
+        if isinstance(runtime, CompositeFilesystemRuntime):
+            primary = runtime.primary
+            if isinstance(primary, LocalFilesystemRuntime):
+                return primary
+            fallback = runtime.fallback
+            if isinstance(fallback, LocalFilesystemRuntime):
+                return fallback
+        return None
+
+    def _consume_pending_media_attachments(self) -> list[ContentBlock]:
+        local_runtime = self._local_filesystem_runtime()
+        if local_runtime is None:
+            return []
+        return local_runtime.consume_pending_media_attachments()
+
     @property
     def has_filesystem_read_text_file_tool(self) -> bool:
         """Whether the active filesystem runtime currently exposes read_text_file."""
@@ -434,7 +522,11 @@ class McpAgent(ABC, ToolAgent):
         Apply template substitution to the instruction, including server instructions.
         This is called during initialization after servers are connected.
         """
-        from fast_agent.core.instruction_refresh import build_instruction, format_agent_skills
+        from fast_agent.core.instruction_refresh import (
+            build_instruction,
+            format_agent_skills,
+            resolve_instruction_skill_manifests,
+        )
 
         if not self._instruction_template:
             return
@@ -443,7 +535,7 @@ class McpAgent(ABC, ToolAgent):
         new_instruction = await build_instruction(
             self._instruction_template,
             aggregator=self._aggregator,
-            skill_manifests=self._skill_manifests,
+            skill_manifests=resolve_instruction_skill_manifests(self, self._skill_manifests),
             skill_read_tool_name=self.skill_read_tool_name,
             context=self._instruction_context,
             source=self._name,
@@ -512,6 +604,8 @@ class McpAgent(ABC, ToolAgent):
             self._skill_reader = None
 
     def _ensure_shell_runtime_for_skills(self) -> None:
+        if self._no_shell_requested:
+            return
         if self._shell_runtime_enabled:
             return
         if self._external_runtime is not None:
@@ -538,18 +632,18 @@ class McpAgent(ABC, ToolAgent):
         config_output_byte_limit = None
         shell_config = None
         if self._context and self._context.config:
-            shell_config = getattr(self._context.config, "shell_execution", None)
+            shell_config = self._context.config.shell_execution
         if shell_config:
-            timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
-            warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
-            config_output_byte_limit = getattr(shell_config, "output_byte_limit", None)
+            timeout_seconds = shell_config.timeout_seconds
+            warning_interval_seconds = shell_config.warning_interval_seconds
+            config_output_byte_limit = shell_config.output_byte_limit
 
         if config_output_byte_limit is not None:
             output_byte_limit = config_output_byte_limit
         else:
             model_name = self.config.model
             if not model_name and self._context and self._context.config:
-                model_name = getattr(self._context.config, "default_model", None)
+                model_name = self._context.config.default_model
             output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
         return timeout_seconds, warning_interval_seconds, output_byte_limit
 
@@ -557,10 +651,13 @@ class McpAgent(ABC, ToolAgent):
         """Return whether shell-enabled agents should expose local read_text_file."""
         if not self._context or not self._context.config:
             return True
-        shell_config = getattr(self._context.config, "shell_execution", None)
-        if shell_config is None:
-            return True
-        return bool(getattr(shell_config, "enable_read_text_file", True))
+        return self._context.config.shell_execution.enable_read_text_file
+
+    def _shell_attach_media_mode(self) -> Literal["auto", "on", "off"]:
+        """Return whether shell-enabled agents should expose local attach_media."""
+        if not self._context or not self._context.config:
+            return "auto"
+        return self._context.config.shell_execution.enable_attach_media
 
     def _resolve_shell_edit_tool_mode(self) -> Literal["write_text_file", "apply_patch", "off"]:
         """Return which shell edit tool should be exposed for the current model/config."""
@@ -573,11 +670,7 @@ class McpAgent(ABC, ToolAgent):
         if not self._context or not self._context.config:
             return default_mode
 
-        shell_config = getattr(self._context.config, "shell_execution", None)
-        if shell_config is None:
-            return default_mode
-
-        mode_raw = getattr(shell_config, "write_text_file_mode", None)
+        mode_raw = self._context.config.shell_execution.write_text_file_mode
         mode = mode_raw.strip().lower() if isinstance(mode_raw, str) else None
         if mode == "on":
             return "write_text_file"
@@ -592,23 +685,34 @@ class McpAgent(ABC, ToolAgent):
 
     def _resolve_shell_tool_model_name(self) -> str | None:
         """Resolve the best-available model name for shell tool policy decisions."""
-        llm_model = getattr(getattr(self, "_llm", None), "model_name", None)
+        llm = self._llm
+        llm_model = llm.model_name if llm is not None else None
         if isinstance(llm_model, str) and llm_model.strip():
             return llm_model.strip()
 
         model_name = self.config.model
         if not model_name and self._context and self._context.config:
-            model_name = getattr(self._context.config, "default_model", None)
+            model_name = self._context.config.default_model
         return model_name
 
     @staticmethod
     def _prefers_apply_patch_model(model_name: str | None) -> bool:
-        """Return True for models where apply_patch-first workflows are preferred."""
+        """Return True for Codex and GPT-5.2+ models."""
         if not model_name:
             return False
 
         normalized = ModelDatabase.normalize_model_name(model_name)
-        return normalized.startswith("gpt-5") or "codex" in normalized
+        if "codex" in normalized:
+            return True
+
+        match = re.match(r"^gpt-5(?:\.(\d+))?", normalized)
+        if match is None:
+            return False
+
+        minor = match.group(1)
+        if minor is None:
+            return False
+        return int(minor) >= 2
 
     def _maybe_enable_local_filesystem_runtime(self, working_directory: Path | None = None) -> None:
         """Enable local filesystem runtime when shell mode is active and configured."""
@@ -619,64 +723,86 @@ class McpAgent(ABC, ToolAgent):
         edit_mode = self._resolve_shell_edit_tool_mode()
         enable_write = edit_mode == "write_text_file"
         enable_apply_patch = edit_mode == "apply_patch"
-        if not enable_read and not enable_write and not enable_apply_patch:
-            if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
-                if working_directory is not None:
-                    self._filesystem_runtime.set_working_directory(working_directory)
-                self._filesystem_runtime.set_enabled_tools(
-                    enable_read=enable_read,
-                    enable_write=enable_write,
-                    enable_apply_patch=enable_apply_patch,
-                )
-            return
-
-        if self._filesystem_runtime is not None:
-            if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
-                if working_directory is not None:
-                    self._filesystem_runtime.set_working_directory(working_directory)
-                self._filesystem_runtime.set_enabled_tools(
-                    enable_read=enable_read,
-                    enable_write=enable_write,
-                    enable_apply_patch=enable_apply_patch,
-                )
+        enable_edit_file = edit_mode == "write_text_file"
+        enable_attach_media = self._shell_attach_media_mode()
+        model_info = self.llm.model_info if self.llm else None
+        local_runtime = self._local_filesystem_runtime()
+        if local_runtime is not None:
+            if working_directory is not None:
+                local_runtime.set_working_directory(working_directory)
+            local_runtime.set_model_info(model_info)
+            local_runtime.set_tool_handler_resolver(self._get_tool_handler)
+            local_runtime.set_enabled_tools(
+                enable_read=enable_read,
+                enable_write=enable_write,
+                enable_apply_patch=enable_apply_patch,
+                enable_edit_file=enable_edit_file,
+                enable_attach_media=enable_attach_media,
+            )
             return
 
         runtime_working_directory = (
             working_directory if working_directory is not None else self.config.cwd
         )
-        runtime = LocalFilesystemRuntime(
+        local_runtime = LocalFilesystemRuntime(
             self.logger,
             working_directory=runtime_working_directory,
             enable_read=enable_read,
             enable_write=enable_write,
             enable_apply_patch=enable_apply_patch,
+            enable_edit_file=enable_edit_file,
+            enable_attach_media=enable_attach_media,
+            model_info=model_info,
+            tool_handler_resolver=self._get_tool_handler,
         )
-        self._filesystem_runtime = runtime
+        if self._filesystem_runtime is None:
+            self._filesystem_runtime = local_runtime
+        else:
+            self._filesystem_runtime = CompositeFilesystemRuntime(
+                primary=self._filesystem_runtime,
+                fallback=local_runtime,
+            )
         self.logger.info(
             "Local filesystem runtime enabled",
-            runtime_type=type(runtime).__name__,
+            runtime_type=type(self._filesystem_runtime).__name__,
             read_enabled=enable_read,
             write_enabled=enable_write,
             apply_patch_enabled=enable_apply_patch,
+            edit_file_enabled=enable_edit_file,
+            attach_media_enabled=enable_attach_media,
         )
 
     def _shell_output_limit_overridden(self) -> bool:
         """Return True when shell output byte limit is explicitly configured."""
         if not self._context or not self._context.config:
             return False
-        shell_config = getattr(self._context.config, "shell_execution", None)
-        if shell_config is None:
-            return False
-        return getattr(shell_config, "output_byte_limit", None) is not None
+        return self._context.config.shell_execution.output_byte_limit is not None
 
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         super()._on_llm_attached(llm)
 
-        if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
-            self._filesystem_runtime.set_enabled_tools(
+        if self._provider_managed_mcp_state.has_servers():
+            if self._provider_managed_mcp_state.has_connectors() and llm.provider != Provider.RESPONSES:
+                raise AgentConfigError(
+                    "Provider-managed connectors are only supported for the OpenAI Responses provider."
+                )
+            if llm.provider not in {Provider.ANTHROPIC, Provider.RESPONSES}:
+                raise AgentConfigError(
+                    "Provider-managed MCP is only supported for Anthropic Messages "
+                    "and the OpenAI Responses provider."
+                )
+            llm.set_provider_managed_mcp_state(self._provider_managed_mcp_state)
+
+        local_runtime = self._local_filesystem_runtime()
+        if local_runtime is not None:
+            edit_mode = self._resolve_shell_edit_tool_mode()
+            local_runtime.set_model_info(llm.model_info)
+            local_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
-                enable_write=self._resolve_shell_edit_tool_mode() == "write_text_file",
-                enable_apply_patch=self._resolve_shell_edit_tool_mode() == "apply_patch",
+                enable_write=edit_mode == "write_text_file",
+                enable_apply_patch=edit_mode == "apply_patch",
+                enable_edit_file=edit_mode == "write_text_file",
+                enable_attach_media=self._shell_attach_media_mode(),
             )
 
         if self._shell_runtime is None:
@@ -684,11 +810,7 @@ class McpAgent(ABC, ToolAgent):
         if self._shell_output_limit_overridden():
             return
 
-        resolved_model = getattr(llm, "resolved_model", None)
-        if resolved_model is not None:
-            output_byte_limit = calculate_terminal_output_limit_for_resolved_model(resolved_model)
-        else:
-            output_byte_limit = calculate_terminal_output_limit_for_model(llm.model_name)
+        output_byte_limit = calculate_terminal_output_limit_for_resolved_model(llm.resolved_model)
         self._shell_runtime.set_output_byte_limit(output_byte_limit)
 
     def _activate_shell_runtime(
@@ -924,12 +1046,22 @@ class McpAgent(ABC, ToolAgent):
         Set a filesystem runtime (e.g., ACPFilesystemRuntime) to add filesystem tools.
 
         This allows ACP mode to inject filesystem support that uses the client's
-        filesystem capabilities for reading and writing files.
+        filesystem capabilities for reading and writing files while preserving
+        local shell edit tools when shell mode is enabled.
 
         Args:
             runtime: Runtime instance with tools property and read_text_file/write_text_file methods
         """
-        self._filesystem_runtime = runtime
+        local_runtime = self._local_filesystem_runtime()
+        if isinstance(runtime, (LocalFilesystemRuntime, CompositeFilesystemRuntime)):
+            self._filesystem_runtime = runtime
+        elif local_runtime is not None and runtime is not local_runtime:
+            self._filesystem_runtime = CompositeFilesystemRuntime(primary=runtime, fallback=local_runtime)
+        else:
+            self._filesystem_runtime = runtime
+        current_local_runtime = self._local_filesystem_runtime()
+        if current_local_runtime is not None:
+            current_local_runtime.set_tool_handler_resolver(self._get_tool_handler)
         self.logger.info(
             f"Filesystem runtime injected: {type(runtime).__name__}",
             runtime_type=type(runtime).__name__,
@@ -961,15 +1093,13 @@ class McpAgent(ABC, ToolAgent):
 
         # Check filesystem runtime (e.g., ACP filesystem)
         if self._filesystem_runtime:
-            for tool in self._filesystem_runtime.tools:
-                if tool.name == name:
-                    # Route to the appropriate method based on tool name
-                    if name == "read_text_file":
-                        return await self._filesystem_runtime.read_text_file(arguments, tool_use_id)
-                    if name == "write_text_file":
-                        return await self._filesystem_runtime.write_text_file(arguments, tool_use_id)
-                    if is_apply_patch_tool_name(name):
-                        return await self._filesystem_runtime.apply_patch(arguments, tool_use_id)
+            if any(tool.name == name for tool in self._filesystem_runtime.tools):
+                return await self._filesystem_runtime.call_tool(
+                    name,
+                    arguments,
+                    tool_use_id,
+                    request_params=request_params,
+                )
 
         # Check skill reader (non-ACP context with skills)
         if self._skill_reader and name == "read_skill":
@@ -1125,7 +1255,7 @@ class McpAgent(ABC, ToolAgent):
                 return error_msg
 
             # Get the display name (namespaced version)
-            namespaced_name = getattr(prompt_result, "namespaced_name", prompt_name)
+            namespaced_name = prompt_display_name(prompt_result, prompt_name)
         else:
             # prompt is a GetPromptResult object
             prompt_result = prompt
@@ -1135,7 +1265,7 @@ class McpAgent(ABC, ToolAgent):
                 return error_msg
 
             # Use a reasonable display name
-            namespaced_name = getattr(prompt_result, "namespaced_name", "provided_prompt")
+            namespaced_name = prompt_display_name(prompt_result, "provided_prompt")
 
         self.logger.debug(f"Using prompt '{namespaced_name}'")
 
@@ -1231,9 +1361,7 @@ class McpAgent(ABC, ToolAgent):
         prompt: PromptMessageExtended
         if isinstance(prompt_content, str):
             # Create a new prompt with the text and resources
-            content: list[ContentBlock] = [
-                TextContent(type="text", text=prompt_content)
-            ]
+            content: list[ContentBlock] = [TextContent(type="text", text=prompt_content)]
             content.extend(embedded_resources)
             prompt = PromptMessageExtended(role="user", content=content)
         elif isinstance(prompt_content, PromptMessage):
@@ -1265,6 +1393,7 @@ class McpAgent(ABC, ToolAgent):
 
         tool_results: dict[str, CallToolResult] = {}
         tool_timings: dict[str, ToolTimingInfo] = {}
+        tool_metadata: dict[str, dict[str, Any]] = {}
         tool_loop_error: str | None = None
 
         # Cache available tool names exactly as advertised to the LLM for display/highlighting
@@ -1302,7 +1431,7 @@ class McpAgent(ABC, ToolAgent):
                     )
 
         smart_parallel_calls = 0
-        if getattr(self, "agent_type", None) == AgentType.SMART:
+        if self.agent_type == AgentType.SMART:
             smart_parallel_calls = sum(
                 1 for _, tool_request in tool_call_items if tool_request.params.name == "smart"
             )
@@ -1402,6 +1531,8 @@ class McpAgent(ABC, ToolAgent):
                 and not route_to_namespaced_candidate
             ):
                 metadata = self._filesystem_runtime.metadata()
+            elif local_tool is not None:
+                metadata = self._jsonable_tool_metadata(self._tool_display_metadata(tool_name))
 
             display_tool_name, bottom_items, highlight_index = self._prepare_tool_display(
                 tool_name=tool_name,
@@ -1423,6 +1554,8 @@ class McpAgent(ABC, ToolAgent):
                     tool_call_id=correlation_id if should_parallel else None,
                     show_hook_indicator=self.has_before_tool_call_hook,
                 )
+            if metadata:
+                tool_metadata[correlation_id] = metadata
 
             planned_calls.append(
                 {
@@ -1443,7 +1576,7 @@ class McpAgent(ABC, ToolAgent):
             self._show_shell_tool_call_id = True
             self._defer_shell_display_to_tool_result = True
             if smart_parallel_active:
-                setattr(self, "_parallel_smart_tool_calls", True)
+                self.parallel_smart_tool_calls = True
                 self.logger.info(
                     "Parallel smart tool calls detected",
                     agent_name=self._name,
@@ -1468,7 +1601,7 @@ class McpAgent(ABC, ToolAgent):
                 self._show_shell_tool_call_id = previous_shell_tool_call_id_setting
                 self._defer_shell_display_to_tool_result = previous_shell_display_setting
                 if smart_parallel_active:
-                    setattr(self, "_parallel_smart_tool_calls", False)
+                    self.parallel_smart_tool_calls = False
 
             for i, item in enumerate(results):
                 call = planned_calls[i]
@@ -1529,7 +1662,10 @@ class McpAgent(ABC, ToolAgent):
                     )
 
             return self._finalize_tool_results(
-                tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
+                tool_results,
+                tool_timings=tool_timings,
+                tool_metadata=tool_metadata,
+                tool_loop_error=tool_loop_error,
             )
 
         for call in planned_calls:
@@ -1595,7 +1731,10 @@ class McpAgent(ABC, ToolAgent):
                 )
 
         return self._finalize_tool_results(
-            tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
+            tool_results,
+            tool_timings=tool_timings,
+            tool_metadata=tool_metadata,
+            tool_loop_error=tool_loop_error,
         )
 
     def _prepare_tool_display(
@@ -1646,6 +1785,27 @@ class McpAgent(ABC, ToolAgent):
         if bottom_items is not None:
             bottom_items = [TOOL_DISPLAY_NAMES.get(name, name) for name in bottom_items]
         return display_tool_name, bottom_items, highlight_index
+
+    def resolve_stream_tool_metadata(self, tool_name: str) -> Mapping[str, Any] | None:
+        metadata = super().resolve_stream_tool_metadata(tool_name)
+        if metadata:
+            return metadata
+
+        lookup_name = tool_name.strip()
+        if not lookup_name:
+            return None
+
+        if not is_namespaced_name(lookup_name) and "/" in lookup_name:
+            server_name, base_tool_name = lookup_name.split("/", 1)
+            if server_name and base_tool_name:
+                lookup_name = create_namespaced_name(server_name, base_tool_name)
+
+        namespaced_tool = self._aggregator._namespaced_tool_map.get(lookup_name)
+        if namespaced_tool is None or not isinstance(namespaced_tool.tool.meta, Mapping):
+            return None
+
+        metadata = dict(namespaced_tool.tool.meta)
+        return self._jsonable_tool_metadata(metadata)
 
     @staticmethod
     def _is_read_text_file_tool_name(tool_name: str) -> bool:
@@ -1863,7 +2023,7 @@ class McpAgent(ABC, ToolAgent):
                 existing_names.add(skill_tool.name)
 
         if self.config.human_input:
-            human_tool = getattr(self, "_human_input_tool", None)
+            human_tool = self._human_input_tool
             if human_tool and human_tool.name not in existing_names:
                 merged_tools.append(human_tool)
                 existing_names.add(human_tool.name)
@@ -1891,7 +2051,12 @@ class McpAgent(ABC, ToolAgent):
             skills=skills,
             name=self._name,
             description=self.config.description or self.instruction,
-            url=f"fast-agent://agents/{self._name}/",
+            supported_interfaces=[
+                AgentInterface(
+                    url=f"fast-agent://agents/{self._name}/",
+                    protocol_binding="fast-agent",
+                )
+            ],
             version="0.1",
             capabilities=DEFAULT_CAPABILITIES,
             default_input_modes=["text/plain"],
@@ -1912,6 +2077,7 @@ class McpAgent(ABC, ToolAgent):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         """
         Display an assistant message with MCP servers in the bottom bar.
@@ -1921,10 +2087,7 @@ class McpAgent(ABC, ToolAgent):
         """
         # Get the list of MCP servers (if not provided)
         if bottom_items is None:
-            if self._aggregator and self._aggregator.server_names:
-                server_names = list(self._aggregator.server_names)
-            else:
-                server_names = []
+            server_names = list(self.list_attached_mcp_servers())
         else:
             server_names = list(bottom_items)
 
@@ -1947,21 +2110,11 @@ class McpAgent(ABC, ToolAgent):
                 server_names.append(card_tools_label)
 
         # Add agent-as-tool names to the bottom bar (they aren't MCP servers but should be shown)
-        for tool_name in self._agent_tools:
+        for tool_name in self.agent_backed_tools:
             # Extract the agent name from tool_name (e.g., "agent__foo" -> "foo")
             agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
             if agent_label not in server_names:
                 server_names.append(agent_label)
-
-        # Also check _child_agents (used by AgentsAsToolsAgent)
-        # Import at runtime to avoid circular import
-        from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsAgent
-
-        if isinstance(self, AgentsAsToolsAgent):
-            for agent_name in self._child_agents:
-                agent_label = agent_name[7:] if agent_name.startswith("agent__") else agent_name
-                if agent_label not in server_names:
-                    server_names.append(agent_label)
 
         # Extract servers from tool calls in the message for highlighting
         if highlight_items is None:
@@ -1989,6 +2142,7 @@ class McpAgent(ABC, ToolAgent):
             render_markdown=render_markdown,
             show_hook_indicator=show_hook_indicator,
             render_message=render_message,
+            show_reprint_banner=show_reprint_banner,
         )
 
     def _extract_servers_from_message(self, message: PromptMessageExtended) -> list[str]:
@@ -2008,14 +2162,7 @@ class McpAgent(ABC, ToolAgent):
             for tool_request in message.tool_calls.values():
                 tool_name = tool_request.params.name
 
-                if tool_name in self._agent_tools:
-                    agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
-                    if agent_label not in servers:
-                        servers.append(agent_label)
-                    continue
-
-                child_agents = getattr(self, "_child_agents", None)
-                if isinstance(child_agents, dict) and tool_name in child_agents:
+                if tool_name in self.agent_backed_tools:
                     agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
                     if agent_label not in servers:
                         servers.append(agent_label)

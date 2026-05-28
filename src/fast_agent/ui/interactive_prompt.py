@@ -20,7 +20,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, Union, cast, runtime_checkable
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from fast_agent.ui.console_display import ConsoleDisplay
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.tool_runner import HistoryRollbackState
 from fast_agent.cli.runtime.shell_cwd_policy import (
     can_prompt_for_missing_cwd,
     collect_shell_cwd_issues_from_runtime_agents,
@@ -39,8 +40,10 @@ from fast_agent.cli.runtime.shell_cwd_policy import (
 )
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers  # noqa: F401
 from fast_agent.commands.handlers import prompts as prompt_handlers
+from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
+from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
@@ -50,6 +53,7 @@ from fast_agent.ui.command_payloads import (
     ShellCommand,
     is_command_payload,
 )
+from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.enhanced_prompt import (
     get_enhanced_input,
@@ -61,6 +65,7 @@ from fast_agent.ui.enhanced_prompt import (
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.interactive_shell import ShellExecutionResult, run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.prompt.input import resolve_shell_working_dir
 from fast_agent.ui.prompt.resource_mentions import (
     build_prompt_with_resources,
     parse_mentions,
@@ -74,6 +79,12 @@ type PromptLoopResult = str | ShellExecutionResult
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
+
+
+@runtime_checkable
+class DisplayCapable(Protocol):
+    @property
+    def display(self) -> "ConsoleDisplay": ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +206,16 @@ class InteractivePrompt:
             rich_print(f"[red]Unable to load agent '{agent_name}'[/red]")
             return None
 
+    def _get_history_agent_or_warn(
+        self,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+    ) -> HistoryEditableAgent | None:
+        agent = self._get_agent_or_warn(prompt_provider, agent_name)
+        if agent is None:
+            return None
+        return cast("HistoryEditableAgent", agent)
+
     async def _get_all_prompts(
         self,
         prompt_provider: "AgentApp",
@@ -283,11 +304,14 @@ class InteractivePrompt:
     def _select_active_agent_or_exit(
         self,
         *,
+        preferred_agent: str | None,
         current_agent: str,
         available_agents: list[str],
         available_agents_set: set[str],
         no_agents_message: str,
     ) -> str | None:
+        if preferred_agent and preferred_agent in available_agents_set:
+            return preferred_agent
         if current_agent in available_agents_set:
             return current_agent
         if available_agents:
@@ -307,6 +331,7 @@ class InteractivePrompt:
         refreshed = False
         if not skip_refresh:
             refreshed = await prompt_provider.refresh_if_needed()
+        refresh_result = prompt_provider.latest_refresh_result()
 
         next_available_agents, next_available_agents_set = self._current_agent_roster(
             prompt_provider=prompt_provider,
@@ -320,6 +345,7 @@ class InteractivePrompt:
             return state
 
         next_agent = self._select_active_agent_or_exit(
+            preferred_agent=refresh_result.active_agent if refreshed else None,
             current_agent=state.current_agent,
             available_agents=next_available_agents,
             available_agents_set=next_available_agents_set,
@@ -333,6 +359,8 @@ class InteractivePrompt:
             available_agents=next_available_agents,
         )
         if refreshed:
+            for warning in refresh_result.warnings:
+                rich_print(f"[yellow]{warning}[/yellow]")
             rich_print("[green]AgentCards reloaded.[/green]")
 
         return PromptLoopAgents(
@@ -341,9 +369,14 @@ class InteractivePrompt:
             available_agents_set=next_available_agents_set,
         )
 
-    def _describe_cancelled_history_state(self, history_state: object | None) -> str:
-        status = getattr(history_state, "status", None)
-        removed_messages = getattr(history_state, "removed_messages", 0)
+    def _describe_cancelled_history_state(
+        self, history_state: HistoryRollbackState | None
+    ) -> str:
+        if history_state is None:
+            return "History reconciliation completed."
+
+        status = history_state.status
+        removed_messages = history_state.removed_messages
 
         if status == "history_disabled":
             return (
@@ -380,15 +413,14 @@ class InteractivePrompt:
         except Exception:
             agent_obj = None
 
-        if agent_obj is None or not getattr(agent_obj, "_last_turn_cancelled", False):
+        if not isinstance(agent_obj, TurnCancellationStateCapable) or not agent_obj.last_turn_cancelled:
             return
 
         _clear_current_task_cancellation_requests()
         clear_progress_for_agent(agent_name)
-        reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
-        setattr(agent_obj, "_last_turn_cancelled", False)
-        history_state = getattr(agent_obj, "_last_turn_history_state", None)
-        setattr(agent_obj, "_last_turn_history_state", None)
+        reason = agent_obj.last_turn_cancel_reason
+        history_state = agent_obj.last_turn_history_state
+        agent_obj.clear_last_turn_cancellation()
         state_message = self._describe_cancelled_history_state(history_state)
         write_interactive_trace(
             "prompt.previous_turn_cancelled",
@@ -454,12 +486,12 @@ class InteractivePrompt:
             return False
 
         try:
-            history = getattr(agent_obj, "message_history", [])
+            history = agent_obj.message_history
             last_message = history[-1] if history else None
             return bool(
                 last_message is not None
-                and getattr(last_message, "role", None) == "assistant"
-                and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
+                and last_message.role == "assistant"
+                and last_message.stop_reason == LlmStopReason.CANCELLED
             )
         except Exception:
             return False
@@ -573,7 +605,11 @@ class InteractivePrompt:
             hash_send_quiet=dispatch_result.hash_send_quiet,
             shell_execute_cmd=dispatch_result.shell_execute_cmd,
         )
-        next_buffer_prefill = dispatch_result.buffer_prefill or buffer_prefill
+        next_buffer_prefill = (
+            dispatch_result.buffer_prefill
+            if dispatch_result.buffer_prefill is not None
+            else buffer_prefill
+        )
         should_continue = dispatch_result.handled and not pending.has_pending_execution()
         return next_state, pending, next_buffer_prefill, should_continue
 
@@ -629,7 +665,7 @@ class InteractivePrompt:
         runtime_state: PromptLoopRuntimeState,
         ctrl_c_exit_window_seconds: float,
     ) -> PromptInputPhase:
-        noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
+        noenv_mode = prompt_provider.noenv_mode
         try:
             user_input = await get_enhanced_input(
                 agent_name=agent_state.current_agent,
@@ -731,6 +767,11 @@ class InteractivePrompt:
                         prompt_provider=prompt_provider,
                         agent_names=agent_names,
                         pinned_agent=pinned_agent,
+                    ),
+                    buffer_prefill=buffer_prefill,
+                    shell_working_dir=resolve_shell_working_dir(
+                        agent_name=agent_state.current_agent,
+                        agent_provider=prompt_provider,
                     ),
                 )
             except KeyboardInterrupt:
@@ -844,9 +885,13 @@ class InteractivePrompt:
             return current_result, hash_send_execution.buffer_prefill, True
 
         if pending.shell_execute_cmd:
+            print(f"$ {pending.shell_execute_cmd}", flush=True)
             emit_prompt_mark("C")
-            result = run_interactive_shell_command(pending.shell_execute_cmd)
-            emit_prompt_mark("D")
+            result = run_interactive_shell_command(
+                pending.shell_execute_cmd,
+                echo_command=False,
+            )
+            emit_prompt_mark(f"D;{result.return_code}")
 
             if result.output.strip():
                 set_last_copyable_output(result.output.rstrip())
@@ -866,7 +911,10 @@ class InteractivePrompt:
         user_input: str,
     ) -> str | PromptMessageExtended | None:
         prompt_payload: str | PromptMessageExtended = user_input
-        parsed_mentions = parse_mentions(user_input)
+        parsed_mentions = parse_mentions(
+            user_input,
+            cwd=resolve_shell_working_dir(agent_name=agent_name, agent_provider=prompt_provider),
+        )
         for warning in parsed_mentions.warnings:
             rich_print(f"[yellow]{warning}[/yellow]")
 
@@ -877,14 +925,14 @@ class InteractivePrompt:
             agent_for_mentions = prompt_provider._agent(agent_name)
         except Exception:
             rich_print(f"[red]Unable to resolve resource mentions: agent '{agent_name}' unavailable[/red]")
-            return None
+            return user_input
 
         try:
             resolved_mentions = await resolve_mentions(agent_for_mentions, parsed_mentions)
             return build_prompt_with_resources(user_input, resolved_mentions)
         except Exception as exc:
             rich_print(f"[red]Failed to resolve resource mentions: {exc}[/red]")
-            return None
+            return user_input
 
     async def _send_regular_message(
         self,
@@ -959,6 +1007,8 @@ class InteractivePrompt:
         Returns:
             The result of the interactive session
         """
+        configure_console_stream("stdout")
+
         agent_state = self._build_initial_agent_state(
             default_agent=default_agent,
             available_agents=available_agents,
@@ -974,21 +1024,16 @@ class InteractivePrompt:
         buffer_prefill = ""  # One-off buffer content for # command results
         ctrl_c_exit_window_seconds = 2.0
         runtime_state = PromptLoopRuntimeState()
-        configured_shell_cwd_policy = getattr(
-            getattr(get_settings(), "shell_execution", None),
-            "missing_cwd_policy",
-            None,
-        )
+        configured_shell_cwd_policy = get_settings().shell_execution.missing_cwd_policy
         resolved_shell_cwd_policy = resolve_missing_shell_cwd_policy(
-            cli_override=getattr(prompt_provider, "_missing_shell_cwd_policy_override", None),
+            cli_override=prompt_provider.missing_shell_cwd_policy_override,
             configured_policy=configured_shell_cwd_policy,
         )
         shell_cwd_policy = effective_missing_shell_cwd_policy(
             resolved_shell_cwd_policy,
             can_prompt=can_prompt_for_missing_cwd(
                 mode="interactive",
-                message=None,
-                prompt_file=None,
+                execution_mode="repl",
                 stdin_is_tty=sys.stdin.isatty(),
                 tty_device_available=False,
             ),
@@ -1163,20 +1208,19 @@ class InteractivePrompt:
         from fast_agent.ui.console_display import ConsoleDisplay
 
         agent = None
-        if agent_name and hasattr(prompt_provider, "_agent"):
+        if agent_name:
             try:
                 agent = prompt_provider._agent(agent_name)
             except Exception:
                 agent = None
 
-        display = getattr(agent, "display", None) if agent is not None else None
-        if display is not None:
-            return display
+        if isinstance(agent, DisplayCapable):
+            return agent.display
 
         config = None
-        if agent is not None:
-            agent_context = getattr(agent, "context", None)
-            config = getattr(agent_context, "config", None) if agent_context else None
+        if isinstance(agent, AgentProtocol):
+            agent_context = agent.context
+            config = agent_context.config if agent_context else None
 
         if config is None:
             config = get_settings()

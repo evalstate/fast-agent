@@ -3,6 +3,7 @@ A derived client session for the MCP Agent framework.
 It adds logging and supports sampling requests.
 """
 
+import asyncio
 import json
 import os
 import sys
@@ -33,6 +34,7 @@ from mcp.types import (
     InitializeResult,
     ListRootsResult,
     PingRequest,
+    ProgressNotification,
     ReadResourceRequest,
     ReadResourceRequestParams,
     ReadResourceResult,
@@ -143,6 +145,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self.session_server_name = kwargs.pop("server_name", None)
         # Extract the notification callbacks if provided
         self._tool_list_changed_callback = kwargs.pop("tool_list_changed_callback", None)
+        # Reference to parent aggregator for late-bound notification callback
+        self._aggregator = kwargs.pop("aggregator", None)
         # Extract server_config if provided
         self.server_config: MCPServerSettings | None = kwargs.pop("server_config", None)
         # Extract agent_model if provided (for auto_sampling fallback)
@@ -222,7 +226,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 elicitation_handler = forms_elicitation_handler
 
         # Determine effective elicitation mode for diagnostics
-        if self.server_config and getattr(self.server_config, "elicitation", None):
+        if self.server_config and self.server_config.elicitation is not None:
             self.effective_elicitation_mode = self.server_config.elicitation.mode or "forms"
         elif elicitation_handler is not None:
             # Use global config if available to distinguish auto-cancel
@@ -937,9 +941,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     logger.info(
                         f"Tool list changed for server '{self.session_server_name}', triggering callback"
                     )
-                    # Use asyncio.create_task to prevent blocking the notification handler
-                    import asyncio
-
                     asyncio.create_task(
                         self._handle_tool_list_change_callback(self.session_server_name)
                     )
@@ -948,7 +949,28 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                         f"Tool list changed for server '{self.session_server_name}' but no callback registered"
                     )
 
+        # Forward non-progress server notifications to the aggregator callback.
+        # Progress updates already flow through the request progress callback path.
+        _cb = getattr(self._aggregator, "server_notification_callback", None) if self._aggregator else None
+        if _cb and not isinstance(notification.root, ProgressNotification):
+            asyncio.create_task(self._handle_server_notification(notification))
+
         return None
+
+    async def _handle_server_notification(self, notification: ServerNotification) -> None:
+        """Forward server notifications to the registered callback."""
+        _cb = getattr(self._aggregator, "server_notification_callback", None) if self._aggregator else None
+        if not _cb:
+            return
+        try:
+            await _cb(
+                self.session_server_name or "unknown",
+                notification,
+            )
+        except Exception as e:
+            logger.warning(
+                f"Error in server notification callback for '{self.session_server_name}': {e}"
+            )
 
     async def _handle_tool_list_change_callback(self, server_name: str) -> None:
         """
@@ -974,19 +996,18 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
         """
-        # Always create request ourselves to ensure we go through our send_request override
-        # This is critical for session terminated detection to work
         merged_meta = self._merge_experimental_session_meta(meta)
-        _meta: RequestParams.Meta | None = None
-        if merged_meta is not None:
-            _meta = RequestParams.Meta(**merged_meta)
-
-        # ty doesn't recognize _meta from pydantic alias - this matches SDK pattern
-        params = CallToolRequestParams(name=name, arguments=arguments, _meta=_meta)  # ty: ignore[unknown-argument]
-
-        request = CallToolRequest(method="tools/call", params=params)
+        request_meta = RequestParams.Meta(**merged_meta) if merged_meta is not None else None
         return await self.send_request(
-            ClientRequest(request),
+            ClientRequest(
+                CallToolRequest(
+                    params=CallToolRequestParams(
+                        name=name,
+                        arguments=arguments,
+                        _meta=request_meta,
+                    )
+                )
+            ),
             CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
@@ -1002,7 +1023,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         )
 
     async def read_resource(
-        self, uri: AnyUrl | str, _meta: dict | None = None, **kwargs
+        self,
+        uri: AnyUrl | str,
+        *,
+        meta: dict[str, Any] | RequestParams.Meta | None = None,
     ) -> ReadResourceResult:
         """Read a resource with optional metadata support.
 
@@ -1015,25 +1039,20 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Always create request ourselves to ensure we go through our send_request override
         params = ReadResourceRequestParams(uri=uri_obj)
 
-        merged_meta = self._merge_experimental_session_meta(_meta)
+        supplied_meta = meta.model_dump() if isinstance(meta, RequestParams.Meta) else meta
+        merged_meta = self._merge_experimental_session_meta(supplied_meta)
         if merged_meta:
-            # Safe merge - preserve existing meta fields like progressToken
-            existing_meta = kwargs.get("meta")
-            if existing_meta:
-                meta_dict = (
-                    existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
-                )
-                meta_dict.update(merged_meta)
-                meta_obj = RequestParams.Meta(**meta_dict)
-            else:
-                meta_obj = RequestParams.Meta(**merged_meta)
-            params = ReadResourceRequestParams(uri=uri_obj, meta=meta_obj)
+            params = ReadResourceRequestParams(uri=uri_obj, _meta=RequestParams.Meta(**merged_meta))
 
         request = ReadResourceRequest(method="resources/read", params=params)
         return await self.send_request(ClientRequest(request), ReadResourceResult)
 
     async def get_prompt(
-        self, name: str, arguments: dict | None = None, _meta: dict | None = None, **kwargs
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        meta: dict[str, Any] | RequestParams.Meta | None = None,
     ) -> GetPromptResult:
         """Get a prompt with optional metadata support.
 
@@ -1043,19 +1062,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Always create request ourselves to ensure we go through our send_request override
         params = GetPromptRequestParams(name=name, arguments=arguments)
 
-        merged_meta = self._merge_experimental_session_meta(_meta)
+        supplied_meta = meta.model_dump() if isinstance(meta, RequestParams.Meta) else meta
+        merged_meta = self._merge_experimental_session_meta(supplied_meta)
         if merged_meta:
-            # Safe merge - preserve existing meta fields like progressToken
-            existing_meta = kwargs.get("meta")
-            if existing_meta:
-                meta_dict = (
-                    existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
-                )
-                meta_dict.update(merged_meta)
-                meta_obj = RequestParams.Meta(**meta_dict)
-            else:
-                meta_obj = RequestParams.Meta(**merged_meta)
-            params = GetPromptRequestParams(name=name, arguments=arguments, meta=meta_obj)
+            params = GetPromptRequestParams(
+                name=name,
+                arguments=arguments,
+                _meta=RequestParams.Meta(**merged_meta),
+            )
 
         request = GetPromptRequest(method="prompts/get", params=params)
         return await self.send_request(ClientRequest(request), GetPromptResult)

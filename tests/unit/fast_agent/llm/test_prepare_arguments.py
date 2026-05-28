@@ -1,13 +1,15 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from mcp.types import GetPromptResult, PromptMessage, TextContent
 
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.request_params import BatchRequestContext, RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 
 
 class StubLLM(FastAgentLLM):
@@ -32,6 +34,41 @@ class StubLLM(FastAgentLLM):
     ) -> list[Any]:
         """Convert messages to provider format - stub returns empty list"""
         return []
+
+
+class _PromptLoadedDisplay:
+    def __init__(self) -> None:
+        self.loaded: dict[str, Any] | None = None
+
+    async def show_prompt_loaded(self, **kwargs: Any) -> None:
+        self.loaded = dict(kwargs)
+
+
+@pytest.mark.asyncio
+async def test_apply_prompt_template_reads_arguments_from_prompt_metadata() -> None:
+    llm = StubLLM()
+    display = _PromptLoadedDisplay()
+    llm.display = cast("Any", display)
+    prompt = GetPromptResult(
+        description="Demo prompt",
+        messages=[
+            PromptMessage(
+                role="assistant",
+                content=TextContent(type="text", text="hello"),
+            )
+        ],
+    )
+    prompt = with_prompt_metadata(
+        prompt,
+        namespaced_name="server/demo",
+        arguments={"topic": "release notes"},
+    )
+
+    result = await llm.apply_prompt_template(prompt, "server/demo")
+
+    assert result == "hello"
+    assert display.loaded is not None
+    assert display.loaded["arguments"] == {"topic": "release notes"}
 
 
 class TestRequestParamsInLLM:
@@ -104,6 +141,28 @@ class TestRequestParamsInLLM:
         # Verify response_format is included
         assert result["model"] == "test-model"
         assert result["response_format"] == json_format
+
+    def test_structured_schema_is_not_passed_through_to_provider_arguments(self):
+        llm = StubLLM()
+
+        result = llm.prepare_provider_arguments(
+            {"model": "test-model"},
+            RequestParams(structured_schema={"type": "object"}),
+        )
+
+        assert result["model"] == "test-model"
+        assert "structured_schema" not in result
+
+    def test_batch_context_is_not_passed_through_to_provider_arguments(self):
+        llm = StubLLM()
+
+        result = llm.prepare_provider_arguments(
+            {"model": "test-model"},
+            RequestParams(batch_context=BatchRequestContext(row_number=3, identity="abc")),
+        )
+
+        assert result["model"] == "test-model"
+        assert "batch_context" not in result
 
     def test_service_tier_excluded_from_non_responses_provider_arguments(self):
         """Test that service_tier is kept off generic provider argument passthrough."""
@@ -226,3 +285,10 @@ class TestRequestParamsInLLM:
         # None values should be excluded
         assert "temperature" not in result
         assert result["top_p"] == 0.9
+
+
+class TestRetryCountResolution:
+    def test_retry_count_defaults_to_two_when_context_config_is_unavailable(self) -> None:
+        llm = StubLLM(context=None)
+
+        assert llm._resolve_retry_count() == 2

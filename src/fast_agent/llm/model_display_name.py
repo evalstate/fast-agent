@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fast_agent.llm.provider_types import Provider
+
 if TYPE_CHECKING:
     from fast_agent.llm.resolved_model import ResolvedModelSpec
 
@@ -11,6 +13,15 @@ def format_model_display_name(model: str | None, *, max_len: int | None = None) 
         return model
 
     trimmed = model.rstrip("/").partition("?")[0]
+    for provider in Provider:
+        dotted_prefix = f"{provider.config_name}."
+        slash_prefix = f"{provider.config_name}/"
+        if trimmed.startswith(dotted_prefix):
+            trimmed = trimmed[len(dotted_prefix) :]
+            break
+        if trimmed.startswith(slash_prefix):
+            trimmed = trimmed[len(slash_prefix) :]
+            break
     if "/" in trimmed:
         display = trimmed.split("/")[-1] or trimmed
     else:
@@ -40,6 +51,9 @@ def resolve_resolved_model_display_name(
             or resolved_model.wire_model_name
         )
 
+    if resolved_model.provider == Provider.ANTHROPIC_VERTEX:
+        display = f"{display} · Vertex"
+
     if max_len is not None and len(display) > max_len:
         return display[: max_len - 1] + "…"
     return display
@@ -67,4 +81,15 @@ def resolve_model_display_name(
     resolved_display = resolve_llm_display_name(llm, max_len=max_len)
     if resolved_display is not None:
         return resolved_display
-    return format_model_display_name(model, max_len=max_len)
+    display = format_model_display_name(model)
+    if display is None:
+        return None
+    if model:
+        trimmed = model.partition("?")[0].strip()
+        if trimmed.startswith(f"{Provider.ANTHROPIC_VERTEX.config_name}.") or trimmed.startswith(
+            f"{Provider.ANTHROPIC_VERTEX.config_name}/"
+        ):
+            display = f"{display} · Vertex"
+    if max_len is not None and len(display) > max_len:
+        return display[: max_len - 1] + "…"
+    return display

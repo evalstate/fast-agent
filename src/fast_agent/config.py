@@ -19,11 +19,27 @@ else:  # pragma: no cover - used only to satisfy type checkers
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
+from fast_agent.core.exceptions import ConfigFileError
+from fast_agent.home import (
+    ConfigDiscoveryResult,
+    discover_config_files,
+    find_config_in_directory,
+    resolve_fast_agent_home,
+)
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
+from fast_agent.llm.task_budget import parse_task_budget_tokens, validate_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbosityLevel
+from fast_agent.mcp.provider_management import (
+    normalize_access_token,
+    normalize_client_managed_url_server,
+    normalize_connector_id,
+    normalize_provider_managed_url_server,
+)
 from fast_agent.utils.type_narrowing import is_str_object_dict
+
+type TerminalImageSize = int | Literal["auto"] | str | None
 
 
 class MCPServerAuthSettings(BaseModel):
@@ -32,8 +48,9 @@ class MCPServerAuthSettings(BaseModel):
     Minimal OAuth v2.1 support with sensible defaults.
     """
 
-    # Enable OAuth for SSE/HTTP transports. If None is provided for the auth block,
-    # the system will assume OAuth is enabled by default.
+    # Enable OAuth for SSE/HTTP transports when the auth block is present.
+    # If the auth block is omitted entirely, fast-agent starts unauthenticated
+    # and escalates to OAuth on a 401 challenge.
     oauth: bool = True
 
     # Local callback server configuration
@@ -155,12 +172,23 @@ class CardsSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class PluginsSettings(BaseModel):
+    """Configuration for command plugin discovery and marketplace selection."""
+
+    enabled: list[str] = Field(default_factory=list)
+    marketplace_url: str | None = None
+    marketplace_urls: list[str] | None = None
+    config: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
     timeout_seconds: int = Field(
         default=90,
-        description="Maximum seconds to wait for command output before terminating",
+        description="Maximum seconds without command output before terminating",
     )
     warning_interval_seconds: int = Field(
         default=30,
@@ -189,6 +217,13 @@ class ShellSettings(BaseModel):
         default="warn",
         description="Policy when an agent shell cwd is missing or invalid",
     )
+    prefer_local_shell: bool = Field(
+        default=False,
+        description=(
+            "In ACP mode, keep the local fast-agent shell runtime instead of replacing it "
+            "with the ACP client's terminal runtime when the client advertises terminal support"
+        ),
+    )
     enable_read_text_file: bool = Field(
         default=True,
         description=(
@@ -196,16 +231,35 @@ class ShellSettings(BaseModel):
             "when shell runtime is enabled"
         ),
     )
+    enable_attach_media: Literal["auto", "on", "off"] = Field(
+        default="auto",
+        description=(
+            "Expose attach_media when shell runtime is enabled. 'auto' exposes it only "
+            "for models with non-text attachment support; 'on' exposes it with call-time "
+            "validation; 'off' disables it."
+        ),
+    )
     write_text_file_mode: Literal["auto", "on", "off", "apply_patch"] | None = Field(
         default=None,
         description=(
             "Control which local file edit tool is exposed when shell runtime is enabled "
-            "('auto' uses apply_patch for GPT-5/Codex models and write_text_file otherwise; "
-            "'on' always exposes write_text_file; 'apply_patch' always exposes apply_patch; "
-            "'off' disables local file edit tools)"
+            "('auto' uses apply_patch for Codex and GPT-5.2+ models, and exposes "
+            "write_text_file plus edit_file otherwise; 'on' always exposes write_text_file "
+            "plus edit_file; 'apply_patch' always exposes apply_patch; 'off' disables "
+            "local file edit tools)"
         ),
     )
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_deprecated_attach_resource(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "enable_attach_media" not in data:
+            old_value = data.get("enable_attach_resource")
+            if old_value is not None:
+                data = dict(data)
+                data["enable_attach_media"] = old_value
+        return data
 
     @field_validator("timeout_seconds", mode="before")
     @classmethod
@@ -304,6 +358,9 @@ class MCPServerSettings(BaseModel):
     description: str | None = None
     """The description of the server."""
 
+    management: Literal["client", "provider"] = "client"
+    """Whether fast-agent connects locally or delegates MCP execution to the provider."""
+
     transport: Literal["stdio", "sse", "http"] = "stdio"
     """The transport mechanism."""
 
@@ -334,8 +391,14 @@ class MCPServerSettings(BaseModel):
     url: str | None = None
     """The URL for the server (e.g. for SSE/SHTTP transport)."""
 
+    connector_id: str | None = None
+    """OpenAI Responses provider-managed connector identifier."""
+
     headers: dict[str, str] | None = None
     """Headers dictionary for HTTP connections"""
+
+    access_token: str | None = None
+    """Provider-neutral bearer token for local URL servers or provider-managed MCP."""
 
     auth: MCPServerAuthSettings | None = None
     """The authentication configuration for the server."""
@@ -377,6 +440,9 @@ class MCPServerSettings(BaseModel):
     experimental_session_advertise_version: int = 2
     """Reserved compatibility knob for session test capability advertisement."""
 
+    defer_loading: bool = False
+    """Provider-managed OpenAI Responses hint to defer remote tool loading."""
+
     @field_validator("experimental_session_advertise_version", mode="after")
     @classmethod
     def _validate_experimental_session_advertise_version(cls, value: int) -> int:
@@ -393,6 +459,24 @@ class MCPServerSettings(BaseModel):
         if value <= 0:
             raise ValueError("max_missed_pings must be greater than zero.")
         return value
+
+    @field_validator("access_token", mode="before")
+    @classmethod
+    def _normalize_access_token(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError("access_token must be a string")
+        return normalize_access_token(value)
+
+    @field_validator("connector_id", mode="before")
+    @classmethod
+    def _normalize_connector_id(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError("connector_id must be a string")
+        return normalize_connector_id(value)
 
     @model_validator(mode="before")
     @classmethod
@@ -430,12 +514,98 @@ class MCPServerSettings(BaseModel):
 
         return values
 
+    @model_validator(mode="after")
+    def _normalize_management_specific_settings(self) -> "MCPServerSettings":
+        if self.management == "provider":
+            has_url = bool(self.url)
+            has_connector_id = self.connector_id is not None
+            if has_url == has_connector_id:
+                raise ValueError(
+                    "Provider-managed MCP servers require exactly one of url or connector_id"
+                )
+
+            invalid_fields: list[str] = []
+            if self.command is not None:
+                invalid_fields.append("command")
+            if self.args:
+                invalid_fields.append("args")
+            if self.env:
+                invalid_fields.append("env")
+            if self.cwd is not None:
+                invalid_fields.append("cwd")
+            if self.headers:
+                invalid_fields.append("headers")
+            if self.auth is not None:
+                invalid_fields.append("auth")
+            if self.roots:
+                invalid_fields.append("roots")
+            if has_url and self.transport not in {"http", "sse"}:
+                invalid_fields.append("transport")
+            if has_connector_id and "transport" in self.model_fields_set:
+                invalid_fields.append("transport")
+            if invalid_fields:
+                invalid_list = ", ".join(sorted(invalid_fields))
+                raise ValueError(
+                    f"Provider-managed MCP servers have unsupported settings: {invalid_list}"
+                )
+            if has_connector_id and self.access_token is None:
+                raise ValueError("Provider-managed connectors require access_token")
+            if has_url:
+                assert self.url is not None
+                self.url = normalize_provider_managed_url_server(
+                    transport=self.transport,
+                    url=self.url,
+                )
+            return self
+
+        if self.connector_id is not None:
+            raise ValueError("connector_id is only supported for provider-managed MCP servers")
+
+        if self.access_token is not None and not self.url:
+            raise ValueError("access_token requires a URL-based MCP server")
+
+        if self.url:
+            self.url, self.headers = normalize_client_managed_url_server(
+                transport=self.transport,
+                url=self.url,
+                headers=self.headers,
+                access_token=self.access_token,
+            )
+        return self
+
 
 class MCPSettings(BaseModel):
     """Configuration for all MCP servers."""
 
     servers: dict[str, MCPServerSettings] = {}
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+    @staticmethod
+    def _serialize_resolved_target_settings(
+        settings: MCPServerSettings,
+    ) -> dict[str, Any]:
+        """Serialize shorthand target settings back to an idempotent raw payload."""
+        payload = settings.model_dump(mode="python")
+
+        # resolve_target_entry() already normalizes access_token into Authorization
+        # for client-managed URL servers. Strip that synthesized header here so the
+        # final MCPServerSettings validation only applies the normalization once.
+        if settings.management != "provider" and settings.access_token is not None:
+            headers = payload.get("headers")
+            if isinstance(headers, dict):
+                expected_authorization = f"Bearer {settings.access_token}"
+                filtered_headers = {
+                    key: value
+                    for key, value in headers.items()
+                    if not (
+                        isinstance(key, str)
+                        and key.lower() == "authorization"
+                        and value == expected_authorization
+                    )
+                }
+                payload["headers"] = filtered_headers or None
+
+        return payload
 
     @classmethod
     def _normalize_target_list_entries(
@@ -478,7 +648,7 @@ class MCPSettings(BaseModel):
                 source_path=source_path,
             )
 
-            resolved_payload = resolved_settings.model_dump(mode="python")
+            resolved_payload = cls._serialize_resolved_target_settings(resolved_settings)
             existing_payload = normalized_targets.get(resolved_name)
             if existing_payload is not None and existing_payload != resolved_payload:
                 raise ValueError(
@@ -526,7 +696,9 @@ class MCPSettings(BaseModel):
                 overrides=overrides,
                 source_path=source_path,
             )
-            normalized_servers[server_key] = resolved_settings.model_dump(mode="python")
+            normalized_servers[server_key] = cls._serialize_resolved_target_settings(
+                resolved_settings
+            )
 
         return normalized_servers
 
@@ -658,6 +830,15 @@ class AnthropicWebFetchSettings(BaseModel):
         return self
 
 
+class AnthropicVertexSettings(BaseModel):
+    """Anthropic-on-Vertex configuration."""
+
+    enabled: bool = False
+    project_id: str | None = None
+    location: str | None = None
+    base_url: str | None = None
+
+
 class AnthropicSettings(BaseModel):
     """Settings for using Anthropic models in the fast-agent application."""
 
@@ -685,14 +866,34 @@ class AnthropicSettings(BaseModel):
             "(int), or toggle (bool). Use 0 or false to disable."
         ),
     )
+    task_budget: int | str | None = Field(
+        default=None,
+        description=(
+            "Anthropic task budget for agentic loops. Supports raw token counts or shorthand "
+            "like 20k/128k. Use off/default to disable."
+        ),
+    )
     structured_output_mode: StructuredOutputMode | Literal["auto"] = Field(
         default="auto",
         description="Structured output mode: auto, json, or tool_use",
     )
+    vertex_ai: AnthropicVertexSettings = Field(default_factory=AnthropicVertexSettings)
     web_search: AnthropicWebSearchSettings = Field(default_factory=AnthropicWebSearchSettings)
     web_fetch: AnthropicWebFetchSettings = Field(default_factory=AnthropicWebFetchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+    @field_validator("task_budget", mode="before")
+    @classmethod
+    def _coerce_task_budget(cls, value: Any) -> int | None | Any:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return validate_task_budget_tokens(value)
+        if isinstance(value, str):
+            parsed = parse_task_budget_tokens(value)
+            return validate_task_budget_tokens(parsed)
+        return value
 
 
 class OpenAIUserLocationSettings(BaseModel):
@@ -722,6 +923,42 @@ class OpenAIWebSearchSettings(BaseModel):
         if normalized is not None and len(normalized) > 100:
             raise ValueError("allowed_domains supports at most 100 domains.")
         return normalized
+
+
+class XAIWebSearchSettings(OpenAIWebSearchSettings):
+    """xAI Responses web_search tool settings."""
+
+    tool_type: Literal["web_search"] = "web_search"
+    excluded_domains: list[str] | None = Field(
+        default=None,
+        description="Domains to exclude from xAI web search results (maximum 5).",
+    )
+    enable_image_understanding: bool | None = Field(
+        default=None,
+        description="Enable xAI image understanding for images encountered during web search.",
+    )
+
+    @field_validator("allowed_domains")
+    @classmethod
+    def _validate_xai_allowed_domains(cls, value: list[str] | None) -> list[str] | None:
+        normalized = _validate_domain_list(value)
+        if normalized is not None and len(normalized) > 5:
+            raise ValueError("xAI allowed_domains supports at most 5 domains.")
+        return normalized
+
+    @field_validator("excluded_domains")
+    @classmethod
+    def _validate_excluded_domains(cls, value: list[str] | None) -> list[str] | None:
+        normalized = _validate_domain_list(value)
+        if normalized is not None and len(normalized) > 5:
+            raise ValueError("xAI excluded_domains supports at most 5 domains.")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_domain_filters(self) -> "XAIWebSearchSettings":
+        if self.allowed_domains and self.excluded_domains:
+            raise ValueError("xAI web_search cannot set both allowed_domains and excluded_domains.")
+        return self
 
 
 class ResponsesProviderSettingsBase(BaseModel):
@@ -818,6 +1055,7 @@ class CodexResponsesSettings(ResponsesProviderSettingsBase):
     )
 
 
+
 class DeepSeekSettings(BaseModel):
     """Settings for using DeepSeek models in the fast-agent application."""
 
@@ -848,12 +1086,16 @@ class GoogleSettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    transport: Literal["sse", "websocket", "auto"] | None = Field(
+        default=None,
+        description="Responses transport mode override: sse, websocket, or auto fallback.",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class XAISettings(BaseModel):
-    """Settings for using xAI Grok models in the fast-agent application."""
+    """Settings for using xAI Grok models via the Responses API."""
 
     api_key: str | None = Field(default=None, description="xAI API key")
     base_url: str | None = Field(
@@ -868,6 +1110,8 @@ class XAISettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    web_search: XAIWebSearchSettings = Field(default_factory=XAIWebSearchSettings)
+    x_search: bool = Field(default=False, description="Enable xAI X Search remote tool.")
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -1053,6 +1297,69 @@ class HuggingFaceSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class TerminalImageSettings(BaseModel):
+    """Terminal image rendering settings for chat/tool output."""
+
+    enabled: bool = True
+    """Render image content in the terminal when supported."""
+
+    backend: Literal[
+        "auto",
+        "textual-image",
+        "kitty",
+        "sixel",
+        "halfcell",
+        "unicode",
+        "none",
+    ] = "auto"
+    """Terminal image backend to use."""
+
+    width: TerminalImageSize = "80%"
+    """Image render width: cells, percentage (e.g. '80%'), 'auto', or null."""
+
+    height: TerminalImageSize = "auto"
+    """Image render height: cells, percentage (e.g. '40%'), 'auto', or null."""
+
+    render_tools: bool = False
+    """Deprecated: tool images are rendered in the final assistant pass."""
+
+    render_assistant: bool = True
+    """Render images in final assistant messages."""
+
+    @field_validator("width", "height", mode="before")
+    @classmethod
+    def _validate_image_size(cls, value: Any) -> TerminalImageSize:
+        if value is None:
+            return None
+        if isinstance(value, int) and not isinstance(value, bool):
+            if value < 0:
+                raise ValueError("terminal image size must be non-negative")
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "" or stripped.lower() in {"none", "null"}:
+                return None
+            if stripped == "auto":
+                return "auto"
+            if stripped.endswith("%") and stripped[:-1].isdecimal():
+                return stripped
+            if stripped.isdecimal():
+                return int(stripped)
+        raise ValueError("terminal image size must be an integer, percentage, 'auto', or null")
+
+
+class TUISettings(BaseModel):
+    """Interactive TUI settings."""
+
+    completion_menu_reserved_lines: int = Field(
+        default=6,
+        ge=0,
+        description="Prompt-toolkit lines reserved below the input for completion menus.",
+    )
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class LoggerSettings(BaseModel):
     """
     Logger settings for the fast-agent application.
@@ -1090,6 +1397,8 @@ class LoggerSettings(BaseModel):
 
     show_chat: bool = True
     """Show chat User/Assistant on the console"""
+    stream_reprint_banner: bool = True
+    """Show a bright banner before reprinted final streamed assistant responses"""
     show_tools: bool = True
     """Show MCP Sever tool calls on the console"""
     truncate_tools: bool = True
@@ -1101,78 +1410,44 @@ class LoggerSettings(BaseModel):
     """Emit OSC 133 prompt marks for terminals that support scrollbar markers."""
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
+    theme_file: str | None = None
+    """Optional Rich theme file for console styles. Relative paths resolve from fast-agent.yaml."""
+    code_theme: str = "native"
+    """Pygments / Rich syntax theme for fenced code blocks and markdown code rendering."""
+    render_fences_with_syntax: bool = True
+    """Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"""
+    code_word_wrap: bool = True
+    """Wrap Syntax-rendered code blocks instead of cropping at the viewport edge"""
+    terminal_images: TerminalImageSettings = Field(default_factory=TerminalImageSettings)
+    """Render image content in capable terminals."""
+    apply_patch_preview_max_lines: int | None = Field(
+        default=120,
+        description=(
+            "Maximum lines to show in apply_patch previews before appending "
+            "'(+N more lines)' (0/None = no limit)"
+        ),
+    )
+    """Maximum lines to show in apply_patch previews before truncation"""
 
+    _theme_file_config_path: str | None = PrivateAttr(default=None)
 
-def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:
-    """
-    Find FastAgent configuration files with standardized behavior.
-
-    Returns:
-        Tuple of (config_path, secrets_path) where either can be None if not found.
-
-    Strategy:
-    1. Find config file recursively from start_path upward
-    2. Prefer secrets file in same directory as config file
-    3. If no secrets file next to config, search recursively from start_path
-    """
-    config_path = None
-    secrets_path = None
-
-    # First, find the config file with recursive search
-    current = start_path.resolve()
-    while current != current.parent:
-        potential_config = current / "fastagent.config.yaml"
-        if potential_config.exists():
-            config_path = potential_config
-            break
-        current = current.parent
-
-    # If config file found, prefer secrets file in the same directory
-    if config_path:
-        potential_secrets = config_path.parent / "fastagent.secrets.yaml"
-        if potential_secrets.exists():
-            secrets_path = potential_secrets
+    @field_validator("apply_patch_preview_max_lines", mode="before")
+    @classmethod
+    def _coerce_apply_patch_preview_max_lines(cls, value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "" or stripped.lower() in {"none", "null", "all", "unlimited"}:
+                return None
+            value = int(stripped)
         else:
-            # If no secrets file next to config, do recursive search from start
-            current = start_path.resolve()
-            while current != current.parent:
-                potential_secrets = current / "fastagent.secrets.yaml"
-                if potential_secrets.exists():
-                    secrets_path = potential_secrets
-                    break
-                current = current.parent
-    else:
-        # No config file found, just search for secrets file
-        current = start_path.resolve()
-        while current != current.parent:
-            potential_secrets = current / "fastagent.secrets.yaml"
-            if potential_secrets.exists():
-                secrets_path = potential_secrets
-                break
-            current = current.parent
-
-    return config_path, secrets_path
-
-
-def resolve_config_search_root(
-    start_path: Path,
-    *,
-    env_dir: str | Path | None = None,
-) -> Path:
-    """Resolve the base path for discovering config and secrets files.
-
-    If env_dir is provided (or ENVIRONMENT_DIR is set), search from there instead
-    of the current working directory.
-    """
-    base = start_path.resolve()
-    override = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
-    if not override:
-        return base
-
-    root = Path(override).expanduser()
-    if not root.is_absolute():
-        root = (base / root).resolve()
-    return root
+            value = int(value)
+        if value == 0:
+            return None
+        if value < 0:
+            raise ValueError("apply_patch_preview_max_lines must be non-negative.")
+        return value
 
 
 def resolve_env_vars(config_item: Any) -> Any:
@@ -1222,91 +1497,125 @@ def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
 
     import yaml  # pylint: disable=C0415
 
-    with open(path, "r", encoding="utf-8") as f:
-        payload = yaml.safe_load(f) or {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = yaml.safe_load(f) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigFileError(f"Failed to parse YAML file: {path}", str(exc)) from exc
     if not isinstance(payload, dict):
         return {}
     return resolve_env_vars(payload)
 
 
-def find_project_config_file(start_path: Path) -> Path | None:
-    """Find project-level ``fastagent.config.yaml`` from ``start_path`` upward."""
-    current = start_path.resolve()
-    while current != current.parent:
-        candidate = current / "fastagent.config.yaml"
-        if candidate.exists():
-            return candidate
-        current = current.parent
-    return None
-
-
-def resolve_environment_config_file(
-    start_path: Path,
-    *,
-    env_dir: str | Path | None = None,
-) -> Path:
-    """Return the env overlay config path: ``<env>/fastagent.config.yaml``."""
-    base = start_path.resolve()
-    override = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
-
-    if override:
-        env_root = Path(override).expanduser()
-        if not env_root.is_absolute():
-            env_root = (base / env_root).resolve()
-    else:
-        env_root = (base / DEFAULT_ENVIRONMENT_DIR).resolve()
-
-    return env_root / "fastagent.config.yaml"
-
-
-def resolve_layered_config_file(
-    start_path: Path,
-    *,
-    env_dir: str | Path | None = None,
-) -> Path | None:
-    """Return the effective config path using project + env precedence.
-
-    Precedence is project config first, then environment config overlay when
-    the env config file exists.
-    """
-
-    project_config = find_project_config_file(start_path)
-    env_config = resolve_environment_config_file(start_path, env_dir=env_dir)
-
-    if env_config.exists():
-        return env_config
-    return project_config
-
-
-def load_layered_settings(
+def load_implicit_settings(
     *,
     start_path: Path,
     env_dir: str | Path | None = None,
-) -> tuple[dict[str, Any], Path | None]:
-    """Load merged settings from project config with env overlay.
-
-    Precedence: project config < environment config.
-
-    Returns:
-        A tuple of ``(merged_settings, effective_config_path)`` where
-        ``effective_config_path`` is the last-applied config path (env when
-        present, else project), or ``None`` when neither exists.
-    """
-
+    noenv: bool = False,
+) -> tuple[dict[str, Any], ConfigDiscoveryResult]:
+    """Load settings from the discovered config file."""
+    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir, noenv=noenv)
+    discovery = discover_config_files(cwd=start_path, home=home)
     merged: dict[str, Any] = {}
-    effective_config: Path | None = None
+    if discovery.config_path and discovery.config_path.exists():
+        merged = load_yaml_mapping(discovery.config_path)
+    return merged, discovery
 
-    project_config = find_project_config_file(start_path)
-    if project_config and project_config.exists():
-        merged = deep_merge(merged, load_yaml_mapping(project_config))
-        effective_config = project_config
 
-    env_config = resolve_environment_config_file(start_path, env_dir=env_dir)
-    if env_config.exists():
-        merged = deep_merge(merged, load_yaml_mapping(env_config))
-        effective_config = env_config
+def load_selected_settings(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None = None,
+    noenv: bool = False,
+) -> tuple[dict[str, Any], ConfigDiscoveryResult]:
+    """Load first-found config/secrets settings with home then cwd precedence."""
+    return load_implicit_settings(start_path=start_path, env_dir=env_dir, noenv=noenv)
 
-    return merged, effective_config
+
+def _merge_home_plugin_settings(
+    settings: dict[str, Any],
+    *,
+    global_plugin_home: Path | None,
+    active_config_file: Path | None,
+) -> dict[str, Any]:
+    """Merge only global plugin selections into the active settings.
+
+    General config discovery intentionally picks one main config file. Plugins are
+    different: global plugin installs should augment project-local plugin
+    selections instead of replacing them.
+    """
+    if global_plugin_home is None:
+        return settings
+    home_config = find_config_in_directory(global_plugin_home)
+    if home_config is None:
+        return settings
+    if active_config_file is not None and home_config.resolve() == active_config_file.resolve():
+        return settings
+
+    home_settings = load_yaml_mapping(home_config)
+    home_plugins = home_settings.get("plugins")
+    if not isinstance(home_plugins, dict):
+        return settings
+
+    merged = dict(settings)
+    active_plugins = merged.get("plugins")
+    if not isinstance(active_plugins, dict):
+        active_plugins = {}
+
+    plugin_settings = deep_merge(home_plugins, active_plugins)
+    enabled: list[str] = []
+    for source in (home_plugins, active_plugins):
+        raw_enabled = source.get("enabled")
+        if isinstance(raw_enabled, list):
+            for item in raw_enabled:
+                if isinstance(item, str) and item.strip() and item.strip() not in enabled:
+                    enabled.append(item.strip())
+    if enabled:
+        plugin_settings["enabled"] = enabled
+
+    merged["plugins"] = plugin_settings
+    return merged
+
+
+def _expand_user_path(path: Path, *, home: Path) -> Path:
+    text = str(path)
+    if text == "~":
+        return home
+    if text.startswith("~/"):
+        return home / text[2:]
+    return path
+
+
+def resolve_global_plugin_home_path(
+    *,
+    fast_agent_home: str | None,
+    home: Path,
+    cwd: Path,
+    noenv: bool = False,
+) -> Path | None:
+    if noenv:
+        return None
+
+    if fast_agent_home:
+        path = _expand_user_path(Path(fast_agent_home), home=home)
+        if not path.is_absolute():
+            path = cwd / path
+        return path.resolve()
+
+    return (home / ".fast-agent").resolve()
+
+
+def _resolve_global_plugin_home(*, noenv: bool) -> Path | None:
+    try:
+        home = Path.home()
+    except RuntimeError:
+        return None
+    return resolve_global_plugin_home_path(
+        fast_agent_home=os.getenv("FAST_AGENT_HOME"),
+        home=home,
+        cwd=Path.cwd(),
+        noenv=noenv,
+    )
 
 
 def load_layered_model_settings(
@@ -1320,7 +1629,7 @@ def load_layered_model_settings(
     ``model_references`` uses deep-merge semantics, while ``default_model`` uses
     scalar replacement semantics.
     """
-    layered_settings, _ = load_layered_settings(start_path=start_path, env_dir=env_dir)
+    layered_settings, _ = load_selected_settings(start_path=start_path, env_dir=env_dir)
     layered: dict[str, Any] = {}
 
     if "default_model" in layered_settings:
@@ -1330,6 +1639,18 @@ def load_layered_model_settings(
         layered["model_references"] = layered_settings["model_references"]
 
     return layered
+
+
+def _lookup_nested_mapping_value(
+    mapping: dict[str, Any], path: tuple[str, ...]
+) -> tuple[bool, Any]:
+    """Return whether a nested mapping path exists plus its value."""
+    current: Any = mapping
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return False, None
+        current = current[key]
+    return True, current
 
 
 class Settings(BaseSettings):
@@ -1364,6 +1685,12 @@ class Settings(BaseSettings):
 
     model_references: dict[str, dict[str, str]] = Field(default_factory=dict)
     """Model references grouped by namespace (e.g. $system.default)."""
+
+    model_source: str | None = None
+    """Where the default model was resolved from for the current run, if noteworthy."""
+
+    cli_model_override: str | None = None
+    """Model override supplied by the CLI for the current run, if any."""
 
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
@@ -1449,17 +1776,36 @@ class Settings(BaseSettings):
     cards: CardsSettings = CardsSettings()
     """Card pack registry selection settings."""
 
+    plugins: PluginsSettings = PluginsSettings()
+    """Command plugin selection and marketplace settings."""
+
+    tui: TUISettings = TUISettings()
+    """Interactive TUI settings."""
+
+    commands: dict[str, PluginCommandActionSpec] | None = None
+    """Global plugin command actions loaded from fast-agent.yaml."""
+
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
 
-    llm_retries: int = 1
+    llm_retries: int = 2
     """
     Number of times to retry transient LLM API errors.
-    Defaults to 1; can be overridden via config or FAST_AGENT_RETRIES env.
+    Defaults to 2; can be overridden via config or FAST_AGENT_RETRIES env.
     """
 
     _config_file: str | None = PrivateAttr(default=None)
     _secrets_file: str | None = PrivateAttr(default=None)
+    _fast_agent_home: str | None = PrivateAttr(default=None)
+    _fast_agent_home_source: str | None = PrivateAttr(default=None)
+    _fast_agent_global_plugin_home: str | None = PrivateAttr(default=None)
+    _fast_agent_noenv: bool = PrivateAttr(default=False)
+    _fast_agent_settings_source: Literal["manual", "discovered"] = PrivateAttr(default="manual")
+
+    @field_validator("commands", mode="before")
+    @classmethod
+    def _validate_plugin_commands(cls, value: Any) -> dict[str, PluginCommandActionSpec] | None:
+        return parse_plugin_command_action_specs(value, source="fast-agent.yaml")
 
     @field_validator("model_references")
     @classmethod
@@ -1473,7 +1819,9 @@ class Settings(BaseSettings):
 
         for namespace, entries in value.items():
             if not valid_name.fullmatch(namespace):
-                raise ValueError("model_references namespace names must match [A-Za-z_][A-Za-z0-9_-]*")
+                raise ValueError(
+                    "model_references namespace names must match [A-Za-z_][A-Za-z0-9_-]*"
+                )
 
             normalized_entries: dict[str, str] = {}
             for key, model in entries.items():
@@ -1493,37 +1841,73 @@ class Settings(BaseSettings):
 
     @classmethod
     def find_config(cls) -> Path | None:
-        """Find the config file in the current directory or parent directories."""
-        current_dir = Path.cwd()
-
-        # Check current directory and parent directories
-        while current_dir != current_dir.parent:
-            for filename in [
-                "fastagent.config.yaml",
-            ]:
-                config_path = current_dir / filename
-                if config_path.exists():
-                    return config_path
-            current_dir = current_dir.parent
-
-        return None
+        """Find the preferred config file in the current directory."""
+        config_path = Path.cwd() / "fast-agent.yaml"
+        return config_path if config_path.exists() else None
 
 
 # Global settings object
 _settings: Settings | None = None
 
 
-def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
+def _cached_settings_match_environment_request(
+    settings: Settings,
+    *,
+    env_dir: str | Path | None,
+    noenv: bool,
+) -> bool:
+    if settings._fast_agent_settings_source == "manual":
+        return not noenv and env_dir is None
+
+    if noenv:
+        return settings._fast_agent_noenv
+
+    if settings._fast_agent_noenv:
+        return False
+
+    requested_global_home = _resolve_global_plugin_home(noenv=False)
+    if settings._fast_agent_global_plugin_home != (
+        str(requested_global_home) if requested_global_home is not None else None
+    ):
+        return False
+
+    if env_dir is None and settings._fast_agent_home is None:
+        return True
+
+    requested_home = resolve_fast_agent_home(
+        cwd=Path.cwd(),
+        cli_override=env_dir,
+        noenv=False,
+    )
+    return (
+        requested_home is not None
+        and settings._fast_agent_home == str(requested_home.path)
+        and (env_dir is None or settings._fast_agent_home_source == "cli")
+    )
+
+
+def get_settings(
+    config_path: str | os.PathLike[str] | None = None,
+    *,
+    env_dir: str | os.PathLike[str] | None = None,
+    noenv: bool = False,
+) -> Settings:
     """Get settings instance, automatically loading from config file if available."""
 
     global _settings
+
+    env_dir_override = Path(env_dir) if env_dir is not None and not isinstance(env_dir, str) else env_dir
 
     # If we have a specific config path, always reload settings
     # This ensures each test gets its own config
     if config_path:
         # Reset for the new path
         _settings = None
-    elif _settings:
+    elif _settings and _cached_settings_match_environment_request(
+        _settings,
+        env_dir=env_dir_override,
+        noenv=noenv,
+    ):
         # Use cached settings only for no specific path
         return _settings
 
@@ -1531,6 +1915,7 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     config_file: Path | None
     secrets_file: Path | None
     merged_settings: dict[str, Any]
+    config_sources: list[tuple[Path, dict[str, Any]]] = []
     if config_path:
         config_file = Path(config_path)
         # If it's a relative path and doesn't exist, try finding it
@@ -1540,25 +1925,41 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
             if resolved_path.exists():
                 config_file = resolved_path
 
-        # When config path is explicitly provided, find secrets using standardized logic
-        secrets_file = None
-        if config_file.exists():
-            _, secrets_file = find_fastagent_config_files(config_file.parent)
+        discovery = discover_config_files(
+            cwd=Path.cwd(),
+            home=resolve_fast_agent_home(
+                cwd=Path.cwd(),
+                cli_override=env_dir_override,
+                noenv=noenv,
+            ),
+            explicit_config_path=config_file,
+        )
+        secrets_file = discovery.secrets_path if config_file.exists() else None
 
         merged_settings = {}
         # Load main config if it exists
         if config_file and config_file.exists():
             merged_settings = load_yaml_mapping(config_file)
+            config_sources.append((config_file, merged_settings))
         elif config_file and not config_file.exists():
             print(f"Warning: Specified config file does not exist: {config_file}")
     else:
-        # Use standardized discovery for secrets and layered loading for config.
-        search_root = resolve_config_search_root(Path.cwd())
-        _, secrets_file = find_fastagent_config_files(search_root)
-        merged_settings, config_file = load_layered_settings(
+        merged_settings, discovery = load_implicit_settings(
             start_path=Path.cwd(),
-            env_dir=os.getenv("ENVIRONMENT_DIR"),
+            env_dir=env_dir_override,
+            noenv=noenv,
         )
+        config_file = discovery.config_path
+        secrets_file = discovery.secrets_path
+        if config_file and config_file.exists():
+            config_sources.append((config_file, load_yaml_mapping(config_file)))
+
+    global_plugin_home = _resolve_global_plugin_home(noenv=noenv)
+    merged_settings = _merge_home_plugin_settings(
+        merged_settings,
+        global_plugin_home=global_plugin_home,
+        active_config_file=config_file,
+    )
 
     # Load secrets file if found (regardless of whether config file exists)
     if secrets_file and secrets_file.exists():
@@ -1586,7 +1987,145 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     _settings = Settings(**merged_settings)
     _settings._config_file = str(config_file) if config_file else None
     _settings._secrets_file = str(secrets_file) if secrets_file else None
+    _settings._fast_agent_home = str(discovery.home.path) if discovery.home else None
+    _settings._fast_agent_home_source = discovery.home.source if discovery.home else None
+    _settings._fast_agent_global_plugin_home = (
+        str(global_plugin_home) if global_plugin_home is not None else None
+    )
+    _settings._fast_agent_noenv = noenv
+    _settings._fast_agent_settings_source = "discovered"
+    current_theme_file = getattr(_settings.logger, "theme_file", None)
+    if current_theme_file is not None:
+        for source_path, source_mapping in reversed(config_sources):
+            found, source_value = _lookup_nested_mapping_value(
+                source_mapping,
+                ("logger", "theme_file"),
+            )
+            if found and source_value == current_theme_file:
+                _settings.logger._theme_file_config_path = str(source_path)
+                break
+    _settings.commands = _merge_enabled_plugin_commands(_settings)
     return _settings
+
+
+def _merge_enabled_plugin_commands(settings: Settings) -> dict[str, PluginCommandActionSpec] | None:
+    inline_commands = settings.commands or {}
+    home_enabled, project_enabled = _enabled_plugin_sources(settings)
+    if not home_enabled and not project_enabled:
+        return inline_commands or None
+
+    from fast_agent.paths import resolve_environment_paths
+    from fast_agent.plugins.operations import load_enabled_plugin_commands
+
+    plugin_commands: dict[str, PluginCommandActionSpec] = {}
+    if home_enabled and settings._fast_agent_global_plugin_home:
+        plugin_commands.update(
+            _load_enabled_plugin_commands_from_root(
+                destination_root=Path(settings._fast_agent_global_plugin_home) / "plugins",
+                enabled=home_enabled,
+                scope="global",
+                load_enabled_plugin_commands=load_enabled_plugin_commands,
+            )
+        )
+
+    if project_enabled:
+        plugin_commands.update(
+            _load_enabled_plugin_commands_from_root(
+                destination_root=resolve_environment_paths(settings).plugins,
+                enabled=project_enabled,
+                scope="project",
+                load_enabled_plugin_commands=load_enabled_plugin_commands,
+            )
+        )
+
+    merged = dict(plugin_commands)
+    merged.update(inline_commands)
+    return merged or None
+
+
+def _load_enabled_plugin_commands_from_root(
+    *,
+    destination_root: Path,
+    enabled: list[str],
+    scope: str,
+    load_enabled_plugin_commands,
+) -> dict[str, PluginCommandActionSpec]:
+    try:
+        return load_enabled_plugin_commands(
+            destination_root=destination_root,
+            enabled=enabled,
+        )
+    except Exception as exc:  # noqa: BLE001
+        warnings.warn(
+            f"Failed to load enabled fast-agent plugins from {scope}: {exc}",
+            UserWarning,
+            stacklevel=3,
+        )
+        return {}
+
+
+def _enabled_plugin_sources(settings: Settings) -> tuple[list[str], list[str]]:
+    """Return enabled plugins grouped by FAST_AGENT_HOME and active project config."""
+    enabled = list(settings.plugins.enabled)
+    if not enabled:
+        return [], []
+
+    global_config = _global_plugin_config_for_plugin_merge(settings)
+    if global_config is None:
+        return [], enabled
+
+    home_enabled = _enabled_plugins_from_config(global_config)
+    active_config = Path(settings._config_file) if settings._config_file else None
+    project_enabled: list[str] = []
+    if active_config is not None and active_config.exists():
+        try:
+            same_as_global = active_config.resolve() == global_config.resolve()
+        except OSError:
+            same_as_global = False
+        if not same_as_global:
+            project_enabled = _enabled_plugins_from_config(active_config)
+
+    known = {*home_enabled, *project_enabled}
+    project_enabled.extend(name for name in enabled if name not in known)
+    return home_enabled, project_enabled
+
+
+def _global_plugin_config_for_plugin_merge(settings: Settings) -> Path | None:
+    if not settings._fast_agent_global_plugin_home:
+        return None
+
+    home_config = find_config_in_directory(Path(settings._fast_agent_global_plugin_home))
+    if home_config is None:
+        return None
+
+    active_config = Path(settings._config_file) if settings._config_file else None
+    if active_config is not None:
+        try:
+            if active_config.resolve() == home_config.resolve():
+                return None
+        except OSError:
+            return None
+
+    return home_config
+
+
+def _enabled_plugins_from_config(config_path: Path) -> list[str]:
+    data = load_yaml_mapping(config_path)
+    plugins = data.get("plugins")
+    if not isinstance(plugins, dict):
+        return []
+
+    raw_enabled = plugins.get("enabled")
+    if not isinstance(raw_enabled, list):
+        return []
+
+    enabled: list[str] = []
+    for item in raw_enabled:
+        if isinstance(item, str):
+            name = item.strip()
+            if name and name not in enabled:
+                enabled.append(name)
+    return enabled
 
 
 def update_global_settings(settings: Settings) -> None:
@@ -1597,4 +2136,5 @@ def update_global_settings(settings: Settings) -> None:
     work correctly without needing to pass settings around explicitly.
     """
     global _settings
+    settings._fast_agent_settings_source = "manual"
     _settings = settings

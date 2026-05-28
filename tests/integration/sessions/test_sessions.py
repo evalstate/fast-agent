@@ -15,6 +15,35 @@ from fast_agent.session.session_manager import (
 )
 
 
+def _as_object_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return {key: item for key, item in value.items() if isinstance(key, str)}
+
+
+def _persisted_history_files(payload: dict[str, object]) -> list[str]:
+    history_files = payload.get("history_files")
+    if isinstance(history_files, list):
+        return [item for item in history_files if isinstance(item, str)]
+
+    continuation = _as_object_dict(payload.get("continuation"))
+    if continuation is None:
+        return []
+    agents = _as_object_dict(continuation.get("agents"))
+    if agents is None:
+        return []
+
+    selected: list[str] = []
+    for agent_payload in agents.values():
+        agent_entry = _as_object_dict(agent_payload)
+        if agent_entry is None:
+            continue
+        history_file = agent_entry.get("history_file")
+        if isinstance(history_file, str) and history_file not in selected:
+            selected.append(history_file)
+    return selected
+
+
 def _create_fast_agent(config_path: Path) -> FastAgent:
     original_argv = sys.argv
     sys.argv = [sys.argv[0]]
@@ -42,10 +71,15 @@ def _write_config(path: Path, *, session_history: bool | None = None) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _clear_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_session_history_autosave_default_on(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _clear_environment_override(monkeypatch)
     _reset_session_manager()
     config_path = tmp_path / "fastagent.config.yaml"
     _write_config(config_path)
@@ -77,10 +111,12 @@ async def test_session_history_autosave_default_on(tmp_path, monkeypatch):
     metadata_path = session_dirs[0] / "session.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     session_meta = metadata["metadata"]
-    history_map = session_meta["last_history_by_agent"]
-    history_filename = history_map[agent_name]
+    continuation = metadata["continuation"]
+    history_filename = continuation["agents"][agent_name]["history_file"]
     assert agent_name in history_filename
     assert session_meta["first_user_preview"] == "Hello session"
+    assert metadata["schema_version"] == 2
+    assert history_filename in _persisted_history_files(metadata)
 
     history_files = list(session_dirs[0].glob("history_*.json"))
     assert history_files
@@ -95,6 +131,7 @@ async def test_session_history_autosave_default_on(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_resume_latest_session(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _clear_environment_override(monkeypatch)
     _reset_session_manager()
     config_path = tmp_path / "fastagent.config.yaml"
     _write_config(config_path)
@@ -115,7 +152,7 @@ async def test_resume_latest_session(tmp_path, monkeypatch):
             saved_messages = load_messages(str(history_path))
             agent_obj.clear(clear_prompts=True)
 
-            result = manager.resume_session_agents(
+            result = await manager.resume_session_agents_async(
                 agent.registered_agents(),
                 None,
                 fallback_agent_name=agent_obj.name,
@@ -133,6 +170,7 @@ async def test_resume_latest_session(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_resume_warns_on_missing_agents(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _clear_environment_override(monkeypatch)
     _reset_session_manager()
     config_path = tmp_path / "fastagent.config.yaml"
     _write_config(config_path)
@@ -174,6 +212,7 @@ async def test_resume_warns_on_missing_agents(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_session_history_disabled(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _clear_environment_override(monkeypatch)
     _reset_session_manager()
     config_path = tmp_path / "fastagent.config.yaml"
     _write_config(config_path, session_history=False)
@@ -195,6 +234,7 @@ async def test_session_history_disabled(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_session_title_override(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _clear_environment_override(monkeypatch)
     _reset_session_manager()
     config_path = tmp_path / "fastagent.config.yaml"
     _write_config(config_path)
@@ -221,6 +261,7 @@ async def test_session_title_override(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_session_fork_copies_latest_histories(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _clear_environment_override(monkeypatch)
     _reset_session_manager()
     config_path = tmp_path / "fastagent.config.yaml"
     _write_config(config_path)

@@ -5,28 +5,22 @@ This module provides unified usage tracking across Anthropic, OpenAI, and Google
 including detailed cache metrics and context window management.
 """
 
+from __future__ import annotations
+
 import time
-from typing import Union
+from typing import TYPE_CHECKING
 
-# Proper type imports for each provider
-try:
+if TYPE_CHECKING:
     from anthropic.types.beta import BetaUsage as AnthropicUsage
-except Exception:  # pragma: no cover - optional dependency
-    AnthropicUsage = object  # type: ignore
-
-try:
     from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsage
-except Exception:  # pragma: no cover - optional dependency
-    GoogleUsage = object  # type: ignore
-
-try:
     from openai.types.completion_usage import CompletionUsage as OpenAIUsage
-except Exception:  # pragma: no cover - optional dependency
-    OpenAIUsage = object  # type: ignore
-from pydantic import BaseModel, Field, PrivateAttr, computed_field
+from pydantic import BaseModel, Field, PrivateAttr, computed_field, field_validator
 
+from fast_agent.core.logging.json_serializer import JsonValue, snapshot_json_value
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
+
+_ANTHROPIC_USAGE_PROVIDERS = {Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX}
 
 
 # Fast-agent specific usage type for synthetic providers
@@ -38,10 +32,6 @@ class FastAgentUsage(BaseModel):
     model_type: str = Field(description="Type of fast-agent model (passthrough/playbook/slow)")
     tool_calls: int = Field(default=0, description="Number of tool calls made")
     delay_seconds: float = Field(default=0.0, description="Artificial delays added")
-
-
-# Union type for raw usage data from any provider
-ProviderUsage = Union[AnthropicUsage, OpenAIUsage, GoogleUsage, FastAgentUsage]
 
 
 class CacheUsage(BaseModel):
@@ -84,8 +74,13 @@ class TurnUsage(BaseModel):
     # Tool call count for this turn
     tool_calls: int = Field(default=0, description="Number of tool calls made in this turn")
 
-    # Raw usage data from provider (preserves all original data)
-    raw_usage: ProviderUsage
+    # JSON-safe raw usage telemetry snapshot captured at ingestion time.
+    raw_usage: JsonValue = None
+
+    @field_validator("raw_usage", mode="before")
+    @classmethod
+    def _snapshot_raw_usage(cls, value: object | None) -> JsonValue:
+        return snapshot_json_value(value)
 
     @computed_field
     @property
@@ -105,7 +100,7 @@ class TurnUsage(BaseModel):
         """Input tokens actually processed (new tokens, not from cache)"""
         # For Anthropic: input_tokens already excludes cached content
         # For other providers: subtract cache hits from input_tokens
-        if self.provider == Provider.ANTHROPIC:
+        if self.provider in _ANTHROPIC_USAGE_PROVIDERS:
             return self.input_tokens
         else:
             return max(0, self.input_tokens - self.cache_usage.cache_hit_tokens)
@@ -115,7 +110,7 @@ class TurnUsage(BaseModel):
     def display_input_tokens(self) -> int:
         """Input tokens to display for 'Last turn' (total submitted tokens)"""
         # For Anthropic: input_tokens excludes cache, so add cache tokens
-        if self.provider == Provider.ANTHROPIC:
+        if self.provider in _ANTHROPIC_USAGE_PROVIDERS:
             return (
                 self.input_tokens
                 + self.cache_usage.cache_read_tokens
@@ -131,7 +126,13 @@ class TurnUsage(BaseModel):
         object.__setattr__(self, "tool_calls", count)
 
     @classmethod
-    def from_anthropic(cls, usage: AnthropicUsage, model: str) -> "TurnUsage":
+    def from_anthropic(
+        cls,
+        usage: AnthropicUsage,
+        model: str,
+        *,
+        provider: Provider = Provider.ANTHROPIC,
+    ) -> "TurnUsage":
         # Extract cache tokens with proper null handling
         cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", 0) or 0
         cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
@@ -146,14 +147,14 @@ class TurnUsage(BaseModel):
         thinking_tokens = getattr(usage, "thinking_tokens", 0) or 0
 
         return cls(
-            provider=Provider.ANTHROPIC,
+            provider=provider,
             model=model,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             total_tokens=usage.input_tokens + usage.output_tokens,
             cache_usage=cache_usage,
             reasoning_tokens=thinking_tokens,
-            raw_usage=usage,  # Store the original Anthropic usage object
+            raw_usage=snapshot_json_value(usage),
         )
 
     @classmethod
@@ -174,7 +175,7 @@ class TurnUsage(BaseModel):
             output_tokens=usage.completion_tokens,
             total_tokens=usage.total_tokens,
             cache_usage=cache_usage,
-            raw_usage=usage,  # Store the original OpenAI usage object
+            raw_usage=snapshot_json_value(usage),
         )
 
     @classmethod
@@ -201,7 +202,7 @@ class TurnUsage(BaseModel):
             cache_usage=cache_usage,
             tool_use_tokens=tool_use_tokens,
             reasoning_tokens=thinking_tokens,
-            raw_usage=usage,  # Store the original Google usage object
+            raw_usage=snapshot_json_value(usage),
         )
 
     @classmethod
@@ -222,7 +223,7 @@ class TurnUsage(BaseModel):
             output_tokens=output_tokens,
             total_tokens=total_tokens,
             cache_usage=cache_usage,
-            raw_usage=usage,  # Store the original FastAgentUsage object
+            raw_usage=snapshot_json_value(usage),
         )
 
 
@@ -239,6 +240,12 @@ class UsageAccumulator(BaseModel):
     def set_context_window_size(self, value: int | None) -> None:
         """Set the effective context window size for this accumulator."""
         self._context_window_size = value
+
+    def reset(self) -> None:
+        """Clear accumulated turn usage while preserving context-window configuration."""
+        self.turns = []
+        self.model = None
+        self.last_cache_activity_time = None
 
     def add_turn(self, turn: TurnUsage) -> None:
         """Add a new turn to the accumulator"""
@@ -326,10 +333,10 @@ class UsageAccumulator(BaseModel):
     def cache_hit_rate(self) -> float | None:
         """Percentage of total input context served from cache"""
         cache_tokens = self.cumulative_cache_read_tokens + self.cumulative_cache_hit_tokens
-        total_input_context = self.cumulative_input_tokens + cache_tokens
-        if total_input_context == 0:
+        total_input_tokens = self.cumulative_input_tokens
+        if total_input_tokens == 0:
             return None
-        return (cache_tokens / total_input_context) * 100
+        return (cache_tokens / total_input_tokens) * 100
 
     @computed_field
     @property
@@ -368,7 +375,7 @@ class UsageAccumulator(BaseModel):
         """Number of turns accumulated"""
         return len(self.turns)
 
-    def get_cache_summary(self) -> dict[str, Union[int, float, None]]:
+    def get_cache_summary(self) -> dict[str, int | float | None]:
         """Get cache-specific metrics summary"""
         return {
             "cumulative_cache_read_tokens": self.cumulative_cache_read_tokens,
@@ -378,7 +385,7 @@ class UsageAccumulator(BaseModel):
             "cumulative_effective_input_tokens": self.cumulative_effective_input_tokens,
         }
 
-    def get_summary(self) -> dict[str, Union[int, float, str, None]]:
+    def get_summary(self) -> dict[str, int | float | str | None]:
         """Get comprehensive usage statistics"""
         cache_summary = self.get_cache_summary()
         return {

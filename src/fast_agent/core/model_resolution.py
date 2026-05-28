@@ -10,7 +10,7 @@ from typing import Any
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 
-HARDCODED_DEFAULT_MODEL = "gpt-5-mini?reasoning=low"
+HARDCODED_DEFAULT_MODEL = "gpt-5.4-mini?reasoning=low"
 _MODEL_REFERENCE_PATTERN = re.compile(
     r"^\$(?P<namespace>[A-Za-z_][A-Za-z0-9_-]*)\.(?P<key>[A-Za-z_][A-Za-z0-9_-]*)$"
 )
@@ -72,7 +72,7 @@ def _resolve_reference_recursive(
     if references is None or len(references) == 0:
         raise ModelConfigError(
             f"Model reference '{token}' could not be resolved",
-            "No model_references are configured. Add a model_references section in fastagent.config.yaml.",
+            "No model_references are configured. Add a model_references section in fast-agent.yaml.",
         )
 
     if token in stack:
@@ -123,6 +123,20 @@ def get_context_model_references(
         return None
     model_references = getattr(config, "model_references", None)
     return model_references if isinstance(model_references, Mapping) else None
+
+
+def get_context_cli_model_override(context: Any) -> str | None:
+    """Return the current run's CLI/model-picker override from context, if any."""
+    if not context:
+        return None
+    config = getattr(context, "config", None)
+    if not config:
+        return None
+    cli_model = getattr(config, "cli_model_override", None)
+    if not isinstance(cli_model, str):
+        return None
+    normalized = cli_model.strip()
+    return normalized or None
 
 
 def resolve_model_spec(
@@ -184,9 +198,7 @@ def resolve_model_spec(
         _add_candidate(hardcoded_default, "hardcoded default")
 
     references = (
-        model_references
-        if model_references is not None
-        else get_context_model_references(context)
+        model_references if model_references is not None else get_context_model_references(context)
     )
 
     for index, (candidate, source) in enumerate(candidates):

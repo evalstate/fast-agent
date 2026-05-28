@@ -6,12 +6,22 @@ Implements type-safe factories with improved error handling.
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Mapping, Protocol, Sequence, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Mapping,
+    Protocol,
+    Sequence,
+    TypeVar,
+    cast,
+)
 
 from fastmcp.tools import FunctionTool
 
 from fast_agent.agents import McpAgent
-from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType, FunctionToolConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.evaluator_optimizer import (
     EvaluatorOptimizerAgent,
@@ -24,8 +34,13 @@ from fast_agent.context import Context
 from fast_agent.core import Core
 from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
+from fast_agent.core.function_tool_support import custom_class_supports_function_tools
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
+from fast_agent.core.model_resolution import (
+    HARDCODED_DEFAULT_MODEL,
+    get_context_cli_model_override,
+    resolve_model_spec,
+)
 from fast_agent.core.validation import (
     get_dependencies_groups,
     is_basic_like_agent_type,
@@ -44,6 +59,9 @@ from fast_agent.tools.function_tool_loader import load_function_tools
 from fast_agent.tools.hook_loader import load_tool_runner_hooks
 from fast_agent.types import RequestParams
 
+if TYPE_CHECKING:
+    from fast_agent.hooks.hook_context import HookAgentProtocol
+
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]
 AgentConfigDict = Mapping[str, AgentCardData | dict[str, Any]]
@@ -57,6 +75,7 @@ class AgentBuildContext:
     active_agents: AgentDict
     model_factory_func: ModelFactoryFunctionProtocol
     session_history_enabled: bool
+    global_function_tools: Sequence[FunctionTool]
 
 
 @dataclass(frozen=True)
@@ -103,11 +122,11 @@ def _load_configured_function_tools(
     if tools_config_raw is None:
         tools_config_raw = agent_data.get("function_tools")
 
-    tools_config: list[Callable[..., Any] | str] | None = None
+    tools_config: list[FunctionToolConfig] | None = None
     if isinstance(tools_config_raw, str):
         tools_config = [tools_config_raw]
     elif isinstance(tools_config_raw, list):
-        tools_config = cast("list[Callable[..., Any] | str]", tools_config_raw)
+        tools_config = cast("list[FunctionToolConfig]", tools_config_raw)
 
     if not tools_config:
         return []
@@ -115,6 +134,31 @@ def _load_configured_function_tools(
     source_path = agent_data.get("source_path")
     base_path = Path(source_path).parent if source_path else None
     return load_function_tools(tools_config, base_path)
+
+
+def _resolve_function_tools_with_globals(
+    config: AgentConfig,
+    agent_data: Mapping[str, Any],
+    build_ctx: "AgentBuildContext",
+) -> list[FunctionTool]:
+    """Load per-agent function tools, falling back to global @fast.tool tools.
+
+    If the agent has explicit function_tools configured (including an empty list),
+    only those are used. Otherwise, globally registered tools from ``@fast.tool``
+    are provided.
+
+    Naming note:
+    the returned value is a list of resolved executable function tools. In the
+    custom-agent path, these are later passed to the constructor as ``tools=``,
+    which is distinct from ``AgentConfig.tools`` MCP filter settings.
+    """
+    if config.function_tools is not None or agent_data.get("function_tools") is not None:
+        return _load_configured_function_tools(config, agent_data)
+
+    if build_ctx.global_function_tools:
+        return list(build_ctx.global_function_tools)
+
+    return []
 
 
 def _register_loaded_agent(
@@ -222,7 +266,7 @@ def _build_agents_as_tools_inputs(
     options = _build_agents_as_tools_options(agent_data)
     return AgentsAsToolsBuildInputs(
         config=config,
-        function_tools=_load_configured_function_tools(config, agent_data),
+        function_tools=_resolve_function_tools_with_globals(config, agent_data, build_ctx),
         child_agents=_resolve_child_agents(
             name,
             child_names,
@@ -386,7 +430,7 @@ def _apply_tool_hooks(
             async def _trimmer_wrapper(runner, message):
                 ctx = HookContext(
                     runner=runner,
-                    agent=agent,
+                    agent=cast("HookAgentProtocol", agent),
                     message=message,
                     hook_type="after_turn_complete",
                 )
@@ -444,7 +488,7 @@ def _apply_tool_hooks(
                 await existing_after_turn(runner, message)
             ctx = HookContext(
                 runner=runner,
-                agent=agent,
+                agent=cast("HookAgentProtocol", agent),
                 message=message,
                 hook_type="after_turn_complete",
             )
@@ -516,6 +560,7 @@ def get_model_factory(
     Returns:
         ModelFactory instance for the specified or default model
     """
+    cli_model = cli_model or get_context_cli_model_override(context)
     model_spec, source = resolve_model_spec(
         context,
         model=model,
@@ -598,7 +643,7 @@ async def _create_basic_agent(
             child_message_files=inputs.child_message_files,
         )
     else:
-        function_tools = _load_configured_function_tools(config, agent_data)
+        function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
         agent = _create_agent_with_ui_if_needed(
             McpAgent,
             config,
@@ -639,7 +684,7 @@ async def _create_smart_agent(
             child_message_files=inputs.child_message_files,
         )
     else:
-        function_tools = _load_configured_function_tools(config, agent_data)
+        function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
 
         from fast_agent.agents.smart_agent import SmartAgent, SmartAgentWithUI
 
@@ -685,10 +730,29 @@ async def _create_custom_agent(
             f"Custom agent '{name}' missing class reference ('agent_class' or 'cls')"
         )
 
+    explicit_function_tools = (
+        config.function_tools is not None or agent_data.get("function_tools") is not None
+    )
+    function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
+    custom_supports_function_tools = custom_class_supports_function_tools(cls)
+    if function_tools and explicit_function_tools and not custom_supports_function_tools:
+        raise AgentConfigError(
+            "Custom agent does not accept function tools",
+            f"Custom agent '{name}' cannot use function_tools because "
+            f"{getattr(cls, '__name__', cls)!r} does not accept tools=.",
+        )
+
+    create_kwargs: dict[str, Any] = {}
+    if function_tools and custom_supports_function_tools:
+        # Custom agent constructors follow the existing ToolAgent/McpAgent
+        # convention: resolved function tools are passed as ``tools=``.
+        create_kwargs["tools"] = function_tools
+
     agent = _create_agent_with_ui_if_needed(
         cls,
         config,
         build_ctx.app_instance.context,
+        **create_kwargs,
     )
     await _initialize_agent_with_llm(agent, config, build_ctx.model_factory_func)
 
@@ -913,6 +977,7 @@ async def create_agents_by_type(
     agent_type: AgentType,
     model_factory_func: ModelFactoryFunctionProtocol,
     active_agents: AgentDict | None = None,
+    global_function_tools: Sequence[FunctionTool] = (),
     **kwargs: Any,
 ) -> AgentDict:
     """
@@ -946,6 +1011,7 @@ async def create_agents_by_type(
         active_agents=active_agents,
         model_factory_func=model_factory_func,
         session_history_enabled=session_history_enabled,
+        global_function_tools=global_function_tools,
     )
 
     for name, agent_data in _iter_agents_of_type(agents_dict, agent_type):
@@ -958,6 +1024,7 @@ async def active_agents_in_dependency_group(
     app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
+    global_function_tools: Sequence[FunctionTool],
     group: list[str],
     active_agents: AgentDict,
 ):
@@ -979,6 +1046,7 @@ async def active_agents_in_dependency_group(
             agent_type,
             model_factory_func,
             active_agents,
+            global_function_tools,
         )
         active_agents.update(agents)
 
@@ -987,6 +1055,7 @@ async def create_agents_in_dependency_order(
     app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
+    global_function_tools: Sequence[FunctionTool] = (),
     allow_cycles: bool = False,
 ) -> AgentDict:
     """
@@ -1012,6 +1081,7 @@ async def create_agents_in_dependency_order(
         app_instance,
         agents_dict,
         model_factory_func,
+        global_function_tools,
     )
 
     # Create agent proxies for each group in dependency order
@@ -1044,7 +1114,7 @@ async def create_basic_agents_in_dependency_order(
         _ContextCoreShim(context),
         agents_dict,
         model_factory_func,
-        allow_cycles,
+        allow_cycles=allow_cycles,
     )
 
 

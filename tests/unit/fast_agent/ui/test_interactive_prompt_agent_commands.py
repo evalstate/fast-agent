@@ -14,6 +14,7 @@ from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
 )
+from fast_agent.core.agent_app import AgentRefreshResult
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -33,6 +34,51 @@ if TYPE_CHECKING:
 class _FakeAgent:
     agent_type = AgentType.BASIC
 
+    def __init__(self) -> None:
+        self.name = "test"
+        self.usage_accumulator = None
+        self._message_history: list[object] = []
+        self._last_turn_cancelled = False
+        self._last_turn_cancel_reason = "cancelled"
+        self._last_turn_history_state = None
+
+    @property
+    def last_turn_cancelled(self) -> bool:
+        return getattr(self, "_last_turn_cancelled", False)
+
+    @property
+    def last_turn_cancel_reason(self) -> str:
+        return getattr(self, "_last_turn_cancel_reason", "cancelled")
+
+    @property
+    def last_turn_history_state(self):
+        return getattr(self, "_last_turn_history_state", None)
+
+    def record_last_turn_cancellation(self, *, reason: str, rollback_state) -> None:
+        self._last_turn_cancelled = True
+        self._last_turn_cancel_reason = reason
+        self._last_turn_history_state = rollback_state
+
+    def clear_last_turn_cancellation(self) -> None:
+        self._last_turn_cancelled = False
+        self._last_turn_history_state = None
+
+    @property
+    def message_history(self):
+        return self._message_history
+
+    def load_message_history(self, history):
+        self._message_history = list(history or [])
+
+    def pop_last_message(self):
+        if not self._message_history:
+            return None
+        return self._message_history.pop()
+
+    def clear(self, *, clear_prompts: bool = False):
+        del clear_prompts
+        self._message_history.clear()
+
 
 class _FakeAgentApp:
     def __init__(self, agent_names: list[str]) -> None:
@@ -40,9 +86,14 @@ class _FakeAgentApp:
         self.attached: list[str] = []
         self.detached: list[str] = []
         self.loaded: list[str] = []
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:
         return False
+
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return AgentRefreshResult(changed=False)
 
     def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
         del force_include
@@ -118,15 +169,28 @@ class _FakeAgentApp:
 
 
 class _ReloadAgentApp(_FakeAgentApp):
-    def __init__(self, agent_names: list[str], changed: bool) -> None:
+    def __init__(
+        self,
+        agent_names: list[str],
+        changed: bool,
+        *,
+        active_agent: str | None = None,
+    ) -> None:
         super().__init__(agent_names)
         self._changed = changed
+        self._latest_refresh_result = AgentRefreshResult(
+            changed=changed,
+            active_agent=active_agent,
+        )
 
     def can_reload_agents(self) -> bool:
         return True
 
     async def reload_agents(self) -> bool:
         return self._changed
+
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return self._latest_refresh_result
 
 
 class _DetachCancelledAgentApp(_FakeAgentApp):
@@ -190,7 +254,7 @@ async def test_prompt_loop_skips_shell_cwd_startup_prompt_when_policy_not_ask(
 
     prompt_ui = InteractivePrompt()
     agent_app = _FakeAgentApp(["vertex-rag"])
-    setattr(agent_app, "_missing_shell_cwd_policy_override", "warn")
+    agent_app.missing_shell_cwd_policy_override = "warn"
 
     await prompt_ui.prompt_loop(
         send_func=fake_send,
@@ -649,6 +713,35 @@ async def test_reload_agents_with_changes(monkeypatch, capsys: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reload_agents_switches_to_hydrated_active_agent(monkeypatch) -> None:
+    seen_agents: list[str] = []
+    inputs = iter(["/reload", "STOP"])
+
+    async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
+        agent_name = kwargs.get("agent_name")
+        if isinstance(agent_name, str):
+            seen_agents.append(agent_name)
+        return next(inputs)
+
+    monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _ReloadAgentApp(["old", "new"], changed=True, active_agent="new")
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="old",
+        available_agents=["old", "new"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    assert seen_agents[:2] == ["old", "new"]
+
+
+@pytest.mark.asyncio
 async def test_mcp_connect_ctrl_c_cancels_and_returns_to_prompt(
     monkeypatch, capsys: Any
 ) -> None:
@@ -1052,7 +1145,8 @@ async def test_prompt_loop_stop_exits_after_cancelled_generation(
 ) -> None:
     class _CancelledGenerationAgent(_FakeAgent):
         def __init__(self) -> None:
-            self.message_history: list[object] = []
+            super().__init__()
+            self._message_history = []
 
     class _CancelledGenerationApp(_FakeAgentApp):
         def __init__(self) -> None:

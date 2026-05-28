@@ -8,7 +8,24 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.llm.request_params import StructuredToolPolicy
+
 Mode = Literal["interactive", "serve"]
+ExecutionMode = Literal["repl", "one_shot_message", "one_shot_prompt_file"]
+
+
+def resolve_execution_mode(
+    *,
+    message: str | None,
+    prompt_file: str | None,
+) -> ExecutionMode:
+    if message is not None and prompt_file is not None:
+        raise ValueError("Cannot combine --message with --prompt-file")
+    if message is not None:
+        return "one_shot_message"
+    if prompt_file is not None:
+        return "one_shot_prompt_file"
+    return "repl"
 
 
 class UrlServerConfig(TypedDict, total=False):
@@ -52,6 +69,7 @@ class AgentRunRequest:
     noenv: bool
     force_smart: bool
     shell_runtime: bool
+    no_shell: bool
     mode: Mode
     transport: str
     host: str
@@ -62,12 +80,49 @@ class AgentRunRequest:
     permissions_enabled: bool
     reload: bool
     watch: bool
+    json_schema: str | None = None
+    schema_model: str | None = None
+    structured_tool_policy: StructuredToolPolicy | None = None
+    execution_mode: ExecutionMode | None = None
     quiet: bool = False
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
+    prefer_local_shell: bool = False
+    attachments: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.noenv and self.environment_dir is not None:
             raise ValueError("--noenv cannot be combined with --env")
+        if self.shell_runtime and self.no_shell:
+            raise ValueError("--shell cannot be combined with --no-shell")
+        resolved_execution_mode = resolve_execution_mode(
+            message=self.message,
+            prompt_file=self.prompt_file,
+        )
+        if self.execution_mode is None:
+            self.execution_mode = resolved_execution_mode
+        elif self.execution_mode != resolved_execution_mode:
+            raise ValueError(
+                f"execution_mode {self.execution_mode!r} does not match request inputs"
+            )
+        if self.json_schema is not None and self.schema_model is not None:
+            raise ValueError("--json-schema cannot be combined with --schema-model")
+        if self.attachments and self.execution_mode == "repl":
+            raise ValueError("--attach requires --message or --prompt-file")
+        if self.structured_tool_policy is not None:
+            if self.structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
+                raise ValueError(
+                    "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'"
+                )
+            if self.json_schema is None:
+                raise ValueError("--structured-tool-policy requires --json-schema")
+            if self.schema_model is not None:
+                raise ValueError("--structured-tool-policy cannot be combined with --schema-model")
+        if self.json_schema is not None or self.schema_model is not None:
+            if self.execution_mode == "repl":
+                raise ValueError("--json-schema/--schema-model requires --message or --prompt-file")
+            if self.model is not None and "," in self.model:
+                raise ValueError("structured output options cannot be combined with multiple models")
+            self.quiet = True
 
     @property
     def allow_sessions(self) -> bool:
@@ -81,6 +136,10 @@ class AgentRunRequest:
     def allow_permission_store(self) -> bool:
         return not self.noenv
 
+    @property
+    def is_repl(self) -> bool:
+        return self.execution_mode == "repl"
+
     def to_agent_setup_kwargs(self) -> dict[str, Any]:
         """Convert to the legacy kwargs shape used by `_run_agent` wrappers."""
         return {
@@ -93,6 +152,10 @@ class AgentRunRequest:
             "model": self.model,
             "message": self.message,
             "prompt_file": self.prompt_file,
+            "attachments": self.attachments,
+            "json_schema": self.json_schema,
+            "schema_model": self.schema_model,
+            "structured_tool_policy": self.structured_tool_policy,
             "result_file": self.result_file,
             "resume": self.resume,
             "url_servers": self.url_servers,
@@ -104,6 +167,8 @@ class AgentRunRequest:
             "noenv": self.noenv,
             "force_smart": self.force_smart,
             "shell_runtime": self.shell_runtime,
+            "no_shell": self.no_shell,
+            "prefer_local_shell": self.prefer_local_shell,
             "mode": self.mode,
             "transport": self.transport,
             "host": self.host,
@@ -114,6 +179,7 @@ class AgentRunRequest:
             "permissions_enabled": self.permissions_enabled,
             "reload": self.reload,
             "watch": self.watch,
+            "execution_mode": self.execution_mode,
             "quiet": self.quiet,
             "missing_shell_cwd_policy": self.missing_shell_cwd_policy,
         }

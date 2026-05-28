@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from fast_agent.commands.handlers import session_export as session_export_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
+from fast_agent.commands.results import CommandOutcome
+from fast_agent.commands.session_export_help import render_session_export_help_markdown
 from fast_agent.commands.session_summaries import build_session_list_summary
-from fast_agent.commands.shared_command_intents import parse_session_command_intent
+from fast_agent.commands.shared_command_intents import (
+    parse_session_command_intent,
+    should_default_export_agent,
+)
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
@@ -43,13 +49,15 @@ async def handle_session(handler: "SlashCommandHandler", arguments: str | None =
         return await handle_session_delete(handler, intent.argument)
     if intent.action == "pin":
         return await handle_session_pin(handler, value=intent.pin_value, target=intent.pin_target)
+    if intent.action == "export":
+        return await handle_session_export(handler, intent)
 
     return "\n".join(
         [
             "# session",
             "",
             f"Unknown /session action: {intent.raw_subcommand or ''}",
-            "Usage: /session [list|new|resume|title|fork|delete|pin] [args]",
+            "Usage: /session [list|new|resume|title|fork|delete|pin|export] [args]",
         ]
     )
 
@@ -63,7 +71,9 @@ def render_session_list(handler: "SlashCommandHandler") -> str:
                 "Session commands are disabled in --noenv mode.",
             ]
         )
-    summary = build_session_list_summary()
+    summary = build_session_list_summary(
+        manager=handler._build_command_context().resolve_session_manager()
+    )
     return render_session_list_markdown(summary, heading="sessions")
 
 
@@ -151,3 +161,51 @@ async def handle_session_pin(
         target=target,
     )
     return handler._format_outcome_as_markdown(outcome, "session pin", io=io)
+
+
+async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
+    if intent.export_help:
+        return render_session_export_help_markdown()
+
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    manager = ctx.resolve_session_manager()
+    current_session = manager.current_session
+    current_session_id = current_session.info.name if current_session is not None else None
+    if current_session_id != handler.session_id:
+        try:
+            handler_session = manager.get_session(handler.session_id)
+        except AttributeError:
+            handler_session = None
+        current_session_id = handler_session.info.name if handler_session is not None else None
+    if intent.export_target is None and current_session_id is None:
+        outcome = CommandOutcome()
+        outcome.add_message(
+            "No active session to export.",
+            channel="error",
+            right_info="session",
+        )
+        return handler._format_outcome_as_markdown(outcome, "session export", io=io)
+    agent_name = intent.export_agent
+    if agent_name is None and should_default_export_agent(
+        intent.export_target,
+        current_session_id=current_session_id,
+    ):
+        agent_name = handler.current_agent_name
+    outcome = await session_export_handlers.handle_session_export(
+        ctx,
+        target=intent.export_target,
+        agent_name=agent_name,
+        output_path=intent.export_output,
+        hf_dataset=intent.export_hf_dataset,
+        hf_dataset_path=intent.export_hf_dataset_path,
+        privacy_filter=intent.export_privacy_filter,
+        privacy_filter_path=intent.export_privacy_filter_path,
+        download_privacy_filter=intent.export_download_privacy_filter,
+        privacy_filter_device=intent.export_privacy_filter_device,
+        privacy_filter_variant=intent.export_privacy_filter_variant,
+        show_redactions=intent.export_show_redactions,
+        current_session_id=current_session_id,
+        error=intent.export_error,
+    )
+    return handler._format_outcome_as_markdown(outcome, "session export", io=io)

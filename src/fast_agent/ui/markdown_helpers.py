@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from functools import lru_cache
 from typing import Any, Iterable, Iterator
 
 HTML_ESCAPE_CHARS: dict[str, str] = {
@@ -9,6 +11,8 @@ HTML_ESCAPE_CHARS: dict[str, str] = {
     '"': "&quot;",
     "'": "&#39;",
 }
+_BLOCKQUOTE_PREFIX_RE = re.compile(r"^(?P<prefix>[ ]{0,3}(?:>[ \t]?)+)")
+_FENCE_PATTERN = re.compile(r"^```", re.MULTILINE)
 
 
 def _flatten_tokens(tokens: Iterable[Any]) -> Iterator[Any]:
@@ -19,21 +23,20 @@ def _flatten_tokens(tokens: Iterable[Any]) -> Iterator[Any]:
             yield from _flatten_tokens(token.children)
 
 
-def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
-    """Prepare content for markdown rendering, escaping HTML/XML outside code blocks."""
-    if not escape_xml or not isinstance(content, str):
-        return content
-
+@lru_cache(maxsize=1)
+def _get_markdown_parser() -> Any:
     from markdown_it import MarkdownIt
 
-    parser = MarkdownIt()
+    return MarkdownIt()
+
+
+@lru_cache(maxsize=32)
+def _prepare_markdown_content_cached(content: str) -> str:
+    parser = _get_markdown_parser()
     try:
         tokens = parser.parse(content)
     except Exception:
-        result = content
-        for char, replacement in HTML_ESCAPE_CHARS.items():
-            result = result.replace(char, replacement)
-        return result
+        return _escape_markdown_text(content)
 
     protected_ranges: list[tuple[int, int]] = []
     lines = content.split("\n")
@@ -61,10 +64,7 @@ def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
                         protected_ranges.append((pos, pos + len(pattern)))
                     start = pos + len(pattern)
 
-    import re
-
-    fence_pattern = r"^```"
-    fences = list(re.finditer(fence_pattern, content, re.MULTILINE))
+    fences = list(_FENCE_PATTERN.finditer(content))
 
     if len(fences) % 2 == 1:
         last_fence_pos = fences[-1].start()
@@ -85,20 +85,45 @@ def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
     last_end = 0
 
     for start, end in merged_ranges:
-        unprotected_text = content[last_end:start]
-        for char, replacement in HTML_ESCAPE_CHARS.items():
-            unprotected_text = unprotected_text.replace(char, replacement)
-        result_segments.append(unprotected_text)
+        result_segments.append(_escape_markdown_text(content[last_end:start]))
 
         result_segments.append(content[start:end])
         last_end = end
 
-    remainder_text = content[last_end:]
-    for char, replacement in HTML_ESCAPE_CHARS.items():
-        remainder_text = remainder_text.replace(char, replacement)
-    result_segments.append(remainder_text)
+    result_segments.append(_escape_markdown_text(content[last_end:]))
 
     return "".join(result_segments)
+
+
+def _escape_markdown_text(text: str) -> str:
+    if not text:
+        return text
+
+    escaped_lines: list[str] = []
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        newline = raw_line[len(line) :]
+        prefix = ""
+        body = line
+
+        match = _BLOCKQUOTE_PREFIX_RE.match(line)
+        if match is not None:
+            prefix = match.group("prefix")
+            body = line[len(prefix) :]
+
+        for char, replacement in HTML_ESCAPE_CHARS.items():
+            body = body.replace(char, replacement)
+
+        escaped_lines.append(f"{prefix}{body}{newline}")
+
+    return "".join(escaped_lines)
+
+
+def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
+    """Prepare content for markdown rendering, escaping HTML/XML outside code blocks."""
+    if not escape_xml or not isinstance(content, str):
+        return content
+    return _prepare_markdown_content_cached(content)
 
 
 __all__ = ["HTML_ESCAPE_CHARS", "prepare_markdown_content"]

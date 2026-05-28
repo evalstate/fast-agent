@@ -225,9 +225,10 @@ class TestInstructionBuilderInternalPatterns:
         builder = InstructionBuilder("{{internal:smart_prompt}}")
         result = await builder.build()
 
-        assert "You are a helpful AI Agent." in result
+        assert "You are a helpful AI Agent" in result
+        assert "fast-agent environment paths:" in result
         assert "{{internal:smart_prompt}}" not in result
-        assert "{{internal:smart_agent_cards}}" not in result
+        assert "{{currentDate}}" not in result
 
     @pytest.mark.asyncio
     async def test_internal_partial_resolution_for_smart_agent_cards(self):
@@ -273,6 +274,7 @@ class TestInstructionBuilderUrlPatterns:
         import requests
 
         class MockResponse:
+            encoding = None
             text = "Remote content"
 
             def raise_for_status(self):

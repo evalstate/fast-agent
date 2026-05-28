@@ -23,6 +23,8 @@ from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -79,6 +81,7 @@ from fast_agent.ui.prompt.input_runtime import (
 )
 from fast_agent.ui.prompt.input_toolbar import (
     ShellToolbarState,
+    ToolbarRenderCache,
     render_input_toolbar,
     resolve_active_llm,
 )
@@ -86,11 +89,13 @@ from fast_agent.ui.prompt.keybindings import ShellPrefixLexer, create_keybinding
 from fast_agent.ui.prompt.special_commands import handle_special_commands_async
 from fast_agent.ui.service_tier_display import cycle_service_tier
 from fast_agent.ui.shell_notice import format_shell_notice
+from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 # Get the application version
 try:
@@ -116,6 +121,27 @@ _copy_notice_until: float = 0.0
 
 _SHELL_PATH_SWITCH_DELAY_SECONDS = 8.0
 _ELLIPSIS = "…"
+logger = get_logger(__name__)
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+_TOOLBAR_DIAGNOSTICS_ENABLED = _env_flag("FAST_AGENT_TOOLBAR_DIAGNOSTICS")
+_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS = _env_float(
+    "FAST_AGENT_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS", 50.0
+)
 
 
 def set_last_copyable_output(output: str) -> None:
@@ -156,16 +182,28 @@ def _mcp_connect_cmd(
     force_reconnect: bool,
     error: str | None,
 ) -> McpConnectCommand:
+    del parsed_mode
+    if error or not target_text:
+        return McpConnectCommand(request=None, error=error)
+
+    argv = [target_text]
+    if server_name:
+        argv.extend(["--name", shlex.quote(server_name)])
+    if auth_token:
+        argv.extend(["--auth", shlex.quote(auth_token)])
+    if timeout_seconds is not None:
+        argv.extend(["--timeout", str(timeout_seconds)])
+    if trigger_oauth is True:
+        argv.append("--oauth")
+    elif trigger_oauth is False:
+        argv.append("--no-oauth")
+    if reconnect_on_disconnect is False:
+        argv.append("--no-reconnect")
+    if force_reconnect:
+        argv.append("--reconnect")
     return McpConnectCommand(
-        target_text=target_text,
-        parsed_mode=parsed_mode,
-        server_name=server_name,
-        auth_token=auth_token,
-        timeout_seconds=timeout_seconds,
-        trigger_oauth=trigger_oauth,
-        reconnect_on_disconnect=reconnect_on_disconnect,
-        force_reconnect=force_reconnect,
-        error=error,
+        request=parse_connect_command_text(" ".join(argv)),
+        error=None,
     )
 
 
@@ -400,6 +438,80 @@ def _collect_tool_children(agent: object) -> list[Any]:
     return _collect_tool_children_impl(agent)
 
 
+def _format_count(count: int, singular: str, plural: str | None = None) -> str:
+    label = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count:,} {label}"
+
+
+def _display_path(path: str) -> str:
+    home = Path.home()
+    resolved = Path(path).expanduser()
+    try:
+        return f"~/{resolved.resolve().relative_to(home).as_posix()}"
+    except ValueError:
+        return str(resolved)
+
+
+def _count_configured_hooks(agent_provider: "AgentApp") -> int:
+    total = 0
+    for agent in agent_provider.registered_agents().values():
+        config = getattr(agent, "config", None)
+        for field in ("tool_hooks", "lifecycle_hooks"):
+            hooks = getattr(config, field, None)
+            if isinstance(hooks, dict):
+                total += len(hooks)
+    return total
+
+
+def _count_configured_extensions(agent_provider: "AgentApp") -> int:
+    total = 0
+    global_commands = getattr(agent_provider, "plugin_commands", None)
+    if isinstance(global_commands, dict):
+        total += len(global_commands)
+
+    for agent in agent_provider.registered_agents().values():
+        config = getattr(agent, "config", None)
+        commands = getattr(config, "commands", None)
+        if isinstance(commands, dict):
+            total += len(commands)
+
+    return total
+
+
+def _show_fast_agent_home_summary(agent_provider: "AgentApp | None") -> None:
+    if agent_provider is None:
+        return
+    try:
+        first_agent = next(iter(agent_provider.registered_agents().values()))
+    except StopIteration:
+        return
+
+    context = getattr(first_agent, "context", None)
+    config = getattr(context, "config", None)
+    home = getattr(config, "_fast_agent_home", None)
+    if not home:
+        return
+
+    model_refs = getattr(config, "model_references", None)
+    model_ref_count = (
+        sum(len(namespace_refs) for namespace_refs in model_refs.values())
+        if isinstance(model_refs, dict)
+        else 0
+    )
+    parts = [
+        _format_count(len(agent_provider.registered_agent_names()), "agent"),
+        _format_count(_count_configured_hooks(agent_provider), "hook"),
+        _format_count(_count_configured_extensions(agent_provider), "extension"),
+        _format_count(model_ref_count, "modelref"),
+    ]
+    source = getattr(config, "_fast_agent_home_source", None)
+    source_suffix = f" [dim]via {source}[/dim]" if source else ""
+    rich_print(
+        f"[dim]fast-agent environment[/dim] [blue]{_display_path(str(home))}[/blue]"
+        f"[dim] ({', '.join(parts)}){source_suffix}[/dim]"
+    )
+
+
 # AgentCompleter moved to fast_agent.ui.prompt.completer
 
 
@@ -468,15 +580,22 @@ def _build_toolbar(
     toolbar_color: str,
     agent_provider: "AgentApp | None",
     shell_context: ShellInputContext,
+    session_factory: "Callable[[], PromptSession]",
 ) -> "Callable[[], HTML]":
     shell_state = ShellToolbarState(
         enabled=shell_context.enabled,
         working_dir=shell_context.working_dir,
         started_at=time.monotonic(),
     )
+    toolbar_cache = ToolbarRenderCache()
 
     def get_toolbar() -> HTML:
         global _copy_notice
+        started_at = time.perf_counter() if _TOOLBAR_DIAGNOSTICS_ENABLED else 0.0
+        try:
+            current_input_text = session_factory().default_buffer.text
+        except Exception:
+            current_input_text = ""
         result = render_input_toolbar(
             agent_name=agent_name,
             toolbar_color=toolbar_color,
@@ -487,10 +606,26 @@ def _build_toolbar(
             copy_notice=_copy_notice,
             copy_notice_until=_copy_notice_until,
             shell_path_switch_delay_seconds=_SHELL_PATH_SWITCH_DELAY_SECONDS,
+            current_input_text=current_input_text,
+            cache=toolbar_cache,
         )
         shell_state.show_path_segment = result.show_shell_path_segment
         if result.clear_copy_notice:
             _copy_notice = None
+        if _TOOLBAR_DIAGNOSTICS_ENABLED:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            if elapsed_ms >= _TOOLBAR_DIAGNOSTICS_THRESHOLD_MS:
+                logger.warning(
+                    "Slow prompt toolbar render",
+                    data={
+                        "elapsed_ms": round(elapsed_ms, 2),
+                        "agent_name": agent_name,
+                        "input_length": len(current_input_text),
+                        "agent_state_cache_hit": result.agent_state_cache_hit,
+                        "attachment_summary_cache_hit": result.attachment_summary_cache_hit,
+                        "attachment_summary_skipped": result.attachment_summary_skipped,
+                    },
+                )
         return result.html
 
     return get_toolbar
@@ -570,6 +705,15 @@ def _build_cycle_callbacks(
     )
 
 
+def _llm_supports_clipboard_image_paste(llm: "FastAgentLLMProtocol | None") -> bool:
+    if llm is None:
+        return False
+    model_info = llm.model_info
+    if model_info is None:
+        return False
+    return model_info.supports_vision
+
+
 def _resolve_shell_context(
     *,
     agent_name: str,
@@ -620,6 +764,15 @@ def _resolve_shell_context(
         except Exception:
             shell_context.working_dir = None
     return shell_context, shell_agent
+
+
+def resolve_shell_working_dir(
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> Path | None:
+    shell_context, _ = _resolve_shell_context(agent_name=agent_name, agent_provider=agent_provider)
+    return shell_context.working_dir
 
 
 def _build_prompt_text_resolver(
@@ -682,15 +835,22 @@ def _show_stop_hint_message(
 def _show_input_help_banner(
     *,
     is_human_input: bool,
+    supports_clipboard_image_paste: bool,
 ) -> None:
     if is_human_input:
         rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         return
 
+    attachment_hint = (
+        "Use /attach, `^file:`, `^url:`, or [yellow]Ctrl+Alt+V[/yellow] "
+        "for attachments [dim](experimental)[/dim]."
+        if supports_clipboard_image_paste
+        else "Use /attach, `^file:`, or `^url:` for attachments."
+    )
     rich_print(
         """[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\n"""
         """CTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.\n"""
-        """CTRL+Space or Tab for path completion. '^' for resource attach.[/dim]"""
+        f"""CTRL+Space or Tab for path completion. {attachment_hint} F10 to clear.[/dim]"""
     )
 
 
@@ -786,7 +946,7 @@ def _show_streaming_mode_notice(agent_provider: "AgentApp", logger_settings: obj
     streaming_enabled = getattr(logger_settings, "streaming_display", True)
     streaming_mode = getattr(logger_settings, "streaming", "markdown")
     if streaming_enabled and streaming_mode != "none":
-        rich_print(f"[dim]Experimental: Streaming Enabled - {streaming_mode} mode[/dim]")
+        rich_print(f"[dim]Streaming Enabled - {streaming_mode} mode[/dim]")
 
 
 def _render_startup_notices(
@@ -832,14 +992,20 @@ async def _show_input_startup(
     shell_context: ShellInputContext,
     shell_agent: object | None,
     agent_provider: "AgentApp | None",
+    supports_clipboard_image_paste: bool,
 ) -> None:
     global help_message_shown
     _show_stop_hint_message(default=default, show_stop_hint=show_stop_hint)
     if help_message_shown:
         return
 
-    _show_input_help_banner(is_human_input=is_human_input)
+    _show_input_help_banner(
+        is_human_input=is_human_input,
+        supports_clipboard_image_paste=supports_clipboard_image_paste,
+    )
     _show_model_shortcut_hints(agent_name=agent_name, agent_provider=agent_provider)
+    if agent_provider and not is_human_input:
+        _show_fast_agent_home_summary(agent_provider)
     await _show_shell_startup(
         agent_name=agent_name,
         agent_provider=agent_provider,
@@ -905,6 +1071,7 @@ async def get_enhanced_input(
         toolbar_color=toolbar_color,
         agent_provider=agent_provider,
         shell_context=shell_context,
+        session_factory=session_factory,
     )
     session = create_prompt_session(
         history=agent_histories[agent_name],
@@ -915,6 +1082,10 @@ async def get_enhanced_input(
             current_agent=agent_name,
             agent_provider=agent_provider,
             noenv_mode=noenv_mode,
+            cwd=resolve_shell_working_dir(
+                agent_name=agent_name,
+                agent_provider=agent_provider,
+            ),
         ),
         lexer=ShellPrefixLexer(),
         multiline_filter=Condition(lambda: in_multiline_mode),
@@ -926,6 +1097,9 @@ async def get_enhanced_input(
         agent_name=agent_name,
         agent_provider=agent_provider,
     )
+    supports_clipboard_image_paste = _llm_supports_clipboard_image_paste(
+        resolve_active_llm(agent_provider, agent_name)
+    )
     bindings = create_keybindings(
         on_toggle_multiline=_build_multiline_toggle(session_factory),
         on_cycle_service_tier=cycle_callbacks.on_cycle_service_tier,
@@ -933,6 +1107,7 @@ async def get_enhanced_input(
         on_cycle_verbosity=cycle_callbacks.on_cycle_verbosity,
         on_cycle_web_search=cycle_callbacks.on_cycle_web_search,
         on_cycle_web_fetch=cycle_callbacks.on_cycle_web_fetch,
+        enable_clipboard_image_paste=supports_clipboard_image_paste,
         app=session.app,
         agent_provider=agent_provider,
         agent_name=agent_name,
@@ -954,6 +1129,7 @@ async def get_enhanced_input(
         shell_context=shell_context,
         shell_agent=shell_agent,
         agent_provider=agent_provider,
+        supports_clipboard_image_paste=supports_clipboard_image_paste,
     )
     buffer_default = pre_populate_buffer if pre_populate_buffer else default
     default_agent_name = _resolve_default_agent_name(agent_provider)
@@ -1011,11 +1187,12 @@ async def get_selection_input(
 
         try:
             # Get user input
-            selection = await prompt_session.prompt_async(
-                prompt_text,
-                default=default or "",
-                set_exception_handler=False,
-            )
+            with suppress_known_runtime_warnings():
+                selection = await prompt_session.prompt_async(
+                    prompt_text,
+                    default=default or "",
+                    set_exception_handler=False,
+                )
 
             # Handle cancellation
             if allow_cancel and not selection.strip():
@@ -1067,11 +1244,12 @@ async def get_argument_input(
 
     try:
         # Get user input
-        arg_value = await prompt_session.prompt_async(
-            prompt_text,
-            default=default or "",
-            set_exception_handler=False,
-        )
+        with suppress_known_runtime_warnings():
+            arg_value = await prompt_session.prompt_async(
+                prompt_text,
+                default=default or "",
+                set_exception_handler=False,
+            )
 
         # For optional arguments, empty input means skip
         if not required and not arg_value:

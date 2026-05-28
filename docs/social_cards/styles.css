@@ -1,0 +1,298 @@
+/* ────────────────────────────────────────────────────────────
+   fast-agent · social card styles
+   Drop in alongside template.html. 1200 × 630.
+   No JS required — pure CSS, screenshot-friendly.
+   ──────────────────────────────────────────────────────────── */
+
+:root {
+  /* fast-agent core */
+  --fg-0:       #f0ece2;
+  --fg-1:       #b9b3a5;
+  --fg-2:       #7d786d;
+  --crt-amber:  #f5a400;
+  --a-hi:       #ffc649;
+  --a-bg:       rgba(245,164,0,0.10);
+  --a-line:     rgba(245,164,0,0.32);
+
+  /* TUI palette (only used by the optional `tui` background mode) */
+  --t-fg:       #c8c0a8;
+  --t-dim:      #7d7868;
+  --t-green:    #a4c87c;
+  --t-cyan:     #5cb3b3;
+  --t-magenta:  #c989c2;
+  --t-yellow:   #d4b85a;
+  --t-red:      #e07e6f;
+  --t-blue:     #7d99cb;
+
+  --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #0a0b0e;
+  color: var(--fg-0);
+  font-family: var(--mono);
+}
+
+/* ── Card base ─────────────────────────────────────────────── */
+.card {
+  width: 1200px;
+  height: 630px;
+  position: relative;
+  background: #0a0b0e;
+  color: var(--fg-0);
+  font-family: var(--mono);
+  overflow: hidden;
+}
+
+/* Gentle amber halo on the wordmark — keeps the SVG crisp,
+   adds only a hint of phosphor. Increase the drop-shadow alphas
+   below to push toward the heavier identity-card look. */
+.phosphor-img.subtle {
+  filter:
+    drop-shadow(0 0 4px color-mix(in srgb, var(--crt-amber) 28%, transparent))
+    drop-shadow(0 0 12px color-mix(in srgb, var(--crt-amber) 10%, transparent));
+}
+
+/* ── Page-card primitives ──────────────────────────────────── */
+.v-page {
+  display: flex;
+  flex-direction: column;
+  background: #0a0b0e;
+  color: var(--fg-0);
+  font-family: var(--mono);
+  position: relative;
+}
+
+.v-page .topstrip {
+  height: 160px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 0 56px;
+  position: relative;
+  z-index: 3;
+}
+.v-page .topstrip .brand { height: 108px; display: block; }
+.v-page .topstrip .section {
+  margin-left: auto;
+  color: var(--fg-2);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.v-page .topstrip .section .acc { color: var(--crt-amber); margin-right: 6px; }
+.v-page .topstrip .section-eyebrow {
+  color: var(--fg-0);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+}
+.v-page .topstrip .section-eyebrow .bar {
+  width: 34px;
+  height: 4px;
+  background: var(--crt-amber);
+  display: inline-block;
+}
+
+.v-page .body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 56px;
+  position: relative;
+  z-index: 3;
+}
+.v-page .body.hero-body {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.v-page .title {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 64px;
+  line-height: 1.05;
+  letter-spacing: -0.028em;
+  color: var(--fg-0);
+  margin: 0;
+  text-wrap: balance;
+  max-width: 22ch;
+}
+.v-page .title .acc { color: var(--crt-amber); }
+
+.v-page .lede {
+  font-family: var(--mono);
+  font-size: 22px;
+  line-height: 1.45;
+  color: var(--fg-1);
+  margin: 22px 0 0;
+  max-width: 44ch;
+  text-wrap: pretty;
+  font-weight: 500;
+}
+.v-page .lede b { color: var(--fg-0); font-weight: 600; }
+
+.v-page .brand-hero {
+  display: block;
+  width: 640px;
+  height: auto;
+  margin: 0 auto;
+}
+.v-page .hero-tagline {
+  font-family: var(--mono);
+  font-size: 28px;
+  line-height: 1.4;
+  color: var(--fg-1);
+  margin: 32px auto 0;
+  max-width: 28ch;
+  font-weight: 500;
+  text-wrap: balance;
+}
+.v-page .hero-tagline b { color: var(--fg-0); font-weight: 600; }
+
+.v-page .bottomstrip {
+  height: 90px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 56px;
+  border-top: 1px solid rgba(245,164,0,0.22);
+  position: relative;
+  z-index: 3;
+  font-family: var(--mono);
+  font-size: 17px;
+  color: var(--fg-2);
+}
+.v-page .bottomstrip.center { justify-content: center; gap: 36px; }
+.v-page .bottomstrip .url {
+  color: var(--fg-0);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: 0.01em;
+}
+.v-page .bottomstrip .url .slash { color: var(--crt-amber); }
+.v-page .bottomstrip .spacer { flex: 1; }
+.v-page .bottomstrip .version {
+  color: var(--crt-amber);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 17px;
+  padding: 6px 14px;
+  border: 1px solid var(--a-line);
+  background: var(--a-bg);
+  border-radius: 2px;
+}
+.v-page .bottomstrip .meta {
+  color: var(--fg-2);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Subtle vertical vignette so the bottom strip stays readable
+   regardless of background mode. */
+.v-page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 55%, rgba(10,11,14,0.55) 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Oversized glyph background (default) ──────────────────── */
+.glyph-bg {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+  opacity: var(--bg-intensity, 0.12);
+  overflow: hidden;
+}
+.glyph-bg svg { display: block; width: 100%; height: 100%; }
+.glyph-bg svg path { fill: var(--crt-amber); }
+.glyph-bg.right {
+  width: 880px;
+  height: 880px;
+  right: -200px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.glyph-bg.left {
+  width: 880px;
+  height: 880px;
+  left: -240px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.glyph-bg.center {
+  width: 1100px;
+  height: 1100px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* ── Background-mode visibility ────────────────────────────── */
+.v-page.bg-none  .glyph-bg,
+.v-page.bg-none  .tui-bg,
+.v-page.bg-glyph .tui-bg,
+.v-page.bg-tui   .glyph-bg { display: none; }
+
+/* ── Optional TUI background (faint, scaled, off-edge) ─────── */
+.tui-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  font-family: var(--mono);
+  font-size: 17px;
+  line-height: 1.62;
+  color: var(--t-fg);
+}
+.tui-bg .inner {
+  position: absolute;
+  opacity: var(--bg-intensity, 0.10);
+  white-space: pre;
+}
+.tui-bg .inner.bottom-right {
+  right: -20px;
+  bottom: -10px;
+  transform: scale(1.12);
+  transform-origin: bottom right;
+}
+.tui-bg .inner.left {
+  left: -20px;
+  top: 50%;
+  transform: translateY(-50%) scale(1.18);
+  transform-origin: left center;
+}
+.tui-bg .inner.center {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(1.55);
+  transform-origin: center;
+}
+.tui-bg .row { display: block; white-space: nowrap; }
+.tui-bg .green   { color: var(--t-green); }
+.tui-bg .cyan    { color: var(--t-cyan); }
+.tui-bg .magenta { color: var(--t-magenta); }
+.tui-bg .yellow  { color: var(--t-yellow); }
+.tui-bg .red     { color: var(--t-red); }
+.tui-bg .blue    { color: var(--t-blue); }
+.tui-bg .dimx    { color: var(--t-dim); }
+.tui-bg .bold    { font-weight: 700; }

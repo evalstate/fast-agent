@@ -8,6 +8,7 @@ from mcp.types import CallToolRequest, CallToolRequestParams, ContentBlock, Text
 from openai.types.responses import ResponseReasoningItem
 from pydantic_core import from_json
 
+from fast_agent.core.logging.json_serializer import snapshot_json_value
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.web_tools import (
     extract_url_citation_payload,
@@ -22,6 +23,7 @@ from fast_agent.types.assistant_message_phase import (
     coerce_assistant_message_phase,
 )
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.reasoning_chunk_join import join_reasoning_segments
 
 
 class ResponsesOutputMixin:
@@ -46,6 +48,9 @@ class ResponsesOutputMixin:
         diagnostics = getattr(self, "_tool_call_diagnostics", None)
         self._tool_call_diagnostics = None
         return diagnostics
+
+    def _is_provider_managed_function_call(self, name: str) -> bool:
+        return False
 
     def _seen_tool_call_ids_state(self) -> set[str]:
         seen = getattr(self, "_seen_tool_call_ids", None)
@@ -178,14 +183,17 @@ class ResponsesOutputMixin:
                 self._print_phase_message(output_item, serialized_item)
                 serialized_items.append(serialized_item)
 
-        if not phases:
+        if not serialized_items:
             return [], None
 
-        unique_phases = set(phases)
-        message_phase = phases[0] if len(unique_phases) == 1 else None
         blocks: list[ContentBlock] = [
             TextContent(type="text", text=json.dumps(payload)) for payload in serialized_items
         ]
+        if not phases or len(phases) != len(serialized_items):
+            return blocks, None
+
+        unique_phases = set(phases)
+        message_phase = phases[0] if len(unique_phases) == 1 else None
         return blocks, message_phase
 
     def _record_usage(self, usage: Any, model_name: str) -> None:
@@ -215,7 +223,7 @@ class ResponsesOutputMixin:
                 total_tokens=total_tokens,
                 cache_usage=cache_usage,
                 reasoning_tokens=reasoning_tokens,
-                raw_usage=usage,
+                raw_usage=snapshot_json_value(usage),
             )
             self._finalize_turn_usage(turn_usage)
         except Exception as e:
@@ -241,6 +249,8 @@ class ResponsesOutputMixin:
             item_id = getattr(item, "id", None)
             call_id = getattr(item, "call_id", None)
             name = getattr(item, "name", None) or "tool"
+            if self._is_provider_managed_function_call(name):
+                continue
             if item_type == "custom_tool_call":
                 custom_input = getattr(item, "input", None)
                 if isinstance(custom_input, str):
@@ -343,7 +353,13 @@ class ResponsesOutputMixin:
             ):
                 continue
             summary = getattr(output_item, "summary", None) or []
-            summary_text = "\n".join(part.text for part in summary if getattr(part, "text", None))
+            summary_parts: list[str] = []
+            for part in summary:
+                part_text = getattr(part, "text", None)
+                if not isinstance(part_text, str) or not part_text:
+                    continue
+                summary_parts.append(part_text)
+            summary_text = join_reasoning_segments(summary_parts)
             if summary_text.strip():
                 reasoning_blocks.append(text_content(summary_text.strip()))
         if reasoning_blocks:
@@ -428,3 +444,176 @@ class ResponsesOutputMixin:
                         append_citation(payload)
 
         return web_tool_payloads, citation_payloads
+
+    @staticmethod
+    def _normalize_tool_search_output_item(output_item: Any) -> dict[str, Any] | None:
+        item_type = getattr(output_item, "type", None)
+        if item_type not in {"tool_search_call", "tool_search_output"}:
+            return None
+
+        payload: dict[str, Any] = {
+            "type": "server_tool_use",
+            "provider_tool_type": item_type,
+            "name": "tool_search",
+        }
+        item_id = getattr(output_item, "id", None)
+        if isinstance(item_id, str) and item_id:
+            payload["id"] = item_id
+        status = getattr(output_item, "status", None)
+        if isinstance(status, str) and status:
+            payload["status"] = status
+        execution = getattr(output_item, "execution", None)
+        if isinstance(execution, str) and execution:
+            payload["execution"] = execution
+        call_id = getattr(output_item, "call_id", None)
+        if isinstance(call_id, str) and call_id:
+            payload["call_id"] = call_id
+
+        if item_type == "tool_search_call":
+            arguments = getattr(output_item, "arguments", None)
+            serialized_arguments = snapshot_json_value(arguments)
+            if isinstance(serialized_arguments, Mapping):
+                payload["input"] = dict(serialized_arguments)
+            elif serialized_arguments is not None:
+                payload["arguments"] = serialized_arguments
+            return payload
+
+        tools = getattr(output_item, "tools", None)
+        serialized_tools = snapshot_json_value(tools)
+        if isinstance(serialized_tools, Sequence) and not isinstance(serialized_tools, str):
+            payload["tools"] = list(serialized_tools)
+            payload["tool_count"] = len(serialized_tools)
+        return payload
+
+    def _extract_tool_search_metadata(
+        self,
+        response: Any,
+    ) -> list[ContentBlock]:
+        payloads: list[ContentBlock] = []
+        for output_item in getattr(response, "output", []) or []:
+            payload = self._normalize_tool_search_output_item(output_item)
+            if payload is not None:
+                payloads.append(TextContent(type="text", text=json.dumps(payload)))
+        return payloads
+
+    @staticmethod
+    def _serialize_mcp_list_tools_item(output_item: Any) -> dict[str, Any] | None:
+        if getattr(output_item, "type", None) != "mcp_list_tools":
+            return None
+
+        model_dump = getattr(output_item, "model_dump", None)
+        if callable(model_dump):
+            try:
+                payload = model_dump(mode="json", by_alias=True, exclude_none=True)
+            except TypeError:
+                payload = model_dump()
+            except Exception:
+                payload = None
+            if isinstance(payload, dict):
+                return payload
+
+        payload: dict[str, Any] = {"type": "mcp_list_tools"}
+        item_id = getattr(output_item, "id", None)
+        if isinstance(item_id, str) and item_id:
+            payload["id"] = item_id
+        server_label = getattr(output_item, "server_label", None)
+        if isinstance(server_label, str) and server_label:
+            payload["server_label"] = server_label
+        tools = snapshot_json_value(getattr(output_item, "tools", None))
+        if isinstance(tools, Sequence) and not isinstance(tools, str):
+            payload["tools"] = list(tools)
+        return payload
+
+    def _extract_raw_mcp_list_tools_items(
+        self,
+        response: Any,
+    ) -> list[ContentBlock]:
+        items: list[ContentBlock] = []
+        for output_item in getattr(response, "output", []) or []:
+            payload = self._serialize_mcp_list_tools_item(output_item)
+            if payload is not None:
+                items.append(TextContent(type="text", text=json.dumps(payload)))
+        return items
+
+    @staticmethod
+    def _normalize_provider_mcp_output_item(output_item: Any) -> dict[str, Any] | None:
+        item_type = getattr(output_item, "type", None)
+        if item_type not in {"mcp_list_tools", "mcp_call"}:
+            return None
+
+        payload: dict[str, Any] = {
+            "type": "mcp_tool_use",
+            "provider_tool_type": item_type,
+            "name": getattr(output_item, "name", None)
+            or getattr(output_item, "tool_name", None)
+            or item_type,
+        }
+        item_id = getattr(output_item, "call_id", None) or getattr(output_item, "id", None)
+        if isinstance(item_id, str) and item_id:
+            payload["id"] = item_id
+        status = getattr(output_item, "status", None)
+        if isinstance(status, str) and status:
+            payload["status"] = status
+        server_label = getattr(output_item, "server_label", None)
+        if isinstance(server_label, str) and server_label:
+            payload["server_name"] = server_label
+        arguments = getattr(output_item, "arguments", None)
+        if isinstance(arguments, str) and arguments:
+            payload["arguments"] = arguments
+            try:
+                parsed_arguments = from_json(arguments, allow_partial=True)
+            except Exception:
+                parsed_arguments = None
+            if isinstance(parsed_arguments, Mapping):
+                payload["input"] = dict(parsed_arguments)
+        return payload
+
+    @staticmethod
+    def _normalize_provider_mcp_result_item(output_item: Any) -> dict[str, Any] | None:
+        if getattr(output_item, "type", None) != "mcp_call":
+            return None
+
+        tool_use_id = getattr(output_item, "call_id", None) or getattr(output_item, "id", None)
+        if not isinstance(tool_use_id, str) or not tool_use_id:
+            return None
+
+        status = getattr(output_item, "status", None)
+        output = snapshot_json_value(getattr(output_item, "output", None))
+        if output is None and not isinstance(status, str):
+            return None
+
+        content_text: str | None = None
+        if isinstance(output, str):
+            content_text = output
+        elif output is not None:
+            content_text = json.dumps(output, ensure_ascii=False, sort_keys=True)
+
+        content: list[dict[str, str]] = []
+        if content_text:
+            content.append({"type": "text", "text": content_text})
+
+        return {
+            "type": "mcp_tool_result",
+            "tool_use_id": tool_use_id,
+            "is_error": status == "failed",
+            "content": content,
+        }
+
+    def _extract_provider_mcp_metadata(
+        self,
+        response: Any,
+    ) -> list[ContentBlock]:
+        payloads: list[ContentBlock] = []
+        for output_item in getattr(response, "output", []) or []:
+            item_type = getattr(output_item, "type", None)
+            if item_type == "mcp_approval_request":
+                raise RuntimeError(
+                    "OpenAI MCP approval requests are not supported by fast-agent yet."
+                )
+            payload = self._normalize_provider_mcp_output_item(output_item)
+            if payload is not None:
+                payloads.append(TextContent(type="text", text=json.dumps(payload)))
+            result_payload = self._normalize_provider_mcp_result_item(output_item)
+            if result_payload is not None:
+                payloads.append(TextContent(type="text", text=json.dumps(result_payload)))
+        return payloads

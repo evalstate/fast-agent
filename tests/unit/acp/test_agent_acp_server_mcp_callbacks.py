@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -17,15 +18,23 @@ class _Agent:
     acp_commands: dict[str, object] = {}
     instruction = ""
 
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(default=False, model=None)
+
 
 class _App:
     def __init__(self) -> None:
         self._attached = ["local"]
+        self.noenv_mode = False
 
     def _agent(self, _name: str):
         return _Agent()
 
     def agent_names(self):
+        return ["main"]
+
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
         return ["main"]
 
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None):
@@ -40,7 +49,9 @@ class _App:
 
 
 @pytest.mark.asyncio
-async def test_initialize_session_wires_mcp_callbacks_into_slash_handler() -> None:
+async def test_initialize_session_wires_session_mcp_listing_into_slash_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app = _App()
     instance = AgentInstance(
         app=cast("AgentApp", app),
@@ -55,14 +66,24 @@ async def test_initialize_session_wires_mcp_callbacks_into_slash_handler() -> No
         return None
 
     server = AgentACPServer(
-        primary_instance=instance,
+        bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="shared",
         server_name="test",
         permissions_enabled=False,
-        list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
-        list_configured_detached_mcp_servers_callback=app.list_configured_detached_mcp_servers,
+    )
+
+    async def fake_list_attached(*_args, **_kwargs) -> list[str]:
+        return await app.list_attached_mcp_servers("main")
+
+    async def fake_list_detached(*_args, **_kwargs) -> list[str]:
+        return await app.list_configured_detached_mcp_servers("main")
+
+    monkeypatch.setattr(server, "_list_attached_mcp_servers_for_session", fake_list_attached)
+    monkeypatch.setattr(
+        server,
+        "_list_configured_detached_mcp_servers_for_session",
+        fake_list_detached,
     )
 
     session_state, _ = await server._initialize_session_state(

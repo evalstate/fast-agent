@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 
 import pytest
+import yaml
 
 from fast_agent.cards import manager
 from fast_agent.paths import resolve_environment_paths
@@ -143,6 +144,149 @@ def test_install_detects_ownership_conflicts(tmp_path) -> None:
     with pytest.raises(manager.OwnershipConflictError, match="owned by another pack"):
         manager._install_marketplace_card_pack_sync(
             _pack(repo, name="two", path="packs/two"),
+            env_paths,
+            False,
+            False,
+            None,
+        )
+
+
+def test_install_maps_legacy_pack_config_to_preferred_filename(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_pack(repo, pack_subdir="packs/codex", pack_name="codex", files=["fastagent.config.yaml"])
+    (repo / "packs" / "codex" / "fastagent.config.yaml").write_text(
+        "default_model: \"$system.default\"\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "initial")
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+
+    result = manager._install_marketplace_card_pack_sync(
+        _pack(repo, name="codex", path="packs/codex"),
+        env_paths,
+        False,
+        False,
+        None,
+    )
+
+    assert (env_paths.root / "fast-agent.yaml").exists()
+    assert not (env_paths.root / "fastagent.config.yaml").exists()
+    assert "fast-agent.yaml" in result.source.installed_files
+    assert "fastagent.config.yaml" not in result.source.installed_files
+
+
+def test_install_legacy_pack_config_merges_existing_preferred_config(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_pack(repo, pack_subdir="packs/codex", pack_name="codex", files=["fastagent.config.yaml"])
+    (repo / "packs" / "codex" / "fastagent.config.yaml").write_text(
+        "default_model: \"$system.default\"\n"
+        "model_references:\n"
+        "  system:\n"
+        "    fast: codexspark\n"
+        "    last_used: codexplan\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "initial")
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    env_paths.root.mkdir(parents=True, exist_ok=True)
+    (env_paths.root / "fast-agent.yaml").write_text(
+        "model_references:\n"
+        "  system:\n"
+        "    last_used: gpt-4.1-mini\n",
+        encoding="utf-8",
+    )
+
+    manager._install_marketplace_card_pack_sync(
+        _pack(repo, name="codex", path="packs/codex"),
+        env_paths,
+        False,
+        False,
+        None,
+    )
+
+    assert not (env_paths.root / "fastagent.config.yaml").exists()
+    with open(env_paths.root / "fast-agent.yaml", "r", encoding="utf-8") as handle:
+        saved = yaml.safe_load(handle)
+
+    assert saved["default_model"] == "$system.default"
+    assert saved["model_references"]["system"]["fast"] == "codexspark"
+    assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
+
+
+def test_install_merges_unmanaged_env_config_when_it_only_preserves_last_used(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_pack(repo, pack_subdir="packs/codex", pack_name="codex", files=["fastagent.config.yaml"])
+    (repo / "packs" / "codex" / "fastagent.config.yaml").write_text(
+        "default_model: \"$system.default\"\n"
+        "model_references:\n"
+        "  system:\n"
+        "    fast: codexspark\n"
+        "    last_used: codexplan\n"
+        "mcp:\n"
+        "  targets:\n"
+        "    - name: openai\n"
+        "      target: https://developers.openai.com/mcp\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "initial")
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    env_paths.root.mkdir(parents=True, exist_ok=True)
+    (env_paths.root / "fastagent.config.yaml").write_text(
+        "model_references:\n"
+        "  system:\n"
+        "    last_used: gpt-4.1-mini\n",
+        encoding="utf-8",
+    )
+
+    manager._install_marketplace_card_pack_sync(
+        _pack(repo, name="codex", path="packs/codex"),
+        env_paths,
+        False,
+        False,
+        None,
+    )
+
+    with open(env_paths.root / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+        saved = yaml.safe_load(handle)
+
+    assert saved["default_model"] == "$system.default"
+    assert saved["model_references"]["system"]["fast"] == "codexspark"
+    assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
+    assert saved["mcp"]["targets"][0]["name"] == "openai"
+
+
+def test_install_rejects_unmanaged_env_config_when_it_contains_more_than_last_used(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_pack(repo, pack_subdir="packs/codex", pack_name="codex", files=["fastagent.config.yaml"])
+    (repo / "packs" / "codex" / "fastagent.config.yaml").write_text(
+        "default_model: \"$system.default\"\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "initial")
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    env_paths.root.mkdir(parents=True, exist_ok=True)
+    (env_paths.root / "fastagent.config.yaml").write_text(
+        "default_model: keep-me\n"
+        "model_references:\n"
+        "  system:\n"
+        "    last_used: gpt-4.1-mini\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        manager.OwnershipConflictError,
+        match="fastagent.config.yaml already exists and is unmanaged",
+    ):
+        manager._install_marketplace_card_pack_sync(
+            _pack(repo, name="codex", path="packs/codex"),
             env_paths,
             False,
             False,

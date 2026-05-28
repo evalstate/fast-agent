@@ -1,10 +1,11 @@
 import json
 from contextlib import contextmanager
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Iterator, Mapping, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Union, cast
 
-from mcp.types import CallToolResult
-from rich.console import Group
+from mcp.types import CallToolResult, ContentBlock
+from rich.console import Group, RenderableType
 from rich.markdown import Markdown
 from rich.markup import escape as escape_markup
 from rich.panel import Panel
@@ -47,10 +48,11 @@ from fast_agent.utils.time import format_duration
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
+    from fast_agent.ui.terminal_images import ImageRenderItem
 
 logger = get_logger(__name__)
 
-CODE_STYLE = "native"
+DEFAULT_CODE_THEME = "native"
 
 # Glyph to indicate tool hooks are active
 HOOK_INDICATOR_GLYPH = "◆"
@@ -64,9 +66,16 @@ class ConsoleDisplay:
     This centralizes the UI display logic used by LLM implementations.
     """
 
-    CODE_STYLE = CODE_STYLE
+    CODE_STYLE = DEFAULT_CODE_THEME
 
-    def __init__(self, config: Settings | None = None) -> None:
+    def __init__(
+        self,
+        config: Settings | None = None,
+        *,
+        code_word_wrap: bool | None = None,
+        render_fences_with_syntax: bool | None = None,
+        code_theme: str | None = None,
+    ) -> None:
         """
         Initialize the console display handler.
 
@@ -83,14 +92,54 @@ class ConsoleDisplay:
                 pass
         self._markup = getattr(self._logger_settings, "enable_markup", True)
         self._escape_xml = True
+        self._code_word_wrap = (
+            getattr(self._logger_settings, "code_word_wrap", True)
+            if code_word_wrap is None
+            else code_word_wrap
+        )
+        self._render_fences_with_syntax = (
+            getattr(self._logger_settings, "render_fences_with_syntax", True)
+            if render_fences_with_syntax is None
+            else render_fences_with_syntax
+        )
+        self._code_style = (
+            getattr(self._logger_settings, "code_theme", DEFAULT_CODE_THEME)
+            if code_theme is None
+            else code_theme
+        )
+        self._apply_console_theme()
         self._style = A3MessageStyle()
         self._tool_display = ToolDisplay(self)
+        self._pending_tool_image_items: list[ImageRenderItem] = []
 
     @staticmethod
     def _resolve_logger_settings(config: Settings | None) -> LoggerSettings:
         """Provide a logger settings object even when callers omit it."""
         logger_settings = getattr(config, "logger", None) if config else None
         return logger_settings if logger_settings is not None else LoggerSettings()
+
+    def _apply_console_theme(self) -> None:
+        theme_file = getattr(self._logger_settings, "theme_file", None)
+        if theme_file is None and self.config is None:
+            return
+
+        base_dir: Path | None = None
+
+        theme_config_file = getattr(self._logger_settings, "_theme_file_config_path", None)
+        config_file = theme_config_file or (
+            getattr(self.config, "_config_file", None) if self.config else None
+        )
+        if config_file:
+            base_dir = Path(config_file).expanduser().resolve().parent
+
+        try:
+            console.configure_console_theme(theme_file, base_dir=base_dir)
+        except Exception as exc:
+            console.configure_console_theme(None)
+            logger.warning(
+                "Failed to load Rich theme file; using default console theme",
+                data={"theme_file": theme_file, "error": str(exc)},
+            )
 
     def _truncate_text(self, text: str, *, truncate: bool) -> str:
         if truncate and self.config and self.config.logger.truncate_tools and len(text) > 360:
@@ -120,7 +169,23 @@ class ConsoleDisplay:
 
     @property
     def code_style(self) -> str:
-        return CODE_STYLE
+        return self._code_style
+
+    @property
+    def markup_enabled(self) -> bool:
+        return self._markup
+
+    @property
+    def code_word_wrap(self) -> bool:
+        return self._code_word_wrap
+
+    @property
+    def render_fences_with_syntax(self) -> bool:
+        return self._render_fences_with_syntax
+
+    @property
+    def apply_patch_preview_max_lines(self) -> int | None:
+        return getattr(self._logger_settings, "apply_patch_preview_max_lines", 120)
 
     @property
     def style(self) -> A3MessageStyle:
@@ -132,6 +197,21 @@ class ConsoleDisplay:
             return
         console.ensure_blocking_console()
         console.console.print(content, markup=self._markup)
+
+    def show_stream_reprint_banner(self, *, label: str | None = None) -> None:
+        """Display a bright banner before reprinting a streamed final response."""
+        if not display_chat_enabled():
+            return
+        if self.config and not self.config.logger.show_chat:
+            return
+        if self.config and not getattr(self.config.logger, "stream_reprint_banner", True):
+            return
+        console.ensure_blocking_console()
+        for line in self._style.stream_reprint_banner(
+            console.console.size.width,
+            label=label,
+        ):
+            console.console.print(line, markup=self._markup)
 
     def resolve_streaming_preferences(self) -> tuple[bool, str]:
         """Return whether streaming is enabled plus the active mode."""
@@ -241,9 +321,15 @@ class ConsoleDisplay:
         for _ in range(self._style.shell_exit_spacing_after):
             console.console.print()
 
-    def _format_header_line(self, left_content: str, right_info: str = "") -> Text:
+    def _format_header_line(
+        self,
+        left_content: str,
+        right_info: str = "",
+        *,
+        rule_fill: bool = False,
+    ) -> Text:
         width = console.console.size.width
-        return self._style.header_line(left_content, right_info, width)
+        return self._style.header_line(left_content, right_info, width, rule_fill=rule_fill)
 
     @staticmethod
     def build_header_left(
@@ -291,8 +377,10 @@ class ConsoleDisplay:
         truncate_content: bool = True,
         additional_message: Text | None = None,
         pre_content: Text | Group | None = None,
+        post_content: RenderableType | None = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
+        header_rule_fill: bool = False,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -309,8 +397,10 @@ class ConsoleDisplay:
             truncate_content: Whether to truncate long content
             additional_message: Optional Rich Text appended after the main content
             pre_content: Optional Rich Text shown before the main content
+            post_content: Optional Rich renderable shown after the main content
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
+            header_rule_fill: Whether to extend the header with a dim rule to the right edge
         """
         # Ensure Rich writes to a blocking TTY when stdout/stderr was
         # flipped to non-blocking by the event loop (e.g. uvloop).
@@ -338,8 +428,7 @@ class ConsoleDisplay:
         )
 
         # Create combined separator and status line
-        self._create_combined_separator_status(left, right_info)
-
+        self._create_combined_separator_status(left, right_info, rule_fill=header_rule_fill)
         is_empty_content = False
         if isinstance(content, str):
             is_empty_content = content == ""
@@ -371,6 +460,9 @@ class ConsoleDisplay:
             )
         if additional_message:
             console.console.print(additional_message, markup=self._markup)
+        if post_content:
+            console.console.print()
+            console.console.print(post_content, markup=self._markup)
 
         # Handle bottom separator with optional metadata
         self._render_bottom_metadata(
@@ -379,6 +471,47 @@ class ConsoleDisplay:
             highlight_index=highlight_index,
             max_item_length=max_item_length,
         )
+
+    def collect_tool_result_images(self, content: list[object] | None) -> None:
+        """Collect tool-result image blocks for the next final assistant render."""
+        if not content or not self.config:
+            return
+        terminal_images = self.config.logger.terminal_images
+        if (
+            not terminal_images.enabled
+            or terminal_images.backend == "none"
+            or not terminal_images.render_assistant
+        ):
+            return
+
+        from fast_agent.ui.terminal_images import extract_image_render_items
+
+        self._pending_tool_image_items.extend(extract_image_render_items(content))
+
+    def _drain_tool_result_images(self) -> RenderableType | None:
+        if not self._pending_tool_image_items or not self.config:
+            return None
+        terminal_images = self.config.logger.terminal_images
+        items = self._pending_tool_image_items
+        self._pending_tool_image_items = []
+        if (
+            not terminal_images.enabled
+            or terminal_images.backend == "none"
+            or not terminal_images.render_assistant
+        ):
+            return None
+
+        from fast_agent.ui.terminal_images import render_image_items
+
+        return render_image_items(terminal_images, items)
+
+    def show_pending_tool_result_images(self) -> None:
+        """Render pending tool-result images without reprinting assistant text."""
+        post_content = self._drain_tool_result_images()
+        if post_content is None:
+            return
+        console.console.print()
+        console.console.print(post_content, markup=self._markup)
 
     def _display_content(
         self,
@@ -403,9 +536,11 @@ class ConsoleDisplay:
         import json
         import re
 
+        from rich.protocol import is_renderable
         from rich.syntax import Syntax
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+        from fast_agent.ui.markdown_renderables import build_markdown_renderable
 
         # Determine the style based on message type
         # USER, ASSISTANT, and SYSTEM messages should display in normal style
@@ -426,9 +561,16 @@ class ConsoleDisplay:
                     return
                 except (JSONDecodeError, TypeError, ValueError):
                     if render_markdown:
-                        prepared_content = prepare_markdown_content(content, self._escape_xml)
-                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
-                        console.console.print(md, markup=self._markup)
+                        console.console.print(
+                            build_markdown_renderable(
+                                content,
+                                code_theme=self.code_style,
+                                escape_xml=self._escape_xml,
+                                render_fences_with_syntax=self.render_fences_with_syntax,
+                                code_word_wrap=self.code_word_wrap,
+                            ),
+                            markup=self._markup,
+                        )
                     else:
                         self._print_plain_text(content, truncate=truncate, style=style)
                     return
@@ -446,15 +588,28 @@ class ConsoleDisplay:
 
                 if is_xml_content:
                     # Display XML content with syntax highlighting for better readability
-                    syntax = Syntax(content, "xml", theme=CODE_STYLE, line_numbers=False)
+                    syntax = Syntax(
+                        content,
+                        "xml",
+                        theme=self.code_style,
+                        line_numbers=False,
+                        word_wrap=self.code_word_wrap,
+                    )
                     console.console.print(syntax, markup=self._markup)
                 elif check_markdown_markers:
                     # Check for markdown markers before deciding to use markdown rendering
                     if self._looks_like_markdown(content):
                         # Has markdown markers - render as markdown with escaping
-                        prepared_content = prepare_markdown_content(content, self._escape_xml)
-                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
-                        console.console.print(md, markup=self._markup)
+                        console.console.print(
+                            build_markdown_renderable(
+                                content,
+                                code_theme=self.code_style,
+                                escape_xml=self._escape_xml,
+                                render_fences_with_syntax=self.render_fences_with_syntax,
+                                code_word_wrap=self.code_word_wrap,
+                            ),
+                            markup=self._markup,
+                        )
                     else:
                         # Plain text - display as-is
                         self._print_plain_text(content, truncate=truncate, style=style)
@@ -468,10 +623,16 @@ class ConsoleDisplay:
                     # Check if it looks like markdown
                     if self._looks_like_markdown(content) and not has_substantial_xml:
                         # Escape HTML/XML tags while preserving code blocks
-                        prepared_content = prepare_markdown_content(content, self._escape_xml)
-                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
-                        # Markdown handles its own styling, don't apply style
-                        console.console.print(md, markup=self._markup)
+                        console.console.print(
+                            build_markdown_renderable(
+                                content,
+                                code_theme=self.code_style,
+                                escape_xml=self._escape_xml,
+                                render_fences_with_syntax=self.render_fences_with_syntax,
+                                code_word_wrap=self.code_word_wrap,
+                            ),
+                            markup=self._markup,
+                        )
                     else:
                         # Plain text (or mixed markdown+XML content)
                         self._print_plain_text(content, truncate=truncate, style=style)
@@ -485,7 +646,7 @@ class ConsoleDisplay:
                 except (JSONDecodeError, TypeError, ValueError):
                     if render_markdown:
                         prepared_content = prepare_markdown_content(plain_text, self._escape_xml)
-                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
+                        md = Markdown(prepared_content, code_theme=self.code_style)
                         console.console.print(md, markup=self._markup)
                     else:
                         console.console.print(content, markup=self._markup)
@@ -513,9 +674,16 @@ class ConsoleDisplay:
                     # Check if the first part has markdown
                     if self._looks_like_markdown(markdown_part):
                         # Render markdown part
-                        prepared_content = prepare_markdown_content(markdown_part, self._escape_xml)
-                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
-                        console.console.print(md, markup=self._markup)
+                        console.console.print(
+                            build_markdown_renderable(
+                                markdown_part,
+                                code_theme=self.code_style,
+                                escape_xml=self._escape_xml,
+                                render_fences_with_syntax=self.render_fences_with_syntax,
+                                code_word_wrap=self.code_word_wrap,
+                            ),
+                            markup=self._markup,
+                        )
 
                         # Then render any additional styled segments
                         if markdown_end < len(plain_text):
@@ -531,13 +699,22 @@ class ConsoleDisplay:
                         console.console.print(content, markup=self._markup)
                 else:
                     # Simple case: entire text should be rendered as markdown
-                    prepared_content = prepare_markdown_content(plain_text, self._escape_xml)
-                    md = Markdown(prepared_content, code_theme=CODE_STYLE)
-                    console.console.print(md, markup=self._markup)
+                    console.console.print(
+                        build_markdown_renderable(
+                            plain_text,
+                            code_theme=self.code_style,
+                            escape_xml=self._escape_xml,
+                            render_fences_with_syntax=self.render_fences_with_syntax,
+                            code_word_wrap=self.code_word_wrap,
+                        ),
+                        markup=self._markup,
+                    )
             else:
                 # No markdown markers, print as regular Rich Text
                 console.console.print(content, markup=self._markup)
         elif isinstance(content, Group):
+            console.console.print(content, markup=self._markup)
+        elif is_renderable(content):
             console.console.print(content, markup=self._markup)
         elif isinstance(content, list):
             # Handle content blocks (for tool results)
@@ -554,7 +731,13 @@ class ConsoleDisplay:
                         console.console.print("(empty text)", markup=self._markup)
             else:
                 # Multiple blocks or non-text content
-                self._print_pretty(content, truncate=truncate, style=style)
+                from fast_agent.mcp.prompt_render import render_content_blocks
+
+                self._print_plain_text(
+                    render_content_blocks(cast("list[ContentBlock]", content)),
+                    truncate=truncate,
+                    style=style,
+                )
         else:
             # Any other type - use Pretty
             self._print_pretty(content, truncate=truncate, style=style)
@@ -619,6 +802,7 @@ class ConsoleDisplay:
         if type_label is not None:
             kwargs["type_label"] = type_label
 
+        self.collect_tool_result_images(cast("list[object] | None", result.content))
         if not display_tools_enabled():
             return
         self._tool_display.show_tool_result(result, **kwargs)
@@ -657,15 +841,22 @@ class ConsoleDisplay:
             return
         await self._tool_display.show_tool_update(updated_server, agent_name=agent_name)
 
-    def _create_combined_separator_status(self, left_content: str, right_info: str = "") -> None:
+    def _create_combined_separator_status(
+        self,
+        left_content: str,
+        right_info: str = "",
+        *,
+        rule_fill: bool = False,
+    ) -> None:
         """
         Create a combined separator and status line.
 
         Args:
             left_content: The main content (block, arrow, name) - left justified with color
             right_info: Supplementary information to show in brackets - right aligned
+            rule_fill: Whether to fill remaining header space with a dim rule
         """
-        combined = self._format_header_line(left_content, right_info)
+        combined = self._format_header_line(left_content, right_info, rule_fill=rule_fill)
 
         console.console.print()
         console.console.print(combined, markup=self._markup)
@@ -731,9 +922,28 @@ class ConsoleDisplay:
 
         return Text(joined, style="dim italic")
 
-    @classmethod
+    def _render_markdown_body(
+        self,
+        text: str,
+        *,
+        cursor_suffix: str = "",
+        close_incomplete_fences: bool = False,
+    ) -> RenderableType:
+        from fast_agent.ui.markdown_renderables import build_markdown_renderable
+
+        return build_markdown_renderable(
+            text,
+            code_theme=self.code_style,
+            escape_xml=self._escape_xml,
+            cursor_suffix=cursor_suffix,
+            close_incomplete_fences=close_incomplete_fences,
+            render_fences_with_syntax=self.render_fences_with_syntax,
+            code_word_wrap=self.code_word_wrap,
+        )
+
     def _extract_openai_phase_content(
-        cls, message: "PromptMessageExtended"
+        self,
+        message: "PromptMessageExtended",
     ) -> str | Group | None:
         channels = message.channels or {}
         raw_blocks = (
@@ -784,14 +994,13 @@ class ConsoleDisplay:
                 saw_phase = True
                 phase_label = PHASE_LABELS.get(phase, phase)
                 label = Text()
-                label.append("▎", style="dim")
-                label.append(phase_label, style="dim")
-                if cls._looks_like_markdown(section_text):
-                    prepared_content = prepare_markdown_content(section_text, True)
+                label.append("▎", style="green")
+                label.append(phase_label, style="green")
+                if self._looks_like_markdown(section_text):
                     sections.append(
                         Group(
                             label,
-                            Markdown(prepared_content, code_theme=CODE_STYLE),
+                            self._render_markdown_body(section_text),
                         )
                     )
                 else:
@@ -826,6 +1035,7 @@ class ConsoleDisplay:
         pre_content: Text | Group | None = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
+        show_reprint_banner: bool = False,
     ) -> None:
         """Display an assistant message in a formatted panel.
 
@@ -841,6 +1051,7 @@ class ConsoleDisplay:
             pre_content: Optional additional styled message to prepend before body text
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
+            show_reprint_banner: Whether to emit the bright reprint banner for this message
         """
         if not display_chat_enabled():
             return
@@ -851,6 +1062,7 @@ class ConsoleDisplay:
         from fast_agent.types import PromptMessageExtended
 
         resolved_pre_content = pre_content
+        post_content: RenderableType | None = None
 
         if isinstance(message_text, PromptMessageExtended):
             # Prefer full assistant text so streamed/finalized multi-block responses
@@ -865,12 +1077,26 @@ class ConsoleDisplay:
                 self._extract_reasoning_content(message_text),
                 pre_content,
             )
+            from fast_agent.ui.terminal_images import render_terminal_images
+
+            post_content = render_terminal_images(self.config, "assistant", message_text)
         else:
             display_text = message_text
+
+        pending_tool_images = self._drain_tool_result_images()
+        if post_content is not None and pending_tool_images is not None:
+            post_content = Group(post_content, pending_tool_images)
+        elif pending_tool_images is not None:
+            post_content = pending_tool_images
+
+        display_text = self._normalize_assistant_display_text(display_text)
 
         # Build right info
         display_model = resolve_model_display_name(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
+
+        if show_reprint_banner:
+            self.show_stream_reprint_banner()
 
         # Display main message using unified method
         self.display_message(
@@ -884,12 +1110,23 @@ class ConsoleDisplay:
             truncate_content=False,  # Assistant messages shouldn't be truncated
             additional_message=additional_message,
             pre_content=resolved_pre_content,
+            post_content=post_content,
             render_markdown=render_markdown,
             show_hook_indicator=show_hook_indicator,
         )
 
         # Handle mermaid diagrams separately (after the main message)
         self.show_mermaid_diagrams_from_message_text(message_text)
+
+    @staticmethod
+    def _normalize_assistant_display_text(content: object) -> object:
+        if isinstance(content, str):
+            return content.rstrip()
+        if isinstance(content, Text):
+            normalized = content.copy()
+            normalized.rstrip()
+            return normalized
+        return content
 
     @staticmethod
     def _merge_pre_content(
@@ -933,6 +1170,7 @@ class ConsoleDisplay:
         name: str | None = None,
         model: str | None = None,
         show_hook_indicator: bool = False,
+        tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
     ) -> Iterator[StreamingHandle]:
         """Create a streaming context for assistant messages."""
         if not display_chat_enabled():
@@ -975,6 +1213,7 @@ class ConsoleDisplay:
             header_left=left,
             header_right=right_info,
             tool_header_name=name,
+            tool_metadata_resolver=tool_metadata_resolver,
             progress_display=progress_display,
         )
         try:
@@ -1058,6 +1297,8 @@ class ConsoleDisplay:
 
         from urllib.parse import urlparse
 
+        console.configure_console_stream("stdout")
+
         # Extract domain for security display
         parsed = urlparse(url)
         domain = parsed.netloc or url  # Fallback to full URL if no domain
@@ -1107,10 +1348,12 @@ class ConsoleDisplay:
         turn_range: tuple[int, int] | None = None,
         name: str | None = None,
         attachments: list[str] | None = None,
+        image_previews: list["ImageRenderItem"] | None = None,
         part_count: int | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a user message in the new visual style."""
+        self._pending_tool_image_items = []
         if not display_chat_enabled():
             return
         if self.config and not self.config.logger.show_chat:
@@ -1155,12 +1398,28 @@ class ConsoleDisplay:
 
         right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 
-        # Build attachment indicator as pre_content
-        pre_content: Text | Group | None = None
+        # Build attachment indicator and local image previews as pre_content.
+        pre_content_parts: list[Text | Group] = []
         if attachments:
-            pre_content = Text()
-            pre_content.append("🔗 ", style="dim")
-            pre_content.append(", ".join(attachments), style="dim blue")
+            attachment_text = Text()
+            attachment_text.append("🔗 ", style="dim")
+            attachment_text.append(", ".join(attachments), style="dim blue")
+            pre_content_parts.append(attachment_text)
+
+        if image_previews and self.config:
+            terminal_images = self.config.logger.terminal_images
+            if terminal_images.enabled and terminal_images.backend != "none":
+                from fast_agent.ui.terminal_images import render_image_items
+
+                rendered_previews = render_image_items(terminal_images, image_previews)
+                if rendered_previews is not None:
+                    pre_content_parts.append(Group(rendered_previews))
+
+        pre_content: Text | Group | None = None
+        if len(pre_content_parts) == 1:
+            pre_content = pre_content_parts[0]
+        elif pre_content_parts:
+            pre_content = Group(*pre_content_parts)
 
         self.display_message(
             content=message,
@@ -1170,6 +1429,7 @@ class ConsoleDisplay:
             truncate_content=False,  # User messages typically shouldn't be truncated
             pre_content=pre_content,
             show_hook_indicator=show_hook_indicator,
+            header_rule_fill=True,
         )
 
     def show_system_message(

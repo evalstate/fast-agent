@@ -6,11 +6,14 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 from mcp.types import CallToolRequest, ContentBlock, EmbeddedResource
 
 from fast_agent.constants import (
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
 )
 from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
     get_image_data,
     get_resource_uri,
     get_text,
@@ -19,6 +22,7 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_resource_link,
     is_text_content,
 )
+from fast_agent.mcp.mime_utils import is_image_mime_type, is_text_mime_type
 from fast_agent.tools.apply_patch_tool import (
     extract_apply_patch_input,
 )
@@ -103,6 +107,8 @@ class ResponsesContentMixin:
     def _convert_message_to_items(self, msg: PromptMessageExtended) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         items.extend(self._extract_encrypted_reasoning_items(msg.channels))
+        items.extend(self._extract_mcp_list_tools_items(msg))
+        items.extend(self._extract_tool_search_items(msg))
 
         raw_assistant_items = self._extract_assistant_message_items(msg)
 
@@ -126,6 +132,93 @@ class ResponsesContentMixin:
         if msg.tool_calls:
             items.extend(self._convert_tool_calls(msg.tool_calls))
 
+        return items
+
+    def _extract_tool_search_items(
+        self,
+        msg: PromptMessageExtended,
+    ) -> list[dict[str, Any]]:
+        if msg.role != "assistant" or not msg.channels:
+            return []
+
+        raw_blocks = msg.channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL)
+        if not raw_blocks:
+            return []
+
+        items: list[dict[str, Any]] = []
+        for block in raw_blocks:
+            text = get_text(block)
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                self.logger.debug("Skipping malformed OpenAI tool_search replay payload")
+                continue
+            if not isinstance(payload, dict):
+                continue
+            item = self._tool_search_payload_to_input_item(payload)
+            if item is not None:
+                items.append(item)
+        return items
+
+    @staticmethod
+    def _tool_search_payload_to_input_item(payload: dict[str, Any]) -> dict[str, Any] | None:
+        if payload.get("type") != "server_tool_use":
+            return None
+
+        provider_tool_type = payload.get("provider_tool_type")
+        if provider_tool_type not in {"tool_search_call", "tool_search_output"}:
+            return None
+
+        item: dict[str, Any] = {"type": provider_tool_type}
+        for field in ("id", "call_id", "status", "execution"):
+            value = payload.get(field)
+            if isinstance(value, str) and value:
+                item[field] = value
+
+        if provider_tool_type == "tool_search_call":
+            input_payload = payload.get("input")
+            if isinstance(input_payload, dict):
+                item["arguments"] = dict(input_payload)
+                return item
+
+            arguments = payload.get("arguments")
+            if arguments is not None:
+                item["arguments"] = arguments
+            return item
+
+        tools = payload.get("tools")
+        if not isinstance(tools, list):
+            return None
+        item["tools"] = list(tools)
+        return item
+
+    def _extract_mcp_list_tools_items(
+        self, msg: PromptMessageExtended
+    ) -> list[dict[str, Any]]:
+        if not msg.channels:
+            return []
+
+        raw_blocks = msg.channels.get(OPENAI_MCP_LIST_TOOLS_ITEMS)
+        if not raw_blocks:
+            return []
+
+        items: list[dict[str, Any]] = []
+        for block in raw_blocks:
+            text = get_text(block)
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                self.logger.debug("Skipping malformed OpenAI mcp_list_tools item")
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("type") != "mcp_list_tools":
+                continue
+            items.append(dict(payload))
         return items
 
     def _extract_assistant_message_items(
@@ -210,10 +303,6 @@ class ResponsesContentMixin:
         return [{"type": "summary_text", "text": summary_text}]
 
     @staticmethod
-    def _is_image_mime_type(mime_type: str | None) -> bool:
-        return bool(mime_type) and mime_type.lower().startswith("image/")
-
-    @staticmethod
     def _content_mime_type(content: ContentBlock) -> str | None:
         mime_type = getattr(content, "mimeType", None)
         if isinstance(content, EmbeddedResource):
@@ -222,20 +311,42 @@ class ResponsesContentMixin:
 
     @staticmethod
     def _content_filename(content: ContentBlock) -> str | None:
-        if not isinstance(content, EmbeddedResource):
-            return None
-        uri = getattr(content.resource, "uri", None)
+        uri = getattr(content, "uri", None)
+        if isinstance(content, EmbeddedResource):
+            uri = getattr(content.resource, "uri", None)
         if not uri:
             return None
         uri_str = str(uri)
         filename = uri_str.rsplit("/", 1)[-1] if "/" in uri_str else uri_str
         return filename or None
 
+    def _content_to_input_text_part(self, content: ContentBlock) -> dict[str, Any] | None:
+        if not is_resource_content(content):
+            return None
+
+        mime_type = self._content_mime_type(content) or "text/plain"
+        if not is_text_mime_type(mime_type):
+            return None
+
+        text = get_text(content)
+        if text is None:
+            return None
+
+        filename = self._content_filename(content) or "resource"
+        return {
+            "type": "input_text",
+            "text": (
+                f'<fastagent:file title="{filename}" mimetype="{mime_type}">\n'
+                f"{text}\n"
+                f"</fastagent:file>"
+            ),
+        }
+
     def _content_to_input_part(self, content: ContentBlock) -> dict[str, Any] | None:
         mime_type = self._content_mime_type(content)
         data = get_image_data(content)
         if data:
-            if self._is_image_mime_type(mime_type):
+            if mime_type and is_image_mime_type(mime_type):
                 return {"type": "input_image", "image_url": f"data:{mime_type};base64,{data}"}
             if mime_type:
                 input_part: dict[str, Any] = {"type": "input_file", "file_data": data}
@@ -248,9 +359,15 @@ class ResponsesContentMixin:
         if is_resource_content(content):
             resource_uri = get_resource_uri(content)
             if resource_uri:
-                if self._is_image_mime_type(mime_type):
+                if mime_type and is_image_mime_type(mime_type):
                     return {"type": "input_image", "image_url": resource_uri}
                 return {"type": "input_file", "file_url": resource_uri}
+        if is_resource_link(content):
+            resource_uri = getattr(content, "uri", None)
+            if resource_uri:
+                if mime_type and is_image_mime_type(mime_type):
+                    return {"type": "input_image", "image_url": str(resource_uri)}
+                return {"type": "input_file", "file_url": str(resource_uri)}
 
         return None
 
@@ -325,7 +442,13 @@ class ResponsesContentMixin:
                 parts.append({"type": text_type, "text": text})
                 continue
 
-            if is_image_content(item) or is_resource_content(item):
+            if is_resource_content(item):
+                text_part = self._content_to_input_text_part(item)
+                if text_part:
+                    parts.append(text_part)
+                    continue
+
+            if is_image_content(item) or is_resource_content(item) or is_resource_link(item):
                 input_part = self._content_to_input_part(item)
                 if input_part:
                     parts.append(input_part)
@@ -346,18 +469,6 @@ class ResponsesContentMixin:
             parts.append({"type": text_type, "text": f"[Unsupported content: {type(item).__name__}]"})
 
         return parts
-
-    def _content_to_image_url(self, item: ContentBlock) -> str | None:
-        data = get_image_data(item)
-        if not data:
-            return None
-        mime_type = getattr(item, "mimeType", None)
-        if not mime_type and is_resource_content(item):
-            resource = getattr(item, "resource", None)
-            mime_type = getattr(resource, "mimeType", None) if resource else None
-        if not self._is_image_mime_type(mime_type):
-            return None
-        return f"data:{mime_type};base64,{data}"
 
     def _convert_tool_calls(self, tool_calls: dict[str, CallToolRequest]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -413,7 +524,12 @@ class ResponsesContentMixin:
             call_id = self._tool_call_id_map.get(tool_use_id)
             if not call_id:
                 call_id = normalized_call_id
-            output = self._tool_result_to_text(result)
+            canonical_content = canonicalize_tool_result_content_for_llm(
+                result,
+                logger=self.logger,
+                source="openai.responses",
+            )
+            output = self._tool_result_content_to_output(canonical_content)
             tool_kind = self._resolve_tool_call_kind(
                 tool_use_id=tool_use_id,
                 fc_id=fc_id,
@@ -435,43 +551,53 @@ class ResponsesContentMixin:
                     "output": output,
                 }
             )
-            attachment_parts = self._tool_result_to_input_parts(result)
-            if attachment_parts:
-                items.append(
-                    {
-                        "type": "message",
-                        "role": "user",
-                        "content": attachment_parts,
-                    }
-                )
         return items
 
-    def _tool_result_to_text(self, result: Any) -> str:
-        contents = getattr(result, "content", None) or []
-        chunks: list[str] = []
-        for item in contents:
-            text = get_text(item)
-            if text is not None:
-                chunks.append(text)
-                continue
-            if is_image_content(item) or is_resource_content(item):
-                image_url = self._content_to_image_url(item)
-                if image_url:
-                    chunks.append(f"![Image]({image_url})")
-                    continue
-            resource_uri = get_resource_uri(item)
-            if resource_uri:
-                chunks.append(f"[Resource]({resource_uri})")
-                continue
-            chunks.append(f"[Unsupported content: {type(item).__name__}]")
-        return "\n".join(chunk for chunk in chunks if chunk)
-
-    def _tool_result_to_input_parts(self, result: Any) -> list[dict[str, Any]]:
-        contents = getattr(result, "content", None) or []
+    def _tool_result_content_to_output(
+        self, contents: list[ContentBlock]
+    ) -> str | list[dict[str, Any]]:
         parts: list[dict[str, Any]] = []
+        has_attachment = False
         for item in contents:
-            if is_image_content(item) or is_resource_content(item):
+            if is_text_content(item):
+                parts.append({"type": "input_text", "text": get_text(item) or ""})
+                continue
+
+            if is_resource_content(item):
+                text_part = self._content_to_input_text_part(item)
+                if text_part:
+                    parts.append(text_part)
+                    continue
+
+            if is_image_content(item) or is_resource_content(item) or is_resource_link(item):
                 input_part = self._content_to_input_part(item)
                 if input_part:
                     parts.append(input_part)
-        return parts
+                    has_attachment = True
+                    continue
+
+            text = get_text(item)
+            if text is not None:
+                parts.append({"type": "input_text", "text": text})
+                continue
+
+            resource_uri = get_resource_uri(item)
+            if resource_uri:
+                parts.append({"type": "input_text", "text": f"[Resource]({resource_uri})"})
+                continue
+            if is_resource_link(item):
+                uri = getattr(item, "uri", None)
+                if uri:
+                    parts.append({"type": "input_text", "text": f"[Resource]({uri})"})
+                    continue
+            parts.append(
+                {"type": "input_text", "text": f"[Unsupported content: {type(item).__name__}]"}
+            )
+
+        if has_attachment:
+            return parts
+        return "\n".join(
+            text
+            for part in parts
+            if part.get("type") == "input_text" and (text := part.get("text"))
+        )

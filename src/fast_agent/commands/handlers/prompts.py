@@ -15,6 +15,7 @@ from fast_agent.commands.handlers.shared import (
 )
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.mcp.mcp_aggregator import SEP
+from fast_agent.mcp.prompts.prompt_load import prompt_file_template_variables
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.progress_display import progress_display
 
@@ -138,6 +139,66 @@ def _prompt_matches_name(prompt: dict[str, Any], requested_name: str) -> bool:
     return prompt["name"] == requested_name or prompt["namespaced_name"] == requested_name
 
 
+async def _collect_prompt_argument_values(
+    ctx: CommandContext,
+    *,
+    prompt_name: str,
+    required_args: list[str],
+    optional_args: list[str],
+    arg_descriptions: dict[str, str],
+    agent_name: str,
+    right_info: str,
+    fail_on_missing_required: bool,
+) -> tuple[dict[str, str], list[str]]:
+    arg_values: dict[str, str] = {}
+    missing_required: list[str] = []
+
+    if not required_args and not optional_args:
+        return arg_values, missing_required
+
+    if required_args and optional_args:
+        arg_header = (
+            f"Prompt {prompt_name} requires {len(required_args)} arguments "
+            f"and has {len(optional_args)} optional arguments:"
+        )
+    elif required_args:
+        arg_header = f"Prompt {prompt_name} requires {len(required_args)} arguments:"
+    else:
+        arg_header = f"Prompt {prompt_name} has {len(optional_args)} optional arguments:"
+
+    await ctx.io.emit(
+        CommandMessage(
+            text=Text(arg_header, style="cyan"),
+            right_info=right_info,
+            agent_name=agent_name,
+        )
+    )
+
+    for arg_name in required_args:
+        description = arg_descriptions.get(arg_name, "")
+        arg_value = await ctx.io.prompt_argument(
+            arg_name,
+            description=description,
+            required=True,
+        )
+        if arg_value is not None:
+            arg_values[arg_name] = arg_value
+        elif fail_on_missing_required:
+            missing_required.append(arg_name)
+
+    for arg_name in optional_args:
+        description = arg_descriptions.get(arg_name, "")
+        arg_value = await ctx.io.prompt_argument(
+            arg_name,
+            description=description,
+            required=False,
+        )
+        if arg_value:
+            arg_values[arg_name] = arg_value
+
+    return arg_values, missing_required
+
+
 async def _get_all_prompts(
     ctx: CommandContext, agent_name: str | None = None
 ) -> list[dict[str, Any]]:
@@ -255,8 +316,39 @@ async def handle_load_prompt(
         outcome.add_message("Filename required for /prompt load", channel="error")
         return outcome
 
+    arg_values: dict[str, str] = {}
+    try:
+        template_variables = sorted(prompt_file_template_variables(filename))
+    except Exception:
+        template_variables = []
+
+    if template_variables:
+        arg_values, missing_required = await _collect_prompt_argument_values(
+            ctx,
+            prompt_name=filename,
+            required_args=template_variables,
+            optional_args=[],
+            arg_descriptions={},
+            agent_name=agent_name,
+            right_info="prompt load",
+            fail_on_missing_required=True,
+        )
+        if missing_required:
+            missing = ", ".join(missing_required)
+            outcome.add_message(
+                f"Missing required prompt argument(s): {missing}",
+                channel="error",
+                right_info="prompt load",
+                agent_name=agent_name,
+            )
+            return outcome
+
     agent_obj = ctx.agent_provider._agent(agent_name)
-    messages = load_prompt_messages_from_file(filename, label="prompt")
+    messages = load_prompt_messages_from_file(
+        filename,
+        label="prompt",
+        arguments=arg_values or None,
+    )
     if messages is None:
         return outcome
     if not messages:
@@ -453,53 +545,16 @@ async def handle_select_prompt(
 
         selected_prompt = all_prompts[idx]
 
-    required_args = selected_prompt.get("required_args", [])
-    optional_args = selected_prompt.get("optional_args", [])
-    arg_descriptions = selected_prompt.get("arg_descriptions", {})
-    arg_values: dict[str, str] = {}
-
-    if required_args or optional_args:
-        if required_args and optional_args:
-            arg_header = (
-                f"Prompt {selected_prompt['name']} requires {len(required_args)} "
-                f"arguments and has {len(optional_args)} optional arguments:"
-            )
-        elif required_args:
-            arg_header = (
-                f"Prompt {selected_prompt['name']} requires {len(required_args)} arguments:"
-            )
-        else:
-            arg_header = (
-                f"Prompt {selected_prompt['name']} has {len(optional_args)} optional arguments:"
-            )
-
-        await ctx.io.emit(
-            CommandMessage(
-                text=Text(arg_header, style="cyan"),
-                right_info="prompt selection",
-                agent_name=agent_name,
-            )
-        )
-
-        for arg_name in required_args:
-            description = arg_descriptions.get(arg_name, "")
-            arg_value = await ctx.io.prompt_argument(
-                arg_name,
-                description=description,
-                required=True,
-            )
-            if arg_value is not None:
-                arg_values[arg_name] = arg_value
-
-        for arg_name in optional_args:
-            description = arg_descriptions.get(arg_name, "")
-            arg_value = await ctx.io.prompt_argument(
-                arg_name,
-                description=description,
-                required=False,
-            )
-            if arg_value:
-                arg_values[arg_name] = arg_value
+    arg_values, _ = await _collect_prompt_argument_values(
+        ctx,
+        prompt_name=selected_prompt["name"],
+        required_args=selected_prompt.get("required_args", []),
+        optional_args=selected_prompt.get("optional_args", []),
+        arg_descriptions=selected_prompt.get("arg_descriptions", {}),
+        agent_name=agent_name,
+        right_info="prompt selection",
+        fail_on_missing_required=False,
+    )
 
     namespaced_name = selected_prompt["namespaced_name"]
     await ctx.io.emit(

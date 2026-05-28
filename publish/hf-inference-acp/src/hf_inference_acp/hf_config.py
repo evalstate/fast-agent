@@ -291,7 +291,6 @@ def copy_toad_cards_from_resources(
     created: list[str] = []
 
     # Try to access fast-agent-mcp package resources
-    use_as_file = False
     try:
         source_dir_traversable = (
             files("fast_agent")
@@ -301,8 +300,7 @@ def copy_toad_cards_from_resources(
         )
         if not source_dir_traversable.is_dir():
             raise FileNotFoundError("hf-toad-cards not found in package resources")
-        source_dir = source_dir_traversable  # type: ignore
-        use_as_file = True
+        source_dir = source_dir_traversable
     except (ImportError, ModuleNotFoundError, FileNotFoundError) as e:
         logger.warning(f"Could not access package resources: {e}")
         return created
@@ -310,10 +308,7 @@ def copy_toad_cards_from_resources(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     with ExitStack() as stack:
-        if use_as_file:
-            source_path = stack.enter_context(as_file(source_dir))  # type: ignore
-        else:
-            source_path = source_dir  # type: ignore
+        source_path = stack.enter_context(as_file(source_dir))
 
         if not source_path.exists():
             return created

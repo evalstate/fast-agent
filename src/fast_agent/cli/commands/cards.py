@@ -7,10 +7,16 @@ from pathlib import Path  # noqa: TC003
 from typing import Annotated
 
 import typer
+from rich.markdown import Markdown
 from rich.table import Table
 
 from fast_agent.cards import manager as card_manager
-from fast_agent.cli.command_support import ensure_context_object, resolve_context_string_option
+from fast_agent.cards import service as card_service
+from fast_agent.cli.command_support import (
+    ensure_context_object,
+    get_settings_or_exit,
+    resolve_context_string_option,
+)
 from fast_agent.cli.display import (
     DetailDisplayRow,
     UpdateDisplayRow,
@@ -20,7 +26,6 @@ from fast_agent.cli.display import (
     print_section_header,
     print_update_table,
 )
-from fast_agent.config import get_settings
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.ui.console import console
 
@@ -39,7 +44,7 @@ RegistryOption = Annotated[
     ),
 ]
 
-app = typer.Typer(help="Manage card packs (list/add/remove/update/publish).")
+app = typer.Typer(help="Manage card packs (list/add/remove/update/publish).", add_completion=False)
 
 
 def _resolve_registry_input(ctx: typer.Context, command_registry: str | None = None) -> str:
@@ -50,17 +55,17 @@ def _resolve_registry_input(ctx: typer.Context, command_registry: str | None = N
     )
     if registry:
         return registry
-    return card_manager.get_marketplace_url(get_settings())
+    return card_manager.get_marketplace_url(get_settings_or_exit())
 
 
 def _environment_paths():
-    settings = get_settings()
+    settings = get_settings_or_exit()
     return resolve_environment_paths(settings)
 
 
 def _print_local_packs() -> None:
     env_paths = _environment_paths()
-    packs = card_manager.list_local_card_packs(environment_paths=env_paths)
+    packs = card_service.list_installed_packs(environment_paths=env_paths)
     print_detail_section(
         console,
         "Installed Card Packs",
@@ -188,6 +193,11 @@ def _print_publish_result(result: card_manager.CardPackPublishResult) -> None:
     console.print(f"[{style}]Status: {status}[/{style}]")
 
 
+def _print_card_pack_readme(pack_name: str, readme: str) -> None:
+    print_section_header(console, f"{pack_name} README", color="cyan")
+    console.print(Markdown(readme))
+
+
 @app.callback(invoke_without_command=True)
 def cards_main(ctx: typer.Context, registry: RegistryOption = None) -> None:
     """Manage card packs."""
@@ -216,14 +226,11 @@ def cards_add(
     ] = False,
 ) -> None:
     """Install a card pack from the selected marketplace."""
-    settings = get_settings()
     marketplace_input = _resolve_registry_input(ctx, registry)
-    env_paths = resolve_environment_paths(settings)
+    env_paths = _environment_paths()
 
     try:
-        marketplace, marketplace_url = asyncio.run(
-            card_manager.fetch_marketplace_card_packs_with_source(marketplace_input)
-        )
+        marketplace = card_service.scan_marketplace_sync(marketplace_input)
     except Exception as exc:  # noqa: BLE001
         typer.echo(f"Failed to load marketplace: {exc}", err=True)
         raise typer.Exit(1) from exc
@@ -235,27 +242,26 @@ def cards_add(
             [
                 DetailDisplayRow(
                     label="marketplace",
-                    value=card_manager.format_marketplace_display_url(marketplace_url),
+                    value=card_manager.format_marketplace_display_url(marketplace.source),
                 )
             ],
         )
-        _print_marketplace_packs(marketplace)
+        _print_marketplace_packs(marketplace.packs)
         print_hint(console, "Install with: fast-agent cards add <number|name>")
         raise typer.Exit(0)
 
-    pack = card_manager.select_card_pack_by_name_or_index(marketplace, selector)
-    if pack is None:
-        typer.echo(f"Card pack not found: {selector}", err=True)
-        raise typer.Exit(1)
-
     try:
         result = asyncio.run(
-            card_manager.install_marketplace_card_pack(
-                pack,
+            card_service.install_selected_pack(
+                card_service.select_marketplace_pack(marketplace.packs, selector),
                 environment_paths=env_paths,
                 force=force,
+                marketplace_source=marketplace.source,
             )
         )
+    except card_service.CardPackLookupError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     except Exception as exc:  # noqa: BLE001
         typer.echo(f"Failed to install card pack: {exc}", err=True)
         raise typer.Exit(1) from exc
@@ -264,16 +270,22 @@ def cards_add(
         console,
         "Card Pack Installed",
         [
-            DetailDisplayRow(label="name", value=pack.name),
-            DetailDisplayRow(label="location", value=format_display_path(result.pack_dir)),
+            DetailDisplayRow(label="name", value=result.pack.name),
+            DetailDisplayRow(
+                label="location",
+                value=format_display_path(result.install_result.pack_dir),
+            ),
             DetailDisplayRow(
                 label="managed files",
-                value=len(result.installed_files),
+                value=len(result.install_result.installed_files),
                 value_style="green",
             ),
         ],
         color="green",
     )
+    if result.readme:
+        console.print()
+        _print_card_pack_readme(result.pack.name, result.readme)
 
 
 @app.command("remove")
@@ -285,7 +297,7 @@ def cards_remove(
 ) -> None:
     """Remove an installed card pack."""
     env_paths = _environment_paths()
-    packs = card_manager.list_local_card_packs(environment_paths=env_paths)
+    packs = card_service.list_installed_packs(environment_paths=env_paths)
     if not packs:
         console.print("[yellow]No local card packs to remove.[/yellow]")
         raise typer.Exit(0)
@@ -295,16 +307,11 @@ def cards_remove(
         print_hint(console, "Remove with: fast-agent cards remove <number|name>")
         raise typer.Exit(0)
 
-    selected = card_manager.select_installed_card_pack_by_name_or_index(packs, selector)
-    if selected is None:
-        typer.echo(f"Card pack not found: {selector}", err=True)
-        raise typer.Exit(1)
-
     try:
-        removal = card_manager.remove_local_card_pack(
-            selected.pack_dir.name,
-            environment_paths=env_paths,
-        )
+        removal = card_service.remove_pack(environment_paths=env_paths, selector=selector)
+    except card_service.CardPackLookupError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     except Exception as exc:  # noqa: BLE001
         typer.echo(f"Failed to remove card pack: {exc}", err=True)
         raise typer.Exit(1) from exc
@@ -328,6 +335,53 @@ def cards_remove(
     print_detail_section(console, "Card Pack Removed", rows, color="green")
 
 
+@app.command("readme")
+def cards_readme(
+    selector: Annotated[
+        str | None,
+        typer.Argument(help="Installed card pack name or index.", show_default=False),
+    ] = None,
+) -> None:
+    """Show an installed card pack README."""
+    env_paths = _environment_paths()
+    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    if not packs:
+        console.print("[yellow]No local card packs installed.[/yellow]")
+        raise typer.Exit(0)
+
+    if not selector:
+        if len(packs) == 1:
+            record = card_service.read_installed_pack_readme(
+                environment_paths=env_paths,
+                selector=packs[0].name,
+            )
+            if not record.readme:
+                console.print(
+                    f"[yellow]Card pack '{record.pack_name}' does not include a README.md.[/yellow]"
+                )
+                raise typer.Exit(0)
+            _print_card_pack_readme(record.pack_name, record.readme)
+            return
+        _print_local_packs()
+        print_hint(console, "Show with: fast-agent cards readme <number|name>")
+        raise typer.Exit(0)
+
+    try:
+        record = card_service.read_installed_pack_readme(
+            environment_paths=env_paths,
+            selector=selector,
+        )
+    except card_service.CardPackLookupError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    if not record.readme:
+        console.print(f"[yellow]Card pack '{record.pack_name}' does not include a README.md.[/yellow]")
+        raise typer.Exit(0)
+
+    _print_card_pack_readme(record.pack_name, record.readme)
+
+
 @app.command("update")
 def cards_update(
     selector: Annotated[
@@ -348,7 +402,7 @@ def cards_update(
 ) -> None:
     """Check and apply card pack updates."""
     env_paths = _environment_paths()
-    updates = card_manager.check_card_pack_updates(environment_paths=env_paths)
+    updates = card_service.check_updates(environment_paths=env_paths)
 
     if not selector:
         _print_updates(updates, title="Card pack update check:")
@@ -358,22 +412,34 @@ def cards_update(
         )
         raise typer.Exit(0)
 
-    selected = card_manager.select_card_pack_updates(updates, selector)
-    if not selected:
-        typer.echo(f"Card pack not found: {selector}", err=True)
-        raise typer.Exit(1)
+    try:
+        plan = card_service.plan_updates(environment_paths=env_paths, selector=selector)
+    except card_service.CardPackLookupError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
-    if len(selected) > 1 and not yes:
-        _print_updates(selected, title="Update plan:")
+    if len(plan.selected) > 1 and not yes:
+        _print_updates(plan.selected, title="Update plan:")
         console.print("[yellow]Multiple card packs selected. Re-run with --yes to apply updates.[/yellow]")
         raise typer.Exit(1)
 
-    applied = card_manager.apply_card_pack_updates(
-        selected,
+    applied = card_service.apply_update_plan(
+        plan.selected,
         environment_paths=env_paths,
         force=force,
     )
-    _print_updates(applied, title="Card pack update results:")
+    _print_updates(applied.applied, title="Card pack update results:")
+
+    # Show READMEs for successfully updated packs
+    if applied.readmes:
+        console.print()
+        for readme_record in applied.readmes:
+            if readme_record.readme:
+                _print_card_pack_readme(readme_record.pack_name, readme_record.readme)
+                console.print()
+            else:
+                console.print(f"[dim]No README found for '{readme_record.pack_name}'[/dim]")
+                console.print()
 
 
 @app.command("publish")
@@ -407,7 +473,7 @@ def cards_publish(
 ) -> None:
     """Publish local card pack changes back to the source repository."""
     env_paths = _environment_paths()
-    packs = card_manager.list_local_card_packs(environment_paths=env_paths)
+    packs = card_service.list_installed_packs(environment_paths=env_paths)
     if not packs:
         console.print("[yellow]No local card packs to publish.[/yellow]")
         raise typer.Exit(0)
@@ -421,19 +487,18 @@ def cards_publish(
         )
         raise typer.Exit(0)
 
-    selected = card_manager.select_installed_card_pack_by_name_or_index(packs, selector)
-    if selected is None:
-        typer.echo(f"Card pack not found: {selector}", err=True)
-        raise typer.Exit(1)
-
-    result = card_manager.publish_local_card_pack(
-        selected.pack_dir,
-        environment_paths=env_paths,
-        push=not no_push,
-        commit_message=message,
-        temp_dir=temp_dir,
-        keep_temp=keep_temp,
-    )
+    try:
+        result = card_service.publish_pack(
+            environment_paths=env_paths,
+            selector=selector,
+            push=not no_push,
+            commit_message=message,
+            temp_dir=temp_dir,
+            keep_temp=keep_temp,
+        )
+    except card_service.CardPackLookupError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     _print_publish_result(result)
 
     if result.status in {"published", "committed", "no_changes"}:

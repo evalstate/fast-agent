@@ -5,7 +5,6 @@ Handles prompt templating, variable extraction, and substitution for the prompt 
 Provides clean, testable classes for managing template substitution.
 """
 
-import re
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -17,6 +16,10 @@ from mcp.types import (
 )
 from pydantic import BaseModel, field_validator
 
+from fast_agent.core.template_render import (
+    extract_template_variables,
+    render_template_text,
+)
 from fast_agent.mcp.prompt_serialization import multipart_messages_to_delimited_format
 from fast_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,
@@ -60,24 +63,16 @@ class PromptContent(BaseModel):
     def apply_substitutions(self, context: dict[str, Any]) -> "PromptContent":
         """Apply variable substitutions to the text and resources"""
 
-        # Define placeholder pattern once to avoid repetition
-        def make_placeholder(key: str) -> str:
-            return f"{{{{{key}}}}}"
-
-        # Apply substitutions to text
-        result = self.text
-        for key, value in context.items():
-            result = result.replace(make_placeholder(key), str(value))
-
         # Apply substitutions to resource paths
         substituted_resources = []
         for resource in self.resources:
-            substituted = resource
-            for key, value in context.items():
-                substituted = substituted.replace(make_placeholder(key), str(value))
-            substituted_resources.append(substituted)
+            substituted_resources.append(render_template_text(resource, context).text)
 
-        return PromptContent(text=result, role=self.role, resources=substituted_resources)
+        return PromptContent(
+            text=render_template_text(self.text, context).text,
+            role=self.role,
+            resources=substituted_resources,
+        )
 
 
 class PromptTemplate:
@@ -209,9 +204,7 @@ class PromptTemplate:
 
     def _extract_template_variables(self, text: str) -> set[str]:
         """Extract template variables from text using regex"""
-        variable_pattern = r"{{([^}]+)}}"
-        matches = re.findall(variable_pattern, text)
-        return set(matches)
+        return extract_template_variables(text)
 
     def to_extended_messages(self) -> list[PromptMessageExtended]:
         """

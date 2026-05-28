@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from acp.helpers import text_block, tool_content
 from acp.schema import (
@@ -15,6 +15,7 @@ from acp.schema import (
     ToolCallStart,
 )
 
+from fast_agent.commands.command_discovery import render_direct_command_help
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.renderers.skills_markdown import (
     render_marketplace_skills,
@@ -48,6 +49,8 @@ from fast_agent.skills.scope import (
     resolve_skill_directories,
     resolve_skills_management_scope,
 )
+
+ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
 
 
 def _skills_usage_text() -> str:
@@ -112,6 +115,10 @@ async def handle_skills_available(
 
 
 async def handle_skills(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    direct_help = render_direct_command_help("skills", arguments)
+    if direct_help is not None:
+        return direct_help
+
     tokens = (arguments or "").strip().split(maxsplit=1)
     action = tokens[0].lower() if tokens else "list"
     remainder = tokens[1] if len(tokens) > 1 else ""
@@ -250,19 +257,15 @@ def handle_skills_list(handler: "SlashCommandHandler") -> str:
 
 def skills_override_section(handler: "SlashCommandHandler") -> str | None:
     agent = handler._get_current_agent()
-    if not agent:
+    if agent is None:
         return None
-    config = getattr(agent, "config", None)
-    if not config:
+    config = agent.config
+    if config.skills is SKILLS_DEFAULT:
         return None
-    if getattr(config, "skills", SKILLS_DEFAULT) is SKILLS_DEFAULT:
-        return None
-    manifests = list(getattr(config, "skill_manifests", []) or [])
+    manifests = list(config.skill_manifests)
     sources: list[str] = []
     for manifest in manifests:
-        path = getattr(manifest, "path", None)
-        if not path:
-            continue
+        path = manifest.path
         source_path = path.parent if Path(path).is_file() else Path(path)
         try:
             display_path = source_path.relative_to(Path.cwd())
@@ -452,7 +455,7 @@ async def send_skills_update(
     tool_call_id: str,
     *,
     title: str,
-    status: str,
+    status: ToolCallStatus,
     message: str | None = None,
     start: bool = False,
 ) -> None:
@@ -482,7 +485,7 @@ async def send_skills_update(
             ToolCallProgress(
                 tool_call_id=tool_call_id,
                 title=title,
-                status=status,  # type: ignore[arg-type]
+                status=status,
                 content=content,
                 session_update="tool_call_update",
             )

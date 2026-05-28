@@ -191,6 +191,10 @@ def is_server_tool_trace_payload(payload: Mapping[str, Any] | None) -> bool:
 
     if block_type == "server_tool_use":
         return True
+    if block_type == "mcp_tool_use":
+        return True
+    if block_type == "mcp_tool_result":
+        return True
 
     return block_type.endswith("_tool_result")
 

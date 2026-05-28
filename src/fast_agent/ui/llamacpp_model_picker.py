@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from fast_agent.llm.llamacpp_discovery import LlamaCppModelListing
 
 from fast_agent.ui.picker_theme import build_picker_style
+from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 StyleFragments = list[tuple[str, str]]
 type LlamaCppPickerAction = Literal[
@@ -33,6 +34,12 @@ type LlamaCppPickerAction = Literal[
 class LlamaCppModelPickerResult:
     action: LlamaCppPickerAction
     model_id: str
+
+
+@dataclass(frozen=True)
+class LlamaCppModelPickerContext:
+    runtime_context_window: int | None
+    training_context_window: int | None = None
 
 
 @dataclass(frozen=True)
@@ -78,7 +85,10 @@ class _LlamaCppModelPicker:
     def __init__(
         self,
         models: tuple[LlamaCppModelListing, ...],
-        runtime_context_loader: Callable[[str], Awaitable[int | None]] | None = None,
+        runtime_context_loader: Callable[
+            [str], Awaitable[LlamaCppModelPickerContext | int | None]
+        ]
+        | None = None,
     ) -> None:
         if not models:
             raise ValueError("The llama.cpp model picker requires at least one model.")
@@ -86,6 +96,7 @@ class _LlamaCppModelPicker:
         self.models = models
         self._runtime_context_loader = runtime_context_loader
         self._runtime_context_by_model: dict[str, int | None] = {}
+        self._training_context_by_model: dict[str, int | None] = {}
         self._runtime_context_loaded: set[str] = set()
         self._runtime_context_loading: set[str] = set()
         self._runtime_context_errors: set[str] = set()
@@ -231,6 +242,11 @@ class _LlamaCppModelPicker:
             return "train ?"
         return f"train {training_context_window}"
 
+    def _training_context_for_model(self, model: "LlamaCppModelListing") -> int | None:
+        if model.model_id in self._training_context_by_model:
+            return self._training_context_by_model[model.model_id]
+        return model.training_context_window
+
     def _runtime_context_label(self, model_id: str) -> str:
         if model_id in self._runtime_context_errors:
             return "unavailable"
@@ -260,8 +276,15 @@ class _LlamaCppModelPicker:
     async def _load_runtime_context(self, model_id: str) -> None:
         try:
             assert self._runtime_context_loader is not None
-            runtime_context = await self._runtime_context_loader(model_id)
-            self._runtime_context_by_model[model_id] = runtime_context
+            loaded_context = await self._runtime_context_loader(model_id)
+            if isinstance(loaded_context, LlamaCppModelPickerContext):
+                self._runtime_context_by_model[model_id] = loaded_context.runtime_context_window
+                if loaded_context.training_context_window is not None:
+                    self._training_context_by_model[model_id] = (
+                        loaded_context.training_context_window
+                    )
+            else:
+                self._runtime_context_by_model[model_id] = loaded_context
             self._runtime_context_loaded.add(model_id)
             self._runtime_context_errors.discard(model_id)
         except Exception:
@@ -374,7 +397,7 @@ class _LlamaCppModelPicker:
     def _render_details(self) -> StyleFragments:
         model = self.current_model
         action = self.current_action
-        training_context = self._training_context_label(model.training_context_window).replace(
+        training_context = self._training_context_label(self._training_context_for_model(model)).replace(
             "train ",
             "",
         )
@@ -401,7 +424,8 @@ class _LlamaCppModelPicker:
     async def run_async(self) -> LlamaCppModelPickerResult | None:
         self._ensure_runtime_context_loading()
         try:
-            result = await self.app.run_async()
+            with suppress_known_runtime_warnings():
+                result = await self.app.run_async()
         finally:
             for task in tuple(self._runtime_context_tasks):
                 task.cancel()
@@ -417,7 +441,8 @@ class _LlamaCppModelPicker:
 
 async def run_llamacpp_model_picker_async(
     models: tuple[LlamaCppModelListing, ...],
-    runtime_context_loader: Callable[[str], Awaitable[int | None]] | None = None,
+    runtime_context_loader: Callable[[str], Awaitable[LlamaCppModelPickerContext | int | None]]
+    | None = None,
 ) -> LlamaCppModelPickerResult | None:
     """Run the interactive llama.cpp model picker."""
 

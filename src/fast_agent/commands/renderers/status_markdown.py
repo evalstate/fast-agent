@@ -123,6 +123,11 @@ def render_status_markdown(summary: "StatusSummary", *, heading: str) -> str:
                 f"- Provider: {provider_line}",
                 f"- Model: {model_name}",
                 *(
+                    [f"- Model Source: {summary.model_source}"]
+                    if summary.model_source
+                    else []
+                ),
+                *(
                     [f"- Wire Model: {wire_model_name}"]
                     if wire_model_name
                     else []

@@ -6,7 +6,7 @@ import os
 import shlex
 from collections import Counter
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from rich.text import Text
 
@@ -14,6 +14,7 @@ from fast_agent.commands.command_catalog import suggest_command_action
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.model_resolution import parse_model_reference_token, resolve_model_reference
+from fast_agent.interfaces import LlmCapableProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_reference_config import (
@@ -25,11 +26,13 @@ from fast_agent.llm.model_reference_config import (
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.a3_headers import build_a3_section_header
+from fast_agent.ui.model_picker_common import infer_initial_picker_provider
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.commands.context import CommandContext
+    from fast_agent.interfaces import AgentProtocol
 
 _PROVIDER_NAME_ALIASES: dict[str, str] = {
     "hf": "huggingface",
@@ -38,7 +41,7 @@ _PROVIDER_NAME_ALIASES: dict[str, str] = {
 }
 
 _NO_MODEL_REFERENCES_NOTE = (
-    "No model_references are configured. Add a model_references section in fastagent.config.yaml."
+    "No model_references are configured. Add a model_references section in fast-agent.yaml."
 )
 _REFERENCES_USAGE = (
     "Usage: /model references "
@@ -180,9 +183,10 @@ def _build_agent_model_rows(
         except Exception:
             continue
 
-        config = getattr(agent, "config", None)
+        agent = cast("AgentProtocol", agent)
+        config = agent.config
 
-        specified = _safe_stripped(getattr(config, "model", None))
+        specified = _safe_stripped(config.model)
         effective_spec = specified or _safe_stripped(default_model)
         specified_display = specified or "<default>"
 
@@ -200,7 +204,7 @@ def _build_agent_model_rows(
         elif effective_spec:
             resolved_from_spec = effective_spec
 
-        llm = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
+        llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
         llm_model = _safe_stripped(getattr(llm, "model_name", None)) if llm is not None else None
 
         if reference_error:
@@ -905,22 +909,7 @@ def _normalize_interactive_reference_token(token: str) -> str:
 
 
 def _infer_initial_provider_name(model_spec: str | None) -> str | None:
-    if model_spec is None:
-        return None
-
-    normalized = model_spec.strip()
-    if not normalized:
-        return None
-
-    try:
-        parsed = ModelFactory.parse_model_string(
-            normalized,
-            presets=ModelFactory.MODEL_PRESETS,
-        )
-    except Exception:
-        return None
-
-    return parsed.provider.config_name
+    return infer_initial_picker_provider(model_spec)
 
 
 async def _prompt_for_reference_token(

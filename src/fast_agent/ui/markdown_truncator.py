@@ -11,6 +11,7 @@ from collections import OrderedDict
 from hashlib import blake2b
 from typing import TYPE_CHECKING
 
+from fast_agent.ui.markdown_renderables import build_markdown_renderable
 from fast_agent.ui.streaming_buffer import StreamBuffer
 
 if TYPE_CHECKING:
@@ -20,10 +21,18 @@ if TYPE_CHECKING:
 class MarkdownTruncator:
     """Handles lightweight markdown truncation for streaming output."""
 
-    def __init__(self, target_height_ratio: float = 0.8) -> None:
+    def __init__(
+        self,
+        target_height_ratio: float = 0.8,
+        *,
+        code_word_wrap: bool = True,
+        render_fences_with_syntax: bool = True,
+    ) -> None:
         if not 0 < target_height_ratio <= 1:
             raise ValueError("target_height_ratio must be between 0 and 1")
         self.target_height_ratio = target_height_ratio
+        self.code_word_wrap = code_word_wrap
+        self.render_fences_with_syntax = render_fences_with_syntax
         self._buffer = StreamBuffer(target_height_ratio=target_height_ratio)
         self._height_cache: OrderedDict[tuple[int, int, str, int, str], int] = OrderedDict()
         self._height_cache_limit = 128
@@ -76,11 +85,16 @@ class MarkdownTruncator:
             self._height_cache.move_to_end(cache_key)
             return cached
         try:
-            from rich.markdown import Markdown
-
             options = console.options.update(width=width)
             lines = console.render_lines(
-                Markdown(text, code_theme=code_theme),
+                build_markdown_renderable(
+                    text,
+                    code_theme=code_theme,
+                    escape_xml=False,
+                    close_incomplete_fences=True,
+                    render_fences_with_syntax=self.render_fences_with_syntax,
+                    code_word_wrap=self.code_word_wrap,
+                ),
                 options=options,
                 pad=False,
             )
@@ -92,6 +106,14 @@ class MarkdownTruncator:
         if len(self._height_cache) > self._height_cache_limit:
             self._height_cache.popitem(last=False)
         return height
+
+    def estimate_rendered_height(self, text: str, terminal_width: int) -> int:
+        """Cheap width-based estimate for markdown display height."""
+        if not text:
+            return 0
+        if terminal_width <= 0:
+            return len(text.split("\n"))
+        return self._buffer.estimate_display_lines(text, terminal_width)
 
     def truncate_to_height(
         self,

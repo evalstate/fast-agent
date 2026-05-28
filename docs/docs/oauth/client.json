@@ -1,0 +1,15 @@
+{
+  "client_id": "https://fast-agent.ai/oauth/client.json",
+  "client_name": "fast-agent",
+  "client_uri": "https://fast-agent.ai",
+  "redirect_uris": [
+    "http://127.0.0.1/callback",
+    "http://127.0.0.1:3030/callback",
+    "http://127.0.0.1:3031/callback", 
+    "http://127.0.0.1:3032/callback",
+    "http://127.0.0.1:8080/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}

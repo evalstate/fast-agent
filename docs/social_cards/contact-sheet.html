@@ -1,0 +1,901 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>fast-agent social cards</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080b11;
+      --panel: #101722;
+      --panel-2: #151e2c;
+      --text: #eef4ff;
+      --muted: #9da9ba;
+      --line: rgba(238, 244, 255, .14);
+      --accent: #f5a400;
+      --warn: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px;
+      background:
+        radial-gradient(circle at top right, rgba(245, 164, 0, .18), transparent 34rem),
+        linear-gradient(135deg, #080b11, #0d121b);
+      color: var(--text);
+      font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: end;
+      margin-bottom: 40px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 24px;
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.05; }
+    h1 { font-size: 42px; letter-spacing: -.04em; }
+    h2 { margin: 42px 0 18px; color: var(--accent); font-size: 24px; }
+    h3 { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 20px; letter-spacing: -.02em; }
+    .summary { color: var(--muted); text-align: right; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+      gap: 18px;
+    }
+    .card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+      box-shadow: 0 18px 44px rgba(0,0,0,.25);
+    }
+    .card.warn, .card.missing { border-color: color-mix(in srgb, var(--warn), transparent 35%); }
+    .thumb {
+      display: block;
+      aspect-ratio: 1200 / 630;
+      background: #06090f;
+      border-bottom: 1px solid var(--line);
+      color: inherit;
+      text-decoration: none;
+    }
+    img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .missing-thumb {
+      display: grid;
+      height: 100%;
+      place-items: center;
+      color: var(--warn);
+      font-size: 22px;
+      text-transform: uppercase;
+      letter-spacing: .16em;
+    }
+    .meta { padding: 18px; }
+    dl { display: grid; gap: 8px; margin: 16px 0 0; }
+    dl div {
+      display: grid;
+      grid-template-columns: 76px 1fr;
+      gap: 12px;
+      min-width: 0;
+    }
+    dt { color: var(--muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: .08em;
+    }
+    .warn .pill, .missing .pill { color: var(--warn); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>fast-agent social cards</h1>
+      <p>Generated review sheet for committed Open Graph/Twitter images.</p>
+    </div>
+    <div class="summary">50 cards · 1200×630px target · 1000 KB max</div>
+  </header>
+  
+            <section>
+              <h2>Acp</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/acp/customizing_agents.png"><img src="../docs/assets/social/acp/customizing_agents.png" alt="Customize ACP Agents"></a>
+                  <div class="meta">
+                    <h3>Customize ACP Agents</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>acp/customizing_agents.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/acp/customizing_agents.png</dd></div>
+                      <div><dt>Badge</dt><dd>ACP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 28 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/acp.png"><img src="../docs/assets/social/acp.png" alt="Agent Client Protocol"></a>
+                  <div class="meta">
+                    <h3>Agent Client Protocol</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>acp/index.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/acp.png</dd></div>
+                      <div><dt>Badge</dt><dd>ACP</dd></div>
+                      <div><dt>Theme</dt><dd>section / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+            <section>
+              <h2>Agents</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents/defining.png"><img src="../docs/assets/social/agents/defining.png" alt="Define Agents"></a>
+                  <div class="meta">
+                    <h3>Define Agents</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/defining.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents/defining.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 22 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents.png"><img src="../docs/assets/social/agents.png" alt="Files and Resources"></a>
+                  <div class="meta">
+                    <h3>Files and Resources</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/index.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>section / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents/instructions.png"><img src="../docs/assets/social/agents/instructions.png" alt="System Prompts"></a>
+                  <div class="meta">
+                    <h3>System Prompts</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/instructions.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents/instructions.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents/plugins.png"><img src="../docs/assets/social/agents/plugins.png" alt="Command Plugins"></a>
+                  <div class="meta">
+                    <h3>Command Plugins</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/plugins.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents/plugins.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents/prompting.png"><img src="../docs/assets/social/agents/prompting.png" alt="Prompting Agents"></a>
+                  <div class="meta">
+                    <h3>Prompting Agents</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/prompting.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents/prompting.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents/running.png"><img src="../docs/assets/social/agents/running.png" alt="Deploy and Run Agents"></a>
+                  <div class="meta">
+                    <h3>Deploy and Run Agents</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/running.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents/running.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents/skills.png"><img src="../docs/assets/social/agents/skills.png" alt="Agent Skills"></a>
+                  <div class="meta">
+                    <h3>Agent Skills</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/skills.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents/skills.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents/tool_runner.png"><img src="../docs/assets/social/agents/tool_runner.png" alt="Tool Runner"></a>
+                  <div class="meta">
+                    <h3>Tool Runner</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/tool_runner.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents/tool_runner.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/agents/workflows.png"><img src="../docs/assets/social/agents/workflows.png" alt="Agent Workflows"></a>
+                  <div class="meta">
+                    <h3>Agent Workflows</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>agents/workflows.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/agents/workflows.png</dd></div>
+                      <div><dt>Badge</dt><dd>AGENTS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / workflow</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 28 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+            <section>
+              <h2>Getting Started</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/getting_started/installation.png"><img src="../docs/assets/social/getting_started/installation.png" alt="Install fast-agent"></a>
+                  <div class="meta">
+                    <h3>Install fast-agent</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>getting_started/installation.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/getting_started/installation.png</dd></div>
+                      <div><dt>Badge</dt><dd>START</dd></div>
+                      <div><dt>Theme</dt><dd>doc / terminal</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+            <section>
+              <h2>Fast-Agent</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/getting_started.png"><img src="../docs/assets/social/getting_started.png" alt="Getting Started"></a>
+                  <div class="meta">
+                    <h3>Getting Started</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>getting_started.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/getting_started.png</dd></div>
+                      <div><dt>Badge</dt><dd>DOCS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-grid</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/index.png"><img src="../docs/assets/social/index.png" alt="fast-agent"></a>
+                  <div class="meta">
+                    <h3>fast-agent</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>index.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/index.png</dd></div>
+                      <div><dt>Badge</dt><dd>FAST-AGENT</dd></div>
+                      <div><dt>Theme</dt><dd>hero / protocol-grid</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 32 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+            <section>
+              <h2>Guides</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/guides/batch-processing.png"><img src="../docs/assets/social/guides/batch-processing.png" alt="Batch Processing"></a>
+                  <div class="meta">
+                    <h3>Batch Processing</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>guides/batch-processing.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/guides/batch-processing.png</dd></div>
+                      <div><dt>Badge</dt><dd>GUIDE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / terminal</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 24 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/guides/codex.png"><img src="../docs/assets/social/guides/codex.png" alt="Code with OpenAI Codex"></a>
+                  <div class="meta">
+                    <h3>Code with OpenAI Codex</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>guides/codex.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/guides/codex.png</dd></div>
+                      <div><dt>Badge</dt><dd>GUIDE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / terminal</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/guides/core-concepts.png"><img src="../docs/assets/social/guides/core-concepts.png" alt="Core Concepts Guide"></a>
+                  <div class="meta">
+                    <h3>Core Concepts Guide</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>guides/core-concepts.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/guides/core-concepts.png</dd></div>
+                      <div><dt>Badge</dt><dd>GUIDE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / terminal</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/guides/hf-dev.png"><img src="../docs/assets/social/guides/hf-dev.png" alt="Code with Hugging Face"></a>
+                  <div class="meta">
+                    <h3>Code with Hugging Face</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>guides/hf-dev.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/guides/hf-dev.png</dd></div>
+                      <div><dt>Badge</dt><dd>GUIDE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / terminal</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/guides/privacy_filter.png"><img src="../docs/assets/social/guides/privacy_filter.png" alt="Privacy-filtered exports"></a>
+                  <div class="meta">
+                    <h3>Privacy-filtered exports</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>guides/privacy_filter.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/guides/privacy_filter.png</dd></div>
+                      <div><dt>Badge</dt><dd>GUIDE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / terminal</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 28 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/guides/structured-outputs.png"><img src="../docs/assets/social/guides/structured-outputs.png" alt="Structured Outputs"></a>
+                  <div class="meta">
+                    <h3>Structured Outputs</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>guides/structured-outputs.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/guides/structured-outputs.png</dd></div>
+                      <div><dt>Badge</dt><dd>GUIDE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / terminal</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/guides/tui.png"><img src="../docs/assets/social/guides/tui.png" alt="Using the TUI"></a>
+                  <div class="meta">
+                    <h3>Using the TUI</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>guides/tui.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/guides/tui.png</dd></div>
+                      <div><dt>Badge</dt><dd>GUIDE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / terminal</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 22 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+            <section>
+              <h2>Mcp</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/elicitations.png"><img src="../docs/assets/social/mcp/elicitations.png" alt="MCP Elicitations"></a>
+                  <div class="meta">
+                    <h3>MCP Elicitations</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/elicitations.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/elicitations.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp.png"><img src="../docs/assets/social/mcp.png" alt="Configure MCP Servers"></a>
+                  <div class="meta">
+                    <h3>Configure MCP Servers</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/index.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>section / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/mcp-oauth.png"><img src="../docs/assets/social/mcp/mcp-oauth.png" alt="MCP OAuth"></a>
+                  <div class="meta">
+                    <h3>MCP OAuth</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/mcp-oauth.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/mcp-oauth.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 24 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/mcp-server.png"><img src="../docs/assets/social/mcp/mcp-server.png" alt="Run an MCP Server"></a>
+                  <div class="meta">
+                    <h3>Run an MCP Server</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/mcp-server.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/mcp-server.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/mcp-ui.png"><img src="../docs/assets/social/mcp/mcp-ui.png" alt="MCP UI"></a>
+                  <div class="meta">
+                    <h3>MCP UI</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/mcp-ui.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/mcp-ui.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 23 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/mcp_display.png"><img src="../docs/assets/social/mcp/mcp_display.png" alt="MCP Display"></a>
+                  <div class="meta">
+                    <h3>MCP Display</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/mcp_display.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/mcp_display.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/openai-apps-sdk.png"><img src="../docs/assets/social/mcp/openai-apps-sdk.png" alt="OpenAI Apps SDK"></a>
+                  <div class="meta">
+                    <h3>OpenAI Apps SDK</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/openai-apps-sdk.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/openai-apps-sdk.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/resources.png"><img src="../docs/assets/social/mcp/resources.png" alt="MCP Resources"></a>
+                  <div class="meta">
+                    <h3>MCP Resources</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/resources.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/resources.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/state_transfer.png"><img src="../docs/assets/social/mcp/state_transfer.png" alt="MCP State Transfer"></a>
+                  <div class="meta">
+                    <h3>MCP State Transfer</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/state_transfer.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/state_transfer.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/mcp/types.png"><img src="../docs/assets/social/mcp/types.png" alt="MCP Types"></a>
+                  <div class="meta">
+                    <h3>MCP Types</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>mcp/types.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/mcp/types.png</dd></div>
+                      <div><dt>Badge</dt><dd>MCP</dd></div>
+                      <div><dt>Theme</dt><dd>doc / protocol-lines</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 24 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+            <section>
+              <h2>Models</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/models.png"><img src="../docs/assets/social/models.png" alt="Getting Started with Models"></a>
+                  <div class="meta">
+                    <h3>Getting Started with Models</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>models/index.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/models.png</dd></div>
+                      <div><dt>Badge</dt><dd>MODELS</dd></div>
+                      <div><dt>Theme</dt><dd>section / model-orbits</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/models/internal_models.png"><img src="../docs/assets/social/models/internal_models.png" alt="Internal Models"></a>
+                  <div class="meta">
+                    <h3>Internal Models</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>models/internal_models.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/models/internal_models.png</dd></div>
+                      <div><dt>Badge</dt><dd>MODELS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / model-orbits</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/models/llm_providers.png"><img src="../docs/assets/social/models/llm_providers.png" alt="LLM Providers"></a>
+                  <div class="meta">
+                    <h3>LLM Providers</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>models/llm_providers.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/models/llm_providers.png</dd></div>
+                      <div><dt>Badge</dt><dd>MODELS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / model-orbits</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/models/model_overlays.png"><img src="../docs/assets/social/models/model_overlays.png" alt="Model Overlays"></a>
+                  <div class="meta">
+                    <h3>Model Overlays</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>models/model_overlays.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/models/model_overlays.png</dd></div>
+                      <div><dt>Badge</dt><dd>MODELS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / model-orbits</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/models/models_reference.png"><img src="../docs/assets/social/models/models_reference.png" alt="Models Reference"></a>
+                  <div class="meta">
+                    <h3>Models Reference</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>models/models_reference.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/models/models_reference.png</dd></div>
+                      <div><dt>Badge</dt><dd>MODELS</dd></div>
+                      <div><dt>Theme</dt><dd>doc / model-orbits</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+            <section>
+              <h2>Ref</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/about.png"><img src="../docs/assets/social/ref/about.png" alt="About fast-agent"></a>
+                  <div class="meta">
+                    <h3>About fast-agent</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/about.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/about.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 24 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/agent_cards.png"><img src="../docs/assets/social/ref/agent_cards.png" alt="AgentCards and ToolCards"></a>
+                  <div class="meta">
+                    <h3>AgentCards and ToolCards</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/agent_cards.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/agent_cards.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 28 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/azure-config.png"><img src="../docs/assets/social/ref/azure-config.png" alt="Azure OpenAI Configuration"></a>
+                  <div class="meta">
+                    <h3>Azure OpenAI Configuration</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/azure-config.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/azure-config.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 28 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/batch.png"><img src="../docs/assets/social/ref/batch.png" alt="Batch Processing (Reference)"></a>
+                  <div class="meta">
+                    <h3>Batch Processing (Reference)</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/batch.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/batch.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/class_reference.png"><img src="../docs/assets/social/ref/class_reference.png" alt="FastAgent Class Reference"></a>
+                  <div class="meta">
+                    <h3>FastAgent Class Reference</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/class_reference.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/class_reference.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/cmd_switches.png"><img src="../docs/assets/social/ref/cmd_switches.png" alt="Command Line Options"></a>
+                  <div class="meta">
+                    <h3>Command Line Options</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/cmd_switches.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/cmd_switches.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/config_file.png"><img src="../docs/assets/social/ref/config_file.png" alt="Configuration Reference"></a>
+                  <div class="meta">
+                    <h3>Configuration Reference</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/config_file.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/config_file.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/docs_automation.png"><img src="../docs/assets/social/ref/docs_automation.png" alt="Docs Automation"></a>
+                  <div class="meta">
+                    <h3>Docs Automation</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/docs_automation.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/docs_automation.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/export_command.png"><img src="../docs/assets/social/ref/export_command.png" alt="Export Sessions"></a>
+                  <div class="meta">
+                    <h3>Export Sessions</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/export_command.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/export_command.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/fast_agent_ai_articles.png"><img src="../docs/assets/social/ref/fast_agent_ai_articles.png" alt="Authoritative Articles"></a>
+                  <div class="meta">
+                    <h3>Authoritative Articles</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/fast_agent_ai_articles.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/fast_agent_ai_articles.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/generated_docs.png"><img src="../docs/assets/social/ref/generated_docs.png" alt="Generated Reference Docs"></a>
+                  <div class="meta">
+                    <h3>Generated Reference Docs</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/generated_docs.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/generated_docs.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 27 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/go_command.png"><img src="../docs/assets/social/ref/go_command.png" alt="fast-agent go"></a>
+                  <div class="meta">
+                    <h3>fast-agent go</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/go_command.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/go_command.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 26 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/ref/open_telemetry.png"><img src="../docs/assets/social/ref/open_telemetry.png" alt="OpenTelemetry"></a>
+                  <div class="meta">
+                    <h3>OpenTelemetry</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>ref/open_telemetry.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/ref/open_telemetry.png</dd></div>
+                      <div><dt>Badge</dt><dd>REFERENCE</dd></div>
+                      <div><dt>Theme</dt><dd>doc / index</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+            <section>
+              <h2>Welcome</h2>
+              <div class="grid">
+                <article class="card ok">
+                  <a class="thumb" href="../docs/assets/social/welcome.png"><img src="../docs/assets/social/welcome.png" alt="Welcome"></a>
+                  <div class="meta">
+                    <h3>Welcome</h3>
+                    <dl>
+                      <div><dt>Source</dt><dd>welcome/index.md</dd></div>
+                      <div><dt>Output</dt><dd>docs/assets/social/welcome.png</dd></div>
+                      <div><dt>Badge</dt><dd>FAST-AGENT</dd></div>
+                      <div><dt>Theme</dt><dd>section / protocol-grid</dd></div>
+                      <div><dt>Status</dt><dd><span class="pill">ok</span></dd></div>
+                      <div><dt>Size</dt><dd>1200×630 · 25 KB</dd></div>
+                    </dl>
+                  </div>
+                </article>
+                </div>
+            </section>
+            
+</body>
+</html>

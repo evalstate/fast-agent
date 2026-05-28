@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -23,12 +24,15 @@ class _Agent:
     instruction = ""
     acp_commands: dict[str, object] = {}
 
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(default=False, model=None)
+
 
 class _AuthAgent(_Agent):
     class _Llm:
         provider = Provider.OPENAI
 
-    _llm = _Llm()
+    llm = _Llm()
 
 
 class _App:
@@ -59,10 +63,9 @@ def _build_server(agent: AgentProtocol | None = None) -> AgentACPServer:
         return None
 
     return AgentACPServer(
-        primary_instance=instance,
+        bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="shared",
         server_name="test",
         permissions_enabled=False,
     )

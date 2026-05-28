@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "city": {
+      "type": "string"
+    },
+    "condition": {
+      "type": "string"
+    },
+    "temperature_c": {
+      "type": "integer"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "city",
+    "condition",
+    "temperature_c",
+    "summary"
+  ],
+  "additionalProperties": false
+}

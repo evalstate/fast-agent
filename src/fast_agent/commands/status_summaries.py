@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.protocols import (
     HfDisplayInfoProvider,
-    InstructionAwareAgent,
     ParallelAgentProtocol,
     WarningAwareAgent,
 )
@@ -19,6 +18,7 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
 
 if TYPE_CHECKING:
+    from fast_agent.core.fastagent import AgentInstance
     from fast_agent.interfaces import AgentProtocol
 
 
@@ -85,6 +85,7 @@ class StatusSummary:
     client_info: ClientInfoSummary | None
     model_summary: AgentModelSummary | None
     parallel_summary: ParallelModelSummary | None
+    model_source: str | None
     conversation_stats: ConversationStatsSummary
     uptime_seconds: float
     error_report: ErrorHandlingSummary
@@ -151,11 +152,12 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
         provider = str(model_info.provider.value)
         provider_display = model_info.provider.display_name
         context_window = model_info.context_window
-        if model_info.supports_text:
+        supports_text, supports_document_indicator, supports_vision = model_info.tdv_flags
+        if supports_text:
             capabilities.append("Text")
-        if model_info.supports_document:
+        if supports_document_indicator:
             capabilities.append("Document")
-        if model_info.supports_vision:
+        if supports_vision:
             capabilities.append("Vision")
     if resolved_model:
         model_name = resolve_llm_display_name(agent.llm) or resolved_model.wire_model_name
@@ -169,7 +171,7 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
             hf_provider = hf_info.get("provider", "auto-routing")
 
     return AgentModelSummary(
-        agent_name=getattr(agent, "name", "unknown"),
+        agent_name=agent.name,
         provider=provider,
         provider_display=provider_display,
         model_name=model_name,
@@ -196,7 +198,7 @@ def _build_parallel_model_summary(agent: ParallelAgentProtocol) -> ParallelModel
 
 
 def _context_usage_line(summary: ConversationSummary, agent: "AgentProtocol") -> str:
-    usage = getattr(agent, "usage_accumulator", None)
+    usage = agent.usage_accumulator
     if usage:
         window = usage.context_window_size
         tokens = usage.current_context_tokens
@@ -246,7 +248,7 @@ def _estimate_tokens(
         return 0, 0
 
     model_name = None
-    llm = getattr(agent, "llm", None)
+    llm = agent.llm
     if llm:
         model_name = llm.model_name
 
@@ -308,7 +310,7 @@ def build_conversation_stats_summary(
             runtime = summary.conversation_span_ms / 1000
 
         return ConversationStatsSummary(
-            agent_name=getattr(agent, "name", fallback_agent_name),
+            agent_name=agent.name,
             turns=turns,
             message_count=summary.message_count,
             user_message_count=summary.user_message_count,
@@ -323,7 +325,7 @@ def build_conversation_stats_summary(
         )
     except Exception as exc:  # noqa: BLE001
         return ConversationStatsSummary(
-            agent_name=fallback_agent_name,
+            agent_name=agent.name,
             turns=0,
             message_count=0,
             user_message_count=0,
@@ -376,12 +378,12 @@ def build_error_handling_summary(
 def build_warning_summary(
     agent: "AgentProtocol | None",
     *,
-    instance: object | None,
+    instance: "AgentInstance | None",
     max_entries: int = 5,
 ) -> list[str]:
     warnings: list[str] = []
 
-    if instance and hasattr(instance, "app") and hasattr(instance.app, "card_collision_warnings"):
+    if instance is not None:
         warnings_attr = instance.app.card_collision_warnings
         if isinstance(warnings_attr, list):
             warnings.extend(str(item) for item in warnings_attr)
@@ -419,6 +421,16 @@ def build_warning_summary(
     return trimmed
 
 
+def _resolve_model_source(agent: "AgentProtocol | None") -> str | None:
+    if agent is None or agent.context is None:
+        return None
+
+    source = getattr(agent.context.config, "model_source", None)
+    if isinstance(source, str) and source.strip():
+        return source.strip()
+    return None
+
+
 def build_status_summary(
     *,
     fast_agent_version: str,
@@ -427,7 +439,7 @@ def build_status_summary(
     client_capabilities: dict | None,
     protocol_version: str | None,
     uptime_seconds: float,
-    instance: object | None,
+    instance: "AgentInstance | None",
 ) -> StatusSummary:
     client_summary = _collect_client_info(
         client_info=client_info,
@@ -445,7 +457,7 @@ def build_status_summary(
 
     conversation_stats = build_conversation_stats_summary(
         agent,
-        fallback_agent_name=getattr(agent, "name", "Unknown") if agent else "Unknown",
+        fallback_agent_name=agent.name if agent else "Unknown",
     )
     error_report = build_error_handling_summary(agent)
     warnings = build_warning_summary(agent, instance=instance)
@@ -455,6 +467,7 @@ def build_status_summary(
         client_info=client_summary,
         model_summary=model_summary,
         parallel_summary=parallel_summary,
+        model_source=_resolve_model_source(agent),
         conversation_stats=conversation_stats,
         uptime_seconds=uptime_seconds,
         error_report=error_report,
@@ -471,12 +484,12 @@ def build_system_prompt_summary(
     agent_name = current_agent_name
     system_prompt = None
 
-    if agent and isinstance(agent, InstructionAwareAgent):
+    if agent:
         agent_name = agent.name
 
     if agent_name in session_instructions:
         system_prompt = session_instructions[agent_name]
-    elif agent and isinstance(agent, InstructionAwareAgent):
+    elif agent:
         system_prompt = agent.instruction
 
     return SystemPromptSummary(agent_name=agent_name, system_prompt=system_prompt or None)

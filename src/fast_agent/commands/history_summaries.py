@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING, FAST_AGENT_USAGE
+from fast_agent.history.tool_activities import message_tool_call_count, message_tool_error_count
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
 
@@ -370,18 +371,15 @@ def build_history_turn_report(messages: list["PromptMessageExtended"]) -> Histor
         last_end: float | None = None
 
         for message in turn:
-            if message.tool_calls:
-                tool_calls += len(message.tool_calls)
+            tool_calls += message_tool_call_count(message)
 
             if message.tool_results:
-                tool_errors += sum(
-                    1 for result in message.tool_results.values() if getattr(result, "isError", False)
-                )
                 for tool_timing in extract_message_tool_timings(message).values():
                     if tool_timing.timing_ms is None:
                         continue
                     tool_time_ms += tool_timing.timing_ms
                     saw_tool_time = True
+            tool_errors += message_tool_error_count(message)
 
             if message.role != "assistant":
                 continue

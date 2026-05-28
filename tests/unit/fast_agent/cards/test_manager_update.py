@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from dataclasses import replace
 
+import yaml
+
 from fast_agent.cards import manager
 from fast_agent.paths import resolve_environment_paths
 
@@ -127,6 +129,78 @@ def test_update_skips_dirty_without_force_and_overwrites_with_force(tmp_path) ->
     installed_text = installed_card.read_text(encoding="utf-8")
     assert "v2" in installed_text
     assert "local edit" not in installed_text
+
+
+def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+
+    pack_root = repo / "packs" / "alpha"
+    pack_root.mkdir(parents=True, exist_ok=True)
+    (pack_root / "fastagent.config.yaml").write_text(
+        "default_model: \"$system.default\"\n"
+        "model_references:\n"
+        "  system:\n"
+        "    fast: codexspark\n"
+        "    last_used: codexplan\n",
+        encoding="utf-8",
+    )
+    (pack_root / "card-pack.yaml").write_text(
+        "schema_version: 1\n"
+        "name: alpha\n"
+        "kind: card\n"
+        "install:\n"
+        "  agent_cards: []\n"
+        "  files:\n"
+        "    - 'fastagent.config.yaml'\n"
+        "  tool_cards: []\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "initial")
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+
+    config_path = env_paths.root / "fast-agent.yaml"
+    config_path.write_text(
+        "default_model: \"$system.default\"\n"
+        "model_references:\n"
+        "  system:\n"
+        "    fast: codexspark\n"
+        "    last_used: gpt-4.1-mini\n",
+        encoding="utf-8",
+    )
+
+    (pack_root / "fastagent.config.yaml").write_text(
+        "default_model: \"$system.default\"\n"
+        "model_references:\n"
+        "  system:\n"
+        "    fast: codexmax\n"
+        "    last_used: codexmax\n"
+        "mcp:\n"
+        "  targets:\n"
+        "    - name: openai\n"
+        "      target: https://developers.openai.com/mcp\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "update")
+
+    updates = manager.check_card_pack_updates(environment_paths=env_paths)
+    assert updates[0].status == "update_available"
+
+    applied = manager.apply_card_pack_updates(
+        [updates[0]],
+        environment_paths=env_paths,
+        force=True,
+    )
+    assert applied[0].status == "updated"
+
+    with open(config_path, "r", encoding="utf-8") as handle:
+        saved = yaml.safe_load(handle)
+
+    assert saved["model_references"]["system"]["fast"] == "codexmax"
+    assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
+    assert saved["mcp"]["targets"][0]["name"] == "openai"
 
 
 def test_publish_commits_local_changes_without_push(tmp_path) -> None:

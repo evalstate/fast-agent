@@ -1,5 +1,7 @@
 import pytest
 
+from fast_agent.agents import McpAgent
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -50,3 +52,57 @@ async def test_function_tools_from_decorator(fast_agent):
         assert summarize_result.structuredContent is None
         assert summarize_result.content is not None
         assert summarize_result.content[0].text == '{"status":"ok"}'
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_function_tools_from_custom_decorator(fast_agent):
+    def add(a: int, b: int) -> int:
+        """Add two numbers."""
+        return a + b
+
+    @fast_agent.custom(
+        McpAgent,
+        name="custom_calc_decorator",
+        model="passthrough",
+        function_tools=[add],
+    )
+    async def custom_calc_decorator():
+        return None
+
+    async with fast_agent.run() as agent:
+        tools = await agent.custom_calc_decorator.list_tools()
+        assert any(t.name == "add" for t in tools.tools)
+
+        add_result = await agent.custom_calc_decorator.call_tool("add", {"a": 6, "b": 7})
+        assert add_result.isError is False
+        assert add_result.structuredContent is None
+        assert add_result.content is not None
+        assert add_result.content[0].text == "13"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_global_function_tools_are_available_to_supported_custom_agents(fast_agent):
+    @fast_agent.tool
+    def ping() -> str:
+        """Return a marker string."""
+        return "pong"
+
+    @fast_agent.custom(
+        McpAgent,
+        name="custom_global_tools",
+        model="passthrough",
+    )
+    async def custom_global_tools():
+        return None
+
+    async with fast_agent.run() as agent:
+        tools = await agent.custom_global_tools.list_tools()
+        assert any(t.name == "ping" for t in tools.tools)
+
+        ping_result = await agent.custom_global_tools.call_tool("ping", {})
+        assert ping_result.isError is False
+        assert ping_result.structuredContent is None
+        assert ping_result.content is not None
+        assert ping_result.content[0].text == "pong"

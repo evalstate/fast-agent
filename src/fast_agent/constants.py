@@ -2,6 +2,8 @@
 Global constants for fast_agent with minimal dependencies to avoid circular imports.
 """
 
+from dataclasses import dataclass
+
 # Canonical tool name for the human input/elicitation tool
 HUMAN_INPUT_TOOL_NAME = "__human_input"
 MCP_UI = "mcp-ui"
@@ -22,14 +24,19 @@ OPENAI_REASONING_ENCRYPTED = "openai-reasoning-encrypted"
 """Encrypted OpenAI reasoning items for stateless Responses API passback."""
 OPENAI_ASSISTANT_MESSAGE_ITEMS = "openai-assistant-message-items"
 """Raw OpenAI assistant message items for Responses history passback, including phase."""
+OPENAI_MCP_LIST_TOOLS_ITEMS = "openai-mcp-list-tools-items"
+"""Raw OpenAI mcp_list_tools output items for Responses history passback."""
 FAST_AGENT_ERROR_CHANNEL = "fast-agent-error"
 FAST_AGENT_ALERT_CHANNEL = "fast-agent-alert"
 FAST_AGENT_REMOVED_METADATA_CHANNEL = "fast-agent-removed-meta"
 FAST_AGENT_URL_ELICITATION_CHANNEL = "fast-agent-url-elicitation"
 FAST_AGENT_TIMING = "fast-agent-timing"
+FAST_AGENT_TOOL_METADATA = "fast-agent-tool-metadata"
 FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
 FAST_AGENT_USAGE = "fast-agent-usage"
 FAST_AGENT_SYNTHETIC_FINAL_CHANNEL = "fast-agent-synthetic-final"
+FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"
+"""Content blocks staged by attach_media for injection as user input on the next LLM call."""
 
 FORCE_SEQUENTIAL_TOOL_CALLS = False
 """Force tool execution to run sequentially even when multiple tool calls are present."""
@@ -41,7 +48,7 @@ def should_parallelize_tool_calls(tool_call_count: int) -> bool:
 
 
 # should we have MAX_TOOL_CALLS instead to constrain by number of tools rather than turns...?
-DEFAULT_MAX_ITERATIONS = 99
+DEFAULT_MAX_ITERATIONS = 199
 """Maximum number of User/Assistant turns to take"""
 
 DEFAULT_STREAMING_TIMEOUT = 300.0
@@ -70,6 +77,10 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 {{file_silent:AGENTS.md}}
 {{env}}
 
+Mermaid diagrams between code fences are supported.
+
+{{model_specific}}
+
 The current date is {{currentDate}}."""
 
 
@@ -94,5 +105,34 @@ CONTROL_MESSAGE_SAVE_HISTORY = "***SAVE_HISTORY"
 
 FAST_AGENT_SHELL_CHILD_ENV = "FAST_AGENT_SHELL_CHILD"
 """Environment variable set when running fast-agent shell commands."""
+
+FAST_AGENT_RUNTIME_ENVIRONMENT = "FAST_AGENT_RUNTIME_ENVIRONMENT"
+"""Resolved active fast-agent home exported to shell commands and automation."""
+
+
+@dataclass(frozen=True)
+class DocumentedEnvVar:
+    """Environment variable that is part of a documented fast-agent surface."""
+
+    symbol: str
+    value: str
+    purpose: str
+    surface: str
+
+
+DOCUMENTED_ENV_VARS = (
+    DocumentedEnvVar(
+        symbol="FAST_AGENT_SHELL_CHILD_ENV",
+        value=FAST_AGENT_SHELL_CHILD_ENV,
+        purpose="Set to `1` in child shells opened from the TUI with `!`.",
+        surface="tui",
+    ),
+    DocumentedEnvVar(
+        symbol="FAST_AGENT_RUNTIME_ENVIRONMENT",
+        value=FAST_AGENT_RUNTIME_ENVIRONMENT,
+        purpose="Resolved active fast-agent home exported to shell commands and automation.",
+        surface="runtime",
+    ),
+)
 
 SHELL_NOTICE_PREFIX = "[yellow][bold]Agents have shell[/bold][/yellow]"

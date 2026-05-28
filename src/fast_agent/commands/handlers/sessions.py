@@ -12,6 +12,7 @@ from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_summaries import build_session_list_summary
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.session import display_session_name
+from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
@@ -70,13 +71,16 @@ def _resolve_pin_state(value: str | None, *, current: bool) -> tuple[bool | None
 
 
 def _find_last_assistant_text(history: list[PromptMessageExtended]) -> str | None:
-    for message in reversed(history):
-        if message.role != "assistant":
-            continue
-        text = message.last_text()
-        if text:
-            return text
-    return None
+    return find_last_assistant_preview_text(history)
+
+
+def _strip_wrapping_quotes(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        text = text[1:-1].strip()
+    return text or None
 
 
 def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) -> Text:
@@ -139,9 +143,9 @@ async def handle_create_session(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    from fast_agent.session import get_session_manager
 
-    manager = get_session_manager()
+    manager = ctx.resolve_session_manager()
+    session_name = _strip_wrapping_quotes(session_name)
     session = manager.create_session(session_name)
     label = session.info.metadata.get("title") or session.info.name
     outcome.add_message(f"Created session: {label}", channel="info", right_info="session")
@@ -157,7 +161,10 @@ async def handle_list_sessions(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    summary = build_session_list_summary(show_help=show_help)
+    summary = build_session_list_summary(
+        manager=ctx.resolve_session_manager(),
+        show_help=show_help,
+    )
     if not summary.entries:
         outcome.add_message("No sessions found.", channel="warning", right_info="session")
         if show_help:
@@ -181,9 +188,9 @@ async def handle_pin_session(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    from fast_agent.session import get_session_manager, is_session_pinned
+    from fast_agent.session import is_session_pinned
 
-    manager = get_session_manager()
+    manager = ctx.resolve_session_manager()
     session = None
     if target:
         resolved = manager.resolve_session_name(target)
@@ -239,7 +246,7 @@ async def handle_clear_sessions(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    from fast_agent.session import apply_session_window, get_session_manager
+    from fast_agent.session import apply_session_window
 
     if not target:
         outcome.add_message(
@@ -249,7 +256,7 @@ async def handle_clear_sessions(
         )
         return outcome
 
-    manager = get_session_manager()
+    manager = ctx.resolve_session_manager()
     if target.lower() == "all":
         all_sessions = manager.list_sessions()
         if not all_sessions:
@@ -294,13 +301,12 @@ async def handle_resume_session(
     outcome = CommandOutcome()
     from fast_agent.session import (
         format_history_summary,
-        get_session_manager,
         summarize_session_histories,
     )
 
     agent_obj = ctx.agent_provider._agent(agent_name)
 
-    manager = get_session_manager()
+    manager = ctx.resolve_session_manager()
     agents_map = cast("Mapping[str, AgentProtocol]", ctx.agent_provider.registered_agents())
     if not isinstance(agents_map, Mapping):
         outcome.add_message(
@@ -312,7 +318,7 @@ async def handle_resume_session(
 
     fallback_agent_name = ctx.agent_provider.resolve_target_agent_name(agent_name)
 
-    result = manager.resume_session_agents(
+    result = await manager.resume_session_agents_async(
         agents_map,
         session_id,
         fallback_agent_name=fallback_agent_name,
@@ -329,6 +335,7 @@ async def handle_resume_session(
     loaded = result.loaded
     missing_agents = result.missing_agents
     usage_notices = result.usage_notices
+    active_agent_name = result.active_agent or agent_name
     if loaded:
         loaded_list = ", ".join(sorted(loaded.keys()))
         outcome.add_message(
@@ -343,14 +350,19 @@ async def handle_resume_session(
             right_info="session",
         )
 
-    if isinstance(agent_obj, McpAgentProtocol) and agent_obj.shell_runtime_enabled:
-        notice = format_shell_notice(agent_obj.shell_access_modes, agent_obj.shell_runtime)
-        outcome.add_message(notice, right_info="session")
-
     if missing_agents:
         missing_list = ", ".join(sorted(missing_agents))
         outcome.add_message(
             f"Missing agents from session: {missing_list}",
+            channel="warning",
+            right_info="session",
+        )
+
+    for warning in result.warnings:
+        if warning.code == "missing-agent":
+            continue
+        outcome.add_message(
+            warning.message,
             channel="warning",
             right_info="session",
         )
@@ -371,27 +383,30 @@ async def handle_resume_session(
                 right_info="session",
             )
 
-    if len(loaded) == 1:
-        loaded_agent = next(iter(loaded.keys()))
-        if loaded_agent != agent_name:
-            outcome.switch_agent = loaded_agent
-            agent_obj = ctx.agent_provider._agent(loaded_agent)
-            outcome.add_message(
-                f"Switched to agent: {loaded_agent}",
-                channel="info",
-                right_info="session",
-            )
+    if active_agent_name != agent_name:
+        outcome.switch_agent = active_agent_name
+        agent_obj = ctx.agent_provider._agent(active_agent_name)
+        outcome.add_message(
+            f"Switched to agent: {active_agent_name}",
+            channel="info",
+            right_info="session",
+        )
 
-    usage = getattr(agent_obj, "usage_accumulator", None)
+    if isinstance(agent_obj, McpAgentProtocol) and agent_obj.shell_runtime_enabled:
+        notice = format_shell_notice(agent_obj.shell_access_modes, agent_obj.shell_runtime)
+        outcome.add_message(notice, right_info="session")
+
+    agent_obj = cast("AgentProtocol", agent_obj)
+    usage = agent_obj.usage_accumulator
     if usage and usage.model is None:
-        llm = getattr(agent_obj, "llm", None)
-        model_name = getattr(llm, "model_name", None)
+        llm = agent_obj.llm
+        model_name = llm.model_name if llm is not None else None
         if not model_name:
-            model_name = getattr(getattr(agent_obj, "config", None), "model", None)
+            model_name = agent_obj.config.model
         if model_name:
             usage.model = model_name
 
-    history = getattr(agent_obj, "message_history", [])
+    history = agent_obj.message_history
     await ctx.io.display_history_overview(agent_obj.name, list(history), usage)
 
     assistant_text = _find_last_assistant_text(list(history))
@@ -416,13 +431,12 @@ async def handle_title_session(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
+    title = _strip_wrapping_quotes(title)
     if not title:
         outcome.add_message("Usage: /session title <text>", channel="error")
         return outcome
 
-    from fast_agent.session import get_session_manager
-
-    manager = get_session_manager()
+    manager = ctx.resolve_session_manager()
     session = manager.current_session
     if session_id:
         if session is None or session.info.name != session_id:
@@ -444,9 +458,8 @@ async def handle_fork_session(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    from fast_agent.session import get_session_manager
-
-    manager = get_session_manager()
+    manager = ctx.resolve_session_manager()
+    title = _strip_wrapping_quotes(title)
     forked = manager.fork_current_session(title=title)
     if forked is None:
         outcome.add_message("No session available to fork.", channel="warning", right_info="session")

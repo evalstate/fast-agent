@@ -46,12 +46,32 @@ class StubAgent:
         self.generated_messages = messages
 
 
+class StubHistoryAgent:
+    name = "test-agent"
+    usage_accumulator = None
+
+    def __init__(self) -> None:
+        self.message_history = []
+        self.loaded_messages = None
+        self.cleared_prompts = None
+
+    def load_message_history(self, messages):
+        self.loaded_messages = messages
+        self.message_history = messages or []
+
+    def pop_last_message(self):
+        return None
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        self.cleared_prompts = clear_prompts
+
+
 class StubAgentProvider:
-    def __init__(self, prompts: dict[str, list[StubPrompt]], agent: StubAgent) -> None:
+    def __init__(self, prompts: dict[str, list[StubPrompt]], agent: object) -> None:
         self._prompts = prompts
         self._agent_instance = agent
 
-    def _agent(self, name: str) -> StubAgent:
+    def _agent(self, name: str) -> object:
         return self._agent_instance
 
     def visible_agent_names(self, *, force_include: str | None = None):
@@ -165,3 +185,29 @@ async def test_handle_select_prompt_prompts_for_required_args(monkeypatch):
     assert agent.prompt_calls == [
         (f"server{SEP}demo", {"topic": "cats", "style": "haiku"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_handle_load_prompt_prompts_for_local_file_template_args(tmp_path):
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("Hello {{name}}.", encoding="utf-8")
+
+    agent = StubHistoryAgent()
+    provider = StubAgentProvider({}, agent)
+    io = StubCommandIO({"name": "Ada"})
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test-agent",
+        io=io,
+    )
+
+    outcome = await prompt_handlers.handle_load_prompt(
+        ctx,
+        agent_name="test-agent",
+        filename=str(prompt_path),
+    )
+
+    assert io.prompted_args == [("name", "", True)]
+    assert outcome.buffer_prefill == "Hello Ada."
+    assert agent.loaded_messages == []
+    assert agent.cleared_prompts is True

@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
 PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     # default behaviour in _get_env_key_name is to capitalize the
@@ -28,6 +29,7 @@ PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     "responses": ("openai",),
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
+API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex"})
 
 
 class ProviderKeyManager:
@@ -39,10 +41,15 @@ class ProviderKeyManager:
 
     @staticmethod
     def get_env_var(provider_name: str) -> str | None:
-        return os.getenv(ProviderKeyManager.get_env_key_name(provider_name))
+        env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
+        if not env_key_name:
+            return None
+        return os.getenv(env_key_name)
 
     @staticmethod
-    def get_env_key_name(provider_name: str) -> str:
+    def get_env_key_name(provider_name: str) -> str | None:
+        if provider_name.lower() in API_KEYLESS_PROVIDERS:
+            return None
         return PROVIDER_ENVIRONMENT_MAP.get(provider_name, f"{provider_name.upper()}_API_KEY")
 
     @staticmethod
@@ -73,7 +80,10 @@ class ProviderKeyManager:
         return keys
 
     @staticmethod
-    def get_api_key(provider_name: str, config: Any) -> str:
+    def get_api_key(
+        provider_name: str,
+        config: Any,
+    ) -> str:
         """
         Gets the API key for the specified provider.
 
@@ -116,6 +126,9 @@ class ProviderKeyManager:
             except Exception:
                 pass
 
+        if provider_name == "anthropic-vertex":
+            return ""
+
         api_key = ProviderKeyManager.get_config_file_key(provider_name, config)
         if not api_key:
             api_key = ProviderKeyManager.get_env_var(provider_name)
@@ -129,12 +142,7 @@ class ProviderKeyManager:
         # HuggingFace: also support tokens managed by huggingface_hub (e.g. `hf auth login`)
         # even when HF_TOKEN isn't explicitly set in the environment or config.
         if not api_key and provider_name in {"hf", "huggingface"}:
-            try:
-                from huggingface_hub import get_token  # ty: ignore[unresolved-import]
-
-                api_key = get_token()
-            except Exception:
-                pass
+            api_key = get_huggingface_hub_token()
 
         if not api_key and provider_name == "generic":
             api_key = "ollama"  # Default for generic provider
@@ -157,11 +165,16 @@ class ProviderKeyManager:
                     f"'{provider_name}' is not a valid provider name.",
                 )
 
+            env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
+            env_hint = (
+                f" or set the {env_key_name} environment variable."
+                if env_key_name
+                else "."
+            )
             raise ProviderKeyError(
                 f"{display_name} API key not configured",
                 f"The {display_name} API key is required but not set.\n"
-                f"Add it to your configuration file under {provider_name}.api_key "
-                f"or set the {ProviderKeyManager.get_env_key_name(provider_name)} environment variable.",
+                f"Add it to your configuration file under {provider_name}.api_key{env_hint}",
             )
 
         return api_key

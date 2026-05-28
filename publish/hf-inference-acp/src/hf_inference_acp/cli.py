@@ -28,6 +28,7 @@ from fast_agent.cli.commands.go import (
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.core.agent_card_validation import collect_agent_card_names, find_loaded_agent_issues
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -43,8 +44,26 @@ from hf_inference_acp.hf_config import (
 )
 from hf_inference_acp.wizard import WizardSetupLLM
 
-# Register wizard-setup model locally
-ModelFactory.register_runtime_model("wizard-setup", provider=Provider.FAST_AGENT, llm_class=WizardSetupLLM)
+
+def _register_wizard_setup_model() -> None:
+    """Register the local wizard model across fast-agent versions."""
+    register_runtime_model = getattr(ModelFactory, "register_runtime_model", None)
+    if callable(register_runtime_model):
+        register_runtime_model(
+            "wizard-setup",
+            provider=Provider.FAST_AGENT,
+            llm_class=WizardSetupLLM,
+        )
+        return
+
+    ModelFactory.MODEL_SPECIFIC_CLASSES["wizard-setup"] = WizardSetupLLM
+    ModelDatabase.register_runtime_model_params(
+        "wizard-setup",
+        ModelDatabase.FAST_AGENT_STANDARD.model_copy(),
+    )
+
+
+_register_wizard_setup_model()
 
 app = typer.Typer(
     help="Run the Hugging Face Inference ACP agent over stdio.",
@@ -256,7 +275,6 @@ async def run_agents(
     host: str,
     port: int,
     tool_description: str | None,
-    instance_scope: str,
     permissions_enabled: bool,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
@@ -322,14 +340,15 @@ async def run_agents(
         if merged_card_tools:
             extra_agent_names |= collect_agent_card_names(merged_card_tools)
 
+        loaded_agents = cast("dict[str, dict[str, Any]]", fast.agents)
         issues, invalid_names = find_loaded_agent_issues(
-            fast.agents,
+            loaded_agents,
             extra_agent_names=extra_agent_names,
             server_names=server_names,
         )
         if invalid_names:
             for name in invalid_names:
-                fast.agents.pop(name, None)
+                loaded_agents.pop(name, None)
                 for mapping_name in ("_agent_card_sources", "_agent_card_histories"):
                     mapping = getattr(fast, mapping_name, None)
                     if isinstance(mapping, dict):
@@ -415,7 +434,7 @@ async def run_agents(
         host=host,
         port=port,
         tool_description=tool_description,
-        instance_scope=instance_scope,
+        instance_scope=serve.InstanceScope.CONNECTION.value,
         permissions_enabled=permissions_enabled,
     )
 
@@ -480,11 +499,6 @@ def run_acp(
         "-x",
         help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
     ),
-    instance_scope: serve.InstanceScope = typer.Option(
-        serve.InstanceScope.SHARED,
-        "--instance-scope",
-        help="Control how ACP clients receive isolated agent instances (shared, connection, request)",
-    ),
     no_permissions: bool = typer.Option(
         False,
         "--no-permissions",
@@ -507,7 +521,7 @@ def run_acp(
 
     instruction_override = None
     if instruction:
-        instruction_override, _ = resolve_instruction_option(instruction)
+        instruction_override, _ = resolve_instruction_option(instruction, model, "serve")
 
     server_list = servers.split(",") if servers else None
 
@@ -541,7 +555,6 @@ def run_acp(
                 host=host,
                 port=port,
                 tool_description=description,
-                instance_scope=instance_scope.value,
                 permissions_enabled=not no_permissions,
                 agent_cards=agent_cards,
                 card_tools=card_tools,

@@ -8,7 +8,13 @@ class CommonAgentOptions:
 
     @staticmethod
     def config_path():
-        return typer.Option(None, "--config-path", "-c", help="Path to config file")
+        return typer.Option(
+            None,
+            "--config-path",
+            "-c",
+            metavar="<path-or-uri>",
+            help="Path, HTTP(S) URL, file:// URI, or hf:// URI to config file",
+        )
 
     @staticmethod
     def instruction():
@@ -16,7 +22,8 @@ class CommonAgentOptions:
             None,
             "--instruction",
             "-i",
-            help="Path to file or URL containing instruction for the agent",
+            metavar="<path-or-uri>",
+            help="Path, HTTP(S) URL, file:// URI, or hf:// URI containing instruction for the agent",
         )
 
     @staticmethod
@@ -29,7 +36,8 @@ class CommonAgentOptions:
             None,
             "--agent-cards",
             "--card",
-            help="Path or URL to an AgentCard file or directory (repeatable)",
+            metavar="<path-or-uri>",
+            help="Path, HTTP(S) URL, file:// URI, or hf:// URI to an AgentCard file or directory (repeatable)",
         )
 
     @staticmethod
@@ -37,7 +45,8 @@ class CommonAgentOptions:
         return typer.Option(
             None,
             "--card-tool",
-            help="Path or URL to an AgentCard file or directory to load as tools (repeatable)",
+            metavar="<path-or-uri>",
+            help="Path, HTTP(S) URL, file:// URI, or hf:// URI to an AgentCard file or directory to load as tools (repeatable)",
         )
 
     @staticmethod
@@ -77,7 +86,32 @@ class CommonAgentOptions:
             "--agent",
             help="Target a specific agent by name for --message, --prompt-file, and initial interactive mode",
         )
-    
+
+    @staticmethod
+    def json_schema():
+        return typer.Option(
+            None,
+            "--json-schema",
+            metavar="<path-or-uri>",
+            help="Path, HTTP(S) URL, file:// URI, or hf:// URI to a JSON Schema file used for one-shot structured output",
+        )
+
+    @staticmethod
+    def schema_model():
+        return typer.Option(
+            None,
+            "--schema-model",
+            help="Pydantic BaseModel import path used for one-shot structured output (module.path:ClassName)",
+        )
+
+    @staticmethod
+    def structured_tool_policy():
+        return typer.Option(
+            None,
+            "--structured-tool-policy",
+            help="Structured schema tool policy: auto, always, defer, or no_tools",
+        )
+
     @staticmethod
     def env_dir():
         return typer.Option(None, "--env", help="Override the base fast-agent environment directory")
@@ -110,6 +144,14 @@ class CommonAgentOptions:
     @staticmethod
     def shell():
         return typer.Option(False, "--shell", "-x", help="Enable a local shell runtime and expose the execute tool (bash or pwsh).")
+
+    @staticmethod
+    def no_shell():
+        return typer.Option(
+            False,
+            "--no-shell",
+            help="Disable local shell/filesystem tools, even when skills or agent config request them.",
+        )
 
     @staticmethod
     def smart():

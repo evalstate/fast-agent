@@ -8,9 +8,52 @@ from prompt_toolkit.completion import Completion
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.utils.commandline import join_commandline, split_commandline
 
 if TYPE_CHECKING:
     from fast_agent.ui.prompt.completer import AgentCompleter
+
+
+def _hint_completion(display: str, display_meta: str) -> Completion:
+    """Build an informational completion that inserts nothing.
+
+    Used as a discoverability hint when a subcommand accepts an argument
+    we can't complete synchronously (e.g. marketplace entries behind
+    network fetches). Selecting the hint is a no-op; its only purpose is
+    to surface the signature and guidance in the completion menu.
+
+    Note: prompt-toolkit drops the completion menu when a single
+    completion would "do nothing" (buffer.completion_does_nothing). Callers
+    yielding hints for otherwise-empty argument slots should emit at least
+    two entries (see :func:`_signature_hints`) or pair a hint with real
+    completions.
+    """
+    return Completion(
+        "",
+        start_position=0,
+        display=display,
+        display_meta=display_meta,
+    )
+
+
+def _signature_hints(kind: str, *, empty_arg_list: bool = True) -> list[Completion]:
+    """Build several hint completions describing an argument signature.
+
+    Two or more entries are returned so the prompt-toolkit menu renders
+    them; a single no-op completion is culled by the buffer.
+    """
+    hints = [
+        _hint_completion("<number>", f"by index — {kind}"),
+        _hint_completion("<name>", f"by name — {kind}"),
+    ]
+    if empty_arg_list:
+        hints.append(
+            _hint_completion(
+                "(empty)",
+                "press Enter with no argument to pick from a list",
+            )
+        )
+    return hints
 
 
 def _attached_mcp_servers_for_completion(completer: "AgentCompleter") -> list[str]:
@@ -184,6 +227,77 @@ def _prompt_command_completions(
     return list(completer._complete_history_files(partial))
 
 
+def _attach_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    if not text_lower.startswith("/attach "):
+        return None
+
+    remainder = text[len("/attach ") :]
+    if not remainder:
+        results = [
+            Completion(
+                "clear",
+                start_position=0,
+                display="clear",
+                display_meta="remove staged file or URL attachments from the next draft buffer",
+            ),
+            Completion(
+                "https://",
+                start_position=0,
+                display="https://",
+                display_meta="stage a remote URL attachment for the next prompt",
+            )
+        ]
+        results.extend(list(completer._complete_shell_paths("", 0)))
+        return results
+
+    try:
+        parts = split_commandline(remainder)
+    except ValueError:
+        return []
+
+    if remainder.endswith((" ", "\t")):
+        partial = ""
+        token_count = len(parts)
+    else:
+        partial = parts[-1] if parts else remainder
+        token_count = len(parts) if parts else 1
+
+    results: list[Completion] = []
+    if token_count <= 1 and "clear".startswith(partial.lower()):
+        results.append(
+            Completion(
+                "clear",
+                start_position=-len(partial),
+                display="clear",
+                display_meta="remove staged file or URL attachments from the next draft buffer",
+            )
+        )
+    if token_count <= 1 and "https://".startswith(partial.lower()):
+        results.append(
+            Completion(
+                "https://",
+                start_position=-len(partial),
+                display="https://",
+                display_meta="stage a remote URL attachment for the next prompt",
+            )
+        )
+    for completion in completer._complete_shell_paths(partial, len(partial)):
+        completion_text = join_commandline([completion.text])
+        results.append(
+            Completion(
+                completion_text,
+                start_position=completion.start_position,
+                display=completion.display,
+                display_meta=completion.display_meta,
+            )
+        )
+    return results
+
+
 def _session_delete_completions(
     completer: "AgentCompleter",
     partial: str,
@@ -265,6 +379,23 @@ def _session_command_completions(
     if text_lower.startswith("/session pin "):
         return _session_pin_completions(completer, text)
 
+    if text_lower.startswith("/session export "):
+        partial = text[len("/session export ") :]
+        if " --" not in partial and not partial.startswith("-"):
+            results = []
+            partial_lower = partial.lower()
+            if "latest".startswith(partial_lower):
+                results.append(
+                    Completion(
+                        "latest",
+                        start_position=-len(partial),
+                        display="latest",
+                        display_meta="Most recent session",
+                    )
+                )
+            results.extend(list(completer._complete_session_ids(partial)))
+            return results
+
     if not text_lower.startswith("/session "):
         return None
 
@@ -278,6 +409,7 @@ def _session_command_completions(
         "resume": "Resume a session",
         "title": "Set session title",
         "fork": "Fork current session",
+        "export": "Export a persisted session trace",
     }
     return _subcommand_completions(partial, subcommands)
 
@@ -307,8 +439,27 @@ def _skills_command_completions(
 
     subcmd = parts[0].lower()
     argument = parts[1] if len(parts) > 1 else ""
+    if subcmd in {"add", "install"}:
+        if not argument:
+            results.extend(_signature_hints("marketplace skill"))
+        return results
+    if subcmd in {"search", "find"}:
+        if not argument:
+            results.extend(
+                [
+                    _hint_completion("<query>", "filter marketplace skills by name/description"),
+                    _hint_completion(
+                        "(empty)", "no arg lists all; run /skills available to browse"
+                    ),
+                ]
+            )
+        return results
     if subcmd in {"remove", "rm", "delete", "uninstall"}:
-        results.extend(list(completer._complete_local_skill_names(argument)))
+        name_completions = list(completer._complete_local_skill_names(argument))
+        if name_completions:
+            results.extend(name_completions)
+        elif not argument:
+            results.extend(_signature_hints("managed skill"))
         return results
     if subcmd in {"update", "refresh", "upgrade"}:
         if "all".startswith(argument.lower()):
@@ -409,6 +560,7 @@ def _cards_command_completions(
         "list": "List installed card packs",
         "add": "Install a card pack",
         "remove": "Remove an installed card pack",
+        "readme": "Show an installed card pack README",
         "update": "Check or apply card pack updates",
         "publish": "Publish local card pack changes",
         "registry": "Set card pack registry",
@@ -419,8 +571,23 @@ def _cards_command_completions(
 
     subcmd = parts[0].lower()
     argument = parts[1] if len(parts) > 1 else ""
+    if subcmd in {"add", "install"}:
+        if not argument:
+            results.extend(_signature_hints("marketplace card pack"))
+        return results
     if subcmd in {"remove", "rm", "delete", "uninstall"}:
-        results.extend(list(completer._complete_local_card_pack_names(argument)))
+        name_completions = list(completer._complete_local_card_pack_names(argument))
+        if name_completions:
+            results.extend(name_completions)
+        elif not argument:
+            results.extend(_signature_hints("installed card pack"))
+        return results
+    if subcmd in {"readme", "show", "cat"}:
+        name_completions = list(completer._complete_local_card_pack_names(argument))
+        if name_completions:
+            results.extend(name_completions)
+        elif not argument:
+            results.extend(_signature_hints("installed card pack", empty_arg_list=False))
         return results
     if subcmd in {"update", "refresh", "upgrade"}:
         if "all".startswith(argument.lower()):
@@ -466,6 +633,88 @@ def _cards_command_completions(
     if subcmd == "publish":
         return _cards_publish_completions(completer, argument, results)
     return results
+
+
+def _plugins_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    if not text_lower.startswith("/plugins "):
+        return None
+
+    remainder = text[len("/plugins ") :] or ""
+    parts = remainder.split(maxsplit=1)
+    subcommands = {
+        "list": "List installed plugins",
+        "available": "Browse marketplace plugins",
+        "add": "Install and enable a plugin",
+        "remove": "Remove an installed plugin",
+        "update": "Check or apply plugin updates",
+        "registry": "Set plugin registry",
+        "help": "Show plugins command usage",
+    }
+    results = list(completer._complete_subcommands(parts, remainder, subcommands))
+    if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+        return results
+
+    subcmd = parts[0].lower()
+    argument = parts[1] if len(parts) > 1 else ""
+    if subcmd in {"add", "install"}:
+        if not argument:
+            results.extend(_signature_hints("marketplace plugin"))
+        return results
+    if subcmd in {"remove", "rm", "delete", "uninstall"}:
+        name_completions = list(completer._complete_local_plugin_names(argument))
+        if name_completions:
+            results.extend(name_completions)
+        elif not argument:
+            results.extend(_signature_hints("installed plugin"))
+        return results
+    if subcmd in {"update", "refresh", "upgrade"}:
+        if "all".startswith(argument.lower()):
+            results.append(
+                Completion(
+                    "all",
+                    start_position=-len(argument),
+                    display="all",
+                    display_meta="update all managed plugins",
+                )
+            )
+        if "--force".startswith(argument.lower()):
+            results.append(
+                Completion(
+                    "--force",
+                    start_position=-len(argument),
+                    display="--force",
+                    display_meta="overwrite local modifications",
+                )
+            )
+        if "--yes".startswith(argument.lower()):
+            results.append(
+                Completion(
+                    "--yes",
+                    start_position=-len(argument),
+                    display="--yes",
+                    display_meta="confirm multi-plugin apply",
+                )
+            )
+        results.extend(
+            list(
+                completer._complete_local_plugin_names(
+                    argument,
+                    managed_only=True,
+                    include_indices=False,
+                )
+            )
+        )
+        return results
+    if subcmd in {"registry", "marketplace", "source"}:
+        results.extend(list(completer._complete_plugin_registries(argument)))
+        results.extend(list(completer._complete_registry_paths(argument)))
+        return results
+    return results
+
 
 def _model_references_completions(
     completer: "AgentCompleter",
@@ -585,16 +834,20 @@ def _model_command_completions(
     parts = remainder.split(maxsplit=1)
     subcommands: dict[str, str] = {
         "reasoning": (
-            "Set reasoning effort (off/low/medium/high/max/xhigh or budgets like "
+            "Set reasoning effort (adaptive/off/low/medium/high/xhigh/max or budgets like "
             "0/1024/16000/32000)"
         )
     }
+    if completer._supports_task_budget_setting():
+        subcommands["task_budget"] = "Set Anthropic task budget (off/20k/64k/128k/256k)"
     if completer._resolve_verbosity_values():
         subcommands["verbosity"] = "Set text verbosity (low/medium/high)"
     if completer._supports_service_tier_setting():
         subcommands["fast"] = "Set service tier (on/off/status; flex when supported)"
     if completer._supports_web_search_setting():
         subcommands["web_search"] = "Set web search tool state (on/off/default)"
+    if completer._supports_x_search_setting():
+        subcommands["x_search"] = "Set X Search tool state (on/off/default)"
     if completer._supports_web_fetch_setting():
         subcommands["web_fetch"] = "Set web fetch tool state (on/off/default)"
     subcommands["switch"] = "Switch model (starts new session)"
@@ -616,6 +869,18 @@ def _model_command_completions(
                 display_meta="reasoning",
             )
             for value in completer._resolve_reasoning_values()
+            if value.startswith(argument.lower())
+        )
+        return results
+    if subcmd == "task_budget" and completer._supports_task_budget_setting():
+        results.extend(
+            Completion(
+                value,
+                start_position=-len(argument),
+                display=value,
+                display_meta="task budget",
+            )
+            for value in completer._resolve_task_budget_values()
             if value.startswith(argument.lower())
         )
         return results
@@ -644,6 +909,18 @@ def _model_command_completions(
         )
         return results
     if subcmd == "web_search" and completer._supports_web_search_setting():
+        results.extend(
+            Completion(
+                value,
+                start_position=-len(argument),
+                display=value,
+                display_meta=subcmd,
+            )
+            for value in ("on", "off", "default")
+            if value.startswith(argument.lower())
+        )
+        return results
+    if subcmd == "x_search" and completer._supports_x_search_setting():
         results.extend(
             Completion(
                 value,
@@ -944,6 +1221,10 @@ def command_completions(
     if prompt_result is not None:
         return prompt_result
 
+    attach_result = _attach_command_completions(completer, text, text_lower)
+    if attach_result is not None:
+        return attach_result
+
     session_result = _session_command_completions(completer, text, text_lower)
     if session_result is not None:
         return session_result
@@ -955,6 +1236,10 @@ def command_completions(
     cards_result = _cards_command_completions(completer, text, text_lower)
     if cards_result is not None:
         return cards_result
+
+    plugins_result = _plugins_command_completions(completer, text, text_lower)
+    if plugins_result is not None:
+        return plugins_result
 
     model_result = _model_command_completions(completer, text, text_lower)
     if model_result is not None:

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapability, Implementation, StopReason
+from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation, StopReason
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -63,7 +63,7 @@ async def test_acp_filesystem_support_enabled() -> None:
         init_response = await connection.initialize(
             protocol_version=1,
             client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
+                fs=FileSystemCapabilities(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
             client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
@@ -111,7 +111,7 @@ async def test_acp_filesystem_read_only() -> None:
         await connection.initialize(
             protocol_version=1,
             client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=False),
+                fs=FileSystemCapabilities(read_text_file=True, write_text_file=False),
                 terminal=False,
             ),
             client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
@@ -141,7 +141,7 @@ async def test_acp_filesystem_write_only() -> None:
         await connection.initialize(
             protocol_version=1,
             client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=False, write_text_file=True),
+                fs=FileSystemCapabilities(read_text_file=False, write_text_file=True),
                 terminal=False,
             ),
             client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
@@ -171,7 +171,7 @@ async def test_acp_filesystem_disabled_when_client_unsupported() -> None:
         await connection.initialize(
             protocol_version=1,
             client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=False, write_text_file=False),
+                fs=FileSystemCapabilities(read_text_file=False, write_text_file=False),
                 terminal=False,
             ),
             client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),

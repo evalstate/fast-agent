@@ -11,6 +11,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 from frontmatter import loads as load_frontmatter
 
+from fast_agent.config import MCPServerSettings, resolve_env_vars
 from fast_agent.core.agent_card_rules import (
     ALLOWED_FIELDS_BY_TYPE,
     MCP_CONNECT_ALLOWED_KEYS,
@@ -27,6 +28,11 @@ from fast_agent.core.validation import (
     get_card_dependency_field_specs,
 )
 from fast_agent.mcp.connect_targets import resolve_target_entry
+from fast_agent.tools.function_tool_config import (
+    FunctionToolSpec,
+    function_tool_entrypoint,
+    parse_function_tool_card_entry,
+)
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
@@ -55,7 +61,7 @@ class LoadedAgentIssue:
 class _ScannedCardDetails:
     result: AgentCardScanResult
     servers: list[str]
-    function_tools: list[str]
+    function_tools: list[str | FunctionToolSpec]
     messages: list[str]
     shell_cwd: Path | None
 
@@ -212,7 +218,7 @@ def _scan_single_agent_card_file(card_path: Path) -> _ScannedCardDetails:
 
     servers = _ensure_str_list(raw.get("servers"), "servers", errors)
     _validate_mcp_connect_entries(raw.get("mcp_connect"), errors)
-    function_tools = _ensure_str_list(raw.get("function_tools"), "function_tools", errors)
+    function_tools = _ensure_function_tool_list(raw.get("function_tools"), "function_tools", errors)
     messages = _ensure_str_list(raw.get("messages"), "messages", errors)
     _validate_tool_input_schema(raw.get("tool_input_schema"), errors)
     shell_cwd = _resolve_shell_cwd(raw.get("cwd"), errors)
@@ -273,7 +279,10 @@ def _apply_supplemental_scan_checks(
     if details.function_tools:
         base_path = entry.path.parent
         for spec in details.function_tools:
-            error = _check_function_tool_spec(spec, base_path)
+            entrypoint = function_tool_entrypoint(spec)
+            if entrypoint is None:
+                continue
+            error = _check_function_tool_spec(entrypoint, base_path)
             if error:
                 errors.append(error)
 
@@ -464,7 +473,10 @@ def _load_card_raw(path: Path) -> tuple[dict[str, Any], str | None]:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("AgentCard YAML must be a mapping")
-        return data, None
+        resolved = resolve_env_vars(data)
+        if not isinstance(resolved, dict):
+            raise ValueError("AgentCard YAML must be a mapping")
+        return resolved, None
     if suffix in {".md", ".markdown"}:
         raw_text = path.read_text(encoding="utf-8")
         if raw_text.startswith("\ufeff"):
@@ -473,7 +485,10 @@ def _load_card_raw(path: Path) -> tuple[dict[str, Any], str | None]:
         metadata = post.metadata or {}
         if not isinstance(metadata, dict):
             raise ValueError("Frontmatter must be a mapping")
-        return dict(metadata), post.content or ""
+        resolved = resolve_env_vars(dict(metadata))
+        if not isinstance(resolved, dict):
+            raise ValueError("Frontmatter must be a mapping")
+        return resolved, post.content or ""
     raise ValueError("Unsupported AgentCard file extension")
 
 
@@ -591,13 +606,38 @@ def _validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:
             errors.append(f"'mcp_connect[{idx}]' has unsupported keys: {unknown_text}")
 
         target_value = raw_entry.get("target")
-        if not isinstance(target_value, str) or not target_value.strip():
-            errors.append(f"'mcp_connect[{idx}].target' must be a non-empty string")
-            continue
+        resolved_target: str | None = None
+        if target_value is not None:
+            if not isinstance(target_value, str) or not target_value.strip():
+                errors.append(f"'mcp_connect[{idx}].target' must be a non-empty string")
+                continue
+            resolved_target = target_value.strip()
 
         name_value = raw_entry.get("name")
         if name_value is not None and (not isinstance(name_value, str) or not name_value.strip()):
             errors.append(f"'mcp_connect[{idx}].name' must be a non-empty string")
+            continue
+
+        connector_id_value = raw_entry.get("connector_id")
+        if connector_id_value is not None and (
+            not isinstance(connector_id_value, str) or not connector_id_value.strip()
+        ):
+            errors.append(f"'mcp_connect[{idx}].connector_id' must be a non-empty string")
+            continue
+
+        resolved_connector_id = connector_id_value.strip() if isinstance(connector_id_value, str) else None
+        if resolved_target is None and resolved_connector_id is None:
+            errors.append(
+                f"'mcp_connect[{idx}].target' must be a non-empty string unless connector_id is set"
+            )
+            continue
+        if resolved_target is not None and resolved_connector_id is not None:
+            errors.append(f"'mcp_connect[{idx}]' must set exactly one of 'target' or 'connector_id'")
+            continue
+        if resolved_connector_id is not None and name_value is None:
+            errors.append(
+                f"'mcp_connect[{idx}].name' must be a non-empty string when connector_id is set"
+            )
             continue
 
         headers_value = raw_entry.get("headers")
@@ -628,18 +668,63 @@ def _validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:
                 continue
             resolved_auth = auth_value.copy()
 
+        management_value = raw_entry.get("management")
+        if management_value is not None and (
+            not isinstance(management_value, str) or not management_value.strip()
+        ):
+            errors.append(f"'mcp_connect[{idx}].management' must be a non-empty string")
+            continue
+
+        description_value = raw_entry.get("description")
+        if description_value is not None and not isinstance(description_value, str):
+            errors.append(f"'mcp_connect[{idx}].description' must be a string")
+            continue
+
+        access_token_value = raw_entry.get("access_token")
+        if access_token_value is not None and not isinstance(access_token_value, str):
+            errors.append(f"'mcp_connect[{idx}].access_token' must be a string")
+            continue
+
+        defer_loading_value = raw_entry.get("defer_loading")
+        if defer_loading_value is not None and not isinstance(defer_loading_value, bool):
+            errors.append(f"'mcp_connect[{idx}].defer_loading' must be a boolean")
+            continue
+
         try:
-            overrides: dict[str, Any] = {}
-            if resolved_headers is not None:
-                overrides["headers"] = resolved_headers
-            if resolved_auth is not None:
-                overrides["auth"] = resolved_auth
-            resolve_target_entry(
-                target=target_value.strip(),
-                default_name=name_value.strip() if isinstance(name_value, str) else None,
-                overrides=overrides,
-                source_path=f"mcp_connect[{idx}].target",
-            )
+            if resolved_connector_id is not None:
+                payload: dict[str, Any] = {
+                    "name": name_value.strip() if isinstance(name_value, str) else None,
+                    "description": description_value,
+                    "management": management_value,
+                    "connector_id": resolved_connector_id,
+                    "headers": resolved_headers,
+                    "access_token": access_token_value,
+                    "auth": resolved_auth,
+                }
+                if isinstance(defer_loading_value, bool):
+                    payload["defer_loading"] = defer_loading_value
+                MCPServerSettings.model_validate(payload)
+            else:
+                assert resolved_target is not None
+                overrides: dict[str, Any] = {}
+                if isinstance(description_value, str):
+                    overrides["description"] = description_value
+                if isinstance(management_value, str):
+                    overrides["management"] = management_value
+                if resolved_headers is not None:
+                    overrides["headers"] = resolved_headers
+                if isinstance(access_token_value, str):
+                    overrides["access_token"] = access_token_value
+                if isinstance(defer_loading_value, bool):
+                    overrides["defer_loading"] = defer_loading_value
+                if resolved_auth is not None:
+                    overrides["auth"] = resolved_auth
+                resolve_target_entry(
+                    target=resolved_target,
+                    default_name=name_value.strip() if isinstance(name_value, str) else None,
+                    overrides=overrides,
+                    source_path=f"mcp_connect[{idx}].target",
+                )
         except Exception as exc:  # noqa: BLE001 - surfaced as card scan issue
             errors.append(f"Invalid mcp_connect target at index {idx}: {exc}")
 
@@ -732,5 +817,33 @@ def _loaded_agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
 
 def _iter_function_tool_specs(tool_specs: Iterable[Any]) -> Iterable[str]:
     for spec in tool_specs:
-        if isinstance(spec, str):
-            yield spec
+        entrypoint = function_tool_entrypoint(spec)
+        if entrypoint:
+            yield entrypoint
+
+
+def _ensure_function_tool_list(
+    raw_value: object,
+    field_name: str,
+    errors: list[str],
+) -> list[str | FunctionToolSpec]:
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, str):
+        return [raw_value]
+    if not isinstance(raw_value, list):
+        errors.append(f"'{field_name}' must be a string or list")
+        return []
+
+    values: list[str | FunctionToolSpec] = []
+    for index, entry in enumerate(raw_value):
+        try:
+            values.append(
+                parse_function_tool_card_entry(
+                    entry,
+                    field_path=f"{field_name}[{index}]",
+                )
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+    return values

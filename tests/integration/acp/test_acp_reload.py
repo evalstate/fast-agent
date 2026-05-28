@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapability, Implementation
+from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation
 from acp.stdio import spawn_agent_process
 
 TEST_DIR = Path(__file__).parent
@@ -104,7 +104,7 @@ async def test_acp_reload_agent_cards(tmp_path: Path) -> None:
         await connection.initialize(
             protocol_version=1,
             client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
+                fs=FileSystemCapabilities(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
             client_info=Implementation(name="pytest-client", version="0.0.1"),

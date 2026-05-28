@@ -3,9 +3,11 @@ from fast_agent.ui.command_payloads import (
     ModelReasoningCommand,
     ModelsCommand,
     ModelSwitchCommand,
+    ModelTaskBudgetCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
+    ModelXSearchCommand,
 )
 from fast_agent.ui.enhanced_prompt import parse_special_input
 
@@ -20,6 +22,12 @@ def test_parse_model_verbosity_command() -> None:
     result = parse_special_input("/model verbosity low")
     assert isinstance(result, ModelVerbosityCommand)
     assert result.value == "low"
+
+
+def test_parse_model_task_budget_command() -> None:
+    result = parse_special_input("/model task_budget 128k")
+    assert isinstance(result, ModelTaskBudgetCommand)
+    assert result.value == "128k"
 
 
 def test_parse_model_fast_command() -> None:
@@ -44,6 +52,12 @@ def test_parse_hidden_fast_alias_command() -> None:
 def test_parse_model_web_search_command() -> None:
     result = parse_special_input("/model web_search on")
     assert isinstance(result, ModelWebSearchCommand)
+    assert result.value == "on"
+
+
+def test_parse_model_x_search_command() -> None:
+    result = parse_special_input("/model x_search on")
+    assert isinstance(result, ModelXSearchCommand)
     assert result.value == "on"
 
 

@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from fast_agent.agents import McpAgent
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.llm.provider.openai.llm_tensorzero_openai import TensorZeroOpenAILLM
 from fast_agent.llm.request_params import RequestParams
 
@@ -53,7 +54,7 @@ def test_initialize_default_params_sets_defaults(t0_llm):
     assert params.model == "tensorzero::function_name::test_chat"
     assert params.systemPrompt == "Test System Prompt"
     assert params.parallel_tool_calls is True
-    assert params.max_iterations == 10
+    assert params.max_iterations == DEFAULT_MAX_ITERATIONS
     assert params.use_history is True
 
 

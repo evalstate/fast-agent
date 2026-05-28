@@ -20,10 +20,11 @@ if TYPE_CHECKING:
 class ShellRuntimeCapable(Protocol):
     """Agent that supports external shell runtime injection."""
 
-    _shell_runtime: "ShellRuntime"
+    @property
+    def shell_runtime(self) -> "ShellRuntime | None": ...
 
     @property
-    def _shell_runtime_enabled(self) -> bool: ...
+    def shell_runtime_enabled(self) -> bool: ...
 
     def set_external_runtime(self, runtime: "ACPTerminalRuntime") -> None: ...
 

@@ -86,6 +86,11 @@ class ResolvedModelSpec:
         return model_params.json_mode if model_params is not None else None
 
     @property
+    def structured_tool_policy(self) -> Literal["always", "defer", "no_tools"] | None:
+        model_params = self.model_params
+        return model_params.structured_tool_policy if model_params is not None else None
+
+    @property
     def reasoning_mode(self) -> str | None:
         model_params = self.model_params
         return model_params.reasoning if model_params is not None else None
@@ -190,6 +195,21 @@ class ResolvedModelSpec:
                         update={"service_tier": config.service_tier}
                     )
 
+        if config.structured_tool_policy is not None:
+            has_explicit_structured_tool_policy = (
+                effective_request_params is not None
+                and "structured_tool_policy" in effective_request_params.model_fields_set
+            )
+            if not has_explicit_structured_tool_policy:
+                if effective_request_params is None:
+                    effective_request_params = RequestParams(
+                        structured_tool_policy=config.structured_tool_policy
+                    )
+                else:
+                    effective_request_params = effective_request_params.model_copy(
+                        update={"structured_tool_policy": config.structured_tool_policy}
+                    )
+
         default_max_tokens = self.default_max_tokens
         if default_max_tokens is not None:
             has_explicit_max_tokens = (
@@ -226,10 +246,19 @@ class ResolvedModelSpec:
             Provider.RESPONSES,
             Provider.OPENRESPONSES,
             Provider.CODEX_RESPONSES,
+            Provider.XAI,
+            Provider.GOOGLE,
         }:
             kwargs["web_search"] = config.web_search
+        if config.x_search is not None and self.provider == Provider.XAI:
+            kwargs["x_search"] = config.x_search
         if config.web_fetch is not None and self.provider == Provider.ANTHROPIC:
             kwargs["web_fetch"] = config.web_fetch
+        if config.task_budget_configured and self.provider in {
+            Provider.ANTHROPIC,
+            Provider.ANTHROPIC_VERTEX,
+        }:
+            kwargs["task_budget_tokens"] = config.task_budget_tokens
 
         return kwargs
 
@@ -298,12 +327,6 @@ def resolve_base_model_params(
     model_name: str,
 ) -> ModelParameters | None:
     """Resolve base model metadata without preferring overlay runtime mutations."""
-    normalized = model_name.strip().lower()
-    if provider == Provider.HUGGINGFACE and ":" in normalized:
-        normalized = normalized.rsplit(":", 1)[0]
-
-    static_params = ModelDatabase.MODELS.get(normalized)
-    if static_params is not None:
-        return static_params
-
-    return ModelDatabase._RUNTIME_MODEL_PARAMS.get(normalized)
+    if provider == Provider.HUGGINGFACE and ":" in model_name:
+        model_name = model_name.rsplit(":", 1)[0]
+    return ModelDatabase.get_model_params(model_name, provider=provider)

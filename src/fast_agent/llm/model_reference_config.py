@@ -14,15 +14,18 @@ from ruamel.yaml.comments import CommentedMap
 from fast_agent.config import (
     Settings,
     deep_merge,
-    find_fastagent_config_files,
-    find_project_config_file,
     load_layered_model_settings,
     load_yaml_mapping,
-    resolve_config_search_root,
-    resolve_environment_config_file,
 )
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.model_resolution import parse_model_reference_token
+from fast_agent.home import (
+    PREFERRED_CONFIG_FILENAME,
+    discover_config_files,
+    find_config_in_directory,
+    resolve_fast_agent_home,
+)
 
 ModelReferenceWriteTarget = Literal["env", "project"]
 
@@ -68,7 +71,7 @@ class ModelReferenceConfigService:
         project_write_path: Path | None = None,
     ) -> None:
         self._start_path = (start_path or Path.cwd()).resolve()
-        self._env_dir = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
+        self._env_dir = env_dir
         self.paths = _discover_paths(
             start_path=self._start_path,
             env_dir=self._env_dir,
@@ -200,7 +203,10 @@ def resolve_model_reference_start_path(
     if settings is not None:
         config_file = getattr(settings, "_config_file", None)
         if isinstance(config_file, str) and config_file.strip():
-            return Path(config_file).expanduser().resolve().parent
+            config_parent = Path(config_file).expanduser().resolve().parent
+            if config_parent.name == DEFAULT_ENVIRONMENT_DIR:
+                return config_parent.parent
+            return config_parent
 
         env_dir = getattr(settings, "environment_dir", None)
         if isinstance(env_dir, str) and env_dir.strip():
@@ -227,16 +233,16 @@ def _discover_paths(
     resolved_project_write_path = (
         project_write_path.expanduser().resolve() if project_write_path is not None else None
     )
-    project_read_path = find_project_config_file(start_path)
+    project_read_path = find_config_in_directory(start_path)
     if resolved_project_write_path is not None and resolved_project_write_path.exists():
         project_read_path = resolved_project_write_path
     resolved_project_path = resolved_project_write_path or project_read_path or (
-        start_path / "fastagent.config.yaml"
+        start_path / PREFERRED_CONFIG_FILENAME
     )
-    env_path = resolve_environment_config_file(start_path, env_dir=env_dir)
-
-    search_root = resolve_config_search_root(start_path, env_dir=env_dir)
-    _, secrets_path = find_fastagent_config_files(search_root)
+    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
+    env_root = home.path if home is not None else start_path
+    env_path = find_config_in_directory(env_root) or (env_root / PREFERRED_CONFIG_FILENAME)
+    secrets_path = discover_config_files(cwd=start_path, home=home).secrets_path
 
     return ModelReferenceConfigPaths(
         project_read_path=project_read_path,

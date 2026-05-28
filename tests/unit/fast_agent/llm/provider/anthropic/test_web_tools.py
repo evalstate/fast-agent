@@ -584,6 +584,47 @@ def test_convert_message_to_message_param_keeps_code_execution_tool_result() -> 
     assert "code_execution_tool_result" in block_types
 
 
+def test_convert_message_to_message_param_keeps_mcp_tool_result() -> None:
+    message = Message.model_validate(
+        {
+            "id": "msg_mcp",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "mcp_tool_use",
+                    "id": "mcptoolu_1",
+                    "name": "hf_hub_query",
+                    "server_name": "huggingface_mcp",
+                    "input": {"message": "top models"},
+                },
+                {
+                    "type": "mcp_tool_result",
+                    "tool_use_id": "mcptoolu_1",
+                    "is_error": False,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": '{"result":[],"meta":{"ok":true}}',
+                        }
+                    ],
+                },
+                {"type": "text", "text": "done"},
+            ],
+            "model": "claude-opus-4-6",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 20},
+        }
+    )
+
+    converted = AnthropicLLM.convert_message_to_message_param(message)
+    blocks = converted["content"]
+    assert isinstance(blocks, list)
+    block_types = [block.get("type") for block in blocks if isinstance(block, dict)]
+    assert "mcp_tool_use" in block_types
+    assert "mcp_tool_result" in block_types
+
+
 def test_convert_message_to_message_param_skips_text_blocks_with_null_text() -> None:
     message = Message.model_construct(
         id="msg_null_text",

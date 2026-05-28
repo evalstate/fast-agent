@@ -69,6 +69,21 @@ class ToolCallTracker:
             return self._open_by_index[index]
         return None
 
+    def resolve(
+        self,
+        *,
+        tool_use_id: str | None = None,
+        index: int | None = None,
+    ) -> ToolCallState | None:
+        state = self.resolve_open(tool_use_id=tool_use_id, index=index)
+        if state is not None:
+            return state
+        if tool_use_id is not None and tool_use_id in self._completed_by_id:
+            return self._completed_by_id[tool_use_id]
+        if index is not None and index in self._completed_by_index:
+            return self._completed_by_index[index]
+        return None
+
     def close(
         self,
         *,

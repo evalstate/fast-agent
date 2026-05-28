@@ -36,16 +36,25 @@ def _dedupe_preserve_order[T](values: list[T]) -> list[T]:
 
 
 def _shortcut_reasoning_values(spec: ReasoningEffortSpec) -> list[str]:
-    return [
+    values = [
         token
         for token in available_reasoning_values(spec)
-        if token not in {"auto", "default"}
+        if token != "default"
         and not (
             token == "off"
             and spec.kind == "effort"
             and "none" in (spec.allowed_efforts or [])
         )
     ]
+    if "auto" in values:
+        values = [token for token in values if token != "auto"] + ["auto"]
+    return values
+
+
+def _display_shortcut_reasoning_value(token: str) -> str:
+    if token == "auto":
+        return "adaptive"
+    return token
 
 
 
@@ -138,7 +147,11 @@ def build_model_shortcut_hints(llm: object | None) -> list[ModelShortcutHint]:
 
     reasoning_spec = getattr(llm, "reasoning_effort_spec", None)
     if isinstance(reasoning_spec, ReasoningEffortSpec):
-        values = ", ".join(_dedupe_preserve_order(_shortcut_reasoning_values(reasoning_spec)))
+        values = ", ".join(
+            _dedupe_preserve_order(
+                [_display_shortcut_reasoning_value(token) for token in _shortcut_reasoning_values(reasoning_spec)]
+            )
+        )
         hints.append(ModelShortcutHint(key="F6", label="Reasoning", values_text=values))
 
     verbosity_spec = getattr(llm, "text_verbosity_spec", None)

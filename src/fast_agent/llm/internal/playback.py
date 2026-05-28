@@ -1,7 +1,6 @@
-from typing import Any, Type, Union
+from typing import Any, Type
 
 from mcp import Tool
-from mcp.types import PromptMessage
 
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.prompt import Prompt
@@ -9,7 +8,6 @@ from fast_agent.interfaces import ModelT
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
-from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list
 from fast_agent.mcp.prompts.prompt_helpers import MessageContent
 from fast_agent.types import PromptMessageExtended, RequestParams
 
@@ -54,14 +52,9 @@ class PlaybackLLM(PassthroughLLM):
             f"MESSAGES EXHAUSTED (list size {len(self._messages)}) ({self._overage} overage)"
         )
 
-    async def generate(  # type: ignore[override]
+    async def generate(
         self,
-        messages: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            list[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
@@ -70,16 +63,13 @@ class PlaybackLLM(PassthroughLLM):
         1. First call: store messages for playback and return "HISTORY LOADED"
         2. Subsequent calls: return the next assistant message
         """
-        # Normalize all input types to a list of PromptMessageExtended
-        multipart_messages = normalize_to_extended_list(messages)
-
         # If this is the first call (initialization) or we're loading a prompt template
         # with multiple messages (comes from apply_prompt)
         if -1 == self._current_index:
-            if len(multipart_messages) > 1:
-                self._messages = multipart_messages
+            if len(messages) > 1:
+                self._messages = list(messages)
             else:
-                self._messages.extend(multipart_messages)
+                self._messages.extend(messages)
 
             # Reset the index to the beginning for proper playback
             self._current_index = 0
@@ -92,7 +82,7 @@ class PlaybackLLM(PassthroughLLM):
 
         # Track usage for this playback "turn"
         try:
-            input_content = str(multipart_messages) if multipart_messages else ""
+            input_content = str(messages) if messages else ""
             output_content = MessageContent.get_first_text(response) or ""
 
             turn_usage = create_turn_usage_from_messages(

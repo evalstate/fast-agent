@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -7,9 +8,11 @@ from fast_agent.commands.handlers.model import (
     handle_model_fast,
     handle_model_reasoning,
     handle_model_switch,
+    handle_model_task_budget,
     handle_model_verbosity,
     handle_model_web_fetch,
     handle_model_web_search,
+    handle_model_x_search,
 )
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.core.exceptions import ModelConfigError
@@ -21,7 +24,9 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
+from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbositySpec
+from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY
 
 
 def _build_overlay(
@@ -92,12 +97,16 @@ class _StubLLM:
         model_name: str,
         *,
         web_search_supported: bool = False,
+        x_search_supported: bool = False,
         web_fetch_supported: bool = False,
         web_search_default: bool = False,
+        x_search_default: bool = False,
         web_fetch_default: bool = False,
         service_tier_supported: bool = False,
         service_tier_default: str | None = None,
         available_service_tiers: tuple[str, ...] | None = None,
+        task_budget_supported: bool = False,
+        task_budget_default: int | None = None,
         sampling_overrides: dict[str, float | int] | None = None,
         provider: Provider = Provider.RESPONSES,
         selected_model_name: str | None = None,
@@ -136,14 +145,14 @@ class _StubLLM:
             self.default_request_params = self.default_request_params.model_copy(
                 update=sampling_overrides
             )
-        self.reasoning_effort_spec = ReasoningEffortSpec(
+        self.reasoning_effort_spec: ReasoningEffortSpec | None = ReasoningEffortSpec(
             kind="effort",
             allowed_efforts=["low", "medium", "high", "max"],
             allow_auto=True,
             default=ReasoningEffortSetting(kind="effort", value="auto"),
         )
         self.reasoning_effort = None
-        self.text_verbosity_spec = TextVerbositySpec()
+        self.text_verbosity_spec: TextVerbositySpec | None = TextVerbositySpec()
         self.text_verbosity = None
         self.configured_transport = "sse"
         self.active_transport = None
@@ -152,11 +161,16 @@ class _StubLLM:
             available_service_tiers = ("fast", "flex")
         self.available_service_tiers = available_service_tiers or ()
         self._service_tier = service_tier_default
+        self.task_budget_supported = task_budget_supported
+        self._task_budget_tokens = task_budget_default
         self.web_search_supported = web_search_supported
+        self.x_search_supported = x_search_supported
         self.web_fetch_supported = web_fetch_supported
         self._web_search_default = web_search_default
+        self._x_search_default = x_search_default
         self._web_fetch_default = web_fetch_default
         self._web_search_override: bool | None = None
+        self._x_search_override: bool | None = None
         self._web_fetch_override: bool | None = None
 
     @property
@@ -184,8 +198,20 @@ class _StubLLM:
         return fetch_enabled
 
     @property
+    def x_search_enabled(self) -> bool:
+        return bool(
+            self._x_search_override
+            if self._x_search_override is not None
+            else self._x_search_default
+        )
+
+    @property
     def service_tier(self) -> str | None:
         return self._service_tier
+
+    @property
+    def task_budget_tokens(self) -> int | None:
+        return self._task_budget_tokens
 
     @property
     def model_info(self) -> ModelInfo | None:
@@ -197,6 +223,11 @@ class _StubLLM:
         if value is not None and not self.web_search_supported:
             raise ValueError("Current model does not support web search configuration.")
         self._web_search_override = value
+
+    def set_x_search_enabled(self, value: bool | None) -> None:
+        if value is not None and not self.x_search_supported:
+            raise ValueError("Current model does not support X Search configuration.")
+        self._x_search_override = value
 
     def set_web_fetch_enabled(self, value: bool | None) -> None:
         if value is not None and not self.web_fetch_supported:
@@ -212,6 +243,11 @@ class _StubLLM:
                 f"Current model supports only {allowed} or unset (standard) service tier."
             )
         self._service_tier = value
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        if value is not None and not self.task_budget_supported:
+            raise ValueError("Current model does not support task budget configuration.")
+        self._task_budget_tokens = value
 
 
 class _StubShellRuntime:
@@ -230,7 +266,7 @@ class _StubAgent:
         self.llm = llm
         self._llm = llm
         self.shell_runtime = _StubShellRuntime(shell_limit) if shell_limit is not None else None
-        self.config = type("Config", (), {"model": llm.model_name})()
+        self.config = SimpleNamespace(model=llm.model_name)
         self._set_model_error = set_model_error
 
     async def set_model(self, model: str | None) -> None:
@@ -541,6 +577,31 @@ async def test_model_web_search_set_and_reset_to_default() -> None:
 
 
 @pytest.mark.asyncio
+async def test_model_x_search_set_and_reset_to_default() -> None:
+    llm = _StubLLM(
+        "grok-4.3",
+        provider=Provider.XAI,
+        x_search_supported=True,
+        x_search_default=False,
+    )
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    set_outcome = await handle_model_x_search(ctx, agent_name="test", value="on")
+    set_text = [str(m.text) for m in set_outcome.messages]
+    assert "X Search: set to enabled." in set_text
+
+    reset_outcome = await handle_model_x_search(ctx, agent_name="test", value="default")
+    reset_text = [str(m.text) for m in reset_outcome.messages]
+    assert "X Search: set to default (disabled)." in reset_text
+
+
+@pytest.mark.asyncio
 async def test_model_fast_reports_when_unsupported() -> None:
     llm = _StubLLM("gpt-4.1", service_tier_supported=False)
     provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
@@ -734,6 +795,31 @@ async def test_model_switch_reopens_overlay_selection_on_overlay_provider() -> N
 
 
 @pytest.mark.asyncio
+async def test_model_switch_reopens_vertex_selection_for_anthropic_vertex_model() -> None:
+    llm = _StubLLM(
+        "claude-sonnet-4-6",
+        provider=Provider.ANTHROPIC_VERTEX,
+        selected_model_name="anthropic-vertex.claude-sonnet-4-6",
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    io = _StubIO(model_selection_response="anthropic-vertex.claude-sonnet-4-6")
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=io,
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_switch(ctx, agent_name="test", value=None)
+
+    assert io.last_initial_provider == ANTHROPIC_VERTEX_PROVIDER_KEY
+    assert io.last_default_model == "anthropic-vertex.claude-sonnet-4-6"
+    assert outcome.reset_session is False
+    assert any("already active" in str(message.text) for message in outcome.messages)
+
+
+@pytest.mark.asyncio
 async def test_model_switch_does_not_reset_session_when_model_is_already_active() -> None:
     llm = _StubLLM("gpt-5-mini")
     agent = _StubAgent(llm)
@@ -776,3 +862,73 @@ async def test_model_switch_returns_model_config_errors_without_raising() -> Non
     assert text_messages == [
         "Model reference '$system.typo' could not be resolved: Available references: $system.default"
     ]
+
+
+@pytest.mark.asyncio
+async def test_model_task_budget_reports_current_value_when_supported() -> None:
+    llm = _StubLLM(
+        "claude-opus-4-7",
+        provider=Provider.ANTHROPIC,
+        task_budget_supported=True,
+        task_budget_default=128_000,
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_task_budget(ctx, agent_name="test", value=None)
+
+    rendered = [str(message.text) for message in outcome.messages]
+    assert any("Task budget: 128k." in line for line in rendered)
+
+
+@pytest.mark.asyncio
+async def test_model_task_budget_set_when_supported() -> None:
+    llm = _StubLLM(
+        "claude-opus-4-7",
+        provider=Provider.ANTHROPIC,
+        task_budget_supported=True,
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_task_budget(ctx, agent_name="test", value="64k")
+
+    assert llm.task_budget_tokens == 64_000
+    assert any(
+        str(message.text) == f"Task budget: set to {format_task_budget_tokens(64_000)}."
+        for message in outcome.messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_model_task_budget_rejects_values_below_minimum() -> None:
+    llm = _StubLLM(
+        "claude-opus-4-7",
+        provider=Provider.ANTHROPIC,
+        task_budget_supported=True,
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_task_budget(ctx, agent_name="test", value="10k")
+
+    assert llm.task_budget_tokens is None
+    assert any("Task budget must be at least 20,000 tokens." in str(message.text) for message in outcome.messages)

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal, TypeGuard
 
+from fast_agent.mcp.connect_targets import ParsedMcpConnectRequest, render_normalized_target
+
 
 class CommandBase:
     kind: str
@@ -36,16 +38,57 @@ class McpListCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class McpConnectCommand(CommandBase):
-    target_text: str
-    parsed_mode: McpConnectMode
-    server_name: str | None
-    auth_token: str | None
-    timeout_seconds: float | None
-    trigger_oauth: bool | None
-    reconnect_on_disconnect: bool | None
-    force_reconnect: bool
+    request: ParsedMcpConnectRequest | None
     error: str | None
     kind: Literal["mcp_connect"] = "mcp_connect"
+
+    @property
+    def target_text(self) -> str:
+        if self.request is None:
+            return ""
+        return render_normalized_target(self.request.target)
+
+    @property
+    def parsed_mode(self) -> McpConnectMode:
+        if self.request is None:
+            return "stdio"
+        return self.request.target.mode
+
+    @property
+    def server_name(self) -> str | None:
+        if self.request is None:
+            return None
+        return self.request.target.server_name
+
+    @property
+    def auth_token(self) -> str | None:
+        if self.request is None:
+            return None
+        return self.request.options.auth_token
+
+    @property
+    def timeout_seconds(self) -> float | None:
+        if self.request is None:
+            return None
+        return self.request.options.timeout_seconds
+
+    @property
+    def trigger_oauth(self) -> bool | None:
+        if self.request is None:
+            return None
+        return self.request.options.trigger_oauth
+
+    @property
+    def reconnect_on_disconnect(self) -> bool | None:
+        if self.request is None:
+            return None
+        return self.request.options.reconnect_on_disconnect
+
+    @property
+    def force_reconnect(self) -> bool:
+        if self.request is None:
+            return False
+        return self.request.options.force_reconnect
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +164,13 @@ class CardsCommand(CommandBase):
     action: str
     argument: str | None
     kind: Literal["cards_command"] = "cards_command"
+
+
+@dataclass(frozen=True, slots=True)
+class PluginsCommand(CommandBase):
+    action: str
+    argument: str | None
+    kind: Literal["plugins_command"] = "plugins_command"
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +323,24 @@ class PinSessionCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ExportSessionCommand(CommandBase):
+    target: str | None
+    agent_name: str | None
+    output_path: str | None
+    hf_dataset: str | None
+    hf_dataset_path: str | None
+    privacy_filter: bool
+    privacy_filter_path: str | None
+    download_privacy_filter: bool
+    privacy_filter_device: str | None
+    privacy_filter_variant: str | None
+    show_redactions: bool
+    show_help: bool
+    error: str | None
+    kind: Literal["export_session"] = "export_session"
+
+
+@dataclass(frozen=True, slots=True)
 class ShellCommand(CommandBase):
     """Execute a shell command directly."""
 
@@ -281,9 +349,23 @@ class ShellCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class AttachCommand(CommandBase):
+    paths: tuple[str, ...]
+    clear: bool = False
+    error: str | None = None
+    kind: Literal["attach_command"] = "attach_command"
+
+
+@dataclass(frozen=True, slots=True)
 class ModelReasoningCommand(CommandBase):
     value: str | None
     kind: Literal["model_reasoning"] = "model_reasoning"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelTaskBudgetCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_task_budget"] = "model_task_budget"
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,6 +384,12 @@ class ModelFastCommand(CommandBase):
 class ModelWebSearchCommand(CommandBase):
     value: str | None
     kind: Literal["model_web_search"] = "model_web_search"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelXSearchCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_x_search"] = "model_x_search"
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,6 +435,7 @@ CommandPayload = (
     | ClearCommand
     | SkillsCommand
     | CardsCommand
+    | PluginsCommand
     | ModelsCommand
     | SelectPromptCommand
     | SwitchAgentCommand
@@ -369,11 +458,15 @@ CommandPayload = (
     | ForkSessionCommand
     | ClearSessionsCommand
     | PinSessionCommand
+    | ExportSessionCommand
     | ShellCommand
+    | AttachCommand
     | ModelReasoningCommand
+    | ModelTaskBudgetCommand
     | ModelVerbosityCommand
     | ModelFastCommand
     | ModelWebSearchCommand
+    | ModelXSearchCommand
     | ModelWebFetchCommand
     | ModelSwitchCommand
     | InterruptCommand

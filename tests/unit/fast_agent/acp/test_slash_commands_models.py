@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 
 if TYPE_CHECKING:
@@ -18,23 +20,52 @@ if TYPE_CHECKING:
 class _Agent:
     acp_commands = {}
 
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(model=None)
+        self.llm = None
+
 
 class _FastModeLlm:
     service_tier_supported = True
-    available_service_tiers = ("fast", "flex")
+    available_service_tiers: tuple[str, ...] = ("fast", "flex")
+    task_budget_supported = False
 
     def __init__(self) -> None:
         self.service_tier: str | None = None
         self.reasoning_effort_spec = None
         self.text_verbosity_spec = None
+        self.text_verbosity = None
         self.web_search_supported = False
         self.web_fetch_supported = False
-        self.provider = "responses"
+        self.web_search_enabled = False
+        self.web_fetch_enabled = False
+        self.service_tier_supported = True
+        self.available_service_tiers: tuple[str, ...] = ("fast", "flex")
+        self.task_budget_supported = False
+        self.task_budget_tokens: int | None = None
+        self.resolved_model = None
+        self.provider = Provider.RESPONSES
         self.model_name = "gpt-5"
         self.default_request_params = RequestParams()
+        self.configured_transport = None
+        self.active_transport = None
 
     def set_service_tier(self, value: str | None) -> None:
         self.service_tier = value
+
+
+class _TaskBudgetLlm(_FastModeLlm):
+    task_budget_supported = True
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.task_budget_supported = True
+        self.task_budget_tokens: int | None = None
+        self.provider = Provider.ANTHROPIC
+        self.model_name = "claude-opus-4-7"
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        self.task_budget_tokens = value
 
 
 class _FastModeAgent:
@@ -42,6 +73,14 @@ class _FastModeAgent:
 
     def __init__(self) -> None:
         self.llm = _FastModeLlm()
+        self._llm = self.llm
+
+
+class _TaskBudgetAgent:
+    acp_commands = {}
+
+    def __init__(self) -> None:
+        self.llm = _TaskBudgetLlm()
         self._llm = self.llm
 
 
@@ -110,6 +149,7 @@ async def test_slash_command_models_not_registered_in_available_commands(tmp_pat
         os.chdir(previous_cwd)
 
     assert "models" not in command_names
+    assert "plugins" not in command_names
     assert "commands" in command_names
     assert "model" in command_names
 
@@ -185,10 +225,31 @@ async def test_slash_command_model_fast_and_dynamic_hint() -> None:
 
 
 @pytest.mark.asyncio
+async def test_slash_command_model_task_budget() -> None:
+    app = _App()
+    agent = _TaskBudgetAgent()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", agent)},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    output = await handler.execute_command("model", "task_budget 64k")
+
+    assert "Task budget: set to 64k." in output
+    assert agent.llm.task_budget_tokens == 64_000
+
+
+@pytest.mark.asyncio
 async def test_slash_command_model_fast_hint_omits_flex_for_codexresponses() -> None:
     app = _App()
     agent = _FastModeAgent()
-    agent.llm.provider = "codexresponses"
+    agent.llm.provider = Provider.CODEX_RESPONSES
     agent.llm.available_service_tiers = ("fast",)
     instance = AgentInstance(
         app=cast("AgentApp", app),

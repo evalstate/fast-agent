@@ -7,22 +7,28 @@ for creating agents in the DirectFastAgent framework.
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Any,
-    Awaitable,
     Callable,
     Literal,
     ParamSpec,
     Protocol,
     TypeVar,
+    cast,
+    overload,
 )
 
 from mcp.client.session import ElicitationFnT
 from pydantic import AnyUrl
 
+if TYPE_CHECKING:
+    from fastmcp.tools import FunctionTool
+
 from fast_agent.agents.agent_types import (
     AgentConfig,
     AgentType,
     FunctionToolsConfig,
+    ScopedFunctionToolConfig,
     SkillConfig,
 )
 from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
@@ -30,13 +36,36 @@ from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
+from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.function_tool_support import (
+    custom_class_supports_function_tools,
+    decorator_supports_scoped_function_tools,
+)
 from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
+from fast_agent.io.source_resolver import read_text_source
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 
 # Type variables for the decorated function
 P = ParamSpec("P")  # Parameters
 R = TypeVar("R", covariant=True)  # Return type
+ToolP = ParamSpec("ToolP")
+ToolR = TypeVar("ToolR")
+
+
+class ScopedToolDecoratorProtocol(Protocol):
+    """Protocol for per-agent ``.tool`` decorators."""
+
+    @overload
+    def __call__(self, fn: Callable[ToolP, ToolR], /) -> Callable[ToolP, ToolR]: ...
+
+    @overload
+    def __call__(
+        self,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
 
 
 # Protocol for decorated agent functions
@@ -46,7 +75,28 @@ class DecoratedAgentProtocol(Protocol[P, R]):
     _agent_type: AgentType
     _agent_config: AgentConfig
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Awaitable[R]: ...
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Coroutine[Any, Any, R]: ...
+
+
+class DecoratedToolCapableAgentProtocol(DecoratedAgentProtocol[P, R], Protocol):
+    """Protocol for decorated agent functions that expose ``.tool``."""
+
+    tool: ScopedToolDecoratorProtocol
+
+
+def _attach_scoped_tool_decorator(
+    func: Callable[P, Coroutine[Any, Any, R]],
+    tool: ScopedToolDecoratorProtocol,
+) -> DecoratedToolCapableAgentProtocol[P, R]:
+    """Attach a typed per-agent tool decorator to an agent function.
+
+    Decorated Python functions have a writable ``__dict__`` at runtime. The
+    protocol return type makes the intentional ``.tool`` API visible to type
+    checkers and IDEs while preserving the original function object.
+    """
+    decorated = cast("DecoratedToolCapableAgentProtocol[P, R]", func)
+    decorated.tool = tool
+    return decorated
 
 
 # Protocol for orchestrator functions
@@ -96,27 +146,6 @@ class DecoratedMakerProtocol(DecoratedAgentProtocol[P, R], Protocol):
     _max_samples: int
 
 
-def _fetch_url_content(url: str) -> str:
-    """
-    Fetch content from a URL.
-
-    Args:
-        url: The URL to fetch content from
-
-    Returns:
-        The text content from the URL
-
-    Raises:
-        requests.RequestException: If the URL cannot be fetched
-        UnicodeDecodeError: If the content cannot be decoded as UTF-8
-    """
-    import requests
-
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()  # Raise exception for HTTP errors
-    return response.text
-
-
 def _apply_templates(text: str) -> str:
     """
     Apply template substitutions to instruction text.
@@ -124,6 +153,7 @@ def _apply_templates(text: str) -> str:
     Supported templates:
         {{currentDate}} - Current date in format "24 July 2025"
         {{url:https://...}} - Content fetched from the specified URL
+        {{url:hf://...}} - Content fetched from Hugging Face Hub
 
     Note: File templates ({{file:...}} and {{file_silent:...}}) are resolved later
     during runtime to ensure they're relative to the workspaceRoot.
@@ -148,11 +178,11 @@ def _apply_templates(text: str) -> str:
     text = text.replace("{{currentDate}}", current_date)
 
     # Apply {{url:...}} templates
-    url_pattern = re.compile(r"\{\{url:(https?://[^}]+)\}\}")
+    url_pattern = re.compile(r"\{\{url:((?:https?|hf)://[^}]+)\}\}")
 
     def replace_url(match):
         url = match.group(1)
-        return _fetch_url_content(url)
+        return read_text_source(url, label="URL template")
 
     text = url_pattern.sub(replace_url, text)
 
@@ -176,9 +206,9 @@ def _resolve_instruction(instruction: str | Path | AnyUrl) -> str:
         requests.RequestException: If the URL cannot be fetched
     """
     if isinstance(instruction, Path):
-        text = instruction.read_text(encoding="utf-8")
+        text = read_text_source(instruction, label="instruction")
     elif isinstance(instruction, AnyUrl):
-        text = _fetch_url_content(str(instruction))
+        text = read_text_source(str(instruction), label="instruction")
     else:
         text = instruction
 
@@ -221,6 +251,19 @@ def _decorator_impl(
     """
 
     def decorator(func: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
+        if agent_type == AgentType.CUSTOM:
+            custom_cls = extra_kwargs.get("agent_class") or extra_kwargs.get("cls")
+            explicit_function_tools = extra_kwargs.get("function_tools")
+            if (
+                explicit_function_tools
+                and not custom_class_supports_function_tools(custom_cls)
+            ):
+                raise AgentConfigError(
+                    "Custom agent does not accept function tools",
+                    f"Custom agent '{name}' cannot use function_tools because "
+                    f"{getattr(custom_cls, '__name__', custom_cls)!r} does not accept tools=.",
+                )
+
         # Create agent configuration
         config = AgentConfig(
             name=name,
@@ -263,6 +306,57 @@ def _decorator_impl(
         for key, value in extra_kwargs.items():
             setattr(func, f"_{key}", value)
 
+        @overload
+        def _agent_tool(fn: Callable[ToolP, ToolR], /) -> Callable[ToolP, ToolR]: ...
+
+        @overload
+        def _agent_tool(
+            *, name: str | None = None, description: str | None = None
+        ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
+
+        def _agent_tool(
+            fn: Callable[..., Any] | None = None,
+            /,
+            *,
+            name: str | None = None,
+            description: str | None = None,
+        ) -> Callable[..., Any] | Callable[[Callable[..., Any]], Callable[..., Any]]:
+            """Register a tool scoped to this agent.
+
+            Supports bare and parameterized usage::
+
+                @my_agent.tool
+                def helper() -> str: ...
+
+                @my_agent.tool(name="add", description="Add two numbers")
+                def add(a: int, b: int) -> int: ...
+            """
+
+            def _register(f: Callable[..., Any]) -> Callable[..., Any]:
+                if config.function_tools is None:
+                    config.function_tools = []
+                if name is not None or description is not None:
+                    config.function_tools.append(
+                        ScopedFunctionToolConfig(
+                            function=f,
+                            name=name,
+                            description=description,
+                        )
+                    )
+                else:
+                    config.function_tools.append(f)
+                return f
+
+            if fn is not None:
+                return _register(fn)
+            return _register
+
+        if decorator_supports_scoped_function_tools(
+            agent_type,
+            custom_cls=extra_kwargs.get("agent_class") or extra_kwargs.get("cls"),
+        ):
+            return _attach_scoped_tool_decorator(func, _agent_tool)
+
         return func
 
     return decorator
@@ -280,8 +374,52 @@ class DecoratorMixin:
     agent configurations.
     """
 
-    # Type hint for the agents dict (provided by host class)
+    # Type hints for attributes provided by host class
     agents: dict[str, Any]
+    _registered_tools: "list[FunctionTool]"
+
+    @overload
+    def tool(self, func: Callable[ToolP, ToolR]) -> Callable[ToolP, ToolR]: ...
+
+    @overload
+    def tool(
+        self,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
+
+    def tool(
+        self,
+        func: Callable[..., Any] | None = None,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Callable[..., Any] | Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a Python function as a tool available to agents.
+
+        Supports both bare and parameterized usage::
+
+            @fast.tool
+            def greet(name: str) -> str: ...
+
+            @fast.tool(name="add", description="Add two numbers")
+            def add_numbers(a: int, b: int) -> int: ...
+
+        Tools registered this way are local Python function tools. They are
+        available to agents that support ``function_tools`` and do not declare
+        an explicit ``function_tools`` list.
+        """
+        from fast_agent.tools.function_tool_loader import build_default_function_tool
+
+        def _register(fn: Callable[..., Any]) -> Callable[..., Any]:
+            tool = build_default_function_tool(fn, name=name, description=description)
+            self._registered_tools.append(tool)
+            return fn
+
+        if func is not None:
+            return _register(func)
+        return _register
 
     def agent(
         self,
@@ -308,7 +446,10 @@ class DecoratorMixin:
         max_parallel: int | None = None,
         child_timeout_sec: int | None = None,
         max_display_instances: int | None = None,
-    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+    ) -> Callable[
+        [Callable[P, Coroutine[Any, Any, R]]],
+        DecoratedToolCapableAgentProtocol[P, R],
+    ]:
         """
         Decorator to create and register a standard agent with type-safe signature.
 
@@ -317,10 +458,10 @@ class DecoratorMixin:
             instruction_or_kwarg: Optional positional parameter for instruction
             instruction: Base instruction for the agent (keyword arg)
             servers: List of server names the agent should connect to
-            tools: Optional list of tool names or patterns to include
-            resources: Optional list of resource names or patterns to include
-            prompts: Optional list of prompt names or patterns to include
-            function_tools: Optional list of Python function tools to include
+            tools: Optional MCP tool filters by server name
+            resources: Optional MCP resource filters by server name
+            prompts: Optional MCP prompt filters by server name
+            function_tools: Optional local Python function tools to include
             model: Model specification string
             use_history: Whether to maintain conversation history
             request_params: Additional request parameters for the LLM
@@ -331,38 +472,46 @@ class DecoratorMixin:
 
         Returns:
             A decorator that registers the agent with proper type annotations
+
+        Naming note:
+        ``tools`` here is the MCP filter map, while ``function_tools`` is the
+        local Python tool configuration. Custom agent constructors still use a
+        runtime kwarg named ``tools=`` for the resolved function-tool objects.
         """
         final_instruction_raw = (
             instruction_or_kwarg if instruction_or_kwarg is not None else instruction
         )
         final_instruction = _resolve_instruction(final_instruction_raw)
 
-        return _decorator_impl(
-            self,
-            AgentType.BASIC,
-            name=name,
-            instruction=final_instruction,
-            child_agents=agents,
-            servers=servers,
-            model=model,
-            use_history=use_history,
-            request_params=request_params,
-            human_input=human_input,
-            default=default,
-            elicitation_handler=elicitation_handler,
-            tools=tools,
-            resources=resources,
-            prompts=prompts,
-            skills=skills,
-            function_tools=function_tools,
-            api_key=api_key,
-            agents_as_tools_options={
-                "history_source": history_source,
-                "history_merge_target": history_merge_target,
-                "max_parallel": max_parallel,
-                "child_timeout_sec": child_timeout_sec,
-                "max_display_instances": max_display_instances,
-            },
+        return cast(
+            "Any",
+            _decorator_impl(
+                self,
+                AgentType.BASIC,
+                name=name,
+                instruction=final_instruction,
+                child_agents=agents,
+                servers=servers,
+                model=model,
+                use_history=use_history,
+                request_params=request_params,
+                human_input=human_input,
+                default=default,
+                elicitation_handler=elicitation_handler,
+                tools=tools,
+                resources=resources,
+                prompts=prompts,
+                skills=skills,
+                function_tools=function_tools,
+                api_key=api_key,
+                agents_as_tools_options={
+                    "history_source": history_source,
+                    "history_merge_target": history_merge_target,
+                    "max_parallel": max_parallel,
+                    "child_timeout_sec": child_timeout_sec,
+                    "max_display_instances": max_display_instances,
+                },
+            ),
         )
 
     def smart(
@@ -390,39 +539,49 @@ class DecoratorMixin:
         max_parallel: int | None = None,
         child_timeout_sec: int | None = None,
         max_display_instances: int | None = None,
-    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-        """Decorator to create and register a smart agent."""
+    ) -> Callable[
+        [Callable[P, Coroutine[Any, Any, R]]],
+        DecoratedToolCapableAgentProtocol[P, R],
+    ]:
+        """Decorator to create and register a smart agent.
+
+        ``tools`` / ``resources`` / ``prompts`` filter MCP-discovered capabilities.
+        ``function_tools`` adds local Python tools exposed directly by the agent.
+        """
         final_instruction_raw = (
             instruction_or_kwarg if instruction_or_kwarg is not None else instruction
         )
         final_instruction = _resolve_instruction(final_instruction_raw)
 
-        return _decorator_impl(
-            self,
-            AgentType.SMART,
-            name=name,
-            instruction=final_instruction,
-            child_agents=agents,
-            servers=servers,
-            model=model,
-            use_history=use_history,
-            request_params=request_params,
-            human_input=human_input,
-            default=default,
-            elicitation_handler=elicitation_handler,
-            tools=tools,
-            resources=resources,
-            prompts=prompts,
-            skills=skills,
-            function_tools=function_tools,
-            api_key=api_key,
-            agents_as_tools_options={
-                "history_source": history_source,
-                "history_merge_target": history_merge_target,
-                "max_parallel": max_parallel,
-                "child_timeout_sec": child_timeout_sec,
-                "max_display_instances": max_display_instances,
-            },
+        return cast(
+            "Any",
+            _decorator_impl(
+                self,
+                AgentType.SMART,
+                name=name,
+                instruction=final_instruction,
+                child_agents=agents,
+                servers=servers,
+                model=model,
+                use_history=use_history,
+                request_params=request_params,
+                human_input=human_input,
+                default=default,
+                elicitation_handler=elicitation_handler,
+                tools=tools,
+                resources=resources,
+                prompts=prompts,
+                skills=skills,
+                function_tools=function_tools,
+                api_key=api_key,
+                agents_as_tools_options={
+                    "history_source": history_source,
+                    "history_merge_target": history_merge_target,
+                    "max_parallel": max_parallel,
+                    "child_timeout_sec": child_timeout_sec,
+                    "max_display_instances": max_display_instances,
+                },
+            ),
         )
 
 
@@ -439,6 +598,7 @@ class DecoratorMixin:
         resources: dict[str, list[str]] | None = None,
         prompts: dict[str, list[str]] | None = None,
         skills: SkillConfig = SKILLS_DEFAULT,
+        function_tools: FunctionToolsConfig = None,
         model: str | None = None,
         use_history: bool = True,
         request_params: RequestParams | None = None,
@@ -455,14 +615,23 @@ class DecoratorMixin:
             instruction_or_kwarg: Optional positional parameter for instruction
             instruction: Base instruction for the agent (keyword arg)
             servers: List of server names the agent should connect to
+            tools: Optional MCP tool filters by server name
+            resources: Optional MCP resource filters by server name
+            prompts: Optional MCP prompt filters by server name
             model: Model specification string
             use_history: Whether to maintain conversation history
             request_params: Additional request parameters for the LLM
             human_input: Whether to enable human input capabilities
             elicitation_handler: Custom elicitation handler function (ElicitationFnT)
+            function_tools: Optional local Python function tools to include
 
         Returns:
             A decorator that registers the agent with proper type annotations
+
+        Naming note:
+        ``tools`` here is the MCP filter map. If ``function_tools`` are
+        configured for a custom class, the resolved tool objects are passed to
+        the class constructor as ``tools=`` for compatibility.
         """
         final_instruction_raw = (
             instruction_or_kwarg if instruction_or_kwarg is not None else instruction
@@ -488,6 +657,7 @@ class DecoratorMixin:
             resources=resources,
             prompts=prompts,
             skills=skills,
+            function_tools=function_tools,
         )
 
 

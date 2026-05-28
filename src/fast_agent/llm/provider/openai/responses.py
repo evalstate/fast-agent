@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
@@ -12,6 +13,7 @@ from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
 )
@@ -47,12 +49,18 @@ from fast_agent.llm.provider.openai.schema_sanitizer import (
     should_strip_tool_schema_defaults,
 )
 from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
-from fast_agent.llm.provider.openai.web_tools import build_web_search_tool, resolve_web_search
+from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOutputMixin
+from fast_agent.llm.provider.openai.web_tools import (
+    ResolvedOpenAIWebSearch,
+    build_web_search_tool,
+    resolve_web_search,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.text_verbosity import parse_text_verbosity
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.provider_management import build_openai_provider_managed_mcp_tools
 from fast_agent.tools.apply_patch_tool import get_openai_responses_custom_tool_payload
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -65,6 +73,7 @@ DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
 RESPONSES_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
 RESPONSE_INCLUDE_REASONING = "reasoning.encrypted_content"
 RESPONSE_INCLUDE_WEB_SEARCH_SOURCES = "web_search_call.action.sources"
+OPENAI_TOOL_SEARCH_TOOL = {"type": "tool_search", "execution": "server"}
 
 ResponsesTransport = Literal["sse", "websocket", "auto"]
 ResponsesServiceTier = Literal["fast", "flex"]
@@ -75,6 +84,7 @@ class ResponsesLLM(
     ResponsesFileMixin,
     ResponsesOutputMixin,
     ResponsesStreamingMixin,
+    OpenAIStructuredOutputMixin,
     FastAgentLLM[dict[str, Any], Any],
 ):
     """LLM implementation for OpenAI's Responses models."""
@@ -108,6 +118,7 @@ class ResponsesLLM(
         self._last_ws_request_type: str | None = None
         self._last_ws_request_mode: Literal["create", "continuation"] | None = None
         self._last_ws_turn_outcome: Literal["fresh", "reused", "reconnected"] | None = None
+        self._last_ws_phase_timings_ms: dict[str, float] | None = None
         self._ws_turn_counters: dict[str, int] = {
             "total": 0,
             "fresh": 0,
@@ -235,6 +246,8 @@ class ResponsesLLM(
             payload["websocket_turn_outcome"] = self._last_ws_turn_outcome
         if metrics := self.websocket_turn_metrics:
             payload["websocket_turn_metrics"] = metrics
+        if self._last_ws_phase_timings_ms:
+            payload["websocket_phase_ms"] = self._last_ws_phase_timings_ms
         return payload
 
     def _parse_service_tier(self, raw_value: Any) -> ResponsesServiceTier | None:
@@ -500,8 +513,7 @@ class ResponsesLLM(
                 if payload_saved_bytes is not None and payload_saved_ratio is not None:
                     percent_saved = round(payload_saved_ratio * 100.0)
                     byte_counts = (
-                        f" {sent_payload_bytes}/{full_payload_bytes}B"
-                        f" ({percent_saved}% saved)"
+                        f" {sent_payload_bytes}/{full_payload_bytes}B ({percent_saved}% saved)"
                     )
                 else:
                     byte_counts = f" {sent_payload_bytes}/{full_payload_bytes}B"
@@ -655,6 +667,12 @@ class ResponsesLLM(
 
         return await self._responses_completion(input_items, req_params, tools)
 
+    def _build_web_search_tool(
+        self,
+        resolved_web_search: ResolvedOpenAIWebSearch,
+    ) -> dict[str, Any] | None:
+        return build_web_search_tool(resolved_web_search)
+
     def _build_response_args(
         self,
         input_items: list[dict[str, Any]],
@@ -692,11 +710,34 @@ class ResponsesLLM(
                 )
             base_args["tools"] = tools_payload
 
+        if self.provider_managed_mcp_state.has_servers():
+            if self.provider != Provider.RESPONSES:
+                raise ModelConfigError(
+                    "Provider-managed MCP is not supported for this Responses-family provider."
+                )
+            tools_payload = base_args.setdefault("tools", [])
+            if isinstance(tools_payload, list):
+                tools_payload.extend(
+                    build_openai_provider_managed_mcp_tools(self.provider_managed_mcp_state)
+                )
+                if (
+                    any(
+                        attachment.defer_loading
+                        for attachment in self.provider_managed_mcp_state.attachments
+                    )
+                    and not any(
+                        isinstance(tool_payload, dict)
+                        and tool_payload.get("type") == "tool_search"
+                        for tool_payload in tools_payload
+                    )
+                ):
+                    tools_payload.append(dict(OPENAI_TOOL_SEARCH_TOOL))
+
         resolved_web_search = resolve_web_search(
             self._openai_settings(),
             web_search_override=self._web_search_override,
         )
-        web_search_tool = build_web_search_tool(resolved_web_search)
+        web_search_tool = self._build_web_search_tool(resolved_web_search)
         if web_search_tool is not None:
             tools_payload = base_args.setdefault("tools", [])
             if isinstance(tools_payload, list):
@@ -769,6 +810,7 @@ class ResponsesLLM(
         self._last_ws_request_type = None
         self._last_ws_request_mode = None
         self._last_ws_turn_outcome = None
+        self._last_ws_phase_timings_ms = None
 
         try:
             if transport == "sse":
@@ -847,6 +889,11 @@ class ResponsesLLM(
             if channels is None:
                 channels = {}
             channels[OPENAI_ASSISTANT_MESSAGE_ITEMS] = assistant_message_items
+        raw_mcp_list_tools_items = self._extract_raw_mcp_list_tools_items(response)
+        if raw_mcp_list_tools_items:
+            if channels is None:
+                channels = {}
+            channels[OPENAI_MCP_LIST_TOOLS_ITEMS] = raw_mcp_list_tools_items
         tool_call_diagnostics = self._consume_tool_call_diagnostics()
         diagnostics_payload = dict(tool_call_diagnostics) if tool_call_diagnostics else None
         websocket_diagnostics = self._websocket_diagnostics_payload()
@@ -883,11 +930,14 @@ class ResponsesLLM(
         if getattr(response, "usage", None):
             self._record_usage(response.usage, model_name)
 
+        tool_search_payloads = self._extract_tool_search_metadata(response)
         web_tool_payloads, citation_payloads = self._extract_web_search_metadata(response)
-        if web_tool_payloads:
+        provider_mcp_payloads = self._extract_provider_mcp_metadata(response)
+        server_tool_payloads = [*tool_search_payloads, *web_tool_payloads, *provider_mcp_payloads]
+        if server_tool_payloads:
             if channels is None:
                 channels = {}
-            channels[ANTHROPIC_SERVER_TOOLS_CHANNEL] = web_tool_payloads
+            channels[ANTHROPIC_SERVER_TOOLS_CHANNEL] = server_tool_payloads
         if citation_payloads:
             if channels is None:
                 channels = {}
@@ -970,10 +1020,21 @@ class ResponsesLLM(
         tools: list[Tool] | None,
         model_name: str,
     ) -> tuple[Any, list[str], list[dict[str, Any]]]:
-        async with self._responses_client() as client:
-            normalized_input = await self._normalize_input_files(client, input_items)
+        ws_started_at = time.perf_counter()
+        phase_timings: dict[str, float] = {}
+        self._last_ws_phase_timings_ms = phase_timings
 
+        def record_phase(name: str, phase_started_at: float) -> None:
+            phase_timings[name] = round((time.perf_counter() - phase_started_at) * 1000.0, 2)
+
+        async with self._responses_client() as client:
+            phase_started_at = time.perf_counter()
+            normalized_input = await self._normalize_input_files(client, input_items)
+            record_phase("normalize_input", phase_started_at)
+
+        phase_started_at = time.perf_counter()
         arguments = self._build_response_args(normalized_input, request_params, tools)
+        record_phase("build_args", phase_started_at)
         self.logger.debug("Responses websocket request", data=arguments)
         capture_filename = _stream_capture_filename(self.chat_turn())
         _save_stream_request(capture_filename, arguments)
@@ -988,7 +1049,9 @@ class ResponsesLLM(
         last_error: ResponsesWebSocketError | None = None
         reconnected = False
         for attempt in range(2):
+            phase_started_at = time.perf_counter()
             connection, is_reusable = await self._ws_connections.acquire(_create_connection)
+            record_phase("acquire_connection", phase_started_at)
             reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
             planner = connection.session_state.request_planner
             if planner is None:
@@ -1004,7 +1067,9 @@ class ResponsesLLM(
                     "Using Responses websocket transport",
                     data={"model": model_name, "url": ws_url},
                 )
+                phase_started_at = time.perf_counter()
                 planned_request = planner.plan(arguments)
+                record_phase("plan_request", phase_started_at)
                 self._last_ws_request_type = planned_request.event_type
                 self._report_ws_request_plan(
                     model_name=model_name,
@@ -1013,8 +1078,11 @@ class ResponsesLLM(
                     full_arguments=arguments,
                     reused_existing_connection=reused_existing_connection,
                 )
+                phase_started_at = time.perf_counter()
                 await send_response_request(connection.websocket, planned_request)
+                record_phase("send_request", phase_started_at)
                 stream = WebSocketResponsesStream(connection.websocket)
+                stream_started_at = time.perf_counter()
                 timed_stream = with_stream_idle_timeout(
                     stream,
                     idle_timeout_seconds=timeout,
@@ -1024,6 +1092,12 @@ class ResponsesLLM(
                     response, streamed_summary = await self._process_stream(
                         timed_stream, model_name, capture_filename
                     )
+                    record_phase("stream_total", stream_started_at)
+                    if stream.first_event_monotonic is not None:
+                        phase_timings["first_event"] = round(
+                            (stream.first_event_monotonic - ws_started_at) * 1000.0,
+                            2,
+                        )
                 except TimeoutError:
                     if timeout is None:
                         raise
@@ -1043,6 +1117,7 @@ class ResponsesLLM(
                     self._record_ws_turn_outcome("reused")
                 else:
                     self._record_ws_turn_outcome("fresh")
+                phase_timings["total"] = round((time.perf_counter() - ws_started_at) * 1000.0, 2)
                 return response, streamed_summary, normalized_input
             except ResponsesWebSocketError as error:
                 planner.rollback(error, stream_started=error.stream_started)

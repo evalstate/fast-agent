@@ -7,10 +7,16 @@ import shutil
 import uuid
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from acp.helpers import text_block, tool_content
-from acp.schema import ToolCallProgress, ToolCallStart
+from acp.schema import (
+    ContentToolCallContent,
+    FileEditToolCallContent,
+    TerminalToolCallContent,
+    ToolCallProgress,
+    ToolCallStart,
+)
 
 from fast_agent.acp import ACPAwareMixin, ACPCommand
 from fast_agent.acp.acp_aware_mixin import ACPModeInfo
@@ -35,6 +41,8 @@ from hf_inference_acp.hf_config import (
     update_model_in_config,
 )
 from hf_inference_acp.wizard.model_catalog import format_model_list_help
+
+ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
 
 logger = get_logger(__name__)
 
@@ -97,8 +105,8 @@ def _normalize_hf_model(model: str) -> str:
     have the hf. prefix, add it automatically.
 
     Examples:
-        moonshotai/Kimi-K2-Thinking:together -> hf.moonshotai/Kimi-K2-Thinking:together
-        hf.moonshotai/Kimi-K2-Thinking:together -> hf.moonshotai/Kimi-K2-Thinking:together
+        deepseek-ai/DeepSeek-V4-Pro:fireworks-ai -> hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai
+        hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai -> hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai
         kimi -> kimi (alias, unchanged)
         gpt-4o -> gpt-4o (no /, unchanged)
     """
@@ -335,7 +343,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             return f"Error: Invalid model `{model}` - {e}"
 
         # Validate model exists on HuggingFace and has providers
-        validation = await validate_hf_model(model, aliases=ModelFactory.get_runtime_presets())
+        validation = await validate_hf_model(model, presets=ModelFactory.get_runtime_presets())
         if not validation.valid:
             return validation.error or "Error: Model validation failed"
 
@@ -633,18 +641,25 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         async def _send_connect_update(
             *,
             title: str | None = None,
-            status: str | None = None,
+            status: ToolCallStatus | None = None,
             message: str | None = None,
         ) -> None:
             if not self.acp:
                 return
             try:
-                content = [tool_content(text_block(message))] if message else None
+                content: (
+                    list[
+                        ContentToolCallContent
+                        | FileEditToolCallContent
+                        | TerminalToolCallContent
+                    ]
+                    | None
+                ) = [tool_content(text_block(message))] if message else None
                 await self.acp.send_session_update(
                     ToolCallProgress(
                         tool_call_id=tool_call_id,
                         title=title,
-                        status=status,  # type: ignore[arg-type]
+                        status=status,
                         content=content,
                         session_update="tool_call_update",
                     )
@@ -745,7 +760,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
             return f"Error: Invalid model `{model}` - {e}"
 
         # Validate model exists on HuggingFace and has providers
-        validation = await validate_hf_model(model, aliases=ModelFactory.get_runtime_presets())
+        validation = await validate_hf_model(model, presets=ModelFactory.get_runtime_presets())
         if not validation.valid:
             return validation.error or "Error: Model validation failed"
 

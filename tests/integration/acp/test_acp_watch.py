@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapability, Implementation, StopReason
+from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation, StopReason
 from acp.stdio import spawn_agent_process
 
 TEST_DIR = Path(__file__).parent
@@ -61,7 +61,7 @@ async def test_acp_watch_allows_prompt_reload(tmp_path: Path) -> None:
         init_response: InitializeResponse = await connection.initialize(
             protocol_version=1,
             client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
+                fs=FileSystemCapabilities(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
             client_info=Implementation(name="pytest-client", version="0.0.1"),

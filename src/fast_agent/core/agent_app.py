@@ -2,32 +2,47 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
+from __future__ import annotations
+
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
-from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
 from rich.markup import escape
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
-from fast_agent.core.default_agent import resolve_default_agent_name
+from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.usage_tracking import last_turn_usage
-from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.display_suppression import display_usage_enabled
-from fast_agent.ui.interactive_prompt import InteractivePrompt, PromptLoopResult
 from fast_agent.ui.progress_display import progress_display
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from mcp.types import GetPromptResult, PromptMessage
+
+    from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy
+    from fast_agent.command_actions import PluginCommandActionSpec
     from fast_agent.config import MCPServerSettings
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.types import PromptMessageExtended, RequestParams
+    from fast_agent.ui.interactive_prompt import PromptLoopResult
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class AgentRefreshResult:
+    changed: bool
+    active_agent: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
 
 class AgentApp:
@@ -46,8 +61,8 @@ class AgentApp:
         self,
         agents: dict[str, AgentProtocol],
         *,
-        reload_callback: Callable[[], Awaitable[bool]] | None = None,
-        refresh_callback: Callable[[], Awaitable[bool]] | None = None,
+        reload_callback: Callable[[], Awaitable[AgentRefreshResult]] | None = None,
+        refresh_callback: Callable[[], Awaitable[AgentRefreshResult]] | None = None,
         load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
         | None = None,
         load_data_callback: Callable[
@@ -72,6 +87,9 @@ class AgentApp:
         | None = None,
         tool_only_agents: set[str] | None = None,
         card_collision_warnings: list[str] | None = None,
+        noenv_mode: bool = False,
+        plugin_commands: dict[str, PluginCommandActionSpec] | None = None,
+        plugin_command_base_path: Path | None = None,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -105,6 +123,11 @@ class AgentApp:
         )
         self._tool_only_agents: set[str] = tool_only_agents or set()
         self._card_collision_warnings: list[str] = card_collision_warnings or []
+        self._plugin_commands = plugin_commands
+        self._plugin_command_base_path = plugin_command_base_path
+        self._last_refresh_result = AgentRefreshResult(changed=False)
+        self._noenv_mode = noenv_mode
+        self._missing_shell_cwd_policy_override: "MissingShellCwdPolicy | None" = None
         self._apply_agent_registry()
 
     def _apply_agent_registry(self) -> None:
@@ -122,6 +145,23 @@ class AgentApp:
     def get_agent(self, name: str) -> AgentProtocol | None:
         """Return the named agent if available, else None."""
         return self._agents.get(name)
+
+    @property
+    def plugin_commands(self) -> dict[str, PluginCommandActionSpec] | None:
+        return self._plugin_commands
+
+    @property
+    def plugin_command_base_path(self) -> Path | None:
+        return self._plugin_command_base_path
+
+    def set_plugin_commands(
+        self,
+        commands: dict[str, PluginCommandActionSpec] | None,
+        *,
+        base_path: Path | None,
+    ) -> None:
+        self._plugin_commands = commands
+        self._plugin_command_base_path = base_path
 
     def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
         if agent_name is None:
@@ -193,7 +233,7 @@ class AgentApp:
     def get_default_agent_name(self) -> str | None:
         return resolve_default_agent_name(
             self._agents,
-            is_default=lambda _name, agent: bool(getattr(agent.config, "default", False)),
+            is_default=lambda _name, agent: agent_is_default(agent),
             is_tool_only=lambda name, _agent: name in self._tool_only_agents,
         )
 
@@ -338,8 +378,11 @@ class AgentApp:
     async def reload_agents(self) -> bool:
         """Reload AgentCards and refresh active instances when available."""
         if not self._reload_callback:
+            self._last_refresh_result = AgentRefreshResult(changed=False)
             return False
-        return await self._reload_callback()
+        result = await self._reload_callback()
+        self._last_refresh_result = result
+        return result.changed
 
     def can_reload_agents(self) -> bool:
         """Return True if manual reload is available."""
@@ -468,11 +511,34 @@ class AgentApp:
         """Return warnings from agent card name collisions."""
         return list(self._card_collision_warnings)
 
-    def set_reload_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
+    @property
+    def noenv_mode(self) -> bool:
+        return self._noenv_mode
+
+    @noenv_mode.setter
+    def noenv_mode(self, value: bool) -> None:
+        self._noenv_mode = value
+
+    @property
+    def missing_shell_cwd_policy_override(self) -> "MissingShellCwdPolicy | None":
+        return self._missing_shell_cwd_policy_override
+
+    @missing_shell_cwd_policy_override.setter
+    def missing_shell_cwd_policy_override(self, value: "MissingShellCwdPolicy | None") -> None:
+        self._missing_shell_cwd_policy_override = value
+
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return self._last_refresh_result
+
+    def set_reload_callback(
+        self, callback: Callable[[], Awaitable[AgentRefreshResult]] | None
+    ) -> None:
         """Update the reload callback for manual AgentCard refresh."""
         self._reload_callback = callback
 
-    def set_refresh_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
+    def set_refresh_callback(
+        self, callback: Callable[[], Awaitable[AgentRefreshResult]] | None
+    ) -> None:
         """Update the refresh callback for lazy instance swaps."""
         self._refresh_callback = callback
 
@@ -569,12 +635,14 @@ class AgentApp:
 
     async def refresh_if_needed(self) -> bool:
         """Refresh agent instances if the registry has changed."""
-        return await self._refresh_if_needed()
+        result = await self._refresh_if_needed()
+        self._last_refresh_result = result
+        return result.changed
 
-    async def _refresh_if_needed(self) -> bool:
+    async def _refresh_if_needed(self) -> AgentRefreshResult:
         if self._refresh_callback:
             return await self._refresh_callback()
-        return False
+        return AgentRefreshResult(changed=False)
 
     @deprecated
     async def prompt(
@@ -620,6 +688,8 @@ class AgentApp:
         agent_types = self.visible_agent_types(force_include=agent_name)
 
         # Create the interactive prompt
+        from fast_agent.ui.interactive_prompt import InteractivePrompt
+
         prompt = InteractivePrompt(agent_types=agent_types)
 
         # Helper for pretty formatting the FINAL error

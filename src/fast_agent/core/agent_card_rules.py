@@ -66,6 +66,7 @@ AGENT_CARD_FIELDS = {
     "function_tools",
     "tool_hooks",
     "lifecycle_hooks",
+    "commands",
     "trim_tool_history",
     "tool_input_schema",
     "messages",
@@ -166,7 +167,19 @@ DEFAULT_USE_HISTORY_BY_TYPE: dict[CardType, bool] = {
     "MAKER": True,
 }
 
-MCP_CONNECT_ALLOWED_KEYS = frozenset({"target", "name", "headers", "auth"})
+MCP_CONNECT_ALLOWED_KEYS = frozenset(
+    {
+        "target",
+        "name",
+        "description",
+        "management",
+        "connector_id",
+        "headers",
+        "access_token",
+        "defer_loading",
+        "auth",
+    }
+)
 
 
 def normalize_card_type(raw_type: str | None) -> CardType | None:

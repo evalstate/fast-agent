@@ -1,0 +1,24 @@
+# Example minimal fast-agent.yaml for Bedrock
+
+# List of supported models: https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html
+# Model string format: bedrock.<model_id>?reasoning=<value>
+# Examples:
+#   bedrock.amazon.nova-lite-v1:0           # No reasoning
+#   bedrock.claude-sonnet-4-0?reasoning=high          # High reasoning effort
+#   bedrock.anthropic.claude-3-7-sonnet-20250219-v1:0?reasoning=medium  # Medium reasoning
+default_model: bedrock.amazon.nova-lite-v1:0
+
+# Bedrock uses the AWS credentials provider chain to authenticate.
+# This can be accomplished with aws sso login on local machines,
+# or by IAM roles within AWS.
+# see https://docs.aws.amazon.com/res/latest/ug/sso-idc.html
+bedrock:
+  region: "us-east-1" # required
+  profile: "default"  # optional, defaults to "default" - only needed if you have multiple profiles. 
+                      # Only needed on local machines, not on AWS.
+  
+  # Default reasoning effort for all Bedrock models (can be overridden in model string)
+  # Options: "minimal" (off), "low" (512 tokens), "medium" (1024 tokens), "high" (2048 tokens)
+  # Note: Only Claude 4, Claude 3.7 Sonnet, and DeepSeek-R1 support reasoning
+  # Other models will automatically fallback to no reasoning if unsupported
+  reasoning_effort: "minimal"  # Default: disabled

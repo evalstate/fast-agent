@@ -24,14 +24,15 @@ class OpenAIToolNotificationMixin:
         tool_use_id: str,
         index: int,
         model: str,
+        payload: dict[str, Any] | None = None,
     ) -> None:
-        payload = {
+        event_payload = payload or {
             "tool_name": tool_name,
             "tool_use_id": tool_use_id,
             "index": index,
         }
 
-        self._notify_tool_stream_listeners("start", payload)
+        self._notify_tool_stream_listeners("start", event_payload)
         self.logger.info(
             "Model emitted fallback tool notification",
             data={
@@ -44,7 +45,7 @@ class OpenAIToolNotificationMixin:
                 "fallback": True,
             },
         )
-        self._notify_tool_stream_listeners("stop", payload)
+        self._notify_tool_stream_listeners("stop", event_payload)
         self.logger.info(
             "Model emitted fallback tool notification",
             data={

@@ -10,6 +10,8 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.openai.codex_oauth import parse_chatgpt_account_id
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
+    ManagedWebSocketConnection,
+    ResponsesWebSocketError,
     ResponsesWsRequestPlanner,
     StatefulContinuationResponsesWsPlanner,
 )
@@ -110,6 +112,48 @@ class CodexResponsesLLM(ResponsesLLM):
             app_version = "unknown"
         default_headers.setdefault("User-Agent", f"fast-agent/{app_version}")
         return default_headers | super()._build_websocket_headers()
+
+    async def _create_websocket_connection(
+        self,
+        url: str,
+        headers: dict[str, str],
+        timeout_seconds: float | None,
+    ) -> ManagedWebSocketConnection:
+        try:
+            return await super()._create_websocket_connection(url, headers, timeout_seconds)
+        except ResponsesWebSocketError as exc:
+            if exc.status != 401:
+                raise
+        # 401: attempt silent token refresh then retry once.
+        self.logger.warning(
+            "Codex WebSocket rejected with 401; attempting token refresh",
+            data={"url": url},
+        )
+        from fast_agent.llm.provider.openai.codex_oauth import (
+            load_codex_tokens,
+            refresh_codex_tokens,
+            save_codex_tokens,
+        )
+        tokens = load_codex_tokens()
+        if not tokens or not tokens.refresh_token:
+            raise ProviderKeyError(
+                "Codex OAuth token rejected (401)",
+                "The Codex OAuth token was rejected and no refresh token is available. "
+                "Run `fast-agent auth codex-login` to reauthenticate.",
+            )
+        try:
+            refreshed = refresh_codex_tokens(tokens.refresh_token)
+            if not refreshed.refresh_token:
+                refreshed = refreshed.model_copy(update={"refresh_token": tokens.refresh_token})
+            save_codex_tokens(refreshed)
+        except ProviderKeyError as refresh_err:
+            raise ProviderKeyError(
+                "Codex OAuth token rejected (401) and refresh failed",
+                "The Codex OAuth token is invalid and could not be refreshed automatically. "
+                "Run `fast-agent auth codex-login` to reauthenticate.",
+            ) from refresh_err
+        fresh_headers = self._build_websocket_headers()
+        return await super()._create_websocket_connection(url, fresh_headers, timeout_seconds)
 
     def _build_response_args(
         self,

@@ -1,5 +1,5 @@
 import base64
-from typing import Any, cast
+from typing import Any, TypeAlias, cast
 
 # Import necessary types from google.genai
 from google.genai import types
@@ -19,6 +19,7 @@ from mcp.types import (
 from pydantic import AnyUrl
 
 from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
     get_image_data,
     get_text,
     is_image_content,
@@ -27,6 +28,8 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_text_content,
 )
 from fast_agent.types import PromptMessageExtended, RequestParams
+
+GoogleToolResult: TypeAlias = tuple[str, str | None, CallToolResult]
 
 
 class GoogleConverter:
@@ -44,6 +47,11 @@ class GoogleConverter:
         Recursively removes unsupported JSON schema keywords for google.genai.types.Schema.
         Specifically removes 'additionalProperties', '$schema', 'exclusiveMaximum', and 'exclusiveMinimum'.
         Also resolves $ref references and inlines $defs.
+
+        Pydantic structured outputs are passed to google.genai as model classes
+        so the SDK can normalize them. This helper is only for arbitrary raw
+        schema dicts, where fast-agent strips known-unsupported keywords before
+        handing the schema to the SDK.
         """
         # First, resolve any $ref references in the schema
         schema = self._resolve_refs(schema, schema)
@@ -167,26 +175,31 @@ class GoogleConverter:
                                 data=pdf_bytes,
                             )
                         )
-                    elif part_content.resource.mimeType and part_content.resource.mimeType.startswith(
-                        "video/"
+                    elif part_content.resource.mimeType and (
+                        part_content.resource.mimeType.startswith("video/")
+                        or part_content.resource.mimeType.startswith("audio/")
                     ):
-                        # Handle video content
+                        # Handle embedded audio/video content.
                         if isinstance(part_content.resource, BlobResourceContents):
-                            video_bytes = base64.b64decode(part_content.resource.blob)
+                            media_bytes = base64.b64decode(part_content.resource.blob)
                             parts.append(
                                 types.Part.from_bytes(
                                     mime_type=part_content.resource.mimeType,
-                                    data=video_bytes,
+                                    data=media_bytes,
                                 )
                             )
                         else:
-                            # Handle non-blob video resources (YouTube URLs, File API URIs, etc.)
-                            # Google supports YouTube URLs and File API URIs directly via file_data
+                            # Handle non-blob media resources (YouTube URLs, File API URIs, etc.)
+                            # Google supports media URLs and File API URIs directly via file_data
                             uri_str = getattr(part_content.resource, "uri", None)
-                            mime_str = getattr(part_content.resource, "mimeType", "video/mp4")
-                            
+                            mime_str = getattr(
+                                part_content.resource,
+                                "mimeType",
+                                "application/octet-stream",
+                            )
+
                             if uri_str:
-                                # Use file_data for YouTube URLs and File API URIs
+                                # Use file_data for media URLs and File API URIs
                                 # Google accepts: YouTube URLs, gs:// URIs, and uploaded file URIs
                                 parts.append(
                                     types.Part.from_uri(
@@ -303,28 +316,36 @@ class GoogleConverter:
         )
 
     def convert_function_results_to_google(
-        self, tool_results: list[tuple[str, CallToolResult]]
+        self, tool_results: list[GoogleToolResult]
     ) -> list[types.Content]:
         """
         Converts a list of fast-agent tool results to google.genai types.Content
-        with role 'tool'. Handles multimodal content in tool results.
+        with role 'user'. Handles multimodal content in tool results.
+        Returns a single types.Content with all function response parts.
         """
-        google_tool_response_contents: list[types.Content] = []
-        for tool_name, tool_result in tool_results:
-            current_content_parts: list[types.Part] = []
-            textual_outputs: list[str] = []
-            media_parts: list[types.Part] = []
+        if not tool_results:
+            return []
 
-            for item in tool_result.content:
+        parts: list[types.Part] = []
+        for tool_name, tool_call_id, tool_result in tool_results:
+            textual_outputs: list[str] = []
+            media_parts: list[types.FunctionResponsePart] = []
+
+            canonical_content = canonicalize_tool_result_content_for_llm(
+                tool_result,
+                source="google",
+            )
+            for item in canonical_content:
                 if is_text_content(item):
                     textual_outputs.append(get_text(item) or "")  # Ensure no None is added
                 elif is_image_content(item):
                     assert isinstance(item, ImageContent)
                     try:
                         image_bytes = base64.b64decode(get_image_data(item) or "")
-                        media_parts.append(
-                            types.Part.from_bytes(data=image_bytes, mime_type=item.mimeType)
-                        )
+                        media_parts.append(self._function_response_inline_part(
+                            data=image_bytes,
+                            mime_type=item.mimeType,
+                        ))
                     except Exception as e:
                         textual_outputs.append(f"[Error processing image from tool result: {e}]")
                 elif is_resource_content(item):
@@ -336,14 +357,30 @@ class GoogleConverter:
                     ):
                         try:
                             pdf_bytes = base64.b64decode(item.resource.blob)
-                            media_parts.append(
-                                types.Part.from_bytes(
-                                    data=pdf_bytes,
-                                    mime_type=item.resource.mimeType or "application/pdf",
-                                )
-                            )
+                            media_parts.append(self._function_response_inline_part(
+                                data=pdf_bytes,
+                                mime_type=item.resource.mimeType or "application/pdf",
+                            ))
                         except Exception as e:
                             textual_outputs.append(f"[Error processing PDF from tool result: {e}]")
+                    elif (
+                        item.resource.mimeType
+                        and (
+                            item.resource.mimeType.startswith("video/")
+                            or item.resource.mimeType.startswith("audio/")
+                        )
+                        and isinstance(item.resource, BlobResourceContents)
+                    ):
+                        try:
+                            media_bytes = base64.b64decode(item.resource.blob)
+                            media_parts.append(self._function_response_inline_part(
+                                data=media_bytes,
+                                mime_type=item.resource.mimeType,
+                            ))
+                        except Exception as e:
+                            textual_outputs.append(
+                                f"[Error processing media from tool result: {e}]"
+                            )
                     else:
                         # Check if the resource itself has text content
                         # Try to get text from TextResourceContents directly
@@ -371,7 +408,10 @@ class GoogleConverter:
                         or mime.startswith("audio/")
                         or mime.startswith("image/")
                     ):
-                        media_parts.append(types.Part.from_uri(file_uri=uri_str, mime_type=mime))
+                        media_parts.append(self._function_response_file_part(
+                            file_uri=uri_str,
+                            mime_type=mime,
+                        ))
                     else:
                         # Fallback to text representation for non-media types
                         text = get_text(item)
@@ -379,30 +419,49 @@ class GoogleConverter:
                             textual_outputs.append(text)
                 # Add handling for other content types if needed, for now they are skipped or become unhandled resource text
 
-            function_response_payload: dict[str, Any] = {"tool_name": tool_name}
-            if textual_outputs:
-                function_response_payload["text_content"] = "\n".join(textual_outputs)
-
-            # Only add media_parts if there are some, otherwise Gemini might error on empty parts for function response
-            if media_parts:
-                # Create the main FunctionResponse part
-                fn_response_part = types.Part.from_function_response(
-                    name=tool_name, response=function_response_payload
-                )
-                current_content_parts.append(fn_response_part)
-                current_content_parts.extend(
-                    media_parts
-                )  # Add media parts after the main response part
-            else:  # If no media parts, the textual output (if any) is the sole content of the function response
-                fn_response_part = types.Part.from_function_response(
-                    name=tool_name, response=function_response_payload
-                )
-                current_content_parts.append(fn_response_part)
-
-            google_tool_response_contents.append(
-                types.Content(role="tool", parts=current_content_parts)
+            output_text = "\n".join(textual_outputs)
+            function_response_payload: dict[str, Any] = (
+                {"error": output_text or "Tool execution failed."}
+                if tool_result.isError
+                else {"result": output_text}
             )
-        return google_tool_response_contents
+            fn_response_part = types.Part(
+                function_response=types.FunctionResponse(
+                    name=tool_name,
+                    id=tool_call_id,
+                    response=function_response_payload,
+                    parts=media_parts or None,
+                )
+            )
+            parts.append(fn_response_part)
+
+        return [types.Content(role="user", parts=parts)]
+
+    @staticmethod
+    def _function_response_inline_part(
+        *,
+        data: bytes,
+        mime_type: str | None,
+    ) -> types.FunctionResponsePart:
+        return types.FunctionResponsePart(
+            inline_data=types.FunctionResponseBlob(
+                data=data,
+                mime_type=mime_type,
+            )
+        )
+
+    @staticmethod
+    def _function_response_file_part(
+        *,
+        file_uri: str,
+        mime_type: str,
+    ) -> types.FunctionResponsePart:
+        return types.FunctionResponsePart(
+            file_data=types.FunctionResponseFileData(
+                file_uri=file_uri,
+                mime_type=mime_type,
+            )
+        )
 
     def convert_request_params_to_google_config(
         self,
@@ -433,16 +492,21 @@ class GoogleConverter:
             return None
 
         config_args: dict[str, Any] = {}
-        if request_params.temperature is not None:
-            config_args["temperature"] = request_params.temperature
+        model = (request_params.model or "").lower()
+        is_gemini_3 = "gemini-3" in model or "gemini-3.5" in model
+
+        if not is_gemini_3:
+            if request_params.temperature is not None:
+                config_args["temperature"] = request_params.temperature
+            top_k = _param_value("top_k", "topK")
+            if top_k is not None:
+                config_args["top_k"] = top_k
+            top_p = _param_value("top_p", "topP")
+            if top_p is not None:
+                config_args["top_p"] = top_p
+
         if request_params.maxTokens is not None:
             config_args["max_output_tokens"] = request_params.maxTokens
-        top_k = _param_value("top_k", "topK")
-        if top_k is not None:
-            config_args["top_k"] = top_k
-        top_p = _param_value("top_p", "topP")
-        if top_p is not None:
-            config_args["top_p"] = top_p
         if hasattr(request_params, "stopSequences") and request_params.stopSequences is not None:
             config_args["stop_sequences"] = request_params.stopSequences
         presence_penalty = _param_value("presence_penalty", "presencePenalty")
@@ -453,24 +517,45 @@ class GoogleConverter:
             config_args["frequency_penalty"] = frequency_penalty
         if request_params.systemPrompt is not None:
             config_args["system_instruction"] = request_params.systemPrompt
+
         if thinking_level is not None or thinking_budget is not None:
             sdk_thinking_level = cast("Any", thinking_level)
-            if thinking_level is not None and thinking_budget is not None:
-                config_args["thinking_config"] = types.ThinkingConfig(
-                    include_thoughts=True,
-                    thinking_level=sdk_thinking_level,
-                    thinking_budget=thinking_budget,
-                )
-            elif thinking_level is not None:
-                config_args["thinking_config"] = types.ThinkingConfig(
-                    include_thoughts=True,
-                    thinking_level=sdk_thinking_level,
-                )
-            elif thinking_budget is not None:
-                config_args["thinking_config"] = types.ThinkingConfig(
-                    include_thoughts=True,
-                    thinking_budget=thinking_budget,
-                )
+            if is_gemini_3:
+                # For Gemini 3+, do not pass non-zero/non-None thinking_budget (use thinking_level string enum only).
+                # To disable thinking, thinking_budget=0 is used.
+                if thinking_level is not None:
+                    config_args["thinking_config"] = types.ThinkingConfig(
+                        include_thoughts=True,
+                        thinking_level=sdk_thinking_level,
+                    )
+                elif thinking_budget == 0:
+                    config_args["thinking_config"] = types.ThinkingConfig(
+                        include_thoughts=True,
+                        thinking_budget=0,
+                    )
+                else:
+                    # Map other budget settings to medium effort to avoid passing raw numeric budget
+                    config_args["thinking_config"] = types.ThinkingConfig(
+                        include_thoughts=True,
+                        thinking_level=cast("Any", "MEDIUM"),
+                    )
+            else:
+                if thinking_level is not None and thinking_budget is not None:
+                    config_args["thinking_config"] = types.ThinkingConfig(
+                        include_thoughts=True,
+                        thinking_level=sdk_thinking_level,
+                        thinking_budget=thinking_budget,
+                    )
+                elif thinking_level is not None:
+                    config_args["thinking_config"] = types.ThinkingConfig(
+                        include_thoughts=True,
+                        thinking_level=sdk_thinking_level,
+                    )
+                elif thinking_budget is not None:
+                    config_args["thinking_config"] = types.ThinkingConfig(
+                        include_thoughts=True,
+                        thinking_budget=thinking_budget,
+                    )
         return types.GenerateContentConfig(**config_args)
 
     def convert_from_google_content_list(

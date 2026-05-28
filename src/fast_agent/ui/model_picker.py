@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
     GENERIC_CUSTOM_MODEL_SENTINEL,
+    LLAMACPP_IMPORT_SENTINEL,
+    LLAMACPP_PROVIDER_KEY,
     REFER_TO_DOCS_PROVIDERS,
     ModelOption,
     ModelSource,
@@ -28,10 +30,11 @@ from fast_agent.ui.model_picker_common import (
     build_snapshot,
     find_provider,
     model_identity,
-    model_options_for_provider,
+    model_options_for_option,
     provider_activation_action,
 )
 from fast_agent.ui.picker_theme import build_picker_style
+from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 StyleFragments = list[tuple[str, str]]
 
@@ -150,6 +153,10 @@ class _SplitListPicker:
     def current_provider(self) -> ProviderOption:
         return self.snapshot.providers[self.state.provider_index]
 
+    @staticmethod
+    def _provider_is_available(option: ProviderOption) -> bool:
+        return option.active or option.option_key == LLAMACPP_PROVIDER_KEY
+
     def _provider_requires_docs_only(self) -> bool:
         provider = self.current_provider.provider
         return provider in REFER_TO_DOCS_PROVIDERS if provider is not None else False
@@ -165,13 +172,9 @@ class _SplitListPicker:
 
     @property
     def current_models(self) -> list[ModelOption]:
-        if self.current_provider.overlay_group:
-            return self._overlay_models()
-        provider = self.current_provider.provider
-        assert provider is not None
-        return model_options_for_provider(
+        return model_options_for_option(
             self.snapshot,
-            provider,
+            self.current_provider,
             source=self.state.source,
         )
 
@@ -239,16 +242,11 @@ class _SplitListPicker:
             self.current_provider.option_key,
         )
         for source in ("curated", "all"):
-            if provider_option.overlay_group:
-                models = self._overlay_models()
-            else:
-                provider = provider_option.provider
-                assert provider is not None
-                models = model_options_for_provider(
-                    self.snapshot,
-                    provider,
-                    source=source,
-                )
+            models = model_options_for_option(
+                self.snapshot,
+                provider_option,
+                source=source,
+            )
             match_index = _find_initial_model_index(models, self._initial_model_spec)
             if match_index is None:
                 continue
@@ -294,10 +292,14 @@ class _SplitListPicker:
         return " ".join(parts)
 
     def _provider_availability_label(self, option: ProviderOption) -> str:
+        if option.option_key == LLAMACPP_PROVIDER_KEY:
+            return "available"
         if option.overlay_group and not option.curated_entries:
             return "none yet"
         if option.active:
             return "available"
+        if option.disabled_reason is not None:
+            return "disabled"
         if self._provider_activation_action(option) is not None:
             return "sign in required"
         return "not configured"
@@ -306,10 +308,14 @@ class _SplitListPicker:
         self,
         option: ProviderOption,
     ) -> Literal["active", "attention", "inactive"]:
+        if option.option_key == LLAMACPP_PROVIDER_KEY:
+            return "active"
         if option.overlay_group and not option.curated_entries:
             return "inactive"
         if option.active:
             return "active"
+        if option.disabled_reason is not None:
+            return "attention"
         if self._provider_activation_action(option) is not None:
             return "attention"
         return "inactive"
@@ -323,7 +329,7 @@ class _SplitListPicker:
         if config_name == "codexresponses":
             return "Codex (Plan)"
         if config_name == "generic":
-            return "Local (ollama)"
+            return "Generic (ollama)"
         if config_name == "fast-agent":
             return "fast-agent"
 
@@ -342,6 +348,8 @@ class _SplitListPicker:
 
     @staticmethod
     def _provider_entry_count_label(option: ProviderOption) -> str:
+        if option.option_key == LLAMACPP_PROVIDER_KEY:
+            return "import flow"
         if option.overlay_group:
             entry_count = len(option.curated_entries)
             suffix = "overlay" if entry_count == 1 else "overlays"
@@ -425,7 +433,7 @@ class _SplitListPicker:
         models = self.current_models
         self._clamp_model_index()
 
-        provider_available = self.current_provider.active
+        provider_available = self._provider_is_available(self.current_provider)
         if not models:
             empty_message = (
                 "  No local overlays found.\n"
@@ -467,6 +475,8 @@ class _SplitListPicker:
         warning = ""
         if self._provider_requires_docs_only():
             warning = " · see docs"
+        elif provider.disabled_reason is not None:
+            warning = f" · {provider.disabled_reason}"
         elif self._provider_activation_action(provider) is not None:
             warning = " · press Enter to log in"
 
@@ -549,7 +559,7 @@ class _SplitListPicker:
                 event.app.exit(
                     result=ModelPickerResult(
                         provider=provider.option_key,
-                        provider_available=provider.active,
+                        provider_available=self._provider_is_available(provider),
                         selected_model=selected_value,
                         resolved_model=None,
                         source=self.state.source,
@@ -566,8 +576,25 @@ class _SplitListPicker:
                 event.app.exit(
                     result=ModelPickerResult(
                         provider=provider.option_key,
-                        provider_available=provider.active,
+                        provider_available=self._provider_is_available(provider),
                         selected_model=selected_value,
+                        resolved_model=None,
+                        source=self.state.source,
+                        refer_to_docs=False,
+                        activation_action=None,
+                    )
+                )
+                return
+
+            if (
+                provider.option_key == LLAMACPP_PROVIDER_KEY
+                and selected_model.spec == LLAMACPP_IMPORT_SENTINEL
+            ):
+                event.app.exit(
+                    result=ModelPickerResult(
+                        provider=provider.option_key,
+                        provider_available=self._provider_is_available(provider),
+                        selected_model=selected_model.spec,
                         resolved_model=None,
                         source=self.state.source,
                         refer_to_docs=False,
@@ -580,7 +607,7 @@ class _SplitListPicker:
                 event.app.exit(
                     result=ModelPickerResult(
                         provider=provider.option_key,
-                        provider_available=provider.active,
+                        provider_available=self._provider_is_available(provider),
                         selected_model=None,
                         resolved_model=None,
                         source=self.state.source,
@@ -593,7 +620,7 @@ class _SplitListPicker:
             event.app.exit(
                 result=ModelPickerResult(
                     provider=provider.option_key,
-                    provider_available=provider.active,
+                    provider_available=self._provider_is_available(provider),
                     selected_model=selected_value,
                     resolved_model=selected_value,
                     source=self.state.source,
@@ -611,7 +638,8 @@ class _SplitListPicker:
         return kb
 
     def run(self) -> ModelPickerResult | None:
-        result = self.app.run()
+        with suppress_known_runtime_warnings():
+            result = self.app.run()
         if result is None:
             return None
         if isinstance(result, ModelPickerResult):
@@ -619,7 +647,8 @@ class _SplitListPicker:
         return None
 
     async def run_async(self) -> ModelPickerResult | None:
-        result = await self.app.run_async()
+        with suppress_known_runtime_warnings():
+            result = await self.app.run_async()
         if result is None:
             return None
         if isinstance(result, ModelPickerResult):

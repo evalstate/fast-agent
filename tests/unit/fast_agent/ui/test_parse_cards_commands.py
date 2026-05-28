@@ -14,3 +14,10 @@ def test_parse_cards_with_action_and_argument() -> None:
     assert isinstance(result, CardsCommand)
     assert result.action == "update"
     assert result.argument == "all --force"
+
+
+def test_parse_cards_readme_with_argument() -> None:
+    result = parse_special_input("/cards readme alpha")
+    assert isinstance(result, CardsCommand)
+    assert result.action == "readme"
+    assert result.argument == "alpha"

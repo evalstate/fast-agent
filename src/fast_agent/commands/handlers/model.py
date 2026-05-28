@@ -10,14 +10,20 @@ from fast_agent.commands.model_capabilities import (
     describe_service_tier_state,
     resolve_service_tier,
     resolve_service_tier_supported,
+    resolve_task_budget_supported,
+    resolve_task_budget_tokens,
     resolve_web_fetch_enabled,
     resolve_web_fetch_supported,
     resolve_web_search_enabled,
     resolve_web_search_supported,
+    resolve_x_search_enabled,
+    resolve_x_search_supported,
     service_tier_command_values,
     set_service_tier,
+    set_task_budget_tokens,
     set_web_fetch_enabled,
     set_web_search_enabled,
+    set_x_search_enabled,
 )
 from fast_agent.commands.model_details import (
     add_model_details,
@@ -39,11 +45,18 @@ from fast_agent.llm.reasoning_effort import (
     parse_reasoning_setting,
     validate_reasoning_setting,
 )
+from fast_agent.llm.task_budget import (
+    TASK_BUDGET_MIN_TOKENS,
+    format_task_budget_tokens,
+    parse_task_budget_tokens,
+    validate_task_budget_tokens,
+)
 from fast_agent.llm.text_verbosity import (
     available_text_verbosity_values,
     format_text_verbosity,
     parse_text_verbosity,
 )
+from fast_agent.ui.model_picker_common import infer_initial_picker_provider
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
@@ -51,8 +64,10 @@ if TYPE_CHECKING:
 
 
 model_supports_web_search = _model_capabilities.model_supports_web_search
+model_supports_x_search = _model_capabilities.model_supports_x_search
 model_supports_web_fetch = _model_capabilities.model_supports_web_fetch
 model_supports_service_tier = _model_capabilities.model_supports_service_tier
+model_supports_task_budget = _model_capabilities.model_supports_task_budget
 model_supports_text_verbosity = _model_capabilities.model_supports_text_verbosity
 
 
@@ -79,12 +94,11 @@ def _resolve_agent_llm(
     outcome: CommandOutcome,
 ) -> tuple["LlmAgentProtocol", FastAgentLLMProtocol] | None:
     agent = cast("LlmAgentProtocol", ctx.agent_provider._agent(agent_name))
-    llm_obj = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
+    llm_obj = agent.llm
     if llm_obj is None:
         outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
         return None
-    llm = cast("FastAgentLLMProtocol", llm_obj)
-    return agent, llm
+    return agent, llm_obj
 
 
 async def _handle_model_web_tool(
@@ -98,6 +112,12 @@ async def _handle_model_web_tool(
     enabled_resolver: Callable[[object], bool],
     setter: Callable[[object, bool | None], None],
 ) -> CommandOutcome:
+    # TODO: If another provider-native boolean tool lands, consider replacing the
+    # web_search/x_search/web_fetch-specific command/protocol plumbing with a
+    # typed runtime-setting registry. Keep user-facing commands as aliases, but
+    # route parser, ACP, completions, capability checks, and this handler through
+    # one generic setting key. Provider code would still translate each key into
+    # its native payload/metadata shape.
     outcome = CommandOutcome()
     resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
     if resolved is None:
@@ -182,8 +202,7 @@ def _resolve_toggle_to_default(
 def _resolve_model_switch_initial_provider(llm: "FastAgentLLMProtocol") -> str | None:
     if llm.resolved_model.overlay is not None:
         return "overlays"
-    config_name = llm.provider.config_name
-    return config_name.strip() if config_name.strip() else None
+    return infer_initial_picker_provider(llm.resolved_model.selected_model_name)
 
 
 async def handle_model_switch(
@@ -443,6 +462,76 @@ async def handle_model_verbosity(
     return outcome
 
 
+async def handle_model_task_budget(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
+    if resolved is None:
+        return outcome
+    agent, llm = resolved
+
+    add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=value is None,
+        include_runtime_settings=value is None,
+    )
+
+    if not resolve_task_budget_supported(llm):
+        outcome.add_message(
+            "Current model does not support task budget configuration.",
+            channel="warning",
+            right_info="model",
+        )
+        return outcome
+
+    allowed = (
+        f"off, 20k+, or shorthand values like 64k/128k/256k "
+        f"(minimum {TASK_BUDGET_MIN_TOKENS:,} tokens)"
+    )
+    if value is None:
+        current = format_task_budget_tokens(resolve_task_budget_tokens(llm))
+        outcome.add_message(
+            styled_selected_with_allowed("Task budget", current, allowed),
+            channel="system",
+            right_info="model",
+        )
+        return outcome
+
+    try:
+        parsed = validate_task_budget_tokens(parse_task_budget_tokens(value))
+    except ValueError as exc:
+        outcome.add_message(
+            f"Invalid task budget value '{value}'. {exc}",
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    try:
+        set_task_budget_tokens(llm, parsed)
+    except ValueError as exc:
+        outcome.add_message(
+            str(exc),
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    outcome.add_message(
+        styled_set_line("Task budget", format_task_budget_tokens(resolve_task_budget_tokens(llm))),
+        channel="system",
+        right_info="model",
+    )
+    return outcome
+
+
 async def handle_model_web_search(
     ctx: CommandContext,
     *,
@@ -458,6 +547,24 @@ async def handle_model_web_search(
         supported_resolver=resolve_web_search_supported,
         enabled_resolver=resolve_web_search_enabled,
         setter=set_web_search_enabled,
+    )
+
+
+async def handle_model_x_search(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+) -> CommandOutcome:
+    return await _handle_model_web_tool(
+        ctx,
+        agent_name=agent_name,
+        value=value,
+        label="X Search",
+        setting_name="x_search",
+        supported_resolver=resolve_x_search_supported,
+        enabled_resolver=resolve_x_search_enabled,
+        setter=set_x_search_enabled,
     )
 
 

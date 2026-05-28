@@ -35,6 +35,7 @@ async def handle_commands(handler: "SlashCommandHandler", arguments: str | None 
     if request.as_json:
         return render_commands_json(
             command_name=request.command_name,
+            action_name=request.action_name,
             command_names=available_names,
         )
 
@@ -51,8 +52,14 @@ async def handle_commands(handler: "SlashCommandHandler", arguments: str | None 
             f"Use `/commands` to list available commands.{suggestion_line}"
         )
 
-    detail = render_command_detail_markdown(request.command_name)
+    detail = render_command_detail_markdown(request.command_name, request.action_name)
     if detail is not None:
         return detail
+
+    if request.action_name is not None:
+        return (
+            f"# commands\n\nNo discovery metadata for `/{request.command_name} "
+            f"{request.action_name}` yet."
+        )
 
     return f"# commands\n\nNo discovery metadata for `{request.command_name}` yet."

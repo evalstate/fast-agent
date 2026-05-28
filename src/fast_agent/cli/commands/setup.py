@@ -5,23 +5,23 @@ from rich.prompt import Confirm
 
 from fast_agent.ui.console import console as shared_console
 
-app = typer.Typer()
+app = typer.Typer(add_completion=False)
 console = shared_console
 
 
 def load_template_text(filename: str) -> str:
     """Load template text from packaged resources only.
 
-    Special-case: when requesting 'fastagent.secrets.yaml', read the
-    'fastagent.secrets.yaml.example' template from resources, but still
+    Special-case: when requesting 'fast-agent.secrets.yaml', read the
+    'fast-agent.secrets.yaml.example' template from resources, but still
     return its contents so we can write out the real secrets file name
     in the destination project.
     """
     from importlib.resources import files
 
     # Map requested filenames to resource templates
-    if filename == "fastagent.secrets.yaml":
-        res_name = "fastagent.secrets.yaml.example"
+    if filename == "fast-agent.secrets.yaml":
+        res_name = "fast-agent.secrets.yaml.example"
     elif filename == "pyproject.toml":
         res_name = "pyproject.toml.tmpl"
     else:
@@ -93,8 +93,8 @@ def init(
 
     console.print("\n[bold]fast-agent scaffold[/bold]\n")
     console.print("This will create the following files:")
-    console.print(f"  - {config_path}/fastagent.config.yaml")
-    console.print(f"  - {config_path}/fastagent.secrets.yaml")
+    console.print(f"  - {config_path}/fast-agent.yaml")
+    console.print(f"  - {config_path}/fast-agent.secrets.yaml")
     console.print(f"  - {config_path}/agent.py")
     console.print(f"  - {config_path}/pyproject.toml")
     if needs_gitignore:
@@ -106,14 +106,14 @@ def init(
     # Create configuration files
     created = []
     if create_file(
-        config_path / "fastagent.config.yaml", load_template_text("fastagent.config.yaml"), force
+        config_path / "fast-agent.yaml", load_template_text("fast-agent.yaml"), force
     ):
-        created.append("fastagent.yaml")
+        created.append("fast-agent.yaml")
 
     if create_file(
-        config_path / "fastagent.secrets.yaml", load_template_text("fastagent.secrets.yaml"), force
+        config_path / "fast-agent.secrets.yaml", load_template_text("fast-agent.secrets.yaml"), force
     ):
-        created.append("fastagent.secrets.yaml")
+        created.append("fast-agent.secrets.yaml")
 
     if create_file(config_path / "agent.py", load_template_text("agent.py"), force):
         created.append("agent.py")
@@ -152,21 +152,28 @@ def init(
 
     if created:
         console.print("\n[green]Scaffold completed successfully![/green]")
+        console.print(f"Created fast-agent home: {config_path}")
+        if "fast-agent.yaml" in created:
+            console.print(f"Created config file:     {config_path / 'fast-agent.yaml'}")
+        if "fast-agent.secrets.yaml" in created:
+            console.print(
+                f"Created secrets file:    {config_path / 'fast-agent.secrets.yaml'}"
+            )
         if not needs_gitignore:
             console.print(
                 "[yellow]Note:[/yellow] Found an existing .gitignore in this or a parent directory. "
-                "Ensure it ignores 'fastagent.secrets.yaml' to avoid committing secrets."
+                "Ensure it ignores 'fast-agent.secrets.yaml' to avoid committing secrets."
             )
-        if "fastagent.secrets.yaml" in created:
+        if "fast-agent.secrets.yaml" in created:
             console.print("\n[yellow]Important:[/yellow] Remember to:")
             console.print(
-                "1. Add your API keys to fastagent.secrets.yaml, or set environment variables. Use [cyan]fast-agent check[/cyan] to verify."
+                "1. Add your API keys to fast-agent.secrets.yaml, or set environment variables. Use [cyan]fast-agent check[/cyan] to verify."
             )
             console.print(
-                "2. Keep fastagent.secrets.yaml secure and never commit it to version control"
+                "2. Keep fast-agent.secrets.yaml secure and never commit it to version control"
             )
             console.print(
-                "3. Update fastagent.config.yaml to set a default model (currently system default is 'gpt-5-mini?reasoning=low')"
+                "3. Update fast-agent.yaml to set a default model (currently system default is 'gpt-5-mini?reasoning=low')"
             )
         console.print("\nTo get started, run:")
         console.print("  uv run agent.py")

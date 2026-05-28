@@ -5,8 +5,10 @@ This provides a simplified implementation that routes messages to agents
 by determining the best agent for a request and dispatching to it.
 """
 
+import json
 from typing import TYPE_CHECKING, List, Optional, Tuple, Type
 
+from google.protobuf.json_format import MessageToDict
 from mcp import Tool
 from opentelemetry import trace
 from pydantic import BaseModel
@@ -165,9 +167,15 @@ class RouterAgent(LlmAgent):
         agent_descriptions = []
         for agent in agents:
             agent_card: AgentCard = await agent.agent_card()
+            card_summary = {
+                "name": agent_card.name,
+                "description": agent_card.description,
+                "skills": [MessageToDict(skill) for skill in agent_card.skills],
+            }
             agent_descriptions.append(
-                agent_card.model_dump_json(
-                    include={"name", "description", "skills"}, exclude_none=True
+                json.dumps(
+                    {key: value for key, value in card_summary.items() if value},
+                    separators=(",", ":"),
                 )
             )
 

@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence, cast, runtime_checkable
 from weakref import WeakKeyDictionary
 
 from fast_agent.core.instruction import InstructionBuilder
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import create_namespaced_name
+from fast_agent.skills import SKILLS_DEFAULT
 
 if TYPE_CHECKING:
+    from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
     from fast_agent.skills import SkillManifest
     from fast_agent.skills.registry import SkillRegistry
@@ -86,9 +88,57 @@ class McpInstructionCapable(InstructionCapable, Protocol):
     def skill_read_tool_name(self) -> str: ...
 
 
+class ConfiguredMcpInstructionCapable(McpInstructionCapable, Protocol):
+    """MCP instruction-capable agent with a typed config surface."""
+
+    @property
+    def name(self) -> str: ...
+
+    config: "AgentConfig"
+
+
+@runtime_checkable
+class ToolUpdateNotifyingAgent(Protocol):
+    """Instruction-capable agent whose display can emit tool update notices."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def display(self) -> ToolUpdateDisplay: ...
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Instruction Building
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def resolve_instruction_skill_manifests(
+    agent: ConfiguredMcpInstructionCapable,
+    skill_manifests: Sequence["SkillManifest"] | None,
+) -> Sequence["SkillManifest"] | None:
+    """
+    Preserve the distinction between inherited environment skills and explicit overrides.
+
+    Empty manifests on an agent whose config still uses SKILLS_DEFAULT mean "inherit the
+    shared environment context". Empty manifests on an agent with an explicit skills
+    override mean "render no agent skills".
+    """
+    if skill_manifests is None:
+        return None
+    if skill_manifests:
+        return skill_manifests
+
+    skills_config = agent.config.skills
+    if skills_config is SKILLS_DEFAULT:
+        instruction_context = agent.instruction_context
+        shared_agent_skills = (
+            instruction_context.get("agentSkills")
+            if isinstance(instruction_context, Mapping)
+            else None
+        )
+        return None if shared_agent_skills else skill_manifests
+    return skill_manifests
 
 
 def format_server_instructions(
@@ -195,9 +245,13 @@ async def build_instruction(
 
         builder.set_resolver("agentSkills", resolve_agent_skills)
 
-    # Apply context values
+    # Apply context values. When per-agent skill manifests are available,
+    # drop any shared agentSkills fallback so the dynamic resolver wins.
     if context:
-        builder.set_many(dict(context))
+        context_values = dict(context)
+        if skill_manifests is not None:
+            context_values.pop("agentSkills", None)
+        builder.set_many(context_values)
 
     return await builder.build()
 
@@ -297,25 +351,30 @@ async def rebuild_agent_instruction(
 
         # Use agent's stored context (which may have just been updated)
         build_context = agent.instruction_context
+        configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
 
         new_instruction = await build_instruction(
             template,
-            aggregator=agent.aggregator,
-            skill_manifests=agent.skill_manifests,
-            skill_read_tool_name=agent.skill_read_tool_name,
+            aggregator=configured_agent.aggregator,
+            skill_manifests=resolve_instruction_skill_manifests(
+                configured_agent,
+                configured_agent.skill_manifests,
+            ),
+            skill_read_tool_name=configured_agent.skill_read_tool_name,
             context=build_context,
-            source=getattr(agent, "name", None),
+            source=configured_agent.name,
         )
 
         agent.set_instruction(new_instruction)
         rebuilt_instruction = True
 
-        if needs_tool_update and agent.skill_read_tool_name == "read_skill":
-            display = getattr(agent, "display", None)
-            agent_name = getattr(agent, "name", None)
-            if isinstance(display, ToolUpdateDisplay):
+        if needs_tool_update and configured_agent.skill_read_tool_name == "read_skill":
+            if isinstance(configured_agent, ToolUpdateNotifyingAgent):
                 try:
-                    await display.show_tool_update("skills", agent_name=agent_name)
+                    await configured_agent.display.show_tool_update(
+                        "skills",
+                        agent_name=configured_agent.name,
+                    )
                 except Exception as exc:  # pragma: no cover - UI notification best effort
                     logger.debug("Failed to emit tool update for skills", data={"error": str(exc)})
 

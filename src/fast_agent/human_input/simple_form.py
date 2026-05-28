@@ -41,16 +41,25 @@ async def form(
     if isinstance(schema, FormSchema):
         elicit_schema = schema.to_schema()
     elif isinstance(schema, dict):
-        elicit_schema = schema
+        elicit_schema = dict(schema)
     else:
         elicit_schema = schema
+
+    if isinstance(elicit_schema, dict):
+        elicit_schema = dict(elicit_schema)
+        existing_title = elicit_schema.get("title")
+        if not isinstance(existing_title, str) or not existing_title.strip():
+            elicit_schema["title"] = title
 
     # Import here to avoid import-time cycles via package __init__
     from fast_agent.ui.elicitation_form import show_simple_elicitation_form
 
     # Show the form
     action, result = await show_simple_elicitation_form(
-        schema=elicit_schema, message=message, agent_name=title, server_name="SimpleForm"
+        schema=elicit_schema,
+        message=message,
+        agent_name=title,
+        server_name="",
     )
 
     # Return results based on action

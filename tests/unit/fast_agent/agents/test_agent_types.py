@@ -14,7 +14,12 @@ from fast_agent.agents.smart_agent import (
     _apply_runtime_mcp_connections,
     _resolve_default_agent_name,
 )
+from fast_agent.config import MCPServerSettings, MCPSettings, Settings
+from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.provider_types import Provider
+from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.types import RequestParams
 
 
@@ -66,6 +71,118 @@ def test_instruction_propagates_to_default_request_params():
         f"Expected systemPrompt to be '{instruction}', "
         f"but got {config.default_request_params.systemPrompt}"
     )
+
+
+class _StubProviderManagedLLM(FastAgentLLM):
+    def __init__(self, provider: Provider = Provider.ANTHROPIC) -> None:
+        super().__init__(provider=provider)
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages,
+        request_params=None,
+        tools=None,
+        is_template: bool = False,
+    ):
+        del request_params, tools, is_template
+        return multipart_messages[-1]
+
+    def _convert_extended_messages_to_provider(self, messages):
+        del messages
+        return []
+
+
+@pytest.mark.asyncio
+async def test_provider_managed_servers_remain_visible_without_local_aggregator_attach() -> None:
+    server_settings = {
+        "stripe": MCPServerSettings(
+            name="stripe",
+            management="provider",
+            transport="http",
+            url="https://mcp.stripe.com",
+        ),
+        "filesystem": MCPServerSettings(
+            name="filesystem",
+            command="npx",
+            args=["@modelcontextprotocol/server-filesystem"],
+        ),
+    }
+    server_registry = ServerRegistry()
+    server_registry.registry = server_settings
+    context = Context(
+        config=Settings(
+            mcp=MCPSettings(
+                servers=server_settings,
+            )
+        ),
+        server_registry=server_registry,
+    )
+    agent = McpAgent(
+        config=AgentConfig(name="billing", servers=["stripe", "filesystem"]),
+        context=context,
+        connection_persistence=False,
+    )
+
+    assert agent.aggregator.server_names == ["filesystem"]
+    assert agent.list_attached_mcp_servers() == ["stripe"]
+    assert await agent.list_servers() == ["filesystem", "stripe"]
+
+    agent.aggregator.initialized = True
+    status_map = await agent.get_server_status()
+    assert set(status_map) == {"filesystem", "stripe"}
+    assert status_map["stripe"].is_connected is True
+    assert status_map["stripe"].transport == "http"
+
+
+def test_provider_managed_servers_attach_state_to_supported_llm() -> None:
+    context = Context(
+        config=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "stripe": MCPServerSettings(
+                        name="stripe",
+                        management="provider",
+                        transport="http",
+                        url="https://mcp.stripe.com",
+                    )
+                }
+            )
+        )
+    )
+    agent = McpAgent(
+        config=AgentConfig(name="billing", servers=["stripe"]),
+        context=context,
+    )
+    llm = _StubProviderManagedLLM(provider=Provider.ANTHROPIC)
+
+    agent._on_llm_attached(llm)
+
+    assert llm.provider_managed_mcp_state.server_names == ("stripe",)
+
+
+def test_provider_managed_servers_reject_codexresponses_llm() -> None:
+    context = Context(
+        config=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "stripe": MCPServerSettings(
+                        name="stripe",
+                        management="provider",
+                        transport="http",
+                        url="https://mcp.stripe.com",
+                    )
+                }
+            )
+        )
+    )
+    agent = McpAgent(
+        config=AgentConfig(name="billing", servers=["stripe"]),
+        context=context,
+    )
+    llm = _StubProviderManagedLLM(provider=Provider.CODEX_RESPONSES)
+
+    with pytest.raises(AgentConfigError, match="OpenAI Responses provider"):
+        agent._on_llm_attached(llm)
 
 
 def test_instruction_takes_precedence_over_systemPrompt():
@@ -181,4 +298,16 @@ async def test_apply_runtime_mcp_connections_raises_on_connect_error() -> None:
             agents_map=cast("Any", {"main": failing}),
             target_agent_name="main",
             mcp_connect=["npx demo-server --name demo"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_apply_runtime_mcp_connections_wraps_parse_errors() -> None:
+    agent = _FakeMcpAgent(default=True)
+    with pytest.raises(AgentConfigError, match="Failed to connect MCP server for smart tool call"):
+        await _apply_runtime_mcp_connections(
+            context=None,
+            agents_map=cast("Any", {"main": agent}),
+            target_agent_name="main",
+            mcp_connect=["npx demo-server --timeout 0"],
         )

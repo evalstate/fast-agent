@@ -13,6 +13,8 @@ default_instruction = """You are a helpful AI Agent.
 {{file_silent:AGENTS.md}}
 {{env}}
 
+{{model_specific}}
+
 The current date is {{currentDate}}."""
 
 

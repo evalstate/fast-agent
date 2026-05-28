@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Mapping, Sequence, cast
+from typing import TYPE_CHECKING, Literal, Mapping, Protocol, Sequence, cast, runtime_checkable
 
 if TYPE_CHECKING:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.cli.runtime.run_request import ExecutionMode
     from fast_agent.core.agent_card_types import AgentCardData
 
 
@@ -34,6 +36,16 @@ class ShellCwdCreationError:
     message: str
 
 
+@runtime_checkable
+class ShellRuntimeConfiguredAgent(Protocol):
+    """Runtime agent surface required for shell cwd validation."""
+
+    @property
+    def shell_runtime_enabled(self) -> bool: ...
+
+    config: "AgentConfig"
+
+
 def resolve_missing_shell_cwd_policy(
     *,
     cli_override: MissingShellCwdPolicy | None,
@@ -52,16 +64,14 @@ def resolve_missing_shell_cwd_policy(
 def can_prompt_for_missing_cwd(
     *,
     mode: Literal["interactive", "serve"],
-    message: str | None,
-    prompt_file: str | None,
+    execution_mode: "ExecutionMode",
     stdin_is_tty: bool,
     tty_device_available: bool,
 ) -> bool:
     """Return True when we can ask interactively about creating missing directories."""
     return (
         mode == "interactive"
-        and message is None
-        and prompt_file is None
+        and execution_mode == "repl"
         and (stdin_is_tty or tty_device_available)
     )
 
@@ -81,9 +91,13 @@ def collect_shell_cwd_issues(
     agents: Mapping[str, AgentCardData],
     *,
     shell_runtime_requested: bool,
+    no_shell: bool = False,
     cwd: Path | None = None,
 ) -> list[ShellCwdIssue]:
     """Collect invalid shell cwd entries from currently loaded agent configs."""
+    if no_shell:
+        return []
+
     base_dir = cwd or Path.cwd()
     issues: list[ShellCwdIssue] = []
 
@@ -140,11 +154,10 @@ def collect_shell_cwd_issues_from_runtime_agents(
 
     for agent_name in sorted(agents):
         agent = agents[agent_name]
-        if not bool(getattr(agent, "shell_runtime_enabled", False)):
+        if not isinstance(agent, ShellRuntimeConfiguredAgent) or not agent.shell_runtime_enabled:
             continue
 
-        config = getattr(agent, "config", None)
-        configured_cwd = getattr(config, "cwd", None)
+        configured_cwd = agent.config.cwd
         if not isinstance(configured_cwd, Path):
             continue
 
@@ -241,5 +254,8 @@ def _shell_runtime_active_for_agent(
     shell_runtime_requested: bool,
     shell_enabled: bool,
     skills_configured: bool,
+    no_shell: bool = False,
 ) -> bool:
+    if no_shell:
+        return False
     return shell_runtime_requested or shell_enabled or skills_configured

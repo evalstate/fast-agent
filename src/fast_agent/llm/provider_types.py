@@ -22,6 +22,7 @@ class Provider(Enum):
         return self._value_
 
     ANTHROPIC = ("anthropic", "Anthropic")
+    ANTHROPIC_VERTEX = ("anthropic-vertex", "Anthropic (Vertex)")
     DEEPSEEK = ("deepseek", "Deepseek")
     FAST_AGENT = ("fast-agent", "fast-agent-internal")
     GENERIC = ("generic", "Generic")
@@ -33,7 +34,7 @@ class Provider(Enum):
     AZURE = ("azure", "Azure")  # Azure OpenAI Service
     ALIYUN = ("aliyun", "Aliyun")  # Aliyun Bailian OpenAI Service
     HUGGINGFACE = ("hf", "HuggingFace")  # For HuggingFace MCP connections
-    XAI = ("xai", "XAI")  # For xAI Grok models
+    XAI = ("xai", "xAI")  # For xAI Grok models via the Responses API
     BEDROCK = ("bedrock", "Bedrock")
     GROQ = ("groq", "Groq")
     CODEX_RESPONSES = ("codexresponses", "Codex Responses")

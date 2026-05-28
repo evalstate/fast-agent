@@ -1,4 +1,4 @@
-"""Run FastAgent as an MCP server from the command line."""
+"""Expose fast-agent over MCP (http/stdio) or ACP from the command line."""
 
 from __future__ import annotations
 
@@ -36,6 +36,32 @@ class MissingShellCwdPolicy(str, Enum):
     ERROR = "error"
 
 
+def _validate_acp_instance_scope(instance_scope: InstanceScope) -> InstanceScope:
+    if instance_scope != InstanceScope.CONNECTION:
+        raise typer.BadParameter(
+            "ACP is always connection-scoped. Remove --instance-scope or set it to connection.",
+            param_hint="--instance-scope",
+        )
+    return InstanceScope.CONNECTION
+
+
+def _resolve_instance_scope(
+    ctx: typer.Context,
+    *,
+    transport: ServeTransport,
+    instance_scope: InstanceScope,
+) -> InstanceScope:
+    """Apply transport-specific defaults without overriding explicit flags."""
+    parameter_source = ctx.get_parameter_source("instance_scope")
+    if transport == ServeTransport.ACP and (
+        parameter_source is None or parameter_source.name == "DEFAULT"
+    ):
+        return InstanceScope.CONNECTION
+    if transport == ServeTransport.ACP:
+        return _validate_acp_instance_scope(instance_scope)
+    return instance_scope
+
+
 def _build_run_request(
     *,
     ctx: typer.Context,
@@ -66,7 +92,9 @@ def _build_run_request(
     no_permissions: bool,
     reload: bool,
     watch: bool,
+    prefer_local_shell: bool = False,
     missing_shell_cwd: MissingShellCwdPolicy | None = None,
+    no_shell: bool = False,
 ) -> AgentRunRequest:
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
     return build_command_run_request(
@@ -93,6 +121,8 @@ def _build_run_request(
         noenv=noenv,
         force_smart=force_smart,
         shell_enabled=shell,
+        no_shell=no_shell,
+        prefer_local_shell=prefer_local_shell,
         mode="serve",
         transport=transport.value,
         host=host,
@@ -108,8 +138,9 @@ def _build_run_request(
 
 
 app = typer.Typer(
-    help="Run FastAgent as an MCP server without writing an agent.py file",
+    help="Expose fast-agent to clients over MCP (http or stdio) or ACP, without writing an agent.py file",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    add_completion=False,
 )
 
 
@@ -160,10 +191,19 @@ def serve(
         help="Port to use when running as a server with HTTP transport",
     ),
     shell: bool = CommonAgentOptions.shell(),
+    no_shell: bool = CommonAgentOptions.no_shell(),
+    prefer_local_shell: bool = typer.Option(
+        False,
+        "--prefer-local-shell",
+        help=(
+            "When serving ACP with shell mode, use fast-agent's local shell runtime "
+            "instead of the ACP client's terminal capability"
+        ),
+    ),
     instance_scope: InstanceScope = typer.Option(
         InstanceScope.SHARED,
         "--instance-scope",
-        help="Control how MCP clients receive isolated agent instances (shared, connection, request)",
+        help="Control how clients receive isolated agent instances. ACP is always connection-scoped.",
     ),
     no_permissions: bool = typer.Option(
         False,
@@ -178,7 +218,7 @@ def serve(
     reload: bool = CommonAgentOptions.reload(),
     watch: bool = CommonAgentOptions.watch(),
 ) -> None:
-    """Run FastAgent as an MCP server."""
+    """Expose fast-agent to clients over MCP (http/stdio) or ACP."""
     request = _build_run_request(
         ctx=ctx,
         name=name,
@@ -204,7 +244,13 @@ def serve(
         host=host,
         port=port,
         shell=shell,
-        instance_scope=instance_scope,
+        no_shell=no_shell,
+        prefer_local_shell=prefer_local_shell,
+        instance_scope=_resolve_instance_scope(
+            ctx,
+            transport=transport,
+            instance_scope=instance_scope,
+        ),
         no_permissions=no_permissions,
         reload=reload,
         watch=watch,

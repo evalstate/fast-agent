@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -12,6 +13,7 @@ from typing import (
     Literal,
     Protocol,
     Union,
+    cast,
 )
 
 from mcp.types import CallToolResult, ContentBlock, ListToolsResult, TextContent
@@ -19,11 +21,13 @@ from mcp.types import CallToolResult, ContentBlock, ListToolsResult, TextContent
 from fast_agent.constants import (
     DEFAULT_MAX_ITERATIONS,
     FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_SYNTHETIC_FINAL_CHANNEL,
+    FAST_AGENT_TIMING,
     FAST_AGENT_USAGE,
 )
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.interfaces import MessageHistoryAgentProtocol
+from fast_agent.interfaces import MessageHistoryAgentProtocol, TurnCancellationStateCapable
 from fast_agent.llm.request_params import tool_result_mode_is_passthrough
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -31,6 +35,8 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
     from mcp import Tool
+
+    from fast_agent.hooks.hook_context import HookAgentProtocol
 
 
 # ── Context-overflow defence: cap oversized tool results pre-history ──────
@@ -173,8 +179,29 @@ class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
 
     async def list_tools(self) -> ListToolsResult: ...
 
+    def should_finalize_deferred_structured_turn(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+        assistant_message: PromptMessageExtended,
+    ) -> bool: ...
+
+    def should_suppress_tools_for_structured_turn(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+    ) -> bool: ...
+
 
 _logger = get_logger(__name__)
+
+_HOOK_STATUS_BUCKET_BEFORE_LLM_CALL = "before_llm_call"
+_HOOK_STATUS_BUCKET_AFTER_LLM_CALL = "after_llm_call"
+_HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL = "before_tool_call"
+_HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS = "after_tool_results"
+_HOOK_STATUS_BUCKET_AFTER_TURN_COMPLETE = "after_turn_complete"
 
 
 HistoryRollbackStatus = Literal[
@@ -260,6 +287,29 @@ class ToolRunner:
         self._pending_tool_request: PromptMessageExtended | None = None
         self._pending_tool_response: PromptMessageExtended | None = None
         self._staged_terminal_response: PromptMessageExtended | None = None
+        self._deferred_structured_finalization_started = False
+
+    def _defer_hook_status_messages(self, bucket: str) -> AbstractContextManager[None]:
+        # TODO: Replace this post-hook flush boundary with a first-class
+        # streaming/display event path once hook output participates in the
+        # live renderer instead of the status-line fallback.
+        from fast_agent.agents.llm_agent import LlmAgent
+
+        if isinstance(self._agent, LlmAgent):
+            return self._agent.defer_hook_status_messages(bucket)
+        return nullcontext()
+
+    def _flush_deferred_hook_status_messages(self, bucket: str | None = None) -> None:
+        from fast_agent.agents.llm_agent import LlmAgent
+
+        if isinstance(self._agent, LlmAgent):
+            self._agent.flush_deferred_hook_status_messages(bucket)
+
+    def _clear_deferred_hook_status_messages(self, bucket: str | None = None) -> None:
+        from fast_agent.agents.llm_agent import LlmAgent
+
+        if isinstance(self._agent, LlmAgent):
+            self._agent.clear_deferred_hook_status_messages(bucket)
 
     def __aiter__(self) -> "ToolRunner":
         return self
@@ -284,7 +334,21 @@ class ToolRunner:
         await self._ensure_tools_ready()
 
         if self._hooks.before_llm_call is not None:
-            await self._hooks.before_llm_call(self, self._delta_messages)
+            try:
+                with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_LLM_CALL):
+                    await self._hooks.before_llm_call(self, self._delta_messages)
+            finally:
+                self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_LLM_CALL)
+
+        tools_for_call = (
+            []
+            if self._agent.should_suppress_tools_for_structured_turn(
+                self._delta_messages,
+                self._request_params,
+                self._tools,
+            )
+            else self._tools
+        )
 
         # Retry loop: lets ``on_pause_cancel`` intercept a CancelledError
         # raised mid-LLM-call (e.g. when PauseController cancels the
@@ -300,7 +364,7 @@ class ToolRunner:
                 assistant_message = await self._agent._tool_runner_llm_step(
                     self._delta_messages,
                     request_params=self._request_params,
-                    tools=self._tools,
+                    tools=tools_for_call,
                 )
             except asyncio.CancelledError:
                 # Path A: provider re-raised CancelledError. Some providers
@@ -356,11 +420,28 @@ class ToolRunner:
 
         self._last_message = assistant_message
         if self._hooks.after_llm_call is not None:
-            await self._hooks.after_llm_call(self, assistant_message)
+            bucket = (
+                _HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS
+                if assistant_message.stop_reason == LlmStopReason.TOOL_USE
+                else _HOOK_STATUS_BUCKET_AFTER_LLM_CALL
+            )
+            try:
+                with self._defer_hook_status_messages(bucket):
+                    await self._hooks.after_llm_call(self, assistant_message)
+            except Exception:
+                if assistant_message.stop_reason == LlmStopReason.TOOL_USE:
+                    self._clear_deferred_hook_status_messages(bucket)
+                else:
+                    self._flush_deferred_hook_status_messages(bucket)
+                raise
+            if assistant_message.stop_reason != LlmStopReason.TOOL_USE:
+                self._flush_deferred_hook_status_messages(bucket)
 
         if assistant_message.stop_reason == LlmStopReason.TOOL_USE:
             self._pending_tool_request = assistant_message
             self._pending_tool_response = None  # Clear cache for new request
+        elif self._should_start_deferred_structured_finalization(assistant_message):
+            self._start_deferred_structured_finalization(assistant_message)
         else:
             self._done = True
 
@@ -387,10 +468,17 @@ class ToolRunner:
 
             # Fire after_turn_complete hook once the entire turn is done
             if self._hooks.after_turn_complete is not None:
-                await self._hooks.after_turn_complete(self, last)
+                try:
+                    with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_AFTER_TURN_COMPLETE):
+                        await self._hooks.after_turn_complete(self, last)
+                finally:
+                    self._flush_deferred_hook_status_messages(
+                        _HOOK_STATUS_BUCKET_AFTER_TURN_COMPLETE
+                    )
 
             return last
         except asyncio.CancelledError:
+            self._clear_deferred_hook_status_messages()
             rollback_state = self._reset_history_after_cancelled_turn()
             self._record_cancelled_turn(
                 reason="cancelled",
@@ -399,6 +487,7 @@ class ToolRunner:
             await self._persist_cancelled_turn_state_after_task_cancel()
             raise
         except KeyboardInterrupt:
+            self._clear_deferred_hook_status_messages()
             rollback_state = self._reset_history_after_cancelled_turn()
             self._record_cancelled_turn(
                 reason="interrupted",
@@ -407,6 +496,7 @@ class ToolRunner:
             await self._persist_cancelled_turn_state()
             raise
         except Exception:
+            self._clear_deferred_hook_status_messages()
             await self._persist_exception_turn_state()
             raise
 
@@ -416,12 +506,11 @@ class ToolRunner:
         reason: str,
         rollback_state: HistoryRollbackState,
     ) -> None:
-        try:
-            setattr(self._agent, "_last_turn_cancelled", True)
-            setattr(self._agent, "_last_turn_cancel_reason", reason)
-            setattr(self._agent, "_last_turn_history_state", rollback_state)
-        except Exception:
-            pass
+        if isinstance(self._agent, TurnCancellationStateCapable):
+            self._agent.record_last_turn_cancellation(
+                reason=reason,
+                rollback_state=rollback_state,
+            )
 
     async def _persist_cancelled_turn_state(self) -> None:
         """Persist reconciled history for cancelled turns when session history is enabled."""
@@ -463,7 +552,7 @@ class ToolRunner:
             await save_session_history(
                 HookContext(
                     runner=self,
-                    agent=self._agent,
+                    agent=cast("HookAgentProtocol", self._agent),
                     message=message if message is not None else history[-1],
                     hook_type=hook_type,
                     message_history_override=history_override,
@@ -596,7 +685,13 @@ class ToolRunner:
         try:
             hook_phase = "before_tool_call"
             if self._hooks.before_tool_call is not None:
-                await self._hooks.before_tool_call(self, self._pending_tool_request)
+                try:
+                    with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL):
+                        await self._hooks.before_tool_call(self, self._pending_tool_request)
+                finally:
+                    self._flush_deferred_hook_status_messages(
+                        _HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL
+                    )
             hook_phase = "run_tools"
             tool_message = await self._agent.run_tools(
                 self._pending_tool_request, request_params=self._request_params
@@ -631,9 +726,14 @@ class ToolRunner:
 
         if self._hooks.after_tool_call is not None:
             try:
-                await self._hooks.after_tool_call(self, tool_message)
+                with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS):
+                    await self._hooks.after_tool_call(self, tool_message)
             except Exception as exc:
                 _logger.error("Tool hook failed after tool call", exc_info=exc)
+            finally:
+                self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS)
+        else:
+            self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS)
         self._pending_tool_request = None
 
         return tool_message
@@ -680,12 +780,60 @@ class ToolRunner:
         return self._pending_tool_request is not None
 
     def _stage_tool_response(self, tool_message: PromptMessageExtended) -> None:
+        staged_messages = [tool_message]
+        channels = tool_message.channels
+        if channels and FAST_AGENT_PENDING_MEDIA_ATTACHMENTS in channels:
+            pending_media = channels[FAST_AGENT_PENDING_MEDIA_ATTACHMENTS]
+            visible_channels = dict(channels)
+            del visible_channels[FAST_AGENT_PENDING_MEDIA_ATTACHMENTS]
+            staged_messages = [
+                tool_message.model_copy(update={"channels": visible_channels or None}),
+                PromptMessageExtended(role="user", content=list(pending_media)),
+            ]
+
         if self._use_history_enabled():
-            self._delta_messages = [tool_message]
+            self._delta_messages = staged_messages
         else:
             if self._last_message is not None:
                 self._delta_messages.append(self._last_message)
-            self._delta_messages.append(tool_message)
+            self._delta_messages.extend(staged_messages)
+
+    def _should_start_deferred_structured_finalization(
+        self,
+        assistant_message: PromptMessageExtended,
+    ) -> bool:
+        if self._deferred_structured_finalization_started:
+            return False
+        return self._agent.should_finalize_deferred_structured_turn(
+            self._delta_messages,
+            self._request_params,
+            self._tools,
+            assistant_message,
+        )
+
+    def _start_deferred_structured_finalization(
+        self,
+        assistant_message: PromptMessageExtended,
+    ) -> None:
+        self._deferred_structured_finalization_started = True
+        finalizer = PromptMessageExtended(
+            role="user",
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        "Now produce the final answer as structured JSON matching the "
+                        "requested schema. Do not call any tools."
+                    ),
+                )
+            ],
+        )
+        if self._use_history_enabled():
+            self._delta_messages = [finalizer]
+        else:
+            self._delta_messages.append(assistant_message)
+            self._delta_messages.append(finalizer)
+        self._tools = []
 
     def _consume_staged_terminal_response(self) -> PromptMessageExtended | None:
         staged = self._staged_terminal_response
@@ -760,9 +908,10 @@ class ToolRunner:
             FAST_AGENT_SYNTHETIC_FINAL_CHANNEL: [text_content("tool_result_passthrough")]
         }
         if self._last_message is not None and self._last_message.channels:
-            usage_blocks = self._last_message.channels.get(FAST_AGENT_USAGE)
-            if usage_blocks:
-                channels[FAST_AGENT_USAGE] = list(usage_blocks)
+            for channel_name in (FAST_AGENT_TIMING, FAST_AGENT_USAGE):
+                blocks = self._last_message.channels.get(channel_name)
+                if blocks:
+                    channels[channel_name] = list(blocks)
 
         return PromptMessageExtended(
             role="assistant",
@@ -814,7 +963,11 @@ class ToolRunner:
                 self._append_history_messages(tool_message, terminal_message)
 
             if self._hooks.after_llm_call is not None:
-                await self._hooks.after_llm_call(self, terminal_message)
+                try:
+                    with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_AFTER_LLM_CALL):
+                        await self._hooks.after_llm_call(self, terminal_message)
+                finally:
+                    self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_AFTER_LLM_CALL)
 
             self._staged_terminal_response = terminal_message
             self._done = True

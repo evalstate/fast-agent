@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 
 from fast_agent.llm.llamacpp_discovery import LlamaCppModelListing
-from fast_agent.ui.llamacpp_model_picker import _LlamaCppModelPicker
+from fast_agent.ui.llamacpp_model_picker import LlamaCppModelPickerContext, _LlamaCppModelPicker
 
 
 def test_llamacpp_picker_enter_on_actions_returns_selected_action_and_model() -> None:
@@ -165,6 +165,34 @@ async def test_llamacpp_picker_lazy_loads_runtime_context() -> None:
                 model_id="unsloth/Qwen3.5-9B-GGUF",
                 owned_by="llamacpp",
                 training_context_window=262144,
+            ),
+        ),
+        runtime_context_loader=_load_runtime_context,
+    )
+
+    picker._ensure_runtime_context_loading()
+    await asyncio.sleep(0)
+
+    rendered = "".join(fragment for _, fragment in picker._render_details())
+
+    assert "context: training: 262144 / runtime: 75264" in rendered
+
+
+@pytest.mark.asyncio
+async def test_llamacpp_picker_lazy_load_can_upgrade_training_context() -> None:
+    async def _load_runtime_context(model_id: str) -> LlamaCppModelPickerContext:
+        assert model_id == "unsloth/Qwen3.5-9B-GGUF"
+        return LlamaCppModelPickerContext(
+            runtime_context_window=75264,
+            training_context_window=262144,
+        )
+
+    picker = _LlamaCppModelPicker(
+        (
+            LlamaCppModelListing(
+                model_id="unsloth/Qwen3.5-9B-GGUF",
+                owned_by="llamacpp",
+                training_context_window=None,
             ),
         ),
         runtime_context_loader=_load_runtime_context,

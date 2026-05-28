@@ -15,7 +15,7 @@ from httpx_sse._exceptions import SSEError
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
-from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
+from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName, EventType
 
 if TYPE_CHECKING:
     from anyio.abc import TaskStatus
@@ -39,7 +39,7 @@ def _extract_session_id(endpoint_url: str) -> str | None:
 def _emit_channel_event(
     channel_hook: ChannelHook | None,
     channel: ChannelName,
-    event_type: str,
+    event_type: EventType,
     *,
     message: types.JSONRPCMessage | None = None,
     raw_event: str | None = None,
@@ -52,7 +52,7 @@ def _emit_channel_event(
         channel_hook(
             ChannelEvent(
                 channel=channel,
-                event_type=event_type,  # type: ignore[arg-type]
+                event_type=event_type,
                 message=message,
                 raw_event=raw_event,
                 detail=detail,

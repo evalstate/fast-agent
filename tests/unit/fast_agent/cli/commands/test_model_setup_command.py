@@ -125,7 +125,7 @@ async def test_run_model_setup_creates_alias_in_env_config(tmp_path: Path) -> No
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    saved = _read_yaml(env_dir / "fast-agent.yaml")
     assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
     assert outcome.messages
     assert "model references set" in str(outcome.messages[0].text)
@@ -152,7 +152,7 @@ async def test_run_model_setup_prefills_system_default_alias_when_no_aliases_exi
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    saved = _read_yaml(env_dir / "fast-agent.yaml")
     assert saved["model_references"]["system"]["default"] == "claude-haiku-4-5"
     assert io.prompt_text_calls == [
         ("Reference token ($namespace.key):", "$system.default", False)
@@ -168,7 +168,7 @@ async def test_run_model_setup_repairs_invalid_default_alias_from_diagnostics(
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".model-env"
     workspace.mkdir(parents=True)
-    (workspace / "fastagent.config.yaml").write_text(
+    (workspace / "fast-agent.yaml").write_text(
         'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
@@ -189,7 +189,7 @@ async def test_run_model_setup_repairs_invalid_default_alias_from_diagnostics(
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    saved = _read_yaml(env_dir / "fast-agent.yaml")
     assert saved["model_references"]["system"]["default"] == "claude-haiku-4-5"
     assert io.prompt_text_calls == []
     assert outcome.messages
@@ -201,7 +201,7 @@ async def test_run_model_setup_updates_named_alias_via_model_selector(tmp_path: 
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".model-env"
     workspace.mkdir(parents=True)
-    config_path = env_dir / "fastagent.config.yaml"
+    config_path = env_dir / "fast-agent.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         "model_references:\n  system:\n    fast: claude-sonnet-4-5\n",
@@ -234,7 +234,7 @@ async def test_run_model_doctor_reports_unresolved_default_alias(tmp_path: Path)
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".model-env"
     workspace.mkdir(parents=True)
-    (workspace / "fastagent.config.yaml").write_text(
+    (workspace / "fast-agent.yaml").write_text(
         'default_model: "$system.default"\n',
         encoding="utf-8",
     )
@@ -264,7 +264,7 @@ async def test_run_model_doctor_uses_environment_dir_parent_when_cwd_differs(tmp
     env_dir = workspace / ".model-env"
     workspace.mkdir(parents=True)
     elsewhere.mkdir(parents=True)
-    (workspace / "fastagent.config.yaml").write_text(
+    (workspace / "fast-agent.yaml").write_text(
         'default_model: "$system.default"\n',
         encoding="utf-8",
     )

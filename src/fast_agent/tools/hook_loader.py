@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.core.exceptions import AgentConfigError
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from fast_agent.agents.tool_runner import ToolRunner
+    from fast_agent.hooks.hook_context import HookAgentProtocol
 
 # Valid hook types that can be specified in tool_hooks config
 VALID_HOOK_TYPES = frozenset(
@@ -143,7 +144,7 @@ def _create_hook_wrapper(
             message = messages[-1] if messages else PromptMessageExtended(role="user", content=[])
             ctx = HookContext(
                 runner=runner,
-                agent=runner._agent,  # Use runner's agent, not captured closure
+                agent=cast("HookAgentProtocol", runner._agent),  # Use runner's agent, not captured closure
                 message=message,
                 hook_type=hook_type,
             )
@@ -170,7 +171,7 @@ def _create_hook_wrapper(
         async def message_wrapper(runner: ToolRunner, message: PromptMessageExtended) -> None:
             ctx = HookContext(
                 runner=runner,
-                agent=runner._agent,  # Use runner's agent, not captured closure
+                agent=cast("HookAgentProtocol", runner._agent),  # Use runner's agent, not captured closure
                 message=message,
                 hook_type=hook_type,
             )
