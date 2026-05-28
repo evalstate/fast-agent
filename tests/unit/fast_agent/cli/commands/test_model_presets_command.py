@@ -18,7 +18,8 @@ def test_model_presets_filters_by_provider_json() -> None:
 
     assert rows
     assert {row["provider"] for row in rows} == {"anthropic"}
-    assert any(row["alias"] == "opus" and row["model"] == "claude-opus-4-7" for row in rows)
+    opus = next(row for row in rows if row["alias"] == "opus")
+    assert opus["model"] == ModelFactory.parse_model_string("opus").model_name
 
 
 def test_model_presets_text_shows_downstream_model() -> None:

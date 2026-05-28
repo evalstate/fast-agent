@@ -11,6 +11,7 @@ import yaml
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import models_manager
 from fast_agent.config import Settings
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY
 
 
@@ -402,12 +403,13 @@ async def test_models_doctor_treats_builtin_model_alias_as_equivalent(tmp_path: 
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
+    resolved_opus = ModelFactory.parse_model_string("opus").model_name
 
     agents = {
         "main": _StubAgent(
             model="opus",
             tool_only=False,
-            resolved_model="claude-opus-4-7",
+            resolved_model=resolved_opus,
         ),
     }
 
@@ -427,7 +429,7 @@ async def test_models_doctor_treats_builtin_model_alias_as_equivalent(tmp_path: 
     rendered = str(outcome.messages[0].text)
     assert "main" in rendered
     assert "opus" in rendered
-    assert "claude-opus-4-7" in rendered
+    assert resolved_opus in rendered
     assert "Resolved spec suggests" not in rendered
 
 

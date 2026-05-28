@@ -646,10 +646,15 @@ def test_builtin_glm_alias_uses_glm_51_default() -> None:
     assert legacy.model_name == "zai-org/GLM-5:novita"
 
 
-def test_opus_aliases_resolve_to_opus_47():
+def test_opus_alias_resolves_to_current_catalog_model():
+    opus_entry = next(
+        entry
+        for entry in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.ANTHROPIC]
+        if entry.alias == "opus" and entry.current
+    )
     config = ModelFactory.parse_model_string("opus")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-4-7"
+    assert config.model_name == opus_entry.model
 
 
 def test_claude_alias_resolves_to_sonnet_46():
@@ -663,7 +668,7 @@ def test_claude_alias_resolves_to_sonnet_46():
 
     config = ModelFactory.parse_model_string("opus4")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-4-7"
+    assert config.model_name == ModelFactory.parse_model_string("opus").model_name
 
     config = ModelFactory.parse_model_string("opus46")
     assert config.provider == Provider.ANTHROPIC
