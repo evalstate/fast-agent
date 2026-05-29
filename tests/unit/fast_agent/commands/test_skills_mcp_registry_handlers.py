@@ -79,6 +79,31 @@ async def test_skills_registry_can_select_mcp_server_by_name() -> None:
 
 
 @pytest.mark.asyncio
+async def test_skills_registry_filters_active_mcp_source_from_configured_numbers() -> None:
+    settings = Settings(
+        skills=SkillsSettings(
+            marketplace_url="mcp://hf",
+            marketplace_urls=["https://github.com/example/skills"],
+        )
+    )
+
+    list_outcome = await handle_set_skills_registry(_ctx(settings), agent_name="main", argument=None)
+    rendered_list = "\n".join(_plain(message.text) for message in list_outcome.messages)
+
+    assert "https://github.com/example/skills" in rendered_list
+    assert "mcp://hf" not in rendered_list
+    assert "MCP registries:" in rendered_list
+    assert "mcp-server hf@1.2.3" in rendered_list
+
+    select_outcome = await handle_set_skills_registry(_ctx(settings), agent_name="main", argument="2")
+    rendered_select = "\n".join(_plain(message.text) for message in select_outcome.messages)
+
+    assert settings.skills.marketplace_url == "mcp://hf"
+    assert "Registry set to: mcp-server hf@1.2.3" in rendered_select
+    assert "Failed to load registry" not in rendered_select
+
+
+@pytest.mark.asyncio
 async def test_skills_available_uses_selected_mcp_registry() -> None:
     settings = Settings(skills=SkillsSettings(marketplace_url="mcp://hf"))
 

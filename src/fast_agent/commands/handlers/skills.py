@@ -445,7 +445,9 @@ async def handle_set_skills_registry(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     settings = ctx.resolve_settings()
-    configured_urls = resolve_skill_registries(settings)
+    configured_urls = [
+        url for url in resolve_skill_registries(settings) if _mcp_registry_server_name(url) is None
+    ]
     mcp_registries = await _list_mcp_skill_registries(ctx, agent_name=agent_name)
 
     if not argument:
