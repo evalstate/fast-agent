@@ -1,0 +1,10 @@
+default_model: "passthrough"
+
+logger:
+  level: "error"
+  type: "console"
+
+mcp:
+  targets:
+    - name: skill_demo
+      target: "uv run skill_server.py"

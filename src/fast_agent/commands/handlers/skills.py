@@ -60,15 +60,39 @@ if TYPE_CHECKING:
 _parse_update_argument = parse_update_argument
 
 
-def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -> None:
+def _append_manifest_entry(
+    content: Text,
+    manifest: SkillManifest,
+    index: int,
+    *,
+    disabled: bool = False,
+) -> None:
     entry = Text()
     entry.append(f"[{index:2}] ", style="dim cyan")
     entry.append(manifest.name, style="bright_blue bold")
+    if disabled:
+        entry.append("  (disabled)", style="dim yellow")
     content.append_text(entry)
     content.append("\n")
 
     if manifest.description:
         append_wrapped_text(content, manifest.description, indent="     ")
+
+    # URI-backed (Skills-over-MCP) manifests have no filesystem path —
+    # the provenance is the publishing MCP server. Don't try to derive
+    # a `source_path` for them; the SEP-required provenance is the
+    # server identity, not a directory.
+    if manifest.path is None:
+        content.append("     ", style="dim")
+        server = manifest.server_name or "unknown"
+        content.append(f"source: mcp-server {server}", style="dim green")
+        content.append("\n")
+        if manifest.uri:
+            content.append("     ", style="dim")
+            content.append(f"uri: {manifest.uri}", style="dim")
+            content.append("\n")
+        content.append("\n")
+        return
 
     source_path = manifest.path.parent if manifest.path.is_file() else manifest.path
     try:
@@ -801,6 +825,446 @@ async def handle_update_skill(
     return outcome
 
 
+async def handle_list_skill_templates(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+) -> CommandOutcome:
+    """List `mcp-resource-template` entries discovered from connected servers.
+
+    These are RFC 6570 URI templates the user must fill before the skill
+    is registered. Without this surface they'd be invisible — the loader
+    collects them, but until a `/skills resolve` walks the variables
+    they never enter the active manifest set or the model's context.
+    """
+    outcome = CommandOutcome()
+
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    templates = getattr(agent_obj, "skill_template_entries", None)
+    if not templates:
+        outcome.add_message(
+            "No skill templates discovered on this agent's connected MCP servers.",
+            channel="info",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    content = Text()
+    append_heading(content, "Skill templates:")
+    content.append_text(
+        Text(
+            "Each entry describes a parameterized skill namespace. "
+            "Resolve one with `/skills resolve <number>` to register it.",
+            style="dim",
+        )
+    )
+    content.append("\n\n")
+
+    for index, template in enumerate(templates, 1):
+        entry = Text()
+        entry.append(f"[{index:2}] ", style="dim cyan")
+        entry.append(template.url_template, style="bright_blue bold")
+        content.append_text(entry)
+        content.append("\n")
+        if template.description:
+            append_wrapped_text(content, template.description, indent="     ")
+        content.append("     ", style="dim")
+        content.append(f"server: {template.server_name}", style="dim green")
+        content.append("\n")
+        variables = template.variable_names()
+        if variables:
+            content.append("     ", style="dim")
+            content.append(
+                f"variables: {', '.join(variables)}",
+                style="dim",
+            )
+            content.append("\n")
+        content.append("\n")
+
+    outcome.add_message(content, right_info="skills", agent_name=agent_name)
+    return outcome
+
+
+async def handle_resolve_skill_template(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+    interactive: bool = True,
+) -> CommandOutcome:
+    """Walk a template's variables (via MCP completion) and register the result.
+
+    Argument is the 1-based index from `/skills templates`. Optional
+    `var=value` overrides may be appended (space-separated) to skip the
+    completion prompt for specific variables — useful for scripted /
+    non-interactive runs.
+    """
+    outcome = CommandOutcome()
+
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    templates = list(getattr(agent_obj, "skill_template_entries", None) or [])
+    if not templates:
+        outcome.add_message(
+            "No skill templates available on this agent.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    if not argument or not argument.strip():
+        outcome.add_message(
+            "Usage: /skills resolve <number> [var=value ...]",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    tokens = argument.strip().split()
+    selector = tokens[0]
+    overrides: dict[str, str] = {}
+    for tok in tokens[1:]:
+        if "=" not in tok:
+            outcome.add_message(
+                f"Override must be var=value, got: {tok}",
+                channel="error",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+        key, value = tok.split("=", 1)
+        overrides[key.strip()] = value.strip()
+
+    if not selector.isdigit():
+        outcome.add_message(
+            f"Template selector must be a number from `/skills templates`, got: {selector}",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+    index = int(selector)
+    if not (1 <= index <= len(templates)):
+        outcome.add_message(
+            f"No template at index {index}. Use `/skills templates` to list.",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+    template = templates[index - 1]
+
+    values: dict[str, str] = {}
+    for var_name in template.variable_names():
+        if var_name in overrides:
+            values[var_name] = overrides[var_name]
+            continue
+
+        try:
+            candidates = await agent_obj.complete_skill_template_argument(
+                template,
+                argument_name=var_name,
+                value="",
+                context_args=values or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            outcome.add_message(
+                f"Completion failed for variable '{var_name}': {exc}",
+                channel="error",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+
+        if interactive:
+            picked: str | None
+            if candidates:
+                picked = await ctx.io.prompt_selection(
+                    f"Value for `{var_name}` (server-suggested):",
+                    options=candidates,
+                    allow_cancel=True,
+                )
+            else:
+                # Server returned no suggestions; fall back to free-form
+                # input — the SEP allows servers to publish templates
+                # without exhaustive completion support, in which case
+                # the user has to type the value.
+                picked = await ctx.io.prompt_text(
+                    f"Value for `{var_name}` (no server suggestions; type or empty to cancel):",
+                    allow_empty=True,
+                )
+            if not picked:
+                outcome.add_message(
+                    "Resolution cancelled.",
+                    channel="info",
+                    right_info="skills",
+                    agent_name=agent_name,
+                )
+                return outcome
+            values[var_name] = picked
+        else:
+            # Non-interactive: bail rather than guess.
+            outcome.add_message(
+                (
+                    f"Variable `{var_name}` not provided. Re-run interactively "
+                    "or pass `var=value` overrides."
+                ),
+                channel="error",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+
+    try:
+        manifest = await agent_obj.register_resolved_skill_template(template, values)
+    except Exception as exc:  # noqa: BLE001
+        outcome.add_message(
+            f"Failed to register resolved skill: {exc}",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    if manifest is None:
+        outcome.add_message(
+            (
+                "Resolved skill could not be loaded (server returned no "
+                "SKILL.md, parse failed, or a same-named skill is already "
+                "registered). See the log for details."
+            ),
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    outcome.add_message(
+        f"Registered skill: {manifest.name} (from {template.server_name})",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    return outcome
+
+
+async def handle_preview_skill(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    """Show a skill's SKILL.md content without the model touching it.
+
+    Satisfies SEP-2640's "SHOULD let users inspect a skill's content
+    before it is loaded into model context." The model decides
+    autonomously when to call `read_skill`, so this is the only
+    pre-load surface for users.
+
+    The lookup re-uses the agent's SkillReader so the read goes through
+    the same trust boundary and (for MCP-backed skills) aggregator
+    dispatch as a model-driven read. The output is rendered to the user,
+    not added to model context, so a preview never plants skill text in
+    the conversation.
+    """
+    outcome = CommandOutcome()
+    if not argument or not argument.strip():
+        outcome.add_message(
+            "Usage: /skills preview <name>",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    name = argument.strip()
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    manifests = list(getattr(agent_obj, "_skill_manifests", None) or [])
+    match = next(
+        (m for m in manifests if m.name.lower() == name.lower()),
+        None,
+    )
+    if match is None:
+        outcome.add_message(
+            f"No skill named '{name}' on this agent. Run `/skills` to list.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    reader = getattr(agent_obj, "_skill_reader", None)
+    if reader is None:
+        outcome.add_message(
+            "Skill reader is not initialized on this agent.",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    # Use the same `path` argument shape the model uses, so a disabled
+    # skill is also unreadable here — preview honors the toggle state.
+    if match.path is not None:
+        location = str(match.path)
+    elif match.uri is not None:
+        location = match.uri
+    else:
+        outcome.add_message(
+            f"Skill '{name}' has no readable location.",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    result = await reader.execute({"path": location})
+    body = "".join(
+        block.text for block in result.content if hasattr(block, "text")
+    )
+
+    if result.isError:
+        outcome.add_message(
+            f"Preview failed: {body}",
+            channel="error",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    header = Text()
+    append_heading(header, f"Skill preview: {match.name}")
+    source = (
+        f"mcp-server: {match.server_name}"
+        if match.uri
+        else (f"filesystem: {match.path.parent}" if match.path else "unknown")
+    )
+    header.append_text(Text(f"source: {source}\n", style="dim"))
+    header.append_text(Text(f"location: {location}\n\n", style="dim"))
+    outcome.add_message(header, right_info="skills", agent_name=agent_name)
+    # Render the body as markdown so headings, code blocks, etc. survive.
+    outcome.add_message(
+        body,
+        right_info="skills",
+        agent_name=agent_name,
+        render_markdown=True,
+    )
+    return outcome
+
+
+async def handle_disable_skill(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    """Hide a skill from this session.
+
+    Disabled skills don't appear in the model's `<available_skills>`
+    block on subsequent renderings and the SkillReader's allow-list no
+    longer admits their paths/URIs, so the model can't read them either.
+    The disable list is in-process and resets when the session ends.
+    """
+    outcome = CommandOutcome()
+    if not argument or not argument.strip():
+        outcome.add_message(
+            "Usage: /skills disable <name>",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    name = argument.strip()
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    if not hasattr(agent_obj, "disable_skill"):
+        outcome.add_message(
+            "This agent does not support per-skill toggles.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    changed = agent_obj.disable_skill(name)
+    if not changed:
+        outcome.add_message(
+            (
+                f"Skill '{name}' is not active on this agent (or already disabled). "
+                "Run `/skills` to see the current list."
+            ),
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    outcome.add_message(
+        f"Disabled skill: {name}",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    outcome.add_message(
+        (
+            "Note: the model's existing context still mentions disabled "
+            "skills, but the read_skill tool will refuse to load them."
+        ),
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    return outcome
+
+
+async def handle_enable_skill(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    if not argument or not argument.strip():
+        outcome.add_message(
+            "Usage: /skills enable <name>",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    name = argument.strip()
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    if not hasattr(agent_obj, "enable_skill"):
+        outcome.add_message(
+            "This agent does not support per-skill toggles.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    changed = agent_obj.enable_skill(name)
+    if not changed:
+        outcome.add_message(
+            f"Skill '{name}' is not currently disabled.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    outcome.add_message(
+        f"Enabled skill: {name}",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    return outcome
+
+
 async def handle_skills_command(
     ctx: CommandContext,
     *,
@@ -840,12 +1304,31 @@ async def handle_skills_command(
         return await handle_remove_skill(ctx, agent_name=agent_name, argument=argument)
     if normalized in {"update", "refresh", "upgrade"}:
         return await handle_update_skill(ctx, agent_name=agent_name, argument=argument)
+    if normalized in {"templates", "template"}:
+        return await handle_list_skill_templates(ctx, agent_name=agent_name)
+    if normalized in {"resolve"}:
+        return await handle_resolve_skill_template(
+            ctx, agent_name=agent_name, argument=argument
+        )
+    if normalized in {"disable", "off"}:
+        return await handle_disable_skill(
+            ctx, agent_name=agent_name, argument=argument
+        )
+    if normalized in {"enable", "on"}:
+        return await handle_enable_skill(
+            ctx, agent_name=agent_name, argument=argument
+        )
+    if normalized in {"preview", "inspect", "show"}:
+        return await handle_preview_skill(
+            ctx, agent_name=agent_name, argument=argument
+        )
 
     outcome = CommandOutcome()
     outcome.add_message(
         (
             f"Unknown /skills action: {normalized}. "
-            "Use list/available/search/add/remove/update/registry/help."
+            "Use list/available/search/add/remove/update/registry/"
+            "templates/resolve/enable/disable/preview/help."
         ),
         channel="warning",
         right_info="skills",

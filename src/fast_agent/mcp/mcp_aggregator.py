@@ -3005,6 +3005,63 @@ class MCPAggregator(ContextDependent):
 
         return results
 
+    async def subscribe_to_resource(
+        self,
+        server_name: str,
+        resource_uri: str,
+    ) -> bool:
+        """Send `resources/subscribe` for `resource_uri` against `server_name`.
+
+        Returns True on success, False if the server doesn't declare
+        subscribe support or the request fails. Subscribe is a SHOULD on
+        servers per the MCP spec, so callers must treat the False return
+        as expected, not exceptional. Update notifications then arrive
+        through `server_notification_callback`.
+        """
+        if not await self.validate_server(server_name):
+            return False
+
+        # The MCP resources capability splits read from subscribe — a
+        # server that returns resources may still decline to publish
+        # updates. Skipping the call when subscribe isn't declared keeps
+        # us from sending requests the server doesn't know how to handle.
+        try:
+            session_capabilities = await self.get_capabilities(server_name)
+        except Exception:
+            session_capabilities = None
+        resources = getattr(session_capabilities, "resources", None) if session_capabilities else None
+        if not resources or not getattr(resources, "subscribe", False):
+            logger.debug(
+                "Server does not advertise resources/subscribe support",
+                data={"server": server_name, "uri": resource_uri},
+            )
+            return False
+
+        try:
+            uri = AnyUrl(resource_uri)
+        except Exception as exc:
+            logger.warning(
+                "Invalid URI for resources/subscribe",
+                data={"server": server_name, "uri": resource_uri, "error": str(exc)},
+            )
+            return False
+
+        try:
+            await self._execute_on_server(
+                server_name=server_name,
+                operation_type="resources/subscribe",
+                operation_name=resource_uri,
+                method_name="subscribe_resource",
+                method_args={"uri": uri},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to subscribe to resource",
+                data={"server": server_name, "uri": resource_uri, "error": str(exc)},
+            )
+            return False
+        return True
+
     async def complete_resource_argument(
         self,
         server_name: str,
