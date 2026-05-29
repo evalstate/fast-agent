@@ -28,6 +28,7 @@ def skills_usage_lines() -> list[str]:
         "- /skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md",
         "- /skills add ./skills/example",
         "- /skills registry",
+        "- /skills registry <mcp-server>",
     ]
 
 

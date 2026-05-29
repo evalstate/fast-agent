@@ -29,7 +29,7 @@ def test_render_command_detail_markdown_contains_registry_action() -> None:
 
     assert rendered is not None
     assert "`registry`" in rendered
-    assert "/skills registry [<number|url|path>]" in rendered
+    assert "/skills registry [<number|url|path|mcp-server>]" in rendered
 
 
 def test_render_commands_json_detail_has_schema_version() -> None:

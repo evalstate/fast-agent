@@ -393,6 +393,7 @@ def _format_capability_shorthand(
         ("Co", bool(completion_caps), False),
         ("Ex", bool(experimental_caps), False),
         ("In", _instruction_capability_state(status, template_expected=template_expected), False),
+        ("Sk", bool(status.mcp_skills_enabled), False),
         ("Ui", _skybridge_capability_state(status), False),
         ("Ro", bool(status.roots_configured), False),
         ("El", _elicitation_capability_state(status.elicitation_mode), False),
@@ -1193,6 +1194,18 @@ def _render_server_calls(status: ServerStatus, *, indent: str) -> None:
         console.console.print(reconnect_line)
 
 
+def _render_mcp_skills_hint(status: ServerStatus, *, indent: str) -> None:
+    if not status.mcp_skills_enabled:
+        return
+
+    skills_line = Text(indent + "  ")
+    skills_line.append(
+        "SEP-2640 Skills over MCP is enabled: use `/skills registry` to select them",
+        style=Colours.TEXT_SUCCESS,
+    )
+    console.console.print(skills_line)
+
+
 def _render_capability_banner(
     tokens: list[tuple[str, str]],
     *,
@@ -1236,6 +1249,7 @@ def _render_server_status_block(
     _render_server_state(status, indent=indent, template_expected=template_expected)
     _render_server_calls(status, indent=indent)
     _render_channel_summary(status, indent, total_width)
+    _render_mcp_skills_hint(status, indent=indent)
     _render_capability_banner(
         primary_caps + secondary_caps,
         indent=indent,
