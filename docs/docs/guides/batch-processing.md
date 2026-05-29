@@ -15,7 +15,7 @@ same LLM workflow over each one: classify examples, extract fields, evaluate
 outputs, enrich metadata, rewrite text, or run experiments at scale.
 
 With **fast-agent**, each row is rendered into a prompt, combined with a stable
-system instruction, sent to a model or AgentCard worker, and written as one
+system instruction, sent to an Agent, and written as one
 JSONL result envelope. Runs are built for practical iteration: stable inputs,
 reusable prompts, efficient provider features, observable outputs, and resumable
 retries when work is interrupted.
@@ -28,8 +28,9 @@ fast-agent batch run \
   --model "responses.gpt-5.4-mini?reasoning=low"
 ```
 
-Use `--limit` while developing your instruction and template, then remove it
-when you are ready to run against the full input.
+Use `--limit` to restrict the size of the run while developing 
+your instruction and template, then remove it when you are ready
+to run against the full input.
 
 If you do not provide a template, fast-agent sends the whole input row as JSON:
 
@@ -76,10 +77,10 @@ fast-agent batch run \
   --model "responses.gpt-5.4-mini?service_tier=flex"
 ```
 
-## 1. Create input data
+## 1. Source input data
 
-Use a local `.jsonl`, `.csv`, or `.parquet` file. JSONL rows must be JSON
-objects:
+Start with row-oriented data from a local `.jsonl`, `.csv`, or `.parquet` file,
+or from a Hugging Face dataset URI. JSONL rows must be JSON objects:
 
 ```json title="reviews.jsonl"
 {"id": "r1", "review": "The battery lasts all day.", "product": "phone"}
@@ -116,7 +117,7 @@ With `--id-field id`, successful output records look like:
 Failed rows are written to the main output as `ok: false` envelopes, and can
 also be copied to a separate error file with `--error-output`.
 
-## 2. Add a system prompt
+## 2. Configure the system prompt
 
 Use `--instruction` to provide the [system prompt](../agents/instructions.md)
 for the batch worker:
@@ -154,7 +155,7 @@ fast-agent batch run \
 AgentCards are useful when the batch worker needs tools, MCP servers, skills, or
 workflow definitions.
 
-## 3. Shape each row with a template
+## 3. Customise your Prompt with a template
 
 Templates control the user prompt sent for each row.
 
@@ -216,10 +217,11 @@ Template details:
 - Missing fields produce a row-level `MissingTemplateField` error.
 - The syntax is simple placeholder replacement, not Jinja-style logic.
 
-## 4. Ask for structured results
+## 4. Return structured results
 
 For extraction, evaluation, or repeatable classification, add a JSON Schema or a
-Pydantic model so outputs are machine-readable.
+Pydantic model so outputs are machine-readable. `--json-schema` accepts a local
+path, HTTP(S) URL, `file://` URI, or `hf://` URI.
 
 ```json title="sentiment.schema.json"
 {
@@ -244,7 +246,7 @@ fast-agent batch run \
   --output review-results.jsonl \
   --instruction sentiment-instructions.md \
   --template review-template.md \
-  --schema sentiment.schema.json \
+  --json-schema sentiment.schema.json \
   --model "responses.gpt-5.5"
 ```
 
@@ -260,7 +262,7 @@ fast-agent batch run \
   --output review-results.jsonl \
   --instruction sentiment-instructions.md \
   --template review-template.md \
-  --schema sentiment.schema.json \
+  --json-schema sentiment.schema.json \
   --parallel 4 \
   --model "responses.gpt-5.5?transport=auto"
 ```
@@ -300,7 +302,7 @@ fast-agent batch run \
   --output review-results.jsonl \
   --instruction sentiment-instructions.md \
   --template review-template.md \
-  --schema sentiment.schema.json \
+  --json-schema sentiment.schema.json \
   --resume \
   --id-field id \
   --model "responses.gpt-5.5"
@@ -353,7 +355,7 @@ fast-agent batch run \
   --output review-results.jsonl \
   --instruction sentiment-instructions.md \
   --template review-template.md \
-  --schema sentiment.schema.json \
+  --json-schema sentiment.schema.json \
   --telemetry-output review-telemetry.jsonl \
   --summary-output review-summary.json \
   --error-output review-errors.jsonl \
@@ -493,7 +495,7 @@ for each input product, then returns structured manufacturer and product names.
       --output competitive-products.jsonl \
       --instruction instructions.md \
       --template template.md \
-      --schema competitive-products.schema.json \
+      --json-schema competitive-products.schema.json \
       --id-field id \
       --parallel 2 \
       --model "responses.gpt-5.4-mini?web_search=on&service_tier=flex"
