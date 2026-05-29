@@ -95,12 +95,13 @@ This displays available skills with numbers. Install by name or number:
     fast-agent skills add skill-name
     ```
 
+
 <div
   class="fa-terminal-demo"
-  data-fa-asciinema-cast="../../assets/tui/skills-direct-install.cast"
+  data-fa-asciinema-cast="../../assets/tui/skills-slash-commands.cast"
   data-fa-asciinema-cols="96"
-  data-fa-asciinema-rows="20"
-  data-fa-asciinema-poster="npt:0:01"
+  data-fa-asciinema-rows="24"
+  data-fa-asciinema-poster="npt:0:05"
   data-fa-asciinema-speed="1"
   data-fa-asciinema-idle-time-limit="1.3"
   data-fa-asciinema-fit="width"
@@ -115,9 +116,9 @@ This displays available skills with numbers. Install by name or number:
 
 <!--
 Cast asset:
-- Source: docs/docs/assets/tui/skills-direct-install.cast
-- Regenerate: uv run scripts/docs.py cast-build skills-direct-install
-- Replay locally: asciinema play docs/docs/assets/tui/skills-direct-install.cast
+- Source: docs/docs/assets/tui/skills-slash-commands.cast
+- Regenerate: uv run scripts/docs.py cast-build skills-slash-commands
+- Replay locally: asciinema play docs/docs/assets/tui/skills-slash-commands.cast
 -->
 
 ### Removing Skills
@@ -203,6 +204,32 @@ fast-agent go --skills ~/skill-development/testing/ --model "gpt-5-mini?reasonin
 # Give fast-agent access to the shell
 fast-agent go -x
 ```
+
+<div
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../assets/tui/skills-direct-install.cast"
+  data-fa-asciinema-cols="96"
+  data-fa-asciinema-rows="20"
+  data-fa-asciinema-poster="npt:0:01"
+  data-fa-asciinema-speed="1"
+  data-fa-asciinema-idle-time-limit="1.3"
+  data-fa-asciinema-fit="width"
+>
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
+  <div data-fa-asciinema-target></div>
+</div>
+
+<!--
+Cast asset:
+- Source: docs/docs/assets/tui/skills-direct-install.cast
+- Regenerate: uv run scripts/docs.py cast-build skills-direct-install
+- Replay locally: asciinema play docs/docs/assets/tui/skills-direct-install.cast
+-->
+
 
 ## Config File
 
