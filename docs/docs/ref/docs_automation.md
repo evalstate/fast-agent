@@ -59,6 +59,8 @@ uv run scripts/docs.py assets
 uv run scripts/docs.py assets-record tui-shell
 uv run scripts/docs.py cast-build tui-shell
 uv run scripts/docs.py cast-build model-picker
+uv run scripts/docs.py cast-build skills-direct-install
+uv run scripts/docs.py cast-build skills-slash-commands
 ```
 
 The `tui-shell` scenario records `fast-agent` starting with shell access and a visible model
@@ -67,6 +69,8 @@ selection, sends a short prompt, then runs `! git status` from inside the TUI. R
 player assets. `cast-build` is an alias for recording a named cast.
 The `model-picker` scenario records `fast-agent go` opening the startup model picker, then navigates
 the provider/model lists with arrow keys.
+The skills scenarios record direct install and update-check flows from a temporary local git
+repository, using either CLI commands or `/skills` slash commands in the TUI.
 
 By default, cast recordings stop by killing the tmux session after the final demonstrated action,
 so the user-facing recording does not show a trailing `/exit`. Set
