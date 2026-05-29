@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 from mcp.types import BlobResourceContents, CallToolResult, TextContent, TextResourceContents, Tool
 
 from fast_agent.mcp.skill_uri import strip_skill_md
-
 from fast_agent.tools.tool_sources import set_tool_source
 
 if TYPE_CHECKING:

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -19,6 +18,9 @@ from fast_agent.mcp.mcp_skills_loader import (
     merge_filesystem_and_mcp_manifests,
 )
 from fast_agent.skills.registry import SkillManifest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _read_result(text: str, uri: str, mime: str = "application/json") -> ReadResourceResult:

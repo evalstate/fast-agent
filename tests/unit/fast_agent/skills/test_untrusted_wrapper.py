@@ -8,8 +8,7 @@ be treated as data, not directives.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,6 +17,9 @@ from pydantic import AnyUrl
 
 from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 from fast_agent.tools.skill_reader import SkillReader
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _text_result(text: str, uri: str) -> ReadResourceResult:

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,6 +13,9 @@ from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.commands.handlers.skills import handle_skills_command
 from fast_agent.context import Context
 from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _outcome_text(outcome) -> str:

@@ -8,8 +8,8 @@ only pre-load surface available to users.
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,6 +17,9 @@ from mcp.types import CallToolResult, TextContent
 
 from fast_agent.commands.handlers.skills import handle_skills_command
 from fast_agent.skills.registry import SkillManifest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _outcome_text(outcome) -> str:

@@ -9,8 +9,7 @@ notified via the runtime toolbar.
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -27,6 +26,9 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
 from fast_agent.mcp.mcp_skills_loader import INDEX_URI
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _text_result(text: str, uri: str, mime: str = "application/json") -> ReadResourceResult:
