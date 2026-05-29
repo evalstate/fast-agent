@@ -427,6 +427,18 @@ def _evaluate_skill_update(
             managed_source=source,
         )
 
+    if source.source_origin == "mcp":
+        return SkillUpdateInfo(
+            index=index,
+            name=name,
+            skill_dir=skill_dir,
+            status="unknown_revision",
+            detail="source is an MCP skill registry; compare unavailable",
+            current_revision=source.installed_revision,
+            available_revision=source.installed_revision,
+            managed_source=source,
+        )
+
     if source.installed_commit is None and source.installed_revision == LOCAL_REVISION:
         return SkillUpdateInfo(
             index=index,

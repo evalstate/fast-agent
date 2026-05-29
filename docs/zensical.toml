@@ -69,6 +69,7 @@ nav = [
   },
   { "MCP" = [
     { "Configuring Servers" = "mcp/index.md" },
+    { "Skills over MCP" = "mcp/skills-over-mcp.md" },
     { "Deploying as an MCP Server" = "mcp/mcp-server.md" },
     { "Inspecting Servers" = "mcp/mcp_display.md" },
     { "Quickstart - Elicitations" = "mcp/elicitations.md" },

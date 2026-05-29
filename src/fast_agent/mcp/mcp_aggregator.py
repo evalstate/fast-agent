@@ -77,6 +77,11 @@ from fast_agent.mcp.skybridge import (
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler, ToolPermissionHandler
 from fast_agent.mcp.transport_tracking import TransportSnapshot
+from fast_agent.skills.mcp_registry import (
+    McpSkillRegistry,
+    scan_mcp_skill_registry,
+    server_supports_mcp_skills,
+)
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.async_utils import gather_with_cancel
 
@@ -217,6 +222,7 @@ class ServerStatus(BaseModel):
     session_title: str | None = None
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
+    mcp_skills_enabled: bool | None = None
     reconnect_count: int = 0
     ping_interval_seconds: int | None = None
     ping_max_missed: int | None = None
@@ -254,6 +260,7 @@ class MCPAttachResult:
     warnings: list[str]
     tools_total: int | None = None
     prompts_total: int | None = None
+    skills_total: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -759,6 +766,7 @@ class MCPAggregator(ContextDependent):
                 warnings=[],
                 tools_total=len(existing_tool_names),
                 prompts_total=len(existing_prompt_names),
+                skills_total=None,
             )
 
         if attach_options.force_reconnect:
@@ -803,7 +811,6 @@ class MCPAggregator(ContextDependent):
 
         tools = await self._fetch_server_tools(server_name)
         prompts = await self._fetch_server_prompts(server_name)
-
         async with self._tool_map_lock:
             for namespaced in self._server_to_tool_map.get(server_name, []):
                 self._namespaced_tool_map.pop(namespaced.namespaced_tool_name, None)
@@ -852,6 +859,7 @@ class MCPAggregator(ContextDependent):
             warnings=list(skybridge_config.warnings),
             tools_total=len(tool_names),
             prompts_total=len(prompt_names),
+            skills_total=None,
         )
 
     async def detach_server(self, server_name: str) -> MCPDetachResult:
@@ -1127,6 +1135,27 @@ class MCPAggregator(ContextDependent):
                 "server_count": len(self._skybridge_configs),
             },
         )
+
+    def _server_implementation_version(self, server_name: str) -> str | None:
+        manager = self._persistent_connection_manager
+        if not self.connection_persistence or manager is None:
+            return None
+        server_conn = manager.running_servers.get(server_name)
+        if server_conn is None or server_conn.server_implementation is None:
+            return None
+        return server_conn.server_implementation.version
+
+    async def list_mcp_skill_registries(self) -> list[McpSkillRegistry]:
+        registries: list[McpSkillRegistry] = []
+        for server_name in self.list_attached_servers():
+            registry = await scan_mcp_skill_registry(
+                self,
+                server_name,
+                server_version=self._server_implementation_version(server_name),
+            )
+            if registry is not None:
+                registries.append(registry)
+        return registries
 
     async def get_capabilities(self, server_name: str) -> ServerCapabilities | None:
         """Get server capabilities if available."""
@@ -1434,6 +1463,7 @@ class MCPAggregator(ContextDependent):
             ping_activity_buckets: list[str] | None = None
             ping_activity_bucket_seconds: int | None = None
             ping_activity_bucket_count: int | None = None
+            mcp_skills_enabled: bool | None = None
 
             manager = self._persistent_connection_manager
             if self.connection_persistence and manager is not None:
@@ -1448,6 +1478,7 @@ class MCPAggregator(ContextDependent):
                             implementation_name = implementation.name
                             implementation_version = implementation.version
                         capabilities = server_conn.server_capabilities
+                        mcp_skills_enabled = server_supports_mcp_skills(capabilities)
                         client_capabilities = server_conn.client_capabilities
                         session = server_conn.session
                         if isinstance(session, SessionClientInfoCapable):
@@ -1620,6 +1651,7 @@ class MCPAggregator(ContextDependent):
                 session_title=session_title,
                 transport_channels=transport_snapshot,
                 skybridge=self._skybridge_configs.get(server_name),
+                mcp_skills_enabled=mcp_skills_enabled,
                 reconnect_count=reconnect_count,
                 ping_interval_seconds=ping_interval_seconds,
                 ping_max_missed=ping_max_missed,
