@@ -2,9 +2,33 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
+
 from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
 from fast_agent.paths import default_skill_paths
-from fast_agent.skills.registry import SkillRegistry
+from fast_agent.skills.registry import SkillManifest, SkillRegistry
+
+
+def test_skill_manifest_requires_path_or_uri() -> None:
+    """Dataclass invariant: a manifest with neither path nor uri has no way
+    to be read and would silently render as an empty <skill> block. Fail
+    loudly at construction instead."""
+    with pytest.raises(ValueError, match="path or a resource URI"):
+        SkillManifest(name="broken", description="d", body="")
+
+
+def test_skill_manifest_uri_requires_server_name() -> None:
+    """A URI-backed manifest without server_name collapses the trust boundary:
+    SkillReader._find_server_for_uri returns None, and the aggregator falls
+    through every connected server until one responds. Fail at construction
+    so this invariant holds structurally, not just by loader convention."""
+    with pytest.raises(ValueError, match="server_name"):
+        SkillManifest(
+            name="orphan",
+            description="d",
+            body="",
+            uri="skill://orphan/SKILL.md",
+        )
 
 
 @contextmanager
