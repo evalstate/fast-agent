@@ -153,6 +153,10 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
+    # See test_local_skills_env_flag_routes_to_skills_subcommand for
+    # why COLUMNS is forced (Rich table renderer truncates long pytest
+    # tmp paths with U+2026 at 80 cols).
+    env_for_subprocess = {**os.environ, "COLUMNS": "240"}
     result = subprocess.run(
         [
             "uv",
@@ -169,6 +173,7 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         cwd=_repo_root(),
+        env=env_for_subprocess,
     )
 
     assert result.returncode == 0, result.stderr

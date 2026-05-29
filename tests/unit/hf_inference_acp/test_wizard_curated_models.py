@@ -22,6 +22,36 @@ def _ensure_hf_inference_acp_on_path() -> None:
     sys.path.insert(0, str(package_root))
 
 
+@pytest.fixture(autouse=True)
+def _restore_sys_path_and_modules():
+    """Cleanup ``sys.path`` mutations from ``_ensure_hf_inference_acp_on_path``
+    plus any modules imported from that path.
+
+    Without this, the hf-inference-acp package stays importable across the
+    rest of the test session and any logger setup it does at import time
+    leaks into unrelated tests — concretely, ``caplog.set_level(WARNING)``
+    in ``test_resume_warns_loudly_when_team_name_unrecoverable`` stops
+    capturing because hf_inference_acp's structured-logger configuration
+    swaps the root handler. Snapshot and restore around each test in this
+    module so the wizard suite stays self-contained.
+    """
+    path_snapshot = list(sys.path)
+    modules_snapshot = set(sys.modules)
+    try:
+        yield
+    finally:
+        sys.path[:] = path_snapshot
+        # Drop any newly-imported hf_inference_acp.* modules so a later
+        # test that re-adds the path imports fresh and a test that
+        # doesn't gets the absence it expects.
+        for mod_name in list(sys.modules.keys()):
+            if mod_name not in modules_snapshot and (
+                mod_name == "hf_inference_acp"
+                or mod_name.startswith("hf_inference_acp.")
+            ):
+                sys.modules.pop(mod_name, None)
+
+
 @pytest.mark.asyncio
 async def test_wizard_model_selection_uses_curated_ids() -> None:
     pytest.importorskip("ruamel.yaml")

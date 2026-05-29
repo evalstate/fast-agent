@@ -210,8 +210,31 @@ async def test_resume_warns_loudly_when_team_name_unrecoverable(
     fake_registry.get.return_value = record
     fake_registry._data[record.run_id] = {"restart_count": 0}
 
-    import logging
-    caplog.set_level(logging.WARNING)
+    # Capture warnings DIRECTLY off the module-level ``logger`` reference
+    # rather than via pytest's ``caplog`` fixture. Other test modules
+    # (notably ``tests/unit/hf_inference_acp/test_wizard_curated_models``
+    # which boots WizardSetupLLM) import the full fast_agent runtime stack
+    # and reconfigure the ``fast_agent.spawn`` logger hierarchy in ways
+    # that caplog handlers can't reliably hook into mid-session.
+    # Patching the symbol the call-site actually uses (``isolated_spawner.logger``)
+    # bypasses the global logging plumbing entirely and pins the behaviour
+    # we care about: did the code path execute its WARNING emission?
+    warnings_seen: list[str] = []
+    real_logger = isolated_spawner.logger
+
+    class _CaptureLogger:
+        def __getattr__(self, name):
+            if name == "warning":
+                def _wrap(msg, *args, **kwargs):
+                    try:
+                        warnings_seen.append(msg % args if args else msg)
+                    except Exception:
+                        warnings_seen.append(str(msg))
+                    return real_logger.warning(msg, *args, **kwargs)
+                return _wrap
+            return getattr(real_logger, name)
+
+    monkeypatch.setattr(isolated_spawner, "logger", _CaptureLogger())
     await isolated_spawner._check_and_resume_on_inbox(
         run_id=record.run_id,
         agent_name=record.agent_name,
@@ -220,10 +243,13 @@ async def test_resume_warns_loudly_when_team_name_unrecoverable(
     )
 
     assert any(
-        "missing session_id" in r.message or "missing team_name" in r.message
-        or ("session_id=" in r.message and "team_name=" in r.message)
-        for r in caplog.records
-    ), "Must log a WARNING when team identity is unrecoverable"
+        "missing session_id" in m or "missing team_name" in m
+        or ("session_id=" in m and "team_name=" in m)
+        for m in warnings_seen
+    ), (
+        "Must log a WARNING when team identity is unrecoverable. "
+        f"Captured warnings: {warnings_seen!r}"
+    )
 
 
 @pytest.mark.anyio
