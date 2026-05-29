@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shutil
+import socket as _socket
 import tempfile
 import threading
 import time
@@ -18,6 +20,34 @@ from fast_agent.spawn.agent_channel import (
     _resolve_channel_dir,
     _sanitize_name,
 )
+
+
+@contextlib.contextmanager
+def _bind_listener(sock_path: Path):
+    """Spawn a real AF_UNIX listener at ``sock_path``.
+
+    ``AgentChannel.is_alive`` was upgraded to do a real ``connect()`` probe
+    (file-existence alone is a false-positive trap once a SIGKILL'd
+    subprocess leaves a stale .sock behind). Tests that previously created
+    the file with ``Path.touch()`` must now actually bind a listener so the
+    probe succeeds — this helper does it briefly so the test body can
+    assert against a truly-alive endpoint.
+    """
+    sock_path.parent.mkdir(parents=True, exist_ok=True)
+    if sock_path.exists():
+        sock_path.unlink()
+    s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    try:
+        s.bind(str(sock_path))
+        s.listen(1)
+        s.settimeout(0.5)
+        yield s
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+        sock_path.unlink(missing_ok=True)
 
 
 @pytest.fixture
@@ -133,17 +163,15 @@ class TestIsAlive:
         assert AgentChannel.is_alive("ghost", channel_dir=short_tmp) is False
 
     def test_alive_when_socket_exists(self, short_tmp):
-        # Create socket in the hashed directory where is_alive looks
+        # is_alive does a real AF_UNIX connect — file alone isn't enough.
         sock_dir = _get_sock_dir(short_tmp)
-        sock_dir.mkdir(parents=True, exist_ok=True)
-        (sock_dir / "agent-x.sock").touch()
-        assert AgentChannel.is_alive("agent-x", channel_dir=short_tmp) is True
+        with _bind_listener(sock_dir / "agent-x.sock"):
+            assert AgentChannel.is_alive("agent-x", channel_dir=short_tmp) is True
 
     def test_sanitized_name_lookup(self, short_tmp):
         sock_dir = _get_sock_dir(short_tmp)
-        sock_dir.mkdir(parents=True, exist_ok=True)
-        (sock_dir / "Minh_-_Dev.sock").touch()
-        assert AgentChannel.is_alive("Minh - Dev", channel_dir=short_tmp) is True
+        with _bind_listener(sock_dir / "Minh_-_Dev.sock"):
+            assert AgentChannel.is_alive("Minh - Dev", channel_dir=short_tmp) is True
 
 
 # ─── AgentChannel: send_signal (static) ───
