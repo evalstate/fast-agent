@@ -934,6 +934,7 @@ def build_oauth_provider(
 
     metadata_kwargs: dict[str, Any] = {
         "client_name": "fast-agent",
+        "logo_uri": "https://fast-agent.ai/logo.png",
         "redirect_uris": redirect_uris,
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
