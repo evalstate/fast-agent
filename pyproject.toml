@@ -22,7 +22,7 @@ dependencies = [
     "pyyaml==6.0.3",
     "rich==15.0.0",
     "typer==0.25.1",
-    "anthropic[vertex]==0.104.1",
+    "anthropic[vertex]==0.105",
     "openai[aiohttp]==2.38.0",
     "prompt-toolkit==3.0.52",
     "aiohttp==3.13.5",

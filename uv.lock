@@ -161,7 +161,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.104.1"
+version = "0.105.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -173,9 +173,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/22/c7/7a655b948916f777354648ce979f68b94d5b8dbdb5f61fed1f37fad9378c/anthropic-0.104.1.tar.gz", hash = "sha256:17362b6c45f527afcc9b0fdf62011ffd359726ab2ebcb1978ea0cc41bd8d8d40", size = 850081, upload-time = "2026-05-22T15:36:57.432Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/8e/74a2c9c118c277cb1f39a1828139e919dfe0facc51a3b8f000dd2692eebc/anthropic-0.105.0.tar.gz", hash = "sha256:2cc60ee165948f2c45fd417d2e408dbd787349b17b2ab5520a487683b59aef5d", size = 853709, upload-time = "2026-05-28T16:52:55.769Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/12/d9ab42790494d7c428391a46cd28492395566a6a8ccb138d681978594455/anthropic-0.104.1-py3-none-any.whl", hash = "sha256:35c8cb456f5a4405aafe1f10f03f6fcc54fa51fa8ec01d655cc4b437d120e9b7", size = 832996, upload-time = "2026-05-22T15:36:59.519Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/90/a0a74482fd9a7fe6e8edfb4e4470e42ebce9e04d5a2052bda0a4a4cc98e7/anthropic-0.105.0-py3-none-any.whl", hash = "sha256:0565975f37a8ac7bdcf97c2002aa5b133376c157d9265997721c7f131e69724d", size = 837504, upload-time = "2026-05-28T16:52:53.971Z" },
 ]
 
 [package.optional-dependencies]
@@ -862,7 +862,7 @@ requires-dist = [
     { name = "a2a-sdk", specifier = "==1.0.3" },
     { name = "agent-client-protocol", specifier = "==0.10.1" },
     { name = "aiohttp", specifier = "==3.13.5" },
-    { name = "anthropic", extras = ["vertex"], specifier = "==0.104.1" },
+    { name = "anthropic", extras = ["vertex"], specifier = "==0.105" },
     { name = "azure-identity", marker = "extra == 'all-providers'", specifier = ">=1.14.0" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.14.0" },
     { name = "boto3", marker = "extra == 'all-providers'", specifier = ">=1.35.0" },
