@@ -29,7 +29,9 @@ from fast_agent.skills.mcp_registry import (
     McpSkillRegistry,
     install_mcp_registry_skill,
     select_mcp_registry_skill,
+    update_mcp_registry_skill,
 )
+from fast_agent.skills.models import SkillUpdateInfo
 from fast_agent.skills.operations import (
     apply_skill_updates,
     check_skill_updates,
@@ -43,9 +45,11 @@ from fast_agent.skills.operations import (
     select_skill_updates,
 )
 from fast_agent.skills.provenance import (
+    compute_skill_content_fingerprint,
     format_installed_at_display,
     format_revision_short,
     format_skill_provenance_details,
+    read_installed_skill_source,
 )
 from fast_agent.skills.registry import SkillManifest, SkillRegistry, format_skills_for_prompt
 from fast_agent.skills.scope import (
@@ -60,7 +64,6 @@ if TYPE_CHECKING:
 
     from fast_agent.commands.context import CommandContext
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.skills.models import SkillUpdateInfo
 
 
 MCP_REGISTRY_PREFIX = "mcp://"
@@ -234,6 +237,7 @@ def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
         name = getattr(entry, "name", "")
         description = getattr(entry, "description", "")
         source_url = getattr(entry, "source_url", None)
+        digest = getattr(entry, "digest", None)
 
         entry_line = Text()
         entry_line.append(f"[{index:2}] ", style="dim cyan")
@@ -246,6 +250,10 @@ def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
         if source_url:
             content.append("     ", style="dim")
             content.append(f"source: {source_url}", style="dim green")
+            content.append("\n")
+        if digest:
+            content.append("     ", style="dim")
+            content.append("integrity: SHA256 checked", style="dim green")
             content.append("\n")
         content.append("\n")
 
@@ -288,6 +296,7 @@ def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) ->
         "source_ref_missing": "source ref missing",
         "source_path_missing": "source path missing",
         "skipped_dirty": "skipped (local modifications)",
+        "integrity_error": "integrity error",
     }
     status_detail_channels = {
         "invalid_metadata",
@@ -297,6 +306,7 @@ def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) ->
         "source_ref_missing",
         "source_path_missing",
         "skipped_dirty",
+        "integrity_error",
     }
     detail_prefix = "  - "
 
@@ -946,6 +956,217 @@ async def handle_remove_skill(
     return outcome
 
 
+async def _enrich_mcp_update_infos(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    updates: list[SkillUpdateInfo],
+) -> list[SkillUpdateInfo]:
+    mcp_updates = [update for update in updates if _is_mcp_update(update)]
+    if not mcp_updates:
+        return updates
+
+    registries = await _list_mcp_skill_registries(ctx, agent_name=agent_name)
+    enriched: list[SkillUpdateInfo] = []
+    for update in updates:
+        if not _is_mcp_update(update):
+            enriched.append(update)
+            continue
+        skill = _find_mcp_skill_for_update(registries, update)
+        source = update.managed_source
+        if source is None:
+            enriched.append(update)
+            continue
+        if skill is None:
+            enriched.append(
+                SkillUpdateInfo(
+                    index=update.index,
+                    name=update.name,
+                    skill_dir=update.skill_dir,
+                    status="source_path_missing",
+                    detail="MCP registry entry not found",
+                    current_revision=source.artifact_digest or source.installed_revision,
+                    managed_source=source,
+                )
+            )
+            continue
+        current_digest = source.artifact_digest or source.installed_revision
+        status = "up_to_date" if current_digest == skill.digest else "update_available"
+        detail = "already up to date" if status == "up_to_date" else "skill artifact changed"
+        enriched.append(
+            SkillUpdateInfo(
+                index=update.index,
+                name=update.name,
+                skill_dir=update.skill_dir,
+                status=status,
+                detail=detail,
+                current_revision=current_digest,
+                available_revision=skill.digest,
+                managed_source=source,
+            )
+        )
+    return enriched
+
+
+async def _apply_mcp_skill_updates(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    updates: list[SkillUpdateInfo],
+    force: bool,
+) -> list[SkillUpdateInfo]:
+    if not updates:
+        return []
+    agent = ctx.agent_provider._agent(agent_name)
+    if not isinstance(agent, _McpSkillRegistryAgent):
+        return [
+            SkillUpdateInfo(
+                index=update.index,
+                name=update.name,
+                skill_dir=update.skill_dir,
+                status="source_unreachable",
+                detail="This agent does not expose MCP skill registries.",
+                current_revision=update.current_revision,
+                available_revision=update.available_revision,
+                managed_source=update.managed_source,
+            )
+            for update in updates
+        ]
+
+    registries = await agent.aggregator.list_mcp_skill_registries()
+    applied: list[SkillUpdateInfo] = []
+    for update in updates:
+        source = update.managed_source
+        if source is None:
+            applied.append(
+                SkillUpdateInfo(
+                    index=update.index,
+                    name=update.name,
+                    skill_dir=update.skill_dir,
+                    status="invalid_metadata",
+                    detail="missing source metadata",
+                )
+            )
+            continue
+
+        skill = _find_mcp_skill_for_update(registries, update)
+        if skill is None:
+            applied.append(
+                SkillUpdateInfo(
+                    index=update.index,
+                    name=update.name,
+                    skill_dir=update.skill_dir,
+                    status="source_path_missing",
+                    detail="MCP registry entry not found",
+                    current_revision=source.artifact_digest or source.installed_revision,
+                    managed_source=source,
+                )
+            )
+            continue
+
+        current_digest = source.artifact_digest or source.installed_revision
+        if current_digest == skill.digest:
+            applied.append(
+                SkillUpdateInfo(
+                    index=update.index,
+                    name=update.name,
+                    skill_dir=update.skill_dir,
+                    status="up_to_date",
+                    detail="already up to date",
+                    current_revision=current_digest,
+                    available_revision=skill.digest,
+                    managed_source=source,
+                )
+            )
+            continue
+
+        is_dirty = compute_skill_content_fingerprint(update.skill_dir) != source.content_fingerprint
+        if is_dirty and not force:
+            applied.append(
+                SkillUpdateInfo(
+                    index=update.index,
+                    name=update.name,
+                    skill_dir=update.skill_dir,
+                    status="skipped_dirty",
+                    detail="local modifications detected; rerun with --force",
+                    current_revision=current_digest,
+                    available_revision=skill.digest,
+                    managed_source=source,
+                )
+            )
+            continue
+
+        try:
+            await update_mcp_registry_skill(
+                cast("Any", agent.aggregator),
+                skill,
+                skill_dir=update.skill_dir,
+            )
+        except ValueError as exc:
+            applied.append(
+                SkillUpdateInfo(
+                    index=update.index,
+                    name=update.name,
+                    skill_dir=update.skill_dir,
+                    status="integrity_error",
+                    detail=str(exc),
+                    current_revision=current_digest,
+                    available_revision=skill.digest,
+                    managed_source=source,
+                )
+            )
+            continue
+        except Exception as exc:  # noqa: BLE001
+            applied.append(
+                SkillUpdateInfo(
+                    index=update.index,
+                    name=update.name,
+                    skill_dir=update.skill_dir,
+                    status="source_unreachable",
+                    detail=str(exc),
+                    current_revision=current_digest,
+                    available_revision=skill.digest,
+                    managed_source=source,
+                )
+            )
+            continue
+
+        refreshed_source, _error = read_installed_skill_source(update.skill_dir)
+        applied.append(
+            SkillUpdateInfo(
+                index=update.index,
+                name=update.name,
+                skill_dir=update.skill_dir,
+                status="updated",
+                detail="updated with --force (local changes overwritten)" if is_dirty else "updated",
+                current_revision=current_digest,
+                available_revision=skill.digest,
+                managed_source=refreshed_source or source,
+            )
+        )
+    return applied
+
+
+def _is_mcp_update(update: SkillUpdateInfo) -> bool:
+    source = update.managed_source
+    return source is not None and source.source_origin == "mcp"
+
+
+def _find_mcp_skill_for_update(
+    registries: Sequence[McpSkillRegistry], update: SkillUpdateInfo
+) -> McpRegistrySkill | None:
+    source = update.managed_source
+    if source is None:
+        return None
+    for registry in registries:
+        if registry.server_name != source.mcp_server_name:
+            continue
+        for skill in registry.skills:
+            if skill.source_url == source.source_url or skill.name == update.name:
+                return skill
+    return None
+
+
 async def handle_update_skill(
     ctx: CommandContext,
     *,
@@ -961,7 +1182,11 @@ async def handle_update_skill(
 
     management_scope = resolve_skills_management_scope(ctx.resolve_settings())
     managed_skills_dir = management_scope.managed_directory
-    updates = check_skill_updates(destination_root=managed_skills_dir)
+    updates = await _enrich_mcp_update_infos(
+        ctx,
+        agent_name=agent_name,
+        updates=check_skill_updates(destination_root=managed_skills_dir),
+    )
 
     if selector is None:
         outcome.add_message(
@@ -996,7 +1221,17 @@ async def handle_update_skill(
         )
         return outcome
 
-    applied = await asyncio.to_thread(apply_skill_updates, selected, force=force)
+    mcp_selected = [update for update in selected if _is_mcp_update(update)]
+    regular_selected = [update for update in selected if not _is_mcp_update(update)]
+    applied = [
+        *await asyncio.to_thread(apply_skill_updates, regular_selected, force=force),
+        *await _apply_mcp_skill_updates(
+            ctx,
+            agent_name=agent_name,
+            updates=mcp_selected,
+            force=force,
+        ),
+    ]
     outcome.add_message(
         _format_update_results(applied, title="Skill update results:"),
         right_info="skills",

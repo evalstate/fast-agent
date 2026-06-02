@@ -37,6 +37,7 @@ SkillUpdateStatus = Literal[
     "source_ref_missing",
     "source_path_missing",
     "skipped_dirty",
+    "integrity_error",
 ]
 SkillManagementSource = Literal["override", "settings", "default"]
 
@@ -57,6 +58,8 @@ class InstalledSkillSource:
     content_fingerprint: str
     mcp_server_name: str | None = None
     mcp_server_version: str | None = None
+    artifact_digest: str | None = None
+    artifact_type: str | None = None
 
 
 @dataclass(frozen=True)

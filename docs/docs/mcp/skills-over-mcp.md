@@ -7,35 +7,39 @@ social:
   alt: fast-agent social card - Skills over MCP
 ---
 
-`fast-agent` supports the registry portion of
+`fast-agent` supports the registry and installation portion of
 [SEP-2640: Skills Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/93d7a9ddb20d4b3594f4a1be7508ee47f0718f17/seps/2640-skills-extension.md).
-SEP-2640 is still a draft, so this support is intentionally narrow: an MCP
-server can act as a skills registry for installation when it advertises the
-`io.modelcontextprotocol/skills` extension capability.
+SEP-2640 is still a draft, so this support is intentionally scoped: an MCP
+server can act as a skills registry when it advertises the
+`io.modelcontextprotocol/skills` extension capability, and `fast-agent` installs
+selected skills into the normal managed skills directory.
 
 When a connected MCP server advertises this capability, `fast-agent` shows it as
 an MCP-backed skills registry. Opening `/skills registry` reads
-`skill://index.json` and lists concrete `skill-md` entries; installing a selected
-entry reads that skill's `SKILL.md` into the normal managed skills directory.
-Installed skills then behave like other local skills and include MCP server
-provenance in their sidecar metadata.
+`skill://index.json` and lists installable `skill-md` or archive entries that
+include a valid `sha256:` digest. Installing a selected entry downloads the
+artifact, verifies its SHA-256, then writes the skill into the normal managed
+skills directory. Installed skills then behave like other local skills and
+include MCP server provenance plus the verified artifact digest in their sidecar
+metadata.
 
 ## Trying it
 
-Run or connect to a SEP-2640-enabled MCP server. This example uses a local copy
-of the Hugging Face MCP Server:
+Run or connect to a SEP-2640-enabled MCP server. This example uses the hosted
+Hugging Face MCP Server:
 
 ```text
-/mcp connect http://localhost:3000/mcp
+/mcp connect --name hf https://huggingface.co/mcp
 /mcp
 /skills registry
-/skills registry <mcp-server>
+/skills registry hf
 /skills available
 /skills add <number|name>
 ```
 
 `/mcp` shows when SEP-2640 Skills over MCP is enabled and points you to
 `/skills registry` to select the MCP server as the current install source.
+Listings show `integrity: SHA256 checked` for installable MCP skills.
 
 <div
   class="fa-terminal-demo"
@@ -68,3 +72,9 @@ This implementation uses MCP as a registry for installation. It does not expose
 MCP-served skill resources directly to the model, and it does not make active
 skills read supporting files from the MCP server. That deeper resource-loading
 workflow is planned separately.
+
+`/skills update` can compare the installed artifact digest with the current MCP
+registry digest and apply a verified update when the server publishes a newer
+artifact. The top-level `fast-agent skills` CLI remains marketplace/file/GitHub
+oriented; select MCP registries from an interactive session after connecting the
+MCP server.

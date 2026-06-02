@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha256
+
 import pytest
 
 from fast_agent.commands.context import (
@@ -10,9 +12,19 @@ from fast_agent.commands.context import (
 from fast_agent.commands.handlers.skills import (
     handle_list_marketplace_skills,
     handle_set_skills_registry,
+    handle_update_skill,
 )
 from fast_agent.config import Settings, SkillsSettings
 from fast_agent.skills.mcp_registry import McpRegistrySkill, McpSkillRegistry
+from fast_agent.skills.provenance import (
+    build_mcp_installed_skill_source,
+    compute_skill_content_fingerprint,
+    write_installed_skill_source,
+)
+
+
+def _digest(text: str) -> str:
+    return f"sha256:{sha256(text.encode('utf-8')).hexdigest()}"
 
 
 class _Aggregator:
@@ -27,6 +39,7 @@ class _Aggregator:
                         description="Search the Hub",
                         source_url="skill://hub-search/SKILL.md",
                         server_name="hf",
+                        digest=_digest("---\nname: hub-search\ndescription: Search\n---\nv2\n"),
                         server_version="1.2.3",
                     )
                 ],
@@ -114,3 +127,34 @@ async def test_skills_available_uses_selected_mcp_registry() -> None:
     rendered = "\n".join(_plain(message.text) for message in outcome.messages)
     assert "MCP skills from mcp-server hf@1.2.3" in rendered
     assert "hub-search" in rendered
+
+
+@pytest.mark.asyncio
+async def test_skills_update_reports_mcp_digest_update_available(tmp_path) -> None:
+    environment_dir = tmp_path / ".fast-agent"
+    skill_dir = environment_dir / "skills" / "hub-search"
+    skill_dir.mkdir(parents=True)
+    skill_text = "---\nname: hub-search\ndescription: Search\n---\nv1\n"
+    (skill_dir / "SKILL.md").write_text(skill_text, encoding="utf-8")
+    fingerprint = compute_skill_content_fingerprint(skill_dir)
+    write_installed_skill_source(
+        skill_dir,
+        build_mcp_installed_skill_source(
+            server_name="hf",
+            server_version="1.2.3",
+            skill_uri="skill://hub-search/SKILL.md",
+            fingerprint=fingerprint,
+            artifact_digest=_digest(skill_text),
+            artifact_type="skill-md",
+        ),
+    )
+    settings = Settings(
+        environment_dir=str(environment_dir),
+        skills=SkillsSettings(),
+    )
+
+    outcome = await handle_update_skill(_ctx(settings), agent_name="main", argument=None)
+
+    rendered = "\n".join(_plain(message.text) for message in outcome.messages)
+    assert "hub-search" in rendered
+    assert "update available" in rendered

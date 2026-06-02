@@ -247,6 +247,8 @@ def apply_skill_updates(
             "source_unreachable",
             "source_ref_missing",
             "source_path_missing",
+            "unknown_revision",
+            "integrity_error",
         }:
             results.append(refreshed)
             continue

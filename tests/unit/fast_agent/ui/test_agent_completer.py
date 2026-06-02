@@ -186,6 +186,7 @@ class _McpSkillRegistryAggregatorStub:
                         description="Work with datasets",
                         source_url="skill://datasets/SKILL.md",
                         server_name="hf",
+                        digest="sha256:" + "0" * 64,
                         server_version="1.2.3",
                     ),
                     McpRegistrySkill(
@@ -193,6 +194,7 @@ class _McpSkillRegistryAggregatorStub:
                         description="Work with Spaces",
                         source_url="skill://spaces/SKILL.md",
                         server_name="hf",
+                        digest="sha256:" + "1" * 64,
                         server_version="1.2.3",
                     ),
                 ],

@@ -18,29 +18,17 @@ from acp.schema import (
 from fast_agent.commands.command_discovery import render_direct_command_help
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.renderers.skills_markdown import (
-    render_marketplace_skills,
     render_skill_list,
     render_skills_by_directory,
-    render_skills_registry_overview,
     render_skills_remove_list,
 )
 from fast_agent.config import get_settings
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.command_support import (
-    filter_marketplace_skills,
-    marketplace_repository_hint,
     skills_usage_lines,
 )
-from fast_agent.skills.configuration import (
-    format_marketplace_display_url,
-    get_marketplace_url,
-    resolve_skill_registries,
-)
 from fast_agent.skills.operations import (
-    candidate_marketplace_urls,
-    fetch_marketplace_skills,
-    fetch_marketplace_skills_with_source,
     reload_skill_manifests,
 )
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
@@ -68,50 +56,14 @@ async def handle_skills_available(
     *,
     query: str | None = None,
 ) -> str:
-    heading = "skills available" if not query else "skills search"
-    marketplace_url = get_marketplace_url(get_settings())
-    display_url = format_marketplace_display_url(marketplace_url)
-    try:
-        marketplace = await fetch_marketplace_skills(marketplace_url)
-    except Exception as exc:  # noqa: BLE001
-        return (
-            f"# {heading}\n\n"
-            f"Failed to load marketplace: {exc}\n\n"
-            f"Repository: `{display_url}`"
-        )
-
-    if not marketplace:
-        return f"# {heading}\n\nNo skills found in the marketplace."
-
-    selected_marketplace = list(marketplace)
-    if query and query.strip():
-        selected_marketplace = filter_marketplace_skills(marketplace, query)
-        if not selected_marketplace:
-            return (
-                "# skills search\n\n"
-                f"No skills matched query `{query.strip()}`.\n\n"
-                "Try `/skills available` to browse all skills."
-            )
-
-    repository = display_url
-    repo_hint = marketplace_repository_hint(marketplace)
-    if repo_hint:
-        repository = repo_hint
-
-    rendered = render_marketplace_skills(
-        selected_marketplace,
-        heading=heading,
-        repository=repository,
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await skills_handlers.handle_list_marketplace_skills(
+        ctx,
+        agent_name=handler.current_agent_name,
+        query=query,
     )
-    if query and query.strip():
-        rendered = "\n".join(
-            [
-                rendered,
-                "",
-                "Install filtered results with `/skills add <name>`. ",
-            ]
-        )
-    return rendered
+    return handler._format_outcome_as_markdown(outcome, "skills available", io=io)
 
 
 async def handle_skills(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
@@ -154,87 +106,14 @@ async def handle_skills(handler: "SlashCommandHandler", arguments: str | None = 
 
 
 async def handle_skills_registry(handler: "SlashCommandHandler", argument: str) -> str:
-    heading = "# skills registry"
-    argument = argument.strip()
-
-    settings = get_settings()
-    configured_urls = resolve_skill_registries(settings)
-
-    if not argument:
-        current = get_marketplace_url(settings)
-        display_current = format_marketplace_display_url(current)
-        display_registries = [format_marketplace_display_url(url) for url in configured_urls]
-        return render_skills_registry_overview(
-            heading="skills registry",
-            current_registry=display_current,
-            configured_urls=display_registries,
-        )
-
-    if argument.isdigit():
-        index = int(argument)
-        if not configured_urls:
-            return f"{heading}\n\nNo registries configured."
-        if 1 <= index <= len(configured_urls):
-            url = configured_urls[index - 1]
-        else:
-            return f"{heading}\n\nInvalid registry number. Use 1-{len(configured_urls)}."
-    else:
-        url = argument
-
-    candidates = candidate_marketplace_urls(url)
-    try:
-        marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
-    except Exception as exc:  # noqa: BLE001
-        display_url = format_marketplace_display_url(url)
-        handler._logger.warning(
-            "Failed to load skills registry",
-            data={
-                "registry": url,
-                "candidates": candidates,
-                "error": str(exc),
-            },
-        )
-        return "\n".join(
-            [
-                heading,
-                "",
-                f"Failed to load registry: {exc}",
-                f"Registry: {display_url}",
-            ]
-        )
-
-    if not marketplace:
-        display_url = format_marketplace_display_url(url)
-        return "\n".join(
-            [
-                heading,
-                "",
-                "No skills found in the registry; registry unchanged.",
-                f"Registry: {display_url}",
-            ]
-        )
-
-    settings.skills.marketplace_url = resolved_url
-
-    display_url = format_marketplace_display_url(resolved_url)
-    if candidates:
-        handler._logger.debug(
-            "Resolved skills registry",
-            data={
-                "input": url,
-                "resolved": resolved_url,
-                "candidates": candidates,
-            },
-        )
-    response_lines = [
-        heading,
-        "",
-        f"Registry set to: `{display_url}`",
-        "",
-        f"Skills discovered: {len(marketplace)}",
-    ]
-
-    return "\n".join(response_lines)
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await skills_handlers.handle_set_skills_registry(
+        ctx,
+        agent_name=handler.current_agent_name,
+        argument=argument.strip() or None,
+    )
+    return handler._format_outcome_as_markdown(outcome, "skills registry", io=io)
 
 
 def handle_skills_list(handler: "SlashCommandHandler") -> str:
@@ -315,28 +194,15 @@ async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> st
     )
 
     if not argument_value:
-        marketplace_url = get_marketplace_url(get_settings())
-        display_url = format_marketplace_display_url(marketplace_url)
-        try:
-            marketplace = await fetch_marketplace_skills(marketplace_url)
-        except Exception as exc:  # noqa: BLE001
-            return (
-                "# skills add\n\n"
-                f"Failed to load marketplace: {exc}\n\n"
-                f"Repository: `{display_url}`"
-            )
-
-        repository = display_url
-        if marketplace:
-            repo_url = marketplace[0].repo_url
-            repo_ref = marketplace[0].repo_ref
-            repository = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
-
-        return render_marketplace_skills(
-            marketplace,
-            heading="skills add",
-            repository=repository,
+        ctx = handler._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await skills_handlers.handle_add_skill(
+            ctx,
+            agent_name=handler.current_agent_name,
+            argument=None,
+            interactive=False,
         )
+        return handler._format_outcome_as_markdown(outcome, "skills add", io=io)
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
