@@ -12,6 +12,7 @@ from mcp.types import (
 
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
+from fast_agent.mcp.tool_result_metadata import get_tool_result_media_preview
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
 
 
@@ -133,6 +134,10 @@ async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> No
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert len(result.content) == 1
+    preview = get_tool_result_media_preview(result)
+    assert preview is not None
+    assert len(preview) == 1
+    assert isinstance(preview[0], ImageContent)
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
@@ -155,6 +160,7 @@ async def test_attach_media_local_pdf_stages_embedded_blob(tmp_path: Path) -> No
     assert result.isError is False
     assert result.content is not None
     assert len(result.content) == 1
+    assert get_tool_result_media_preview(result) is None
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], EmbeddedResource)
@@ -567,4 +573,3 @@ def test_attach_media_tool_description_conditional() -> None:
     openai_tool = _tool_by_name(openai_runtime, "attach_media")
     assert openai_tool is not None
     assert "Gemini YouTube links" not in openai_tool.description
-
