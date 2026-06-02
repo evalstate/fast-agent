@@ -329,11 +329,14 @@ tmux attach-session -t "$SESSION" || true
 
 def _skills_over_mcp_record_script(scenario: TerminalCastScenario) -> str:
     startup_wait = os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_STARTUP_WAIT", "3.5")
-    connect_wait = os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_CONNECT_WAIT", "4.0")
+    connect_wait = os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_CONNECT_WAIT", "6.0")
     command_wait = os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_COMMAND_WAIT", "1.4")
     final_wait = os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_FINAL_WAIT", "1.0")
     typing_delay = os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_TYPING_DELAY", "0.035")
-    server_url = os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_SERVER", "http://localhost:3000/mcp")
+    server_url = os.environ.get(
+        "FAST_AGENT_SKILLS_MCP_DEMO_SERVER",
+        "https://huggingface.co/mcp",
+    )
     session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
     command = scenario.shell_command.replace("'", "'\"'\"'")
     server_url = server_url.replace("'", "'\"'\"'")
@@ -365,7 +368,7 @@ tmux set-option -t "$SESSION" status off >/dev/null
   type_slow "$SESSION" '{command}' 0.035
   tmux send-keys -t "$SESSION" Enter
   sleep {startup_wait}
-  type_slow "$SESSION" '/mcp connect --name hf {server_url}' {typing_delay}
+  type_slow "$SESSION" '/mcp connect {server_url} --name hf' {typing_delay}
   tmux send-keys -t "$SESSION" Enter
   sleep {connect_wait}
   type_slow "$SESSION" '/mcp' {typing_delay}
@@ -377,15 +380,13 @@ tmux set-option -t "$SESSION" status off >/dev/null
   type_slow "$SESSION" '/skills registry hf' {typing_delay}
   tmux send-keys -t "$SESSION" Enter
   sleep {command_wait}
-  type_slow "$SESSION" '/skills add' {typing_delay}
-  tmux send-keys -t "$SESSION" Enter
-  sleep {command_wait}
-  tmux send-keys -t "$SESSION" Enter
-  sleep 0.4
   type_slow "$SESSION" '/skills search dataset viewer' {typing_delay}
   tmux send-keys -t "$SESSION" Enter
   sleep {command_wait}
   type_slow "$SESSION" '/skills add huggingface-datasets' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {command_wait}
+  type_slow "$SESSION" '/skills' {typing_delay}
   tmux send-keys -t "$SESSION" Enter
   sleep {command_wait}
   sleep {final_wait}

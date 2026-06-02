@@ -100,7 +100,10 @@ async def _list_mcp_skill_registries(
     agent = ctx.agent_provider._agent(agent_name)
     if not isinstance(agent, _McpSkillRegistryAgent):
         return []
-    return await agent.aggregator.list_mcp_skill_registries()
+    aggregator = agent.aggregator
+    if not isinstance(aggregator, _McpSkillRegistryAggregator):
+        return []
+    return await aggregator.list_mcp_skill_registries()
 
 
 def _find_mcp_registry(
@@ -149,7 +152,7 @@ def _append_registry_entry(
     is_current: bool,
 ) -> None:
     entry = Text()
-    entry.append(f"[{index:2}] ", style="dim cyan")
+    entry.append(f"[{index}] ", style="dim cyan")
     entry.append(display_url, style="bright_blue bold")
     if is_current:
         entry.append(" • ", style="dim")
@@ -480,6 +483,8 @@ async def handle_set_skills_registry(
             current_line.append(current_display, style="bright_blue bold")
             content.append_text(current_line)
             content.append("\n\n")
+
+        if configured_displays:
             content.append_text(Text("Configured registries:", style="dim"))
             content.append("\n")
 
