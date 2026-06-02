@@ -254,7 +254,9 @@ async def _resolve_configured_server_alias(
     return candidate if candidate in configured_names else None
 
 
-def _format_added_summary(tools_added_count: int, prompts_added_count: int) -> Text:
+def _format_added_summary(
+    tools_added_count: int, prompts_added_count: int, skills_count: int | None = None
+) -> Text:
     tool_word = "tool" if tools_added_count == 1 else "tools"
     prompt_word = "prompt" if prompts_added_count == 1 else "prompts"
 
@@ -263,7 +265,13 @@ def _format_added_summary(tools_added_count: int, prompts_added_count: int) -> T
     summary.append(str(tools_added_count), style="bold bright_cyan")
     summary.append(f" {tool_word} and ", style="dim")
     summary.append(str(prompts_added_count), style="bold bright_cyan")
-    summary.append(f" {prompt_word}.", style="dim")
+    summary.append(f" {prompt_word}", style="dim")
+    if skills_count is not None:
+        skill_word = "skill" if skills_count == 1 else "skills"
+        summary.append("; ", style="dim")
+        summary.append(str(skills_count), style="bold bright_cyan")
+        summary.append(f" {skill_word} available from the server", style="dim")
+    summary.append(".", style="dim")
     return summary
 
 
@@ -273,6 +281,7 @@ def _format_refreshed_summary(
     prompts_refreshed_count: int,
     tools_added_count: int,
     prompts_added_count: int,
+    skills_count: int | None = None,
 ) -> Text:
     tool_word = "tool" if tools_refreshed_count == 1 else "tools"
     prompt_word = "prompt" if prompts_refreshed_count == 1 else "prompts"
@@ -285,7 +294,13 @@ def _format_refreshed_summary(
     summary.append(str(prompts_refreshed_count), style="bold bright_cyan")
     summary.append(f" {prompt_word} (", style="dim")
     summary.append(str(new_count), style="bold bright_cyan")
-    summary.append(" new).", style="dim")
+    summary.append(" new)", style="dim")
+    if skills_count is not None:
+        skill_word = "skill" if skills_count == 1 else "skills"
+        summary.append("; ", style="dim")
+        summary.append(str(skills_count), style="bold bright_cyan")
+        summary.append(f" {skill_word} available from the server", style="dim")
+    summary.append(".", style="dim")
     return summary
 
 
@@ -1335,6 +1350,7 @@ async def handle_mcp_connect(
     prompts_added = getattr(result, "prompts_added", [])
     tools_total = getattr(result, "tools_total", None)
     prompts_total = getattr(result, "prompts_total", None)
+    skills_total = getattr(result, "skills_total", None)
     warnings = getattr(result, "warnings", [])
     already_attached = bool(getattr(result, "already_attached", False))
 
@@ -1382,6 +1398,7 @@ async def handle_mcp_connect(
                     prompts_refreshed_count=prompts_refreshed_count,
                     tools_added_count=tools_added_count,
                     prompts_added_count=prompts_added_count,
+                    skills_count=skills_total if isinstance(skills_total, int) else None,
                 ),
                 right_info="mcp",
                 agent_name=agent_name,
@@ -1391,6 +1408,7 @@ async def handle_mcp_connect(
                 _format_added_summary(
                     tools_added_count=tools_added_count,
                     prompts_added_count=prompts_added_count,
+                    skills_count=skills_total if isinstance(skills_total, int) else None,
                 ),
                 right_info="mcp",
                 agent_name=agent_name,
@@ -1498,6 +1516,7 @@ async def handle_mcp_reconnect(
     prompts_added = getattr(result, "prompts_added", [])
     tools_total = getattr(result, "tools_total", None)
     prompts_total = getattr(result, "prompts_total", None)
+    skills_total = getattr(result, "skills_total", None)
     warnings = getattr(result, "warnings", [])
 
     tools_added_count = len(tools_added)
@@ -1522,6 +1541,7 @@ async def handle_mcp_reconnect(
             prompts_refreshed_count=prompts_refreshed_count,
             tools_added_count=tools_added_count,
             prompts_added_count=prompts_added_count,
+            skills_count=skills_total if isinstance(skills_total, int) else None,
         ),
         right_info="mcp",
         agent_name=agent_name,

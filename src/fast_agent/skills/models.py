@@ -24,7 +24,7 @@ SKILL_SOURCE_FILENAME = ".skill-source.json"
 SKILL_SOURCE_SCHEMA_VERSION = 1
 LOCAL_REVISION = "local"
 
-SkillSourceOrigin = Literal["remote", "local"]
+SkillSourceOrigin = Literal["remote", "local", "mcp"]
 SkillUpdateStatus = Literal[
     "up_to_date",
     "update_available",
@@ -37,6 +37,7 @@ SkillUpdateStatus = Literal[
     "source_ref_missing",
     "source_path_missing",
     "skipped_dirty",
+    "integrity_error",
 ]
 SkillManagementSource = Literal["override", "settings", "default"]
 
@@ -55,6 +56,10 @@ class InstalledSkillSource:
     installed_revision: str
     installed_at: str
     content_fingerprint: str
+    mcp_server_name: str | None = None
+    mcp_server_version: str | None = None
+    artifact_digest: str | None = None
+    artifact_type: str | None = None
 
 
 @dataclass(frozen=True)

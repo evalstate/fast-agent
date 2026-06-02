@@ -545,7 +545,7 @@ class AgentCompleter(Completer):
                     )
 
     def _complete_skill_registries(self, partial: str):
-        """Generate completions for configured skills registries."""
+        """Generate completions for configured and MCP-backed skills registries."""
         from fast_agent.skills.configuration import (
             format_marketplace_display_url,
             resolve_skill_registries,
@@ -557,6 +557,64 @@ class AgentCompleter(Completer):
             configured_urls=configured_urls,
             display_formatter=format_marketplace_display_url,
         )
+        yield from self._complete_mcp_skill_registries(partial, offset=len(configured_urls))
+
+    def _complete_mcp_skill_registries(self, partial: str, *, offset: int = 0):
+        """Generate completions for live MCP skill registries."""
+        cache_key = (
+            "mcp_skill_registries",
+            self.current_agent,
+            partial,
+            offset,
+        )
+        cached = self._completion_cache_get(cache_key)
+        if cached is not None:
+            yield from cached
+            return
+
+        choices = self._run_async_completion(self._list_mcp_skill_registry_choices()) or []
+        partial_lower = partial.lower()
+        include_numbers = not partial or partial.isdigit()
+        include_servers = bool(partial) and not partial.isdigit()
+        completions: list[Completion] = []
+
+        for index, (server_name, display, skill_count) in enumerate(choices, offset + 1):
+            skill_word = "skill" if skill_count == 1 else "skills"
+            meta = f"{display} ({skill_count:,} {skill_word})"
+            index_text = str(index)
+            if include_numbers and index_text.startswith(partial):
+                completions.append(
+                    Completion(
+                        index_text,
+                        start_position=-len(partial),
+                        display=index_text,
+                        display_meta=meta,
+                    )
+                )
+            if include_servers:
+                if partial_lower.startswith("mcp://"):
+                    source = f"mcp://{server_name}"
+                    if source.lower().startswith(partial_lower):
+                        completions.append(
+                            Completion(
+                                source,
+                                start_position=-len(partial),
+                                display=server_name,
+                                display_meta=meta,
+                            )
+                        )
+                elif server_name.lower().startswith(partial_lower):
+                    completions.append(
+                        Completion(
+                            server_name,
+                            start_position=-len(partial),
+                            display=server_name,
+                            display_meta=meta,
+                        )
+                    )
+
+        self._completion_cache_put(cache_key, completions)
+        yield from completions
 
     def _complete_registry_urls(
         self,
@@ -1264,6 +1322,37 @@ class AgentCompleter(Completer):
         result = await list_resources(namespace=server_name)
         uris = result.get(server_name, []) if isinstance(result, dict) else []
         return [str(uri) for uri in uris]
+
+    async def _list_mcp_skill_registry_choices(self) -> list[tuple[str, str, int]]:
+        agent = self._current_agent_object()
+        if agent is None:
+            return []
+
+        aggregator = getattr(agent, "aggregator", None)
+        list_registries = getattr(aggregator, "list_mcp_skill_registries", None)
+        if not callable(list_registries):
+            return []
+
+        try:
+            registries = await list_registries()
+        except Exception:
+            return []
+
+        choices: list[tuple[str, str, int]] = []
+        for registry in registries:
+            server_name = getattr(registry, "server_name", None)
+            if not isinstance(server_name, str) or not server_name:
+                continue
+            display_name = getattr(registry, "display_name", None)
+            display = display_name if isinstance(display_name, str) else f"mcp-server {server_name}"
+            skills = getattr(registry, "skills", ())
+            try:
+                skill_count = len(skills)
+            except TypeError:
+                skill_count = 0
+            choices.append((server_name, display, skill_count))
+
+        return sorted(choices, key=lambda choice: choice[0].lower())
 
     async def _list_server_resource_templates(self, server_name: str) -> list[ResourceTemplate]:
         agent = self._current_agent_object()

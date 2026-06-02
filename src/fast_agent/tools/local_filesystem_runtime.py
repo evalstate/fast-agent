@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, ContentBlock, TextContent, Tool
 
+from fast_agent.mcp.mime_utils import is_image_mime_type
+from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
 from fast_agent.patch.engine import apply_patch as run_apply_patch
 from fast_agent.patch.errors import ApplyPatchError
 from fast_agent.tools.apply_patch_tool import (
@@ -517,7 +519,7 @@ class LocalFilesystemRuntime:
 
         mode = "linked" if attached.linked else "embedded"
         self._pending_media_attachments.append(attached.block)
-        return CallToolResult(
+        result = CallToolResult(
             content=[
                 TextContent(
                     type="text",
@@ -529,6 +531,9 @@ class LocalFilesystemRuntime:
             ],
             isError=False,
         )
+        if is_image_mime_type(attached.mime_type):
+            set_tool_result_media_preview(result, [attached.block])
+        return result
 
     async def attach_resource(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None

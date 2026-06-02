@@ -247,6 +247,8 @@ def apply_skill_updates(
             "source_unreachable",
             "source_ref_missing",
             "source_path_missing",
+            "unknown_revision",
+            "integrity_error",
         }:
             results.append(refreshed)
             continue
@@ -424,6 +426,18 @@ def _evaluate_skill_update(
             status="source_path_missing",
             detail=source_path_error,
             current_revision=source.installed_revision,
+            managed_source=source,
+        )
+
+    if source.source_origin == "mcp":
+        return SkillUpdateInfo(
+            index=index,
+            name=name,
+            skill_dir=skill_dir,
+            status="unknown_revision",
+            detail="source is an MCP skill registry; compare unavailable",
+            current_revision=source.installed_revision,
+            available_revision=source.installed_revision,
             managed_source=source,
         )
 
