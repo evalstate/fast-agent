@@ -24,15 +24,15 @@ from fast_agent.ui.prompt.agent_info import (
 
 
 def test_format_dim_count_pluralizes_and_keeps_suffix_inside_dim_markup() -> None:
-    assert _format_dim_count(1, "tool", suffix=", ") == "1[dim] tool, [/dim]"
-    assert _format_dim_count(2, "tool", suffix=" available") == "2[dim] tools available[/dim]"
-    assert _format_dim_count(1_200, "tool") == "1,200[dim] tools[/dim]"
+    assert _format_dim_count(1, "tool", suffix=", ") == "[bold bright_cyan]1[/bold bright_cyan][dim] tool, [/dim]"
+    assert _format_dim_count(2, "tool", suffix=" available") == "[bold bright_cyan]2[/bold bright_cyan][dim] tools available[/dim]"
+    assert _format_dim_count(1_200, "tool") == "[bold bright_cyan]1,200[/bold bright_cyan][dim] tools[/dim]"
 
 
 def test_format_child_agent_count_omits_zero_and_pluralizes_children() -> None:
     assert _format_child_agent_count(0) is None
-    assert _format_child_agent_count(1) == "1[dim] child agent[/dim]"
-    assert _format_child_agent_count(2) == "2[dim] child agents[/dim]"
+    assert _format_child_agent_count(1) == "[bold bright_cyan]1[/bold bright_cyan][dim] child agent[/dim]"
+    assert _format_child_agent_count(2) == "[bold bright_cyan]2[/bold bright_cyan][dim] child agents[/dim]"
 
 
 def test_format_server_summary_uses_shared_count_formatting() -> None:
@@ -43,7 +43,7 @@ def test_format_server_summary_uses_shared_count_formatting() -> None:
             prompt_count=3,
             resource_count=0,
         )
-        == "2[dim] MCP Servers[/dim][dim] ([/dim]1[dim] tool[/dim][dim], [/dim]3[dim] prompts[/dim][dim])[/dim]"
+        == "[bold bright_cyan]2[/bold bright_cyan][dim] MCP Servers[/dim][dim] ([/dim][bold bright_cyan]1[/bold bright_cyan][dim] tool[/dim][dim], [/dim][bold bright_cyan]3[/bold bright_cyan][dim] prompts[/dim][dim])[/dim]"
     )
 
 
@@ -55,7 +55,7 @@ def test_format_server_summary_shows_unknown_failed_resource_counts() -> None:
             prompt_count=2,
             resource_count=None,
         )
-        == "1[dim] MCP Server[/dim][dim] ([/dim][dim]unknown tools[/dim][dim], [/dim]2[dim] prompts[/dim][dim], [/dim][dim]unknown resources[/dim][dim])[/dim]"
+        == "[bold bright_cyan]1[/bold bright_cyan][dim] MCP Server[/dim][dim] ([/dim][dim]unknown tools[/dim][dim], [/dim][bold bright_cyan]2[/bold bright_cyan][dim] prompts[/dim][dim], [/dim][dim]unknown resources[/dim][dim])[/dim]"
     )
 
 
@@ -71,7 +71,7 @@ def test_child_agent_counts_markup_omits_zero_resource_counts() -> None:
         )
     )
 
-    assert markup == "1[dim] MCP Server[/dim]"
+    assert markup == "[bold bright_cyan]1[/bold bright_cyan][dim] MCP Server[/dim]"
 
 
 def test_child_agent_counts_markup_includes_nonzero_resource_counts() -> None:
@@ -87,9 +87,9 @@ def test_child_agent_counts_markup_includes_nonzero_resource_counts() -> None:
     )
 
     assert markup == (
-        "2[dim] MCP Servers[/dim][dim], [/dim]"
-        "1[dim] tool[/dim][dim], [/dim]"
-        "3[dim] prompts[/dim]"
+        "[bold bright_cyan]2[/bold bright_cyan][dim] MCP Servers[/dim][dim], [/dim]"
+        "[bold bright_cyan]1[/bold bright_cyan][dim] tool[/dim][dim], [/dim]"
+        "[bold bright_cyan]3[/bold bright_cyan][dim] prompts[/dim]"
     )
 
 
@@ -106,7 +106,7 @@ def test_child_agent_counts_markup_shows_unknown_failed_resource_counts() -> Non
     )
 
     assert markup == (
-        "1[dim] MCP Server[/dim][dim], [/dim]"
+        "[bold bright_cyan]1[/bold bright_cyan][dim] MCP Server[/dim][dim], [/dim]"
         "[dim]unknown tools[/dim][dim], [/dim]"
         "[dim]unknown resources[/dim]"
     )

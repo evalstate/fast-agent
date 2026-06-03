@@ -93,7 +93,7 @@ def _format_dim_count(
     suffix: str = "",
 ) -> str:
     label = plural_label(count, singular, plural)
-    return f"{count:,}[dim] {label}{suffix}[/dim]"
+    return f"[bold bright_cyan]{count:,}[/bold bright_cyan][dim] {label}{suffix}[/dim]"
 
 
 async def _build_standard_agent_info_parts(agent: AgentProtocol) -> list[str]:
