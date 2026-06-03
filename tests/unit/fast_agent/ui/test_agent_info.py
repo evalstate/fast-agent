@@ -14,8 +14,8 @@ from fast_agent.ui.prompt.agent_info import (
     _child_agent_counts_markup,
     _child_agent_info_text,
     _display_child_agent_info,
-    _format_child_agent_count,
     _format_dim_count,
+    _format_installed_skill_count,
     _format_server_summary,
     _mcp_resource_counts_for_agent,
     _resource_counts_for_agent,
@@ -29,10 +29,15 @@ def test_format_dim_count_pluralizes_and_keeps_suffix_inside_dim_markup() -> Non
     assert _format_dim_count(1_200, "tool") == "[bold bright_cyan]1,200[/bold bright_cyan][dim] tools[/dim]"
 
 
-def test_format_child_agent_count_omits_zero_and_pluralizes_children() -> None:
-    assert _format_child_agent_count(0) is None
-    assert _format_child_agent_count(1) == "[bold bright_cyan]1[/bold bright_cyan][dim] child agent[/dim]"
-    assert _format_child_agent_count(2) == "[bold bright_cyan]2[/bold bright_cyan][dim] child agents[/dim]"
+def test_format_installed_skill_count_uses_clear_installed_wording() -> None:
+    assert (
+        _format_installed_skill_count(1)
+        == "[bold bright_cyan]1[/bold bright_cyan][dim] skill installed[/dim]"
+    )
+    assert (
+        _format_installed_skill_count(2)
+        == "[bold bright_cyan]2[/bold bright_cyan][dim] skills installed[/dim]"
+    )
 
 
 def test_format_server_summary_uses_shared_count_formatting() -> None:

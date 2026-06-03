@@ -103,6 +103,27 @@ def test_convert_log_event_keeps_mcp_web_tool_progress_events() -> None:
     assert progress_event.server_name == "my_tools"
 
 
+def test_convert_log_event_mcp_resource_read_uses_resource_action_and_details() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.mcp.mcp_aggregator",
+        message="Requesting resource",
+        data={
+            "data": {
+                "progress_action": ProgressAction.READING_RESOURCE,
+                "agent_name": "assistant",
+                "server_name": "docs",
+                "details": "file://README.md",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is not None
+    assert progress_event.action == ProgressAction.READING_RESOURCE
+    assert progress_event.details == "docs - file://README.md"
+
+
 def test_convert_log_event_skips_loaded_progress_events() -> None:
     event = Event(
         type="info",

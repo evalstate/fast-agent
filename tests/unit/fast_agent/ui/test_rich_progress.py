@@ -896,6 +896,9 @@ class TestDescriptionFormatting:
         assert "◀[/dim] Calling Tool" in display._description_for_event(
             _make_event(action=ProgressAction.CALLING_TOOL)
         )
+        assert "◀[/dim] Reading Resource" in display._description_for_event(
+            _make_event(action=ProgressAction.READING_RESOURCE)
+        )
         assert "▶[/dim] 3/10" in display._description_for_event(
             _make_event(action=ProgressAction.TOOL_PROGRESS, progress=3, total=10)
         )

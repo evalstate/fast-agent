@@ -3344,9 +3344,10 @@ class MCPAggregator(ContextDependent):
         logger.info(
             "Requesting resource",
             data=build_progress_payload(
-                action=ProgressAction.CALLING_TOOL,
+                action=ProgressAction.READING_RESOURCE,
                 server_name=server_name,
                 agent_name=self.agent_name,
+                details=resource_uri,
                 extra={"resource_uri": resource_uri},
             ),
         )

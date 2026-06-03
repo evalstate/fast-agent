@@ -25,6 +25,7 @@ from fast_agent.utils.tool_names import EXECUTE_TOOL_NAME, matches_tool_name
 _ACTION_DESCRIPTION_ICONS = {
     ProgressAction.SENDING: "▶",
     ProgressAction.CALLING_TOOL: "◀",
+    ProgressAction.READING_RESOURCE: "◀",
     ProgressAction.TOOL_PROGRESS: "▶",
 }
 _ACTION_STYLES = {
@@ -39,6 +40,7 @@ _ACTION_STYLES = {
     ProgressAction.PLANNING: "blue",
     ProgressAction.READY: "dim green",
     ProgressAction.CALLING_TOOL: "magenta",
+    ProgressAction.READING_RESOURCE: "magenta",
     ProgressAction.TOOL_PROGRESS: "magenta",
     ProgressAction.FINISHED: "black on green",
     ProgressAction.SHUTDOWN: "black on red",

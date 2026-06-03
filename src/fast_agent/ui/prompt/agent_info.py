@@ -66,23 +66,15 @@ def _agent_info_text(agent_name: str, content_markup: str) -> Text:
 
 async def _build_agent_info_content(agent: AgentProtocol) -> str | None:
     if isinstance(agent, ParallelAgent):
-        child_count = len(agent.fan_out_agents) + (1 if agent.fan_in_agent else 0)
-        return _format_child_agent_count(child_count)
+        return None
 
     if isinstance(agent, RouterAgent):
-        child_count = len(agent.agents) if agent.agents else 0
-        return _format_child_agent_count(child_count)
+        return None
 
     content_parts = await _build_standard_agent_info_parts(agent)
     if not content_parts:
         return None
     return "[dim]. [/dim]".join(content_parts)
-
-
-def _format_child_agent_count(child_count: int) -> str | None:
-    if child_count <= 0:
-        return None
-    return _format_dim_count(child_count, "child agent", "child agents")
 
 
 def _format_dim_count(
@@ -98,9 +90,6 @@ def _format_dim_count(
 
 async def _build_standard_agent_info_parts(agent: AgentProtocol) -> list[str]:
     content_parts: list[str] = []
-    tool_children = collect_tool_children(agent)
-    if tool_children:
-        content_parts.append(_format_dim_count(len(tool_children), "child agent", "child agents"))
 
     server_count = _server_count_for_agent(agent)
     resource_counts = await _resource_counts_for_agent(agent)
@@ -116,9 +105,13 @@ async def _build_standard_agent_info_parts(agent: AgentProtocol) -> list[str]:
 
     skill_count = _skill_count_for_agent(agent)
     if skill_count > 0:
-        content_parts.append(f"{_format_dim_count(skill_count, 'skill')}[dim] available[/dim]")
+        content_parts.append(_format_installed_skill_count(skill_count))
 
     return content_parts
+
+
+def _format_installed_skill_count(skill_count: int) -> str:
+    return _format_dim_count(skill_count, "skill", suffix=" installed")
 
 
 def _server_count_for_agent(agent: AgentProtocol) -> int:
