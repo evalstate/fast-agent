@@ -25,6 +25,7 @@ from fast_agent.home import CONFIG_FILENAMES, PREFERRED_CONFIG_FILENAME, find_co
 from fast_agent.marketplace import formatting as marketplace_formatting
 from fast_agent.marketplace import registry_urls as marketplace_registry_urls
 from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace.models import MarketplaceEntryFieldsModel
 from fast_agent.marketplace.selection import (
     select_one_by_name_or_index,
     select_updates_by_name_or_index,
@@ -281,18 +282,7 @@ class _CardPackManifestModel(BaseModel):
         return normalized_tokens
 
 
-class MarketplaceEntryModel(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    kind: str | None = None
-    repo_url: str | None = Field(default=None, alias="repo")
-    repo_ref: str | None = None
-    repo_path: str | None = None
-    source_url: str | None = None
-    bundle_name: str | None = None
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
-
+class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize_entry(cls, data: Any, info: "ValidationInfo") -> Any:

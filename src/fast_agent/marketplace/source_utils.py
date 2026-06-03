@@ -1209,6 +1209,37 @@ def marketplace_repo_fields(
     )
 
 
+def repo_fields_from_source_url(
+    *,
+    repo_url: str | None,
+    repo_ref: str | None,
+    repo_path: str | None,
+    source_url: str | None,
+    default_repo_url: str | None,
+) -> MarketplaceRepoFields:
+    """Apply a marketplace source URL to repo fields when it is the best source."""
+    if not source_url or (repo_url and repo_url != default_repo_url and repo_path):
+        return MarketplaceRepoFields(
+            repo_url=repo_url,
+            repo_ref=repo_ref,
+            repo_path=repo_path,
+        )
+
+    parsed = parse_github_url(source_url)
+    if parsed:
+        return MarketplaceRepoFields(
+            repo_url=parsed.repo_url,
+            repo_ref=parsed.repo_ref,
+            repo_path=parsed.repo_path,
+        )
+
+    return MarketplaceRepoFields(
+        repo_url=source_url if not repo_url or repo_url == default_repo_url else repo_url,
+        repo_ref=repo_ref,
+        repo_path=repo_path,
+    )
+
+
 def normalize_marketplace_payload(
     data: Any,
     info: "ValidationInfo",

@@ -69,7 +69,11 @@ def extract_edit_file_input(arguments: dict[str, Any] | None) -> EditFileInput |
     try:
         payload = coerce_tool_arguments(arguments)
         path = coerce_required_string_argument(payload.get("path"), "path", strip=True)
-        old_string = coerce_required_string_argument(payload.get("old_string"), "old_string")
+        old_string = coerce_required_string_argument(
+            payload.get("old_string"),
+            "old_string",
+            allow_empty=True,
+        )
         new_string = coerce_required_string_argument(
             payload.get("new_string"),
             "new_string",

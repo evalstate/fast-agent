@@ -7,7 +7,10 @@ from mcp.types import CallToolResult, TextContent
 from fast_agent.tools.filesystem_tool_definitions import (
     ATTACH_MEDIA_TOOL_NAME,
     ATTACH_RESOURCE_TOOL_ALIAS,
+    READ_TEXT_FILE_TOOL_NAME,
+    WRITE_TEXT_FILE_TOOL_NAME,
 )
+from fast_agent.tools.tool_sources import ACP_FILESYSTEM_TOOL_SOURCE
 from fast_agent.utils.collections import unique_preserve_order
 
 if TYPE_CHECKING:
@@ -30,7 +33,7 @@ def _runtime_supports_tool(runtime: FilesystemRuntime, tool_name: str) -> bool:
 
 
 def _unsupported_tool_result(name: str) -> CallToolResult:
-    return CallToolResult(
+    result = CallToolResult(
         content=[
             TextContent(
                 type="text",
@@ -39,6 +42,14 @@ def _unsupported_tool_result(name: str) -> CallToolResult:
         ],
         isError=True,
     )
+    setattr(result, "_fast_agent_fatal_tool_error", f"Error: unsupported filesystem tool '{name}'")
+    return result
+
+
+def _primary_owns_tool_name(primary: FilesystemRuntime, tool_name: str) -> bool:
+    if tool_name not in {READ_TEXT_FILE_TOOL_NAME, WRITE_TEXT_FILE_TOOL_NAME}:
+        return False
+    return primary.metadata().get("type") == ACP_FILESYSTEM_TOOL_SOURCE
 
 
 class CompositeFilesystemRuntime:
@@ -97,6 +108,8 @@ def _runtime_for_tool(
 ) -> FilesystemRuntime | None:
     if _runtime_supports_tool(primary, tool_name):
         return primary
+    if _primary_owns_tool_name(primary, tool_name):
+        return None
     if _runtime_supports_tool(fallback, tool_name):
         return fallback
     return None

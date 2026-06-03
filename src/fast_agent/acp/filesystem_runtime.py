@@ -52,6 +52,12 @@ def _error_result(message: str) -> CallToolResult:
     return CallToolResult(content=[text_content(message)], isError=True)
 
 
+def _fatal_error_result(message: str) -> CallToolResult:
+    result = _error_result(message)
+    setattr(result, "_fast_agent_fatal_tool_error", message)
+    return result
+
+
 def _success_result(message: str) -> CallToolResult:
     return CallToolResult(content=[text_content(message)], isError=False)
 
@@ -166,7 +172,7 @@ class ACPFilesystemRuntime:
         if spec is not None:
             return await spec.handler(payload, tool_use_id)
 
-        return _error_result(f"Error: unsupported ACP filesystem tool '{name}'.")
+        return _fatal_error_result(f"Error: unsupported ACP filesystem tool '{name}'.")
 
     async def read_text_file(
         self, arguments: dict[str, Any] | None, tool_use_id: str | None = None

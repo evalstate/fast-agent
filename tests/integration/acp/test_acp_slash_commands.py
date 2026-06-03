@@ -43,6 +43,7 @@ from fast_agent.session import (
     reset_session_manager,
 )
 from fast_agent.session import session_manager as session_manager_module
+from fast_agent.utils.markdown import escape_markdown_text
 
 if TYPE_CHECKING:
     from acp.schema import StopReason
@@ -479,7 +480,7 @@ async def test_slash_command_model_web_fetch_unsupported() -> None:
 
     response = await handler.execute_command("model", "web_fetch on")
 
-    assert "Current model does not support web_fetch configuration." in response
+    assert escape_markdown_text("Current model does not support web_fetch configuration.") in response
 
 
 @pytest.mark.integration
@@ -598,7 +599,7 @@ async def test_slash_command_history_save_conversation() -> None:
 
     assert "save conversation" in response.lower()
     assert "History saved to" in response
-    assert "24_01_01_12_00-conversation.json" in response
+    assert escape_markdown_text("24_01_01_12_00-conversation.json") in response
     assert exporter.calls == [(stub_agent, None)]
 
     response_with_filename = await handler.execute_command("history", "save custom.md")
@@ -1428,7 +1429,7 @@ async def test_plugin_command_applies_acp_switch_and_refresh_side_effects(tmp_pa
     handler.set_acp_context(cast("Any", acp_context))
 
     commands_response = await handler.execute_command("commands", "JumpNow")
-    assert "No discovery metadata for `jumpnow` yet." in commands_response
+    assert "No discovery metadata for `JumpNow` yet." in commands_response
     assert "Unknown command family" not in commands_response
 
     response = await handler.execute_command("JumpNow", "")

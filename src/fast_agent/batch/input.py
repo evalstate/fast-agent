@@ -690,12 +690,10 @@ def _statement_token_after_with(query: str) -> str:
             index += 1
             continue
         if char == "-" and next_char == "-":
-            newline = query.find("\n", index + 2)
-            index = len(query) if newline == -1 else newline + 1
+            index = _skip_sql_line_comment(query, index)
             continue
         if char == "/" and next_char == "*":
-            end = query.find("*/", index + 2)
-            index = len(query) if end == -1 else end + 2
+            index = _skip_sql_block_comment(query, index)
             continue
         if char in {"'", '"'}:
             index = _skip_sql_quoted_string(query, index)
@@ -779,12 +777,10 @@ def _statement_semicolon_positions(query: str) -> list[int]:
             index += 1
             continue
         if char == "-" and next_char == "-":
-            newline = query.find("\n", index + 2)
-            index = len(query) if newline == -1 else newline + 1
+            index = _skip_sql_line_comment(query, index)
             continue
         if char == "/" and next_char == "*":
-            end = query.find("*/", index + 2)
-            index = len(query) if end == -1 else end + 2
+            index = _skip_sql_block_comment(query, index)
             continue
         if char == ";":
             positions.append(index)
@@ -801,14 +797,13 @@ def _sql_tail_is_comment_or_whitespace(query: str, start: int) -> bool:
             index += 1
             continue
         if char == "-" and next_char == "-":
-            newline = query.find("\n", index + 2)
-            index = len(query) if newline == -1 else newline + 1
+            index = _skip_sql_line_comment(query, index)
             continue
         if char == "/" and next_char == "*":
             end = query.find("*/", index + 2)
             if end == -1:
                 return False
-            index = end + 2
+            index = _skip_sql_block_comment(query, index)
             continue
         return False
     return True
@@ -821,6 +816,16 @@ def _parquet_count_query(sources: list[str]) -> str:
 
 def _sql_string_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def _skip_sql_line_comment(query: str, index: int) -> int:
+    newline = query.find("\n", index + 2)
+    return len(query) if newline == -1 else newline + 1
+
+
+def _skip_sql_block_comment(query: str, index: int) -> int:
+    end = query.find("*/", index + 2)
+    return len(query) if end == -1 else end + 2
 
 
 def _duckdb_secret_statements() -> list[str]:

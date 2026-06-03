@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from fast_agent.hooks.lifecycle_hook_loader import AgentLifecycleHooks
     from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
 
-from a2a.types import AgentCard, AgentInterface
+from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
 from mcp.types import (
     CallToolResult,
@@ -1456,25 +1456,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """
         Return an A2A card describing this Agent
         """
-        from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
+        from fast_agent.agents.agent_card import build_fast_agent_card
 
-        return AgentCard(
-            skills=[],
+        return build_fast_agent_card(
             name=self._name,
             description=self.config.description or self.instruction,
-            supported_interfaces=[
-                AgentInterface(
-                    url=f"fast-agent://agents/{self._name}/",
-                    protocol_binding="fast-agent",
-                )
-            ],
-            version="0.1",
-            capabilities=DEFAULT_CAPABILITIES,
-            # TODO -- get these from the _llm
-            default_input_modes=["text/plain"],
-            default_output_modes=["text/plain"],
-            provider=None,
-            documentation_url=None,
+            skills=[],
         )
 
     async def run_tools(

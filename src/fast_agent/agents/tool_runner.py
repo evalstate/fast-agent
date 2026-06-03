@@ -743,11 +743,17 @@ class ToolRunner:
                 if blocks:
                     channels[channel_name] = list(blocks)
 
+        stop_reason = (
+            LlmStopReason.ERROR
+            if tool_message.channels and FAST_AGENT_ERROR_CHANNEL in tool_message.channels
+            else LlmStopReason.END_TURN
+        )
+
         return PromptMessageExtended(
             role="assistant",
             content=content_blocks,
             channels=channels,
-            stop_reason=LlmStopReason.END_TURN,
+            stop_reason=stop_reason,
         )
 
     async def _ensure_tools_ready(self) -> None:

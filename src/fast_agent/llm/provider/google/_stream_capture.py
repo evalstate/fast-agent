@@ -2,88 +2,21 @@
 
 from __future__ import annotations
 
-import json
-import os
-import warnings
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 
-from fast_agent.core.logging.logger import get_logger
+if TYPE_CHECKING:
+    from pathlib import Path
 
-_logger = get_logger(__name__)
-
-STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
-STREAM_CAPTURE_DIR = Path("stream-debug")
-
-
-@runtime_checkable
-class _ModelDumpable(Protocol):
-    def model_dump(self, *args: Any, **kwargs: Any) -> Any: ...
+from fast_agent.llm.provider import stream_capture
 
 
 def stream_capture_filename(turn: int) -> Path | None:
-    if not STREAM_CAPTURE_ENABLED:
-        return None
-    STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return STREAM_CAPTURE_DIR / f"{timestamp}_google_turn{turn}"
-
-
-def _model_dump_jsonable(value: _ModelDumpable) -> Any:
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message="Pydantic serializer warnings",
-            category=UserWarning,
-        )
-        warnings.filterwarnings(
-            "ignore",
-            message=".*PydanticSerializationUnexpectedValue.*",
-            category=UserWarning,
-        )
-        try:
-            dumped = value.model_dump(mode="json", warnings="none")
-        except TypeError:
-            dumped = value.model_dump(mode="json")
-        except Exception:
-            return str(value)
-    return _jsonable(dumped)
-
-
-def _jsonable(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if isinstance(value, _ModelDumpable):
-        return _model_dump_jsonable(value)
-    return str(value)
+    return stream_capture.stream_capture_filename(turn, label="google_")
 
 
 def save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) -> None:
-    if filename_base is None:
-        return
-    try:
-        request_file = filename_base.with_name(f"{filename_base.name}_request.json")
-        request_file.write_text(
-            json.dumps(_jsonable(arguments), indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-    except Exception as exc:
-        _logger.debug(f"Failed to save Google stream request: {exc}")
+    stream_capture.save_stream_request(filename_base, arguments, logger_name=__name__)
 
 
 def save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
-    if filename_base is None:
-        return
-    try:
-        chunk_file = filename_base.with_name(f"{filename_base.name}_chunks.jsonl")
-        with chunk_file.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_jsonable(chunk), sort_keys=True) + "\n")
-    except Exception as exc:
-        _logger.debug(f"Failed to save Google stream chunk: {exc}")
+    stream_capture.save_stream_chunk(filename_base, chunk, logger_name=__name__)

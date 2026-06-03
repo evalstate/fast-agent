@@ -478,18 +478,6 @@ def _evaluate_managed_skill_update(
     head_cache: HeadCache,
     path_cache: PathCache,
 ) -> SkillUpdateInfo:
-    source_path_error = _validate_source_path_exists(source, name)
-    if source_path_error is not None:
-        return _skill_update_info(
-            name=name,
-            skill_dir=skill_dir,
-            index=index,
-            status="source_path_missing",
-            detail=source_path_error,
-            current_revision=source.installed_revision,
-            managed_source=source,
-        )
-
     if source.source_origin == "mcp":
         return _skill_update_info(
             name=name,

@@ -159,7 +159,7 @@ async def test_dispatch_history_load_restores_file_without_session(tmp_path: Pat
     await dispatch_tui_command(f"/history load {target}", owner=owner, prompt_provider=provider)
 
     assert [message.first_text() for message in source.message_history] == ["reload this"]
-    assert any(f"Loaded 1 messages from {target}" in message for message in source.display.messages)
+    assert any(f"Loaded 1 message from {target}" in message for message in source.display.messages)
 
 
 @pytest.mark.integration

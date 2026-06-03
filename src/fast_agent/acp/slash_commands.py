@@ -701,15 +701,7 @@ class SlashCommandHandler:
         original_command_name = command_name
         normalized_command_name = strip_casefold(command_name)
 
-        # Check session-level commands first (filtered by agent policy)
-        allowed_session_commands = self._get_allowed_session_commands()
-        if normalized_command_name in allowed_session_commands:
-            try:
-                return await slash_dispatch.execute(self, normalized_command_name, arguments)
-            except slash_dispatch.UnknownSlashCommandError:
-                pass
-
-        # Check agent-specific commands
+        # Exact-case agent/plugin commands win before case-folded built-ins.
         agent = self._get_current_agent()
         if isinstance(agent, ACPAwareProtocol):
             agent_commands = agent.acp_commands
@@ -739,6 +731,14 @@ class SlashCommandHandler:
                 spec=global_commands[original_command_name],
                 base_path=plugin_command_base_path_for_provider(self.instance.app),
             )
+
+        # Check session-level commands (filtered by agent policy).
+        allowed_session_commands = self._get_allowed_session_commands()
+        if normalized_command_name in allowed_session_commands:
+            try:
+                return await slash_dispatch.execute(self, normalized_command_name, arguments)
+            except slash_dispatch.UnknownSlashCommandError:
+                pass
 
         # Unknown command
         available = self.get_available_commands()

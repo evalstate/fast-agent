@@ -41,6 +41,13 @@ logger = get_logger(__name__)
 HUGGINGFACE_META_KEY: Final[str] = "co.huggingface"
 STRUCTURED_OUTPUT_KEY: Final[str] = "structuredOutput"
 STRUCTURED_OUTPUT_MODE_BEST_EFFORT: Final[str] = "bestEffort"
+def _is_fatal_tool_error_text(response_text: str) -> bool:
+    return (
+        "unsupported ACP filesystem tool" in response_text
+        or "unsupported filesystem tool" in response_text
+        or response_text.startswith("Tool '")
+        and " is not available" in response_text
+    )
 
 
 @dataclass(frozen=True)
@@ -425,6 +432,8 @@ class ACPPromptFlow:
         assistant_text_seen: bool,
     ) -> StopReason:
         if structured_output is not None and not response_text and not assistant_text_seen:
+            return REFUSAL
+        if _is_fatal_tool_error_text(response_text):
             return REFUSAL
         try:
             return map_llm_stop_reason_to_acp(result_stop_reason)

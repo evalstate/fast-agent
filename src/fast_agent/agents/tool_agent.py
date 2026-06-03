@@ -899,12 +899,24 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tool_timings: dict[str, ToolTimingInfo] | None,
         tool_metadata: dict[str, dict[str, Any]] | None,
         tool_loop_error: str | None,
+        tool_results: Mapping[str, CallToolResult] | None = None,
     ) -> tuple[dict[str, Sequence[ContentBlock]] | None, list[ContentBlock]]:
         channels: dict[str, Sequence[ContentBlock]] = {}
         content: list[ContentBlock] = []
         if tool_loop_error:
             content.append(text_content(tool_loop_error))
             channels[FAST_AGENT_ERROR_CHANNEL] = [text_content(tool_loop_error)]
+        if tool_results:
+            fatal_errors = [
+                str(error)
+                for result in tool_results.values()
+                if (error := getattr(result, "_fast_agent_fatal_tool_error", None))
+            ]
+            if fatal_errors:
+                content.extend(text_content(error) for error in fatal_errors)
+                channels[FAST_AGENT_ERROR_CHANNEL] = [
+                    text_content("\n".join(fatal_errors))
+                ]
         if tool_timings:
             channels[FAST_AGENT_TOOL_TIMING] = [
                 TextContent(type="text", text=json.dumps(tool_timings))
@@ -949,6 +961,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tool_timings=tool_timings,
             tool_metadata=tool_metadata,
             tool_loop_error=tool_loop_error,
+            tool_results=tool_results,
         )
 
         deferred_url_elicitations = self._deferred_url_elicitation_payloads(tool_results)

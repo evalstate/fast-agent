@@ -106,7 +106,7 @@ async def test_handle_clear_uses_shared_action_normalization(
 
 
 @pytest.mark.asyncio
-async def test_mixed_case_builtin_status_takes_precedence_over_agent_command(
+async def test_exact_case_agent_status_takes_precedence_over_mixed_case_builtin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     agent = _ShadowingAgent()
@@ -130,7 +130,7 @@ async def test_mixed_case_builtin_status_takes_precedence_over_agent_command(
     command_names = {command.name for command in handler.get_available_commands()}
     assert "status" in command_names
     assert "Status" not in command_names
-    assert await handler.execute_command("Status", "") == "built-in status"
+    assert await handler.execute_command("Status", "") == "agent shadow"
 
 
 @pytest.mark.asyncio

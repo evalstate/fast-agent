@@ -128,7 +128,10 @@ def _mcp_registry_server_name(source: str) -> str | None:
 async def _list_mcp_skill_registries(
     ctx: "CommandContext", *, agent_name: str
 ) -> list[McpSkillRegistry]:
-    agent = ctx.agent_provider._agent(agent_name)
+    try:
+        agent = ctx.agent_provider._agent(agent_name)
+    except KeyError:
+        return []
     if not isinstance(agent, _McpSkillRegistryAgent):
         return []
     aggregator = agent.aggregator

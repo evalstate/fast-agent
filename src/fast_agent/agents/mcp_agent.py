@@ -25,7 +25,7 @@ from typing import (
 )
 
 import mcp
-from a2a.types import AgentCard, AgentInterface, AgentSkill
+from a2a.types import AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
     ContentBlock,
@@ -39,8 +39,8 @@ from mcp.types import (
 )
 from pydantic import BaseModel
 
+from fast_agent.agents.agent_card import build_fast_agent_card
 from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.commands.model_capabilities import resolve_model_name, resolve_resolved_model
 from fast_agent.config import MCPServerSettings
@@ -2347,22 +2347,10 @@ class McpAgent(ABC, ToolAgent):
         tools: ListToolsResult = await self.list_tools()
         skills = [await self.convert(tool) for tool in tools.tools]
 
-        return AgentCard(
+        return build_fast_agent_card(
             skills=skills,
             name=self._name,
             description=self.config.description or self.instruction,
-            supported_interfaces=[
-                AgentInterface(
-                    url=f"fast-agent://agents/{self._name}/",
-                    protocol_binding="fast-agent",
-                )
-            ],
-            version="0.1",
-            capabilities=DEFAULT_CAPABILITIES,
-            default_input_modes=["text/plain"],
-            default_output_modes=["text/plain"],
-            provider=None,
-            documentation_url=None,
         )
 
     async def show_assistant_message(

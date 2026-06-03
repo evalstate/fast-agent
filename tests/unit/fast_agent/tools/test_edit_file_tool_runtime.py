@@ -22,7 +22,6 @@ def test_extract_edit_file_input_rejects_invalid_arguments() -> None:
         None,
         {},
         {"path": "", "old_string": "before", "new_string": "after"},
-        {"path": "notes.txt", "old_string": "", "new_string": "after"},
         {"path": "notes.txt", "old_string": 1, "new_string": "after"},
         {"path": "notes.txt", "old_string": "before", "new_string": None},
         {

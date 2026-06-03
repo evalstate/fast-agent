@@ -10,9 +10,10 @@ from fast_agent.types import RequestParams
 
 
 class _Runtime:
-    def __init__(self, *tool_names: str) -> None:
+    def __init__(self, *tool_names: str, runtime_type: str = "test") -> None:
         self.tools = [Tool(name=name, inputSchema={}) for name in tool_names]
         self.calls: list[tuple[str, dict[str, Any] | None, str | None, RequestParams | None]] = []
+        self.runtime_type = runtime_type
 
     async def call_tool(
         self,
@@ -26,7 +27,7 @@ class _Runtime:
         return CallToolResult(content=[TextContent(type="text", text=name)], isError=False)
 
     def metadata(self) -> dict[str, Any]:
-        return {"tools": [tool.name for tool in self.tools]}
+        return {"type": self.runtime_type, "tools": [tool.name for tool in self.tools]}
 
 
 @pytest.mark.asyncio
@@ -89,6 +90,25 @@ async def test_composite_runtime_reports_unsupported_tool() -> None:
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Error: unsupported filesystem tool 'missing'"
+
+
+@pytest.mark.asyncio
+async def test_composite_runtime_does_not_fallback_for_acp_owned_read_write() -> None:
+    primary = _Runtime("read_text_file", runtime_type="acp_filesystem")
+    fallback = _Runtime("read_text_file", "write_text_file")
+    runtime = CompositeFilesystemRuntime(
+        primary=primary,
+        fallback=fallback,
+    )
+
+    result = await runtime.call_tool("write_text_file", {"path": "x", "content": "y"})
+
+    assert result.isError is True
+    assert getattr(result, "_fast_agent_fatal_tool_error") == (
+        "Error: unsupported filesystem tool 'write_text_file'"
+    )
+    assert primary.calls == []
+    assert fallback.calls == []
 
 
 def test_composite_runtime_tools_are_deduplicated_in_priority_order() -> None:

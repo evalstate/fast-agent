@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace.models import MarketplaceEntryFieldsModel
 from fast_agent.skills.models import SKILL_MANIFEST_FILENAME_LOWER, MarketplaceSkill
 from fast_agent.utils.text import strip_str_to_none, strip_to_none
 
@@ -30,17 +31,8 @@ class _ParsedPluginSource:
     invalid_path: bool = False
 
 
-class MarketplaceEntryModel(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    repo_url: str | None = Field(default=None, alias="repo")
-    repo_ref: str | None = None
-    repo_path: str | None = None
-    source_url: str | None = None
-    bundle_name: str | None = None
+class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
     bundle_description: str | None = None
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     @model_validator(mode="before")
     @classmethod
@@ -77,15 +69,17 @@ class MarketplaceEntryModel(BaseModel):
         if source_url is None and source_url_value:
             source_url = source_url_value
 
-        if source_url and (not repo_url or repo_url == default_repo_url or not repo_path):
-            parsed_skill = marketplace_source_utils.parse_github_url(source_url)
-            if parsed_skill:
-                repo_url = parsed_skill.repo_url
-                repo_ref = parsed_skill.repo_ref
-                repo_path = parsed_skill.repo_path
-            elif not repo_url or repo_url == default_repo_url:
-                repo_url = source_url
-        elif source_value and not source_value_is_url and not repo_path:
+        resolved_fields = marketplace_source_utils.repo_fields_from_source_url(
+            repo_url=repo_url,
+            repo_ref=repo_ref,
+            repo_path=repo_path,
+            source_url=source_url,
+            default_repo_url=default_repo_url,
+        )
+        repo_url = resolved_fields.repo_url
+        repo_ref = resolved_fields.repo_ref
+        repo_path = resolved_fields.repo_path
+        if source_value and not source_value_is_url and not repo_path:
             repo_path = _normalize_source_path(source_value, data)
 
         name = marketplace_source_utils.first_nonempty_str(data, "name", "id", "slug", "title")

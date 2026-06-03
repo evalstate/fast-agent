@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace.models import MarketplaceEntryFieldsModel
 from fast_agent.plugins.models import PLUGIN_MANIFEST_FILENAME, MarketplacePlugin
 from fast_agent.plugins.provenance import normalize_repo_path
 from fast_agent.utils.action_normalization import normalize_action_token
@@ -21,18 +22,7 @@ def _is_card_pack_marketplace_entry(kind: str | None) -> bool:
     return normalize_action_token(kind) in _CARD_PACK_ENTRY_KINDS
 
 
-class MarketplacePluginEntryModel(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    kind: str | None = None
-    repo_url: str | None = Field(default=None, alias="repo")
-    repo_ref: str | None = None
-    repo_path: str | None = None
-    source_url: str | None = None
-    bundle_name: str | None = None
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
-
+class MarketplacePluginEntryModel(MarketplaceEntryFieldsModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize_entry(cls, data: Any, info: "ValidationInfo") -> Any:
@@ -78,14 +68,16 @@ class MarketplacePluginEntryModel(BaseModel):
             else None
         )
 
-        if source_url and (not repo_url or repo_url == default_repo_url or not repo_path):
-            parsed_source = marketplace_source_utils.parse_github_url(source_url)
-            if parsed_source:
-                repo_url = parsed_source.repo_url
-                repo_ref = parsed_source.repo_ref
-                repo_path = parsed_source.repo_path
-            elif not repo_url or repo_url == default_repo_url:
-                repo_url = source_url
+        resolved_fields = marketplace_source_utils.repo_fields_from_source_url(
+            repo_url=repo_url,
+            repo_ref=repo_ref,
+            repo_path=repo_path,
+            source_url=source_url,
+            default_repo_url=default_repo_url,
+        )
+        repo_url = resolved_fields.repo_url
+        repo_ref = resolved_fields.repo_ref
+        repo_path = resolved_fields.repo_path
         if source_path and not repo_path:
             repo_path = source_path
 
