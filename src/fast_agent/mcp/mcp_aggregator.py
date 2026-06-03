@@ -943,6 +943,8 @@ class MCPAggregator(ContextDependent):
         )
 
     async def _mcp_skills_total(self, server_name: str) -> int | None:
+        if not self.initialized:
+            return None
         registry = await self._scan_mcp_skill_registry(server_name)
         if registry is None:
             return None

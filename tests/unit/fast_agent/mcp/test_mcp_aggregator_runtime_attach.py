@@ -253,3 +253,30 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
     assert result.tools_total == 1
     assert result.prompts_total == 1
     assert aggregator.server_names == ["runtime"]
+
+
+@pytest.mark.asyncio
+async def test_startup_attach_result_does_not_scan_mcp_skill_registry() -> None:
+    context = _build_context({})
+
+    class _NoStartupRegistryScanAggregator(MCPAggregator):
+        async def _scan_mcp_skill_registry(self, server_name: str):
+            raise AssertionError(f"unexpected registry scan during startup for {server_name}")
+
+    aggregator = _NoStartupRegistryScanAggregator(
+        server_names=["runtime"],
+        connection_persistence=False,
+        context=context,
+    )
+    aggregator._attached_server_names = ["runtime"]
+
+    result = await aggregator._attached_result(
+        server_name="runtime",
+        resolved_config=MCPServerSettings(name="runtime", transport="http", url="https://example.com/mcp"),
+        already_attached=False,
+        existing_tool_names=set(),
+        existing_prompt_names=set(),
+        skybridge_config=SkybridgeServerConfig(server_name="runtime"),
+    )
+
+    assert result.skills_total is None
