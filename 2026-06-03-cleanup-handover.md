@@ -89,12 +89,24 @@ Verified follow-on slices include:
 - MAKER response normalization uses shared normalization.
 - CLI model export provider resolution uses shared normalization for padded and mixed-case provider names.
 
-The last follow-on slice changed:
+Additional verified follow-on slices after the model export slice include:
 
-- `src/fast_agent/cli/commands/model.py`
-- `tests/unit/fast_agent/cli/commands/test_model_setup_command.py`
+- MCP server OAuth provider environment normalization in `src/fast_agent/mcp/server/agent_server.py`.
+- FastAgent skill deduplication normalization in `src/fast_agent/core/fastagent.py`.
+- Prompt completer buffer matching through `casefold_text()` in `src/fast_agent/ui/prompt/completer.py`.
+- OpenAI message role normalization in `src/fast_agent/llm/provider/openai/llm_openai.py`.
+- MCP auth middleware byte-header matching in `src/fast_agent/mcp/auth/middleware.py`.
+- Google native thinking-effort normalization in `src/fast_agent/llm/provider/google/llm_google_native.py`.
+- Google Gemini 3 model classification normalization in `src/fast_agent/llm/provider/google/google_converter.py`.
+- Anthropic reasoning setting normalization in `src/fast_agent/llm/provider/anthropic/llm_anthropic.py`.
 
-The final follow-on verification run was:
+The latest follow-on code slice inspected but was not applied before stopping:
+
+- Bedrock Nova model classification in `src/fast_agent/llm/provider/bedrock/llm_bedrock.py`.
+- The safe next change is to import `strip_casefold` and replace the Nova check at the current `reasoning_budget == 0` branch with `if model and "nova" in strip_casefold(model) and reasoning_budget == 0:`.
+- Leave the remaining Bedrock `.lower()` calls for now; they are error-message retry heuristics and should be extracted only behind named predicates with unchanged matching behavior and focused tests.
+
+The final committed checkpoint verification run was:
 
 ```bash
 uv run pytest tests/unit/fast_agent/cli/commands/test_model_setup_command.py -q
@@ -110,12 +122,34 @@ lint.py: All checks passed!
 typecheck.py: All checks passed!
 ```
 
+The additional follow-on slices were each verified with their focused tests, followed by:
+
+```bash
+uv run scripts/lint.py
+uv run scripts/typecheck.py
+```
+
+Representative focused test commands from those later slices:
+
+```bash
+uv run pytest tests/unit/fast_agent/mcp/test_agent_server_auth_passthrough.py -q
+uv run pytest tests/unit/fast_agent/core/test_fastagent_skills.py -q
+uv run pytest tests/unit/fast_agent/ui/test_agent_completer.py tests/unit/fast_agent/utils/test_text.py -q
+uv run pytest tests/unit/fast_agent/llm/test_model_database.py -q
+uv run pytest tests/unit/fast_agent/mcp/test_auth_middleware.py -q
+uv run pytest tests/unit/fast_agent/llm/providers/test_google_thinking.py -q
+uv run pytest tests/unit/fast_agent/llm/providers/test_google_converter.py -q
+uv run pytest tests/unit/fast_agent/llm/provider/anthropic/test_reasoning_defaults.py -q
+```
+
 ## What remains
 
 The broader goal, "tidy the codebase, make it pythonic", is not complete. Remaining work includes:
 
 - Audit the many existing modified and untracked files before deciding what belongs in future commits.
 - Continue replacing ad hoc normalization with shared helpers where behavior is stable and tested.
+- Decide whether to keep, split, or discard the uncommitted follow-on normalization slices listed above.
+- Finish or skip the Bedrock Nova classification cleanup as a separate small change.
 - Split the follow-on normalization slices into reviewable commits only after checking each touched file for pre-existing changes.
 - Avoid broad mechanical rewrites unless they can be verified by focused tests and the repo gates.
 - Re-run the relevant focused tests plus `uv run scripts/lint.py` and `uv run scripts/typecheck.py` after each code change.
