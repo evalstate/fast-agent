@@ -82,7 +82,6 @@ from fast_agent.mcp.tool_permission_handler import (
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 from fast_agent.skills.mcp_registry import (
     McpSkillRegistry,
-    list_mcp_skill_registries,
     scan_mcp_skill_registry,
     server_supports_mcp_skills,
 )
@@ -136,6 +135,24 @@ class _ResourceNameResolution:
 class _PromptNameResolution:
     server_name: str | None
     local_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class _AttachedRegistryScanClient:
+    aggregator: "MCPAggregator"
+
+    async def get_capabilities(self, server_name: str) -> ServerCapabilities | None:
+        return await self.aggregator.get_capabilities(server_name)
+
+    async def get_resource(
+        self,
+        resource_uri: str,
+        *,
+        server_name: str | None = None,
+    ) -> ReadResourceResult:
+        if server_name is None:
+            raise ValueError("server_name is required for attached registry scans")
+        return await self.aggregator._get_resource_from_server(server_name, resource_uri)
 
 
 SESSION_NOT_FOUND_ERROR_CODE = -32043
@@ -432,6 +449,7 @@ class MCPAggregator(ContextDependent):
 
         # Track discovered Skybridge configurations per server
         self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
+        self._mcp_skill_registries: dict[str, McpSkillRegistry] = {}
 
         # Cache for server capabilities in non-persistent mode
         self._capabilities_cache: dict[str, ServerCapabilities] = {}
@@ -696,6 +714,7 @@ class MCPAggregator(ContextDependent):
             self._capabilities_cache.clear()
 
         self._skybridge_configs.clear()
+        self._mcp_skill_registries.clear()
         self._attached_server_names = []
 
     async def _fetch_server_tools(self, server_name: str) -> list[Tool]:
@@ -884,6 +903,7 @@ class MCPAggregator(ContextDependent):
     async def _refresh_attached_server_cache(self, server_name: str) -> SkybridgeServerConfig:
         tools = await self._fetch_server_tools(server_name)
         prompts = await self._fetch_server_prompts(server_name)
+        mcp_skill_registry = await self._scan_mcp_skill_registry(server_name)
 
         async with self._tool_map_lock:
             for namespaced in self._server_to_tool_map.get(server_name, []):
@@ -902,6 +922,11 @@ class MCPAggregator(ContextDependent):
 
         async with self._prompt_cache_lock:
             self._prompt_cache[server_name] = prompts
+
+        if mcp_skill_registry is None:
+            self._mcp_skill_registries.pop(server_name, None)
+        else:
+            self._mcp_skill_registries[server_name] = mcp_skill_registry
 
         _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
         self._skybridge_configs[server_name] = skybridge_config
@@ -943,9 +968,7 @@ class MCPAggregator(ContextDependent):
         )
 
     async def _mcp_skills_total(self, server_name: str) -> int | None:
-        if not self.initialized:
-            return None
-        registry = await self._scan_mcp_skill_registry(server_name)
+        registry = self._mcp_skill_registries.get(server_name)
         if registry is None:
             return None
         return len(registry.skills)
@@ -978,6 +1001,7 @@ class MCPAggregator(ContextDependent):
             self._capabilities_cache.pop(server_name, None)
 
         self._skybridge_configs.pop(server_name, None)
+        self._mcp_skill_registries.pop(server_name, None)
         self._attached_server_names = [
             name for name in self._attached_server_names if name != server_name
         ]
@@ -1358,8 +1382,9 @@ class MCPAggregator(ContextDependent):
             return None
 
     async def _scan_mcp_skill_registry(self, server_name: str) -> McpSkillRegistry | None:
+        client = _AttachedRegistryScanClient(self)
         return await scan_mcp_skill_registry(
-            self,
+            client,
             server_name,
             server_version=await self._mcp_server_version(server_name),
         )
@@ -1367,7 +1392,16 @@ class MCPAggregator(ContextDependent):
     async def list_mcp_skill_registries(self) -> list[McpSkillRegistry]:
         if not self.initialized:
             await self.load_servers()
-        return await list_mcp_skill_registries(self, self.list_attached_servers())
+        registries: list[McpSkillRegistry] = []
+        for server_name in self.list_attached_servers():
+            registry = self._mcp_skill_registries.get(server_name)
+            if registry is None:
+                registry = await self._scan_mcp_skill_registry(server_name)
+                if registry is None:
+                    continue
+                self._mcp_skill_registries[server_name] = registry
+            registries.append(registry)
+        return registries
 
     async def _mcp_server_version(self, server_name: str) -> str | None:
         manager = self._persistent_connection_manager

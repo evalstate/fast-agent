@@ -1,7 +1,14 @@
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import ListToolsResult, ServerCapabilities, Tool
+from mcp.types import (
+    ListToolsResult,
+    ReadResourceResult,
+    ServerCapabilities,
+    TextResourceContents,
+    Tool,
+)
+from pydantic import AnyUrl
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
@@ -196,13 +203,7 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
     class _CapabilityAwareAggregator(MCPAggregator):
         async def get_capabilities(self, server_name: str):
             del server_name
-            return SimpleNamespace(
-                tools=True,
-                prompts=True,
-                resources=False,
-                completions=None,
-                tasks=None,
-            )
+            return ServerCapabilities.model_validate({"tools": {}, "prompts": {}})
 
         async def _execute_on_server(
             self,
@@ -256,14 +257,14 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
 
 
 @pytest.mark.asyncio
-async def test_startup_attach_result_does_not_scan_mcp_skill_registry() -> None:
+async def test_attached_result_uses_cached_mcp_skill_registry() -> None:
     context = _build_context({})
 
-    class _NoStartupRegistryScanAggregator(MCPAggregator):
+    class _NoResultRegistryScanAggregator(MCPAggregator):
         async def _scan_mcp_skill_registry(self, server_name: str):
-            raise AssertionError(f"unexpected registry scan during startup for {server_name}")
+            raise AssertionError(f"unexpected registry scan from result for {server_name}")
 
-    aggregator = _NoStartupRegistryScanAggregator(
+    aggregator = _NoResultRegistryScanAggregator(
         server_names=["runtime"],
         connection_persistence=False,
         context=context,
@@ -280,6 +281,79 @@ async def test_startup_attach_result_does_not_scan_mcp_skill_registry() -> None:
     )
 
     assert result.skills_total is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_attached_server_cache_discovers_mcp_skill_registry() -> None:
+    context = _build_context({})
+    index_uri = "skill://index.json"
+    skill_uri = "skill://demo/SKILL.md"
+    index_text = (
+        '{"skills":[{"name":"demo","description":"Demo skill","type":"skill-md",'
+        f'"url":"{skill_uri}","digest":"sha256:'
+        '0000000000000000000000000000000000000000000000000000000000000000"}]}'
+    )
+
+    class _RegistryCachingAggregator(MCPAggregator):
+        async def get_capabilities(self, server_name: str):
+            del server_name
+            return ServerCapabilities.model_validate(
+                {"resources": {}, "extensions": {"io.modelcontextprotocol/skills": {}}}
+            )
+
+        async def server_supports_feature(self, server_name: str, feature: str) -> bool:
+            del server_name
+            return feature in {"resources", "tools", "prompts"}
+
+        async def _execute_on_server(
+            self,
+            server_name: str,
+            operation_type: str,
+            operation_name: str,
+            method_name: str,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del server_name, operation_type, operation_name, error_factory, progress_callback
+            if method_name == "list_tools":
+                return ListToolsResult(tools=[])
+            if method_name == "list_prompts":
+                return SimpleNamespace(prompts=[])
+            if method_name == "read_resource":
+                assert method_args == {"uri": AnyUrl(index_uri)}
+                return ReadResourceResult(
+                    contents=[
+                        TextResourceContents(
+                            uri=AnyUrl(index_uri),
+                            mimeType="application/json",
+                            text=index_text,
+                        )
+                    ]
+                )
+            raise AssertionError(f"Unexpected MCP method: {method_name}")
+
+        async def _evaluate_skybridge_for_server(
+            self, server_name: str
+        ) -> tuple[str, SkybridgeServerConfig]:
+            return server_name, SkybridgeServerConfig(server_name=server_name)
+
+    aggregator = _RegistryCachingAggregator(
+        server_names=["runtime"],
+        connection_persistence=False,
+        context=context,
+    )
+
+    await aggregator._refresh_attached_server_cache("runtime")
+    aggregator.initialized = True
+    aggregator._attached_server_names = ["runtime"]
+
+    registries = await aggregator.list_mcp_skill_registries()
+
+    assert len(registries) == 1
+    assert registries[0].server_name == "runtime"
+    assert [skill.name for skill in registries[0].skills] == ["demo"]
+    assert await aggregator._mcp_skills_total("runtime") == 1
 
 
 @pytest.mark.asyncio
