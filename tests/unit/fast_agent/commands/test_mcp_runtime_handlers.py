@@ -8,7 +8,7 @@ from fast_agent.commands.handlers import mcp_runtime
 from fast_agent.commands.results import CommandMessage
 from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.mcp.connect_targets import parse_connect_command_text
-from fast_agent.mcp.experimental_session_client import SessionJarEntry
+from fast_agent.mcp.experimental_session_client import ServerCookiesView, SessionJarEntry
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.oauth_client import OAuthEvent
 
@@ -54,14 +54,124 @@ class _IO:
 def _request(text: str):
     return parse_connect_command_text(text)
 
-    async def display_history_overview(self, agent_name, history, usage=None):
-        del agent_name, history, usage
 
-    async def display_usage_report(self, agents):
-        del agents
+def test_mcp_resource_change_summary_pluralizes_resources() -> None:
+    summary = mcp_runtime._format_removed_summary(
+        mcp_runtime._McpResourceCounts(tools=1, prompts=2)
+    )
 
-    async def display_system_prompt(self, agent_name, system_prompt, *, server_count=0):
-        del agent_name, system_prompt, server_count
+    assert summary.plain == "Removed 1 tool and 2 prompts."
+
+
+def test_mcp_attach_counts_exposes_added_and_refreshed_resource_counts() -> None:
+    counts = mcp_runtime._McpAttachCounts(
+        tools_added_count=1,
+        prompts_added_count=2,
+        tools_refreshed_count=3,
+        prompts_refreshed_count=4,
+    )
+
+    assert counts.added == mcp_runtime._McpResourceCounts(tools=1, prompts=2)
+    assert counts.refreshed == mcp_runtime._McpResourceCounts(tools=3, prompts=4)
+
+
+def test_mcp_attach_counts_rejects_bool_totals() -> None:
+    counts = mcp_runtime._mcp_attach_counts(
+        MCPAttachResult(
+            server_name="demo",
+            transport="stdio",
+            attached=True,
+            already_attached=False,
+            tools_added=["demo.echo", "demo.read"],
+            prompts_added=["demo.prompt"],
+            warnings=[],
+            tools_total=True,
+            prompts_total=False,
+        )
+    )
+
+    assert counts.refreshed == mcp_runtime._McpResourceCounts(tools=2, prompts=1)
+
+
+def test_connect_failure_classifier_requires_explicit_oauth_timeout() -> None:
+    timeout = mcp_runtime._classify_connect_failure(
+        "OAuth callback wait timed out after 120 seconds"
+    )
+    assert timeout.oauth_related is True
+    assert timeout.oauth_timeout is True
+
+    non_oauth_timeout = mcp_runtime._classify_connect_failure(
+        "Startup timed out after 10.0s (non-OAuth startup budget)"
+    )
+    assert non_oauth_timeout.oauth_related is False
+    assert non_oauth_timeout.oauth_timeout is False
+
+    lifetime_policy = mcp_runtime._classify_connect_failure(
+        "OAuth token lifetime policy rejected by remote server"
+    )
+    assert lifetime_policy.oauth_related is True
+    assert lifetime_policy.oauth_timeout is False
+
+    mixed_case_timeout = mcp_runtime._classify_connect_failure(
+        "OAUTH CALLBACK WAIT TIMED OUT AFTER 120 SECONDS"
+    )
+    assert mixed_case_timeout.oauth_related is True
+    assert mixed_case_timeout.oauth_timeout is True
+
+
+def test_connected_jar_server_names_filters_and_sorts_entries() -> None:
+    entries = [
+        SessionJarEntry(
+            server_name="zeta",
+            server_identity=None,
+            target=None,
+            cookie=None,
+            cookies=(),
+            last_used_id=None,
+            title=None,
+            supported=True,
+            features=(),
+            connected=True,
+        ),
+        SessionJarEntry(
+            server_name="alpha",
+            server_identity=None,
+            target=None,
+            cookie=None,
+            cookies=(),
+            last_used_id=None,
+            title=None,
+            supported=True,
+            features=(),
+            connected=True,
+        ),
+        SessionJarEntry(
+            server_name="offline",
+            server_identity=None,
+            target=None,
+            cookie=None,
+            cookies=(),
+            last_used_id=None,
+            title=None,
+            supported=True,
+            features=(),
+            connected=False,
+        ),
+        SessionJarEntry(
+            server_name="",
+            server_identity=None,
+            target=None,
+            cookie=None,
+            cookies=(),
+            last_used_id=None,
+            title=None,
+            supported=True,
+            features=(),
+            connected=True,
+        ),
+    ]
+
+    assert mcp_runtime._connected_jar_server_names(entries) == ["alpha", "zeta"]
 
 
 class _Provider:
@@ -139,11 +249,13 @@ class _SessionClientStub:
 
     async def list_server_cookies(self, server_identifier: str | None):
         del server_identifier
-        return (
-            "demo",
-            "demo-server",
-            "sess-123",
-            [
+        return ServerCookiesView(
+            server_name="demo",
+            server_identity="demo-server",
+            target="cmd:python demo.py",
+            sessions_supported=True,
+            active_session_id="sess-123",
+            cookies=[
                 {
                     "id": "sess-123",
                     "title": "Demo",
@@ -180,6 +292,34 @@ class _SessionClientStub:
 
     async def clear_all_cookies(self):
         return ["demo"]
+
+
+class _BoolStoreSizeSessionClientStub(_SessionClientStub):
+    def store_size_bytes(self) -> int:
+        return True
+
+
+class _EmptyStoreSizeSessionClientStub(_SessionClientStub):
+    def store_size_bytes(self) -> int:
+        return 0
+
+
+class _FailingStoreSizeSessionClientStub(_SessionClientStub):
+    def store_size_bytes(self) -> int:
+        raise RuntimeError("store unavailable")
+
+
+def test_mcp_cookie_and_store_size_reject_bool_values() -> None:
+    assert mcp_runtime._cookie_size_display({"cookieSizeBytes": True}) == "-"
+    assert mcp_runtime._resolve_store_size_display(_BoolStoreSizeSessionClientStub()) == "-"
+
+
+def test_mcp_store_size_preserves_zero_bytes() -> None:
+    assert mcp_runtime._resolve_store_size_display(_EmptyStoreSizeSessionClientStub()) == "0 bytes"
+
+
+def test_mcp_store_size_falls_back_when_client_raises() -> None:
+    assert mcp_runtime._resolve_store_size_display(_FailingStoreSizeSessionClientStub()) == "-"
 
 
 class _MultiServerSessionClientStub(_SessionClientStub):
@@ -229,11 +369,13 @@ class _MultiServerSessionClientStub(_SessionClientStub):
 
     async def list_server_cookies(self, server_identifier: str | None):
         if server_identifier == "docs":
-            return (
-                "docs",
-                "docs-server",
-                "sess-docs",
-                [
+            return ServerCookiesView(
+                server_name="docs",
+                server_identity="docs-server",
+                target="url:https://docs.local/mcp",
+                sessions_supported=True,
+                active_session_id="sess-docs",
+                cookies=[
                     {
                         "id": "sess-docs",
                         "title": "Docs",
@@ -245,11 +387,13 @@ class _MultiServerSessionClientStub(_SessionClientStub):
                 ],
             )
 
-        return (
-            "demo",
-            "demo-server",
-            "sess-123",
-            [
+        return ServerCookiesView(
+            server_name="demo",
+            server_identity="demo-server",
+            target="url:https://demo.local/mcp",
+            sessions_supported=True,
+            active_session_id="sess-123",
+            cookies=[
                 {
                     "id": "sess-123",
                     "title": "Demo",
@@ -289,11 +433,13 @@ class _UnsupportedSessionClientStub(_SessionClientStub):
 
     async def list_server_cookies(self, server_identifier: str | None):
         del server_identifier
-        return (
-            "docs",
-            "docs-server",
-            None,
-            [],
+        return ServerCookiesView(
+            server_name="docs",
+            server_identity="docs-server",
+            target="url:https://docs.local/mcp",
+            sessions_supported=False,
+            active_session_id=None,
+            cookies=[],
         )
 
 
@@ -319,6 +465,73 @@ class _MultiServerSessionProvider(_Provider):
         return _MultiServerSessionAgent()
 
 
+class _DuplicateServerNameSessionClientStub(_SessionClientStub):
+    async def list_jar(self):
+        return [
+            SessionJarEntry(
+                server_name="demo",
+                server_identity="old-demo-server",
+                target="url:https://old.local/mcp",
+                cookie={"sessionId": "sess-old"},
+                cookies=(),
+                last_used_id="sess-old",
+                title="Old",
+                supported=False,
+                features=(),
+                connected=False,
+            ),
+            SessionJarEntry(
+                server_name="demo",
+                server_identity="new-demo-server",
+                target="url:https://new.local/mcp",
+                cookie={"sessionId": "sess-new"},
+                cookies=(
+                    {
+                        "id": "sess-new",
+                        "title": "New",
+                        "updatedAt": "2026-02-24T10:00:00Z",
+                        "active": True,
+                    },
+                ),
+                last_used_id="sess-new",
+                title="New",
+                supported=True,
+                features=("create",),
+                connected=True,
+            ),
+        ]
+
+    async def list_server_cookies(self, server_identifier: str | None):
+        del server_identifier
+        return ServerCookiesView(
+            server_name="demo",
+            server_identity="new-demo-server",
+            target="url:https://new.local/mcp",
+            sessions_supported=True,
+            active_session_id="sess-new",
+            cookies=[
+                {
+                    "id": "sess-new",
+                    "title": "New",
+                    "updatedAt": "2026-02-24T10:00:00Z",
+                    "active": True,
+                    "cookieSizeBytes": 111,
+                }
+            ],
+        )
+
+
+class _DuplicateServerNameSessionAgent:
+    def __init__(self) -> None:
+        self.experimental_sessions = _DuplicateServerNameSessionClientStub()
+
+
+class _DuplicateServerNameSessionProvider(_Provider):
+    def _agent(self, name: str):
+        del name
+        return _DuplicateServerNameSessionAgent()
+
+
 class _UnsupportedSessionAgent:
     def __init__(self) -> None:
         self.experimental_sessions = _UnsupportedSessionClientStub()
@@ -331,15 +544,17 @@ class _UnsupportedSessionProvider(_Provider):
 
 
 class _LongPathSessionClientStub(_SessionClientStub):
+    _LONG_TARGET = (
+        "cmd:npx super-long-command --flag value "
+        "@ /Users/alex/projects/fast-agent/demo-server/very/deep/workspace"
+    )
+
     async def list_jar(self):
         return [
             SessionJarEntry(
                 server_name="demo",
                 server_identity="demo-server",
-                target=(
-                    "cmd:npx super-long-command --flag value "
-                    "@ /Users/alex/projects/fast-agent/demo-server/very/deep/workspace"
-                ),
+                target=self._LONG_TARGET,
                 cookie={"sessionId": "sess-123", "data": {"title": "Demo"}},
                 cookies=(
                     {
@@ -358,6 +573,26 @@ class _LongPathSessionClientStub(_SessionClientStub):
             )
         ]
 
+    async def list_server_cookies(self, server_identifier: str | None):
+        del server_identifier
+        return ServerCookiesView(
+            server_name="demo",
+            server_identity="demo-server",
+            target=self._LONG_TARGET,
+            sessions_supported=True,
+            active_session_id="sess-123",
+            cookies=[
+                {
+                    "id": "sess-123",
+                    "title": "Demo",
+                    "expiresAt": "2026-02-23T12:34:56Z",
+                    "updatedAt": "2026-02-23T10:00:00Z",
+                    "active": True,
+                    "cookieSizeBytes": 162,
+                }
+            ],
+        )
+
 
 class _LongPathSessionAgent:
     def __init__(self) -> None:
@@ -373,11 +608,13 @@ class _LongPathSessionProvider(_Provider):
 class _InvalidatedSessionClientStub(_SessionClientStub):
     async def list_server_cookies(self, server_identifier: str | None):
         del server_identifier
-        return (
-            "demo",
-            "demo-server",
-            None,
-            [
+        return ServerCookiesView(
+            server_name="demo",
+            server_identity="demo-server",
+            target="cmd:python demo.py",
+            sessions_supported=True,
+            active_session_id=None,
+            cookies=[
                 {
                     "id": "sess-invalid",
                     "title": "Old Session",
@@ -543,7 +780,7 @@ def test_parse_connect_request_rejects_non_finite_or_non_positive_timeout(
     raw_timeout: str,
 ) -> None:
     with pytest.raises(ValueError, match="--timeout"):
-        parse_connect_command_text(f"npx demo-server --timeout {raw_timeout}")
+        parse_connect_command_text(f"--timeout {raw_timeout} npx demo-server")
 
 
 def test_runtime_resolves_auth_env_reference(monkeypatch) -> None:
@@ -576,12 +813,88 @@ def test_runtime_resolves_auth_env_reference_with_default(monkeypatch) -> None:
     assert parsed.options.auth_token == "default-token"
 
 
+@pytest.mark.parametrize(
+    ("supported", "expected"),
+    [
+        (True, "yes"),
+        (False, "no"),
+        (None, "unknown"),
+    ],
+)
+def test_experimental_session_support_label_is_explicit(
+    supported: bool | None,
+    expected: str,
+) -> None:
+    assert mcp_runtime._experimental_session_support_label(supported) == expected
+
+
+def test_cookie_display_extractors_normalize_blank_strings() -> None:
+    assert mcp_runtime._extract_cookie_id({"sessionId": " sess-123 "}) == "sess-123"
+    assert mcp_runtime._extract_cookie_id({"sessionId": "   "}) is None
+    assert mcp_runtime._extract_session_expiry({"expiresAt": "   "}) == "-"
+    assert mcp_runtime._extract_session_created({"createdAt": "   "}) == "-"
+    assert mcp_runtime._extract_session_created({"data": {"created": " 2026-02-23 "}}) == (
+        "2026-02-23"
+    )
+    assert mcp_runtime._extract_session_created({"data": {"created_at": " 2026-02-24 "}}) == (
+        "2026-02-24"
+    )
+
+
+def test_cookie_display_extractors_accept_expiry_alias() -> None:
+    assert mcp_runtime._extract_session_expiry({"expiry": " 2026-02-23T12:34:56Z "}) == (
+        "2026-02-23T12:34:56Z"
+    )
+
+
+def test_describe_server_config_source_normalizes_url_values() -> None:
+    assert (
+        mcp_runtime._describe_server_config_source({"url": " https://example.test/mcp "})
+        == "https://example.test/mcp"
+    )
+
+
+def test_describe_server_config_source_omits_blank_values() -> None:
+    assert mcp_runtime._describe_server_config_source({"url": "   ", "command": "   "}) is None
+
+
+def test_describe_server_config_source_falls_back_to_command() -> None:
+    assert (
+        mcp_runtime._describe_server_config_source(
+            {"url": "   ", "command": " python ", "args": ["server.py", "--root", "My Dir"]}
+        )
+        == "python server.py --root 'My Dir'"
+    )
+
+
+def test_format_target_for_display_normalizes_target_payloads() -> None:
+    command = mcp_runtime._format_target_for_display(
+        "cmd:  python demo.py @ /tmp/project  ",
+        width=80,
+    )
+    url = mcp_runtime._format_target_for_display(
+        "url:  https://example.test/mcp  ",
+        width=80,
+    )
+    blank_command = mcp_runtime._format_target_for_display("cmd:   ", width=80)
+
+    assert command.primary == "cmd: python demo.py"
+    assert command.secondary == "cwd: tmp/project"
+    assert url.primary == "url: https://example.test/mcp"
+    assert blank_command.primary == "cmd"
+
+
 def test_runtime_normalizes_bearer_prefix() -> None:
     parsed = mcp_runtime._resolve_request_auth(
         parse_connect_command_text("https://example.com/api --auth 'Bearer token-from-cli'")
     )
 
     assert parsed.options.auth_token == "token-from-cli"
+    assert mcp_runtime._resolve_auth_token_value(" bEaReR token-from-cli ") == "token-from-cli"
+
+
+def test_runtime_normalizes_spaced_bearer_prefix() -> None:
+    assert mcp_runtime._resolve_auth_token_value(" Bearer   token-from-cli ") == "token-from-cli"
 
 
 def test_runtime_normalizes_bearer_prefix_before_env_resolution() -> None:
@@ -618,10 +931,15 @@ async def test_handle_mcp_connect_and_disconnect() -> None:
         ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
-        request=_request("npx demo-server --name demo"),
+        request=_request("--name demo npx demo-server"),
     )
     connect_text = "\n".join(str(message.text) for message in connect_outcome.messages)
     assert "Connected MCP server" in connect_text
+    assert connect_outcome.messages[0].metadata["mcp_connect_status"] == "connected"
+    assert (
+        connect_outcome.messages[0].metadata["mcp_connect_details"]
+        == "Connected MCP server 'demo' (npx)."
+    )
     assert "Added 1 tool and 1 prompt." in connect_text
     assert "demo.echo" not in connect_text
     assert "demo.prompt" not in connect_text
@@ -654,6 +972,7 @@ async def test_handle_mcp_reconnect_attached_server() -> None:
 
     message_text = "\n".join(str(message.text) for message in outcome.messages)
     assert "Reconnected MCP server 'demo'." in message_text
+    assert outcome.messages[0].metadata["mcp_connect_status"] == "reconnected"
     assert "Refreshed 2 tools and 4 prompts (0 new)." in message_text
     assert manager.last_options is not None
     assert manager.last_options.force_reconnect is True
@@ -678,10 +997,8 @@ async def test_handle_mcp_reconnect_requires_attached_server() -> None:
 @pytest.mark.asyncio
 async def test_handle_mcp_list_reports_attached_and_detached() -> None:
     manager = _Manager()
-    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
 
     outcome = await mcp_runtime.handle_mcp_list(
-        ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
     )
@@ -778,7 +1095,7 @@ async def test_handle_mcp_connect_preserves_quoted_target_arguments() -> None:
         ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
-        request=_request('demo-server --root "My Folder" --name demo'),
+        request=_request('--name demo demo-server --root "My Folder"'),
     )
 
     assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
@@ -801,6 +1118,7 @@ async def test_handle_mcp_connect_reports_already_attached() -> None:
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "already attached" in message_text.lower()
+    assert outcome.messages[0].metadata["mcp_connect_status"] == "already_attached"
 
 
 @pytest.mark.asyncio
@@ -812,11 +1130,12 @@ async def test_handle_mcp_connect_with_reconnect_reports_reconnected() -> None:
         ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
-        request=_request("@modelcontextprotocol/server-filesystem . --reconnect"),
+        request=_request("--reconnect @modelcontextprotocol/server-filesystem ."),
     )
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "reconnected mcp server" in message_text.lower()
+    assert outcome.messages[0].metadata["mcp_connect_status"] == "reconnected"
     assert "refreshed 2 tools and 4 prompts (0 new)." in message_text.lower()
     assert "already attached" not in message_text.lower()
 
@@ -906,7 +1225,7 @@ async def test_handle_mcp_connect_emits_oauth_progress_and_final_link() -> None:
         ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
-        request=_request("npx demo-server --name demo"),
+        request=_request("--name demo npx demo-server"),
         on_progress=_capture_progress,
     )
 
@@ -926,7 +1245,7 @@ async def test_handle_mcp_connect_enables_oauth_paste_fallback_without_progress_
         ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
-        request=_request("npx demo-server --name demo"),
+        request=_request("--name demo npx demo-server"),
     )
 
     assert manager.last_options is not None
@@ -956,6 +1275,14 @@ async def test_handle_mcp_connect_oauth_failure_adds_noninteractive_recovery_gui
     assert "fast-agent auth login" in message_text
     assert "Stop/Cancel" in message_text
     assert any("Failed to connect MCP server" in item for item in progress_updates)
+
+
+@pytest.mark.asyncio
+async def test_emit_connect_progress_ignores_callback_failures() -> None:
+    async def failing_progress(_message: str) -> None:
+        raise RuntimeError("progress sink failed")
+
+    await mcp_runtime._emit_connect_progress(failing_progress, "Connecting MCP server")
 
 
 @pytest.mark.asyncio
@@ -1080,8 +1407,34 @@ async def test_handle_mcp_session_list_marks_active_session() -> None:
     assert "mcp name: demo-server" in message_text
     assert "target: cmd: python demo.py" in message_text
     assert "cookies: 2" in message_text
+    assert "store file: 343 bytes" in message_text
     assert "store: 162 bytes" in message_text
     assert "store: 98 bytes" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_list_uses_matching_cookie_view_target() -> None:
+    ctx = CommandContext(
+        agent_provider=_DuplicateServerNameSessionProvider(),
+        current_agent_name="main",
+        io=_IO(),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="list",
+        server_identity="new-demo-server",
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "mcp name: new-demo-server" in message_text
+    assert "https://new.local/mcp" in message_text
+    assert "https://old.local/mcp" not in message_text
+    assert "Experimental sessions feature not supported." not in message_text
 
 
 @pytest.mark.asyncio

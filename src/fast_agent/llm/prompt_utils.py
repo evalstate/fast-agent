@@ -83,7 +83,7 @@ def format_server_info(
         components.append(desc_tag)
 
     # Add tools section if tools exist
-    if tools and len(tools) > 0:
+    if tools:
         tool_tags = []
         for tool in tools:
             tool_name = tool.get("name", "")
@@ -135,7 +135,7 @@ def format_agent_info(
         return format_fastagent_tag("agent", None, {"name": agent_name})
 
     # If has servers, format them
-    if servers and len(servers) > 0:
+    if servers:
         server_tags = []
         for server in servers:
             server_name = server.get("name", "")

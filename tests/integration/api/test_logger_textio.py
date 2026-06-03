@@ -27,11 +27,6 @@ def logger_io():
 
     # Ensure proper cleanup
     logger_io.close()
-    if hasattr(logger_io, "_devnull_fd"):
-        try:
-            os.close(logger_io._devnull_fd)
-        except OSError:
-            pass
 
 
 @pytest.mark.integration

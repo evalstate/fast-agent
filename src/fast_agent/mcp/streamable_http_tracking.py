@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import TYPE_CHECKING, AsyncGenerator, Awaitable, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import anyio
 import httpx
@@ -29,7 +30,9 @@ from mcp.types import (
     ProgressNotification,
 )
 
+from fast_agent.mcp.http_errors import format_http_error_detail
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName, EventType
+from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
 
@@ -40,9 +43,20 @@ logger = logging.getLogger(__name__)
 ChannelHook = Callable[[ChannelEvent], None]
 
 
+@dataclass
+class _GetStreamState:
+    last_event_id: str | None = None
+    retry_interval_ms: int | None = None
+    attempt: int = 0
+
+    def reconnect_delay_ms(self) -> int:
+        if self.retry_interval_ms is not None:
+            return self.retry_interval_ms
+        return DEFAULT_RECONNECTION_DELAY_MS
+
+
 def _progress_trace_enabled() -> bool:
-    value = os.environ.get("FAST_AGENT_TRACE_MCP_PROGRESS", "")
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return env_flag("FAST_AGENT_TRACE_MCP_PROGRESS")
 
 
 def _progress_trace(message: str) -> None:
@@ -210,71 +224,84 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         client: httpx.AsyncClient,
         read_stream_writer: StreamWriter,
     ) -> None:
-        last_event_id: str | None = None
-        retry_interval_ms: int | None = None
-        attempt: int = 0
+        state = _GetStreamState()
 
-        while attempt < MAX_RECONNECTION_ATTEMPTS:  # pragma: no branch
-            connected = False
+        while state.attempt < MAX_RECONNECTION_ATTEMPTS:  # pragma: no branch
             try:
                 if not self.session_id:
                     return
 
-                headers = self._prepare_headers()
-                if last_event_id:
-                    headers[LAST_EVENT_ID] = last_event_id  # pragma: no cover
-
-                async with self._open_sse_connection(
-                    client,
-                    "GET",
-                    self.url,
-                    headers=headers,
-                ) as event_source:
-                    event_source.response.raise_for_status()
-                    self._emit_channel_event("get", "connect")
-                    connected = True
-                    # Reset reconnection error budget once a retry successfully reconnects.
-                    attempt = 0
-
-                    async for sse in event_source.aiter_sse():
-                        if sse.id:
-                            last_event_id = sse.id  # pragma: no cover
-                        if sse.retry is not None:
-                            retry_interval_ms = sse.retry  # pragma: no cover
-
-                        await self._handle_sse_event_with_channel(
-                            "get",
-                            sse,
-                            read_stream_writer,
-                        )
-
+                await self._run_get_stream_once(client, read_stream_writer, state)
             except Exception as exc:  # pragma: no cover - non fatal stream errors
                 logger.debug("GET stream error: %s", exc)
-                attempt += 1
-                status_code = None
-                detail = str(exc)
-                if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
-                    status_code = exc.response.status_code
-                    reason = exc.response.reason_phrase or ""
-                    if not reason:
-                        try:
-                            reason = (exc.response.text or "").strip()
-                        except Exception:
-                            reason = ""
-                    detail = f"HTTP {status_code}: {reason or 'response'}"
-                self._emit_channel_event("get", "error", detail=detail, status_code=status_code)
-            finally:
-                if connected:
-                    self._emit_channel_event("get", "disconnect")
+                state.attempt += 1
+                self._emit_get_stream_error(exc)
 
-            if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+            if state.attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
                 return
 
-            delay_ms = (
-                retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
-            )
+            delay_ms = state.reconnect_delay_ms()
             logger.info("GET stream disconnected, reconnecting in %sms...", delay_ms)
             await self._sleep_before_reconnect(delay_ms)
+
+    async def _run_get_stream_once(
+        self,
+        client: httpx.AsyncClient,
+        read_stream_writer: StreamWriter,
+        state: _GetStreamState,
+    ) -> None:
+        connected = False
+        try:
+            async with self._open_sse_connection(
+                client,
+                "GET",
+                self.url,
+                headers=self._get_stream_headers(state),
+            ) as event_source:
+                event_source.response.raise_for_status()
+                self._emit_channel_event("get", "connect")
+                connected = True
+                # Reset reconnection error budget once a retry successfully reconnects.
+                state.attempt = 0
+
+                async for sse in event_source.aiter_sse():
+                    self._record_get_stream_sse_metadata(state, sse)
+                    await self._handle_sse_event_with_channel(
+                        "get",
+                        sse,
+                        read_stream_writer,
+                    )
+        finally:
+            if connected:
+                self._emit_channel_event("get", "disconnect")
+
+    def _get_stream_headers(self, state: _GetStreamState) -> dict[str, str]:
+        headers = self._prepare_headers()
+        if state.last_event_id:
+            headers[LAST_EVENT_ID] = state.last_event_id  # pragma: no cover
+        return headers
+
+    @staticmethod
+    def _record_get_stream_sse_metadata(
+        state: _GetStreamState,
+        sse: ServerSentEvent,
+    ) -> None:
+        if sse.id:
+            state.last_event_id = sse.id  # pragma: no cover
+        if sse.retry is not None:
+            state.retry_interval_ms = sse.retry  # pragma: no cover
+
+    def _emit_get_stream_error(self, exc: Exception) -> None:
+        detail, status_code = self._get_stream_error_detail(exc)
+        self._emit_channel_event("get", "error", detail=detail, status_code=status_code)
+
+    @staticmethod
+    def _get_stream_error_detail(exc: Exception) -> tuple[str, int | None]:
+        if not isinstance(exc, httpx.HTTPStatusError):
+            return str(exc), None
+
+        error_detail = format_http_error_detail(exc)
+        return error_detail.detail, error_detail.status_code
 
     async def _handle_resumption_request(
         self,

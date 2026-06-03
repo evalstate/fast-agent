@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import time
@@ -7,6 +6,7 @@ from typing import Any, cast
 
 import pytest
 from anyio import create_task_group
+from httpx import HTTPStatusError, Request, Response
 from mcp import ClientSession
 
 from fast_agent.config import MCPServerSettings
@@ -15,11 +15,15 @@ from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
+    _format_lifecycle_exception_group_errors,
     _format_oauth_registration_404_details,
+    _format_ping_shutdown_error,
+    _format_user_auth_skip_oauth_message,
     _is_http_auth_challenge_error,
     _is_oauth_registration_404_message,
     _is_oauth_timeout_message,
     _managed_http_transport_context,
+    _pingable_session,
     _prepare_headers_and_auth,
     _server_lifecycle_task,
     _wait_for_initialized_with_startup_budget,
@@ -43,12 +47,12 @@ def test_prepare_headers_respects_user_authorization(monkeypatch):
         _builder,
     )
 
-    headers, auth, user_keys = _prepare_headers_and_auth(config)
+    prepared_auth = _prepare_headers_and_auth(config)
 
-    assert headers == {"Authorization": "Bearer user-token"}
-    assert headers is not config.headers
-    assert auth is None
-    assert user_keys == {"Authorization"}
+    assert prepared_auth.headers == {"Authorization": "Bearer user-token"}
+    assert prepared_auth.headers is not config.headers
+    assert prepared_auth.oauth_provider is None
+    assert prepared_auth.user_auth_keys == {"Authorization"}
 
 
 def test_prepare_headers_respects_case_insensitive_authorization(monkeypatch):
@@ -56,7 +60,7 @@ def test_prepare_headers_respects_case_insensitive_authorization(monkeypatch):
         name="test",
         transport="http",
         url="https://example.com/mcp",
-        headers={"authorization": "Bearer user-token"},
+        headers={" authorization ": "Bearer user-token"},
     )
 
     def _builder(_config, **_kwargs):
@@ -67,11 +71,11 @@ def test_prepare_headers_respects_case_insensitive_authorization(monkeypatch):
         _builder,
     )
 
-    headers, auth, user_keys = _prepare_headers_and_auth(config)
+    prepared_auth = _prepare_headers_and_auth(config)
 
-    assert headers == {"authorization": "Bearer user-token"}
-    assert auth is None
-    assert user_keys == {"authorization"}
+    assert prepared_auth.headers == {" authorization ": "Bearer user-token"}
+    assert prepared_auth.oauth_provider is None
+    assert prepared_auth.user_auth_keys == {" authorization "}
 
 
 def test_prepare_headers_invokes_oauth_when_no_auth_headers(monkeypatch):
@@ -94,12 +98,72 @@ def test_prepare_headers_invokes_oauth_when_no_auth_headers(monkeypatch):
         _builder,
     )
 
-    headers, auth, user_keys = _prepare_headers_and_auth(config, trigger_oauth=True)
+    prepared_auth = _prepare_headers_and_auth(config, trigger_oauth=True)
 
-    assert headers == {"Accept": "application/json"}
-    assert auth is sentinel
-    assert user_keys == set()
+    assert prepared_auth.headers == {"Accept": "application/json"}
+    assert prepared_auth.oauth_provider is sentinel
+    assert prepared_auth.user_auth_keys == set()
     assert calls == [config]
+
+
+def test_prepare_headers_forced_oauth_scrubs_user_authorization(monkeypatch):
+    config = MCPServerSettings(
+        name="test",
+        transport="http",
+        url="https://example.com/mcp",
+        headers={
+            "Accept": "application/json",
+            "Authorization": "Bearer stale-token",
+            "X-HF-Authorization": "Bearer stale-hf-token",
+        },
+    )
+
+    sentinel = object()
+
+    def _builder(_config, **_kwargs):
+        return sentinel
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        _builder,
+    )
+
+    prepared_auth = _prepare_headers_and_auth(
+        config,
+        trigger_oauth=True,
+        oauth_mode="force",
+    )
+
+    assert prepared_auth.headers == {"Accept": "application/json"}
+    assert prepared_auth.oauth_provider is sentinel
+    assert prepared_auth.user_auth_keys == {"Authorization", "X-HF-Authorization"}
+
+
+def test_prepare_headers_auto_oauth_defers_to_user_authorization(monkeypatch):
+    config = MCPServerSettings(
+        name="test",
+        transport="http",
+        url="https://example.com/mcp",
+        headers={"Authorization": "Bearer user-token"},
+    )
+
+    def _builder(_config, **_kwargs):
+        raise AssertionError("Auto OAuth should defer to explicit user Authorization.")
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        _builder,
+    )
+
+    prepared_auth = _prepare_headers_and_auth(
+        config,
+        trigger_oauth=True,
+        oauth_mode="auto",
+    )
+
+    assert prepared_auth.headers == {"Authorization": "Bearer user-token"}
+    assert prepared_auth.oauth_provider is None
+    assert prepared_auth.user_auth_keys == {"Authorization"}
 
 
 def test_prepare_headers_auto_mode_does_not_build_oauth(monkeypatch):
@@ -117,11 +181,70 @@ def test_prepare_headers_auto_mode_does_not_build_oauth(monkeypatch):
         _builder,
     )
 
-    headers, auth, user_keys = _prepare_headers_and_auth(config, trigger_oauth=None)
+    prepared_auth = _prepare_headers_and_auth(config, trigger_oauth=None)
 
-    assert headers == {}
-    assert auth is None
-    assert user_keys == set()
+    assert prepared_auth.headers == {}
+    assert prepared_auth.oauth_provider is None
+    assert prepared_auth.user_auth_keys == set()
+
+
+def test_format_lifecycle_exception_group_errors_flattens_nested_causes() -> None:
+    request = Request("GET", "https://example.com/mcp")
+    response = Response(503, request=request)
+    http_error = HTTPStatusError("service unavailable", request=request, response=response)
+    caused_error = RuntimeError("startup failed")
+    caused_error.__cause__ = ValueError("bad config")
+    exception_group = ExceptionGroup(
+        "outer",
+        [
+            ExceptionGroup("inner", [http_error]),
+            caused_error,
+        ],
+    )
+
+    assert _format_lifecycle_exception_group_errors(exception_group) == [
+        "HTTP Error: 503 Service Unavailable for URL: https://example.com/mcp",
+        "RuntimeError: startup failed",
+        "Caused by: ValueError: bad config",
+    ]
+
+
+def test_format_ping_shutdown_error_uses_singular_count() -> None:
+    assert _format_ping_shutdown_error(1, RuntimeError("timeout")) == (
+        "Ping failed 1 time; last error: timeout"
+    )
+
+
+def test_format_ping_shutdown_error_uses_plural_count() -> None:
+    assert _format_ping_shutdown_error(3, RuntimeError("timeout")) == (
+        "Ping failed 3 times; last error: timeout"
+    )
+
+
+def test_pingable_session_narrows_optional_ping_capability() -> None:
+    class _Pingable:
+        async def ping(self, read_timeout_seconds=None) -> object:
+            del read_timeout_seconds
+            return object()
+
+    session = _Pingable()
+
+    assert _pingable_session(session) is session
+    assert _pingable_session(object()) is None
+    assert _pingable_session(None) is None
+
+
+def test_format_user_auth_skip_oauth_message_uses_singular_header_count() -> None:
+    assert _format_user_auth_skip_oauth_message("docs", {"Authorization"}) == (
+        "docs: Using user-specified 1 auth header; skipping OAuth provider."
+    )
+
+
+def test_format_user_auth_skip_oauth_message_uses_plural_header_count() -> None:
+    assert _format_user_auth_skip_oauth_message(
+        "docs",
+        {"Authorization", "X-HF-Authorization"},
+    ) == "docs: Using user-specified 2 auth headers; skipping OAuth provider."
 
 
 @pytest.mark.asyncio
@@ -308,6 +431,23 @@ class _DummyStdioRegistry:
 
     def get_server_config(self, _server_name: str):
         return self._config
+
+
+@pytest.mark.asyncio
+async def test_launch_server_invalid_startup_timeout_has_no_manager_side_effects() -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+
+    with pytest.raises(ValueError, match="startup_timeout_seconds must be > 0"):
+        await manager.launch_server(
+            server_name="demo",
+            client_session_factory=_dummy_client_session_factory,
+            startup_timeout_seconds=0,
+        )
+
+    assert manager.running_servers == {}
+    assert manager._server_oauth_mode == {}
+    assert manager._server_oauth_active == {}
+    assert manager._task_group_active is False
 
 
 @pytest.mark.asyncio
@@ -672,6 +812,7 @@ async def test_connection_manager_exit_waits_briefly_after_requesting_shutdown(
 
 def test_is_oauth_timeout_message_requires_real_timeout_markers() -> None:
     assert _is_oauth_timeout_message("OAuth authorization timed out") is True
+    assert _is_oauth_timeout_message("  OAUTH   AUTHORIZATION   TIMED   OUT  ") is True
     assert _is_oauth_timeout_message("OAuth authorization was not completed in time.") is True
     assert _is_oauth_timeout_message("OAuth callback timeout") is True
 
@@ -700,11 +841,13 @@ def test_is_oauth_registration_404_message_detects_registration_failures() -> No
         )
         is True
     )
+    assert _is_oauth_registration_404_message(" OAUTH REGISTRATION FAILED: 404 ") is True
     assert _is_oauth_registration_404_message("HTTP Error: 404 Not Found for URL: /mcp") is False
 
 
 def test_is_http_auth_challenge_error_detects_401_responses() -> None:
     assert _is_http_auth_challenge_error("HTTP Error: 401 Unauthorized for URL: /mcp") is True
+    assert _is_http_auth_challenge_error("  HTTP   ERROR:   401   UNAUTHORIZED  ") is True
     assert _is_http_auth_challenge_error("401 Client Error: Unauthorized for url") is True
     assert _is_http_auth_challenge_error("WWW-Authenticate: Bearer realm=example") is True
     assert _is_http_auth_challenge_error("HTTP Error: 404 Not Found for URL: /mcp") is False
@@ -713,7 +856,7 @@ def test_is_http_auth_challenge_error_detects_401_responses() -> None:
 def test_format_oauth_registration_404_details_includes_copilot_hint() -> None:
     details = _format_oauth_registration_404_details(
         "OAuthRegistrationError: Registration failed: 404 404 page not found",
-        "https://api.githubcopilot.com/mcp/",
+        "HTTPS://API.GITHUBCOPILOT.COM/mcp/",
     )
     assert "dynamic client registration" in details
     assert "--client-metadata-url" in details

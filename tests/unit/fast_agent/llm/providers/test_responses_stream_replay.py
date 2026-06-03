@@ -485,6 +485,77 @@ async def test_openresponses_null_output_index_still_streams_tool_arguments() ->
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_responses_null_output_index_still_streams_tool_arguments() -> None:
+    harness = _ResponsesHarness()
+    final_response = SimpleNamespace(
+        output=[
+            SimpleNamespace(type="reasoning"),
+            SimpleNamespace(
+                type="function_call",
+                id=None,
+                call_id="call_123",
+                name="weather",
+                arguments='{"city":"Paris"}',
+            ),
+        ],
+        usage=None,
+    )
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=None,
+                item_id="call_123",
+                item=SimpleNamespace(
+                    type="function_call",
+                    id=None,
+                    call_id="call_123",
+                    name="weather",
+                ),
+            ),
+            SimpleNamespace(
+                type="response.function_call_arguments.delta",
+                output_index=None,
+                item_id="call_123",
+                delta='{"city":"',
+            ),
+            SimpleNamespace(
+                type="response.function_call_arguments.delta",
+                output_index=None,
+                item_id="call_123",
+                delta='Paris"}',
+            ),
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=None,
+                item_id="call_123",
+                item=SimpleNamespace(
+                    type="function_call",
+                    id=None,
+                    call_id="call_123",
+                    name="weather",
+                ),
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    await harness._process_stream(stream, model="gpt-test", capture_filename=None)
+
+    event_types = [event["event_type"] for event in harness.tool_events]
+    assert event_types == ["start", "delta", "delta", "stop"]
+    assert harness.tool_events[0]["payload"]["index"] is None
+    assert harness.tool_events[0]["payload"]["tool_use_id"] == "call_123"
+    assert harness.tool_events[1]["payload"]["chunk"] == '{"city":"'
+    assert harness.tool_events[1]["payload"]["index"] is None
+    assert harness.tool_events[2]["payload"]["chunk"] == 'Paris"}'
+    assert harness.tool_events[2]["payload"]["index"] is None
+    assert harness.tool_events[3]["payload"]["index"] == -1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("harness_factory", "response_event_type"),
     [

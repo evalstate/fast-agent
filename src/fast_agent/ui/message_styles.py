@@ -4,11 +4,20 @@ from rich.text import Text
 
 
 def _shorten_items(items: list[str], max_length: int) -> list[str]:
+    if max_length <= 0:
+        return ["" for _item in items]
+    if max_length == 1:
+        return ["…" if item else "" for item in items]
     return [item[: max_length - 1] + "…" if len(item) > max_length else item for item in items]
 
 
 # Indicator shown when jumping to a non-visible highlighted item
 _JUMP_INDICATOR = " ▶ "
+_SHELL_EXIT_CODE_STYLES = {
+    0: "white reverse dim",
+    1: "red reverse dim",
+}
+_SHELL_EXIT_CODE_ERROR_STYLE = "red reverse bold"
 
 
 def _format_bottom_metadata_compact(
@@ -90,16 +99,16 @@ def _format_items_with_highlight_jump(
             separator=separator,
             max_width=max_width,
         )
-    else:
-        # Jump rendering - highlight would be truncated
-        return _render_items_with_jump(
-            items=items,
-            highlight_index=highlight_idx,
-            highlight_color=highlight_color,
-            default_style=default_style,
-            separator=separator,
-            max_width=max_width,
-        )
+
+    # Jump rendering - highlight would be truncated
+    return _render_items_with_jump(
+        items=items,
+        highlight_index=highlight_idx,
+        highlight_color=highlight_color,
+        default_style=default_style,
+        separator=separator,
+        max_width=max_width,
+    )
 
 
 def _render_items_normal(
@@ -119,20 +128,26 @@ def _render_items_normal(
         item_style = highlight_color if should_highlight else default_style
         item_text = Text(item, style=item_style)
 
-        if max_width is not None:
-            if formatted.cell_len + sep.cell_len + item_text.cell_len > max_width:
-                # Doesn't fit - add ellipsis and stop
-                if formatted.cell_len == 0 and max_width > 1:
-                    formatted.append("…", style="dim")
-                elif formatted.cell_len < max_width:
-                    formatted.append(" …", style="dim")
-                break
+        if (
+            max_width is not None
+            and formatted.cell_len + sep.cell_len + item_text.cell_len > max_width
+        ):
+            # Doesn't fit - add ellipsis and stop
+            if formatted.cell_len == 0 and max_width > 1:
+                formatted.append("…", style="dim")
+            elif formatted.cell_len < max_width:
+                formatted.append(" …", style="dim")
+            break
 
-        if sep.plain:
-            formatted.append_text(sep)
-        formatted.append_text(item_text)
+        _append_item_segment(formatted, sep, item_text)
 
     return formatted
+
+
+def _append_item_segment(formatted: Text, separator: Text, item_text: Text) -> None:
+    if separator.plain:
+        formatted.append_text(separator)
+    formatted.append_text(item_text)
 
 
 def _render_items_with_jump(
@@ -173,33 +188,22 @@ def _render_items_with_jump(
                 formatted.append("…", style="dim")
             return formatted
 
-        # Render prefix items that fit within available_for_prefix
-        for i, item in enumerate(items):
-            if i >= highlight_index:
-                break
-
-            sep = Text(separator, style="dim") if i > 0 else Text("")
-            item_text = Text(item, style=default_style)
-
-            if formatted.cell_len + sep.cell_len + item_text.cell_len > available_for_prefix:
-                break
-
-            if sep.plain:
-                formatted.append_text(sep)
-            formatted.append_text(item_text)
+        _append_prefix_items(
+            formatted,
+            items[:highlight_index],
+            default_style=default_style,
+            separator=separator,
+            max_width=available_for_prefix,
+        )
 
     else:
-        # No width limit - just render all items before highlight
-        for i, item in enumerate(items):
-            if i >= highlight_index:
-                break
-
-            sep = Text(separator, style="dim") if i > 0 else Text("")
-            item_text = Text(item, style=default_style)
-
-            if sep.plain:
-                formatted.append_text(sep)
-            formatted.append_text(item_text)
+        _append_prefix_items(
+            formatted,
+            items[:highlight_index],
+            default_style=default_style,
+            separator=separator,
+            max_width=None,
+        )
 
     # Add jump indicator and highlighted item
     if use_jump_indicator:
@@ -207,6 +211,22 @@ def _render_items_with_jump(
     formatted.append_text(highlight_text)
 
     return formatted
+
+
+def _append_prefix_items(
+    formatted: Text,
+    items: list[str],
+    *,
+    default_style: str,
+    separator: str,
+    max_width: int | None,
+) -> None:
+    for index, item in enumerate(items):
+        sep = Text(separator, style="dim") if index > 0 else Text("")
+        item_text = Text(item, style=default_style)
+        if max_width is not None and formatted.cell_len + sep.cell_len + item_text.cell_len > max_width:
+            return
+        _append_item_segment(formatted, sep, item_text)
 
 
 class A3MessageStyle:
@@ -264,7 +284,7 @@ class A3MessageStyle:
             combined.append(" ", style="default")
         return combined
 
-    def metadata_line(self, content: Text, width: int) -> Text:  # noqa: ARG002
+    def metadata_line(self, content: Text) -> Text:
         line = Text()
         line.append("  ", style="dim")
         line.append_text(content)
@@ -282,7 +302,7 @@ class A3MessageStyle:
             return None
 
         display_items = items
-        if max_item_length:
+        if max_item_length is not None:
             display_items = _shorten_items(items, max_item_length)
 
         prefix = Text("▎ ", style="dim")
@@ -303,15 +323,9 @@ class A3MessageStyle:
     def shell_exit_line(
         self,
         exit_code: int,
-        width: int,
         detail: str | None = None,
-    ) -> Text:  # noqa: ARG002
-        if exit_code == 0:
-            exit_code_style = "white reverse dim"
-        elif exit_code == 1:
-            exit_code_style = "red reverse dim"
-        else:
-            exit_code_style = "red reverse bold"
+    ) -> Text:
+        exit_code_style = _SHELL_EXIT_CODE_STYLES.get(exit_code, _SHELL_EXIT_CODE_ERROR_STYLE)
 
         exit_code_text = f" exit code {exit_code} "
         line = Text()
@@ -321,9 +335,9 @@ class A3MessageStyle:
             line.append(detail, style="dim")
         return line
 
-    def tool_update_line(self, width: int) -> Text:  # noqa: ARG002
+    def tool_update_line(self) -> Text:
         note = Text("tool update", style="dim")
-        return self.metadata_line(note, width)
+        return self.metadata_line(note)
 
     def stream_reprint_banner(
         self,

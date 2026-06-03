@@ -7,7 +7,7 @@ import os
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from fast_agent.core.logging.logger import get_logger
 
@@ -17,12 +17,38 @@ STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
 STREAM_CAPTURE_DIR = Path("stream-debug")
 
 
+@runtime_checkable
+class _ModelDumpable(Protocol):
+    def model_dump(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
 def stream_capture_filename(turn: int) -> Path | None:
     if not STREAM_CAPTURE_ENABLED:
         return None
     STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return STREAM_CAPTURE_DIR / f"{timestamp}_google_turn{turn}"
+
+
+def _model_dump_jsonable(value: _ModelDumpable) -> Any:
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Pydantic serializer warnings",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=".*PydanticSerializationUnexpectedValue.*",
+            category=UserWarning,
+        )
+        try:
+            dumped = value.model_dump(mode="json", warnings="none")
+        except TypeError:
+            dumped = value.model_dump(mode="json")
+        except Exception:
+            return str(value)
+    return _jsonable(dumped)
 
 
 def _jsonable(value: Any) -> Any:
@@ -34,26 +60,8 @@ def _jsonable(value: Any) -> Any:
         return {str(key): _jsonable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
         return [_jsonable(item) for item in value]
-
-    model_dump = getattr(value, "model_dump", None)
-    if callable(model_dump):
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="Pydantic serializer warnings",
-                category=UserWarning,
-            )
-            warnings.filterwarnings(
-                "ignore",
-                message=".*PydanticSerializationUnexpectedValue.*",
-                category=UserWarning,
-            )
-            try:
-                return _jsonable(model_dump(mode="json", warnings="none"))
-            except TypeError:
-                return _jsonable(model_dump(mode="json"))
-            except Exception:
-                return str(value)
+    if isinstance(value, _ModelDumpable):
+        return _model_dump_jsonable(value)
     return str(value)
 
 

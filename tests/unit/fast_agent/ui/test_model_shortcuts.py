@@ -85,6 +85,15 @@ def test_build_model_shortcut_hints_only_lists_supported_controls() -> None:
         ModelShortcutHint("F8", "Web search", "on, off"),
     ]
 
+
+class _MissingOptionalShortcutAttrs:
+    service_tier_supported = False
+
+
+def test_build_model_shortcut_hints_tolerates_missing_optional_attrs() -> None:
+    assert build_model_shortcut_hints(_MissingOptionalShortcutAttrs()) == []
+
+
 def test_build_model_shortcut_hints_codexresponses_omit_flex() -> None:
     class _CodexShortcutStub(_ShortcutStub):
         available_service_tiers = ("fast",)
@@ -125,3 +134,12 @@ def test_build_model_shortcut_hints_omit_off_when_none_exists() -> None:
     hints = build_model_shortcut_hints(_NoneReasoningShortcutStub())
 
     assert ModelShortcutHint("F6", "Reasoning", "none, low, medium, high, xhigh") in hints
+
+
+def test_build_model_shortcut_hints_deduplicates_verbosity_values() -> None:
+    class _DuplicateVerbosityShortcutStub(_ShortcutStub):
+        text_verbosity_spec = TextVerbositySpec(allowed=("low", "low", "high"), default="low")
+
+    hints = build_model_shortcut_hints(_DuplicateVerbosityShortcutStub())
+
+    assert ModelShortcutHint("F7", "Verbosity", "low, high") in hints

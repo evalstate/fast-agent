@@ -388,17 +388,20 @@ async def test_skills_add_remove_refreshes_system_prompt(tmp_path: Path) -> None
     get_settings(config_path=str(config_path))
     try:
         agent = SkillAgent(name="test-agent")
+        agent.set_instruction_context({"workspaceRoot": "/workspace"})
         instance = StubAgentInstance(agents={"test-agent": agent})
         handler = _handler(instance, "test-agent")
 
         response = await handler.execute_command("skills", "add test-skill")
         assert "Installed" in response
+        assert agent.instruction_context["workspaceRoot"] == "/workspace"
 
         status = await handler.execute_command("status", "system")
         assert "MAGIC_SKILL" in status
 
         response = await handler.execute_command("skills", "remove test-skill")
         assert "Removed" in response
+        assert agent.instruction_context["workspaceRoot"] == "/workspace"
 
         status = await handler.execute_command("status", "system")
         assert "MAGIC_SKILL" not in status

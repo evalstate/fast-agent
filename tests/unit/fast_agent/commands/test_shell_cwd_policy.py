@@ -179,10 +179,10 @@ def test_create_missing_shell_cwd_directories_creates_unique_paths(tmp_path: Pat
     }
 
     issues = collect_shell_cwd_issues(agents, shell_runtime_requested=False, cwd=tmp_path)
-    created, errors = create_missing_shell_cwd_directories(issues)
+    result = create_missing_shell_cwd_directories(issues)
 
-    assert errors == []
-    assert created == [target]
+    assert result.errors == []
+    assert result.created_paths == [target]
     assert target.is_dir()
 
 

@@ -5,40 +5,68 @@ from __future__ import annotations
 import json
 import os
 import re
-import shlex
-from dataclasses import replace
+from collections.abc import Awaitable, Callable, Mapping
+from contextlib import suppress
+from dataclasses import dataclass, replace
 from datetime import datetime
-from pathlib import Path
-from shutil import get_terminal_size
 from typing import (
     TYPE_CHECKING,
     Any,
-    Awaitable,
-    Callable,
     Literal,
     Protocol,
+    TypeAlias,
     cast,
     runtime_checkable,
 )
 
 from rich.text import Text
 
+from fast_agent.commands.handlers._text_formatting import resolve_terminal_width
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.commands.summary_utils import optional_string
 from fast_agent.mcp.connect_targets import (
+    McpConnectMode,
+    NormalizedMcpTarget,
     ParsedMcpConnectRequest,
     build_server_config_from_target,
     infer_server_name,
     render_normalized_target,
 )
-from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
+from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+from fast_agent.utils.action_normalization import normalize_action_token
+from fast_agent.utils.commandline import join_commandline
+from fast_agent.utils.count_display import format_count, format_count_parts
+from fast_agent.utils.numeric import nonnegative_int_or_none, positive_int_or_none
+from fast_agent.utils.path_display import fit_path_for_display, left_truncate_with_ellipsis
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 if TYPE_CHECKING:
+    from fast_agent.commands.mcp_command_intents import McpSessionAction
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.experimental_session_client import (
         ExperimentalSessionClient,
+        ServerCookiesView,
         SessionJarEntry,
     )
     from fast_agent.mcp.oauth_client import OAuthEvent
+
+
+_McpConnectRuntimeMode: TypeAlias = Literal["configured", "url", "stdio", "npx", "uvx"]
+_EXPERIMENTAL_SESSION_SUPPORT_LABELS: dict[bool | None, str] = {
+    True: "yes",
+    False: "no",
+    None: "unknown",
+}
+
+
+def _connect_runtime_mode(
+    *,
+    configured_alias: str | None,
+    target_mode: McpConnectMode,
+) -> _McpConnectRuntimeMode:
+    if configured_alias is not None:
+        return "configured"
+    return target_mode
 
 
 class McpRuntimeManager(Protocol):
@@ -48,9 +76,9 @@ class McpRuntimeManager(Protocol):
         server_name: str,
         server_config: MCPServerSettings | None = None,
         options: MCPAttachOptions | None = None,
-    ) -> object: ...
+    ) -> MCPAttachResult: ...
 
-    async def detach_mcp_server(self, agent_name: str, server_name: str) -> object: ...
+    async def detach_mcp_server(self, agent_name: str, server_name: str) -> MCPDetachResult: ...
 
     async def list_attached_mcp_servers(self, agent_name: str) -> list[str]: ...
 
@@ -58,13 +86,15 @@ class McpRuntimeManager(Protocol):
 
 
 class SessionClientProtocol(Protocol):
+    def store_size_bytes(self) -> int | None: ...
+
     async def list_jar(self) -> list[SessionJarEntry]: ...
 
     async def resolve_server_name(self, server_identifier: str | None) -> str: ...
 
     async def list_server_cookies(
         self, server_identifier: str | None
-    ) -> tuple[str, str | None, str | None, list[dict[str, Any]]]: ...
+    ) -> ServerCookiesView: ...
 
     async def create_session(
         self,
@@ -85,6 +115,28 @@ class SessionClientProtocol(Protocol):
     async def clear_all_cookies(self) -> list[str]: ...
 
 
+@dataclass(slots=True)
+class _OAuthProgressState:
+    links_seen: set[str]
+    links_ordered: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class _McpConnectPlan:
+    mode: _McpConnectRuntimeMode
+    server_name: str
+    config: "MCPServerSettings | None"
+    attach_options: MCPAttachOptions
+
+
+@dataclass(frozen=True, slots=True)
+class _McpConnectFailureClassification:
+    oauth_related: bool
+    oauth_registration_404: bool
+    oauth_fallback_unavailable: bool
+    oauth_timeout: bool
+
+
 @runtime_checkable
 class SessionClientAgentProtocol(Protocol):
     @property
@@ -103,9 +155,9 @@ def _normalize_auth_token_value(raw_value: str) -> str:
     code can still compose a single valid ``Authorization: Bearer ...`` header.
     """
 
-    normalized = raw_value.strip()
-    if normalized.lower().startswith("bearer "):
-        normalized = normalized[7:].strip()
+    normalized = strip_to_none(raw_value) or ""
+    if normalize_action_token(normalized).startswith("bearer "):
+        normalized = strip_to_none(normalized[7:]) or ""
     return normalized
 
 
@@ -157,41 +209,31 @@ def _resolve_request_auth(request: ParsedMcpConnectRequest) -> ParsedMcpConnectR
     )
 
 
-def _build_server_config(
-    request: ParsedMcpConnectRequest,
-    *,
-    auth_token: str | None = None,
-) -> tuple[str, MCPServerSettings]:
-    return build_server_config_from_target(
-        request.target,
-        auth_token=auth_token,
-    )
-
-
-def _describe_server_config_source(server_config: Any) -> str | None:
+def _describe_server_config_source(
+    server_config: Mapping[str, object] | MCPServerSettings,
+) -> str | None:
     """Return a concise url/command description for an MCP server config."""
 
-    if isinstance(server_config, dict):
-        url_value = server_config.get("url")
-        command_value = server_config.get("command")
-        args_value = server_config.get("args")
+    if isinstance(server_config, Mapping):
+        config_mapping = cast("Mapping[str, object]", server_config)
+        url_value = config_mapping.get("url")
+        command_value = config_mapping.get("command")
+        args_value = config_mapping.get("args")
     else:
-        url_value = getattr(server_config, "url", None)
-        command_value = getattr(server_config, "command", None)
-        args_value = getattr(server_config, "args", None)
+        url_value = server_config.url
+        command_value = server_config.command
+        args_value = server_config.args
 
-    if isinstance(url_value, str):
-        url = url_value.strip()
-        if url:
-            return url
+    url = strip_to_none(url_value) if isinstance(url_value, str) else None
+    if url is not None:
+        return url
 
-    if isinstance(command_value, str):
-        command = command_value.strip()
-        if command:
-            args: list[str] = []
-            if isinstance(args_value, list):
-                args = [str(value) for value in args_value]
-            return shlex.join([command, *args])
+    command = strip_to_none(command_value) if isinstance(command_value, str) else None
+    if command is not None:
+        args: list[str] = []
+        if isinstance(args_value, list):
+            args = [str(value) for value in args_value]
+        return join_commandline([command, *args], syntax="posix")
 
     return None
 
@@ -204,12 +246,11 @@ def _resolve_configured_source_from_context(ctx, server_name: str) -> str | None
     except Exception:
         return None
 
-    mcp_settings = getattr(settings, "mcp", None)
-    server_map = getattr(mcp_settings, "servers", None)
-    if not isinstance(server_map, dict):
+    mcp_settings = settings.mcp
+    if mcp_settings is None:
         return None
 
-    server_config = server_map.get(server_name)
+    server_config = mcp_settings.servers.get(server_name)
     if server_config is None:
         return None
     return _describe_server_config_source(server_config)
@@ -241,68 +282,109 @@ async def _resolve_configured_server_alias(
         return None
 
     configured_names: set[str] = set()
-    try:
+    with suppress(Exception):
         configured_names.update(await manager.list_configured_detached_mcp_servers(agent_name))
-    except Exception:
-        pass
 
-    try:
+    with suppress(Exception):
         configured_names.update(await manager.list_attached_mcp_servers(agent_name))
-    except Exception:
-        pass
 
     return candidate if candidate in configured_names else None
 
 
-def _format_added_summary(tools_added_count: int, prompts_added_count: int) -> Text:
-    tool_word = "tool" if tools_added_count == 1 else "tools"
-    prompt_word = "prompt" if prompts_added_count == 1 else "prompts"
+@dataclass(frozen=True, slots=True)
+class _McpAttachCounts:
+    tools_added_count: int
+    prompts_added_count: int
+    tools_refreshed_count: int
+    prompts_refreshed_count: int
 
-    summary = Text()
-    summary.append("Added ", style="dim")
-    summary.append(str(tools_added_count), style="bold bright_cyan")
-    summary.append(f" {tool_word} and ", style="dim")
-    summary.append(str(prompts_added_count), style="bold bright_cyan")
-    summary.append(f" {prompt_word}.", style="dim")
-    return summary
+    @property
+    def new_count(self) -> int:
+        return self.tools_added_count + self.prompts_added_count
+
+    @property
+    def added(self) -> "_McpResourceCounts":
+        return _McpResourceCounts(
+            tools=self.tools_added_count,
+            prompts=self.prompts_added_count,
+        )
+
+    @property
+    def refreshed(self) -> "_McpResourceCounts":
+        return _McpResourceCounts(
+            tools=self.tools_refreshed_count,
+            prompts=self.prompts_refreshed_count,
+        )
 
 
-def _format_refreshed_summary(
-    *,
-    tools_refreshed_count: int,
-    prompts_refreshed_count: int,
-    tools_added_count: int,
-    prompts_added_count: int,
-) -> Text:
-    tool_word = "tool" if tools_refreshed_count == 1 else "tools"
-    prompt_word = "prompt" if prompts_refreshed_count == 1 else "prompts"
-    new_count = tools_added_count + prompts_added_count
+@dataclass(frozen=True, slots=True)
+class _McpResourceCounts:
+    tools: int
+    prompts: int
 
-    summary = Text()
-    summary.append("Refreshed ", style="dim")
-    summary.append(str(tools_refreshed_count), style="bold bright_cyan")
-    summary.append(f" {tool_word} and ", style="dim")
-    summary.append(str(prompts_refreshed_count), style="bold bright_cyan")
-    summary.append(f" {prompt_word} (", style="dim")
-    summary.append(str(new_count), style="bold bright_cyan")
+
+def _format_added_summary(counts: _McpAttachCounts) -> Text:
+    return _format_resource_change_summary("Added", counts.added)
+
+
+def _format_refreshed_summary(counts: _McpAttachCounts) -> Text:
+    summary = _format_resource_change_summary(
+        "Refreshed",
+        counts.refreshed,
+        trailing_period=False,
+    )
+    summary.append(" (", style="dim")
+    summary.append(str(counts.new_count), style="bold bright_cyan")
     summary.append(" new).", style="dim")
     return summary
 
 
-def _format_removed_summary(tools_removed_count: int, prompts_removed_count: int) -> Text:
-    tool_word = "tool" if tools_removed_count == 1 else "tools"
-    prompt_word = "prompt" if prompts_removed_count == 1 else "prompts"
+def _format_removed_summary(counts: _McpResourceCounts) -> Text:
+    return _format_resource_change_summary("Removed", counts)
 
+
+def _format_resource_change_summary(
+    action: str,
+    counts: _McpResourceCounts,
+    *,
+    trailing_period: bool = True,
+) -> Text:
     summary = Text()
-    summary.append("Removed ", style="dim")
-    summary.append(str(tools_removed_count), style="bold bright_cyan")
-    summary.append(f" {tool_word} and ", style="dim")
-    summary.append(str(prompts_removed_count), style="bold bright_cyan")
-    summary.append(f" {prompt_word}.", style="dim")
+    summary.append(f"{action} ", style="dim")
+    _append_resource_pair(summary, counts)
+    if trailing_period:
+        summary.append(".", style="dim")
     return summary
 
 
-async def handle_mcp_list(ctx, *, manager: McpRuntimeManager, agent_name: str) -> CommandOutcome:
+def _append_resource_pair(summary: Text, counts: _McpResourceCounts) -> None:
+    _append_counted_resource(summary, counts.tools, "tool")
+    summary.append(" and ", style="dim")
+    _append_counted_resource(summary, counts.prompts, "prompt")
+
+
+def _append_counted_resource(summary: Text, count: int, singular: str) -> None:
+    count_text, label = format_count_parts(count, singular)
+    summary.append(count_text, style="bold bright_cyan")
+    summary.append(f" {label}", style="dim")
+
+
+def _mcp_attach_counts(result: MCPAttachResult) -> _McpAttachCounts:
+    tools_added_count = len(result.tools_added)
+    prompts_added_count = len(result.prompts_added)
+    tools_total = nonnegative_int_or_none(result.tools_total)
+    prompts_total = nonnegative_int_or_none(result.prompts_total)
+    tools_refreshed_count = tools_total if tools_total is not None else tools_added_count
+    prompts_refreshed_count = prompts_total if prompts_total is not None else prompts_added_count
+    return _McpAttachCounts(
+        tools_added_count=tools_added_count,
+        prompts_added_count=prompts_added_count,
+        tools_refreshed_count=tools_refreshed_count,
+        prompts_refreshed_count=prompts_refreshed_count,
+    )
+
+
+async def handle_mcp_list(*, manager: McpRuntimeManager, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     attached = await manager.list_attached_mcp_servers(agent_name)
     detached: list[str] = []
@@ -331,7 +413,30 @@ async def handle_mcp_list(ctx, *, manager: McpRuntimeManager, agent_name: str) -
     return outcome
 
 
-McpSessionAction = Literal["jar", "new", "use", "clear", "list"]
+McpSessionActionHandler = Callable[
+    [SessionClientProtocol, "McpSessionRequest"],
+    Awaitable[CommandOutcome],
+]
+McpSessionServerOperation = Callable[
+    [SessionClientProtocol, "McpSessionRequest"],
+    Awaitable[str],
+]
+
+
+@dataclass(frozen=True, slots=True)
+class McpSessionRequest:
+    agent_name: str
+    server_identity: str | None
+    session_id: str | None
+    title: str | None
+    clear_all: bool
+    store_size_display: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DisplayTarget:
+    primary: str
+    secondary: str | None = None
 
 
 def _resolve_session_client(ctx, *, agent_name: str) -> SessionClientProtocol:
@@ -347,11 +452,13 @@ def _render_cookie(cookie: dict[str, Any] | None) -> str:
     return json.dumps(cookie, indent=2, sort_keys=True, ensure_ascii=False)
 
 
+def _experimental_session_support_label(supported: bool | None) -> str:
+    return _EXPERIMENTAL_SESSION_SUPPORT_LABELS[supported]
+
+
 def _render_jar_entry(entry: SessionJarEntry) -> str:
     features = ", ".join(entry.features) if entry.features else "none"
-    supported = (
-        "yes" if entry.supported is True else "no" if entry.supported is False else "unknown"
-    )
+    supported = _experimental_session_support_label(entry.supported)
     mcp_name = entry.server_identity or "(unset)"
     target = entry.target or "(unset)"
     title = entry.title or "(none)"
@@ -377,117 +484,84 @@ def _truncate_cell(value: str, max_len: int = 28) -> str:
     return value[: max_len - 3] + "..."
 
 
-def _left_truncate_with_ellipsis(text: str, max_length: int) -> str:
-    if max_length <= 0:
-        return ""
-    if len(text) <= max_length:
-        return text
-    if max_length == 1:
-        return "…"
-    return f"…{text[-(max_length - 1) :]}"
-
-
-def _format_parent_current_path(path_text: str) -> str:
-    normalized = os.path.normpath(path_text)
-    path = Path(normalized)
-    current = path.name or normalized
-    parent = path.parent.name
-    if parent:
-        return f"{parent}/{current}"
-    return current
-
-
-def _fit_path_for_display(path_text: str, max_length: int) -> str:
-    if max_length <= 0:
-        return ""
-
-    compact = _format_parent_current_path(path_text)
-    if len(compact) <= max_length:
-        return compact
-
-    current = Path(path_text).name or path_text
-    if len(current) <= max_length:
-        return current
-
-    return _left_truncate_with_ellipsis(current, max_length)
-
-
 def _format_target_for_display(
     target: str | None,
     *,
     width: int,
-) -> tuple[str, str | None]:
+) -> _DisplayTarget:
     if not target:
-        return "-", None
+        return _DisplayTarget(primary="-")
 
     if target.startswith("cmd:"):
-        payload = target[4:].strip()
+        payload = strip_to_none(target[4:]) or ""
         command, separator, cwd = payload.partition(" @ ")
         command_display = f"cmd: {command}" if command else "cmd"
         if not separator or not cwd:
-            return command_display, None
+            return _DisplayTarget(primary=command_display)
 
         path_width = max(12, width - len("cwd: "))
-        return command_display, f"cwd: {_fit_path_for_display(cwd, path_width)}"
+        return _DisplayTarget(
+            primary=command_display,
+            secondary=f"cwd: {fit_path_for_display(cwd, path_width)}",
+        )
 
     if target.startswith("url:"):
-        url = target[4:].strip()
+        url = strip_to_none(target[4:]) or ""
         path_width = max(12, width)
-        return f"url: {_left_truncate_with_ellipsis(url, path_width)}", None
+        return _DisplayTarget(primary=f"url: {left_truncate_with_ellipsis(url, path_width)}")
 
     display_width = max(12, width)
-    return _left_truncate_with_ellipsis(target, display_width), None
+    return _DisplayTarget(primary=left_truncate_with_ellipsis(target, display_width))
 
 
 def _cookie_size_display(summary: dict[str, Any]) -> str:
-    raw_size = summary.get("cookieSizeBytes")
-    if isinstance(raw_size, int) and raw_size > 0:
-        return f"{raw_size} bytes"
+    size = positive_int_or_none(summary.get("cookieSizeBytes"))
+    if size is not None:
+        return f"{size} bytes"
     return "-"
 
 
 def _extract_cookie_id(cookie: dict[str, Any] | None) -> str | None:
     if not isinstance(cookie, dict):
         return None
-    raw_id = cookie.get("sessionId")
-    if isinstance(raw_id, str) and raw_id:
-        return raw_id
-    return None
+    return optional_string(cookie.get("sessionId"))
 
 
 def _extract_session_title(payload: dict[str, Any]) -> str:
-    direct_title = payload.get("title")
-    if isinstance(direct_title, str) and direct_title.strip():
-        return direct_title.strip()
+    direct_title = optional_string(payload.get("title"))
+    if direct_title is not None:
+        return direct_title
 
     data = payload.get("data")
     if isinstance(data, dict):
-        data_title = data.get("title") or data.get("label")
-        if isinstance(data_title, str) and data_title.strip():
-            return data_title.strip()
+        data_title = optional_string(data.get("title")) or optional_string(data.get("label"))
+        if data_title is not None:
+            return data_title
 
     return "-"
+
+
+def _first_optional_string(payload: Mapping[str, Any], keys: tuple[str, ...]) -> str | None:
+    return next(
+        (value for key in keys if (value := optional_string(payload.get(key))) is not None),
+        None,
+    )
 
 
 def _extract_session_expiry(payload: dict[str, Any]) -> str:
-    expiry = payload.get("expiresAt")
-    if isinstance(expiry, str) and expiry:
-        return expiry
-    return "-"
+    return _first_optional_string(payload, ("expiresAt", "expiry")) or "-"
 
 
 def _extract_session_created(payload: dict[str, Any]) -> str:
-    for key in ("created", "created_at", "createdAt"):
-        raw = payload.get(key)
-        if isinstance(raw, str) and raw:
-            return raw
+    created = _first_optional_string(payload, ("created", "created_at", "createdAt"))
+    if created is not None:
+        return created
 
     data = payload.get("data")
     if isinstance(data, dict):
-        for key in ("created", "created_at", "createdAt"):
-            raw = data.get(key)
-            if isinstance(raw, str) and raw:
-                return raw
+        created = _first_optional_string(data, ("created", "created_at", "createdAt"))
+        if created is not None:
+            return created
 
     session_id = payload.get("sessionId")
     if isinstance(session_id, str):
@@ -507,7 +581,7 @@ def _format_expiry_compact(expiry: str | None) -> str:
     if not expiry or expiry == "-":
         return "-"
     try:
-        parsed = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(expiry)
     except ValueError:
         return _truncate_cell(expiry, 14)
     return parsed.strftime("%d/%m/%y %H:%M")
@@ -519,44 +593,207 @@ def _format_session_window(start: str | None, end: str | None) -> str:
     return f"({start_display} → {end_display})"
 
 
-def _resolve_terminal_width() -> int:
-    try:
-        from fast_agent.ui.console import console
-
-        width = console.size.width
-    except Exception:
-        width = 0
-    if width <= 0:
-        width = get_terminal_size(fallback=(100, 20)).columns
-    return width
-
-
 def _resolve_store_size_display(session_client: SessionClientProtocol) -> str:
-    size_getter = getattr(session_client, "store_size_bytes", None)
-    if not callable(size_getter):
+    parsed_size = nonnegative_int_or_none(_store_size_bytes(session_client))
+    if parsed_size is None:
         return "-"
-    try:
-        size = size_getter()
-    except Exception:
-        return "-"
-    if not isinstance(size, int) or size < 0:
-        return "-"
-    return f"{size} bytes"
+    return f"{parsed_size} bytes"
+
+
+def _store_size_bytes(session_client: SessionClientProtocol) -> object | None:
+    with suppress(Exception):
+        return session_client.store_size_bytes()
+    return None
+
+
+def _group_jar_entries(entries: list[SessionJarEntry]) -> dict[str, list[SessionJarEntry]]:
+    grouped: dict[str, list[SessionJarEntry]] = {}
+    for entry in entries:
+        key = entry.target or entry.server_identity or entry.server_name
+        grouped.setdefault(key, []).append(entry)
+    return grouped
+
+
+def _select_primary_jar_entry(entries: list[SessionJarEntry]) -> SessionJarEntry:
+    return next(
+        (
+            entry
+            for entry in entries
+            if entry.connected is True and _extract_cookie_id(entry.cookie)
+        ),
+        next(
+            (entry for entry in entries if _extract_cookie_id(entry.cookie)),
+            entries[0],
+        ),
+    )
+
+
+def _combined_jar_cookies(entries: list[SessionJarEntry]) -> list[dict[str, Any]]:
+    combined: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for entry in entries:
+        for summary in entry.cookies:
+            if not isinstance(summary, dict):
+                continue
+            raw_id = summary.get("id")
+            if not isinstance(raw_id, str) or not raw_id or raw_id in seen_ids:
+                continue
+            seen_ids.add(raw_id)
+            combined.append(dict(summary))
+    combined.sort(key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
+    return combined
+
+
+def _resolve_active_jar_session_id(
+    primary: SessionJarEntry,
+    cookies: list[dict[str, Any]],
+) -> str | None:
+    if primary.last_used_id is not None:
+        return primary.last_used_id
+    return next(
+        (
+            item.get("id")
+            for item in cookies
+            if isinstance(item.get("id"), str) and item.get("active") is True
+        ),
+        None,
+    )
+
+
+def _mark_active_jar_cookie(cookies: list[dict[str, Any]], active_session_id: str | None) -> None:
+    if active_session_id is None:
+        return
+    for item in cookies:
+        item_id = item.get("id")
+        item["active"] = isinstance(item_id, str) and item_id == active_session_id
+
+
+def _append_jar_section_header(
+    content: Text,
+    *,
+    primary: SessionJarEntry,
+    grouped_entries: list[SessionJarEntry],
+    unsupported_connected: bool,
+) -> None:
+    section_header = Text()
+    section_header.append("▎ ", style="dim")
+    section_header.append(primary.server_name, style="white")
+    if primary.server_identity:
+        section_header.append(" • ", style="dim")
+        section_header.append(primary.server_identity, style="dim")
+    section_header.append(" • ", style="dim")
+    is_connected = any(entry.connected is True for entry in grouped_entries)
+    section_header.append(
+        "connected" if is_connected else "disconnected",
+        style="bright_green" if is_connected else "dim",
+    )
+    if unsupported_connected:
+        section_header.append(" • ", style="dim")
+        section_header.append("unsupported", style="dim red")
+    content.append_text(section_header)
+    content.append("\n")
+
+
+def _append_server_cookies_summary_line(
+    content: Text,
+    *,
+    server_name: str | None,
+    server_identity: str | None,
+    cookie_count: int,
+    store_size_display: str,
+    include_store: bool,
+    include_mcp_name: bool,
+) -> None:
+    content.append("▎  ", style="dim")
+    if include_mcp_name:
+        content.append("mcp name: ", style="dim")
+        content.append(server_identity or server_name or "-", style="white")
+        content.append(" • ", style="dim")
+    content.append("cookies: ", style="dim")
+    content.append(str(cookie_count), style="white")
+    if include_store:
+        content.append("\n")
+        content.append("▎  ", style="dim")
+        content.append("store file: ", style="dim")
+        content.append(store_size_display, style="white")
+    content.append("\n")
+
+
+def _cookie_row_marker(
+    *,
+    is_active: bool,
+    is_invalidated: bool,
+) -> tuple[str, str, str]:
+    if is_invalidated:
+        return "○", "dim red", "dim"
+    if is_active:
+        return "▶", "bright_green", "bright_green"
+    return "•", "dim", "white"
+
+
+def _render_cookie_row(
+    item: dict[str, Any],
+    *,
+    index: int,
+    index_width: int,
+    active_session_id: str | None,
+) -> Text:
+    raw_session_id = item.get("id")
+    session_id = raw_session_id if isinstance(raw_session_id, str) and raw_session_id else "-"
+    is_active = active_session_id is not None and session_id == active_session_id
+    is_invalidated = bool(item.get("invalidated"))
+    marker, marker_style, session_style = _cookie_row_marker(
+        is_active=is_active,
+        is_invalidated=is_invalidated,
+    )
+
+    updated_value = item.get("updatedAt") if isinstance(item.get("updatedAt"), str) else None
+    window_display = _format_session_window(
+        _format_expiry_compact(updated_value),
+        _format_expiry_compact(_extract_session_expiry(item)),
+    )
+
+    line = Text()
+    line.append(f"[{index:>{index_width}}] ", style="dim cyan")
+    line.append(f"{marker} ", style=marker_style)
+    line.append(session_id, style=session_style)
+    line.append(" ", style="dim")
+    line.append(window_display, style="dim")
+    line.append(" • ", style="dim")
+    line.append("store: ", style="dim")
+    line.append(_cookie_size_display(item), style="white")
+    if is_invalidated:
+        line.append(" • invalid", style="dim red")
+    return line
+
+
+def _append_cookie_rows(
+    content: Text,
+    cookies: list[dict[str, Any]],
+    *,
+    active_session_id: str | None,
+) -> None:
+    index_width = max(2, len(str(len(cookies))))
+    for index, item in enumerate(cookies, 1):
+        content.append_text(
+            _render_cookie_row(
+                item,
+                index=index,
+                index_width=index_width,
+                active_session_id=active_session_id,
+            )
+        )
+        content.append("\n")
 
 
 def _render_jar_table(entries: list[SessionJarEntry], *, store_size_display: str) -> Text:
     if not entries:
         return Text("No MCP session jar entries available.", style="dim")
 
-    grouped: dict[str, list[SessionJarEntry]] = {}
-    for entry in entries:
-        key = entry.target or entry.server_identity or entry.server_name
-        grouped.setdefault(key, []).append(entry)
-
+    grouped = _group_jar_entries(entries)
     labels = sorted(grouped)
-    target_word = "target" if len(labels) == 1 else "targets"
     content = Text()
-    content.append(f"▎ MCP session jar ({len(labels)} {target_word}):", style="bold")
+    content.append(f"▎ MCP session jar ({format_count(len(labels), 'target')}):", style="bold")
     content.append("\n\n")
 
     for index, label in enumerate(labels, 1):
@@ -564,73 +801,18 @@ def _render_jar_table(entries: list[SessionJarEntry], *, store_size_display: str
         unsupported_connected = any(
             entry.connected is True and entry.supported is False for entry in grouped_entries
         )
-        primary = next(
-            (
-                entry
-                for entry in grouped_entries
-                if entry.connected is True and _extract_cookie_id(entry.cookie)
-            ),
-            next(
-                (entry for entry in grouped_entries if _extract_cookie_id(entry.cookie)),
-                grouped_entries[0],
-            ),
+        primary = _select_primary_jar_entry(grouped_entries)
+        combined_cookies = _combined_jar_cookies(grouped_entries)
+        active_session_id = _resolve_active_jar_session_id(primary, combined_cookies)
+        _mark_active_jar_cookie(combined_cookies, active_session_id)
+        _append_jar_section_header(
+            content,
+            primary=primary,
+            grouped_entries=grouped_entries,
+            unsupported_connected=unsupported_connected,
         )
 
-        combined_cookies: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        for entry in grouped_entries:
-            for summary in entry.cookies:
-                if not isinstance(summary, dict):
-                    continue
-                raw_id = summary.get("id")
-                if not isinstance(raw_id, str) or not raw_id:
-                    continue
-                if raw_id in seen_ids:
-                    continue
-                seen_ids.add(raw_id)
-                combined_cookies.append(dict(summary))
-
-        combined_cookies.sort(key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
-
-        active_session_id = primary.last_used_id
-        if active_session_id is None:
-            active_session_id = next(
-                (
-                    item.get("id")
-                    for item in combined_cookies
-                    if isinstance(item.get("id"), str) and item.get("active") is True
-                ),
-                None,
-            )
-
-        if active_session_id is not None:
-            for item in combined_cookies:
-                item_id = item.get("id")
-                item["active"] = isinstance(item_id, str) and item_id == active_session_id
-
-        section_header = Text()
-        section_header.append("▎ ", style="dim")
-        section_header.append(primary.server_name, style="white")
-        if primary.server_identity:
-            section_header.append(" • ", style="dim")
-            section_header.append(primary.server_identity, style="dim")
-        section_header.append(" • ", style="dim")
-        is_connected = any(entry.connected is True for entry in grouped_entries)
-        section_header.append(
-            "connected" if is_connected else "disconnected",
-            style="bright_green" if is_connected else "dim",
-        )
-        if unsupported_connected:
-            section_header.append(" • ", style="dim")
-            section_header.append("unsupported", style="dim red")
-        content.append_text(section_header)
-        content.append("\n")
-
-        sessions_supported: bool | None
-        if unsupported_connected:
-            sessions_supported = False
-        else:
-            sessions_supported = primary.supported
+        sessions_supported = False if unsupported_connected else primary.supported
 
         table = _render_server_cookies_table(
             server_name=primary.server_name,
@@ -669,30 +851,26 @@ def _render_server_cookies_table(
     include_mcp_name: bool = True,
 ) -> Text:
     content = Text()
-    width = _resolve_terminal_width()
-    command_display, path_display = _format_target_for_display(target, width=width - 6)
+    width = resolve_terminal_width()
+    display_target = _format_target_for_display(target, width=width - 6)
 
     content.append("▎  ", style="dim")
-    content.append(f"target: {command_display}", style="bold")
+    content.append(f"target: {display_target.primary}", style="bold")
     content.append("\n")
-    if path_display:
+    if display_target.secondary:
         content.append("▎    ", style="dim")
-        content.append(path_display, style="dim")
+        content.append(display_target.secondary, style="dim")
         content.append("\n")
 
-    content.append("▎  ", style="dim")
-    if include_mcp_name:
-        content.append("mcp name: ", style="dim")
-        content.append(server_identity or server_name or "-", style="white")
-        content.append(" • ", style="dim")
-    content.append("cookies: ", style="dim")
-    content.append(str(len(cookies)), style="white")
-    if include_store:
-        content.append("\n")
-        content.append("▎  ", style="dim")
-        content.append("store file: ", style="dim")
-        content.append(store_size_display, style="white")
-    content.append("\n")
+    _append_server_cookies_summary_line(
+        content,
+        server_name=server_name,
+        server_identity=server_identity,
+        cookie_count=len(cookies),
+        store_size_display=store_size_display,
+        include_store=include_store,
+        include_mcp_name=include_mcp_name,
+    )
 
     if sessions_supported is False:
         content.append("Experimental sessions feature not supported.", style="dim red")
@@ -701,78 +879,38 @@ def _render_server_cookies_table(
         content.append("No sessions found for this server.", style="dim")
         content.append("\n")
     else:
-        index_width = max(2, len(str(len(cookies))))
-
-        for index, item in enumerate(cookies, 1):
-            raw_session_id = item.get("id")
-            session_id = (
-                raw_session_id if isinstance(raw_session_id, str) and raw_session_id else "-"
-            )
-            is_active = active_session_id is not None and session_id == active_session_id
-            is_invalidated = bool(item.get("invalidated"))
-            if is_invalidated:
-                marker = "○"
-                marker_style = "dim red"
-                session_style = "dim"
-            elif is_active:
-                marker = "▶"
-                marker_style = "bright_green"
-                session_style = "bright_green"
-            else:
-                marker = "•"
-                marker_style = "dim"
-                session_style = "white"
-
-            updated_value = (
-                item.get("updatedAt") if isinstance(item.get("updatedAt"), str) else None
-            )
-            updated_compact = _format_expiry_compact(updated_value)
-            expiry_compact = _format_expiry_compact(_extract_session_expiry(item))
-            window_display = _format_session_window(updated_compact, expiry_compact)
-            store_display = _cookie_size_display(item)
-
-            line = Text()
-            line.append(f"[{index:>{index_width}}] ", style="dim cyan")
-            line.append(f"{marker} ", style=marker_style)
-            line.append(session_id, style=session_style)
-            line.append(" ", style="dim")
-            line.append(window_display, style="dim")
-            line.append(" • ", style="dim")
-            line.append("store: ", style="dim")
-            line.append(store_display, style="white")
-            if is_invalidated:
-                line.append(" • invalid", style="dim red")
-            content.append_text(line)
-            content.append("\n")
+        _append_cookie_rows(content, cookies, active_session_id=active_session_id)
 
     return content
 
 
 def _render_connected_server_cookies_table(
-    rows: list[tuple[str, str | None, str | None, bool | None, str | None, list[dict[str, Any]]]],
+    rows: list["ServerCookiesView"],
 ) -> Text:
     content = Text()
-    server_word = "server" if len(rows) == 1 else "servers"
-    content.append(f"▎ MCP sessions ({len(rows)} connected {server_word}):", style="bold")
+    content.append(
+        f"▎ MCP sessions ({format_count(len(rows), 'connected server')}):",
+        style="bold",
+    )
     content.append("\n\n")
 
-    for index, (server_name, server_identity, target, supported, active_session_id, cookies) in enumerate(rows, 1):
+    for index, row in enumerate(rows, 1):
         section_header = Text()
         section_header.append("▎ ", style="dim")
-        section_header.append(server_name, style="white")
-        if server_identity:
+        section_header.append(row.server_name, style="white")
+        if row.server_identity:
             section_header.append(" • ", style="dim")
-            section_header.append(server_identity, style="dim")
+            section_header.append(row.server_identity, style="dim")
         content.append_text(section_header)
         content.append("\n")
 
         table = _render_server_cookies_table(
-            server_name=server_name,
-            server_identity=server_identity,
-            target=target,
-            sessions_supported=supported,
-            cookies=cookies,
-            active_session_id=active_session_id,
+            server_name=row.server_name,
+            server_identity=row.server_identity,
+            target=row.target,
+            sessions_supported=row.sessions_supported,
+            cookies=row.cookies,
+            active_session_id=row.active_session_id,
             store_size_display="-",
             include_store=False,
             include_mcp_name=False,
@@ -810,46 +948,6 @@ def _render_session_action_result(
         )
     )
     return content
-def _target_by_server(entries: list[SessionJarEntry]) -> dict[str, str]:
-    targets: dict[str, str] = {}
-    for entry in entries:
-        if entry.server_name not in targets and isinstance(entry.target, str) and entry.target:
-            targets[entry.server_name] = entry.target
-    return targets
-
-
-def _target_for_identity_or_name(
-    entries: list[SessionJarEntry],
-    *,
-    server_name: str | None,
-    server_identity: str | None,
-) -> str | None:
-    if server_name:
-        by_server = _target_by_server(entries)
-        target = by_server.get(server_name)
-        if target:
-            return target
-
-    if server_identity:
-        for entry in entries:
-            if entry.server_identity == server_identity and isinstance(entry.target, str) and entry.target:
-                return entry.target
-
-    return None
-
-
-def _support_for_identity_or_name(
-    entries: list[SessionJarEntry],
-    *,
-    server_name: str | None,
-    server_identity: str | None,
-) -> bool | None:
-    for entry in entries:
-        if server_name is not None and entry.server_name == server_name:
-            return entry.supported
-        if server_identity is not None and entry.server_identity == server_identity:
-            return entry.supported
-    return None
 
 
 def _render_clear_all_result(servers: list[str]) -> Text:
@@ -864,6 +962,229 @@ def _render_clear_all_result(servers: list[str]) -> Text:
         content.append("\n")
 
     return content
+
+
+def _connected_jar_server_names(entries: list[SessionJarEntry]) -> list[str]:
+    return sorted(
+        {
+            entry.server_name
+            for entry in entries
+            if isinstance(entry.server_name, str)
+            and entry.server_name
+            and entry.connected is True
+        }
+    )
+
+
+async def _handle_mcp_session_jar(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    entries = await session_client.list_jar()
+    if request.server_identity:
+        resolved = await session_client.resolve_server_name(request.server_identity)
+        entries = [entry for entry in entries if entry.server_name == resolved]
+
+    if not entries:
+        outcome.add_message(
+            "No MCP session jar entries available.",
+            channel="warning",
+            right_info="mcp",
+            agent_name=request.agent_name,
+        )
+        return outcome
+
+    rendered = _render_jar_table(entries, store_size_display=request.store_size_display)
+    outcome.add_message(
+        rendered,
+        right_info="mcp",
+        agent_name=request.agent_name,
+    )
+    return outcome
+
+
+async def _handle_mcp_session_list(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    if request.server_identity is None:
+        entries = await session_client.list_jar()
+        connected_servers = _connected_jar_server_names(entries)
+
+        if not connected_servers:
+            outcome.add_message(
+                "No connected MCP servers available.",
+                channel="warning",
+                right_info="mcp",
+                agent_name=request.agent_name,
+            )
+            return outcome
+
+        rows: list[ServerCookiesView] = []
+        for connected_server in connected_servers:
+            server_cookies = await session_client.list_server_cookies(connected_server)
+            rows.append(server_cookies)
+
+        outcome.add_message(
+            _render_connected_server_cookies_table(rows),
+            right_info="mcp",
+            agent_name=request.agent_name,
+        )
+        return outcome
+
+    server_cookies = await session_client.list_server_cookies(request.server_identity)
+    outcome.add_message(
+        _render_server_cookies_table(
+            server_name=server_cookies.server_name,
+            server_identity=server_cookies.server_identity,
+            target=server_cookies.target,
+            sessions_supported=server_cookies.sessions_supported,
+            cookies=server_cookies.cookies,
+            active_session_id=server_cookies.active_session_id,
+            store_size_display=request.store_size_display,
+            include_store=True,
+        ),
+        right_info="mcp",
+        agent_name=request.agent_name,
+    )
+    return outcome
+
+
+async def _render_session_action_outcome(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+    *,
+    server_name: str,
+    heading: str,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    server_cookies = await session_client.list_server_cookies(server_name)
+    outcome.add_message(
+        _render_session_action_result(
+            heading=heading,
+            server_name=server_cookies.server_name,
+            server_identity=server_cookies.server_identity,
+            target=server_cookies.target,
+            sessions_supported=server_cookies.sessions_supported,
+            cookies=server_cookies.cookies,
+            active_session_id=server_cookies.active_session_id,
+        ),
+        right_info="mcp",
+        agent_name=request.agent_name,
+    )
+    return outcome
+
+
+async def _run_session_action(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+    *,
+    operation: McpSessionServerOperation,
+    heading: Callable[[str], str],
+) -> CommandOutcome:
+    server_name = await operation(session_client, request)
+    return await _render_session_action_outcome(
+        session_client,
+        request,
+        server_name=server_name,
+        heading=heading(server_name),
+    )
+
+
+async def _create_session_for_request(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+) -> str:
+    server_name, _cookie = await session_client.create_session(
+        request.server_identity,
+        title=request.title,
+    )
+    return server_name
+
+
+async def _resume_session_for_request(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+) -> str:
+    if not request.session_id:
+        raise ValueError("Session id is required for use.")
+    server_name, _cookie = await session_client.resume_session(
+        request.server_identity,
+        session_id=request.session_id,
+    )
+    return server_name
+
+
+async def _clear_session_for_request(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+) -> str:
+    return await session_client.clear_cookie(request.server_identity)
+
+
+async def _handle_mcp_session_new(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+) -> CommandOutcome:
+    return await _run_session_action(
+        session_client,
+        request,
+        operation=_create_session_for_request,
+        heading=lambda server_name: f"Created new MCP session for {server_name}.",
+    )
+
+
+async def _handle_mcp_session_use(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+) -> CommandOutcome:
+    return await _run_session_action(
+        session_client,
+        request,
+        operation=_resume_session_for_request,
+        heading=lambda server_name: f"Selected MCP session for {server_name}.",
+    )
+
+
+async def _handle_mcp_session_clear(
+    session_client: SessionClientProtocol,
+    request: McpSessionRequest,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    if request.clear_all:
+        cleared = await session_client.clear_all_cookies()
+        if not cleared:
+            outcome.add_message(
+                "No attached MCP servers to clear.",
+                channel="warning",
+                right_info="mcp",
+                agent_name=request.agent_name,
+            )
+            return outcome
+        outcome.add_message(
+            _render_clear_all_result(cleared),
+            right_info="mcp",
+            agent_name=request.agent_name,
+        )
+        return outcome
+
+    return await _run_session_action(
+        session_client,
+        request,
+        operation=_clear_session_for_request,
+        heading=lambda server_name: f"Cleared MCP session entry for {server_name}.",
+    )
+
+
+_MCP_SESSION_ACTION_HANDLERS: dict[McpSessionAction, McpSessionActionHandler] = {
+    "jar": _handle_mcp_session_jar,
+    "list": _handle_mcp_session_list,
+    "new": _handle_mcp_session_new,
+    "use": _handle_mcp_session_use,
+    "clear": _handle_mcp_session_clear,
+}
 
 
 async def handle_mcp_session(
@@ -886,251 +1207,17 @@ async def handle_mcp_session(
 
     try:
         store_size_display = _resolve_store_size_display(session_client)
-
-        if action == "jar":
-            entries = await session_client.list_jar()
-            if server_identity:
-                resolved = await session_client.resolve_server_name(server_identity)
-                entries = [entry for entry in entries if entry.server_name == resolved]
-
-            if not entries:
-                outcome.add_message(
-                    "No MCP session jar entries available.",
-                    channel="warning",
-                    right_info="mcp",
-                    agent_name=agent_name,
-                )
-                return outcome
-
-            rendered = _render_jar_table(entries, store_size_display=store_size_display)
-            outcome.add_message(
-                rendered,
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-            return outcome
-
-        if action == "list":
-            target: str | None = None
-            sessions_supported: bool | None = None
-            if server_identity is None:
-                entries = await session_client.list_jar()
-                targets_by_server = _target_by_server(entries)
-                support_by_server = {
-                    entry.server_name: entry.supported
-                    for entry in entries
-                    if isinstance(entry.server_name, str) and entry.server_name
-                }
-                connected_servers = sorted(
-                    {
-                        entry.server_name
-                        for entry in entries
-                        if isinstance(entry.server_name, str)
-                        and entry.server_name
-                        and entry.connected is True
-                    }
-                )
-
-                if not connected_servers:
-                    outcome.add_message(
-                        "No connected MCP servers available.",
-                        channel="warning",
-                        right_info="mcp",
-                        agent_name=agent_name,
-                    )
-                    return outcome
-
-                rows: list[
-                    tuple[
-                        str,
-                        str | None,
-                        str | None,
-                        bool | None,
-                        str | None,
-                        list[dict[str, Any]],
-                    ]
-                ] = []
-                for connected_server in connected_servers:
-                    (
-                        listed_server,
-                        listed_identity,
-                        listed_active_session,
-                        listed_cookies,
-                    ) = await session_client.list_server_cookies(connected_server)
-                    rows.append(
-                        (
-                            listed_server,
-                            listed_identity,
-                            targets_by_server.get(listed_server),
-                            support_by_server.get(listed_server),
-                            listed_active_session,
-                            listed_cookies,
-                        )
-                    )
-
-                outcome.add_message(
-                    _render_connected_server_cookies_table(rows),
-                    right_info="mcp",
-                    agent_name=agent_name,
-                )
-                return outcome
-            else:
-                (
-                    listed_server,
-                    server_id,
-                    active_session_id,
-                    cookies,
-                ) = await session_client.list_server_cookies(server_identity)
-                entries = await session_client.list_jar()
-                target = _target_for_identity_or_name(
-                    entries,
-                    server_name=listed_server,
-                    server_identity=server_id,
-                )
-                sessions_supported = _support_for_identity_or_name(
-                    entries,
-                    server_name=listed_server,
-                    server_identity=server_id,
-                )
-            outcome.add_message(
-                _render_server_cookies_table(
-                    server_name=listed_server,
-                    server_identity=server_id,
-                    target=target,
-                    sessions_supported=sessions_supported,
-                    cookies=cookies,
-                    active_session_id=active_session_id,
-                    store_size_display=store_size_display,
-                    include_store=False,
-                ),
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-            return outcome
-
-        if action == "new":
-            server_name, _cookie = await session_client.create_session(server_identity, title=title)
-            (
-                listed_server,
-                listed_identity,
-                active_session_id,
-                cookies,
-            ) = await session_client.list_server_cookies(server_name)
-            entries = await session_client.list_jar()
-            target = _target_for_identity_or_name(
-                entries,
-                server_name=listed_server,
-                server_identity=listed_identity,
-            )
-            sessions_supported = _support_for_identity_or_name(
-                entries,
-                server_name=listed_server,
-                server_identity=listed_identity,
-            )
-            outcome.add_message(
-                _render_session_action_result(
-                    heading=f"Created new MCP session for {server_name}.",
-                    server_name=listed_server,
-                    server_identity=listed_identity,
-                    target=target,
-                    sessions_supported=sessions_supported,
-                    cookies=cookies,
-                    active_session_id=active_session_id,
-                ),
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-            return outcome
-
-        if action == "use":
-            if not session_id:
-                raise ValueError("Session id is required for use.")
-            server_name, _cookie = await session_client.resume_session(
-                server_identity,
-                session_id=session_id,
-            )
-            (
-                listed_server,
-                listed_identity,
-                active_session_id,
-                cookies,
-            ) = await session_client.list_server_cookies(server_name)
-            entries = await session_client.list_jar()
-            target = _target_for_identity_or_name(
-                entries,
-                server_name=listed_server,
-                server_identity=listed_identity,
-            )
-            sessions_supported = _support_for_identity_or_name(
-                entries,
-                server_name=listed_server,
-                server_identity=listed_identity,
-            )
-            outcome.add_message(
-                _render_session_action_result(
-                    heading=f"Selected MCP session for {server_name}.",
-                    server_name=listed_server,
-                    server_identity=listed_identity,
-                    target=target,
-                    sessions_supported=sessions_supported,
-                    cookies=cookies,
-                    active_session_id=active_session_id,
-                ),
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-            return outcome
-
-        if action == "clear":
-            if clear_all:
-                cleared = await session_client.clear_all_cookies()
-                if not cleared:
-                    outcome.add_message(
-                        "No attached MCP servers to clear.",
-                        channel="warning",
-                        right_info="mcp",
-                        agent_name=agent_name,
-                    )
-                    return outcome
-                outcome.add_message(
-                    _render_clear_all_result(cleared),
-                    right_info="mcp",
-                    agent_name=agent_name,
-                )
-                return outcome
-
-            server_name = await session_client.clear_cookie(server_identity)
-            (
-                listed_server,
-                listed_identity,
-                active_session_id,
-                cookies,
-            ) = await session_client.list_server_cookies(server_name)
-            entries = await session_client.list_jar()
-            target = _target_for_identity_or_name(
-                entries,
-                server_name=listed_server,
-                server_identity=listed_identity,
-            )
-            sessions_supported = _support_for_identity_or_name(
-                entries,
-                server_name=listed_server,
-                server_identity=listed_identity,
-            )
-            outcome.add_message(
-                _render_session_action_result(
-                    heading=f"Cleared MCP session entry for {server_name}.",
-                    server_name=listed_server,
-                    server_identity=listed_identity,
-                    target=target,
-                    sessions_supported=sessions_supported,
-                    cookies=cookies,
-                    active_session_id=active_session_id,
-                ),
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-            return outcome
+        request = McpSessionRequest(
+            agent_name=agent_name,
+            server_identity=server_identity,
+            session_id=session_id,
+            title=title,
+            clear_all=clear_all,
+            store_size_display=store_size_display,
+        )
+        action_handler = _MCP_SESSION_ACTION_HANDLERS.get(action)
+        if action_handler is not None:
+            return await action_handler(session_client, request)
 
         outcome.add_message(
             f"Unsupported /mcp session action: {action}",
@@ -1149,6 +1236,299 @@ async def handle_mcp_session(
     return outcome
 
 
+async def _emit_connect_progress(
+    on_progress: Callable[[str], Awaitable[None]] | None,
+    message: str,
+) -> None:
+    if on_progress is None:
+        return
+    with suppress(Exception):
+        await on_progress(message)
+
+
+async def _emit_connect_oauth_event(
+    event: OAuthEvent,
+    *,
+    on_progress: Callable[[str], Awaitable[None]] | None,
+    on_oauth_event: Callable[[OAuthEvent], Awaitable[None]] | None,
+    progress_state: _OAuthProgressState,
+) -> None:
+    if on_oauth_event is not None:
+        with suppress(Exception):
+            await on_oauth_event(event)
+
+    if event.event_type == "authorization_url" and event.url:
+        if event.url not in progress_state.links_seen:
+            progress_state.links_seen.add(event.url)
+            progress_state.links_ordered.append(event.url)
+            await _emit_connect_progress(
+                on_progress,
+                f"Open this link to authorize: {event.url}",
+            )
+        return
+
+    oauth_progress_messages = {
+        "wait_start": event.message or "Waiting for OAuth callback (startup timer paused)…",
+        "wait_end": event.message or "OAuth callback wait complete.",
+        "callback_received": event.message
+        or "OAuth callback received. Completing token exchange…",
+    }
+    if event.event_type in oauth_progress_messages:
+        await _emit_connect_progress(on_progress, oauth_progress_messages[event.event_type])
+        return
+
+    if event.event_type == "oauth_error" and event.message:
+        await _emit_connect_progress(on_progress, f"OAuth status: {event.message}")
+
+
+def _default_connect_timeout_seconds(
+    *,
+    mode: _McpConnectRuntimeMode,
+    trigger_oauth: bool | None,
+) -> float:
+    # OAuth-backed URL servers often need additional non-callback time for
+    # metadata discovery and token exchange after the browser callback.
+    return 30.0 if (mode == "url" and trigger_oauth is not False) else 10.0
+
+
+def _connect_server_config(
+    *,
+    configured_alias: str | None,
+    parsed: ParsedMcpConnectRequest,
+) -> tuple[str, MCPServerSettings | None]:
+    if configured_alias is not None:
+        return configured_alias, None
+
+    built_config = build_server_config_from_target(
+        parsed.target,
+        auth_token=parsed.options.auth_token,
+    )
+    return built_config.server_name, built_config.settings
+
+
+def _build_connect_plan(
+    *,
+    parsed: ParsedMcpConnectRequest,
+    configured_alias: str | None,
+    oauth_event_handler: Callable[[OAuthEvent], Awaitable[None]] | None,
+    allow_oauth_paste_fallback: bool,
+) -> _McpConnectPlan:
+    mode = _connect_runtime_mode(
+        configured_alias=configured_alias,
+        target_mode=parsed.target.mode,
+    )
+    server_name = configured_alias or infer_server_name(parsed.target)
+    startup_timeout_seconds = parsed.options.timeout_seconds
+    if startup_timeout_seconds is None:
+        startup_timeout_seconds = _default_connect_timeout_seconds(
+            mode=mode,
+            trigger_oauth=parsed.options.trigger_oauth,
+        )
+
+    server_name, config = _connect_server_config(configured_alias=configured_alias, parsed=parsed)
+    attach_options = MCPAttachOptions(
+        startup_timeout_seconds=startup_timeout_seconds,
+        trigger_oauth=parsed.options.trigger_oauth,
+        force_reconnect=parsed.options.force_reconnect,
+        reconnect_on_disconnect=parsed.options.reconnect_on_disconnect,
+        oauth_event_handler=oauth_event_handler,
+        allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+    )
+    return _McpConnectPlan(
+        mode=mode,
+        server_name=server_name,
+        config=config,
+        attach_options=attach_options,
+    )
+
+
+def _add_oauth_registration_404_guidance(
+    outcome: CommandOutcome,
+    *,
+    error_text: str,
+    agent_name: str,
+) -> None:
+    normalized_error = strip_casefold(error_text)
+    outcome.add_message(
+        (
+            "OAuth client registration returned HTTP 404. "
+            "This server likely does not allow dynamic client registration."
+        ),
+        channel="warning",
+        right_info="mcp",
+        agent_name=agent_name,
+    )
+    outcome.add_message(
+        (
+            "Try either `--client-metadata-url <https-url>` (CIMD) "
+            "or connect with bearer auth via `--auth <token>`."
+        ),
+        channel="info",
+        right_info="mcp",
+        agent_name=agent_name,
+    )
+    if "githubcopilot.com" in normalized_error:
+        outcome.add_message(
+            (
+                "For GitHub Copilot MCP, token auth is commonly required. "
+                "Try `--auth $GITHUB_TOKEN`."
+            ),
+            channel="info",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
+
+
+def _add_oauth_recovery_guidance(outcome: CommandOutcome, *, agent_name: str) -> None:
+    outcome.add_message(
+        (
+            "OAuth could not be completed in this connection mode. "
+            "Run `fast-agent auth login <server-name-or-mcp-name>` on the fast-agent host, "
+            "then retry `/mcp connect ...`."
+        ),
+        channel="warning",
+        right_info="mcp",
+        agent_name=agent_name,
+    )
+    outcome.add_message(
+        (
+            "To cancel an in-flight ACP connection, use your client's Stop/Cancel control "
+            "(ACP `session/cancel`)."
+        ),
+        channel="info",
+        right_info="mcp",
+        agent_name=agent_name,
+    )
+
+
+def _add_connect_failure_guidance(
+    outcome: CommandOutcome,
+    *,
+    error_text: str,
+    oauth_paste_fallback_enabled: bool,
+    agent_name: str,
+) -> None:
+    classification = _classify_connect_failure(error_text)
+
+    if classification.oauth_registration_404:
+        _add_oauth_registration_404_guidance(
+            outcome,
+            error_text=error_text,
+            agent_name=agent_name,
+        )
+
+    if classification.oauth_related and (
+        classification.oauth_fallback_unavailable
+        or classification.oauth_timeout
+        or not oauth_paste_fallback_enabled
+    ):
+        _add_oauth_recovery_guidance(outcome, agent_name=agent_name)
+
+
+def _classify_connect_failure(error_text: str) -> _McpConnectFailureClassification:
+    normalized_error = strip_casefold(error_text)
+    non_oauth_startup_timeout = "non-oauth startup budget" in normalized_error
+    oauth_related = "oauth" in normalized_error and not non_oauth_startup_timeout
+    oauth_registration_404 = (
+        "oauth" in normalized_error and "registration failed: 404" in normalized_error
+    )
+    oauth_fallback_unavailable = (
+        "paste fallback is disabled" in normalized_error
+        or "non-interactive connection mode" in normalized_error
+    )
+    oauth_timeout = oauth_related and any(
+        phrase in normalized_error
+        for phrase in (
+            "timed out",
+            "timeout",
+            "deadline",
+            "callback wait",
+        )
+    )
+    return _McpConnectFailureClassification(
+        oauth_related=oauth_related,
+        oauth_registration_404=oauth_registration_404,
+        oauth_fallback_unavailable=oauth_fallback_unavailable,
+        oauth_timeout=oauth_timeout,
+    )
+
+
+def _connect_success_message(
+    ctx,
+    *,
+    action: str,
+    mode: _McpConnectRuntimeMode,
+    server_name: str,
+    target: NormalizedMcpTarget,
+) -> str:
+    if mode != "configured":
+        return f"{action} MCP server '{server_name}' ({mode})."
+
+    configured_source = _resolve_configured_source_from_context(ctx, server_name)
+    source_text = configured_source or render_normalized_target(target)
+    return f"{action} MCP server '{server_name}' from configuration: {source_text}."
+
+
+async def _add_connect_success_messages(
+    ctx,
+    outcome: CommandOutcome,
+    *,
+    result: MCPAttachResult,
+    parsed: ParsedMcpConnectRequest,
+    counts: _McpAttachCounts,
+    mode: _McpConnectRuntimeMode,
+    server_name: str,
+    agent_name: str,
+    on_progress: Callable[[str], Awaitable[None]] | None,
+) -> None:
+    if result.already_attached and not parsed.options.force_reconnect:
+        message_text = (
+            f"MCP server '{server_name}' is already attached. "
+            "Use --reconnect to force reconnect and refresh tools."
+        )
+        outcome.add_message(
+            message_text,
+            channel="warning",
+            right_info="mcp",
+            agent_name=agent_name,
+            metadata={
+                "mcp_connect_status": "already_attached",
+                "mcp_connect_details": message_text,
+            },
+        )
+        await _emit_connect_progress(
+            on_progress,
+            f"MCP server '{server_name}' is already connected.",
+        )
+        return
+
+    reconnected = result.already_attached and parsed.options.force_reconnect
+    action = "Reconnected" if reconnected else "Connected"
+    message_text = _connect_success_message(
+        ctx,
+        action=action,
+        mode=mode,
+        server_name=server_name,
+        target=parsed.target,
+    )
+    outcome.add_message(
+        message_text,
+        right_info="mcp",
+        agent_name=agent_name,
+        metadata={
+            "mcp_connect_status": "reconnected" if reconnected else "connected",
+            "mcp_connect_details": message_text,
+        },
+    )
+    summary = (
+        _format_refreshed_summary(counts)
+        if reconnected
+        else _format_added_summary(counts)
+    )
+    outcome.add_message(summary, right_info="mcp", agent_name=agent_name)
+    await _emit_connect_progress(on_progress, f"{action} MCP server '{server_name}'.")
+
+
 async def handle_mcp_connect(
     ctx,
     *,
@@ -1159,53 +1539,18 @@ async def handle_mcp_connect(
     on_oauth_event: Callable[[OAuthEvent], Awaitable[None]] | None = None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
+    await _emit_connect_progress(on_progress, "Preparing MCP connection…")
 
-    async def emit_progress(message: str) -> None:
-        if on_progress is None:
-            return
-        try:
-            await on_progress(message)
-        except Exception:
-            return
-
-    await emit_progress("Preparing MCP connection…")
-
-    oauth_links_seen: set[str] = set()
-    oauth_links_ordered: list[str] = []
+    oauth_progress_state = _OAuthProgressState(links_seen=set(), links_ordered=[])
     oauth_paste_fallback_enabled = on_progress is None and on_oauth_event is None
 
     async def emit_oauth_event(event: OAuthEvent) -> None:
-        if on_oauth_event is not None:
-            try:
-                await on_oauth_event(event)
-            except Exception:
-                pass
-
-        if event.event_type == "authorization_url" and event.url:
-            if event.url not in oauth_links_seen:
-                oauth_links_seen.add(event.url)
-                oauth_links_ordered.append(event.url)
-                await emit_progress(f"Open this link to authorize: {event.url}")
-            return
-
-        if event.event_type == "wait_start":
-            await emit_progress(
-                event.message or "Waiting for OAuth callback (startup timer paused)…"
-            )
-            return
-
-        if event.event_type == "wait_end":
-            await emit_progress(event.message or "OAuth callback wait complete.")
-            return
-
-        if event.event_type == "callback_received":
-            await emit_progress(
-                event.message or "OAuth callback received. Completing token exchange…"
-            )
-            return
-
-        if event.event_type == "oauth_error" and event.message:
-            await emit_progress(f"OAuth status: {event.message}")
+        await _emit_connect_oauth_event(
+            event,
+            on_progress=on_progress,
+            on_oauth_event=on_oauth_event,
+            progress_state=oauth_progress_state,
+        )
 
     try:
         parsed = _resolve_request_auth(request)
@@ -1219,189 +1564,62 @@ async def handle_mcp_connect(
         request=parsed,
     )
 
-    target_mode = parsed.target.mode
-    mode = "configured" if configured_alias is not None else target_mode
-    server_name = configured_alias or infer_server_name(parsed.target)
-    if mode == "configured":
-        await emit_progress(f"Connecting MCP server '{server_name}' from config file…")
+    plan = _build_connect_plan(
+        parsed=parsed,
+        configured_alias=configured_alias,
+        oauth_event_handler=emit_oauth_event
+        if (on_progress is not None or on_oauth_event is not None)
+        else None,
+        allow_oauth_paste_fallback=oauth_paste_fallback_enabled,
+    )
+    if plan.mode == "configured":
+        await _emit_connect_progress(
+            on_progress, f"Connecting MCP server '{plan.server_name}' from config file…"
+        )
     else:
-        await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
-
-    trigger_oauth = parsed.options.trigger_oauth
-    startup_timeout_seconds = parsed.options.timeout_seconds
-    if startup_timeout_seconds is None:
-        # OAuth-backed URL servers often need additional non-callback time for
-        # metadata discovery and token exchange after the browser callback.
-        startup_timeout_seconds = 30.0 if (mode == "url" and trigger_oauth is not False) else 10.0
+        await _emit_connect_progress(
+            on_progress, f"Connecting MCP server '{plan.server_name}' via {plan.mode}…"
+        )
 
     try:
-        config: MCPServerSettings | None
-        if configured_alias is not None:
-            config = None
-        else:
-            server_name, config = _build_server_config(
-                parsed,
-                auth_token=parsed.options.auth_token,
-            )
-        attach_options = MCPAttachOptions(
-            startup_timeout_seconds=startup_timeout_seconds,
-            trigger_oauth=trigger_oauth,
-            force_reconnect=parsed.options.force_reconnect,
-            reconnect_on_disconnect=parsed.options.reconnect_on_disconnect,
-            oauth_event_handler=emit_oauth_event
-            if (on_progress is not None or on_oauth_event is not None)
-            else None,
-            allow_oauth_paste_fallback=oauth_paste_fallback_enabled,
-        )
         result = await manager.attach_mcp_server(
             agent_name,
-            server_name,
-            server_config=config,
-            options=attach_options,
+            plan.server_name,
+            server_config=plan.config,
+            options=plan.attach_options,
         )
     except Exception as exc:
-        await emit_progress(f"Failed to connect MCP server '{server_name}'.")
+        await _emit_connect_progress(
+            on_progress, f"Failed to connect MCP server '{plan.server_name}'."
+        )
         error_text = str(exc)
         outcome.add_message(f"Failed to connect MCP server: {error_text}", channel="error")
-
-        normalized_error = error_text.lower()
-        non_oauth_startup_timeout = "non-oauth startup budget" in normalized_error
-        oauth_related = "oauth" in normalized_error and not non_oauth_startup_timeout
-        oauth_registration_404 = (
-            "oauth" in normalized_error and "registration failed: 404" in normalized_error
+        _add_connect_failure_guidance(
+            outcome,
+            error_text=error_text,
+            oauth_paste_fallback_enabled=oauth_paste_fallback_enabled,
+            agent_name=agent_name,
         )
-        fallback_disabled = (
-            "paste fallback is disabled" in normalized_error
-            or "non-interactive connection mode" in normalized_error
-        )
-        oauth_timeout = "oauth" in normalized_error and "time" in normalized_error
-
-        if oauth_registration_404:
-            outcome.add_message(
-                (
-                    "OAuth client registration returned HTTP 404. "
-                    "This server likely does not allow dynamic client registration."
-                ),
-                channel="warning",
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-            outcome.add_message(
-                (
-                    "Try either `--client-metadata-url <https-url>` (CIMD) "
-                    "or connect with bearer auth via `--auth <token>`."
-                ),
-                channel="info",
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-            if "githubcopilot.com" in normalized_error:
-                outcome.add_message(
-                    (
-                        "For GitHub Copilot MCP, token auth is commonly required. "
-                        "Try `--auth $GITHUB_TOKEN`."
-                    ),
-                    channel="info",
-                    right_info="mcp",
-                    agent_name=agent_name,
-                )
-
-        if oauth_related and (
-            fallback_disabled or oauth_timeout or not oauth_paste_fallback_enabled
-        ):
-            outcome.add_message(
-                (
-                    "OAuth could not be completed in this connection mode. "
-                    "Run `fast-agent auth login <server-name-or-mcp-name>` on the fast-agent host, "
-                    "then retry `/mcp connect ...`."
-                ),
-                channel="warning",
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-            outcome.add_message(
-                (
-                    "To cancel an in-flight ACP connection, use your client's Stop/Cancel control "
-                    "(ACP `session/cancel`)."
-                ),
-                channel="info",
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-
         return outcome
 
-    tools_added = getattr(result, "tools_added", [])
-    prompts_added = getattr(result, "prompts_added", [])
-    tools_total = getattr(result, "tools_total", None)
-    prompts_total = getattr(result, "prompts_total", None)
-    warnings = getattr(result, "warnings", [])
-    already_attached = bool(getattr(result, "already_attached", False))
-
-    tools_added_count = len(tools_added)
-    prompts_added_count = len(prompts_added)
-    tools_refreshed_count = (
-        tools_total if isinstance(tools_total, int) and tools_total >= 0 else tools_added_count
+    counts = _mcp_attach_counts(result)
+    await _add_connect_success_messages(
+        ctx,
+        outcome,
+        result=result,
+        parsed=parsed,
+        counts=counts,
+        mode=plan.mode,
+        server_name=plan.server_name,
+        agent_name=agent_name,
+        on_progress=on_progress,
     )
-    prompts_refreshed_count = (
-        prompts_total
-        if isinstance(prompts_total, int) and prompts_total >= 0
-        else prompts_added_count
-    )
-
-    if already_attached and not parsed.options.force_reconnect:
-        outcome.add_message(
-            (
-                f"MCP server '{server_name}' is already attached. "
-                "Use --reconnect to force reconnect and refresh tools."
-            ),
-            channel="warning",
-            right_info="mcp",
-            agent_name=agent_name,
-        )
-        await emit_progress(f"MCP server '{server_name}' is already connected.")
-    else:
-        action = (
-            "Reconnected" if already_attached and parsed.options.force_reconnect else "Connected"
-        )
-        if mode == "configured":
-            configured_source = _resolve_configured_source_from_context(ctx, server_name)
-            source_text = configured_source or render_normalized_target(parsed.target)
-            message_text = f"{action} MCP server '{server_name}' from configuration: {source_text}."
-        else:
-            message_text = f"{action} MCP server '{server_name}' ({mode})."
-        outcome.add_message(
-            message_text,
-            right_info="mcp",
-            agent_name=agent_name,
-        )
-        if action == "Reconnected":
-            outcome.add_message(
-                _format_refreshed_summary(
-                    tools_refreshed_count=tools_refreshed_count,
-                    prompts_refreshed_count=prompts_refreshed_count,
-                    tools_added_count=tools_added_count,
-                    prompts_added_count=prompts_added_count,
-                ),
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-        else:
-            outcome.add_message(
-                _format_added_summary(
-                    tools_added_count=tools_added_count,
-                    prompts_added_count=prompts_added_count,
-                ),
-                right_info="mcp",
-                agent_name=agent_name,
-            )
-        await emit_progress(f"{action} MCP server '{server_name}'.")
-    for warning in warnings:
+    for warning in result.warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
 
-    if oauth_links_ordered:
+    if oauth_progress_state.links_ordered:
         outcome.add_message(
-            f"OAuth authorization link: {oauth_links_ordered[-1]}",
+            f"OAuth authorization link: {oauth_progress_state.links_ordered[-1]}",
             channel="info",
             right_info="mcp",
             agent_name=agent_name,
@@ -1425,8 +1643,7 @@ async def handle_mcp_disconnect(
         outcome.add_message(f"Failed to disconnect MCP server: {exc}", channel="error")
         return outcome
 
-    detached = bool(getattr(result, "detached", False))
-    if not detached:
+    if not result.detached:
         outcome.add_message(
             f"MCP server '{server_name}' was not attached.",
             channel="warning",
@@ -1435,9 +1652,6 @@ async def handle_mcp_disconnect(
         )
         return outcome
 
-    tools_removed = getattr(result, "tools_removed", [])
-    prompts_removed = getattr(result, "prompts_removed", [])
-
     outcome.add_message(
         f"Disconnected MCP server '{server_name}'.",
         right_info="mcp",
@@ -1445,8 +1659,7 @@ async def handle_mcp_disconnect(
     )
     outcome.add_message(
         _format_removed_summary(
-            tools_removed_count=len(tools_removed),
-            prompts_removed_count=len(prompts_removed),
+            _McpResourceCounts(tools=len(result.tools_removed), prompts=len(result.prompts_removed))
         ),
         right_info="mcp",
         agent_name=agent_name,
@@ -1494,40 +1707,25 @@ async def handle_mcp_reconnect(
         outcome.add_message(f"Failed to reconnect MCP server: {exc}", channel="error")
         return outcome
 
-    tools_added = getattr(result, "tools_added", [])
-    prompts_added = getattr(result, "prompts_added", [])
-    tools_total = getattr(result, "tools_total", None)
-    prompts_total = getattr(result, "prompts_total", None)
-    warnings = getattr(result, "warnings", [])
+    counts = _mcp_attach_counts(result)
 
-    tools_added_count = len(tools_added)
-    prompts_added_count = len(prompts_added)
-    tools_refreshed_count = (
-        tools_total if isinstance(tools_total, int) and tools_total >= 0 else tools_added_count
-    )
-    prompts_refreshed_count = (
-        prompts_total
-        if isinstance(prompts_total, int) and prompts_total >= 0
-        else prompts_added_count
-    )
-
+    message_text = f"Reconnected MCP server '{server_name}'."
     outcome.add_message(
-        f"Reconnected MCP server '{server_name}'.",
+        message_text,
         right_info="mcp",
         agent_name=agent_name,
+        metadata={
+            "mcp_connect_status": "reconnected",
+            "mcp_connect_details": message_text,
+        },
     )
     outcome.add_message(
-        _format_refreshed_summary(
-            tools_refreshed_count=tools_refreshed_count,
-            prompts_refreshed_count=prompts_refreshed_count,
-            tools_added_count=tools_added_count,
-            prompts_added_count=prompts_added_count,
-        ),
+        _format_refreshed_summary(counts),
         right_info="mcp",
         agent_name=agent_name,
     )
 
-    for warning in warnings:
+    for warning in result.warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
 
     return outcome

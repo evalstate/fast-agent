@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from anyio import Lock
+from mcp.types import CallToolResult, TextContent
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
@@ -23,7 +25,7 @@ class _SessionStub:
         self.effective_elicitation_mode = "none"
         self.experimental_session_supported = True
         self.experimental_session_features = ("create", "delete")
-        self.experimental_session_cookie = {
+        self.experimental_session_cookie: dict[str, Any] | None = {
             "sessionId": "sess-cookie-1",
             "state": "state-1",
         }
@@ -92,3 +94,57 @@ async def test_collect_server_status_includes_experimental_session_cookie() -> N
     }
     assert status.session_title is None
     assert status.session_id == "local"
+
+
+@pytest.mark.asyncio
+async def test_collect_server_status_trims_direct_experimental_session_title() -> None:
+    config = MCPServerSettings(name="demo", transport="stdio", command="echo")
+    context = _build_context({"demo": config})
+    aggregator = MCPAggregator(
+        server_names=["demo"],
+        connection_persistence=True,
+        context=context,
+    )
+    aggregator.initialized = True
+
+    server_conn = _ServerConnStub(config)
+    server_conn.session.experimental_session_title = "  Sprint review  "
+    manager = _ManagerStub(server_conn)
+    setattr(aggregator, "_persistent_connection_manager", manager)
+
+    status_map = await aggregator.collect_server_status()
+
+    assert status_map["demo"].session_title == "Sprint review"
+
+
+@pytest.mark.asyncio
+async def test_collect_server_status_uses_cookie_label_title_fallback() -> None:
+    config = MCPServerSettings(name="demo", transport="stdio", command="echo")
+    context = _build_context({"demo": config})
+    aggregator = MCPAggregator(
+        server_names=["demo"],
+        connection_persistence=True,
+        context=context,
+    )
+    aggregator.initialized = True
+
+    server_conn = _ServerConnStub(config)
+    server_conn.session.experimental_session_cookie = {
+        "sessionId": "sess-cookie-1",
+        "data": {"label": "  Cookie label  "},
+    }
+    manager = _ManagerStub(server_conn)
+    setattr(aggregator, "_persistent_connection_manager", manager)
+
+    status_map = await aggregator.collect_server_status()
+
+    assert status_map["demo"].session_title == "Cookie label"
+
+
+def test_session_required_tool_error_result_matches_case_insensitively() -> None:
+    result = CallToolResult(
+        isError=True,
+        content=[TextContent(type="text", text=" SESSION REQUIRED: send sessions/create ")],
+    )
+
+    assert MCPAggregator._is_session_required_tool_error_result(result) is True

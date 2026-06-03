@@ -60,6 +60,37 @@ def test_web_tool_settings_validate_domains_and_limits() -> None:
         AnthropicWebFetchSettings(enabled=True, max_content_tokens=0)
 
 
+def test_web_tool_settings_reject_boolean_limits() -> None:
+    with pytest.raises(TypeError, match="max_uses must be an integer"):
+        AnthropicWebSearchSettings.model_validate({"max_uses": True})
+
+    with pytest.raises(TypeError, match="max_uses must be an integer"):
+        AnthropicWebFetchSettings.model_validate({"max_uses": False})
+
+    with pytest.raises(TypeError, match="max_content_tokens must be an integer"):
+        AnthropicWebFetchSettings.model_validate({"max_content_tokens": True})
+
+
+def test_web_tool_settings_keep_integer_string_coercion() -> None:
+    search_settings = AnthropicWebSearchSettings.model_validate({"max_uses": "3"})
+    fetch_settings = AnthropicWebFetchSettings.model_validate(
+        {"max_uses": "4", "max_content_tokens": "2048"}
+    )
+
+    assert search_settings.max_uses == 3
+    assert fetch_settings.max_uses == 4
+    assert fetch_settings.max_content_tokens == 2048
+
+
+def test_web_tool_settings_normalize_domain_filters() -> None:
+    settings = AnthropicWebSearchSettings(
+        enabled=True,
+        allowed_domains=[" Example.COM ", "*.Docs.Example.com", "example.com"],
+    )
+
+    assert settings.allowed_domains == ["example.com", "*.docs.example.com"]
+
+
 def test_serialize_anthropic_text_payload_strips_parsed_output() -> None:
     payload = serialize_anthropic_block_payload(
         {

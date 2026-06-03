@@ -13,12 +13,64 @@ from pydantic import BaseModel, computed_field
 from fast_agent.constants import FAST_AGENT_TIMING
 from fast_agent.history.tool_activities import (
     message_tool_call_count,
-    message_tool_error_count,
-    message_tool_success_count,
     tool_activities_for_message,
 )
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+
+
+def _record_tool_call_names(
+    message: PromptMessageExtended,
+    tool_id_to_name: dict[str, str],
+) -> None:
+    for activity in tool_activities_for_message(message, tool_name_lookup=tool_id_to_name):
+        if activity.kind == "call":
+            tool_id_to_name[activity.tool_use_id] = activity.tool_name
+
+
+def _count_tool_results(
+    messages: list[PromptMessageExtended],
+    *,
+    is_error: bool,
+) -> int:
+    tool_id_to_name: dict[str, str] = {}
+    total = 0
+    for msg in messages:
+        for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
+            if activity.kind == "call":
+                tool_id_to_name[activity.tool_use_id] = activity.tool_name
+            elif activity.kind == "result" and activity.is_error is is_error:
+                total += 1
+    return total
+
+
+def _tool_call_name_lookup(messages: list[PromptMessageExtended]) -> dict[str, str]:
+    tool_id_to_name: dict[str, str] = {}
+    for msg in messages:
+        _record_tool_call_names(msg, tool_id_to_name)
+    return tool_id_to_name
+
+
+def _assistant_timing_data(
+    messages: list[PromptMessageExtended],
+) -> list[dict[str, float]]:
+    timings: list[dict[str, float]] = []
+    for msg in messages:
+        if msg.role != "assistant" or not msg.channels:
+            continue
+        timing_blocks = msg.channels.get(FAST_AGENT_TIMING, [])
+        if not timing_blocks:
+            continue
+        try:
+            timing_text = get_text(timing_blocks[0])
+            if not timing_text:
+                continue
+            timing_data = json.loads(timing_text)
+        except (json.JSONDecodeError, KeyError, IndexError):
+            continue
+        if isinstance(timing_data, dict):
+            timings.append(timing_data)
+    return timings
 
 
 def split_into_turns(
@@ -124,27 +176,13 @@ class ConversationSummary(BaseModel):
     @property
     def tool_errors(self) -> int:
         """Total number of tool calls that resulted in errors."""
-        tool_id_to_name: dict[str, str] = {}
-        total = 0
-        for msg in self.messages:
-            for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
-                if activity.kind == "call":
-                    tool_id_to_name[activity.tool_use_id] = activity.tool_name
-            total += message_tool_error_count(msg, tool_name_lookup=tool_id_to_name)
-        return total
+        return _count_tool_results(self.messages, is_error=True)
 
     @computed_field
     @property
     def tool_successes(self) -> int:
         """Total number of tool calls that completed successfully."""
-        tool_id_to_name: dict[str, str] = {}
-        total = 0
-        for msg in self.messages:
-            for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
-                if activity.kind == "call":
-                    tool_id_to_name[activity.tool_use_id] = activity.tool_name
-            total += message_tool_success_count(msg, tool_name_lookup=tool_id_to_name)
-        return total
+        return _count_tool_results(self.messages, is_error=False)
 
     @computed_field
     @property
@@ -186,14 +224,7 @@ class ConversationSummary(BaseModel):
         Note: This maps tool call IDs back to their original tool names by
         finding corresponding CallToolRequest entries in assistant messages.
         """
-        # First, build a map from tool_id -> tool_name by scanning tool_calls
-        tool_id_to_name: dict[str, str] = {}
-        for msg in self.messages:
-            for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
-                if activity.kind == "call":
-                    tool_id_to_name[activity.tool_use_id] = activity.tool_name
-
-        # Then, count errors by tool name
+        tool_id_to_name = _tool_call_name_lookup(self.messages)
         error_names: list[str] = []
         for msg in self.messages:
             for activity in tool_activities_for_message(msg, tool_name_lookup=tool_id_to_name):
@@ -249,21 +280,7 @@ class ConversationSummary(BaseModel):
         Returns:
             Total time in milliseconds, or 0.0 if no timing data is available.
         """
-        total = 0.0
-        for msg in self.messages:
-            if msg.role == "assistant" and msg.channels:
-                timing_blocks = msg.channels.get(FAST_AGENT_TIMING, [])
-                if timing_blocks:
-                    try:
-                        # Parse timing data from first block
-                        timing_text = get_text(timing_blocks[0])
-                        if timing_text:
-                            timing_data = json.loads(timing_text)
-                            total += timing_data.get("duration_ms", 0)
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        # Skip messages with invalid timing data
-                        continue
-        return total
+        return sum(timing.get("duration_ms", 0) for timing in self.assistant_message_timings)
 
     @computed_field
     @property
@@ -280,20 +297,7 @@ class ConversationSummary(BaseModel):
                 {"start_time": 1234567893.789, "end_time": 1234567895.012, "duration_ms": 1223.0},
             ]
         """
-        timings = []
-        for msg in self.messages:
-            if msg.role == "assistant" and msg.channels:
-                timing_blocks = msg.channels.get(FAST_AGENT_TIMING, [])
-                if timing_blocks:
-                    try:
-                        timing_text = get_text(timing_blocks[0])
-                        if timing_text:
-                            timing_data = json.loads(timing_text)
-                            timings.append(timing_data)
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        # Skip messages with invalid timing data
-                        continue
-        return timings
+        return _assistant_timing_data(self.messages)
 
     @computed_field
     @property

@@ -16,13 +16,18 @@ import types
 from typing import Any, cast
 
 from prompt_toolkit.data_structures import Point
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 
 from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
-from fast_agent.ui.model_picker import _find_initial_model_index, _SplitListPicker
+from fast_agent.ui.model_picker import (
+    _find_initial_model_index,
+    _model_availability_display,
+    _SplitListPicker,
+)
 from fast_agent.ui.model_picker_common import (
     ANTHROPIC_VERTEX_PROVIDER_KEY,
     CODEX_LOGIN_SENTINEL,
@@ -36,6 +41,14 @@ from fast_agent.ui.model_picker_common import (
     model_options_for_provider,
     provider_activation_action,
 )
+
+
+def _enter_binding(picker: _SplitListPicker):
+    return next(
+        binding
+        for binding in picker._create_key_bindings().bindings
+        if binding.keys == (Keys.ControlM,)
+    )
 
 
 def _snapshot_with_single_provider(
@@ -144,8 +157,13 @@ def test_picker_uses_prompt_toolkit_layout_focus() -> None:
     assert "Focus: models" in picker._render_status_bar()[0][1]
 
 
-def test_provider_display_name_uses_local_generic_label() -> None:
+def test_provider_display_name_uses_configured_overrides() -> None:
+    assert _SplitListPicker._provider_display_name("responses", "Responses") == "OpenAI"
+    assert _SplitListPicker._provider_display_name("openai", "OpenAI") == "OpenAI (Legacy)"
+    assert _SplitListPicker._provider_display_name("codexresponses", "Codex") == "Codex (Plan)"
     assert _SplitListPicker._provider_display_name("generic", "Generic") == "Generic (ollama)"
+    assert _SplitListPicker._provider_display_name("fast-agent", "Fast Agent") == "fast-agent"
+    assert _SplitListPicker._provider_display_name("custom", "Custom") == "Custom"
 
 
 def test_provider_display_name_uses_overlays_label_for_overlay_group() -> None:
@@ -165,7 +183,6 @@ def test_provider_display_name_uses_overlays_label_for_overlay_group() -> None:
     )
 
     assert _SplitListPicker._provider_display_name_for_option(option) == "Overlays"
-    assert _SplitListPicker._provider_entry_count_label(option) == "1 overlay"
 
 
 def test_provider_display_name_uses_llamacpp_import_label() -> None:
@@ -179,7 +196,6 @@ def test_provider_display_name_uses_llamacpp_import_label() -> None:
     )
 
     assert _SplitListPicker._provider_display_name_for_option(option) == "llama.cpp"
-    assert _SplitListPicker._provider_entry_count_label(option) == "import flow"
     assert picker._provider_availability_label(option) == "available"
 
 
@@ -241,6 +257,51 @@ def test_codex_inactive_provider_is_shown_as_sign_in_required() -> None:
     assert "press Enter to log in" in status_line
 
 
+def test_codex_inactive_picker_current_models_uses_activation_option() -> None:
+    picker = _SplitListPicker(config_path=None, initial_provider="codexresponses")
+    picker.snapshot = _snapshot_with_single_provider(
+        provider=Provider.CODEX_RESPONSES,
+        active=False,
+        curated_entries=(CatalogModelEntry(alias="codexplan", model="codexresponses.o4-mini"),),
+    )
+    picker.state.provider_index = 0
+    picker.state.model_index = 0
+
+    models = picker.current_models
+    result = picker._selected_result()
+
+    assert models == [
+        ModelOption(
+            spec=CODEX_LOGIN_SENTINEL,
+            label="Log in to enable Codex (Plan)",
+            activation_action="codex-login",
+        )
+    ]
+    assert result is not None
+    assert result.activation_action == "codex-login"
+    assert result.selected_model == CODEX_LOGIN_SENTINEL
+
+
+def test_model_availability_and_marker_capture_provider_state() -> None:
+    normal_model = ModelOption(spec="generic.llama3", label="llama3")
+    activation_model = ModelOption(
+        spec=CODEX_LOGIN_SENTINEL,
+        label="Log in to enable Codex (Plan)",
+        activation_action="codex-login",
+    )
+
+    active = _model_availability_display(normal_model, provider_available=True)
+    attention = _model_availability_display(
+        activation_model,
+        provider_available=False,
+    )
+    inactive = _model_availability_display(normal_model, provider_available=False)
+
+    assert (active.availability, active.marker) == ("active", "✓")
+    assert (attention.availability, attention.marker) == ("attention", "!")
+    assert (inactive.availability, inactive.marker) == ("inactive", "✗")
+
+
 def test_find_initial_model_index_matches_model_identity() -> None:
     options = [
         ModelOption(
@@ -267,6 +328,12 @@ def test_find_initial_model_index_maps_generic_model_to_custom_entry() -> None:
     ]
 
     assert _find_initial_model_index(options, "generic.llama3.2") == 0
+
+
+def test_picker_ignores_blank_initial_model_spec() -> None:
+    picker = _SplitListPicker(config_path=None, initial_model_spec="   ")
+
+    assert picker._initial_model_spec is None
 
 
 def test_tabulate_model_label_uses_compact_columns() -> None:
@@ -310,11 +377,7 @@ def test_picker_returns_overlay_token_as_resolved_model() -> None:
     picker.state.provider_index = 0
     picker.state.model_index = 0
 
-    enter_binding = next(
-        binding
-        for binding in picker._create_key_bindings().bindings
-        if getattr(binding.handler, "__name__", "") == "_accept"
-    )
+    enter_binding = _enter_binding(picker)
 
     app = _FakeApp()
     cast("Any", enter_binding.handler)(_FakeEvent(app))
@@ -347,11 +410,7 @@ def test_picker_routes_llamacpp_selection_to_follow_up_flow() -> None:
     picker.state.provider_index = 0
     picker.state.model_index = 0
 
-    enter_binding = next(
-        binding
-        for binding in picker._create_key_bindings().bindings
-        if getattr(binding.handler, "__name__", "") == "_accept"
-    )
+    enter_binding = _enter_binding(picker)
 
     app = _FakeApp()
     cast("Any", enter_binding.handler)(_FakeEvent(app))

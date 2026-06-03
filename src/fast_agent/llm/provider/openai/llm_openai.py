@@ -1,6 +1,9 @@
 import asyncio
+from contextlib import suppress
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import Any, ClassVar, Protocol, cast, runtime_checkable
 
 import httpx
 from mcp import Tool
@@ -17,6 +20,7 @@ from openai.lib.streaming.chat import ChatCompletionStreamState
 from openai.types.chat import (
     ChatCompletionMessage,
     ChatCompletionMessageParam,
+    ChatCompletionMessageToolCall,
     ChatCompletionSystemMessageParam,
     ChatCompletionToolParam,
     ChatCompletionUserMessageParam,
@@ -49,9 +53,11 @@ from fast_agent.llm.provider.openai.schema_sanitizer import (
 from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
 from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOutputMixin
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
+from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mime_utils import guess_mime_type
@@ -60,6 +66,7 @@ from fast_agent.utils.reasoning_chunk_join import (
     ReasoningTextAccumulator,
     normalize_reasoning_delta,
 )
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 _logger = get_logger(__name__)
 
@@ -70,6 +77,94 @@ class EmptyStreamError(RuntimeError):
 
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "low"
+OPENAI_FINISH_REASON_MAP: dict[str, LlmStopReason] = {
+    "length": LlmStopReason.MAX_TOKENS,
+    "content_filter": LlmStopReason.SAFETY,
+}
+
+
+@runtime_checkable
+class _OpenAIUsageHolder(Protocol):
+    usage: Any
+
+
+@runtime_checkable
+class _OpenAIChoicesHolder(Protocol):
+    choices: Any
+
+
+def _openai_usage(value: object) -> Any | None:
+    if not isinstance(value, _OpenAIUsageHolder):
+        return None
+    return value.usage
+
+
+def _openai_choices(value: object) -> Any | None:
+    if not isinstance(value, _OpenAIChoicesHolder):
+        return None
+    return value.choices
+
+
+def _coerce_reasoning_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("text") or value)
+    try:
+        text_attr = value.text
+    except Exception:
+        text_attr = None
+    if text_attr:
+        return str(text_attr)
+    return str(value)
+
+
+def _combine_reasoning_text(value: Any) -> str:
+    if isinstance(value, (list, tuple)):
+        return "".join(_coerce_reasoning_text(item) for item in value)
+    return _coerce_reasoning_text(value)
+
+
+@dataclass(slots=True)
+class _ManualOpenAIStreamState:
+    estimated_tokens: int = 0
+    reasoning_active: bool = False
+    reasoning_segments: ReasoningTextAccumulator = field(
+        default_factory=lambda: ReasoningTextAccumulator(
+            normalizer=normalize_reasoning_delta
+        )
+    )
+    accumulated_content: str = ""
+    cumulative_content: str = ""
+    role: str = "assistant"
+    tool_calls_map: dict[int, dict[str, Any]] = field(default_factory=dict)
+    function_call: Any | None = None
+    finish_reason: Any | None = None
+    usage_data: Any | None = None
+    tool_call_started: dict[int, dict[str, Any]] = field(default_factory=dict)
+    notified_tool_indices: set[int] = field(default_factory=set)
+
+
+@dataclass(slots=True)
+class _OpenAICompletionRequest:
+    params: RequestParams
+    model_name: str
+    messages: list[ChatCompletionMessageParam]
+    arguments: dict[str, Any]
+
+
+@dataclass(slots=True)
+class _OpenAICompletionResponse:
+    response: Any
+    streamed_reasoning: list[str]
+
+
+@dataclass(slots=True)
+class _OpenAIStopResult:
+    stop_reason: LlmStopReason
+    requested_tool_calls: dict[str, CallToolRequest] | None = None
 
 
 class OpenAILLM(
@@ -81,7 +176,7 @@ class OpenAILLM(
     # Config section name override (falls back to provider value)
     config_section: str | None = None
     # OpenAI-specific parameter exclusions
-    OPENAI_EXCLUDE_FIELDS = {
+    OPENAI_EXCLUDE_FIELDS: ClassVar[set[str]] = {
         FastAgentLLM.PARAM_MESSAGES,
         FastAgentLLM.PARAM_MODEL,
         FastAgentLLM.PARAM_MAX_TOKENS,
@@ -103,22 +198,17 @@ class OpenAILLM(
         self._file_id_cache: dict[str, str] = {}
 
         # Set up reasoning-related attributes
-        raw_setting = kwargs.get("reasoning_effort", None)
+        raw_setting = kwargs.get("reasoning_effort")
         if self.context and self.context.config and self.context.config.openai:
             config = self.context.config.openai
             if raw_setting is None:
-                raw_setting = config.reasoning
-                if raw_setting is None and hasattr(config, "reasoning_effort"):
-                    raw_setting = config.reasoning_effort
-                    if (
-                        raw_setting is not None
-                        and "reasoning_effort" in config.model_fields_set
-                        and config.reasoning_effort
-                        != type(config).model_fields["reasoning_effort"].default
-                    ):
-                        self.logger.warning(
-                            "OpenAI config 'reasoning_effort' is deprecated; use 'reasoning'."
-                        )
+                raw_setting, warn_deprecated_reasoning_effort = reasoning_setting_from_config(
+                    config
+                )
+                if warn_deprecated_reasoning_effort:
+                    self.logger.warning(
+                        "OpenAI config 'reasoning_effort' is deprecated; use 'reasoning'."
+                    )
 
         setting = parse_reasoning_setting(raw_setting)
         if setting is not None:
@@ -152,72 +242,112 @@ class OpenAILLM(
             )
             return None, None
 
-        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip() or None
+        content_type = strip_to_none(response.headers.get("content-type", "").split(";", 1)[0])
         return response.content, content_type
+
+    @staticmethod
+    def _chat_file_filename(file_obj: dict[str, Any]) -> str | None:
+        filename = file_obj.get("filename")
+        if isinstance(filename, str) and filename:
+            return filename
+        return None
+
+    async def _chat_file_bytes_from_url(
+        self,
+        file_url: str,
+        filename: str | None,
+    ) -> tuple[bytes | None, str | None, str | None]:
+        if file_url.startswith("data:"):
+            data_bytes, mime_type = self._decode_file_data(file_url)
+            return data_bytes, filename, mime_type
+        if file_url.startswith("file://"):
+            local_path = Path(file_url[len("file://") :])
+            if local_path.exists():
+                resolved_filename = filename or local_path.name
+                return (
+                    local_path.read_bytes(),
+                    resolved_filename,
+                    guess_mime_type(local_path.name),
+                )
+            return None, filename, None
+        if file_url.startswith(("http://", "https://")):
+            data_bytes, mime_type = await self._download_remote_file(file_url)
+            return data_bytes, filename, mime_type
+        return None, filename, None
+
+    async def _normalize_chat_file_part(
+        self,
+        client: AsyncOpenAI,
+        part: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        if part.get("type") != "file":
+            return part, False
+
+        file_obj = part.get("file")
+        if not isinstance(file_obj, dict):
+            return part, False
+
+        file_url = file_obj.get("file_url")
+        if not isinstance(file_url, str) or not file_url:
+            return part, False
+
+        filename = self._chat_file_filename(file_obj)
+        data_bytes, filename, mime_type = await self._chat_file_bytes_from_url(
+            file_url, filename
+        )
+        if data_bytes is None:
+            return part, False
+
+        resolved_mime_type = mime_type or guess_mime_type(filename or file_url)
+        file_id = await self._upload_file_bytes(
+            client, data_bytes, filename, resolved_mime_type
+        )
+        return {"type": "file", "file": {"file_id": file_id}}, True
+
+    async def _normalize_chat_content_parts(
+        self,
+        client: AsyncOpenAI,
+        content: list[Any],
+    ) -> tuple[list[Any], bool]:
+        updated_content: list[Any] = []
+        changed = False
+        for part in content:
+            if not isinstance(part, dict):
+                updated_content.append(part)
+                continue
+
+            updated_part, part_changed = await self._normalize_chat_file_part(client, part)
+            updated_content.append(updated_part)
+            changed = changed or part_changed
+        return updated_content, changed
+
+    async def _normalize_chat_message_files(
+        self,
+        client: AsyncOpenAI,
+        message: ChatCompletionMessageParam,
+    ) -> ChatCompletionMessageParam:
+        content = message.get("content")
+        if not isinstance(content, list):
+            return message
+
+        updated_content, changed = await self._normalize_chat_content_parts(client, content)
+        if not changed:
+            return message
+
+        return cast(
+            "ChatCompletionMessageParam",
+            {**message, "content": updated_content},
+        )
 
     async def _normalize_chat_completion_files(
         self,
         client: AsyncOpenAI,
         messages: list[ChatCompletionMessageParam],
     ) -> list[ChatCompletionMessageParam]:
-        normalized: list[ChatCompletionMessageParam] = []
-        for message in messages:
-            content = message.get("content")
-            if not isinstance(content, list):
-                normalized.append(message)
-                continue
-
-            updated_content: list[Any] = []
-            changed = False
-            for part in content:
-                if not isinstance(part, dict) or part.get("type") != "file":
-                    updated_content.append(part)
-                    continue
-
-                file_obj = part.get("file")
-                if not isinstance(file_obj, dict):
-                    updated_content.append(part)
-                    continue
-
-                file_url = file_obj.get("file_url")
-                if not isinstance(file_url, str) or not file_url:
-                    updated_content.append(part)
-                    continue
-
-                filename = file_obj.get("filename")
-                if not isinstance(filename, str) or not filename:
-                    filename = None
-
-                data_bytes: bytes | None = None
-                mime_type: str | None = None
-                if file_url.startswith("data:"):
-                    data_bytes, mime_type = self._decode_file_data(file_url)
-                elif file_url.startswith("file://"):
-                    local_path = Path(file_url[len("file://") :])
-                    if local_path.exists():
-                        data_bytes = local_path.read_bytes()
-                        filename = filename or local_path.name
-                        mime_type = guess_mime_type(local_path.name)
-                elif file_url.startswith(("http://", "https://")):
-                    data_bytes, mime_type = await self._download_remote_file(file_url)
-
-                if data_bytes is None:
-                    updated_content.append(part)
-                    continue
-
-                mime_type = mime_type or guess_mime_type(filename or file_url)
-                file_id = await self._upload_file_bytes(client, data_bytes, filename, mime_type)
-                updated_content.append({"type": "file", "file": {"file_id": file_id}})
-                changed = True
-
-            if changed:
-                message = cast(
-                    "ChatCompletionMessageParam",
-                    {**message, "content": updated_content},
-                )
-            normalized.append(message)
-
-        return normalized
+        return [
+            await self._normalize_chat_message_files(client, message)
+            for message in messages
+        ]
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
@@ -348,7 +478,7 @@ class OpenAILLM(
 
         return reasoning_active
 
-    def _should_emit_reasoning_stream(self, reasoning_mode: str | None) -> bool:  # noqa: ARG002
+    def _should_emit_reasoning_stream(self, reasoning_mode: str | None) -> bool:
         """Allow subclasses to suppress streamed reasoning display."""
         return True
 
@@ -397,29 +527,33 @@ class OpenAILLM(
                         existing_info["tool_name"] = function_name
 
             # Fire "start" notification once we have BOTH values
-            if existing_info and not existing_info.get("notified"):
-                if existing_info.get("tool_use_id") and existing_info.get("tool_name"):
-                    self._notify_tool_stream_listeners(
-                        "start",
-                        {
-                            "tool_name": existing_info["tool_name"],
-                            "tool_use_id": existing_info["tool_use_id"],
-                            "index": index,
-                        },
-                    )
-                    self.logger.info(
-                        "Model started streaming tool call",
-                        data={
-                            "progress_action": ProgressAction.CALLING_TOOL,
-                            "agent_name": self.name,
-                            "model": model,
-                            "tool_name": existing_info["tool_name"],
-                            "tool_use_id": existing_info["tool_use_id"],
-                            "tool_event": "start",
-                        },
-                    )
-                    existing_info["notified"] = True
-                    notified_tool_indices.add(index)
+            if (
+                existing_info
+                and not existing_info.get("notified")
+                and existing_info.get("tool_use_id")
+                and existing_info.get("tool_name")
+            ):
+                self._notify_tool_stream_listeners(
+                    "start",
+                    {
+                        "tool_name": existing_info["tool_name"],
+                        "tool_use_id": existing_info["tool_use_id"],
+                        "index": index,
+                    },
+                )
+                self.logger.info(
+                    "Model started streaming tool call",
+                    data={
+                        "progress_action": ProgressAction.CALLING_TOOL,
+                        "agent_name": self.name,
+                        "model": model,
+                        "tool_name": existing_info["tool_name"],
+                        "tool_use_id": existing_info["tool_use_id"],
+                        "tool_event": "start",
+                    },
+                )
+                existing_info["notified"] = True
+                notified_tool_indices.add(index)
 
             if tool_call.function and tool_call.function.arguments:
                 info = tool_call_started.setdefault(
@@ -665,10 +799,7 @@ class OpenAILLM(
                     "tool_count": len(tool_call_started),
                 },
             )
-            raise RuntimeError(
-                "Streaming completed but tool call(s) never finished: "
-                f"{', '.join(incomplete_tools)}"
-            )
+            raise RuntimeError(format_incomplete_tool_call_error(incomplete_tools))
 
         if chunk_count == 0:
             raise EmptyStreamError("OpenAI streaming response yielded no chunks")
@@ -685,8 +816,9 @@ class OpenAILLM(
         reasoning_active = self._close_reasoning_if_active(reasoning_active)
 
         # Log final usage information
-        if hasattr(final_completion, "usage") and final_completion.usage:
-            actual_tokens = final_completion.usage.completion_tokens
+        usage = _openai_usage(final_completion)
+        if usage:
+            actual_tokens = usage.completion_tokens
             # Emit final progress with actual token count
             token_str = str(actual_tokens).rjust(5)
             data = {
@@ -699,12 +831,13 @@ class OpenAILLM(
             self.logger.info("Streaming progress", data=data)
 
             self.logger.info(
-                f"Streaming complete - Model: {model}, Input tokens: {final_completion.usage.prompt_tokens}, Output tokens: {final_completion.usage.completion_tokens}"
+                f"Streaming complete - Model: {model}, Input tokens: {usage.prompt_tokens}, Output tokens: {usage.completion_tokens}"
             )
 
         final_message = None
-        if hasattr(final_completion, "choices") and final_completion.choices:
-            final_message = getattr(final_completion.choices[0], "message", None)
+        choices = _openai_choices(final_completion)
+        if choices:
+            final_message = getattr(choices[0], "message", None)
         tool_calls = getattr(final_message, "tool_calls", None) if final_message else None
         self._emit_tool_notification_fallback(
             tool_calls,
@@ -720,7 +853,7 @@ class OpenAILLM(
         if not role:
             return default_role
 
-        lowered = role.lower()
+        lowered = strip_casefold(role)
         allowed_roles = {"assistant", "user", "system", "tool"}
         if lowered in allowed_roles:
             return lowered
@@ -744,6 +877,175 @@ class OpenAILLM(
         )
         return default_role
 
+    def _record_manual_tool_call_delta(
+        self,
+        delta_tool_call: Any,
+        state: _ManualOpenAIStreamState,
+    ) -> None:
+        if delta_tool_call.index is None:
+            return
+
+        tool_call = state.tool_calls_map.setdefault(
+            delta_tool_call.index,
+            {
+                "id": delta_tool_call.id,
+                "type": delta_tool_call.type or "function",
+                "function": {
+                    "name": (
+                        delta_tool_call.function.name
+                        if delta_tool_call.function
+                        else None
+                    ),
+                    "arguments": "",
+                },
+            },
+        )
+
+        if delta_tool_call.id:
+            tool_call["id"] = delta_tool_call.id
+        if not delta_tool_call.function:
+            return
+        if delta_tool_call.function.name:
+            tool_call["function"]["name"] = delta_tool_call.function.name
+        if delta_tool_call.function.arguments is not None:
+            tool_call["function"]["arguments"] += delta_tool_call.function.arguments
+
+    def _record_manual_stream_choice(
+        self,
+        chunk: Any,
+        state: _ManualOpenAIStreamState,
+    ) -> None:
+        if not chunk.choices:
+            return
+
+        choice = chunk.choices[0]
+        if choice.delta.role:
+            state.role = choice.delta.role
+        if choice.delta.tool_calls:
+            for delta_tool_call in choice.delta.tool_calls:
+                self._record_manual_tool_call_delta(delta_tool_call, state)
+        if choice.delta.function_call:
+            state.function_call = choice.delta.function_call
+        if choice.finish_reason:
+            state.finish_reason = choice.finish_reason
+
+    def _record_manual_stream_chunk(
+        self,
+        chunk: Any,
+        *,
+        model: str,
+        reasoning_mode: str | None,
+        state: _ManualOpenAIStreamState,
+    ) -> None:
+        (
+            state.cumulative_content,
+            state.estimated_tokens,
+            state.reasoning_active,
+            incremental,
+        ) = self._process_stream_chunk_common(
+            chunk,
+            reasoning_mode=reasoning_mode,
+            reasoning_active=state.reasoning_active,
+            reasoning_segments=state.reasoning_segments,
+            tool_call_started=state.tool_call_started,
+            model=model,
+            notified_tool_indices=state.notified_tool_indices,
+            cumulative_content=state.cumulative_content,
+            estimated_tokens=state.estimated_tokens,
+        )
+        if incremental:
+            state.accumulated_content += incremental
+
+        self._record_manual_stream_choice(chunk, state)
+        usage = _openai_usage(chunk)
+        if usage:
+            state.usage_data = usage
+
+    @staticmethod
+    def _manual_stream_tool_calls(
+        state: _ManualOpenAIStreamState,
+    ) -> list[ChatCompletionMessageToolCall] | None:
+        tool_calls = []
+        for idx in sorted(state.tool_calls_map):
+            tool_call_data = state.tool_calls_map[idx]
+            if not tool_call_data["id"] or not tool_call_data["function"]["name"]:
+                continue
+            tool_calls.append(
+                ChatCompletionMessageToolCall(
+                    id=tool_call_data["id"],
+                    type=tool_call_data["type"],
+                    function=Function(
+                        name=tool_call_data["function"]["name"],
+                        arguments=tool_call_data["function"]["arguments"],
+                    ),
+                )
+            )
+        return tool_calls or None
+
+    def _raise_for_incomplete_manual_tools(
+        self,
+        state: _ManualOpenAIStreamState,
+    ) -> None:
+        if not state.tool_call_started:
+            return
+
+        incomplete_tools = [
+            f"{info.get('tool_name', 'unknown')}:{info.get('tool_use_id', 'unknown')}"
+            for info in state.tool_call_started.values()
+        ]
+        self.logger.error(
+            "Tool call streaming incomplete - started but never finished",
+            data={
+                "incomplete_tools": incomplete_tools,
+                "tool_count": len(state.tool_call_started),
+            },
+        )
+        raise RuntimeError(format_incomplete_tool_call_error(incomplete_tools))
+
+    def _manual_stream_completion(self, state: _ManualOpenAIStreamState) -> Any:
+        message = ChatCompletionMessage(
+            content=state.accumulated_content,
+            role=cast("Any", state.role),
+            tool_calls=cast("Any", self._manual_stream_tool_calls(state)),
+            function_call=state.function_call,
+            refusal=None,
+            annotations=None,
+            audio=None,
+        )
+
+        final_completion = SimpleNamespace()
+        final_completion.choices = [SimpleNamespace()]
+        final_completion.choices[0].message = message
+        final_completion.choices[0].finish_reason = state.finish_reason
+        final_completion.usage = state.usage_data
+        return final_completion
+
+    def _log_manual_stream_usage(
+        self,
+        state: _ManualOpenAIStreamState,
+        model: str,
+    ) -> None:
+        if not state.usage_data:
+            return
+
+        actual_tokens = getattr(
+            state.usage_data, "completion_tokens", state.estimated_tokens
+        )
+        token_str = str(actual_tokens).rjust(5)
+        self.logger.info(
+            "Streaming progress",
+            data={
+                "progress_action": ProgressAction.STREAMING,
+                "model": model,
+                "agent_name": self.name,
+                "chat_turn": self.chat_turn(),
+                "details": token_str.strip(),
+            },
+        )
+        self.logger.info(
+            f"Streaming complete - Model: {model}, Input tokens: {getattr(state.usage_data, 'prompt_tokens', 0)}, Output tokens: {actual_tokens}"
+        )
+
     # TODO - as per other comment this needs to go in another class. There are a number of "special" cases dealt with
     # here to deal with OpenRouter idiosyncrasies between e.g. Anthropic and Gemini models.
     async def _process_stream_manual(
@@ -753,177 +1055,272 @@ class OpenAILLM(
         capture_filename: Path | None = None,
     ) -> tuple[Any, list[str]]:
         """Manual stream processing for providers like Ollama that may not work with ChatCompletionStreamState."""
-
-        from openai.types.chat import ChatCompletionMessageToolCall
-
-        # Track estimated output tokens by counting text chunks
-        estimated_tokens = 0
-        reasoning_active = False
-        reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
+        state = _ManualOpenAIStreamState()
         reasoning_mode = self._get_model_reasoning(model)
 
-        # Manual accumulation of response data
-        accumulated_content = ""
-        cumulative_content = ""
-        role = "assistant"
-        tool_calls_map = {}  # Use a map to accumulate tool calls by index
-        function_call = None
-        finish_reason = None
-        usage_data = None
-
-        # Track tool call state for stream events
-        tool_call_started: dict[int, dict[str, Any]] = {}
-        notified_tool_indices: set[int] = set()
-
-        # Process the stream chunks manually
-        # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
-            # Save chunk if stream capture is enabled
             _save_stream_chunk(capture_filename, chunk)
-            # Process streaming events for tool calls
-            cumulative_content, estimated_tokens, reasoning_active, incremental = (
-                self._process_stream_chunk_common(
-                    chunk,
-                    reasoning_mode=reasoning_mode,
-                    reasoning_active=reasoning_active,
-                    reasoning_segments=reasoning_segments,
-                    tool_call_started=tool_call_started,
-                    model=model,
-                    notified_tool_indices=notified_tool_indices,
-                    cumulative_content=cumulative_content,
-                    estimated_tokens=estimated_tokens,
-                )
-            )
-            if incremental:
-                accumulated_content += incremental
-
-            # Extract other fields from the chunk
-            if chunk.choices:
-                choice = chunk.choices[0]
-                if choice.delta.role:
-                    role = choice.delta.role
-                if choice.delta.tool_calls:
-                    # Accumulate tool call deltas
-                    for delta_tool_call in choice.delta.tool_calls:
-                        if delta_tool_call.index is not None:
-                            if delta_tool_call.index not in tool_calls_map:
-                                tool_calls_map[delta_tool_call.index] = {
-                                    "id": delta_tool_call.id,
-                                    "type": delta_tool_call.type or "function",
-                                    "function": {
-                                        "name": delta_tool_call.function.name
-                                        if delta_tool_call.function
-                                        else None,
-                                        "arguments": "",
-                                    },
-                                }
-
-                            # Always update if we have new data (needed for OpenRouter Gemini)
-                            if delta_tool_call.id:
-                                tool_calls_map[delta_tool_call.index]["id"] = delta_tool_call.id
-                            if delta_tool_call.function:
-                                if delta_tool_call.function.name:
-                                    tool_calls_map[delta_tool_call.index]["function"]["name"] = (
-                                        delta_tool_call.function.name
-                                    )
-                                # Handle arguments - they might come as None, empty string, or actual content
-                                if delta_tool_call.function.arguments is not None:
-                                    tool_calls_map[delta_tool_call.index]["function"][
-                                        "arguments"
-                                    ] += delta_tool_call.function.arguments
-
-                if choice.delta.function_call:
-                    function_call = choice.delta.function_call
-                if choice.finish_reason:
-                    finish_reason = choice.finish_reason
-
-            # Extract usage data if available
-            if hasattr(chunk, "usage") and chunk.usage:
-                usage_data = chunk.usage
-
-        if tool_call_started:
-            incomplete_tools = [
-                f"{info.get('tool_name', 'unknown')}:{info.get('tool_use_id', 'unknown')}"
-                for info in tool_call_started.values()
-            ]
-            self.logger.error(
-                "Tool call streaming incomplete - started but never finished",
-                data={
-                    "incomplete_tools": incomplete_tools,
-                    "tool_count": len(tool_call_started),
-                },
-            )
-            raise RuntimeError(
-                "Streaming completed but tool call(s) never finished: "
-                f"{', '.join(incomplete_tools)}"
+            self._record_manual_stream_chunk(
+                chunk,
+                model=model,
+                reasoning_mode=reasoning_mode,
+                state=state,
             )
 
-        # Convert accumulated tool calls to proper format.
-        tool_calls = None
-        if tool_calls_map:
-            tool_calls = []
-            for idx in sorted(tool_calls_map.keys()):
-                tool_call_data = tool_calls_map[idx]
-                # Only add tool calls that have valid data
-                if tool_call_data["id"] and tool_call_data["function"]["name"]:
-                    tool_calls.append(
-                        ChatCompletionMessageToolCall(
-                            id=tool_call_data["id"],
-                            type=tool_call_data["type"],
-                            function=Function(
-                                name=tool_call_data["function"]["name"],
-                                arguments=tool_call_data["function"]["arguments"],
-                            ),
-                        )
-                    )
-
-        # Create a ChatCompletionMessage manually
-        message = ChatCompletionMessage(
-            content=accumulated_content,
-            role=role,
-            tool_calls=tool_calls if tool_calls else None,
-            function_call=function_call,
-            refusal=None,
-            annotations=None,
-            audio=None,
-        )
-
-        reasoning_active = False
-
-        from types import SimpleNamespace
-
-        final_completion = SimpleNamespace()
-        final_completion.choices = [SimpleNamespace()]
-        final_completion.choices[0].message = message
-        final_completion.choices[0].finish_reason = finish_reason
-        final_completion.usage = usage_data
-
-        # Log final usage information
-        if usage_data:
-            actual_tokens = getattr(usage_data, "completion_tokens", estimated_tokens)
-            token_str = str(actual_tokens).rjust(5)
-            data = {
-                "progress_action": ProgressAction.STREAMING,
-                "model": model,
-                "agent_name": self.name,
-                "chat_turn": self.chat_turn(),
-                "details": token_str.strip(),
-            }
-            self.logger.info("Streaming progress", data=data)
-
-            self.logger.info(
-                f"Streaming complete - Model: {model}, Input tokens: {getattr(usage_data, 'prompt_tokens', 0)}, Output tokens: {actual_tokens}"
-            )
+        self._raise_for_incomplete_manual_tools(state)
+        final_completion = self._manual_stream_completion(state)
+        self._log_manual_stream_usage(state, model)
 
         final_message = final_completion.choices[0].message if final_completion.choices else None
         tool_calls = getattr(final_message, "tool_calls", None) if final_message else None
         self._emit_tool_notification_fallback(
             tool_calls,
-            notified_tool_indices,
+            state.notified_tool_indices,
             model=model,
         )
 
-        return final_completion, reasoning_segments.parts()
+        return final_completion, state.reasoning_segments.parts()
+
+    def _openai_completion_request(
+        self,
+        message: list[ChatCompletionMessageParam] | None,
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+    ) -> _OpenAICompletionRequest:
+        params = self.get_request_params(request_params=request_params)
+        model_name = params.model or self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        messages = self._openai_completion_messages(message, params)
+        available_tools = self._openai_completion_tools(tools, model_name)
+        arguments = self._prepare_api_request(messages, available_tools, params)
+        if not self._reasoning and params.stopSequences:
+            arguments["stop"] = params.stopSequences
+        return _OpenAICompletionRequest(
+            params=params,
+            model_name=model_name,
+            messages=messages,
+            arguments=arguments,
+        )
+
+    def _openai_completion_messages(
+        self,
+        message: list[ChatCompletionMessageParam] | None,
+        request_params: RequestParams,
+    ) -> list[ChatCompletionMessageParam]:
+        messages: list[ChatCompletionMessageParam] = []
+        system_prompt = self.instruction or request_params.systemPrompt
+        if system_prompt:
+            messages.append(
+                ChatCompletionSystemMessageParam(role="system", content=system_prompt)
+            )
+        if message:
+            messages.extend(cast("list[ChatCompletionMessageParam]", message))
+        return messages
+
+    def _openai_completion_tools(
+        self,
+        tools: list[Tool] | None,
+        model_name: str,
+    ) -> list[ChatCompletionToolParam] | None:
+        available_tools = cast(
+            "list[ChatCompletionToolParam]",
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description if tool.description else "",
+                        "parameters": self.adjust_schema(
+                            tool.inputSchema, model_name=model_name
+                        ),
+                    },
+                }
+                for tool in tools or []
+            ],
+        )
+        if available_tools:
+            return available_tools
+        if self.provider in [Provider.DEEPSEEK, Provider.ALIYUN]:
+            return None
+        return []
+
+    async def _create_openai_streaming_response(
+        self,
+        client: AsyncOpenAI,
+        request: _OpenAICompletionRequest,
+        capture_filename: Path | None,
+    ) -> _OpenAICompletionResponse:
+        stream = await client.chat.completions.create(**request.arguments)
+        timeout = request.params.streaming_timeout
+        timed_stream = with_stream_idle_timeout(
+            stream,
+            idle_timeout_seconds=timeout,
+            timeout_message=f"Streaming was idle for more than {timeout} seconds.",
+        )
+        try:
+            response, streamed_reasoning = await self._process_stream(
+                timed_stream, request.model_name, capture_filename
+            )
+        except EmptyStreamError as exc:
+            self.logger.error(
+                "OpenAI stream returned no chunks; retrying without streaming",
+                data={
+                    "model": request.model_name,
+                    "error": str(exc),
+                },
+            )
+            response = await client.chat.completions.create(
+                **self._prepare_non_streaming_request(request.arguments)
+            )
+            streamed_reasoning = []
+        except TimeoutError:
+            if timeout is None:
+                raise
+            self.logger.error(
+                "Streaming idle timeout while waiting for OpenAI completion",
+                data={
+                    "model": request.model_name,
+                    "timeout_seconds": timeout,
+                },
+            )
+            raise
+        return _OpenAICompletionResponse(response, streamed_reasoning)
+
+    async def _run_openai_completion_request(
+        self,
+        request: _OpenAICompletionRequest,
+    ) -> _OpenAICompletionResponse:
+        async with self._openai_client() as client:
+            arguments = dict(request.arguments)
+            messages_arg = arguments.get("messages")
+            if isinstance(messages_arg, list):
+                arguments["messages"] = await self._normalize_chat_completion_files(
+                    client, messages_arg
+                )
+            normalized_request = _OpenAICompletionRequest(
+                params=request.params,
+                model_name=request.model_name,
+                messages=request.messages,
+                arguments=arguments,
+            )
+            self.logger.debug(f"OpenAI completion requested for: {arguments}")
+            self._log_chat_progress(self.chat_turn(), model=request.model_name)
+            capture_filename = _stream_capture_filename(self.chat_turn())
+            _save_stream_request(capture_filename, arguments)
+            return await self._create_openai_streaming_response(
+                client, normalized_request, capture_filename
+            )
+
+    def _track_openai_response_usage(self, response: Any, model_name: str) -> None:
+        if isinstance(response, BaseException):
+            return
+        usage = _openai_usage(response)
+        if not usage:
+            return
+        try:
+            turn_usage = TurnUsage.from_openai(usage, model_name)
+            self._finalize_turn_usage(turn_usage)
+        except Exception as e:
+            self.logger.warning(f"Failed to track usage: {e}")
+
+    def _raise_openai_response_error(self, response: Any) -> None:
+        if isinstance(response, AuthenticationError):
+            raise ProviderKeyError(
+                "Rejected OpenAI API key",
+                "The configured OpenAI API key was rejected.\n"
+                "Please check that your API key is valid and not expired.",
+            ) from response
+        if isinstance(response, BaseException):
+            self.logger.error(f"Error: {response}")
+
+    def _append_openai_assistant_history(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        message: ChatCompletionMessage,
+        model_name: str,
+    ) -> list[ContentBlock]:
+        normalized_role = self._normalize_role(getattr(message, "role", None))
+        response_content_blocks: list[ContentBlock] = []
+        if message.content:
+            response_content_blocks.append(TextContent(type="text", text=message.content))
+
+        message_dict = message.model_dump()
+        message_dict = {key: value for key, value in message_dict.items() if value is not None}
+        with suppress(Exception):
+            cast("Any", message).role = normalized_role
+        if model_name in (
+            "deepseek-r1-distill-llama-70b",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+        ):
+            message_dict.pop("reasoning", None)
+            message_dict.pop("channel", None)
+        message_dict["role"] = normalized_role or message_dict.get("role", "assistant")
+        messages.append(cast("ChatCompletionMessageParam", message_dict))
+        return response_content_blocks
+
+    async def _openai_stop_result(self, choice: Any, message: Any) -> _OpenAIStopResult:
+        if await self._is_tool_stop_reason(choice.finish_reason) and message.tool_calls:
+            return _OpenAIStopResult(
+                stop_reason=LlmStopReason.TOOL_USE,
+                requested_tool_calls=self._openai_requested_tool_calls(message.tool_calls),
+            )
+        mapped_stop_reason = OPENAI_FINISH_REASON_MAP.get(choice.finish_reason)
+        if mapped_stop_reason is not None:
+            self.logger.debug(f" Stopping because finish_reason is {choice.finish_reason!r}")
+            return _OpenAIStopResult(stop_reason=mapped_stop_reason)
+        return _OpenAIStopResult(stop_reason=LlmStopReason.END_TURN)
+
+    @staticmethod
+    def _openai_requested_tool_calls(tool_calls: Any) -> dict[str, CallToolRequest]:
+        requested_tool_calls: dict[str, CallToolRequest] = {}
+        for tool_call in tool_calls:
+            arguments = tool_call.function.arguments
+            tool_arguments = (
+                {}
+                if not arguments or arguments.strip() == ""
+                else from_json(arguments, allow_partial=True)
+            )
+            requested_tool_calls[tool_call.id] = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name=tool_call.function.name,
+                    arguments=tool_arguments,
+                ),
+            )
+        return requested_tool_calls
+
+    @staticmethod
+    def _openai_reasoning_blocks(streamed_reasoning: list[str]) -> list[ContentBlock] | None:
+        if not streamed_reasoning:
+            return None
+        return [TextContent(type="text", text="".join(streamed_reasoning))]
+
+    async def _finalize_openai_completion(
+        self,
+        request: _OpenAICompletionRequest,
+        completion: _OpenAICompletionResponse,
+    ) -> PromptMessageExtended:
+        response = completion.response
+        self._track_openai_response_usage(response, request.model_name)
+        self.logger.debug("OpenAI completion response:", data=response)
+        self._raise_openai_response_error(response)
+
+        choice = response.choices[0]
+        message = choice.message
+        response_content_blocks = self._append_openai_assistant_history(
+            request.messages, message, request.model_name
+        )
+        stop_result = await self._openai_stop_result(choice, message)
+        self.history.set(request.messages)
+        self._log_chat_finished(model=request.model_name)
+        reasoning_blocks = self._openai_reasoning_blocks(completion.streamed_reasoning)
+        return PromptMessageExtended(
+            role="assistant",
+            content=response_content_blocks,
+            tool_calls=stop_result.requested_tool_calls,
+            channels={REASONING: reasoning_blocks} if reasoning_blocks else None,
+            stop_reason=stop_result.stop_reason,
+        )
 
     async def _openai_completion(
         self,
@@ -936,214 +1333,22 @@ class OpenAILLM(
         The default implementation uses OpenAI's ChatCompletion as the LLM.
         Override this method to use a different LLM.
         """
-
-        request_params = self.get_request_params(request_params=request_params)
-
-        response_content_blocks: list[ContentBlock] = []
-        model_name = (
-            request_params.model or self.default_request_params.model or DEFAULT_OPENAI_MODEL
-        )
-
-        # TODO -- move this in to agent context management / agent group handling
-        messages: list[ChatCompletionMessageParam] = []
-        system_prompt = self.instruction or request_params.systemPrompt
-        if system_prompt:
-            messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
-
-        # The caller supplies the full history; convert it directly
-        if message:
-            messages.extend(cast("list[ChatCompletionMessageParam]", message))
-
-        available_tools: list[ChatCompletionToolParam] | None = cast(
-            "list[ChatCompletionToolParam]",
-            [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description if tool.description else "",
-                        "parameters": self.adjust_schema(tool.inputSchema, model_name=model_name),
-                    },
-                }
-                for tool in tools or []
-            ],
-        )
-
-        if not available_tools:
-            if self.provider in [Provider.DEEPSEEK, Provider.ALIYUN]:
-                available_tools = None  # deepseek/aliyun does not allow empty array
-            else:
-                available_tools = []
-
-        # we do NOT send "stop sequences" as this causes errors with mutlimodal processing
-        arguments: dict[str, Any] = self._prepare_api_request(
-            messages, available_tools, request_params
-        )
-        if not self._reasoning and request_params.stopSequences:
-            arguments["stop"] = request_params.stopSequences
-
-        # Use basic streaming API with context manager to properly close aiohttp session
+        request = self._openai_completion_request(message, request_params, tools)
         try:
-            async with self._openai_client() as client:
-                messages_arg = arguments.get("messages")
-                if isinstance(messages_arg, list):
-                    arguments = dict(arguments)
-                    arguments["messages"] = await self._normalize_chat_completion_files(
-                        client, messages_arg
-                    )
-
-                self.logger.debug(f"OpenAI completion requested for: {arguments}")
-                self._log_chat_progress(self.chat_turn(), model=model_name)
-
-                # Generate stream capture filename once (before streaming starts)
-                capture_filename = _stream_capture_filename(self.chat_turn())
-                _save_stream_request(capture_filename, arguments)
-
-                stream = await client.chat.completions.create(**arguments)
-                timeout = request_params.streaming_timeout
-                timed_stream = with_stream_idle_timeout(
-                    stream,
-                    idle_timeout_seconds=timeout,
-                    timeout_message=f"Streaming was idle for more than {timeout} seconds.",
-                )
-                try:
-                    response, streamed_reasoning = await self._process_stream(
-                        timed_stream, model_name, capture_filename
-                    )
-                except EmptyStreamError as exc:
-                    self.logger.error(
-                        "OpenAI stream returned no chunks; retrying without streaming",
-                        data={
-                            "model": model_name,
-                            "error": str(exc),
-                        },
-                    )
-                    response = await client.chat.completions.create(
-                        **self._prepare_non_streaming_request(arguments)
-                    )
-                    streamed_reasoning = []
-                except TimeoutError:
-                    if timeout is None:
-                        raise
-                    self.logger.error(
-                        "Streaming idle timeout while waiting for OpenAI completion",
-                        data={
-                            "model": model_name,
-                            "timeout_seconds": timeout,
-                        },
-                    )
-                    raise
+            completion = await self._run_openai_completion_request(request)
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             self.logger.info(f"OpenAI completion cancelled: {reason}")
-            # Return a response indicating cancellation
             return Prompt.assistant(
                 TextContent(type="text", text=""),
                 stop_reason=LlmStopReason.CANCELLED,
             )
         except APIError as error:
             self.logger.error("APIError during OpenAI completion", exc_info=error)
-            raise error
-        except Exception:
-            streamed_reasoning = []
             raise
-        # Track usage if response is valid and has usage data
-        if (
-            hasattr(response, "usage")
-            and response.usage
-            and not isinstance(response, BaseException)
-        ):
-            try:
-                turn_usage = TurnUsage.from_openai(response.usage, model_name)
-                self._finalize_turn_usage(turn_usage)
-            except Exception as e:
-                self.logger.warning(f"Failed to track usage: {e}")
-
-        self.logger.debug(
-            "OpenAI completion response:",
-            data=response,
-        )
-
-        if isinstance(response, AuthenticationError):
-            raise ProviderKeyError(
-                "Rejected OpenAI API key",
-                "The configured OpenAI API key was rejected.\n"
-                "Please check that your API key is valid and not expired.",
-            ) from response
-        elif isinstance(response, BaseException):
-            self.logger.error(f"Error: {response}")
-
-        choice = response.choices[0]
-        message = choice.message
-        normalized_role = self._normalize_role(getattr(message, "role", None))
-        # prep for image/audio gen models
-        if message.content:
-            response_content_blocks.append(TextContent(type="text", text=message.content))
-
-        # ParsedChatCompletionMessage is compatible with ChatCompletionMessage
-        # since it inherits from it, so we can use it directly
-        # Convert to dict and remove None values
-        message_dict = message.model_dump()
-        message_dict = {k: v for k, v in message_dict.items() if v is not None}
-        if normalized_role:
-            try:
-                message.role = normalized_role
-            except Exception:
-                pass
-
-        if model_name in (
-            "deepseek-r1-distill-llama-70b",
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b",
-        ):
-            message_dict.pop("reasoning", None)
-            message_dict.pop("channel", None)
-
-        message_dict["role"] = normalized_role or message_dict.get("role", "assistant")
-
-        messages.append(cast("ChatCompletionMessageParam", message_dict))
-        stop_reason = LlmStopReason.END_TURN
-        requested_tool_calls: dict[str, CallToolRequest] | None = None
-        if await self._is_tool_stop_reason(choice.finish_reason) and message.tool_calls:
-            requested_tool_calls = {}
-            stop_reason = LlmStopReason.TOOL_USE
-            for tool_call in message.tool_calls:
-                tool_call_request = CallToolRequest(
-                    method="tools/call",
-                    params=CallToolRequestParams(
-                        name=tool_call.function.name,
-                        arguments={}
-                        if not tool_call.function.arguments
-                        or tool_call.function.arguments.strip() == ""
-                        else from_json(tool_call.function.arguments, allow_partial=True),
-                    ),
-                )
-                requested_tool_calls[tool_call.id] = tool_call_request
-        elif choice.finish_reason == "length":
-            stop_reason = LlmStopReason.MAX_TOKENS
-            # We have reached the max tokens limit
-            self.logger.debug(" Stopping because finish_reason is 'length'")
-        elif choice.finish_reason == "content_filter":
-            stop_reason = LlmStopReason.SAFETY
-            self.logger.debug(" Stopping because finish_reason is 'content_filter'")
-
-        # Update diagnostic snapshot (never read again)
-        # This provides a snapshot of what was sent to the provider for debugging
-        self.history.set(messages)
-
-        self._log_chat_finished(model=model_name)
-
-        reasoning_blocks: list[ContentBlock] | None = None
-        if streamed_reasoning:
-            reasoning_blocks = [TextContent(type="text", text="".join(streamed_reasoning))]
-
-        return PromptMessageExtended(
-            role="assistant",
-            content=response_content_blocks,
-            tool_calls=requested_tool_calls,
-            channels={REASONING: reasoning_blocks} if reasoning_blocks else None,
-            stop_reason=stop_reason,
-        )
+        except Exception:
+            raise
+        return await self._finalize_openai_completion(request, completion)
 
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
         """Return the legacy error-channel response when retries are exhausted."""
@@ -1233,42 +1438,59 @@ class OpenAILLM(
 
         Priority: explicit `reasoning` field (string/object/list) > `reasoning_content` list.
         """
-
-        def _coerce_text(value: Any) -> str:
-            if value is None:
-                return ""
-            if isinstance(value, str):
-                return value
-            if isinstance(value, dict):
-                return str(value.get("text") or value)
-            text_attr = None
-            try:
-                text_attr = getattr(value, "text", None)
-            except Exception:
-                text_attr = None
-            if text_attr:
-                return str(text_attr)
-            return str(value)
-
-        if reasoning is not None:
-            if isinstance(reasoning, (list, tuple)):
-                combined = "".join(_coerce_text(item) for item in reasoning)
-            else:
-                combined = _coerce_text(reasoning)
-            if combined.strip():
-                return combined
-
+        combined = _combine_reasoning_text(reasoning)
+        if combined.strip():
+            return combined
         if reasoning_content:
-            parts: list[str] = []
-            for item in reasoning_content:
-                text = _coerce_text(item)
-                if text:
-                    parts.append(text)
-            combined = "".join(parts)
+            combined = "".join(
+                text
+                for text in (_coerce_reasoning_text(item) for item in reasoning_content)
+                if text
+            )
             if combined.strip():
                 return combined
 
         return ""
+
+    @staticmethod
+    def _reasoning_channel_text(msg: PromptMessageExtended) -> str:
+        if not msg.channels:
+            return ""
+
+        reasoning_blocks = msg.channels.get(REASONING)
+        if not reasoning_blocks:
+            return ""
+
+        reasoning_texts = [text for block in reasoning_blocks if (text := get_text(block))]
+        return "\n\n".join(reasoning_texts)
+
+    def _apply_reasoning_replay(
+        self,
+        openai_msgs: list[ChatCompletionMessageParam],
+        msg: PromptMessageExtended,
+        reasoning_mode: str | None,
+    ) -> None:
+        reasoning_text = self._reasoning_channel_text(msg)
+        if not reasoning_text:
+            return
+
+        if reasoning_mode == "reasoning_content":
+            for oai_msg in openai_msgs:
+                # reasoning_content is an OpenAI extension not in the TypedDict
+                cast("dict[str, Any]", oai_msg)["reasoning_content"] = reasoning_text
+            return
+
+        # gpt-oss: per docs, reasoning should be dropped on subsequent sampling
+        # UNLESS tool calling is involved. For tool calls, prefix the assistant
+        # message content with the reasoning text.
+        if reasoning_mode != "gpt_oss" or not msg.tool_calls:
+            return
+
+        for oai_msg in openai_msgs:
+            oai_dict = cast("dict[str, Any]", oai_msg)
+            existing_content = oai_dict.get("content", "") or ""
+            if isinstance(existing_content, str):
+                oai_dict["content"] = reasoning_text + existing_content
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
@@ -1290,35 +1512,7 @@ class OpenAILLM(
         for msg in messages:
             # convert_to_openai returns a list of messages
             openai_msgs = OpenAIConverter.convert_to_openai(msg)
-
-            if reasoning_mode == "reasoning_content" and msg.channels:
-                reasoning_blocks = msg.channels.get(REASONING) if msg.channels else None
-                if reasoning_blocks:
-                    reasoning_texts = [get_text(block) for block in reasoning_blocks]
-                    reasoning_texts = [txt for txt in reasoning_texts if txt]
-                    if reasoning_texts:
-                        reasoning_content = "\n\n".join(reasoning_texts)
-                        for oai_msg in openai_msgs:
-                            # reasoning_content is an OpenAI extension not in the TypedDict
-                            cast("dict[str, Any]", oai_msg)["reasoning_content"] = reasoning_content
-
-            # gpt-oss: per docs, reasoning should be dropped on subsequent sampling
-            # UNLESS tool calling is involved. For tool calls, prefix the assistant
-            # message content with the reasoning text.
-            if reasoning_mode == "gpt_oss" and msg.channels and msg.tool_calls:
-                reasoning_blocks = msg.channels.get(REASONING) if msg.channels else None
-                if reasoning_blocks:
-                    reasoning_texts = [get_text(block) for block in reasoning_blocks]
-                    reasoning_texts = [txt for txt in reasoning_texts if txt]
-                    if reasoning_texts:
-                        reasoning_text = "\n\n".join(reasoning_texts)
-                        for oai_msg in openai_msgs:
-                            # Cast to dict to allow string concatenation with content
-                            oai_dict = cast("dict[str, Any]", oai_msg)
-                            existing_content = oai_dict.get("content", "") or ""
-                            if isinstance(existing_content, str):
-                                oai_dict["content"] = reasoning_text + existing_content
-
+            self._apply_reasoning_replay(openai_msgs, msg, reasoning_mode)
             converted.extend(openai_msgs)
 
         return converted

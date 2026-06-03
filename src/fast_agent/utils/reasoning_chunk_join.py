@@ -4,8 +4,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 _SENTENCE_PUNCTUATION = ".!?;:"
-_MARKDOWN_PREFIXES = "\"`*["
+_MARKDOWN_PREFIXES = "\"`*[#-"
 ReasoningDeltaNormalizer = Callable[[str | None, str], str]
+
+
+def _starts_sentence_or_markdown(incoming: str) -> bool:
+    first = incoming[0]
+    return first.isupper() or first in _MARKDOWN_PREFIXES
 
 
 def _looks_like_markdown_block_heading(incoming: str) -> bool:
@@ -23,8 +28,7 @@ def _looks_like_sentence_chunk(incoming: str) -> bool:
         return False
     if " " not in incoming:
         return False
-    first = incoming[0]
-    return first.isupper() or first in _MARKDOWN_PREFIXES
+    return _starts_sentence_or_markdown(incoming)
 
 
 def identity_reasoning_delta(last_char: str | None, incoming: str) -> str:
@@ -45,7 +49,7 @@ def normalize_reasoning_delta(last_char: str | None, incoming: str) -> str:
         return incoming
     if _looks_like_markdown_block_heading(incoming):
         return f"\n\n{incoming}"
-    if last_char in _SENTENCE_PUNCTUATION and _looks_like_sentence_chunk(incoming):
+    if last_char in _SENTENCE_PUNCTUATION and _starts_sentence_or_markdown(incoming):
         return f" {incoming}"
     if last_char.islower() and _looks_like_sentence_chunk(incoming):
         return f" {incoming}"

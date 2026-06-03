@@ -7,7 +7,7 @@ from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.core.fastagent import AgentInstance
-from fast_agent.mcp.experimental_session_client import SessionJarEntry
+from fast_agent.mcp.experimental_session_client import ServerCookiesView, SessionJarEntry
 from fast_agent.ui.command_payloads import is_command_payload
 from fast_agent.ui.interactive.command_dispatch import DispatchResult, dispatch_command_payload
 from fast_agent.ui.prompt import parse_special_input
@@ -88,13 +88,15 @@ class SessionClient:
     async def list_server_cookies(
         self,
         server_identifier: str | None,
-    ) -> tuple[str, str | None, str | None, list[dict[str, Any]]]:
+    ) -> ServerCookiesView:
         server_name = server_identifier or self.server_name
-        return (
-            server_name,
-            server_name,
-            self.active_session_id,
-            [{"id": self.active_session_id, "title": "Demo"}],
+        return ServerCookiesView(
+            server_name=server_name,
+            server_identity=server_name,
+            target=None,
+            sessions_supported=True,
+            active_session_id=self.active_session_id,
+            cookies=[{"id": self.active_session_id, "title": "Demo"}],
         )
 
     async def create_session(

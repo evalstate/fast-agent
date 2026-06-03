@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from fast_agent.marketplace.source_utils import repo_subdir_for_manifest_path
+from fast_agent.marketplace.update_status import CommonMarketplaceUpdateStatus
+from fast_agent.utils.text import strip_casefold
+
 DEFAULT_SKILL_REGISTRIES = [
     "https://github.com/fast-agent-ai/skills",
     "https://github.com/huggingface/skills",
@@ -21,23 +25,13 @@ DEFAULT_MARKETPLACE_URL = (
 )
 
 SKILL_SOURCE_FILENAME = ".skill-source.json"
+SKILL_MANIFEST_FILENAME = "SKILL.md"
+SKILL_MANIFEST_FILENAME_LOWER = strip_casefold(SKILL_MANIFEST_FILENAME)
 SKILL_SOURCE_SCHEMA_VERSION = 1
 LOCAL_REVISION = "local"
 
 SkillSourceOrigin = Literal["remote", "local"]
-SkillUpdateStatus = Literal[
-    "up_to_date",
-    "update_available",
-    "updated",
-    "unmanaged",
-    "invalid_metadata",
-    "invalid_local_skill",
-    "unknown_revision",
-    "source_unreachable",
-    "source_ref_missing",
-    "source_path_missing",
-    "skipped_dirty",
-]
+SkillUpdateStatus = CommonMarketplaceUpdateStatus | Literal["invalid_local_skill"]
 SkillManagementSource = Literal["override", "settings", "default"]
 
 
@@ -100,16 +94,13 @@ class MarketplaceSkill:
 
     @property
     def repo_subdir(self) -> str:
-        path = PurePosixPath(self.repo_path)
-        if path.name.lower() == "skill.md":
-            return str(path.parent)
-        return str(path)
+        return repo_subdir_for_manifest_path(self.repo_path, SKILL_MANIFEST_FILENAME)
 
     @property
     def install_dir_name(self) -> str:
         if self.install_dir_name_override:
             return self.install_dir_name_override
         path = PurePosixPath(self.repo_path)
-        if path.name.lower() == "skill.md":
+        if strip_casefold(path.name) == SKILL_MANIFEST_FILENAME_LOWER:
             return path.parent.name or self.name
         return path.name or self.name

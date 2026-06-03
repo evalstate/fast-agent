@@ -6,15 +6,18 @@ from __future__ import annotations
 
 import platform
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, MutableMapping, Sequence
+from typing import TYPE_CHECKING
 
 from fast_agent.core.internal_resources import (
     format_internal_resources_for_prompt,
     list_internal_resources,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, MutableMapping, Sequence
+
     from fast_agent.skills import SkillManifest
 
 logger = get_logger(__name__)
@@ -27,11 +30,11 @@ def _display_name_with_version(
     name_key: str = "name",
     version_key: str = "version",
 ) -> str | None:
-    display_name = info.get(title_key) or info.get(name_key)
-    if not display_name:
+    display_name = strip_to_none(info.get(title_key)) or strip_to_none(info.get(name_key))
+    if display_name is None:
         return None
 
-    version = info.get(version_key)
+    version = strip_to_none(info.get(version_key))
     if version and version != "unknown":
         return f"{display_name} {version}"
     return display_name
@@ -111,7 +114,7 @@ def load_skills_for_context(
     registry = SkillRegistry(base_dir=base_dir, directories=override_dirs)
     try:
         return registry.load_manifests()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Failed to load skills; continuing without them", data={"error": str(exc)})
         return []
 

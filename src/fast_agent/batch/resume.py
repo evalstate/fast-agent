@@ -3,15 +3,30 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+CanonicalBatchId = str | int
 
-def load_completed_ids(path: Path) -> set[str]:
+
+def canonical_batch_id(value: Any, *, source: str) -> CanonicalBatchId:
+    """Validate an output/resume ID without collapsing distinct JSON values."""
+    if isinstance(value, bool) or value is None:
+        raise ValueError(f"{source} must be a non-empty string or integer")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        if value == "":
+            raise ValueError(f"{source} must be a non-empty string or integer")
+        return value
+    raise ValueError(f"{source} must be a non-empty string or integer")
+
+
+def load_completed_ids(path: Path) -> set[CanonicalBatchId]:
     """Load IDs for existing successful output records."""
-    completed: set[str] = set()
+    completed: set[CanonicalBatchId] = set()
     if not path.exists():
         return completed
 
@@ -26,5 +41,10 @@ def load_completed_ids(path: Path) -> set[str]:
             if not isinstance(record, dict):
                 raise ValueError(f"Invalid existing output at line {line_number}: expected object")
             if record.get("ok") is True and "id" in record:
-                completed.add(str(record["id"]))
+                completed.add(
+                    canonical_batch_id(
+                        record["id"],
+                        source=f"Existing output id at line {line_number}",
+                    )
+                )
     return completed

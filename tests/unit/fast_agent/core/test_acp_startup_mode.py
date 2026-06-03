@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.agent_app import AgentApp, AgentRefreshResult
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.fastagent import (
     AgentInstance,
     FastAgent,
@@ -48,6 +50,14 @@ def test_is_acp_server_mode_requires_server_flag_and_acp_transport() -> None:
 
     agent.args = argparse.Namespace(server=True, transport="stdio")
     assert agent._is_acp_server_mode() is False
+
+
+@pytest.mark.asyncio
+async def test_main_returns_false_when_args_lacks_server_flag() -> None:
+    agent = FastAgent("TestAgent", parse_cli_args=False)
+    agent.args = argparse.Namespace(transport="stdio")
+
+    assert await agent.main() is False
 
 
 def test_resolve_server_instance_scope_defaults_acp_to_connection() -> None:
@@ -244,3 +254,69 @@ async def test_runtime_mcp_callbacks_bind_to_instance_agents_not_primary_state(
     result = await instance.app.attach_mcp_server("main", "runtime-demo")
 
     assert result.server_name == "runtime-demo"
+
+
+@pytest.mark.asyncio
+async def test_load_card_tools_rejects_default_agent_without_agent_tool_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fast = FastAgent("TestAgent", parse_cli_args=False)
+    fast.args = argparse.Namespace(card_tools=["tool-cards"], agent="main")
+    main_agent = cast("AgentProtocol", _Agent("main"))
+    wrapper = AgentApp({"main": main_agent})
+    state = ManagedRunState(
+        runtime=RunRuntime(
+            model_factory_func=_unused_model_factory,
+            global_prompt_context=None,
+            is_acp_server_mode=False,
+            noenv_mode=False,
+            managed_instances=[],
+            instance_lock=asyncio.Lock(),
+        ),
+        primary_instance=AgentInstance(wrapper, {"main": main_agent}),
+        wrapper=wrapper,
+        active_agents={"main": main_agent},
+    )
+
+    monkeypatch.setattr(fast, "load_agents", lambda _source: ["tool"])
+
+    async def refresh() -> AgentRefreshResult:
+        state.active_agents["tool"] = cast("AgentProtocol", _Agent("tool"))
+        return AgentRefreshResult(changed=True)
+
+    with pytest.raises(AgentConfigError, match="does not support agents-as-tools"):
+        await fast._apply_card_tool_cli_option(state, refresh)
+
+
+@pytest.mark.asyncio
+async def test_start_server_preserves_existing_optional_args(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fast = FastAgent("TestAgent", parse_cli_args=False)
+    original_args = argparse.Namespace(
+        quiet=False,
+        model=None,
+        agent="main",
+        reload=False,
+        watch=False,
+        card_tools=None,
+    )
+    fast.args = original_args
+    captured_args: list[argparse.Namespace] = []
+
+    @asynccontextmanager
+    async def fake_run():
+        captured_args.append(argparse.Namespace(**vars(fast.args)))
+        yield None
+
+    monkeypatch.setattr(fast, "run", fake_run)
+
+    await fast.start_server(transport="http")
+
+    assert fast.args is original_args
+    assert captured_args
+    assert captured_args[0].model is None
+    assert captured_args[0].agent == "main"
+    assert captured_args[0].reload is False
+    assert captured_args[0].watch is False
+    assert captured_args[0].card_tools is None

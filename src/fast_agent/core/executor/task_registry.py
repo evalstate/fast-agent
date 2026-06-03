@@ -4,7 +4,8 @@ This is used by the workflow engine to dynamically orchestrate a workflow graph.
 The user just writes standard functions annotated with @workflow_task, but behind the scenes a workflow graph is built.
 """
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class ActivityRegistry:

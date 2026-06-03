@@ -182,6 +182,31 @@ async def test_alt_v_pastes_clipboard_image_as_attachment(monkeypatch, tmp_path)
     assert buffer.cursor_position == len(buffer.text)
 
 
+@pytest.mark.asyncio
+async def test_clipboard_image_paste_error_prints_bracketed_text_literally(
+    monkeypatch,
+    capsys,
+) -> None:
+    invalidations: list[str] = []
+
+    class _App:
+        def invalidate(self) -> None:
+            invalidations.append("invalidate")
+
+    async def fake_to_thread(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("[draft] image unavailable")
+
+    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.asyncio.to_thread", fake_to_thread)
+
+    buffer = Buffer()
+    buffer.text = "describe this"
+    await paste_clipboard_image_attachment_into_buffer(buffer, app_ref=_App())
+
+    assert buffer.text == "describe this"
+    assert invalidations == ["invalidate"]
+    assert "Failed to paste clipboard image: [draft] image unavailable" in capsys.readouterr().out
+
+
 def test_clipboard_image_bindings_are_registered() -> None:
     kb = create_keybindings(enable_clipboard_image_paste=True)
 

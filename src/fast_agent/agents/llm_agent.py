@@ -10,9 +10,9 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
@@ -57,6 +57,7 @@ from fast_agent.ui.message_display_helpers import (
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
 )
+from fast_agent.utils.count_display import format_count
 from fast_agent.utils.type_narrowing import is_str_object_dict
 from fast_agent.workflow_telemetry import (
     NoOpWorkflowTelemetryProvider,
@@ -72,6 +73,36 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 DEFAULT_CAPABILITIES = AgentCapabilities(streaming=False, push_notifications=False)
+STOP_REASON_ADDITIONAL_MESSAGES: tuple[tuple[LlmStopReason, str, str], ...] = (
+    (
+        LlmStopReason.MAX_TOKENS,
+        "\n\nMaximum output tokens reached - generation stopped.",
+        "dim red italic",
+    ),
+    (
+        LlmStopReason.SAFETY,
+        "\n\nContent filter activated - generation stopped.",
+        "dim red italic",
+    ),
+    (LlmStopReason.PAUSE, "\n\nLLM has requested a pause.", "dim green italic"),
+    (
+        LlmStopReason.STOP_SEQUENCE,
+        "\n\nStop Sequence activated - generation stopped.",
+        "dim red italic",
+    ),
+    (
+        LlmStopReason.CANCELLED,
+        "\n\nGeneration cancelled by user.",
+        "dim yellow italic",
+    ),
+)
+
+
+def _fixed_stop_reason_segment(stop_reason: LlmStopReason) -> Text | None:
+    for candidate, text, style in STOP_REASON_ADDITIONAL_MESSAGES:
+        if stop_reason == candidate:
+            return Text(text, style=style)
+    return None
 
 
 class LlmAgent(LlmDecorator):
@@ -113,6 +144,27 @@ class LlmAgent(LlmDecorator):
     @display.setter
     def display(self, value: ConsoleDisplay) -> None:
         self._display = value
+
+    @property
+    def has_external_hooks(self) -> bool:
+        """Return True if external (user-configured) hooks are present."""
+        return self.tool_runner_hooks is not None
+
+    @property
+    def has_before_llm_call_hook(self) -> bool:
+        """Return True if a before_llm_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.before_llm_call is not None
+        )
+
+    @property
+    def has_after_llm_call_hook(self) -> bool:
+        """Return True if an after_llm_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.after_llm_call is not None
+        )
 
     @property
     def workflow_telemetry(self) -> WorkflowTelemetryProvider:
@@ -194,8 +246,8 @@ class LlmAgent(LlmDecorator):
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
-        bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        bottom_items: list[str] | None = None,
+        highlight_items: str | list[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
@@ -297,54 +349,34 @@ class LlmAgent(LlmDecorator):
         read_only_tool_use: bool,
     ) -> list[Text]:
         segments: list[Text] = []
-        match message.stop_reason:
-            case LlmStopReason.END_TURN:
-                pass
-            case LlmStopReason.MAX_TOKENS:
-                segments.append(
-                    Text(
-                        "\n\nMaximum output tokens reached - generation stopped.",
-                        style="dim red italic",
-                    )
+        stop_reason = message.stop_reason
+        if stop_reason in (None, LlmStopReason.END_TURN):
+            return segments
+        if stop_reason == LlmStopReason.TOOL_USE:
+            tool_use_message = build_tool_use_additional_message(
+                message,
+                shell_access=shell_only_tool_use,
+                file_read=read_only_tool_use,
+            )
+            if tool_use_message is not None:
+                segments.append(tool_use_message)
+            return segments
+        if stop_reason == LlmStopReason.ERROR:
+            error_segment = self._build_error_additional_segment(message)
+            if error_segment is not None:
+                segments.append(error_segment)
+            return segments
+
+        fixed_segment = _fixed_stop_reason_segment(stop_reason)
+        if fixed_segment is not None:
+            segments.append(fixed_segment)
+        else:
+            segments.append(
+                Text(
+                    f"\n\nGeneration stopped for an unhandled reason ({stop_reason})",
+                    style="dim red italic",
                 )
-            case LlmStopReason.SAFETY:
-                segments.append(
-                    Text(
-                        "\n\nContent filter activated - generation stopped.",
-                        style="dim red italic",
-                    )
-                )
-            case LlmStopReason.PAUSE:
-                segments.append(Text("\n\nLLM has requested a pause.", style="dim green italic"))
-            case LlmStopReason.STOP_SEQUENCE:
-                segments.append(
-                    Text(
-                        "\n\nStop Sequence activated - generation stopped.",
-                        style="dim red italic",
-                    )
-                )
-            case LlmStopReason.TOOL_USE:
-                tool_use_message = build_tool_use_additional_message(
-                    message,
-                    shell_access=shell_only_tool_use,
-                    file_read=read_only_tool_use,
-                )
-                if tool_use_message is not None:
-                    segments.append(tool_use_message)
-            case LlmStopReason.ERROR:
-                error_segment = self._build_error_additional_segment(message)
-                if error_segment is not None:
-                    segments.append(error_segment)
-            case LlmStopReason.CANCELLED:
-                segments.append(Text("\n\nGeneration cancelled by user.", style="dim yellow italic"))
-            case _:
-                if message.stop_reason:
-                    segments.append(
-                        Text(
-                            f"\n\nGeneration stopped for an unhandled reason ({message.stop_reason})",
-                            style="dim red italic",
-                        )
-                    )
+            )
         return segments
 
     def _build_error_additional_segment(self, message: PromptMessageExtended) -> Text | None:
@@ -357,10 +389,13 @@ class LlmAgent(LlmDecorator):
             error_text = get_text(error_blocks[0])
             if error_text:
                 return Text(f"\n\nError details: {error_text}", style="dim red italic")
-            return Text(f"\n\nError details: {str(error_blocks[0])}", style="dim red italic")
+            return Text(f"\n\nError details: {error_blocks[0]!s}", style="dim red italic")
         return Text("\n\nAn error occurred during generation.", style="dim red italic")
 
-    def _coerce_additional_message_segment(self, additional_message: Text | str | None) -> Text | None:
+    def _coerce_additional_message_segment(
+        self,
+        additional_message: Text | str | None,
+    ) -> Text | None:
         if additional_message is None:
             return None
         if isinstance(additional_message, Text):
@@ -420,12 +455,22 @@ class LlmAgent(LlmDecorator):
         channels = message.channels or {}
         channel_names = sorted(channels.keys()) if isinstance(channels, dict) else []
         source_count = len(collect_citation_sources(message))
+        server_tool_blocks = (
+            len(channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL, []))
+            if isinstance(channels, dict)
+            else 0
+        )
+        citation_blocks = (
+            len(channels.get(ANTHROPIC_CITATIONS_CHANNEL, []))
+            if isinstance(channels, dict)
+            else 0
+        )
         print(
             "[webdebug]"
             f" agent={self.name}"
             f" channels={channel_names}"
-            f" server_tool_blocks={len(channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
-            f" citation_blocks={len(channels.get(ANTHROPIC_CITATIONS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
+            f" server_tool_blocks={server_tool_blocks}"
+            f" citation_blocks={citation_blocks}"
             f" source_count={source_count}"
             f" show_post_turn_metadata={show_post_turn_metadata}"
             f" sources_rendered={bool(sources_text)}"
@@ -486,7 +531,7 @@ class LlmAgent(LlmDecorator):
     def _resolve_assistant_hook_indicator(self, show_hook_indicator: bool | None) -> bool:
         if show_hook_indicator is not None:
             return show_hook_indicator
-        return getattr(self, "has_after_llm_call_hook", False)
+        return self.has_after_llm_call_hook
 
     def _shell_tool_name_for_display(self) -> str | None:
         """Return the tool name used for local shell execution, if any."""
@@ -510,16 +555,14 @@ class LlmAgent(LlmDecorator):
         stream_handle: "StreamingHandle",
     ) -> bool:
         """Return True when the streamed frame can replace final reprint safely."""
-        if streaming_mode != "markdown":
+        if self._streamed_final_frame_has_blockers(
+            message=message,
+            summary_text=summary_text,
+            streaming_mode=streaming_mode,
+            stream_handle=stream_handle,
+        ):
             return False
-        if summary_text is not None:
-            return False
-        if message.stop_reason != LlmStopReason.END_TURN:
-            return False
-        if stream_handle.has_scrolled():
-            return False
-        if collect_citation_sources(message):
-            return False
+
         remote_activities = remote_tool_activities(message)
         if any(activity.kind == "result" for activity in remote_activities):
             return False
@@ -527,9 +570,23 @@ class LlmAgent(LlmDecorator):
             return True
 
         display_text = message.all_text() or message.last_text() or ""
-        if not display_text.strip():
-            return False
-        return True
+        return bool(display_text.strip())
+
+    def _streamed_final_frame_has_blockers(
+        self,
+        *,
+        message: PromptMessageExtended,
+        summary_text: Text | None,
+        streaming_mode: str,
+        stream_handle: "StreamingHandle",
+    ) -> bool:
+        return (
+            streaming_mode != "markdown"
+            or summary_text is not None
+            or message.stop_reason != LlmStopReason.END_TURN
+            or stream_handle.has_scrolled()
+            or bool(collect_citation_sources(message))
+        )
 
     def _display_url_elicitations_from_history(self, agent_name: str | None) -> None:
         """Display deferred URL elicitations from the previous tool-result turn."""
@@ -623,8 +680,9 @@ class LlmAgent(LlmDecorator):
 
             hidden_issue_count = len(issues) - 3
             if hidden_issue_count > 0:
+                hidden_label = format_count(hidden_issue_count, "more issue")
                 console.console.print(
-                    f"[dim yellow]  - ... and {hidden_issue_count} more issue(s)[/dim yellow]"
+                    f"[dim yellow]  - ... and {hidden_label}[/dim yellow]"
                 )
 
             if not elicitations:
@@ -690,7 +748,7 @@ class LlmAgent(LlmDecorator):
             attachments=attachments if attachments else None,
             image_previews=image_previews or None,
             part_count=part_count if part_count > 1 else None,
-            show_hook_indicator=getattr(self, "has_before_llm_call_hook", False),
+            show_hook_indicator=self.has_before_llm_call_hook,
         )
 
     def show_user_message(self, message: PromptMessageExtended) -> None:
@@ -713,10 +771,7 @@ class LlmAgent(LlmDecorator):
                     reason=reason,
                 )
             return False
-        if getattr(self, "display", None):
-            enabled, _ = self.display.resolve_streaming_preferences()
-            return enabled
-        return True
+        return self.display.resolve_streaming_preferences().enabled
 
     def force_non_streaming_next_turn(self, *, reason: str | None = None) -> bool:
         """Disable streaming for the next assistant turn."""
@@ -733,26 +788,41 @@ class LlmAgent(LlmDecorator):
         _ = tool_name
         return None
 
+    def _count_agent_tool_calls(self, tool_call_items: list[tuple[str, Any]]) -> int:
+        """Return the number of delegated agent-tool calls in a tool-call batch."""
+        _ = tool_call_items
+        return 0
+
+    def _display_trailing_user_messages(
+        self,
+        messages: Sequence[PromptMessageExtended],
+        *,
+        request_params: RequestParams | None,
+    ) -> None:
+        if messages[-1].role != "user":
+            return
+
+        trailing_users: list[PromptMessageExtended] = []
+        for message in reversed(messages):
+            if message.role != "user":
+                break
+            trailing_users.append(message)
+        self._display_user_messages(
+            list(reversed(trailing_users)), request_params=request_params
+        )
+
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Enhanced generate implementation that resets tool call tracking.
-        Messages are already normalized to List[PromptMessageExtended].
+        Messages are already normalized to list[PromptMessageExtended].
         """
 
-        if "user" == messages[-1].role:
-            trailing_users: list[PromptMessageExtended] = []
-            for message in reversed(messages):
-                if message.role != "user":
-                    break
-                trailing_users.append(message)
-            self._display_user_messages(
-                list(reversed(trailing_users)), request_params=request_params
-            )
+        self._display_trailing_user_messages(messages, request_params=request_params)
 
         # TODO - manage error catch, recovery, pause
         summary_text: Text | None = None
@@ -761,8 +831,8 @@ class LlmAgent(LlmDecorator):
             llm = self._require_llm()
             display_name = self.name
             display_model = resolve_llm_display_name(llm)
-            _, streaming_mode = self.display.resolve_streaming_preferences()
-            render_markdown = True if streaming_mode == "markdown" else False
+            streaming_preferences = self.display.resolve_streaming_preferences()
+            render_markdown = streaming_preferences.mode == "markdown"
 
             remove_listener: Callable[[], None] | None = None
             remove_tool_listener: Callable[[], None] | None = None
@@ -807,7 +877,7 @@ class LlmAgent(LlmDecorator):
                     preserve_streamed_frame = self._can_preserve_streamed_final_frame(
                         message=result,
                         summary_text=summary_text,
-                        streaming_mode=streaming_mode,
+                        streaming_mode=streaming_preferences.mode,
                         stream_handle=stream_handle,
                     ) and stream_handle.preserve_final_frame()
                     stream_handle.finalize(result)
@@ -877,13 +947,7 @@ class LlmAgent(LlmDecorator):
             )
             return
         tool_call_items = list(tool_calls.items())
-        subagent_calls = 0
-        counter = getattr(self, "_count_agent_tool_calls", None)
-        if callable(counter):
-            try:
-                subagent_calls = counter(tool_call_items)
-            except Exception:
-                subagent_calls = 0
+        subagent_calls = self._count_agent_tool_calls(tool_call_items)
         logger.debug(
             "Streaming tool-call guard: evaluated tool calls",
             agent_name=self.name,
@@ -897,19 +961,11 @@ class LlmAgent(LlmDecorator):
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
-        if "user" == messages[-1].role:
-            trailing_users: list[PromptMessageExtended] = []
-            for message in reversed(messages):
-                if message.role != "user":
-                    break
-                trailing_users.append(message)
-            self._display_user_messages(
-                list(reversed(trailing_users)), request_params=request_params
-            )
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
+        self._display_trailing_user_messages(messages, request_params=request_params)
 
         (result, message), summary = await self._structured_with_summary(
             messages, model, request_params
@@ -920,19 +976,11 @@ class LlmAgent(LlmDecorator):
 
     async def structured_schema_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         schema: dict[str, Any],
         request_params: RequestParams | None = None,
-    ) -> Tuple[Any | None, PromptMessageExtended]:
-        if "user" == messages[-1].role:
-            trailing_users: list[PromptMessageExtended] = []
-            for message in reversed(messages):
-                if message.role != "user":
-                    break
-                trailing_users.append(message)
-            self._display_user_messages(
-                list(reversed(trailing_users)), request_params=request_params
-            )
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        self._display_trailing_user_messages(messages, request_params=request_params)
 
         (result, message), summary = await self._structured_schema_via_generate_with_summary(
             messages, schema, request_params

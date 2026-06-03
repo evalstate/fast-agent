@@ -7,11 +7,13 @@ import platform
 import subprocess
 import tempfile
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fast_agent.mcp.mime_utils import guess_mime_type, is_image_mime_type
+from fast_agent.utils.text import casefold_text
 
 if TYPE_CHECKING:
     from PIL.Image import Image
@@ -46,12 +48,12 @@ def paste_clipboard_image_to_temp_png() -> PastedClipboardImage:
 def _paste_clipboard_image_with_pillow() -> PastedClipboardImage:
     try:
         from PIL import Image, ImageGrab
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ClipboardImagePasteError(f"Pillow clipboard support is unavailable: {exc}") from exc
 
     try:
         clipboard_data = ImageGrab.grabclipboard()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ClipboardImagePasteError(f"clipboard unavailable: {exc}") from exc
 
     if isinstance(clipboard_data, Image.Image):
@@ -64,7 +66,7 @@ def _paste_clipboard_image_with_pillow() -> PastedClipboardImage:
         try:
             with Image.open(image_path) as image:
                 return _save_image_as_png(image)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ClipboardImagePasteError(f"failed to open clipboard image file: {exc}") from exc
 
     raise ClipboardImagePasteError("no image on clipboard")
@@ -78,10 +80,8 @@ def _save_image_as_png(image: "Image") -> PastedClipboardImage:
         with os.fdopen(fd, "wb") as image_file:
             normalized.save(image_file, format="PNG")
     except Exception:
-        try:
+        with suppress(OSError):
             target_path.unlink()
-        except OSError:
-            pass
         raise
     target_path.chmod(0o600)
     return PastedClipboardImage(path=target_path, width=normalized.width, height=normalized.height)
@@ -109,7 +109,7 @@ def _is_probably_wsl() -> bool:
     if os.environ.get("WSL_DISTRO_NAME"):
         return True
     try:
-        release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+        release = casefold_text(Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8"))
     except OSError:
         return False
     return "microsoft" in release or "wsl" in release
@@ -139,12 +139,10 @@ def _paste_clipboard_image_with_wsl_powershell() -> PastedClipboardImage:
 
         with Image.open(image_path) as image:
             pasted = _save_image_as_png(image)
-        try:
+        with suppress(OSError):
             image_path.unlink()
-        except OSError:
-            pass
         return pasted
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ClipboardImagePasteError(f"failed to inspect PowerShell image file: {exc}") from exc
 
 
@@ -156,7 +154,7 @@ def _wslpath_to_linux(windows_path: str) -> Path:
             capture_output=True,
             text=True,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ClipboardImagePasteError(f"failed to convert Windows path: {exc}") from exc
     return Path(completed.stdout.strip())
 

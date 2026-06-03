@@ -15,6 +15,7 @@ from fast_agent.mcp.experimental_session_client import (
 from fast_agent.mcp.mcp_aggregator import ServerStatus
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
 
@@ -41,14 +42,18 @@ class _SessionStub:
 
 
 class _ServerConnStub:
-    def __init__(self, session: _SessionStub, server_config: MCPServerSettings | None = None) -> None:
+    def __init__(self, session: object, server_config: MCPServerSettings | None = None) -> None:
         self.session = session
         self.server_config = server_config
 
 
 class _ManagerStub:
-    def __init__(self, sessions: dict[str, _SessionStub], configs: dict[str, MCPServerSettings] | None = None) -> None:
-        self._sessions = sessions
+    def __init__(
+        self,
+        sessions: "Mapping[str, object]",
+        configs: dict[str, MCPServerSettings] | None = None,
+    ) -> None:
+        self._sessions = dict(sessions)
         self.running_servers: dict[str, _ServerConnStub] = {
             name: _ServerConnStub(
                 session,
@@ -99,6 +104,61 @@ class _AggregatorStub:
         return lambda *_args, **_kwargs: None
 
 
+class _FailingCookieStore:
+    def load(self) -> dict[str, dict[str, Any]]:
+        raise OSError("cannot read cookie jar")
+
+    def save(self, cookies: dict[str, dict[str, Any]]) -> None:
+        del cookies
+        raise OSError("cannot write cookie jar")
+
+
+class _SizedCookieStore:
+    def __init__(self, size: object) -> None:
+        self._size = size
+
+    def load(self) -> dict[str, dict[str, Any]]:
+        return {}
+
+    def save(self, cookies: dict[str, dict[str, Any]]) -> None:
+        del cookies
+
+    def size_bytes(self) -> object:
+        return self._size
+
+
+class _LoggerStub:
+    def __init__(self) -> None:
+        self.warnings: list[dict[str, object]] = []
+
+    def warning(self, message: str, **data: object) -> None:
+        self.warnings.append({"message": message, **data})
+
+
+class _InvalidSessionSurfaceStub:
+    experimental_session_cookie = None
+    set_experimental_session_cookie = "not-callable"
+    experimental_session_create = "not-callable"
+    experimental_session_list = "not-callable"
+
+
+@pytest.mark.parametrize(
+    ("size", "expected"),
+    [
+        (0, 0),
+        (42, 42),
+        (True, None),
+        (False, None),
+        (-1, None),
+        ("42", None),
+    ],
+)
+def test_store_size_bytes_normalizes_dynamic_store_size(size: object, expected: int | None) -> None:
+    client = ExperimentalSessionClient(_AggregatorStub(), cookie_store=_SizedCookieStore(size))
+
+    assert client.store_size_bytes() == expected
+
+
 @pytest.mark.asyncio
 async def test_resolve_server_name_supports_initialize_identity() -> None:
     client = ExperimentalSessionClient(_AggregatorStub(), cookie_store=InMemorySessionCookieStore())
@@ -106,6 +166,21 @@ async def test_resolve_server_name_supports_initialize_identity() -> None:
     resolved = await client.resolve_server_name("demo-beta")
 
     assert resolved == "beta"
+
+
+@pytest.mark.asyncio
+async def test_create_session_rejects_non_callable_experimental_session_surface() -> None:
+    aggregator = _AggregatorStub()
+    aggregator._manager = _ManagerStub(
+        {
+            "alpha": _InvalidSessionSurfaceStub(),
+            "beta": aggregator._sessions["beta"],
+        }
+    )
+    client = ExperimentalSessionClient(aggregator, cookie_store=InMemorySessionCookieStore())
+
+    with pytest.raises(RuntimeError, match="does not expose MCPAgentClientSession"):
+        await client.create_session("alpha", title="Demo")
 
 
 @pytest.mark.asyncio
@@ -210,13 +285,15 @@ async def test_list_server_cookies_hydrates_from_status_session_id() -> None:
     store = InMemorySessionCookieStore()
     client = ExperimentalSessionClient(aggregator, cookie_store=store)
 
-    server, identity, active_id, cookies = await client.list_server_cookies("alpha")
+    server_cookies = await client.list_server_cookies("alpha")
 
-    assert server == "alpha"
-    assert identity == "demo-alpha"
-    assert active_id == "sess-live"
-    assert cookies[0]["id"] == "sess-live"
-    assert cookies[0]["title"] == "live-title"
+    assert server_cookies.server_name == "alpha"
+    assert server_cookies.server_identity == "demo-alpha"
+    assert server_cookies.target is None
+    assert server_cookies.sessions_supported is True
+    assert server_cookies.active_session_id == "sess-live"
+    assert server_cookies.cookies[0]["id"] == "sess-live"
+    assert server_cookies.cookies[0]["title"] == "live-title"
 
 
 def test_json_file_cookie_store_round_trip(tmp_path: Path) -> None:
@@ -232,13 +309,51 @@ def test_json_file_cookie_store_round_trip(tmp_path: Path) -> None:
     assert store.load() == {"alpha": {"sessionId": "sess-a"}}
 
 
-def test_json_file_cookie_store_tolerates_invalid_json(tmp_path: Path) -> None:
+def test_json_file_cookie_store_distinguishes_invalid_json(tmp_path: Path) -> None:
     jar = tmp_path / "mcp-cookie.json"
     jar.write_text("not-json", encoding="utf-8")
 
     store = JsonFileSessionCookieStore(jar)
 
-    assert store.load() == {}
+    with pytest.raises(json.JSONDecodeError):
+        store.load()
+
+
+def test_experimental_session_client_warns_when_cookie_store_load_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _LoggerStub()
+    monkeypatch.setattr(
+        "fast_agent.mcp.experimental_session_client.logger",
+        logger,
+    )
+    client = ExperimentalSessionClient(
+        _AggregatorStub(),
+        cookie_store=_FailingCookieStore(),
+    )
+
+    assert client._load_store() == {}
+    assert logger.warnings
+    assert logger.warnings[0]["name"] == "mcp_session_cookie_store_load_failed"
+
+
+def test_experimental_session_client_warns_when_cookie_store_save_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _LoggerStub()
+    monkeypatch.setattr(
+        "fast_agent.mcp.experimental_session_client.logger",
+        logger,
+    )
+    client = ExperimentalSessionClient(
+        _AggregatorStub(),
+        cookie_store=_FailingCookieStore(),
+    )
+
+    client._save_store({"alpha": {"sessionId": "sess-a"}})
+
+    assert logger.warnings
+    assert logger.warnings[0]["name"] == "mcp_session_cookie_store_save_failed"
 
 
 def test_default_cookie_store_is_in_memory_when_noenv() -> None:
@@ -286,6 +401,41 @@ def test_bootstrap_cookie_for_server_prefers_identity_record() -> None:
     assert cookie == {
         "sessionId": "sess-new",
         "data": {"title": "Latest"},
+    }
+
+
+def test_extract_cookie_title_trims_direct_title_and_label_fallback() -> None:
+    assert (
+        ExperimentalSessionClient._extract_cookie_title(
+            {"sessionId": "sess-a", "title": "  Direct title  "}
+        )
+        == "Direct title"
+    )
+    assert (
+        ExperimentalSessionClient._extract_cookie_title(
+            {
+                "sessionId": "sess-a",
+                "title": "   ",
+                "data": {"label": "  Label title  "},
+            }
+        )
+        == "Label title"
+    )
+
+
+def test_cookie_from_status_session_trims_title() -> None:
+    cookie = ExperimentalSessionClient._cookie_from_status_session(
+        ServerStatus(
+            server_name="alpha",
+            session_id="sess-live",
+            session_title="  Live title  ",
+            experimental_session_supported=True,
+        )
+    )
+
+    assert cookie == {
+        "sessionId": "sess-live",
+        "data": {"title": "Live title"},
     }
 
 
@@ -386,10 +536,10 @@ async def test_list_server_cookies_includes_invalidation_flag() -> None:
     )
     client = ExperimentalSessionClient(aggregator, cookie_store=store)
 
-    _server, _identity, active_id, cookies = await client.list_server_cookies("alpha")
+    server_cookies = await client.list_server_cookies("alpha")
 
-    assert active_id is None
-    assert len(cookies) == 1
-    assert cookies[0]["id"] == "sess-invalid"
-    assert cookies[0]["invalidated"] is True
-    assert cookies[0]["invalidatedReason"] == "Session required"
+    assert server_cookies.active_session_id is None
+    assert len(server_cookies.cookies) == 1
+    assert server_cookies.cookies[0]["id"] == "sess-invalid"
+    assert server_cookies.cookies[0]["invalidated"] is True
+    assert server_cookies.cookies[0]["invalidatedReason"] == "Session required"

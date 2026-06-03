@@ -99,3 +99,13 @@ def test_token_spans_from_path_yields_expected_spans() -> None:
         ("private_email", 1, 4),
         ("private_person", 5, 6),
     ]
+
+
+def test_token_spans_from_path_normalizes_kind_case_and_separator() -> None:
+    labels = ["O", "S-PRIVATE-EMAIL"]
+
+    spans = token_spans_from_path([1], labels)
+
+    assert [(span.label, span.start, span.end) for span in spans] == [
+        ("private_email", 0, 1),
+    ]

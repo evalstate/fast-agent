@@ -197,10 +197,14 @@ def _collect_card_pack_references(
         except Exception:
             continue
 
-        for token in manifest.model_references_required:
-            references.append((token, "required", f"card pack {manifest.name}"))
-        for token in manifest.model_references_recommended:
-            references.append((token, "recommended", f"card pack {manifest.name}"))
+        references.extend(
+            (token, "required", f"card pack {manifest.name}")
+            for token in manifest.model_references_required
+        )
+        references.extend(
+            (token, "recommended", f"card pack {manifest.name}")
+            for token in manifest.model_references_recommended
+        )
 
     return references
 
@@ -259,7 +263,11 @@ def _collect_reference(
     missing_tokens = _collect_transitive_missing_references(canonical_token, valid_references)
     if missing_tokens:
         for missing_token in sorted(missing_tokens):
-            detail = reference if missing_token == canonical_token else f"{reference} via {canonical_token}"
+            detail = (
+                reference
+                if missing_token == canonical_token
+                else f"{reference} via {canonical_token}"
+            )
             _upsert_item(
                 collected,
                 token=missing_token,
@@ -288,26 +296,37 @@ def _collect_transitive_missing_references(
     if token in stack:
         return set()
 
+    next_token = _next_reference_token(token, references)
+    if next_token is None:
+        return set()
+    if next_token == token:
+        return {token}
+    return _collect_transitive_missing_references(next_token, references, stack=(*stack, token))
+
+
+def _next_reference_token(
+    token: str,
+    references: dict[str, dict[str, str]],
+) -> str | None:
     namespace, key = parse_model_reference_token(token)
     namespace_entries = references.get(namespace)
     if namespace_entries is None:
-        return {token}
+        return token
 
     value = namespace_entries.get(key)
     if value is None:
-        return {token}
+        return token
 
     stripped_value = value.strip()
     if not stripped_value:
-        return {token}
+        return token
     if not stripped_value.startswith("$"):
-        return set()
+        return None
 
     try:
-        next_token = _canonicalize_token(stripped_value)
+        return _canonicalize_token(stripped_value)
     except ModelConfigError:
-        return {token}
-    return _collect_transitive_missing_references(next_token, references, stack=(*stack, token))
+        return token
 
 
 def _upsert_item(

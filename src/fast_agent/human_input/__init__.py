@@ -23,24 +23,21 @@ from fast_agent.human_input.form_fields import (
 )
 
 __all__ = [
-    # Schema builder
-    "FormSchema",
-    # Field classes
-    "StringField",
-    "IntegerField",
-    "NumberField",
     "BooleanField",
     "EnumField",
-    # Field convenience functions
-    "string",
-    "email",
-    "url",
-    "date",
-    "datetime",
-    "integer",
-    "number",
+    "FormSchema",
+    "IntegerField",
+    "NumberField",
+    "StringField",
     "boolean",
     "choice",
+    "date",
+    "datetime",
+    "email",
+    "integer",
+    "number",
+    "string",
+    "url",
 ]
 
 # Note: form(), ask() helpers are available via fast_agent.human_input.simple_form;

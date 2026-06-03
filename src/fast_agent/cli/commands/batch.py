@@ -17,6 +17,7 @@ from fast_agent.batch.structured import (
 from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.utils.async_utils import configure_uvloop
+from fast_agent.utils.text import strip_to_none
 
 app = typer.Typer(help="Run batch processing jobs.", add_completion=False)
 
@@ -63,6 +64,239 @@ def _validate_local_input_exists(input_path: str) -> None:
 def _run_async(coro):
     configure_uvloop()
     return asyncio.run(coro)
+
+
+def _validate_batch_run_options(
+    *,
+    input_path: str,
+    prompt: str | None,
+    template_source: str | None,
+    resume: bool,
+    overwrite: bool,
+    instruction_source: str | None,
+    agent_card_source: str | None,
+    agent_name: str | None,
+    schema_source: str | None,
+    schema_model: str | None,
+    hf_dataset: str | None,
+    hf_dataset_path: str | None,
+    export_traces_path: Path | None,
+    sql: str | None,
+    limit: int | None,
+    offset: int | None,
+    sample: int | None,
+    seed: int | None,
+    max_errors: int | None,
+    parallel: int | None,
+    progress_every: int | None,
+) -> None:
+    hf_dataset = strip_to_none(hf_dataset)
+    hf_dataset_path = strip_to_none(hf_dataset_path)
+    _validate_batch_numeric_options(
+        limit=limit,
+        offset=offset,
+        sample=sample,
+        seed=seed,
+        max_errors=max_errors,
+        parallel=parallel,
+        progress_every=progress_every,
+    )
+    _validate_batch_conflicting_options(
+        prompt=prompt,
+        template_source=template_source,
+        resume=resume,
+        overwrite=overwrite,
+        instruction_source=instruction_source,
+        agent_card_source=agent_card_source,
+        agent_name=agent_name,
+        schema_source=schema_source,
+        schema_model=schema_model,
+        hf_dataset=hf_dataset,
+        hf_dataset_path=hf_dataset_path,
+        export_traces_path=export_traces_path,
+        sql=sql,
+        limit=limit,
+        offset=offset,
+        sample=sample,
+        parallel=parallel,
+    )
+    _validate_local_input_exists(input_path)
+
+
+def _validate_batch_numeric_options(
+    *,
+    limit: int | None,
+    offset: int | None,
+    sample: int | None,
+    seed: int | None,
+    max_errors: int | None,
+    parallel: int | None,
+    progress_every: int | None,
+) -> None:
+    for value, name in (
+        (limit, "--limit"),
+        (offset, "--offset"),
+        (sample, "--sample"),
+        (seed, "--seed"),
+        (max_errors, "--max-errors"),
+    ):
+        _validate_non_negative(value, name)
+    for value, name in ((parallel, "--parallel"), (progress_every, "--progress-every")):
+        _validate_positive(value, name)
+
+
+def _validate_batch_conflicting_options(
+    *,
+    prompt: str | None,
+    template_source: str | None,
+    resume: bool,
+    overwrite: bool,
+    instruction_source: str | None,
+    agent_card_source: str | None,
+    agent_name: str | None,
+    schema_source: str | None,
+    schema_model: str | None,
+    hf_dataset: str | None,
+    hf_dataset_path: str | None,
+    export_traces_path: Path | None,
+    sql: str | None,
+    limit: int | None,
+    offset: int | None,
+    sample: int | None,
+    parallel: int | None,
+) -> None:
+    if prompt is not None and template_source is not None:
+        _fail_validation("--prompt and --template cannot be used together")
+    if resume and overwrite:
+        _fail_validation("--resume and --overwrite cannot be used together")
+    if instruction_source is not None and agent_card_source is not None:
+        _fail_validation("--agent-card and --instruction cannot be used together")
+    if agent_name is not None and agent_card_source is None:
+        _fail_validation("--agent requires --agent-card")
+    if schema_source is not None and schema_model is not None:
+        _fail_validation("--json-schema and --schema-model cannot be used together")
+    if hf_dataset_path is not None and hf_dataset is None:
+        _fail_validation("--hf-dataset-path requires --hf-dataset")
+    if hf_dataset is not None and export_traces_path is None:
+        _fail_validation("--hf-dataset requires --export-traces")
+    if sql is not None and (limit is not None or offset is not None or sample is not None):
+        _fail_validation("--sql cannot be used with --limit, --offset, or --sample")
+    if sql is not None and parallel is not None and parallel > 1:
+        _fail_validation("--sql cannot be used with --parallel")
+
+
+def _environment_dir_from_context(ctx: typer.Context) -> Path | None:
+    env_dir = ensure_context_object(ctx).get("env_dir")
+    return env_dir if isinstance(env_dir, Path) else None
+
+
+def _batch_progress_enabled(
+    *,
+    progress: bool,
+    parallel: int | None,
+    progress_every: int | None,
+) -> bool:
+    return progress and ((parallel is not None and parallel > 1) or progress_every is not None)
+
+
+def _build_structured_batch_options(
+    *,
+    ctx: typer.Context,
+    input_path: str,
+    prompt: str | None,
+    output_path: Path,
+    schema_source: str | None,
+    schema_model: str | None,
+    template_source: str | None,
+    instruction_source: str | None,
+    agent_card_source: str | None,
+    agent_name: str | None,
+    model: str | None,
+    include_input: bool,
+    limit: int | None,
+    offset: int | None,
+    sample: int | None,
+    sql: str | None,
+    seed: int | None,
+    resume: bool,
+    overwrite: bool,
+    id_field: str | None,
+    max_errors: int | None,
+    error_output_path: Path | None,
+    telemetry_output_path: Path | None,
+    summary_output_path: Path | None,
+    export_traces_path: Path | None,
+    hf_dataset: str | None,
+    hf_dataset_path: str | None,
+    parallel: int | None,
+    work_dir: Path | None,
+    keep_temp: bool,
+    progress_every: int | None,
+    progress: bool,
+    final_summary: bool,
+    shell_runtime: bool,
+) -> StructuredBatchOptions:
+    hf_dataset = strip_to_none(hf_dataset)
+    hf_dataset_path = strip_to_none(hf_dataset_path)
+    return StructuredBatchOptions(
+        input_path=input_path,
+        output_path=output_path,
+        prompt_template=prompt,
+        schema_source=schema_source,
+        schema_model=schema_model,
+        template_source=template_source,
+        instruction_source=instruction_source,
+        model=model,
+        include_input=include_input,
+        limit=limit,
+        offset=offset,
+        sample=sample,
+        sql=sql,
+        seed=seed,
+        resume=resume,
+        overwrite=overwrite,
+        id_field=id_field,
+        max_errors=max_errors,
+        error_output_path=error_output_path,
+        telemetry_output_path=telemetry_output_path,
+        summary_output_path=summary_output_path,
+        export_traces_path=export_traces_path,
+        hf_dataset=hf_dataset,
+        hf_dataset_path=hf_dataset_path,
+        parallel=parallel,
+        work_dir=work_dir,
+        keep_temp=keep_temp,
+        progress_every=progress_every,
+        progress=_batch_progress_enabled(
+            progress=progress,
+            parallel=parallel,
+            progress_every=progress_every,
+        ),
+        final_summary=final_summary,
+        environment_dir=_environment_dir_from_context(ctx),
+        shell_runtime=shell_runtime,
+        agent_card_source=agent_card_source,
+        agent_name=agent_name,
+    )
+
+
+def _run_structured_batch_options(options: StructuredBatchOptions) -> dict:
+    try:
+        if options.parallel is not None and options.parallel > 1:
+            return _run_async(run_parallel_structured_batch(options))
+        return _run_async(run_structured_batch(options))
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except FileNotFoundError as exc:
+        typer.echo(
+            f"Error: File not found: {exc.filename or options.input_path}",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+    except OSError as exc:
+        typer.echo(f"Error: File error: {exc}", err=True)
+        raise typer.Exit(1) from exc
 
 
 @app.command("run")
@@ -212,50 +446,40 @@ def run(
     shell_runtime: bool = CommonAgentOptions.shell(),
 ) -> None:
     """Run one selected input row -> one agent/model request -> one output record."""
-    for value, name in (
-        (limit, "--limit"),
-        (offset, "--offset"),
-        (sample, "--sample"),
-        (seed, "--seed"),
-        (max_errors, "--max-errors"),
-    ):
-        _validate_non_negative(value, name)
-    for value, name in ((parallel, "--parallel"), (progress_every, "--progress-every")):
-        _validate_positive(value, name)
-
-    if prompt is not None and template_source is not None:
-        _fail_validation("--prompt and --template cannot be used together")
-    if resume and overwrite:
-        _fail_validation("--resume and --overwrite cannot be used together")
-    if instruction_source is not None and agent_card_source is not None:
-        _fail_validation("--agent-card and --instruction cannot be used together")
-    if agent_name is not None and agent_card_source is None:
-        _fail_validation("--agent requires --agent-card")
-    if schema_source is not None and schema_model is not None:
-        _fail_validation("--json-schema and --schema-model cannot be used together")
-    if hf_dataset_path is not None and hf_dataset is None:
-        _fail_validation("--hf-dataset-path requires --hf-dataset")
-    if hf_dataset is not None and export_traces_path is None:
-        _fail_validation("--hf-dataset requires --export-traces")
-    if sql is not None and (limit is not None or offset is not None or sample is not None):
-        _fail_validation("--sql cannot be used with --limit, --offset, or --sample")
-    if sql is not None and parallel is not None and parallel > 1:
-        _fail_validation("--sql cannot be used with --parallel")
-    _validate_local_input_exists(input_path)
-
-    context = ensure_context_object(ctx)
-    env_dir = context.get("env_dir")
-    environment_dir = env_dir if isinstance(env_dir, Path) else None
-    progress_enabled = progress and ((parallel is not None and parallel > 1) or progress_every is not None)
-
-    options = StructuredBatchOptions(
+    _validate_batch_run_options(
         input_path=input_path,
+        template_source=template_source,
+        prompt=prompt,
+        instruction_source=instruction_source,
+        agent_card_source=agent_card_source,
+        agent_name=agent_name,
+        schema_source=schema_source,
+        schema_model=schema_model,
+        hf_dataset=hf_dataset,
+        hf_dataset_path=hf_dataset_path,
+        export_traces_path=export_traces_path,
+        sql=sql,
+        limit=limit,
+        offset=offset,
+        sample=sample,
+        seed=seed,
+        resume=resume,
+        overwrite=overwrite,
+        max_errors=max_errors,
+        parallel=parallel,
+        progress_every=progress_every,
+    )
+    options = _build_structured_batch_options(
+        ctx=ctx,
+        input_path=input_path,
+        prompt=prompt,
         output_path=output_path,
-        prompt_template=prompt,
         schema_source=schema_source,
         schema_model=schema_model,
         template_source=template_source,
         instruction_source=instruction_source,
+        agent_card_source=agent_card_source,
+        agent_name=agent_name,
         model=model,
         include_input=include_input,
         limit=limit,
@@ -277,28 +501,11 @@ def run(
         work_dir=work_dir,
         keep_temp=keep_temp,
         progress_every=progress_every,
-        progress=progress_enabled,
+        progress=progress,
         final_summary=final_summary,
-        environment_dir=environment_dir,
         shell_runtime=shell_runtime,
-        agent_card_source=agent_card_source,
-        agent_name=agent_name,
     )
-
-    try:
-        if parallel is not None and parallel > 1:
-            summary = _run_async(run_parallel_structured_batch(options))
-        else:
-            summary = _run_async(run_structured_batch(options))
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(1) from exc
-    except FileNotFoundError as exc:
-        typer.echo(f"Error: File not found: {exc.filename or input_path}", err=True)
-        raise typer.Exit(1) from exc
-    except OSError as exc:
-        typer.echo(f"Error: File error: {exc}", err=True)
-        raise typer.Exit(1) from exc
+    summary = _run_structured_batch_options(options)
 
     if final_summary:
         typer.echo(json.dumps(summary, ensure_ascii=False, indent=2))

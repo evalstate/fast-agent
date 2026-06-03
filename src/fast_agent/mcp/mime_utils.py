@@ -2,24 +2,33 @@
 
 import mimetypes
 
+from fast_agent.utils.text import strip_casefold
+
 # Initialize mimetypes database
 mimetypes.init()
 
 # Extend with additional types that might be missing
-mimetypes.add_type("text/x-python", ".py")
-mimetypes.add_type("image/webp", ".webp")
-mimetypes.add_type("application/msword", ".doc")
-mimetypes.add_type("application/vnd.ms-excel", ".xls")
-mimetypes.add_type("application/vnd.ms-powerpoint", ".ppt")
-mimetypes.add_type(
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"
+ADDITIONAL_MIME_TYPES = (
+    ("text/x-python", ".py"),
+    ("image/webp", ".webp"),
+    ("application/msword", ".doc"),
+    ("application/vnd.ms-excel", ".xls"),
+    ("application/vnd.ms-powerpoint", ".ppt"),
+    (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".docx",
+    ),
+    (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xlsx",
+    ),
+    (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".pptx",
+    ),
 )
-mimetypes.add_type(
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"
-)
-mimetypes.add_type(
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"
-)
+for mime_type, extension in ADDITIONAL_MIME_TYPES:
+    mimetypes.add_type(mime_type, extension)
 
 # Known text-based MIME types not starting with "text/"
 TEXT_MIME_TYPES = {
@@ -63,22 +72,15 @@ def guess_mime_type(file_path: str) -> str:
 
 def is_text_mime_type(mime_type: str) -> bool:
     """Determine if a MIME type represents text content."""
-    if not mime_type:
-        return False
-
-    # Standard text types
-    if mime_type.startswith("text/"):
-        return True
-
-    # Known text types
-    if mime_type in TEXT_MIME_TYPES:
-        return True
-
-    # Common text patterns
-    if any(mime_type.endswith(pattern) for pattern in TEXT_MIME_PATTERNS):
-        return True
-
-    return False
+    normalized = normalize_mime_type(mime_type)
+    return bool(
+        normalized
+        and (
+            normalized.startswith("text/")
+            or normalized in TEXT_MIME_TYPES
+            or normalized.endswith(TEXT_MIME_PATTERNS)
+        )
+    )
 
 
 def is_binary_content(mime_type: str) -> bool:
@@ -88,12 +90,14 @@ def is_binary_content(mime_type: str) -> bool:
 
 def is_image_mime_type(mime_type: str) -> bool:
     """Check if a MIME type represents an image."""
-    return mime_type.startswith("image/") and mime_type != "image/svg+xml"
+    normalized = normalize_mime_type(mime_type)
+    return bool(normalized and normalized.startswith("image/") and normalized != "image/svg+xml")
 
 
 def is_document_mime_type(mime_type: str) -> bool:
     """Check if a MIME type represents a document attachment."""
-    return mime_type in DOCUMENT_MIME_TYPES
+    normalized = normalize_mime_type(mime_type)
+    return normalized in DOCUMENT_MIME_TYPES
 
 
 # Common reference mapping and normalization helpers
@@ -118,7 +122,7 @@ def normalize_mime_type(mime: str | None) -> str | None:
     if not mime:
         return None
 
-    m = mime.strip().lower()
+    m = strip_casefold(mime)
 
     # If it's an alias we know about
     if m in _MIME_ALIASES:

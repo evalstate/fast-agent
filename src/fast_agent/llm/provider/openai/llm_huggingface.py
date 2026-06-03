@@ -90,6 +90,17 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if moved or extra_body:
             arguments["extra_body"] = extra_body
 
+    @staticmethod
+    def _set_chat_template_kwarg(
+        extra_body: dict[str, Any],
+        key: str,
+        value: bool,
+    ) -> None:
+        chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
+        chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
+        chat_kwargs[key] = value
+        extra_body["chat_template_kwargs"] = chat_kwargs
+
     def _apply_reasoning_toggle(self, arguments: dict[str, Any]) -> None:
         spec = self.reasoning_effort_spec
         if not spec or spec.kind != "toggle":
@@ -122,21 +133,19 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
                 extra_body["thinking"] = {"type": "disabled"}
                 arguments["extra_body"] = extra_body
             return
-        elif uses_kimi_26_chat_toggle:
+        if uses_kimi_26_chat_toggle:
             # Kimi 2.6 also defaults to thinking-enabled on the provider side.
             # Instant mode is exposed via the model chat template toggle.
             if disable_reasoning:
-                chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
-                chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
-                chat_kwargs["thinking"] = False
-                extra_body["chat_template_kwargs"] = chat_kwargs
+                self._set_chat_template_kwarg(extra_body, "thinking", False)
                 arguments["extra_body"] = extra_body
             return
-        elif uses_qwen_chat_toggle:
-            chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
-            chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
-            chat_kwargs["enable_thinking"] = not disable_reasoning
-            extra_body["chat_template_kwargs"] = chat_kwargs
+        if uses_qwen_chat_toggle:
+            self._set_chat_template_kwarg(
+                extra_body,
+                "enable_thinking",
+                not disable_reasoning,
+            )
         else:
             extra_body["disable_reasoning"] = disable_reasoning
         arguments["extra_body"] = extra_body

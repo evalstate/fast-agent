@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fast_agent.interfaces import AgentProtocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from rich.text import Text
 
     from fast_agent.config import MCPServerSettings

@@ -1,6 +1,7 @@
 """Tests for instruction building and refresh utilities."""
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
@@ -149,6 +150,80 @@ def test_build_instruction_with_context() -> None:
     template = "Root: {{workspaceRoot}}"
     result = asyncio.run(build_instruction(template, context={"workspaceRoot": "/test/path"}))
     assert result == "Root: /test/path"
+
+
+def test_build_instruction_resolves_file_placeholder(tmp_path: Path) -> None:
+    instruction_file = tmp_path / "instructions.md"
+    instruction_file.write_text("Read me", encoding="utf-8")
+
+    result = asyncio.run(
+        build_instruction(
+            "Context: {{file:instructions.md}}",
+            context={"workspaceRoot": str(tmp_path)},
+        )
+    )
+
+    assert result == "Context: Read me"
+
+
+def test_build_instruction_normalizes_padded_file_placeholder(tmp_path: Path) -> None:
+    instruction_file = tmp_path / "instructions.md"
+    instruction_file.write_text("Read me", encoding="utf-8")
+
+    result = asyncio.run(
+        build_instruction(
+            "Context: {{file:  instructions.md  }}",
+            context={"workspaceRoot": str(tmp_path)},
+        )
+    )
+
+    assert result == "Context: Read me"
+
+
+def test_build_instruction_silent_file_placeholder_returns_empty_for_missing(
+    tmp_path: Path,
+) -> None:
+    result = asyncio.run(
+        build_instruction(
+            "Context: {{file_silent:missing.md}}",
+            context={"workspaceRoot": str(tmp_path)},
+        )
+    )
+
+    assert result == "Context: "
+
+
+def test_build_instruction_rejects_absolute_file_placeholder(tmp_path: Path) -> None:
+    absolute_path = tmp_path / "instructions.md"
+
+    try:
+        asyncio.run(build_instruction(f"{{{{file:{absolute_path}}}}}"))
+    except ValueError as exc:
+        assert "must be relative" in str(exc)
+    else:
+        raise AssertionError("absolute file placeholder should fail")
+
+
+def test_build_instruction_falls_back_for_agent_directory_in_cwd(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    cwd = tmp_path / "cwd"
+    workspace.mkdir()
+    fallback_file = cwd / ".fast-agent" / "agents" / "reviewer.md"
+    fallback_file.parent.mkdir(parents=True)
+    fallback_file.write_text("Fallback instructions", encoding="utf-8")
+    monkeypatch.chdir(cwd)
+
+    result = asyncio.run(
+        build_instruction(
+            "{{file:.fast-agent/agents/reviewer.md}}",
+            context={"workspaceRoot": str(workspace)},
+        )
+    )
+
+    assert result == "Fallback instructions"
 
 
 def test_build_instruction_with_model_specific_context() -> None:

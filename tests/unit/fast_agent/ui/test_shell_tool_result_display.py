@@ -1,9 +1,12 @@
-from mcp.types import CallToolResult, TextContent
+from types import SimpleNamespace
+
+from mcp.types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.shell_output_truncation import SHELL_OUTPUT_TRUNCATION_MARKER
+from fast_agent.ui.tool_display import ToolDisplay
 
 
 def test_shell_tool_result_uses_styled_exit_line() -> None:
@@ -108,6 +111,21 @@ def test_shell_tool_result_parallel_deferred_uses_source_line_count() -> None:
     assert "12 lines" in rendered
 
 
+def test_shell_tool_result_tolerates_lightweight_config_without_shell_settings() -> None:
+    display = ConsoleDisplay(config=SimpleNamespace())
+    result = CallToolResult(
+        content=[TextContent(type="text", text="hello\nprocess exit code was 0")],
+        isError=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="execute")
+
+    rendered = capture.get()
+    assert "hello" in rendered
+    assert "exit code 0" in rendered
+
+
 def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
     display = ConsoleDisplay()
     result = CallToolResult(
@@ -133,6 +151,59 @@ def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
     assert "TextContent(" not in rendered
     assert "text only" in rendered
     assert "TextContent mismatch" not in rendered
+
+
+def test_default_tool_result_status_pluralizes_text_blocks() -> None:
+    result = CallToolResult(
+        content=[
+            TextContent(type="text", text="a"),
+            TextContent(type="text", text="b"),
+        ],
+        isError=False,
+    )
+
+    assert ToolDisplay._default_tool_result_status(ToolDisplay(ConsoleDisplay()), result) == "2 Text Blocks"
+
+
+def test_default_tool_result_status_formats_text_only_char_count() -> None:
+    display = ToolDisplay(ConsoleDisplay())
+
+    assert (
+        ToolDisplay._default_tool_result_status(
+            display,
+            CallToolResult(content=[TextContent(type="text", text="")], isError=False),
+        )
+        == "text only 0 chars"
+    )
+    assert (
+        ToolDisplay._default_tool_result_status(
+            display,
+            CallToolResult(content=[TextContent(type="text", text="x")], isError=False),
+        )
+        == "text only 1 char"
+    )
+    assert (
+        ToolDisplay._default_tool_result_status(
+            display,
+            CallToolResult(content=[TextContent(type="text", text="xy")], isError=False),
+        )
+        == "text only 2 chars"
+    )
+
+
+def test_default_tool_result_status_pluralizes_mixed_content_blocks() -> None:
+    result = CallToolResult(
+        content=[
+            TextContent(type="text", text="a"),
+            ImageContent(type="image", data="abc", mimeType="image/png"),
+        ],
+        isError=False,
+    )
+
+    assert (
+        ToolDisplay._default_tool_result_status(ToolDisplay(ConsoleDisplay()), result)
+        == "2 Content Blocks"
+    )
 
 
 def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> None:
@@ -188,3 +259,50 @@ def test_structured_tool_result_shows_transport_timing_and_structured_footer() -
     assert "HTTP (JSON-RPC)" in rendered
     assert "1.50s" in rendered
     assert "Structured ■" in rendered
+
+
+def test_structured_tool_result_shows_unknown_transport_label_uppercase() -> None:
+    display = ConsoleDisplay()
+    result = CallToolResult(
+        content=[TextContent(type="text", text="ok")],
+        structuredContent={"ok": True},
+        isError=False,
+    )
+    setattr(result, "transport_channel", "custom")
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="demo_tool", timing_ms=12)
+
+    assert "CUSTOM" in capture.get()
+
+
+def test_tool_result_display_metadata_filters_unexpected_attribute_types() -> None:
+    display = ToolDisplay(ConsoleDisplay())
+    result = CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
+    setattr(result, "read_text_file_path", 123)
+    setattr(result, "read_text_file_line", "1")
+    setattr(result, "read_text_file_limit", True)
+    setattr(result, "transport_channel", "   ")
+    setattr(result, "output_line_count", 0)
+
+    metadata = display._tool_result_display_metadata(result)
+
+    assert metadata.read_text_file_path is None
+    assert metadata.read_text_file_line is None
+    assert metadata.read_text_file_limit is None
+    assert metadata.transport_channel is None
+    assert metadata.output_line_count is None
+
+
+def test_tool_result_display_metadata_accepts_positive_int_attributes() -> None:
+    display = ToolDisplay(ConsoleDisplay())
+    result = CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
+    setattr(result, "read_text_file_line", 1)
+    setattr(result, "read_text_file_limit", 30)
+    setattr(result, "output_line_count", 2)
+
+    metadata = display._tool_result_display_metadata(result)
+
+    assert metadata.read_text_file_line == 1
+    assert metadata.read_text_file_limit == 30
+    assert metadata.output_line_count == 2

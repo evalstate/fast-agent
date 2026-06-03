@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
-from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.agent_app import AgentApp, _format_interactive_final_error
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
@@ -11,6 +11,12 @@ class _Agent:
     def __init__(self, name: str, *, default: bool = False) -> None:
         self.name = name
         self.config = SimpleNamespace(default=default)
+
+
+def test_format_interactive_final_error_uses_type_when_message_is_blank() -> None:
+    text = _format_interactive_final_error(ValueError("   "))
+
+    assert "Error details: ValueError" in text
 
 
 def test_get_default_agent_name_prefers_explicit_non_tool_default() -> None:

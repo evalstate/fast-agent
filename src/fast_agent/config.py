@@ -6,6 +6,7 @@ for the application configuration.
 import os
 import re
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -36,10 +37,72 @@ from fast_agent.mcp.provider_management import (
     normalize_client_managed_url_server,
     normalize_connector_id,
     normalize_provider_managed_url_server,
+    validate_provider_managed_server_settings,
 )
+from fast_agent.mcp.ui_modes import McpUIMode
+from fast_agent.types.streaming import StreamingMode
+from fast_agent.utils.action_normalization import (
+    FALSE_ACTION_ALIASES,
+    TRUE_ACTION_ALIASES,
+    normalize_action_token,
+    on_off_label,
+)
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.numeric import int_or_none
+from fast_agent.utils.text import strip_casefold, strip_str_to_none
+from fast_agent.utils.transports import McpClientTransport
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
 type TerminalImageSize = int | Literal["auto"] | str | None
+type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch"]
+
+SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
+    "auto",
+    "on",
+    "off",
+    "apply_patch",
+)
+SHELL_WRITE_TEXT_FILE_MODE_HELP = "|".join(SHELL_WRITE_TEXT_FILE_MODES)
+_SHELL_WRITE_TEXT_FILE_MODE_ALIASES: dict[str, ShellWriteTextFileMode] = {
+    **{mode: mode for mode in SHELL_WRITE_TEXT_FILE_MODES},
+    **{alias: "on" for alias in TRUE_ACTION_ALIASES},
+    **{alias: "off" for alias in FALSE_ACTION_ALIASES},
+}
+
+
+def _normalized_config_token(value: str) -> tuple[str, str]:
+    stripped = value.strip()
+    return stripped, normalize_action_token(stripped)
+
+
+def normalize_shell_write_text_file_mode(value: Any) -> ShellWriteTextFileMode | None:
+    if value is None:
+        return None
+
+    if isinstance(value, bool):
+        return on_off_label(value)
+
+    if isinstance(value, str):
+        _, normalized = _normalized_config_token(value)
+        return _SHELL_WRITE_TEXT_FILE_MODE_ALIASES.get(normalized)
+
+    return None
+
+
+def _has_nonblank(value: Any) -> bool:
+    return value is not None and bool(str(value).strip())
+
+
+def _reject_bool_integer_field(value: Any, *, field_name: str) -> Any:
+    if isinstance(value, bool):
+        raise TypeError(f"{field_name} must be an integer.")
+    return value
+
+
+def _reject_bool_number_field(value: Any, *, field_name: str) -> Any:
+    if isinstance(value, bool):
+        raise TypeError(f"{field_name} must be a number.")
+    return value
 
 
 class MCPServerAuthSettings(BaseModel):
@@ -72,6 +135,11 @@ class MCPServerAuthSettings(BaseModel):
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
+    @field_validator("redirect_port", mode="before")
+    @classmethod
+    def _reject_bool_redirect_port(cls, value: Any) -> Any:
+        return _reject_bool_integer_field(value, field_name="redirect_port")
+
     @field_validator("client_metadata_url", mode="after")
     @classmethod
     def _validate_client_metadata_url(cls, v: str | None) -> str | None:
@@ -90,7 +158,7 @@ class MCPServerAuthSettings(BaseModel):
         except ValueError:
             raise
         except Exception as e:
-            raise ValueError(f"Invalid client_metadata_url: {e}")
+            raise ValueError(f"Invalid client_metadata_url: {e}") from e
 
 
 class MCPSamplingSettings(BaseModel):
@@ -125,7 +193,7 @@ class MCPTimelineSettings(BaseModel):
         if not match:
             raise ValueError("Expected duration in seconds (e.g. 30, '45s', '2m').")
         amount = int(match.group(1))
-        unit = match.group(2).lower()
+        unit = strip_casefold(match.group(2))
         multiplier = {
             "": 1,
             "s": 1,
@@ -140,6 +208,8 @@ class MCPTimelineSettings(BaseModel):
     @field_validator("steps", mode="before")
     @classmethod
     def _coerce_steps(cls, value: Any) -> int:
+        if isinstance(value, bool):
+            raise TypeError("Timeline steps must be an integer.")
         if isinstance(value, str):
             if not value.strip().isdigit():
                 raise ValueError("Timeline steps must be a positive integer.")
@@ -239,7 +309,7 @@ class ShellSettings(BaseModel):
             "validation; 'off' disables it."
         ),
     )
-    write_text_file_mode: Literal["auto", "on", "off", "apply_patch"] | None = Field(
+    write_text_file_mode: ShellWriteTextFileMode | None = Field(
         default=None,
         description=(
             "Control which local file edit tool is exposed when shell runtime is enabled "
@@ -265,6 +335,7 @@ class ShellSettings(BaseModel):
     @classmethod
     def _coerce_timeout(cls, value: Any) -> int:
         """Support duration strings like '90s', '2m', '1h'"""
+        _reject_bool_integer_field(value, field_name="timeout_seconds")
         if isinstance(value, str):
             return MCPTimelineSettings._parse_duration(value)
         return int(value)
@@ -273,6 +344,7 @@ class ShellSettings(BaseModel):
     @classmethod
     def _coerce_warning_interval(cls, value: Any) -> int:
         """Support duration strings like '30s', '1m'"""
+        _reject_bool_integer_field(value, field_name="warning_interval_seconds")
         if isinstance(value, str):
             return MCPTimelineSettings._parse_duration(value)
         return int(value)
@@ -282,6 +354,7 @@ class ShellSettings(BaseModel):
     def _coerce_output_display_lines(cls, value: Any) -> int | None:
         if value is None:
             return None
+        _reject_bool_integer_field(value, field_name="output_display_lines")
         if isinstance(value, str):
             stripped = value.strip()
             if stripped == "":
@@ -295,32 +368,22 @@ class ShellSettings(BaseModel):
             raise ValueError("output_display_lines must be a non-negative integer.")
         return value
 
-    @field_validator("write_text_file_mode", mode="before")
+    @field_validator("output_byte_limit", mode="before")
     @classmethod
-    def _coerce_write_text_file_mode(
-        cls, value: Any
-    ) -> Literal["auto", "on", "off", "apply_patch"] | None:
+    def _coerce_output_byte_limit(cls, value: Any) -> int | None:
         if value is None:
             return None
-
-        if isinstance(value, bool):
-            return "on" if value else "off"
-
+        _reject_bool_integer_field(value, field_name="output_byte_limit")
         if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized == "auto":
-                return "auto"
-            if normalized == "on":
-                return "on"
-            if normalized == "off":
-                return "off"
-            if normalized == "apply_patch":
-                return "apply_patch"
-            if normalized in {"true", "yes", "1"}:
-                return "on"
-            if normalized in {"false", "no", "0"}:
-                return "off"
+            return int(value.strip())
+        return int(value)
 
+    @field_validator("write_text_file_mode", mode="before")
+    @classmethod
+    def _coerce_write_text_file_mode(cls, value: Any) -> ShellWriteTextFileMode | None:
+        normalized = normalize_shell_write_text_file_mode(value)
+        if normalized is not None or value is None:
+            return normalized
         raise ValueError("write_text_file_mode must be one of: auto, on, off, apply_patch")
 
 
@@ -361,7 +424,7 @@ class MCPServerSettings(BaseModel):
     management: Literal["client", "provider"] = "client"
     """Whether fast-agent connects locally or delegates MCP execution to the provider."""
 
-    transport: Literal["stdio", "sse", "http"] = "stdio"
+    transport: McpClientTransport = "stdio"
     """The transport mechanism."""
 
     command: str | None = None
@@ -443,6 +506,18 @@ class MCPServerSettings(BaseModel):
     defer_loading: bool = False
     """Provider-managed OpenAI Responses hint to defer remote tool loading."""
 
+    @field_validator(
+        "read_timeout_seconds",
+        "ping_interval_seconds",
+        "http_timeout_seconds",
+        "http_read_timeout_seconds",
+        "read_transport_sse_timeout_seconds",
+        mode="before",
+    )
+    @classmethod
+    def _reject_bool_timeout_value(cls, value: Any) -> Any:
+        return _reject_bool_integer_field(value, field_name="MCP timeout fields")
+
     @field_validator("experimental_session_advertise_version", mode="after")
     @classmethod
     def _validate_experimental_session_advertise_version(cls, value: int) -> int:
@@ -453,6 +528,8 @@ class MCPServerSettings(BaseModel):
     @field_validator("max_missed_pings", mode="before")
     @classmethod
     def _coerce_max_missed_pings(cls, value: Any) -> int:
+        if isinstance(value, bool):
+            raise TypeError("max_missed_pings must be an integer.")
         if isinstance(value, str):
             value = int(value.strip())
         value = int(value)
@@ -482,79 +559,54 @@ class MCPServerSettings(BaseModel):
     @classmethod
     def validate_transport_inference(cls, values):
         """Automatically infer transport type based on url/command presence."""
-        import warnings
+        if not isinstance(values, dict) or "transport" in values:
+            return values
 
-        if isinstance(values, dict):
-            # Check if transport was explicitly provided in the input
-            transport_explicit = "transport" in values
-            url = values.get("url")
-            command = values.get("command")
+        url = values.get("url")
+        command = values.get("command")
+        has_url = _has_nonblank(url)
+        has_command = _has_nonblank(command)
 
-            # Only infer if transport was not explicitly set
-            if not transport_explicit:
-                # Check if we have both url and command specified
-                has_url = url is not None and str(url).strip()
-                has_command = command is not None and str(command).strip()
-
-                if has_url and has_command:
-                    warnings.warn(
-                        f"MCP Server config has both 'url' ({url}) and 'command' ({command}) specified. "
-                        "Preferring HTTP transport and ignoring command.",
-                        UserWarning,
-                        stacklevel=4,
-                    )
-                    values["transport"] = "http"
-                    values["command"] = None  # Clear command to avoid confusion
-                elif has_url and not has_command:
-                    values["transport"] = "http"
-                elif has_command and not has_url:
-                    # Keep default "stdio" for command-based servers
-                    values["transport"] = "stdio"
-                # If neither url nor command is specified, keep default "stdio"
+        if has_url:
+            if has_command:
+                warnings.warn(
+                    f"MCP Server config has both 'url' ({url}) and 'command' ({command}) specified. "
+                    "Preferring HTTP transport and ignoring command.",
+                    UserWarning,
+                    stacklevel=4,
+                )
+                values["command"] = None
+            values["transport"] = "http"
+        elif has_command:
+            values["transport"] = "stdio"
 
         return values
 
     @model_validator(mode="after")
     def _normalize_management_specific_settings(self) -> "MCPServerSettings":
         if self.management == "provider":
-            has_url = bool(self.url)
-            has_connector_id = self.connector_id is not None
-            if has_url == has_connector_id:
+            validation = validate_provider_managed_server_settings(self)
+            if not validation.has_exactly_one_source():
                 raise ValueError(
                     "Provider-managed MCP servers require exactly one of url or connector_id"
                 )
 
-            invalid_fields: list[str] = []
-            if self.command is not None:
-                invalid_fields.append("command")
-            if self.args:
-                invalid_fields.append("args")
-            if self.env:
-                invalid_fields.append("env")
-            if self.cwd is not None:
-                invalid_fields.append("cwd")
-            if self.headers:
-                invalid_fields.append("headers")
-            if self.auth is not None:
-                invalid_fields.append("auth")
-            if self.roots:
-                invalid_fields.append("roots")
-            if has_url and self.transport not in {"http", "sse"}:
-                invalid_fields.append("transport")
-            if has_connector_id and "transport" in self.model_fields_set:
-                invalid_fields.append("transport")
-            if invalid_fields:
-                invalid_list = ", ".join(sorted(invalid_fields))
+            if validation.invalid_fields:
+                invalid_list = ", ".join(validation.invalid_fields)
                 raise ValueError(
                     f"Provider-managed MCP servers have unsupported settings: {invalid_list}"
                 )
-            if has_connector_id and self.access_token is None:
+            if validation.missing_connector_access_token:
                 raise ValueError("Provider-managed connectors require access_token")
-            if has_url:
-                assert self.url is not None
+            if validation.has_url:
+                provider_url = self.url
+                if provider_url is None:
+                    raise ValueError(
+                        "Provider-managed URL servers require url"
+                    )
                 self.url = normalize_provider_managed_url_server(
                     transport=self.transport,
-                    url=self.url,
+                    url=provider_url,
                 )
             return self
 
@@ -565,19 +617,21 @@ class MCPServerSettings(BaseModel):
             raise ValueError("access_token requires a URL-based MCP server")
 
         if self.url:
-            self.url, self.headers = normalize_client_managed_url_server(
+            normalized_server = normalize_client_managed_url_server(
                 transport=self.transport,
                 url=self.url,
                 headers=self.headers,
                 access_token=self.access_token,
             )
+            self.url = normalized_server.url
+            self.headers = normalized_server.headers
         return self
 
 
 class MCPSettings(BaseModel):
     """Configuration for all MCP servers."""
 
-    servers: dict[str, MCPServerSettings] = {}
+    servers: dict[str, MCPServerSettings] = Field(default_factory=dict)
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
     @staticmethod
@@ -599,7 +653,7 @@ class MCPSettings(BaseModel):
                     for key, value in headers.items()
                     if not (
                         isinstance(key, str)
-                        and key.lower() == "authorization"
+                        and strip_casefold(key) == "authorization"
                         and value == expected_authorization
                     )
                 }
@@ -629,39 +683,38 @@ class MCPSettings(BaseModel):
             else:
                 raise ValueError(f"`mcp.targets[{index}]` must be a string or mapping")
 
-            target_value = entry.get("target")
+            target_value = strip_str_to_none(entry.get("target"))
             source_path = f"mcp.targets[{index}].target"
-            if not isinstance(target_value, str) or not target_value.strip():
+            if target_value is None:
                 raise ValueError(f"`{source_path}` must be a non-empty string")
 
-            name_value = entry.get("name")
-            if name_value is not None and (
-                not isinstance(name_value, str) or not name_value.strip()
-            ):
+            raw_name = entry.get("name")
+            name_value = strip_str_to_none(raw_name)
+            if raw_name is not None and name_value is None:
                 raise ValueError(f"`mcp.targets[{index}].name` must be a non-empty string")
 
             overrides = {key: value for key, value in entry.items() if key != "target"}
-            resolved_name, resolved_settings = resolve_target_entry(
+            resolved_entry = resolve_target_entry(
                 target=target_value,
-                default_name=name_value if isinstance(name_value, str) else None,
+                default_name=name_value,
                 overrides=overrides,
                 source_path=source_path,
             )
 
-            resolved_payload = cls._serialize_resolved_target_settings(resolved_settings)
-            existing_payload = normalized_targets.get(resolved_name)
+            resolved_payload = cls._serialize_resolved_target_settings(resolved_entry.settings)
+            existing_payload = normalized_targets.get(resolved_entry.server_name)
             if existing_payload is not None and existing_payload != resolved_payload:
                 raise ValueError(
                     " ".join(
                         [
-                            f"`mcp.targets[{index}]` resolves to duplicate server name '{resolved_name}'",
+                            f"`mcp.targets[{index}]` resolves to duplicate server name '{resolved_entry.server_name}'",
                             "with different settings.",
                             "Set an explicit unique `name`.",
                         ]
                     )
                 )
 
-            normalized_targets[resolved_name] = resolved_payload
+            normalized_targets[resolved_entry.server_name] = resolved_payload
 
         return normalized_targets
 
@@ -685,19 +738,19 @@ class MCPSettings(BaseModel):
 
             source_name = str(server_key)
             source_path = f"mcp.servers.{source_name}.target"
-            target_value = raw_entry.get("target")
-            if not isinstance(target_value, str) or not target_value.strip():
+            target_value = strip_str_to_none(raw_entry.get("target"))
+            if target_value is None:
                 raise ValueError(f"`{source_path}` must be a non-empty string")
 
             overrides = {key: value for key, value in raw_entry.items() if key != "target"}
-            _resolved_name, resolved_settings = resolve_target_entry(
+            resolved_entry = resolve_target_entry(
                 target=target_value,
                 default_name=source_name,
                 overrides=overrides,
                 source_path=source_path,
             )
             normalized_servers[server_key] = cls._serialize_resolved_target_settings(
-                resolved_settings
+                resolved_entry.settings
             )
 
         return normalized_servers
@@ -734,11 +787,11 @@ def _validate_domain_list(domains: list[str] | None) -> list[str] | None:
         return None
 
     normalized: list[str] = []
-    seen: set[str] = set()
     for raw_domain in domains:
-        domain = (raw_domain or "").strip().lower()
-        if not domain:
+        domain_value = strip_str_to_none(raw_domain)
+        if domain_value is None:
             raise ValueError("Domain entries must be non-empty strings.")
+        domain = strip_casefold(domain_value)
         if "://" in domain:
             raise ValueError("Domain entries must not include URL schemes.")
         if any(char in domain for char in ("/", "?", "#", "@", " ")):
@@ -756,11 +809,31 @@ def _validate_domain_list(domains: list[str] | None) -> list[str] | None:
             raise ValueError(f"Invalid domain entry: '{raw_domain}'.")
 
         normalized_domain = f"*.{domain}" if wildcard else domain
-        if normalized_domain not in seen:
-            seen.add(normalized_domain)
-            normalized.append(normalized_domain)
+        normalized.append(normalized_domain)
 
+    return unique_preserve_order(normalized)
+
+
+def _validate_domain_list_limit(
+    domains: list[str] | None,
+    *,
+    max_count: int,
+    error_message: str,
+) -> list[str] | None:
+    normalized = _validate_domain_list(domains)
+    if normalized is not None and len(normalized) > max_count:
+        raise ValueError(error_message)
     return normalized
+
+
+def _validate_mutually_exclusive_domain_filters(
+    first: list[str] | None,
+    second: list[str] | None,
+    *,
+    error_message: str,
+) -> None:
+    if first and second:
+        raise ValueError(error_message)
 
 
 class AnthropicUserLocationSettings(BaseModel):
@@ -782,6 +855,11 @@ class AnthropicWebSearchSettings(BaseModel):
     blocked_domains: list[str] | None = None
     user_location: AnthropicUserLocationSettings | None = None
 
+    @field_validator("max_uses", mode="before")
+    @classmethod
+    def _reject_bool_max_uses(cls, value: Any) -> Any:
+        return _reject_bool_integer_field(value, field_name="max_uses")
+
     @field_validator("max_uses")
     @classmethod
     def _validate_max_uses(cls, value: int | None) -> int | None:
@@ -796,8 +874,11 @@ class AnthropicWebSearchSettings(BaseModel):
 
     @model_validator(mode="after")
     def _validate_domain_xor(self) -> "AnthropicWebSearchSettings":
-        if self.allowed_domains and self.blocked_domains:
-            raise ValueError("allowed_domains and blocked_domains are mutually exclusive.")
+        _validate_mutually_exclusive_domain_filters(
+            self.allowed_domains,
+            self.blocked_domains,
+            error_message="allowed_domains and blocked_domains are mutually exclusive.",
+        )
         return self
 
 
@@ -810,6 +891,16 @@ class AnthropicWebFetchSettings(BaseModel):
     blocked_domains: list[str] | None = None
     citations_enabled: bool = False
     max_content_tokens: int | None = None
+
+    @field_validator("max_uses", mode="before")
+    @classmethod
+    def _reject_bool_max_uses(cls, value: Any) -> Any:
+        return _reject_bool_integer_field(value, field_name="max_uses")
+
+    @field_validator("max_content_tokens", mode="before")
+    @classmethod
+    def _reject_bool_max_content_tokens(cls, value: Any) -> Any:
+        return _reject_bool_integer_field(value, field_name="max_content_tokens")
 
     @field_validator("max_uses", "max_content_tokens")
     @classmethod
@@ -825,8 +916,11 @@ class AnthropicWebFetchSettings(BaseModel):
 
     @model_validator(mode="after")
     def _validate_domain_xor(self) -> "AnthropicWebFetchSettings":
-        if self.allowed_domains and self.blocked_domains:
-            raise ValueError("allowed_domains and blocked_domains are mutually exclusive.")
+        _validate_mutually_exclusive_domain_filters(
+            self.allowed_domains,
+            self.blocked_domains,
+            error_message="allowed_domains and blocked_domains are mutually exclusive.",
+        )
         return self
 
 
@@ -919,10 +1013,11 @@ class OpenAIWebSearchSettings(BaseModel):
     @field_validator("allowed_domains")
     @classmethod
     def _validate_allowed_domains(cls, value: list[str] | None) -> list[str] | None:
-        normalized = _validate_domain_list(value)
-        if normalized is not None and len(normalized) > 100:
-            raise ValueError("allowed_domains supports at most 100 domains.")
-        return normalized
+        return _validate_domain_list_limit(
+            value,
+            max_count=100,
+            error_message="allowed_domains supports at most 100 domains.",
+        )
 
 
 class XAIWebSearchSettings(OpenAIWebSearchSettings):
@@ -941,23 +1036,28 @@ class XAIWebSearchSettings(OpenAIWebSearchSettings):
     @field_validator("allowed_domains")
     @classmethod
     def _validate_xai_allowed_domains(cls, value: list[str] | None) -> list[str] | None:
-        normalized = _validate_domain_list(value)
-        if normalized is not None and len(normalized) > 5:
-            raise ValueError("xAI allowed_domains supports at most 5 domains.")
-        return normalized
+        return _validate_domain_list_limit(
+            value,
+            max_count=5,
+            error_message="xAI allowed_domains supports at most 5 domains.",
+        )
 
     @field_validator("excluded_domains")
     @classmethod
     def _validate_excluded_domains(cls, value: list[str] | None) -> list[str] | None:
-        normalized = _validate_domain_list(value)
-        if normalized is not None and len(normalized) > 5:
-            raise ValueError("xAI excluded_domains supports at most 5 domains.")
-        return normalized
+        return _validate_domain_list_limit(
+            value,
+            max_count=5,
+            error_message="xAI excluded_domains supports at most 5 domains.",
+        )
 
     @model_validator(mode="after")
     def _validate_domain_filters(self) -> "XAIWebSearchSettings":
-        if self.allowed_domains and self.excluded_domains:
-            raise ValueError("xAI web_search cannot set both allowed_domains and excluded_domains.")
+        _validate_mutually_exclusive_domain_filters(
+            self.allowed_domains,
+            self.excluded_domains,
+            error_message="xAI web_search cannot set both allowed_domains and excluded_domains.",
+        )
         return self
 
 
@@ -1223,6 +1323,11 @@ class OpenTelemetrySettings(BaseModel):
         description="Sample rate for tracing (1.0 = sample everything)",
     )
 
+    @field_validator("sample_rate", mode="before")
+    @classmethod
+    def _reject_bool_sample_rate(cls, value: Any) -> Any:
+        return _reject_bool_number_field(value, field_name="sample_rate")
+
 
 class TensorZeroSettings(BaseModel):
     """Settings for using TensorZero LLM gateway."""
@@ -1327,15 +1432,16 @@ class TerminalImageSettings(BaseModel):
     def _validate_image_size(cls, value: Any) -> TerminalImageSize:
         if value is None:
             return None
-        if isinstance(value, int) and not isinstance(value, bool):
+        if (int_value := int_or_none(value)) is not None:
+            value = int_value
             if value < 0:
                 raise ValueError("terminal image size must be non-negative")
             return value
         if isinstance(value, str):
-            stripped = value.strip()
-            if stripped == "" or stripped.lower() in {"none", "null"}:
+            stripped, normalized = _normalized_config_token(value)
+            if normalized in {"", "none", "null"}:
                 return None
-            if stripped == "auto":
+            if normalized == "auto":
                 return "auto"
             if stripped.endswith("%") and stripped[:-1].isdecimal():
                 return stripped
@@ -1391,6 +1497,16 @@ class LoggerSettings(BaseModel):
     http_timeout: float = 5.0
     """HTTP timeout seconds for event transport"""
 
+    @field_validator("batch_size", "max_queue_size", mode="before")
+    @classmethod
+    def _reject_bool_integer_controls(cls, value: Any) -> Any:
+        return _reject_bool_integer_field(value, field_name="logger integer controls")
+
+    @field_validator("flush_interval", "http_timeout", mode="before")
+    @classmethod
+    def _reject_bool_number_controls(cls, value: Any) -> Any:
+        return _reject_bool_number_field(value, field_name="logger numeric controls")
+
     show_chat: bool = True
     """Show chat User/Assistant on the console"""
     stream_reprint_banner: bool = True
@@ -1404,7 +1520,7 @@ class LoggerSettings(BaseModel):
 
     enable_prompt_marks: bool = True
     """Emit OSC 133 prompt marks for terminals that support scrollbar markers."""
-    streaming: Literal["markdown", "plain", "none"] = "markdown"
+    streaming: StreamingMode = "markdown"
     """Streaming renderer for assistant responses"""
     theme_file: str | None = None
     """Optional Rich theme file for console styles. Relative paths resolve from fast-agent.yaml."""
@@ -1432,9 +1548,10 @@ class LoggerSettings(BaseModel):
     def _coerce_apply_patch_preview_max_lines(cls, value: Any) -> int | None:
         if value is None:
             return None
+        _reject_bool_integer_field(value, field_name="apply_patch_preview_max_lines")
         if isinstance(value, str):
-            stripped = value.strip()
-            if stripped == "" or stripped.lower() in {"none", "null", "all", "unlimited"}:
+            stripped, normalized = _normalized_config_token(value)
+            if normalized in {"", "none", "null", "all", "unlimited"}:
                 return None
             value = int(stripped)
         else:
@@ -1494,7 +1611,7 @@ def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
     import yaml  # pylint: disable=C0415
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8") as f:
             payload = yaml.safe_load(f) or {}
     except yaml.YAMLError as exc:
         raise ConfigFileError(f"Failed to parse YAML file: {path}", str(exc)) from exc
@@ -1528,6 +1645,41 @@ def load_selected_settings(
     return load_implicit_settings(start_path=start_path, env_dir=env_dir, noenv=noenv)
 
 
+@dataclass(frozen=True)
+class _LoadedSettingsSources:
+    merged_settings: dict[str, Any]
+    discovery: ConfigDiscoveryResult
+    config_file: Path | None
+    secrets_file: Path | None
+    config_sources: list[tuple[Path, dict[str, Any]]]
+
+
+def _plugin_settings_mapping(settings: dict[str, Any]) -> dict[str, Any] | None:
+    plugins = settings.get("plugins")
+    if isinstance(plugins, dict):
+        return plugins
+    return None
+
+
+def _enabled_plugin_names(*plugin_sources: dict[str, Any]) -> list[str]:
+    enabled: list[str] = []
+    for source in plugin_sources:
+        raw_enabled = source.get("enabled")
+        if not isinstance(raw_enabled, list):
+            continue
+        for item in raw_enabled:
+            if not isinstance(item, str):
+                continue
+            plugin_name = item.strip()
+            if plugin_name and plugin_name not in enabled:
+                enabled.append(plugin_name)
+    return enabled
+
+
+def _is_active_config(config_path: Path, active_config_file: Path | None) -> bool:
+    return active_config_file is not None and config_path.resolve() == active_config_file.resolve()
+
+
 def _merge_home_plugin_settings(
     settings: dict[str, Any],
     *,
@@ -1545,27 +1697,19 @@ def _merge_home_plugin_settings(
     home_config = find_config_in_directory(global_plugin_home)
     if home_config is None:
         return settings
-    if active_config_file is not None and home_config.resolve() == active_config_file.resolve():
+    if _is_active_config(home_config, active_config_file):
         return settings
 
     home_settings = load_yaml_mapping(home_config)
-    home_plugins = home_settings.get("plugins")
-    if not isinstance(home_plugins, dict):
+    home_plugins = _plugin_settings_mapping(home_settings)
+    if home_plugins is None:
         return settings
 
     merged = dict(settings)
-    active_plugins = merged.get("plugins")
-    if not isinstance(active_plugins, dict):
-        active_plugins = {}
+    active_plugins = _plugin_settings_mapping(merged) or {}
 
     plugin_settings = deep_merge(home_plugins, active_plugins)
-    enabled: list[str] = []
-    for source in (home_plugins, active_plugins):
-        raw_enabled = source.get("enabled")
-        if isinstance(raw_enabled, list):
-            for item in raw_enabled:
-                if isinstance(item, str) and item.strip() and item.strip() not in enabled:
-                    enabled.append(item.strip())
+    enabled = _enabled_plugin_names(home_plugins, active_plugins)
     if enabled:
         plugin_settings["enabled"] = enabled
 
@@ -1625,16 +1769,47 @@ def load_layered_model_settings(
     ``model_references`` uses deep-merge semantics, while ``default_model`` uses
     scalar replacement semantics.
     """
-    layered_settings, _ = load_selected_settings(start_path=start_path, env_dir=env_dir)
     layered: dict[str, Any] = {}
 
-    if "default_model" in layered_settings:
-        layered["default_model"] = layered_settings["default_model"]
+    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
+    project_config = find_config_in_directory(start_path)
+    env_config = find_config_in_directory(home.path) if home is not None else None
 
-    if "model_references" in layered_settings:
-        layered["model_references"] = layered_settings["model_references"]
+    config_paths: list[Path] = []
+    for config_path in (project_config, env_config):
+        if config_path is not None and config_path not in config_paths:
+            config_paths.append(config_path)
+
+    for config_path in config_paths:
+        model_settings = _model_settings_from_mapping(load_yaml_mapping(config_path))
+        layered = _merge_model_layer(layered, model_settings)
 
     return layered
+
+
+def _model_settings_from_mapping(settings: dict[str, Any]) -> dict[str, Any]:
+    model_settings: dict[str, Any] = {}
+    if "default_model" in settings:
+        model_settings["default_model"] = settings["default_model"]
+    if "model_references" in settings:
+        model_settings["model_references"] = settings["model_references"]
+    return model_settings
+
+
+def _merge_model_layer(base: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    if "default_model" in layer:
+        merged["default_model"] = layer["default_model"]
+
+    if "model_references" in layer:
+        base_references = merged.get("model_references")
+        layer_references = layer["model_references"]
+        if isinstance(base_references, dict) and isinstance(layer_references, dict):
+            merged["model_references"] = deep_merge(base_references, layer_references)
+        else:
+            merged["model_references"] = layer_references
+
+    return merged
 
 
 def _lookup_nested_mapping_value(
@@ -1662,7 +1837,7 @@ class Settings(BaseSettings):
         nested_model_default_partial_update=True,
     )  # Customize the behavior of settings here
 
-    mcp: MCPSettings | None = MCPSettings()
+    mcp: MCPSettings | None = Field(default_factory=MCPSettings)
     """MCP config, such as MCP servers"""
 
     execution_engine: Literal["asyncio"] = "asyncio"
@@ -1748,11 +1923,11 @@ class Settings(BaseSettings):
     groq: GroqSettings | None = None
     """Settings for using the Groq provider in the fast-agent application"""
 
-    logger: LoggerSettings = LoggerSettings()
+    logger: LoggerSettings = Field(default_factory=LoggerSettings)
     """Logger settings for the fast-agent application"""
 
     # MCP UI integration mode for handling ui:// embedded resources from MCP tool results
-    mcp_ui_mode: Literal["disabled", "enabled", "auto"] = "enabled"
+    mcp_ui_mode: McpUIMode = "enabled"
     """Controls handling of MCP UI embedded resources:
     - "disabled": Do not process ui:// resources
     - "enabled": Always extract ui:// resources into message channels (default)
@@ -1763,25 +1938,25 @@ class Settings(BaseSettings):
     mcp_ui_output_dir: str = ".fast-agent/ui"
     """Directory where MCP-UI HTML files are written. Relative paths are resolved from CWD."""
 
-    mcp_timeline: MCPTimelineSettings = MCPTimelineSettings()
+    mcp_timeline: MCPTimelineSettings = Field(default_factory=MCPTimelineSettings)
     """Display settings for MCP activity timelines."""
 
-    skills: SkillsSettings = SkillsSettings()
+    skills: SkillsSettings = Field(default_factory=SkillsSettings)
     """Local skills discovery and selection settings."""
 
-    cards: CardsSettings = CardsSettings()
+    cards: CardsSettings = Field(default_factory=CardsSettings)
     """Card pack registry selection settings."""
 
-    plugins: PluginsSettings = PluginsSettings()
+    plugins: PluginsSettings = Field(default_factory=PluginsSettings)
     """Command plugin selection and marketplace settings."""
 
-    tui: TUISettings = TUISettings()
+    tui: TUISettings = Field(default_factory=TUISettings)
     """Interactive TUI settings."""
 
     commands: dict[str, PluginCommandActionSpec] | None = None
     """Global plugin command actions loaded from fast-agent.yaml."""
 
-    shell_execution: ShellSettings = ShellSettings()
+    shell_execution: ShellSettings = Field(default_factory=ShellSettings)
     """Shell execution timeout and warning settings."""
 
     llm_retries: int = 2
@@ -1882,93 +2057,105 @@ def _cached_settings_match_environment_request(
     )
 
 
-def get_settings(
-    config_path: str | os.PathLike[str] | None = None,
+def _env_dir_override(env_dir: str | os.PathLike[str] | None) -> str | Path | None:
+    if env_dir is None or isinstance(env_dir, str):
+        return env_dir
+    return Path(env_dir)
+
+
+def _resolve_explicit_config_path(config_path: str | os.PathLike[str]) -> Path:
+    config_file = Path(config_path)
+    if config_file.is_absolute() or config_file.exists():
+        return config_file
+
+    resolved_path = Path.cwd() / config_file.name
+    if resolved_path.exists():
+        return resolved_path
+    return config_file
+
+
+def _load_explicit_settings_sources(
+    config_path: str | os.PathLike[str],
     *,
-    env_dir: str | os.PathLike[str] | None = None,
-    noenv: bool = False,
-) -> Settings:
-    """Get settings instance, automatically loading from config file if available."""
+    env_dir: str | Path | None,
+    noenv: bool,
+) -> _LoadedSettingsSources:
+    config_file = _resolve_explicit_config_path(config_path)
+    discovery = discover_config_files(
+        cwd=Path.cwd(),
+        home=resolve_fast_agent_home(
+            cwd=Path.cwd(),
+            cli_override=env_dir,
+            noenv=noenv,
+        ),
+        explicit_config_path=config_file,
+    )
+    secrets_file = discovery.secrets_path if config_file.exists() else None
+    merged_settings: dict[str, Any] = {}
+    config_sources: list[tuple[Path, dict[str, Any]]] = []
+    if config_file.exists():
+        merged_settings = load_yaml_mapping(config_file)
+        config_sources.append((config_file, merged_settings))
+    else:
+        print(f"Warning: Specified config file does not exist: {config_file}")
 
-    global _settings
-
-    env_dir_override = (
-        Path(env_dir) if env_dir is not None and not isinstance(env_dir, str) else env_dir
+    return _LoadedSettingsSources(
+        merged_settings=merged_settings,
+        discovery=discovery,
+        config_file=config_file,
+        secrets_file=secrets_file,
+        config_sources=config_sources,
     )
 
-    # If we have a specific config path, always reload settings
-    # This ensures each test gets its own config
-    if config_path:
-        # Reset for the new path
-        _settings = None
-    elif _settings and _cached_settings_match_environment_request(
-        _settings,
-        env_dir=env_dir_override,
+
+def _load_implicit_settings_sources(
+    *,
+    env_dir: str | Path | None,
+    noenv: bool,
+) -> _LoadedSettingsSources:
+    merged_settings, discovery = load_implicit_settings(
+        start_path=Path.cwd(),
+        env_dir=env_dir,
         noenv=noenv,
-    ):
-        # Use cached settings only for no specific path
-        return _settings
-
-    # Handle config path - convert string to Path if needed
-    config_file: Path | None
-    secrets_file: Path | None
-    merged_settings: dict[str, Any]
+    )
+    config_file = discovery.config_path
     config_sources: list[tuple[Path, dict[str, Any]]] = []
+    if config_file and config_file.exists():
+        config_sources.append((config_file, load_yaml_mapping(config_file)))
+
+    return _LoadedSettingsSources(
+        merged_settings=merged_settings,
+        discovery=discovery,
+        config_file=config_file,
+        secrets_file=discovery.secrets_path,
+        config_sources=config_sources,
+    )
+
+
+def _load_settings_sources(
+    config_path: str | os.PathLike[str] | None,
+    *,
+    env_dir: str | Path | None,
+    noenv: bool,
+) -> _LoadedSettingsSources:
     if config_path:
-        config_file = Path(config_path)
-        # If it's a relative path and doesn't exist, try finding it
-        if not config_file.is_absolute() and not config_file.exists():
-            # Try resolving against current directory first
-            resolved_path = Path.cwd() / config_file.name
-            if resolved_path.exists():
-                config_file = resolved_path
-
-        discovery = discover_config_files(
-            cwd=Path.cwd(),
-            home=resolve_fast_agent_home(
-                cwd=Path.cwd(),
-                cli_override=env_dir_override,
-                noenv=noenv,
-            ),
-            explicit_config_path=config_file,
-        )
-        secrets_file = discovery.secrets_path if config_file.exists() else None
-
-        merged_settings = {}
-        # Load main config if it exists
-        if config_file and config_file.exists():
-            merged_settings = load_yaml_mapping(config_file)
-            config_sources.append((config_file, merged_settings))
-        elif config_file and not config_file.exists():
-            print(f"Warning: Specified config file does not exist: {config_file}")
-    else:
-        merged_settings, discovery = load_implicit_settings(
-            start_path=Path.cwd(),
-            env_dir=env_dir_override,
+        return _load_explicit_settings_sources(
+            config_path,
+            env_dir=env_dir,
             noenv=noenv,
         )
-        config_file = discovery.config_path
-        secrets_file = discovery.secrets_path
-        if config_file and config_file.exists():
-            config_sources.append((config_file, load_yaml_mapping(config_file)))
+    return _load_implicit_settings_sources(env_dir=env_dir, noenv=noenv)
 
-    global_plugin_home = _resolve_global_plugin_home(noenv=noenv)
-    merged_settings = _merge_home_plugin_settings(
-        merged_settings,
-        global_plugin_home=global_plugin_home,
-        active_config_file=config_file,
-    )
 
-    # Load secrets file if found (regardless of whether config file exists)
-    if secrets_file and secrets_file.exists():
-        merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_file))
-
+def _warn_for_legacy_anthropic_reasoning_config(merged_settings: dict[str, Any]) -> None:
     legacy_keys: list[str] = []
     anthropic_settings = merged_settings.get("anthropic")
     if isinstance(anthropic_settings, dict):
-        for key in ("thinking_enabled", "thinking_budget_tokens"):
-            if key in anthropic_settings:
-                legacy_keys.append(key)
+        legacy_keys.extend(
+            key
+            for key in ("thinking_enabled", "thinking_budget_tokens")
+            if key in anthropic_settings
+        )
     legacy_env = [
         key
         for key in ("ANTHROPIC__THINKING_ENABLED", "ANTHROPIC__THINKING_BUDGET_TOKENS")
@@ -1982,55 +2169,117 @@ def get_settings(
             stacklevel=3,
         )
 
-    _settings = Settings(**merged_settings)
-    _settings._config_file = str(config_file) if config_file else None
-    _settings._secrets_file = str(secrets_file) if secrets_file else None
-    _settings._fast_agent_home = str(discovery.home.path) if discovery.home else None
-    _settings._fast_agent_home_source = discovery.home.source if discovery.home else None
-    _settings._fast_agent_global_plugin_home = (
+
+def _set_theme_file_config_path(
+    settings: Settings,
+    config_sources: list[tuple[Path, dict[str, Any]]],
+) -> None:
+    current_theme_file = settings.logger.theme_file
+    if current_theme_file is None:
+        return
+    for source_path, source_mapping in reversed(config_sources):
+        found, source_value = _lookup_nested_mapping_value(
+            source_mapping,
+            ("logger", "theme_file"),
+        )
+        if found and source_value == current_theme_file:
+            settings.logger._theme_file_config_path = str(source_path)
+            break
+
+
+def _settings_from_sources(
+    sources: _LoadedSettingsSources,
+    *,
+    global_plugin_home: Path | None,
+    noenv: bool,
+) -> Settings:
+    settings = Settings(**sources.merged_settings)
+    settings._config_file = str(sources.config_file) if sources.config_file else None
+    settings._secrets_file = str(sources.secrets_file) if sources.secrets_file else None
+    settings._fast_agent_home = str(sources.discovery.home.path) if sources.discovery.home else None
+    settings._fast_agent_home_source = sources.discovery.home.source if sources.discovery.home else None
+    settings._fast_agent_global_plugin_home = (
         str(global_plugin_home) if global_plugin_home is not None else None
     )
-    _settings._fast_agent_noenv = noenv
-    _settings._fast_agent_settings_source = "discovered"
-    current_theme_file = getattr(_settings.logger, "theme_file", None)
-    if current_theme_file is not None:
-        for source_path, source_mapping in reversed(config_sources):
-            found, source_value = _lookup_nested_mapping_value(
-                source_mapping,
-                ("logger", "theme_file"),
-            )
-            if found and source_value == current_theme_file:
-                _settings.logger._theme_file_config_path = str(source_path)
-                break
-    _settings.commands = _merge_enabled_plugin_commands(_settings)
+    settings._fast_agent_noenv = noenv
+    settings._fast_agent_settings_source = "discovered"
+    _set_theme_file_config_path(settings, sources.config_sources)
+    settings.commands = _merge_enabled_plugin_commands(settings)
+    return settings
+
+
+def get_settings(
+    config_path: str | os.PathLike[str] | None = None,
+    *,
+    env_dir: str | os.PathLike[str] | None = None,
+    noenv: bool = False,
+) -> Settings:
+    """Get settings instance, automatically loading from config file if available."""
+
+    global _settings
+
+    env_dir_override = _env_dir_override(env_dir)
+
+    if config_path:
+        _settings = None
+    elif _settings and _cached_settings_match_environment_request(
+        _settings,
+        env_dir=env_dir_override,
+        noenv=noenv,
+    ):
+        return _settings
+
+    sources = _load_settings_sources(config_path, env_dir=env_dir_override, noenv=noenv)
+    global_plugin_home = _resolve_global_plugin_home(noenv=noenv)
+    merged_settings = _merge_home_plugin_settings(
+        sources.merged_settings,
+        global_plugin_home=global_plugin_home,
+        active_config_file=sources.config_file,
+    )
+
+    if sources.secrets_file and sources.secrets_file.exists():
+        merged_settings = deep_merge(merged_settings, load_yaml_mapping(sources.secrets_file))
+
+    _warn_for_legacy_anthropic_reasoning_config(merged_settings)
+    _settings = _settings_from_sources(
+        _LoadedSettingsSources(
+            merged_settings=merged_settings,
+            discovery=sources.discovery,
+            config_file=sources.config_file,
+            secrets_file=sources.secrets_file,
+            config_sources=sources.config_sources,
+        ),
+        global_plugin_home=global_plugin_home,
+        noenv=noenv,
+    )
     return _settings
 
 
 def _merge_enabled_plugin_commands(settings: Settings) -> dict[str, PluginCommandActionSpec] | None:
     inline_commands = settings.commands or {}
-    home_enabled, project_enabled = _enabled_plugin_sources(settings)
-    if not home_enabled and not project_enabled:
+    enabled_sources = _enabled_plugin_sources(settings)
+    if not enabled_sources.home and not enabled_sources.project:
         return inline_commands or None
 
     from fast_agent.paths import resolve_environment_paths
     from fast_agent.plugins.operations import load_enabled_plugin_commands
 
     plugin_commands: dict[str, PluginCommandActionSpec] = {}
-    if home_enabled and settings._fast_agent_global_plugin_home:
+    if enabled_sources.home and settings._fast_agent_global_plugin_home:
         plugin_commands.update(
             _load_enabled_plugin_commands_from_root(
                 destination_root=Path(settings._fast_agent_global_plugin_home) / "plugins",
-                enabled=home_enabled,
+                enabled=enabled_sources.home,
                 scope="global",
                 load_enabled_plugin_commands=load_enabled_plugin_commands,
             )
         )
 
-    if project_enabled:
+    if enabled_sources.project:
         plugin_commands.update(
             _load_enabled_plugin_commands_from_root(
                 destination_root=resolve_environment_paths(settings).plugins,
-                enabled=project_enabled,
+                enabled=enabled_sources.project,
                 scope="project",
                 load_enabled_plugin_commands=load_enabled_plugin_commands,
             )
@@ -2053,7 +2302,7 @@ def _load_enabled_plugin_commands_from_root(
             destination_root=destination_root,
             enabled=enabled,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         warnings.warn(
             f"Failed to load enabled fast-agent plugins from {scope}: {exc}",
             UserWarning,
@@ -2062,15 +2311,21 @@ def _load_enabled_plugin_commands_from_root(
         return {}
 
 
-def _enabled_plugin_sources(settings: Settings) -> tuple[list[str], list[str]]:
+@dataclass(frozen=True, slots=True)
+class _EnabledPluginSources:
+    home: list[str]
+    project: list[str]
+
+
+def _enabled_plugin_sources(settings: Settings) -> _EnabledPluginSources:
     """Return enabled plugins grouped by FAST_AGENT_HOME and active project config."""
     enabled = list(settings.plugins.enabled)
     if not enabled:
-        return [], []
+        return _EnabledPluginSources(home=[], project=[])
 
     global_config = _global_plugin_config_for_plugin_merge(settings)
     if global_config is None:
-        return [], enabled
+        return _EnabledPluginSources(home=[], project=enabled)
 
     home_enabled = _enabled_plugins_from_config(global_config)
     active_config = Path(settings._config_file) if settings._config_file else None
@@ -2085,7 +2340,7 @@ def _enabled_plugin_sources(settings: Settings) -> tuple[list[str], list[str]]:
 
     known = {*home_enabled, *project_enabled}
     project_enabled.extend(name for name in enabled if name not in known)
-    return home_enabled, project_enabled
+    return _EnabledPluginSources(home=home_enabled, project=project_enabled)
 
 
 def _global_plugin_config_for_plugin_merge(settings: Settings) -> Path | None:

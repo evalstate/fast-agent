@@ -13,8 +13,9 @@ when running in ACP mode. Agents inheriting this mixin can:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from fast_agent.context_dependent import ContextDependent
 

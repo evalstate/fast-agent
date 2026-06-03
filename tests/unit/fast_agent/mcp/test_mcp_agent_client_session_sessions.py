@@ -8,6 +8,8 @@ import pytest
 from mcp import ClientSession, ServerNotification
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
+    CallToolRequest,
+    CallToolRequestParams,
     ClientCapabilities,
     ClientRequest,
     Implementation,
@@ -15,6 +17,7 @@ from mcp.types import (
     InitializeRequestParams,
     ProgressNotification,
     ProgressNotificationParams,
+    RequestParams,
     ResourceUpdatedNotification,
     ResourceUpdatedNotificationParams,
 )
@@ -33,8 +36,13 @@ class _SessionPayload:
     def __init__(self, payload: dict[str, Any]) -> None:
         self._payload = dict(payload)
 
-    def model_dump(self, *, exclude_none: bool = False) -> dict[str, Any]:
-        del exclude_none
+    def model_dump(
+        self,
+        *,
+        by_alias: bool = False,
+        exclude_none: bool = False,
+    ) -> dict[str, Any]:
+        del by_alias, exclude_none
         return dict(self._payload)
 
 
@@ -174,6 +182,53 @@ def test_update_experimental_session_cookie_without_state_does_not_mutate_existi
         "state": "state-1",
         "expiresAt": "2026-03-01T12:00:00Z",
     }
+
+
+def test_extract_request_session_id_accepts_model_dump_params() -> None:
+    session_meta: dict[str, object] = {
+        "io.modelcontextprotocol/session": {
+            "sessionId": "sess-from-params",
+        }
+    }
+    request = ClientRequest(
+        CallToolRequest(
+            params=CallToolRequestParams(
+                name="demo-tool",
+                _meta=RequestParams.Meta.model_validate(session_meta),
+            ),
+        )
+    )
+
+    assert MCPAgentClientSession._extract_request_session_id(request) == "sess-from-params"
+
+
+@pytest.mark.parametrize("method", [" PING ", "notifications/PING", "rpc.PING"])
+def test_is_ping_request_normalizes_method_case_and_padding(method: str) -> None:
+    request = SimpleNamespace(root=SimpleNamespace(method=method))
+
+    assert MCPAgentClientSession._is_ping_request(cast("ClientRequest", request)) is True
+
+
+def test_experimental_session_title_uses_trimmed_direct_title() -> None:
+    session = _new_session()
+    session._experimental_session_cookie = {
+        "sessionId": "sess-xyz",
+        "title": "  Sprint review  ",
+        "data": {"label": "fallback"},
+    }
+
+    assert session.experimental_session_title == "Sprint review"
+
+
+def test_experimental_session_title_falls_back_to_nested_label() -> None:
+    session = _new_session()
+    session._experimental_session_cookie = {
+        "sessionId": "sess-xyz",
+        "title": "   ",
+        "data": {"label": "  Fallback label  "},
+    }
+
+    assert session.experimental_session_title == "Fallback label"
 
 
 def test_maybe_advertise_experimental_session_capability_disabled_by_default() -> None:

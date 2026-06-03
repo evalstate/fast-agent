@@ -8,6 +8,8 @@ import asyncio
 import json
 import traceback
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable
+from contextlib import suppress
 from pathlib import Path
 from typing import Protocol
 
@@ -62,7 +64,6 @@ class NoOpTransport(FilteredEventTransport):
 
     async def send_matched_event(self, event) -> None:
         """Do nothing."""
-        pass
 
 
 class ConsoleTransport(FilteredEventTransport):
@@ -156,7 +157,7 @@ class FileTransport(FilteredEventTransport):
             log_entry["data"] = self._serializer(event.data)
 
         try:
-            with open(self.filepath, mode=self.mode, encoding=self.encoding) as f:
+            with self.filepath.open(mode=self.mode, encoding=self.encoding) as f:
                 # Write the log entry as compact JSON (JSONL format)
                 f.write(json.dumps(log_entry, separators=(",", ":")) + "\n")
                 f.flush()  # Ensure writing to disk
@@ -166,7 +167,7 @@ class FileTransport(FilteredEventTransport):
 
     async def close(self) -> None:
         """Clean up resources if needed."""
-        pass  # File handles are automatically closed after each write
+        # File handles are automatically closed after each write.
 
     @property
     def is_closed(self) -> bool:
@@ -309,10 +310,8 @@ class AsyncEventBus:
             # Best-effort task cancellation to avoid pending-task warnings in tests.
             task = cls._instance._task
             if task is not None and not task.done():
-                try:
+                with suppress(Exception):
                     task.cancel()
-                except Exception:
-                    pass
 
             # Clear the singleton instance
             cls._instance = None
@@ -347,62 +346,80 @@ class AsyncEventBus:
     async def stop(self) -> None:
         """Stop the event bus and all lifecycle-aware listeners."""
         if not self._running:
-            if self._task and not self._task.done():
-                self._task.cancel()
-                if self._is_task_on_current_loop(self._task):
-                    try:
-                        await asyncio.wait_for(self._task, timeout=5.0)
-                    except (asyncio.CancelledError, asyncio.TimeoutError):
-                        pass  # Task was cancelled or timed out
-                    except Exception as e:
-                        print(f"Error cancelling process task: {e}")
-            self._task = None
+            await self._cancel_process_task()
             return
 
         # Signal processing to stop
         self._running = False
 
         same_loop_task = self._is_task_on_current_loop(self._task)
+        await self._drain_queue_before_stop(same_loop_task)
+        await self._cancel_process_task(same_loop_task=same_loop_task)
+        await self._stop_lifecycle_listeners()
 
-        # Try to process remaining items with a timeout (only when queue/task are on this loop)
-        if same_loop_task and self._queue is not None and not self._queue.empty():
+    async def _cancel_process_task(self, *, same_loop_task: bool | None = None) -> None:
+        task = self._task
+        if task is None:
+            return
+
+        if task.done():
+            self._task = None
+            return
+
+        task.cancel()
+        should_await = (
+            self._is_task_on_current_loop(task)
+            if same_loop_task is None
+            else same_loop_task
+        )
+        if should_await:
             try:
-                # Give some time for remaining items to be processed
-                await asyncio.wait_for(self._queue.join(), timeout=5.0)
-            except asyncio.TimeoutError:
-                # If we timeout, drain the queue to prevent deadlock
-                while not self._queue.empty():
-                    try:
-                        self._queue.get_nowait()
-                        self._queue.task_done()
-                    except asyncio.QueueEmpty:
-                        break
+                await asyncio.wait_for(task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass  # Task was cancelled or timed out.
             except Exception as e:
-                print(f"Error during queue cleanup: {e}")
-        self._queue = None
-
-        # Cancel and wait for task with timeout
-        if self._task and not self._task.done():
-            self._task.cancel()
-            if same_loop_task:
-                try:
-                    # Wait for task to complete with timeout
-                    await asyncio.wait_for(self._task, timeout=5.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass  # Task was cancelled or timed out
-                except Exception as e:
-                    print(f"Error cancelling process task: {e}")
+                print(f"Error cancelling process task: {e}")
         self._task = None
 
-        # Stop each lifecycle-aware listener
+    async def _drain_queue_before_stop(self, same_loop_task: bool) -> None:
+        queue = self._queue
+        if not same_loop_task or queue is None:
+            self._queue = None
+            return
+
+        if not queue.empty():
+            try:
+                # Give some time for remaining items to be processed.
+                await asyncio.wait_for(queue.join(), timeout=5.0)
+            except asyncio.TimeoutError:
+                self._discard_queued_events(queue)
+            except Exception as e:
+                print(f"Error during queue cleanup: {e}")
+
+        self._queue = None
+
+    @staticmethod
+    def _discard_queued_events(queue: asyncio.Queue) -> None:
+        while not queue.empty():
+            try:
+                queue.get_nowait()
+                queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
+    async def _stop_lifecycle_listeners(self) -> None:
         for listener in self.listeners.values():
             if isinstance(listener, LifecycleAwareListener):
-                try:
-                    await asyncio.wait_for(listener.stop(), timeout=3.0)
-                except asyncio.TimeoutError:
-                    print(f"Timeout stopping listener: {listener}")
-                except Exception as e:
-                    print(f"Error stopping listener: {e}")
+                await self._stop_lifecycle_listener(listener)
+
+    @staticmethod
+    async def _stop_lifecycle_listener(listener: LifecycleAwareListener) -> None:
+        try:
+            await asyncio.wait_for(listener.stop(), timeout=3.0)
+        except asyncio.TimeoutError:
+            print(f"Timeout stopping listener: {listener}")
+        except Exception as e:
+            print(f"Error stopping listener: {e}")
 
     async def emit(self, event: Event) -> None:
         """Emit an event to all listeners and transport."""
@@ -441,64 +458,85 @@ class AsyncEventBus:
     async def _process_events(self) -> None:
         """Process events from the queue until stopped."""
         while self._running:
-            event = None
+            event: Event | None = None
             try:
                 # Use wait_for with a timeout to allow checking running state
-                if self._queue is None:
-                    continue
-                try:
-                    event = await asyncio.wait_for(self._queue.get(), timeout=0.1)
-                except asyncio.TimeoutError:
+                event = await self._next_event()
+                if event is None:
                     continue
 
                 # Process the event through all listeners
-                tasks = []
-                for listener in self.listeners.values():
-                    try:
-                        tasks.append(listener.handle_event(event))
-                    except Exception as e:
-                        print(f"Error creating listener task: {e}")
-
-                if tasks:
-                    results = await gather_with_cancel(tasks)
-                    for r in results:
-                        if isinstance(r, Exception):
-                            print(f"Error in listener: {r}")
-                            print(
-                                f"Stacktrace: {''.join(traceback.format_exception(type(r), r, r.__traceback__))}"
-                            )
+                await self._dispatch_event_to_listeners(event)
 
                 # Mark the event as processed so queue.join() can complete
-                if event is not None and self._queue is not None:
-                    self._queue.task_done()
+                self._mark_event_done(event)
 
             except asyncio.CancelledError:
                 # TODO -- added _queue assertion; is that necessary?
-                if event is not None and self._queue is not None:
-                    self._queue.task_done()
+                self._mark_event_done(event)
                 raise
             except Exception as e:
                 print(f"Error in event processing loop: {e}")
                 # Mark task done for this event
-                if event is not None and self._queue is not None:
-                    self._queue.task_done()
+                self._mark_event_done(event)
 
         # Process remaining events in queue
-        if self._queue:
-            while not self._queue.empty():
-                try:
-                    event = self._queue.get_nowait()
-                    tasks = []
-                    for listener in self.listeners.values():
-                        try:
-                            tasks.append(listener.handle_event(event))
-                        except Exception:
-                            pass
-                    if tasks:
-                        await gather_with_cancel(tasks)
-                    self._queue.task_done()
-                except asyncio.QueueEmpty:
-                    break
+        await self._drain_remaining_events()
+
+    async def _next_event(self) -> Event | None:
+        queue = self._queue
+        if queue is None:
+            await asyncio.sleep(0)
+            return None
+        try:
+            return await asyncio.wait_for(queue.get(), timeout=0.1)
+        except asyncio.TimeoutError:
+            return None
+
+    async def _dispatch_event_to_listeners(self, event: Event) -> None:
+        tasks = self._listener_tasks(event)
+        if not tasks:
+            return
+
+        results = await gather_with_cancel(tasks)
+        for result in results:
+            if isinstance(result, Exception):
+                self._print_listener_error(result)
+
+    def _listener_tasks(self, event: Event) -> list[Awaitable[None]]:
+        tasks: list[Awaitable[None]] = []
+        for listener in self.listeners.values():
+            try:
+                tasks.append(listener.handle_event(event))
+            except Exception as e:
+                print(f"Error creating listener task: {e}")
+        return tasks
+
+    @staticmethod
+    def _print_listener_error(error: Exception) -> None:
+        print(f"Error in listener: {error}")
+        print(
+            "Stacktrace: "
+            f"{''.join(traceback.format_exception(type(error), error, error.__traceback__))}"
+        )
+
+    def _mark_event_done(self, event: Event | None) -> None:
+        if event is not None and self._queue is not None:
+            self._queue.task_done()
+
+    async def _drain_remaining_events(self) -> None:
+        queue = self._queue
+        if queue is None:
+            return
+
+        while not queue.empty():
+            try:
+                event = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            with suppress(Exception):
+                await self._dispatch_event_to_listeners(event)
+            queue.task_done()
 
 
 def create_transport(
@@ -507,16 +545,16 @@ def create_transport(
     """Create event transport based on settings."""
     if settings.type == "none":
         return NoOpTransport(event_filter=event_filter)
-    elif settings.type == "console":
+    if settings.type == "console":
         return ConsoleTransport(event_filter=event_filter)
-    elif settings.type == "file":
+    if settings.type == "file":
         if not settings.path:
             raise ValueError("File path required for file transport")
         return FileTransport(
             filepath=settings.path,
             event_filter=event_filter,
         )
-    elif settings.type == "http":
+    if settings.type == "http":
         if not settings.http_endpoint:
             raise ValueError("HTTP endpoint required for HTTP transport")
         return HTTPTransport(
@@ -526,5 +564,4 @@ def create_transport(
             timeout=settings.http_timeout,
             event_filter=event_filter,
         )
-    else:
-        raise ValueError(f"Unsupported transport type: {settings.type}")
+    raise ValueError(f"Unsupported transport type: {settings.type}")

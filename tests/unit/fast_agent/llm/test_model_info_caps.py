@@ -166,6 +166,22 @@ def test_model_info_document_tokenizes_do_not_require_vision_support() -> None:
     assert info.supports_mime("application/pdf")
 
 
+def test_model_info_supports_mime_normalizes_declared_tokenizes() -> None:
+    info = ModelInfo(
+        name="custom-normalized-mime",
+        provider=Provider.OPENRESPONSES,
+        context_window=8192,
+        max_output_tokens=1024,
+        tokenizes=[" IMAGE/JPG ", "PDF"],
+        json_mode=None,
+        reasoning=None,
+    )
+
+    assert info.supports_mime("image/jpeg")
+    assert info.supports_mime("application/pdf")
+    assert info.tdv_flags == (False, True, True)
+
+
 def test_model_info_openai_chat_documents_remain_pdf_only() -> None:
     info = ModelInfo.from_name("gpt-4o", provider=Provider.OPENAI)
 
@@ -174,6 +190,20 @@ def test_model_info_openai_chat_documents_remain_pdf_only() -> None:
     assert not info.supports_mime(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+
+
+def test_model_info_openai_pdf_override_does_not_create_tokenized_support() -> None:
+    info = ModelInfo(
+        name="custom-openai-text-only",
+        provider=Provider.OPENAI,
+        context_window=8192,
+        max_output_tokens=1024,
+        tokenizes=["text/plain"],
+        json_mode=None,
+        reasoning=None,
+    )
+
+    assert not info.supports_mime("application/pdf")
 
 
 def test_model_info_responses_models_support_office_documents() -> None:

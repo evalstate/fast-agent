@@ -4,8 +4,12 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Awaitable, Callable
+from contextlib import suppress
+from dataclasses import dataclass
+from enum import StrEnum
 from importlib.metadata import version as get_version
-from typing import Any, Awaitable, Callable, Literal, cast
+from typing import Any, Literal, cast
 
 from fastmcp import Context as MCPContext
 from fastmcp import FastMCP
@@ -29,8 +33,22 @@ from fast_agent.mcp.prompts.prompt_server import convert_to_fastmcp_messages
 from fast_agent.mcp.tool_progress import MCPToolProgressManager
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.utils.async_utils import run_sync
+from fast_agent.utils.text import strip_casefold
 
 logger = get_logger(__name__)
+_CONTEXT_ATTR_UNSET = object()
+
+
+def _restore_context_attribute(
+    target: Any,
+    name: str,
+    original_value: object,
+) -> None:
+    if original_value is _CONTEXT_ATTR_UNSET:
+        with suppress(AttributeError):
+            delattr(target, name)
+        return
+    setattr(target, name, original_value)
 
 
 def _get_request_bearer_token() -> str | None:
@@ -50,6 +68,18 @@ def _get_fast_agent_version() -> str | None:
     return None
 
 
+def _normalize_serve_oauth_provider(provider: str | None) -> str | None:
+    if provider is None:
+        return None
+
+    oauth_provider = strip_casefold(provider)
+    if oauth_provider in {"hf", "huggingface"}:
+        return "huggingface"
+    if not oauth_provider:
+        return None
+    return oauth_provider
+
+
 def _get_oauth_config() -> tuple[str | None, list[str], str]:
     """
     Read OAuth configuration from environment variables.
@@ -58,11 +88,7 @@ def _get_oauth_config() -> tuple[str | None, list[str], str]:
         Tuple of (provider, scopes, resource_url).
         provider is None if OAuth is not enabled.
     """
-    oauth_provider = os.environ.get("FAST_AGENT_SERVE_OAUTH", "").lower()
-    if oauth_provider in ("hf", "huggingface"):
-        oauth_provider = "huggingface"
-    elif not oauth_provider:
-        oauth_provider = None
+    oauth_provider = _normalize_serve_oauth_provider(os.environ.get("FAST_AGENT_SERVE_OAUTH"))
 
     oauth_scopes_str = os.environ.get("FAST_AGENT_OAUTH_SCOPES", "")
     oauth_scopes = [scope.strip() for scope in oauth_scopes_str.split(",") if scope.strip()] or [
@@ -81,6 +107,47 @@ def _history_to_fastmcp_messages(
 
 
 TransportMode = Literal["http", "stdio"]
+InstanceScopeValue = Literal["shared", "request", "connection"]
+
+
+class InstanceScope(StrEnum):
+    SHARED = "shared"
+    REQUEST = "request"
+    CONNECTION = "connection"
+
+
+@dataclass(frozen=True, slots=True)
+class _AgentToolRegistration:
+    agent_name: str
+    tool_name: str
+    description: str
+    response_mode_enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _AgentMetadata:
+    description: str | None = None
+    default_request_params: RequestParams | None = None
+
+
+def _agent_metadata(agent: Any | None) -> _AgentMetadata:
+    if agent is None:
+        return _AgentMetadata()
+
+    config = getattr(agent, "config", None)
+    if config is None:
+        return _AgentMetadata()
+
+    description = getattr(config, "description", None)
+    default_request_params = getattr(config, "default_request_params", None)
+    return _AgentMetadata(
+        description=description if isinstance(description, str) else None,
+        default_request_params=(
+            default_request_params
+            if isinstance(default_request_params, RequestParams)
+            else None
+        ),
+    )
 
 
 class AgentMCPServer:
@@ -91,7 +158,7 @@ class AgentMCPServer:
         primary_instance: AgentInstance,
         create_instance: Callable[[], Awaitable[AgentInstance]],
         dispose_instance: Callable[[AgentInstance], Awaitable[None]],
-        instance_scope: str,
+        instance_scope: InstanceScopeValue,
         server_name: str = "FastAgent-MCP-Server",
         server_description: str | None = None,
         tool_description: str | None = None,
@@ -103,7 +170,7 @@ class AgentMCPServer:
         self.primary_instance = primary_instance
         self._create_instance_task = create_instance
         self._dispose_instance_task = dispose_instance
-        self._instance_scope = instance_scope
+        self._instance_scope = InstanceScope(instance_scope)
         self._default_host = host
         self._get_registry_version = get_registry_version
         self._reload_callback = reload_callback
@@ -171,22 +238,19 @@ class AgentMCPServer:
             f"AgentMCPServer initialized with {len(primary_instance.agents)} agents",
             name="mcp_server_initialized",
             agent_count=len(primary_instance.agents),
-            instance_scope=instance_scope,
+            instance_scope=self._instance_scope.value,
         )
 
     def setup_tools(self) -> None:
         """Register all agents as MCP tools."""
-        for agent_name in self.primary_instance.agents.keys():
+        for agent_name in self.primary_instance.agents:
             self.register_agent_tools(agent_name)
         if self._reload_callback is not None:
             self._register_reload_tool()
 
     @staticmethod
     def _agent_tool_result_mode(agent: Any | None) -> ToolResultMode:
-        config = getattr(agent, "config", None)
-        request_params = (
-            getattr(config, "default_request_params", None) if config is not None else None
-        )
+        request_params = _agent_metadata(agent).default_request_params
         if request_params is None:
             return "postprocess"
         return request_params.tool_result_mode
@@ -194,96 +258,13 @@ class AgentMCPServer:
     def register_agent_tools(self, agent_name: str) -> None:
         """Register tools for a specific agent."""
         self._registered_agents.add(agent_name)
+        registration = self._agent_tool_registration(agent_name)
 
-        tool_description = (
-            self._tool_description.format(agent=agent_name)
-            if self._tool_description and "{agent}" in self._tool_description
-            else self._tool_description
-        )
-
-        agent = self.primary_instance.agents.get(agent_name)
-        agent_description = None
-        if agent is not None:
-            config = getattr(agent, "config", None)
-            agent_description = getattr(config, "description", None)
-
-        response_mode_enabled = tool_result_mode_allows_response_mode(
-            self._agent_tool_result_mode(agent)
-        )
-        tool_name = self._tool_name_template.format(agent=agent_name)
-        tool_description_value = (
-            tool_description or agent_description or f"Send a message to the {agent_name} agent"
-        )
-
-        async def _send_message(
-            message: str,
-            ctx: MCPContext,
-            response_mode: ResponseMode | None = None,
-        ) -> str:
-            from fast_agent.mcp.auth.context import request_bearer_token
-
-            saved_token = request_bearer_token.set(_get_request_bearer_token())
-            request_param_overrides: dict[str, Any] = {
-                "tool_execution_handler": MCPToolProgressManager(self._build_progress_reporter(ctx)),
-                "emit_loop_progress": True,
-            }
-            if response_mode is not None:
-                tool_result_mode = response_mode_to_tool_result_mode(response_mode)
-                if tool_result_mode is not None:
-                    request_param_overrides["tool_result_mode"] = tool_result_mode
-
-            request_params = RequestParams(**request_param_overrides)
-            try:
-                instance = await self._acquire_instance(ctx)
-                agent_instance = instance.app[agent_name]
-                agent_context = getattr(agent_instance, "context", None)
-
-                async def execute_send() -> str:
-                    start = time.perf_counter()
-                    logger.info(
-                        f"MCP request received for agent '{agent_name}'",
-                        name="mcp_request_start",
-                        agent=agent_name,
-                        session=self._session_identifier(ctx),
-                    )
-                    self.std_logger.info(
-                        "MCP request received for agent '%s' (scope=%s)",
-                        agent_name,
-                        self._instance_scope,
-                    )
-
-                    response = await agent_instance.send(message, request_params=request_params)
-                    duration = time.perf_counter() - start
-
-                    logger.info(
-                        f"Agent '{agent_name}' completed MCP request",
-                        name="mcp_request_complete",
-                        agent=agent_name,
-                        duration=duration,
-                        session=self._session_identifier(ctx),
-                    )
-                    self.std_logger.info(
-                        "Agent '%s' completed MCP request in %.2fs (scope=%s)",
-                        agent_name,
-                        duration,
-                        self._instance_scope,
-                    )
-                    return response
-
-                try:
-                    if agent_context is not None:
-                        return await self.with_bridged_context(agent_context, ctx, execute_send)
-                    return await execute_send()
-                finally:
-                    await self._release_instance(ctx, instance)
-            finally:
-                request_bearer_token.reset(saved_token)
-
-        if response_mode_enabled:
+        if registration.response_mode_enabled:
 
             @self.mcp_server.tool(
-                name=tool_name,
-                description=tool_description_value,
+                name=registration.tool_name,
+                description=registration.description,
                 output_schema=None,
             )
             async def send_message(
@@ -291,19 +272,136 @@ class AgentMCPServer:
                 ctx: MCPContext,
                 response_mode: Literal["inherit", "postprocess", "passthrough"] = "inherit",
             ) -> str:
-                return await _send_message(message, ctx, response_mode)
+                return await self._send_agent_message(agent_name, message, ctx, response_mode)
 
         else:
 
             @self.mcp_server.tool(
-                name=tool_name,
-                description=tool_description_value,
+                name=registration.tool_name,
+                description=registration.description,
                 output_schema=None,
             )
             async def send_message(message: str, ctx: MCPContext) -> str:
-                return await _send_message(message, ctx)
+                return await self._send_agent_message(agent_name, message, ctx)
 
-        if self._instance_scope == "request":
+        self._register_agent_history_prompt(agent_name)
+
+    def _agent_tool_registration(self, agent_name: str) -> _AgentToolRegistration:
+        agent = self.primary_instance.agents.get(agent_name)
+        return _AgentToolRegistration(
+            agent_name=agent_name,
+            tool_name=self._tool_name_template.format(agent=agent_name),
+            description=self._agent_tool_description(agent_name, agent),
+            response_mode_enabled=tool_result_mode_allows_response_mode(
+                self._agent_tool_result_mode(agent)
+            ),
+        )
+
+    def _agent_tool_description(self, agent_name: str, agent: Any | None) -> str:
+        tool_description = (
+            self._tool_description.format(agent=agent_name)
+            if self._tool_description and "{agent}" in self._tool_description
+            else self._tool_description
+        )
+        metadata = _agent_metadata(agent)
+        return tool_description or metadata.description or f"Send a message to the {agent_name} agent"
+
+    async def _send_agent_message(
+        self,
+        agent_name: str,
+        message: str,
+        ctx: MCPContext,
+        response_mode: ResponseMode | None = None,
+    ) -> str:
+        from fast_agent.mcp.auth.context import request_bearer_token
+
+        saved_token = request_bearer_token.set(_get_request_bearer_token())
+        request_params = self._request_params_for_tool_call(ctx, response_mode)
+        try:
+            instance = await self._acquire_instance(ctx)
+            try:
+                return await self._execute_agent_send(
+                    agent_name,
+                    instance.app[agent_name],
+                    message,
+                    request_params,
+                    ctx,
+                )
+            finally:
+                await self._release_instance(ctx, instance)
+        finally:
+            request_bearer_token.reset(saved_token)
+
+    def _request_params_for_tool_call(
+        self,
+        ctx: MCPContext,
+        response_mode: ResponseMode | None,
+    ) -> RequestParams:
+        request_param_overrides: dict[str, Any] = {
+            "tool_execution_handler": MCPToolProgressManager(self._build_progress_reporter(ctx)),
+            "emit_loop_progress": True,
+        }
+        if response_mode is not None:
+            tool_result_mode = response_mode_to_tool_result_mode(response_mode)
+            if tool_result_mode is not None:
+                request_param_overrides["tool_result_mode"] = tool_result_mode
+        return RequestParams(**request_param_overrides)
+
+    async def _execute_agent_send(
+        self,
+        agent_name: str,
+        agent_instance: Any,
+        message: str,
+        request_params: RequestParams,
+        ctx: MCPContext,
+    ) -> str:
+        async def execute_send() -> str:
+            start = time.perf_counter()
+            self._log_agent_send_started(agent_name, ctx)
+            response = await agent_instance.send(message, request_params=request_params)
+            self._log_agent_send_completed(agent_name, ctx, time.perf_counter() - start)
+            return response
+
+        agent_context = getattr(agent_instance, "context", None)
+        if agent_context is not None:
+            return await self.with_bridged_context(agent_context, ctx, execute_send)
+        return await execute_send()
+
+    def _log_agent_send_started(self, agent_name: str, ctx: MCPContext) -> None:
+        logger.info(
+            f"MCP request received for agent '{agent_name}'",
+            name="mcp_request_start",
+            agent=agent_name,
+            session=self._session_identifier(ctx),
+        )
+        self.std_logger.info(
+            "MCP request received for agent '%s' (scope=%s)",
+            agent_name,
+            self._instance_scope.value,
+        )
+
+    def _log_agent_send_completed(
+        self,
+        agent_name: str,
+        ctx: MCPContext,
+        duration: float,
+    ) -> None:
+        logger.info(
+            f"Agent '{agent_name}' completed MCP request",
+            name="mcp_request_complete",
+            agent=agent_name,
+            duration=duration,
+            session=self._session_identifier(ctx),
+        )
+        self.std_logger.info(
+            "Agent '%s' completed MCP request in %.2fs (scope=%s)",
+            agent_name,
+            duration,
+            self._instance_scope.value,
+        )
+
+    def _register_agent_history_prompt(self, agent_name: str) -> None:
+        if self._instance_scope is InstanceScope.REQUEST:
             return
 
         @self.mcp_server.prompt(
@@ -341,11 +439,11 @@ class AgentMCPServer:
             if not changed:
                 return "No AgentCard changes detected."
 
-            if self._instance_scope == "shared":
+            if self._instance_scope is InstanceScope.SHARED:
                 await self._maybe_refresh_shared_instance()
                 return "Reloaded AgentCards."
 
-            if self._instance_scope == "connection":
+            if self._instance_scope is InstanceScope.CONNECTION:
                 session_key = self._connection_key(ctx)
                 new_instance = await self._create_instance_task()
                 async with self._connection_lock:
@@ -368,12 +466,12 @@ class AgentMCPServer:
         base = server_description or f"This server provides access to {agent_count} agents."
         scope_info = (
             "do NOT retain history between your requests"
-            if self._instance_scope == "request"
+            if self._instance_scope is InstanceScope.REQUEST
             else "retain history between tool calls."
         )
         return (
             f"{base} Use the `{self._name_for_send_tool()}` tools to send messages to agents. "
-            f"Instance mode is {self._instance_scope}. Agents ({scope_info})"
+            f"Instance mode is {self._instance_scope.value}. Agents ({scope_info})"
         )
 
     def _name_for_send_tool(self) -> str:
@@ -387,20 +485,18 @@ class AgentMCPServer:
             total: float | None = None,
             message: str | None = None,
         ) -> None:
-            try:
+            with suppress(Exception):
                 await ctx.report_progress(progress, total, message)
-            except Exception:
-                pass
 
         return report_progress
 
     async def _acquire_instance(self, ctx: MCPContext | None) -> AgentInstance:
-        if self._instance_scope == "shared":
+        if self._instance_scope is InstanceScope.SHARED:
             await self._maybe_refresh_shared_instance()
             self._shared_active_requests += 1
             return self.primary_instance
 
-        if self._instance_scope == "request":
+        if self._instance_scope is InstanceScope.REQUEST:
             return await self._create_instance_task()
 
         assert ctx is not None, "Context is required for connection-scoped instances"
@@ -421,12 +517,12 @@ class AgentMCPServer:
         reuse_connection: bool = False,
     ) -> None:
         del ctx, reuse_connection
-        if self._instance_scope == "shared":
+        if self._instance_scope is InstanceScope.SHARED:
             if self._shared_active_requests > 0:
                 self._shared_active_requests -= 1
             await self._dispose_stale_instances_if_idle()
             return
-        if self._instance_scope == "request":
+        if self._instance_scope is InstanceScope.REQUEST:
             await self._dispose_instance_task(instance)
 
     def _connection_key(self, ctx: MCPContext) -> int:
@@ -525,8 +621,8 @@ class AgentMCPServer:
             logger.exception("Agent instance disposal failed during %s", phase)
 
     def _http_middleware(self) -> list[Middleware] | None:
-        oauth_provider = os.environ.get("FAST_AGENT_SERVE_OAUTH", "").lower()
-        if oauth_provider not in {"hf", "huggingface"}:
+        oauth_provider = _normalize_serve_oauth_provider(os.environ.get("FAST_AGENT_SERVE_OAUTH"))
+        if oauth_provider != "huggingface":
             return None
         return [Middleware(cast("Any", HFAuthHeaderMiddleware))]
 
@@ -535,7 +631,7 @@ class AgentMCPServer:
         return self.mcp_server.http_app(
             transport="http",
             middleware=self._http_middleware(),
-            stateless_http=self._instance_scope == "request",
+            stateless_http=self._instance_scope is InstanceScope.REQUEST,
         )
 
     def run(
@@ -552,7 +648,7 @@ class AgentMCPServer:
                     host=host,
                     port=port,
                     middleware=self._http_middleware(),
-                    stateless_http=self._instance_scope == "request",
+                    stateless_http=self._instance_scope is InstanceScope.REQUEST,
                 )
                 return
             if transport == "stdio":
@@ -578,7 +674,7 @@ class AgentMCPServer:
                     host=host,
                     port=port,
                     middleware=self._http_middleware(),
-                    stateless_http=self._instance_scope == "request",
+                    stateless_http=self._instance_scope is InstanceScope.REQUEST,
                 )
                 return
             if transport == "stdio":
@@ -597,7 +693,12 @@ class AgentMCPServer:
         **kwargs: Any,
     ) -> str:
         """Execute a function with bridged context between MCP and agent."""
-        original_progress_reporter = getattr(agent_context, "progress_reporter", None)
+        original_progress_reporter = getattr(
+            agent_context,
+            "progress_reporter",
+            _CONTEXT_ATTR_UNSET,
+        )
+        original_mcp_context = getattr(agent_context, "mcp_context", _CONTEXT_ATTR_UNSET)
         agent_context.mcp_context = mcp_context
 
         async def bridged_progress(
@@ -606,23 +707,36 @@ class AgentMCPServer:
             message: str | None = None,
         ) -> None:
             await mcp_context.report_progress(progress, total, message)
-            if original_progress_reporter is None:
+            if (
+                original_progress_reporter is _CONTEXT_ATTR_UNSET
+                or original_progress_reporter is None
+            ):
                 return
+            progress_reporter = cast(
+                "Callable[[float, float | None, str | None], Awaitable[None]]",
+                original_progress_reporter,
+            )
             try:
-                await original_progress_reporter(progress, total, message)
+                await progress_reporter(progress, total, message)
             except TypeError:
-                await original_progress_reporter(progress, total)
+                legacy_progress_reporter = cast(
+                    "Callable[[float, float | None], Awaitable[None]]",
+                    original_progress_reporter,
+                )
+                await legacy_progress_reporter(progress, total)
 
-        if hasattr(agent_context, "progress_reporter"):
+        if original_progress_reporter is not _CONTEXT_ATTR_UNSET:
             agent_context.progress_reporter = bridged_progress
 
         try:
             return await func(*args, **kwargs)
         finally:
-            if hasattr(agent_context, "progress_reporter"):
-                agent_context.progress_reporter = original_progress_reporter
-            if hasattr(agent_context, "mcp_context"):
-                delattr(agent_context, "mcp_context")
+            _restore_context_attribute(
+                agent_context,
+                "progress_reporter",
+                original_progress_reporter,
+            )
+            _restore_context_attribute(agent_context, "mcp_context", original_mcp_context)
 
     async def shutdown(self) -> None:
         """Dispose all managed agent instances."""

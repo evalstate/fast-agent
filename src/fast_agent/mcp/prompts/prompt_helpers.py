@@ -209,7 +209,7 @@ class MessageContent:
         Returns:
             True if the message has text content, False otherwise
         """
-        return len(MessageContent.get_all_text(message)) > 0
+        return bool(MessageContent.get_all_text(message))
 
     @staticmethod
     def has_images(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
@@ -222,7 +222,7 @@ class MessageContent:
         Returns:
             True if the message has image content, False otherwise
         """
-        return len(MessageContent.get_all_images(message)) > 0
+        return bool(MessageContent.get_all_images(message))
 
     @staticmethod
     def has_resources(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
@@ -235,4 +235,4 @@ class MessageContent:
         Returns:
             True if the message has embedded resources, False otherwise
         """
-        return len(MessageContent.get_all_resources(message)) > 0
+        return bool(MessageContent.get_all_resources(message))

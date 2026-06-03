@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeGuard
+
+from fast_agent.utils.action_normalization import normalize_action_token
+from fast_agent.utils.text import strip_casefold
 
 ToolActivityFamily = Literal[
     "tool",
@@ -11,10 +14,87 @@ ToolActivityFamily = Literal[
     "remote_tool_listing",
 ]
 ToolActivityPhase = Literal["call", "result"]
+TOOL_ACTIVITY_FAMILIES: tuple[ToolActivityFamily, ...] = (
+    "tool",
+    "remote_tool",
+    "web_search",
+    "remote_tool_search",
+    "remote_tool_listing",
+)
+REMOTE_STATUS_TOOL_FAMILIES: tuple[ToolActivityFamily, ...] = (
+    "remote_tool_search",
+    "remote_tool_listing",
+)
+PRESERVE_SECTION_TOOL_FAMILIES: tuple[ToolActivityFamily, ...] = (
+    "remote_tool",
+    "remote_tool_search",
+)
 
 _REMOTE_TOOL_SEARCH_LABEL = "Deferred tool search"
 _REMOTE_TOOL_LISTING_LABEL = "Loading remote tools"
 _WEB_SEARCH_LABEL = "Searching the web"
+
+_DISPLAY_NAME_BY_FAMILY: dict[ToolActivityFamily, str] = {
+    "web_search": _WEB_SEARCH_LABEL,
+    "remote_tool_search": _REMOTE_TOOL_SEARCH_LABEL,
+    "remote_tool_listing": _REMOTE_TOOL_LISTING_LABEL,
+}
+
+_TYPE_LABEL_PREFIX_BY_FAMILY: dict[ToolActivityFamily, str] = {
+    "remote_tool": "remote tool",
+    "tool": "tool",
+}
+
+_FAMILY_BY_PROVIDER_TOOL_TYPE: dict[str, ToolActivityFamily] = {
+    "tool_search_call": "remote_tool_search",
+    "tool_search_output": "remote_tool_search",
+    "x_search_call": "remote_tool",
+    "web_search_call": "web_search",
+    "mcp_list_tools": "remote_tool_listing",
+    "mcp_call": "remote_tool",
+}
+
+_FAMILY_BY_TOOL_NAME: dict[str, ToolActivityFamily] = {
+    "tool_search": "remote_tool_search",
+    "web_search": "web_search",
+    "web_search_call": "web_search",
+    "mcp_list_tools": "remote_tool_listing",
+}
+
+_STATUS_TEXT_BY_FAMILY: dict[ToolActivityFamily, dict[str, str]] = {
+    "remote_tool_search": {
+        "in_progress": "searching deferred tools...",
+        "completed": "deferred tool search complete",
+        "failed": "deferred tool search failed",
+    },
+    "web_search": {
+        "in_progress": "starting search...",
+        "searching": "searching...",
+        "completed": "search complete",
+        "failed": "search failed",
+    },
+    "remote_tool_listing": {
+        "in_progress": "loading remote tools...",
+        "completed": "remote tools loaded",
+        "failed": "failed to load remote tools",
+    },
+    "remote_tool": {
+        "in_progress": "calling remote tool...",
+        "completed": "remote tool call complete",
+        "failed": "remote tool call failed",
+    },
+}
+
+_GENERIC_STATUS_TEXT = {
+    "in_progress": "starting...",
+    "queued": "queued...",
+    "started": "started...",
+    "searching": "searching...",
+    "completed": "completed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "incomplete": "incomplete",
+}
 
 
 @dataclass(slots=True, frozen=True)
@@ -32,20 +112,18 @@ def classify_tool_activity_family(
     provider_tool_type: str | None = None,
     server_name: str | None = None,
 ) -> ToolActivityFamily:
-    normalized_type = provider_tool_type or ""
-    normalized_name = tool_name.strip()
+    normalized_type = normalize_action_token(provider_tool_type)
+    normalized_name = normalize_action_token(tool_name)
 
-    if normalized_type in {"tool_search_call", "tool_search_output"} or normalized_name == "tool_search":
-        return "remote_tool_search"
-    if normalized_type == "x_search_call":
-        return "remote_tool"
-    if normalized_type == "web_search_call" or normalized_name in {"web_search", "web_search_call"}:
-        return "web_search"
-    if (
-        normalized_type == "mcp_list_tools"
-        or normalized_name == "mcp_list_tools"
-        or normalized_name.endswith("/mcp_list_tools")
-    ):
+    provider_family = _FAMILY_BY_PROVIDER_TOOL_TYPE.get(normalized_type)
+    if provider_family is not None:
+        return provider_family
+
+    tool_name_family = _FAMILY_BY_TOOL_NAME.get(normalized_name)
+    if tool_name_family is not None:
+        return tool_name_family
+
+    if normalized_name.endswith("/mcp_list_tools"):
         return "remote_tool_listing"
     if remote or bool(server_name):
         return "remote_tool"
@@ -76,28 +154,24 @@ def build_tool_activity_presentation(
 
 
 def tool_activity_family_preserves_sections(family: ToolActivityFamily) -> bool:
-    return family in {"remote_tool", "remote_tool_search"}
+    return family in PRESERVE_SECTION_TOOL_FAMILIES
+
+
+def tool_activity_family_uses_status_body(family: ToolActivityFamily | None) -> bool:
+    return family in REMOTE_STATUS_TOOL_FAMILIES
+
+
+def is_tool_activity_family(value: object) -> TypeGuard[ToolActivityFamily]:
+    return value in TOOL_ACTIVITY_FAMILIES
 
 
 def tool_activity_status_text(*, family: ToolActivityFamily, status: str) -> str:
-    if family == "web_search":
-        return _web_search_status_text(status)
-    if family == "remote_tool_search":
-        return _remote_tool_search_status_text(status)
-    if family == "remote_tool_listing":
-        return _remote_tool_listing_status_text(status)
-    if family == "remote_tool":
-        return _remote_tool_status_text(status)
-    return _generic_status_text(status)
+    return _STATUS_TEXT_BY_FAMILY.get(family, {}).get(status, _generic_status_text(status))
 
 
 def _display_name(*, tool_name: str, family: ToolActivityFamily) -> str:
-    if family == "web_search":
-        return _WEB_SEARCH_LABEL
-    if family == "remote_tool_search":
-        return _REMOTE_TOOL_SEARCH_LABEL
-    if family == "remote_tool_listing":
-        return _REMOTE_TOOL_LISTING_LABEL
+    if family in _DISPLAY_NAME_BY_FAMILY:
+        return _DISPLAY_NAME_BY_FAMILY[family]
     if family == "remote_tool":
         return f"remote tool: {tool_name.split('/', 1)[-1]}"
     return tool_name
@@ -106,67 +180,12 @@ def _display_name(*, tool_name: str, family: ToolActivityFamily) -> str:
 def _type_label(*, family: ToolActivityFamily, phase: ToolActivityPhase | None) -> str | None:
     if phase is None:
         return None
-    if family == "remote_tool":
-        return f"remote tool {phase}"
-    if family == "tool":
-        return f"tool {phase}"
-    return None
-
-
-def _remote_tool_search_status_text(status: str) -> str:
-    if status == "in_progress":
-        return "searching deferred tools..."
-    if status == "completed":
-        return "deferred tool search complete"
-    if status == "failed":
-        return "deferred tool search failed"
-    return _generic_status_text(status)
-
-
-def _web_search_status_text(status: str) -> str:
-    if status == "in_progress":
-        return "starting search..."
-    if status == "searching":
-        return "searching..."
-    if status == "completed":
-        return "search complete"
-    if status == "failed":
-        return "search failed"
-    return _generic_status_text(status)
-
-
-def _remote_tool_listing_status_text(status: str) -> str:
-    if status == "in_progress":
-        return "loading remote tools..."
-    if status == "completed":
-        return "remote tools loaded"
-    if status == "failed":
-        return "failed to load remote tools"
-    return _generic_status_text(status)
-
-
-def _remote_tool_status_text(status: str) -> str:
-    if status == "in_progress":
-        return "calling remote tool..."
-    if status == "completed":
-        return "remote tool call complete"
-    if status == "failed":
-        return "remote tool call failed"
-    return _generic_status_text(status)
+    prefix = _TYPE_LABEL_PREFIX_BY_FAMILY.get(family)
+    return f"{prefix} {phase}" if prefix else None
 
 
 def _generic_status_text(status: str) -> str:
-    normalized = status.strip().lower()
+    normalized = strip_casefold(status)
     if not normalized:
         return ""
-    known = {
-        "in_progress": "starting...",
-        "queued": "queued...",
-        "started": "started...",
-        "searching": "searching...",
-        "completed": "completed",
-        "failed": "failed",
-        "cancelled": "cancelled",
-        "incomplete": "incomplete",
-    }
-    return known.get(normalized, normalized.replace("_", " "))
+    return _GENERIC_STATUS_TEXT.get(normalized, normalized.replace("_", " "))

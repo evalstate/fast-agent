@@ -2,7 +2,8 @@ import asyncio
 import inspect
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Generic, Protocol, TypeVar
+from collections.abc import Callable
+from typing import Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -111,7 +112,7 @@ class BaseSignalHandler(ABC, Generic[SignalValueT]):
                         func(value)
                 except Exception as e:
                     # Log the error but don't fail the entire signal handling
-                    print(f"Error in signal handler {signal_name}: {str(e)}")
+                    print(f"Error in signal handler {signal_name}: {e!s}")
 
             self._handlers.setdefault(signal_name, []).append((unique_name, wrapped))
             return wrapped

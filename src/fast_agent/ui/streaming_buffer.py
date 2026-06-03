@@ -13,9 +13,9 @@ Design philosophy:
 - Avoid expensive render passes; use width-based line estimation.
 """
 
+from collections.abc import Generator
 from dataclasses import dataclass
 from math import ceil
-from typing import Generator
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -38,6 +38,18 @@ class Table:
     start_pos: int  # Character position where table starts
     end_pos: int  # Character position where table ends
     header_lines: list[str]  # Header row + separator (e.g., ["| A | B |", "|---|---|"])
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownStructures:
+    code_blocks: list[CodeBlock]
+    tables: list[Table]
+
+
+@dataclass(frozen=True, slots=True)
+class TrimmedTextWindow:
+    text: str
+    start_pos: int
 
 
 class StreamBuffer:
@@ -198,27 +210,29 @@ class StreamBuffer:
         truncated_text = text[truncation_pos:]
 
         if terminal_width and terminal_width > 0:
-            truncated_text, truncation_pos = self._trim_within_line_if_needed(
+            trimmed_window = self._trim_within_line_if_needed(
                 text=text,
                 truncated_text=truncated_text,
                 truncation_pos=truncation_pos,
                 terminal_width=terminal_width,
                 max_display_lines=desired_display_lines,
             )
+            truncated_text = trimmed_window.text
+            truncation_pos = trimmed_window.start_pos
 
         # Parse markdown structures only when we see markers that can affect
         # context preservation, and only once per truncation pass.
         if self._contains_context_markers(text):
-            code_blocks, tables = self._find_structures(text)
+            structures = self._find_structures(text)
 
             # Preserve code block context if needed
             truncated_text = self._preserve_code_block_context(
-                text, truncated_text, truncation_pos, code_blocks
+                text, truncated_text, truncation_pos, structures.code_blocks
             )
 
             # Preserve table context if needed
             truncated_text = self._preserve_table_context(
-                text, truncated_text, truncation_pos, tables
+                text, truncated_text, truncation_pos, structures.tables
             )
 
         # Add closing fence if code block is unclosed (display-only)
@@ -244,10 +258,7 @@ class StreamBuffer:
         # Indented code blocks can be expressed without fences.
         if text.startswith("    ") or "\n    " in text:
             return True
-        if text.startswith("\t") or "\n\t" in text:
-            return True
-
-        return False
+        return text.startswith("\t") or "\n\t" in text
 
     def _contains_pipe_table_separator(self, text: str) -> bool:
         """Detect GFM separator rows, including tables without leading pipes."""
@@ -266,10 +277,8 @@ class StreamBuffer:
         """Return True when cell is a GFM separator token like ':---:'."""
         if not cell:
             return False
-        if cell.startswith(":"):
-            cell = cell[1:]
-        if cell.endswith(":"):
-            cell = cell[:-1]
+        cell = cell.removeprefix(":")
+        cell = cell.removesuffix(":")
         return len(cell) >= 3 and all(ch == "-" for ch in cell)
 
     def _line_start_offsets(self, lines: list[str]) -> list[int]:
@@ -281,7 +290,7 @@ class StreamBuffer:
             offsets.append(running)
         return offsets
 
-    def _find_structures(self, text: str) -> tuple[list[CodeBlock], list[Table]]:
+    def _find_structures(self, text: str) -> MarkdownStructures:
         """Parse markdown once and return code blocks and tables."""
         tokens = self._parser.parse(text)
         lines = text.split("\n")
@@ -298,7 +307,7 @@ class StreamBuffer:
             lines=lines,
             line_offsets=line_offsets,
         )
-        return code_blocks, tables
+        return MarkdownStructures(code_blocks=code_blocks, tables=tables)
 
     def _find_code_blocks(
         self,
@@ -379,7 +388,7 @@ class StreamBuffer:
                     if tokens[j].type == "tbody_open" and tbody_map is not None:
                         tbody_start_line = tbody_map[0]
                         break
-                    elif tokens[j].type == "table_close":
+                    if tokens[j].type == "table_close":
                         break
 
                 if tbody_start_line is not None:
@@ -528,10 +537,8 @@ class StreamBuffer:
         closing_fences = len(re.findall(r"^```\s*$", text, re.MULTILINE))
 
         # If odd number of fences, we have an unclosed block
-        if opening_fences > closing_fences:
-            # Check if text already ends with a closing fence
-            if not re.search(r"```\s*$", text):
-                return text + "\n```\n"
+        if opening_fences > closing_fences and not re.search(r"```\s*$", text):
+            return text + "\n```\n"
 
         return text
 
@@ -573,7 +580,7 @@ class StreamBuffer:
         truncation_pos: int,
         terminal_width: int,
         max_display_lines: int,
-    ) -> tuple[str, int]:
+    ) -> TrimmedTextWindow:
         """Trim additional characters when a single line exceeds the viewport."""
         current_pos = truncation_pos
         current_text = truncated_text
@@ -599,4 +606,4 @@ class StreamBuffer:
             current_text = text[current_pos:]
             estimated_lines = self.estimate_display_lines(current_text, terminal_width)
 
-        return current_text, current_pos
+        return TrimmedTextWindow(text=current_text, start_pos=current_pos)

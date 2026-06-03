@@ -14,3 +14,10 @@ def test_parse_plugins_with_action_and_argument() -> None:
     assert isinstance(result, PluginsCommand)
     assert result.action == "update"
     assert result.argument == "all --force"
+
+
+def test_parse_plugins_accepts_quoted_action_and_preserves_raw_argument() -> None:
+    result = parse_special_input('/plugins "install" "team plugin" --registry local')
+    assert isinstance(result, PluginsCommand)
+    assert result.action == "install"
+    assert result.argument == '"team plugin" --registry local'

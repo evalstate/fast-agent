@@ -1,6 +1,7 @@
 """Custom form elements for elicitation forms."""
 
-from typing import Optional, Sequence, TypeVar
+from collections.abc import Sequence
+from typing import Optional, TypeVar
 
 from prompt_toolkit.formatted_text import AnyFormattedText
 from prompt_toolkit.validation import ValidationError

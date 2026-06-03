@@ -15,13 +15,10 @@ if TYPE_CHECKING:
     from fast_agent.config import Settings
 
 
-def get_marketplace_url(settings: object | None = None) -> str:
-    plugins_settings = getattr(settings, "plugins", None) if settings is not None else None
-    url = getattr(plugins_settings, "marketplace_url", None) if plugins_settings is not None else None
-    if not url:
-        urls = getattr(plugins_settings, "marketplace_urls", None) if plugins_settings is not None else None
-        if urls:
-            url = urls[0]
+def get_marketplace_url(settings: "Settings | None" = None) -> str:
+    url = settings.plugins.marketplace_url if settings is not None else None
+    if not url and settings is not None and settings.plugins.marketplace_urls:
+        url = settings.plugins.marketplace_urls[0]
     return source_utils.normalize_marketplace_url(url or DEFAULT_PLUGIN_MARKETPLACE_URL)
 
 
@@ -31,10 +28,9 @@ def get_manager_directory(settings: "Settings | None" = None, *, cwd: Path | Non
     return resolve_environment_paths(settings, cwd=cwd).plugins
 
 
-def resolve_registries(settings: object | None = None) -> list[str]:
-    plugins_settings = getattr(settings, "plugins", None) if settings is not None else None
-    configured = getattr(plugins_settings, "marketplace_urls", None) if plugins_settings else None
-    active = getattr(plugins_settings, "marketplace_url", None) if plugins_settings else None
+def resolve_registries(settings: "Settings | None" = None) -> list[str]:
+    configured = settings.plugins.marketplace_urls if settings is not None else None
+    active = settings.plugins.marketplace_url if settings is not None else None
     return registry_urls.resolve_registry_urls(
         configured,
         default_urls=DEFAULT_PLUGIN_REGISTRIES,

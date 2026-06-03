@@ -32,6 +32,21 @@ def test_tool_stream_delta_bootstraps_mode() -> None:
     assert "\"q\": 1" in text
 
 
+def test_unsupported_tool_event_does_not_change_last_tool_id() -> None:
+    assembler = _make_assembler()
+
+    assert assembler.handle_tool_event(
+        "delta",
+        {"tool_name": "search", "tool_use_id": "tool-1", "chunk": "{}"},
+    )
+    assert not assembler.handle_tool_event(
+        "unsupported",
+        {"tool_name": "noop", "tool_use_id": "other-tool", "chunk": "ignored"},
+    )
+
+    assert assembler.handle_tool_event("stop", {"tool_name": "search"})
+
+
 def test_tool_stream_status_updates_visible_text() -> None:
     assembler = _make_assembler()
 
@@ -299,7 +314,7 @@ def test_remote_tool_stream_failed_blob_does_not_duplicate_completed_output() ->
             "preserve_details": True,
             "tool_display_name": "remote tool: hf_whoami",
             "tool_use_id": "mcp-1",
-            "chunk": "status: failed\nresult: forbidden",
+            "chunk": "status: FAILED\nresult: forbidden",
         },
     )
     assembler.handle_tool_event(
@@ -314,7 +329,7 @@ def test_remote_tool_stream_failed_blob_does_not_duplicate_completed_output() ->
     )
 
     text = "".join(segment.text for segment in assembler.segments)
-    assert text.count("status: failed\nresult: forbidden") == 1
+    assert text.count("status: FAILED\nresult: forbidden") == 1
 
 
 def test_remote_tool_search_collapses_to_compact_completed_status() -> None:

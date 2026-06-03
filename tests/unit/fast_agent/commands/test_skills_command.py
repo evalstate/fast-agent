@@ -9,7 +9,9 @@ from typer.testing import CliRunner
 
 import fast_agent.cli.commands.skills as skills_command
 from fast_agent.cli.main import LAZY_SUBCOMMANDS
+from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.config import get_settings, update_global_settings
+from fast_agent.skills.models import MarketplaceSkill
 
 
 def _repo_root() -> Path:
@@ -178,6 +180,38 @@ def test_skills_help_has_registry_and_skills_dir_options_no_registry_subcommand(
     assert "--install-completion" not in output
     assert "--show-completion" not in output
     assert "│ registry" not in output
+
+
+def _marketplace_skill(
+    name: str,
+    repo_path: str,
+    *,
+    install_dir_name_override: str | None = None,
+) -> MarketplaceSkill:
+    return MarketplaceSkill(
+        name=name,
+        description=None,
+        repo_url="https://github.com/example/skills",
+        repo_ref=None,
+        repo_path=repo_path,
+        install_dir_name_override=install_dir_name_override,
+    )
+
+
+def test_marketplace_skill_selection_options_include_install_dir_aliases() -> None:
+    skills = [
+        _marketplace_skill(
+            "bundle-entry",
+            "plugins/app/SKILL.md",
+            install_dir_name_override="canonical-name",
+        ),
+        _marketplace_skill("canonical-name", "skills/canonical-name"),
+    ]
+
+    assert skills_handlers._marketplace_skill_selection_options(skills) == [
+        "bundle-entry",
+        "canonical-name",
+    ]
 
 
 def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:

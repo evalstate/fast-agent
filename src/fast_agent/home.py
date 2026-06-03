@@ -5,10 +5,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Mapping
+from typing import TYPE_CHECKING, Literal
 
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, FAST_AGENT_RUNTIME_ENVIRONMENT
 from fast_agent.core.exceptions import ConfigFileError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 HomeSource = Literal["cli", "FAST_AGENT_HOME", "ENVIRONMENT_DIR", "default"]
 ConfigSource = Literal["explicit", "home", "cwd", "none"]
@@ -87,7 +90,7 @@ def resolve_fast_agent_home(
     legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
     if runtime_environment:
         runtime_path = _resolve_path(runtime_environment, base)
-        if legacy_environment_dir == runtime_environment or _is_relative_to(runtime_path, base):
+        if legacy_environment_dir == runtime_environment or runtime_path.is_relative_to(base):
             return FastAgentHome(runtime_path, "cli")
 
     fast_agent_home = os.getenv("FAST_AGENT_HOME")
@@ -240,14 +243,6 @@ def _resolve_path(path: str | Path, cwd: Path) -> Path:
     if not resolved.is_absolute():
         resolved = cwd / resolved
     return resolved.resolve()
-
-
-def _is_relative_to(path: Path, base: Path) -> bool:
-    try:
-        path.relative_to(base)
-    except ValueError:
-        return False
-    return True
 
 
 def _format_ambiguity(kind: str, directory: Path, candidates: tuple[Path, ...]) -> str:

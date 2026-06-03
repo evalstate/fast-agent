@@ -6,16 +6,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.hooks.lifecycle_hook_types import VALID_LIFECYCLE_HOOK_TYPES, LifecycleHookType
 from fast_agent.tools.hook_loader import load_hook_function
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
 
     from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
-
-VALID_LIFECYCLE_HOOK_TYPES = frozenset({"on_start", "on_shutdown"})
-
 
 class LifecycleHookFunction(Protocol):
     __name__: str
@@ -30,7 +28,7 @@ class AgentLifecycleHooks:
 
 
 def load_lifecycle_hooks(
-    hooks_config: dict[str, str] | None,
+    hooks_config: Mapping[LifecycleHookType, str] | Mapping[str, str] | None,
     base_path: Path | None = None,
 ) -> AgentLifecycleHooks:
     if not hooks_config:
@@ -43,10 +41,14 @@ def load_lifecycle_hooks(
             f"Valid types are: {sorted(VALID_LIFECYCLE_HOOK_TYPES)}",
         )
 
-    hooks: dict[str, Callable[[AgentLifecycleContext], Awaitable[None]]] = {}
+    hooks: dict[LifecycleHookType, Callable[[AgentLifecycleContext], Awaitable[None]]] = {}
     for hook_type, spec in hooks_config.items():
         hook_func = load_hook_function(spec, base_path)
-        hooks[hook_type] = cast("Callable[[AgentLifecycleContext], Awaitable[None]]", hook_func)
+        normalized_hook_type = cast("LifecycleHookType", hook_type)
+        hooks[normalized_hook_type] = cast(
+            "Callable[[AgentLifecycleContext], Awaitable[None]]",
+            hook_func,
+        )
 
     return AgentLifecycleHooks(
         on_start=hooks.get("on_start"),

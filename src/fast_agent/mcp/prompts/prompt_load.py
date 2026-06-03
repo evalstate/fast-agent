@@ -1,7 +1,7 @@
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from mcp.types import (
     ContentBlock,
@@ -20,13 +20,18 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.message_roles import (
+    DEFAULT_MESSAGE_ROLE,
+    MessageRole,
+    coerce_message_role,
+    is_message_role,
+)
 from fast_agent.mcp.prompts.prompt_template import (
     PromptContent,
 )
 from fast_agent.types import PromptMessageExtended
+from fast_agent.utils.text import strip_casefold
 
-# Define message role type
-MessageRole = Literal["user", "assistant"]
 logger = get_logger("prompt_load")
 _RESPONSES_USAGE_PROVIDERS = frozenset(
     {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.OPENRESPONSES}
@@ -35,11 +40,11 @@ _RESPONSES_USAGE_PROVIDERS = frozenset(
 
 def cast_message_role(role: str) -> MessageRole:
     """Cast a string role to a MessageRole literal type"""
-    if role == "user" or role == "assistant":
-        return role  # type: ignore
+    if is_message_role(role):
+        return role
     # Default to user if the role is invalid
-    logger.warning(f"Invalid message role: {role}, defaulting to 'user'")
-    return "user"
+    logger.warning(f"Invalid message role: {role}, defaulting to '{DEFAULT_MESSAGE_ROLE}'")
+    return coerce_message_role(role)
 
 
 def create_messages_with_resources(
@@ -73,13 +78,17 @@ def create_messages_with_resources(
         for resource_path in section.resources:
             try:
                 # Load resource with information about its type
-                resource_content, mime_type, is_binary = resource_utils.load_resource_content(
+                resource_content = resource_utils.load_resource_content(
                     resource_path, prompt_files
                 )
 
                 # Create and add the resource message
                 resource_message = create_resource_message(
-                    resource_path, resource_content, mime_type, is_binary, role
+                    resource_path,
+                    resource_content.content,
+                    resource_content.mime_type,
+                    resource_content.is_binary,
+                    role,
                 )
                 messages.append(resource_message)
             except Exception as e:
@@ -101,12 +110,12 @@ def create_resource_message(
         # For images, create an ImageContent
         image_content = resource_utils.create_image_content(data=content, mime_type=mime_type)
         return PromptMessage(role=role, content=image_content)
-    else:
-        # For other resources, create an EmbeddedResource
-        embedded_resource = resource_utils.create_embedded_resource(
-            resource_path, content, mime_type, is_binary
-        )
-        return PromptMessage(role=role, content=embedded_resource)
+
+    # For other resources, create an EmbeddedResource
+    embedded_resource = resource_utils.create_embedded_resource(
+        resource_path, content, mime_type, is_binary
+    )
+    return PromptMessage(role=role, content=embedded_resource)
 
 
 def _render_text_content(content: TextContent, arguments: Mapping[str, str]) -> TextContent:
@@ -163,9 +172,7 @@ def _message_template_variables(messages: list[PromptMessageExtended]) -> set[st
 def prompt_file_template_variables(file: Path | str) -> set[str]:
     """Return value-only ``{{placeholder}}`` names from a prompt file."""
     with materialized_text_source(file, label="prompt file") as source_file:
-        path_str = str(source_file).lower()
-
-        if path_str.endswith(".json"):
+        if strip_casefold(source_file.suffix) == ".json":
             from fast_agent.mcp.prompt_serialization import load_messages
 
             return _message_template_variables(load_messages(str(source_file)))
@@ -194,9 +201,7 @@ def load_prompt(
         List of PromptMessageExtended objects with full conversation state
     """
     with materialized_text_source(file, label="prompt file") as source_file:
-        path_str = str(source_file).lower()
-
-        if path_str.endswith(".json"):
+        if strip_casefold(source_file.suffix) == ".json":
             # JSON files use the serialization module directly
             from fast_agent.mcp.prompt_serialization import load_messages
 

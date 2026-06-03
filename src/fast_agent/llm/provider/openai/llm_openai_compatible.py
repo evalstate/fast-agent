@@ -1,4 +1,4 @@
-from typing import Any, Type
+from typing import Any
 
 from mcp import Tool
 
@@ -34,30 +34,51 @@ IMPORTANT RULES:
         if self._should_defer_structured_schema_for_tools(messages, request_params, tools):
             return messages, request_params.model_copy(update={"structured_schema": None})
 
-        prepared_params = request_params
-        json_mode = self._structured_json_mode(request_params)
-        if json_mode == "schema" and not request_params.response_format:
-            return messages, request_params.model_copy(
-                update={
-                    "response_format": self.schema_to_response_format(
-                        request_params.structured_schema
-                    )
-                }
-            )
+        prepared_params, response_format_complete = self._structured_response_format_params(
+            request_params,
+            request_params.structured_schema,
+        )
+        if response_format_complete:
+            return messages, prepared_params
 
         if not self._supports_structured_prompt():
-            return messages, request_params
+            return messages, prepared_params
 
+        return self._append_structured_prompt_if_possible(
+            messages,
+            request_params.structured_schema,
+            prepared_params,
+        )
+
+    def _structured_response_format_params(
+        self,
+        request_params: RequestParams,
+        structured_schema: dict[str, Any],
+    ) -> tuple[RequestParams, bool]:
+        json_mode = self._structured_json_mode(request_params)
+        if json_mode == "schema" and not request_params.response_format:
+            return request_params.model_copy(
+                update={
+                    "response_format": self.schema_to_response_format(structured_schema)
+                }
+            ), True
         if json_mode == "object" and not request_params.response_format:
-            prepared_params = request_params.model_copy(
+            return request_params.model_copy(
                 update={"response_format": {"type": "json_object"}}
-            )
+            ), False
+        return request_params, False
 
+    def _append_structured_prompt_if_possible(
+        self,
+        messages: list[PromptMessageExtended],
+        structured_schema: dict[str, Any],
+        prepared_params: RequestParams,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
         if not messages or messages[-1].role != "user":
             return messages, prepared_params
 
         instructions = self._build_structured_prompt_instruction_from_schema(
-            request_params.structured_schema
+            structured_schema
         )
         if not instructions:
             return messages, prepared_params
@@ -71,7 +92,7 @@ IMPORTANT RULES:
     async def _apply_prompt_provider_specific_structured(
         self,
         multipart_messages: list[PromptMessageExtended],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]:
         if not self._supports_structured_prompt():
@@ -185,7 +206,7 @@ IMPORTANT RULES:
             return params.json_mode
         return self._structured_prompt_format()
 
-    def _build_structured_prompt_instruction(self, model: Type[ModelT]) -> str | None:
+    def _build_structured_prompt_instruction(self, model: type[ModelT]) -> str | None:
         return self._build_structured_prompt_instruction_from_schema(model.model_json_schema())
 
     def _build_structured_prompt_instruction_from_schema(
@@ -241,35 +262,63 @@ IMPORTANT RULES:
             return '"<recursive>"'
         visited.add(id(schema))
 
-        if "$ref" in schema:
-            ref = schema.get("$ref", "")
-            if ref.startswith("#/$defs/"):
-                target = ref.split("/")[-1]
-                if defs and target in defs:
-                    return self._schema_to_json_object(defs[target], defs, visited)
-            return f'"<ref:{ref}>"'
+        ref_rendered = self._schema_ref_to_json_object(schema, defs, visited)
+        if ref_rendered is not None:
+            return ref_rendered
 
         schema_type = schema.get("type")
-        description = schema.get("description", "")
-        required = schema.get("required", [])
 
         if schema_type == "object":
-            props = schema.get("properties", {})
-            result = "{\n"
-            for prop_name, prop_schema in props.items():
-                is_required = prop_name in required
-                prop_str = self._schema_to_json_object(prop_schema, defs, visited)
-                if is_required:
-                    prop_str += " // REQUIRED"
-                result += f'  "{prop_name}": {prop_str},\n'
-            result += "}"
-            return result
-        elif schema_type == "array":
-            items = schema.get("items", {})
-            items_str = self._schema_to_json_object(items, defs, visited)
-            return f"[{items_str}]"
-        elif schema_type:
-            comment = f" // {description}" if description else ""
-            return f'"{schema_type}"' + comment
+            return self._schema_object_to_json_object(schema, defs, visited)
+        if schema_type == "array":
+            return self._schema_array_to_json_object(schema, defs, visited)
+        return _schema_scalar_to_json_object(schema_type, schema.get("description", ""))
 
-        return '"<unknown>"'
+    def _schema_ref_to_json_object(
+        self,
+        schema: dict,
+        defs: dict | None,
+        visited: set,
+    ) -> str | None:
+        if "$ref" not in schema:
+            return None
+        ref = schema.get("$ref", "")
+        if ref.startswith("#/$defs/"):
+            target = ref.split("/")[-1]
+            if defs and target in defs:
+                return self._schema_to_json_object(defs[target], defs, visited)
+        return f'"<ref:{ref}>"'
+
+    def _schema_object_to_json_object(
+        self,
+        schema: dict,
+        defs: dict | None,
+        visited: set,
+    ) -> str:
+        props = schema.get("properties", {})
+        required = schema.get("required", [])
+        result = "{\n"
+        for prop_name, prop_schema in props.items():
+            prop_str = self._schema_to_json_object(prop_schema, defs, visited)
+            if prop_name in required:
+                prop_str += " // REQUIRED"
+            result += f'  "{prop_name}": {prop_str},\n'
+        result += "}"
+        return result
+
+    def _schema_array_to_json_object(
+        self,
+        schema: dict,
+        defs: dict | None,
+        visited: set,
+    ) -> str:
+        items = schema.get("items", {})
+        items_str = self._schema_to_json_object(items, defs, visited)
+        return f"[{items_str}]"
+
+
+def _schema_scalar_to_json_object(schema_type: object, description: object) -> str:
+    if schema_type:
+        comment = f" // {description}" if description else ""
+        return f'"{schema_type}"' + comment
+    return '"<unknown>"'

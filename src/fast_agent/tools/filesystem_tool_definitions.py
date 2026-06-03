@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from mcp.types import Tool
+
+ATTACH_MEDIA_TOOL_NAME: Final = "attach_media"
+ATTACH_RESOURCE_TOOL_ALIAS: Final = "attach_resource"
+READ_TEXT_FILE_TOOL_NAME: Final = "read_text_file"
+WRITE_TEXT_FILE_TOOL_NAME: Final = "write_text_file"
 
 
 def build_attach_media_tool(
@@ -21,7 +28,7 @@ def build_attach_media_tool(
 
     youtube_suffix = ", and Gemini YouTube links" if is_google else ""
     return Tool(
-        name="attach_media",
+        name=ATTACH_MEDIA_TOOL_NAME,
         description=(
             "Stage a local file, file:// URI, or provider-fetchable media/document URL as "
             "multimodal user input for the next model call. Use this for images, PDFs, audio, "
@@ -72,7 +79,7 @@ def build_attach_resource_tool(
 def build_read_text_file_tool() -> Tool:
     """Return the shared ``read_text_file`` tool definition."""
     return Tool(
-        name="read_text_file",
+        name=READ_TEXT_FILE_TOOL_NAME,
         description="Read content from a text file. Returns the file contents as a string. ",
         inputSchema={
             "type": "object",
@@ -101,7 +108,7 @@ def build_read_text_file_tool() -> Tool:
 def build_write_text_file_tool() -> Tool:
     """Return the shared ``write_text_file`` tool definition."""
     return Tool(
-        name="write_text_file",
+        name=WRITE_TEXT_FILE_TOOL_NAME,
         description="Write content to a text file. Creates or overwrites the file. ",
         inputSchema={
             "type": "object",

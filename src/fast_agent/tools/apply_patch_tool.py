@@ -5,6 +5,8 @@ from typing import Any, Final
 
 from mcp.types import Tool
 
+from fast_agent.utils.tool_names import matches_tool_name
+
 APPLY_PATCH_TOOL_NAME: Final = "apply_patch"
 APPLY_PATCH_INPUT_FIELD: Final = "input"
 APPLY_PATCH_TOOL_DESCRIPTION: Final = (
@@ -65,33 +67,25 @@ def build_apply_patch_tool() -> Tool:
         },
     )
 
-
-
-def normalize_tool_name(tool_name: str | None) -> str:
-    if not tool_name:
-        return ""
-    normalized = tool_name.lower()
-    for sep in ("/", ".", ":"):
-        if sep in normalized:
-            normalized = normalized.rsplit(sep, 1)[-1]
-    return normalized
-
-
-
 def is_apply_patch_tool_name(tool_name: str | None) -> bool:
-    normalized = normalize_tool_name(tool_name)
-    return normalized == APPLY_PATCH_TOOL_NAME or normalized.endswith("__apply_patch")
-
+    return matches_tool_name(tool_name, APPLY_PATCH_TOOL_NAME)
 
 
 def extract_apply_patch_input(arguments: Mapping[str, Any] | None) -> str | None:
-    if arguments is None:
+    if not isinstance(arguments, Mapping):
         return None
     raw_input = arguments.get(APPLY_PATCH_INPUT_FIELD)
     if not isinstance(raw_input, str):
         return None
     stripped = raw_input.strip()
     return stripped or None
+
+
+def _string_mapping_value(mapping: Mapping[str, Any], key: str) -> str | None:
+    value = mapping.get(key)
+    if isinstance(value, str):
+        return value
+    return None
 
 
 def get_openai_responses_custom_tool_payload(tool: Tool) -> dict[str, Any] | None:
@@ -108,14 +102,10 @@ def get_openai_responses_custom_tool_payload(tool: Tool) -> dict[str, Any] | Non
     if tool_type != "custom" or not isinstance(format_payload, Mapping):
         return None
 
-    format_type = format_payload.get("type")
-    syntax = format_payload.get("syntax")
-    definition = format_payload.get("definition")
-    if not isinstance(format_type, str):
-        return None
-    if not isinstance(syntax, str):
-        return None
-    if not isinstance(definition, str):
+    format_type = _string_mapping_value(format_payload, "type")
+    syntax = _string_mapping_value(format_payload, "syntax")
+    definition = _string_mapping_value(format_payload, "definition")
+    if format_type is None or syntax is None or definition is None:
         return None
 
     return {

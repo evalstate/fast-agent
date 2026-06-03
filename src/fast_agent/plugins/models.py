@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Literal
 
+from fast_agent.marketplace.source_utils import repo_subdir_for_manifest_path
+from fast_agent.marketplace.update_status import CommonMarketplaceUpdateStatus
+from fast_agent.utils.text import strip_casefold
+
 if TYPE_CHECKING:
     from fast_agent.command_actions.models import PluginCommandActionSpec
 
@@ -23,19 +27,7 @@ PLUGIN_SOURCE_SCHEMA_VERSION = 1
 LOCAL_REVISION = "local"
 
 PluginSourceOrigin = Literal["remote", "local"]
-PluginUpdateStatus = Literal[
-    "up_to_date",
-    "update_available",
-    "updated",
-    "unmanaged",
-    "invalid_metadata",
-    "invalid_local_plugin",
-    "unknown_revision",
-    "source_unreachable",
-    "source_ref_missing",
-    "source_path_missing",
-    "skipped_dirty",
-]
+PluginUpdateStatus = CommonMarketplaceUpdateStatus | Literal["invalid_local_plugin"]
 
 
 @dataclass(frozen=True)
@@ -60,15 +52,12 @@ class MarketplacePlugin:
 
     @property
     def repo_subdir(self) -> str:
-        path = PurePosixPath(self.repo_path)
-        if path.name.lower() == PLUGIN_MANIFEST_FILENAME:
-            return str(path.parent)
-        return str(path)
+        return repo_subdir_for_manifest_path(self.repo_path, PLUGIN_MANIFEST_FILENAME)
 
     @property
     def install_dir_name(self) -> str:
         path = PurePosixPath(self.repo_path)
-        if path.name.lower() == PLUGIN_MANIFEST_FILENAME:
+        if strip_casefold(path.name) == PLUGIN_MANIFEST_FILENAME:
             return path.parent.name or self.name
         return path.name or self.name
 

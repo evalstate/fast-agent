@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.skills.registry import SkillRegistry
     from fast_agent.types import PromptMessageExtended
@@ -45,7 +47,7 @@ class ParallelAgentProtocol(Protocol):
 
 @runtime_checkable
 class HfDisplayInfoProvider(Protocol):
-    def get_hf_display_info(self) -> dict[str, Any]: ...
+    def get_hf_display_info(self) -> "Mapping[str, object]": ...
 
 
 @runtime_checkable

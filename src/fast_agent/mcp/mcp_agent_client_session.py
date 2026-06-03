@@ -5,10 +5,10 @@ It adds logging and supports sampling requests.
 
 import asyncio
 import json
-import os
 import sys
+from contextlib import suppress
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
 from mcp import ClientSession, ServerNotification
 from mcp.shared.context import RequestContext
@@ -50,23 +50,36 @@ from pydantic import AnyUrl, BaseModel, FileUrl
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
-from fast_agent.mcp.sampling import sample
+from fast_agent.mcp.sampling import resolve_auto_sampling_enabled, sample
 from fast_agent.mcp.url_elicitation_required import (
     URLElicitationDisplayItem,
     URLElicitationRequiredDisplayPayload,
     build_url_elicitation_required_display_payload,
 )
+from fast_agent.utils.env import env_flag
+from fast_agent.utils.text import strip_casefold, strip_str_to_none, strip_to_none
 
 if TYPE_CHECKING:
+    from mcp.client.session import ListRootsFnT, SamplingFnT
+
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
 
 
+@runtime_checkable
+class _ModelDumpParams(Protocol):
+    def model_dump(
+        self,
+        *,
+        by_alias: bool = False,
+        exclude_none: bool = False,
+    ) -> dict[str, Any]: ...
+
+
 def _progress_trace_enabled() -> bool:
-    value = os.environ.get("FAST_AGENT_TRACE_MCP_PROGRESS", "")
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return env_flag("FAST_AGENT_TRACE_MCP_PROGRESS")
 
 
 def _progress_trace(message: str) -> None:
@@ -109,18 +122,17 @@ class _SessionDeleteResult(Result):
 async def list_roots(context: RequestContext[ClientSession, None]) -> ListRootsResult:
     """List roots callback that will be called by the MCP library."""
 
-    if server_config := get_server_config(context.session):
-        if server_config.roots:
-            roots = [
-                Root(
-                    uri=FileUrl(
-                        root.server_uri_alias or root.uri,
-                    ),
-                    name=root.name,
-                )
-                for root in server_config.roots
-            ]
-            return ListRootsResult(roots=roots)
+    if (server_config := get_server_config(context.session)) and server_config.roots:
+        roots = [
+            Root(
+                uri=FileUrl(
+                    root.server_uri_alias or root.uri,
+                ),
+                name=root.name,
+            )
+            for root in server_config.roots
+        ]
+        return ListRootsResult(roots=roots)
 
     return ListRootsResult(roots=[])
 
@@ -139,126 +151,18 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     _pending_url_elicitations: list[URLElicitationDisplayItem]
 
     def __init__(self, read_stream, write_stream, read_timeout=None, **kwargs) -> None:
-        # Extract server_name if provided in kwargs
-        from importlib.metadata import version
+        custom_elicitation_handler = self._pop_fast_agent_kwargs(kwargs)
+        self._initialize_session_state()
 
-        self.session_server_name = kwargs.pop("server_name", None)
-        # Extract the notification callbacks if provided
-        self._tool_list_changed_callback = kwargs.pop("tool_list_changed_callback", None)
-        # Reference to parent aggregator for late-bound notification callback
-        self._aggregator = kwargs.pop("aggregator", None)
-        # Extract server_config if provided
-        self.server_config: MCPServerSettings | None = kwargs.pop("server_config", None)
-        # Extract agent_model if provided (for auto_sampling fallback)
-        self.agent_model: str | None = kwargs.pop("agent_model", None)
-        # Extract agent_name if provided
-        self.agent_name: str | None = kwargs.pop("agent_name", None)
-        # Extract api_key if provided
-        self.api_key: str | None = kwargs.pop("api_key", None)
-        # Extract custom elicitation handler if provided
-        custom_elicitation_handler = kwargs.pop("elicitation_handler", None)
-        # Extract optional context for ContextDependent mixin without passing it to ClientSession
-        self._context = kwargs.pop("context", None)
-        # Extract transport metrics tracker if provided
-        self._transport_metrics: TransportChannelMetrics | None = kwargs.pop(
-            "transport_metrics", None
+        fast_agent = self._client_implementation()
+        list_roots_cb = self._make_list_roots_callback()
+        sampling_cb = self._make_sampling_callback()
+        sampling_caps = self._make_sampling_capabilities(sampling_cb)
+        elicitation_handler = self._resolve_elicitation_handler(custom_elicitation_handler)
+        self.effective_elicitation_mode = self._resolve_effective_elicitation_mode(
+            elicitation_handler
         )
-
-        # Track the effective elicitation mode for diagnostics
-        self.effective_elicitation_mode: str | None = "none"
-        self._offline_notified = False
-        self._pending_url_elicitations = []
-        self._experimental_session_supported = False
-        self._experimental_session_features: tuple[str, ...] = ()
-        self._experimental_session_cookie: dict[str, Any] | None = None
-
-        fast_agent_version = version("fast-agent-mcp") or "dev"
-        fast_agent: Implementation = Implementation(
-            name="fast-agent-mcp", version=fast_agent_version
-        )
-        if self.server_config and self.server_config.implementation:
-            fast_agent = self.server_config.implementation
-
-        # Only register callbacks if the server_config has the relevant settings
-        list_roots_cb = list_roots if (self.server_config and self.server_config.roots) else None
-
-        # Register sampling callback if either:
-        # 1. Sampling is explicitly configured, OR
-        # 2. Application-level auto_sampling is enabled
-        sampling_cb = None
-        if self.server_config and self.server_config.sampling:
-            # Explicit sampling configuration
-            sampling_cb = sample
-        elif self._should_enable_auto_sampling():
-            # Auto-sampling enabled at application level
-            sampling_cb = sample
-
-        # Use custom elicitation handler if provided, otherwise resolve using factory
-        if custom_elicitation_handler is not None:
-            elicitation_handler = custom_elicitation_handler
-        else:
-            # Try to resolve using factory
-            elicitation_handler = None
-            try:
-                from fast_agent.agents.agent_types import AgentConfig
-                from fast_agent.context import get_current_context
-                from fast_agent.mcp.elicitation_factory import resolve_elicitation_handler
-
-                context = get_current_context()
-                if context and context.config:
-                    # Create a minimal agent config for the factory
-                    agent_config = AgentConfig(
-                        name=self.agent_name or "unknown",
-                        model=self.agent_model or "unknown",
-                        elicitation_handler=None,
-                    )
-                    elicitation_handler = resolve_elicitation_handler(
-                        agent_config, context.config, self.server_config
-                    )
-            except Exception:
-                # If factory resolution fails, we'll use default fallback
-                pass
-
-            # Fallback to forms handler only if factory resolution wasn't attempted
-            if elicitation_handler is None and not self.server_config:
-                from fast_agent.mcp.elicitation_handlers import forms_elicitation_handler
-
-                elicitation_handler = forms_elicitation_handler
-
-        # Determine effective elicitation mode for diagnostics
-        if self.server_config and self.server_config.elicitation is not None:
-            self.effective_elicitation_mode = self.server_config.elicitation.mode or "forms"
-        elif elicitation_handler is not None:
-            # Use global config if available to distinguish auto-cancel
-            try:
-                from fast_agent.context import get_current_context
-
-                context = get_current_context()
-                mode = None
-                if context and getattr(context, "config", None):
-                    elicitation_cfg = getattr(context.config, "elicitation", None)
-                    if isinstance(elicitation_cfg, dict):
-                        mode = elicitation_cfg.get("mode")
-                    else:
-                        mode = getattr(elicitation_cfg, "mode", None)
-                self.effective_elicitation_mode = (mode or "forms").lower()
-            except Exception:
-                self.effective_elicitation_mode = "forms"
-        else:
-            self.effective_elicitation_mode = "none"
-
-        # Pop parameters we're explicitly setting to avoid duplicates
-        kwargs.pop("list_roots_callback", None)
-        kwargs.pop("sampling_callback", None)
-        kwargs.pop("sampling_capabilities", None)
-        kwargs.pop("client_info", None)
-        kwargs.pop("elicitation_callback", None)
-
-        # Create sampling capabilities with tools support when sampling is enabled
-        sampling_caps = None
-        if sampling_cb is not None:
-            # Advertise full sampling capability including tools support
-            sampling_caps = SamplingCapability(tools=SamplingToolsCapability())
+        self._discard_managed_client_kwargs(kwargs)
 
         super().__init__(
             read_stream,
@@ -271,6 +175,112 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             client_info=fast_agent,
             elicitation_callback=elicitation_handler,
         )
+
+    def _pop_fast_agent_kwargs(self, kwargs: dict[str, Any]) -> Any:
+        self.session_server_name = kwargs.pop("server_name", None)
+        self._tool_list_changed_callback = kwargs.pop("tool_list_changed_callback", None)
+        self._aggregator = kwargs.pop("aggregator", None)
+        self.server_config: MCPServerSettings | None = kwargs.pop("server_config", None)
+        self.agent_model: str | None = kwargs.pop("agent_model", None)
+        self.agent_name: str | None = kwargs.pop("agent_name", None)
+        self.api_key: str | None = kwargs.pop("api_key", None)
+        self._context = kwargs.pop("context", None)
+        self._transport_metrics: TransportChannelMetrics | None = kwargs.pop(
+            "transport_metrics", None
+        )
+        return kwargs.pop("elicitation_handler", None)
+
+    def _initialize_session_state(self) -> None:
+        self.effective_elicitation_mode: str | None = "none"
+        self._offline_notified = False
+        self._pending_url_elicitations = []
+        self._experimental_session_supported = False
+        self._experimental_session_features: tuple[str, ...] = ()
+        self._experimental_session_cookie: dict[str, Any] | None = None
+
+    def _client_implementation(self) -> Implementation:
+        from importlib.metadata import version
+
+        if self.server_config and self.server_config.implementation:
+            return self.server_config.implementation
+        fast_agent_version = version("fast-agent-mcp") or "dev"
+        return Implementation(name="fast-agent-mcp", version=fast_agent_version)
+
+    def _make_list_roots_callback(self) -> "ListRootsFnT | None":
+        if self.server_config and self.server_config.roots:
+            return cast("ListRootsFnT", list_roots)
+        return None
+
+    def _make_sampling_callback(self) -> "SamplingFnT | None":
+        if (self.server_config and self.server_config.sampling) or self._should_enable_auto_sampling():
+            return cast("SamplingFnT", sample)
+        return None
+
+    @staticmethod
+    def _make_sampling_capabilities(
+        sampling_cb: "SamplingFnT | None",
+    ) -> SamplingCapability | None:
+        if sampling_cb is None:
+            return None
+        return SamplingCapability(tools=SamplingToolsCapability())
+
+    def _resolve_elicitation_handler(self, custom_elicitation_handler: Any) -> Any | None:
+        if custom_elicitation_handler is not None:
+            return custom_elicitation_handler
+
+        elicitation_handler = self._resolve_configured_elicitation_handler()
+        if elicitation_handler is not None or self.server_config:
+            return elicitation_handler
+
+        from fast_agent.mcp.elicitation_handlers import forms_elicitation_handler
+
+        return forms_elicitation_handler
+
+    def _resolve_configured_elicitation_handler(self) -> Any | None:
+        try:
+            from fast_agent.agents.agent_types import AgentConfig
+            from fast_agent.context import get_current_context
+            from fast_agent.mcp.elicitation_factory import resolve_elicitation_handler
+
+            context = get_current_context()
+            if not context or not context.config:
+                return None
+            agent_config = AgentConfig(
+                name=self.agent_name or "unknown",
+                model=self.agent_model or "unknown",
+                elicitation_handler=None,
+            )
+            return resolve_elicitation_handler(agent_config, context.config, self.server_config)
+        except Exception:
+            return None
+
+    def _resolve_effective_elicitation_mode(self, elicitation_handler: Any | None) -> str:
+        if self.server_config and self.server_config.elicitation is not None:
+            return self.server_config.elicitation.mode or "forms"
+        if elicitation_handler is None:
+            return "none"
+        return self._global_elicitation_mode() or "forms"
+
+    @staticmethod
+    def _global_elicitation_mode() -> str | None:
+        from fast_agent.context import get_current_context
+        from fast_agent.mcp.elicitation_factory import resolve_global_elicitation_mode
+
+        context = get_current_context()
+        if not context or not context.config:
+            return None
+        return resolve_global_elicitation_mode(context.config)
+
+    @staticmethod
+    def _discard_managed_client_kwargs(kwargs: dict[str, Any]) -> None:
+        for key in (
+            "list_roots_callback",
+            "sampling_callback",
+            "sampling_capabilities",
+            "client_info",
+            "elicitation_callback",
+        ):
+            kwargs.pop(key, None)
 
     @property
     def experimental_session_supported(self) -> bool:
@@ -298,15 +308,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         cookie = self._experimental_session_cookie
         if not cookie:
             return None
-        direct_title = cookie.get("title")
-        if isinstance(direct_title, str) and direct_title.strip():
-            return direct_title.strip()
-        data = cookie.get("data")
-        if isinstance(data, dict):
-            title = data.get("title") or data.get("label")
-            if isinstance(title, str) and title.strip():
-                return title.strip()
-        return None
+        return self._extract_session_title(cookie)
 
     def set_experimental_session_cookie(self, cookie: dict[str, Any] | None) -> None:
         """Override the in-memory MCP session metadata for this connection."""
@@ -393,12 +395,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         try:
             from fast_agent.context import get_current_context
 
-            context = get_current_context()
-            if context and context.config:
-                return getattr(context.config, "auto_sampling", True)
+            return resolve_auto_sampling_enabled(get_current_context())
         except Exception:
-            pass
-        return True  # Default to True if can't access config
+            return True
 
     def _capture_experimental_session_capability(
         self,
@@ -547,6 +546,21 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             return raw
         return None
 
+    @staticmethod
+    def _extract_session_title(cookie: dict[str, Any]) -> str | None:
+        title = cookie.get("title")
+        if isinstance(title, str):
+            direct_title = strip_to_none(title)
+            if direct_title is not None:
+                return direct_title
+
+        data = cookie.get("data")
+        if not isinstance(data, dict):
+            return None
+
+        nested_title = data.get("title") or data.get("label")
+        return strip_str_to_none(nested_title)
+
     @classmethod
     def _session_meta_for_request(
         cls,
@@ -577,7 +591,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         payload: dict[str, Any] | None = None
         if isinstance(params, dict):
             payload = params
-        elif hasattr(params, "model_dump"):
+        elif isinstance(params, _ModelDumpParams):
             dumped = params.model_dump(by_alias=True, exclude_none=False)
             if isinstance(dumped, dict):
                 payload = dumped
@@ -647,17 +661,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         is_ping_request = self._is_ping_request(request)
         request_method = getattr(getattr(request, "root", None), "method", "unknown")
 
-        if progress_callback is not None and request_id is not None:
-            _progress_trace(
-                "outbound-request "
-                f"server={self.session_server_name or 'unknown'} "
-                f"method={request_method} "
-                f"request_id={request_id!r} "
-                f"progress_token={request_id!r}"
-            )
-
-        if is_ping_request and request_id is not None and self._transport_metrics is not None:
-            self._transport_metrics.register_ping_request(request_id)
+        self._trace_request_progress(
+            "outbound-request",
+            request_method=request_method,
+            request_id=request_id,
+            progress_callback=progress_callback,
+            extra=f" progress_token={request_id!r}",
+        )
+        self._register_ping_request(is_ping_request, request_id)
         try:
             result = await super().send_request(
                 # NOTE: request must be positional due to an upstream bug in
@@ -671,83 +682,138 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 metadata=metadata,
                 progress_callback=progress_callback,
             )
-            logger.debug(
-                "send_request: response=",
-                data=result.model_dump() if result is not None else "no response returned",
-            )
-            result_meta = getattr(result, "meta", None)
-            if isinstance(result_meta, dict):
-                self._update_experimental_session_cookie(
-                    result_meta,
-                    expected_session_id=expected_session_id,
-                )
-
-            if progress_callback is not None and request_id is not None:
-                _progress_trace(
-                    "request-complete "
-                    f"server={self.session_server_name or 'unknown'} "
-                    f"method={request_method} "
-                    f"request_id={request_id!r}"
-                )
-
-            self._attach_transport_channel(request_id, result)
-            self._attach_url_elicitation_payload_from_result(
+            self._handle_successful_request(
                 result,
+                expected_session_id=expected_session_id,
+                is_ping_request=is_ping_request,
+                request_id=request_id,
                 request_method=request_method,
+                progress_callback=progress_callback,
             )
-            self._attach_pending_url_elicitation_payload_for_request(
-                result,
-                request_method=request_method,
-            )
-            if (
-                is_ping_request
-                and request_id is not None
-                and self._transport_metrics is not None
-            ):
-                self._transport_metrics.discard_ping_request(request_id)
-            self._offline_notified = False
             return result
         except Exception as e:
-            self._discard_pending_url_elicitation_payload()
-            if progress_callback is not None and request_id is not None:
-                _progress_trace(
-                    "request-error "
-                    f"server={self.session_server_name or 'unknown'} "
-                    f"method={request_method} "
-                    f"request_id={request_id!r} "
-                    f"error={type(e).__name__}: {e}"
-                )
-
-            if is_ping_request and request_id is not None and self._transport_metrics is not None:
-                self._transport_metrics.discard_ping_request(request_id)
-            from anyio import ClosedResourceError
-
-            from fast_agent.core.exceptions import ServerSessionTerminatedError
-
-            # Check for session terminated error (404 from server)
-            if self._is_session_terminated_error(e):
-                raise ServerSessionTerminatedError(
-                    server_name=self.session_server_name or "unknown",
-                    details="Server returned 404 - session may have expired due to server restart",
-                ) from e
-
-            # URL elicitation required error from MCP server
-            if self._is_url_elicitation_required_error(e):
-                self._attach_url_elicitation_required_payload(e, request_method)
-
-            # Handle connection closure errors (transport closed)
-            if isinstance(e, ClosedResourceError):
-                if not self._offline_notified:
-                    from fast_agent.ui import console
-
-                    console.console.print(
-                        f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
-                    )
-                    self._offline_notified = True
-                raise ConnectionError(f"MCP server {self.session_server_name} offline") from e
-
-            logger.error(f"send_request failed: {str(e)}")
+            self._handle_failed_request(
+                e,
+                is_ping_request=is_ping_request,
+                request_id=request_id,
+                request_method=request_method,
+                progress_callback=progress_callback,
+            )
             raise
+
+    def _trace_request_progress(
+        self,
+        event: str,
+        *,
+        request_method: str,
+        request_id: Any,
+        progress_callback: ProgressFnT | None,
+        extra: str = "",
+    ) -> None:
+        if progress_callback is None or request_id is None:
+            return
+        _progress_trace(
+            f"{event} "
+            f"server={self.session_server_name or 'unknown'} "
+            f"method={request_method} "
+            f"request_id={request_id!r}"
+            f"{extra}"
+        )
+
+    def _register_ping_request(self, is_ping_request: bool, request_id: Any) -> None:
+        if is_ping_request and request_id is not None and self._transport_metrics is not None:
+            self._transport_metrics.register_ping_request(request_id)
+
+    def _discard_ping_request(self, is_ping_request: bool, request_id: Any) -> None:
+        if is_ping_request and request_id is not None and self._transport_metrics is not None:
+            self._transport_metrics.discard_ping_request(request_id)
+
+    def _handle_successful_request(
+        self,
+        result: ReceiveResultT,
+        *,
+        expected_session_id: str | None,
+        is_ping_request: bool,
+        request_id: Any,
+        request_method: str,
+        progress_callback: ProgressFnT | None,
+    ) -> None:
+        logger.debug(
+            "send_request: response=",
+            data=result.model_dump() if result is not None else "no response returned",
+        )
+        result_meta = getattr(result, "meta", None)
+        if isinstance(result_meta, dict):
+            self._update_experimental_session_cookie(
+                result_meta,
+                expected_session_id=expected_session_id,
+            )
+
+        self._trace_request_progress(
+            "request-complete",
+            request_method=request_method,
+            request_id=request_id,
+            progress_callback=progress_callback,
+        )
+
+        self._attach_transport_channel(request_id, result)
+        self._attach_url_elicitation_payload_from_result(
+            result,
+            request_method=request_method,
+        )
+        self._attach_pending_url_elicitation_payload_for_request(
+            result,
+            request_method=request_method,
+        )
+        self._discard_ping_request(is_ping_request, request_id)
+        self._offline_notified = False
+
+    def _handle_failed_request(
+        self,
+        exc: Exception,
+        *,
+        is_ping_request: bool,
+        request_id: Any,
+        request_method: str,
+        progress_callback: ProgressFnT | None,
+    ) -> None:
+        from anyio import ClosedResourceError
+
+        from fast_agent.core.exceptions import ServerSessionTerminatedError
+
+        self._discard_pending_url_elicitation_payload()
+        self._trace_request_progress(
+            "request-error",
+            request_method=request_method,
+            request_id=request_id,
+            progress_callback=progress_callback,
+            extra=f" error={type(exc).__name__}: {exc}",
+        )
+        self._discard_ping_request(is_ping_request, request_id)
+
+        if self._is_session_terminated_error(exc):
+            raise ServerSessionTerminatedError(
+                server_name=self.session_server_name or "unknown",
+                details="Server returned 404 - session may have expired due to server restart",
+            ) from exc
+
+        if self._is_url_elicitation_required_error(exc):
+            self._attach_url_elicitation_required_payload(exc, request_method)
+
+        if isinstance(exc, ClosedResourceError):
+            self._raise_connection_offline(exc)
+
+        logger.error(f"send_request failed: {exc!s}")
+
+    def _raise_connection_offline(self, exc: Exception) -> None:
+        if not self._offline_notified:
+            from fast_agent.ui import console
+
+            console.console.print(
+                f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
+            )
+            self._offline_notified = True
+        raise ConnectionError(f"MCP server {self.session_server_name} offline") from exc
 
     @staticmethod
     def _is_ping_request(request: ClientRequest) -> bool:
@@ -755,12 +821,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         method = getattr(root, "method", None)
         if not isinstance(method, str):
             return False
-        method_lower = method.lower()
-        return (
-            method_lower == "ping"
-            or method_lower.endswith("/ping")
-            or method_lower.endswith(".ping")
-        )
+        method_lower = strip_casefold(method)
+        return method_lower == "ping" or method_lower.endswith(("/ping", ".ping"))
 
     def _is_session_terminated_error(self, exc: Exception) -> bool:
         """Check if exception is a session terminated error (code 32600 from 404)."""
@@ -806,11 +868,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             server_name=server_name,
             request_method=request_method,
         )
-        setattr(exc, "_fast_agent_url_elicitation_required", payload)
-
-    def _ensure_pending_url_elicitation_state(self) -> None:
-        if not hasattr(self, "_pending_url_elicitations"):
-            self._pending_url_elicitations = []
+        exc_meta = cast("Any", exc)
+        exc_meta._fast_agent_url_elicitation_required = payload
 
     def queue_url_elicitation_for_active_request(
         self,
@@ -820,7 +879,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         elicitation_id: str | None,
     ) -> bool:
         """Queue URL elicitation for the next successful request result."""
-        self._ensure_pending_url_elicitation_state()
         self._pending_url_elicitations.append(
             URLElicitationDisplayItem(
                 message=message,
@@ -839,17 +897,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         payload = self._consume_pending_url_elicitation_payload(request_method=request_method)
         if payload is None:
             return
-        try:
-            setattr(result, "_fast_agent_url_elicitation_required", payload)
-        except Exception:
-            pass
+        with suppress(Exception):
+            result_meta = cast("Any", result)
+            result_meta._fast_agent_url_elicitation_required = payload
 
     def _consume_pending_url_elicitation_payload(
         self,
         *,
         request_method: str,
     ) -> URLElicitationRequiredDisplayPayload | None:
-        self._ensure_pending_url_elicitation_state()
         if not self._pending_url_elicitations:
             return None
 
@@ -863,7 +919,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         )
 
     def _discard_pending_url_elicitation_payload(self) -> None:
-        self._ensure_pending_url_elicitation_state()
         self._pending_url_elicitations = []
 
     def _attach_url_elicitation_payload_from_result(
@@ -893,10 +948,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             server_name=self.session_server_name or "unknown",
             request_method=request_method,
         )
-        try:
-            setattr(result, "_fast_agent_url_elicitation_required", payload)
-        except Exception:
-            pass
+        with suppress(Exception):
+            result_meta = cast("Any", result)
+            result_meta._fast_agent_url_elicitation_required = payload
 
     @staticmethod
     def get_url_elicitation_required_payload(
@@ -914,11 +968,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         channel = self._transport_metrics.consume_response_channel(request_id)
         if not channel:
             return
-        try:
-            setattr(result, "transport_channel", channel)
-        except Exception:
-            # If result cannot be mutated, ignore silently
-            pass
+        with suppress(Exception):
+            result_meta = cast("Any", result)
+            result_meta.transport_channel = channel
 
     async def _received_notification(self, notification: ServerNotification) -> None:
         """
@@ -954,8 +1006,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         _cb = getattr(self._aggregator, "server_notification_callback", None) if self._aggregator else None
         if _cb and not isinstance(notification.root, ProgressNotification):
             asyncio.create_task(self._handle_server_notification(notification))
-
-        return None
 
     async def _handle_server_notification(self, notification: ServerNotification) -> None:
         """Forward server notifications to the registered callback."""

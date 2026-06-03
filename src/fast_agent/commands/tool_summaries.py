@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fast_agent.commands.model_capabilities import (
     resolve_web_fetch_enabled,
@@ -13,6 +14,7 @@ from fast_agent.commands.model_capabilities import (
     resolve_x_search_enabled,
     resolve_x_search_supported,
 )
+from fast_agent.commands.summary_utils import JsonObject, json_object, optional_string
 from fast_agent.interfaces import (
     AgentBackedToolProvider,
     CardToolProvider,
@@ -20,12 +22,21 @@ from fast_agent.interfaces import (
     SmartToolingCapable,
 )
 from fast_agent.mcp.common import is_namespaced_name
-from fast_agent.tools.tool_sources import TOOL_SOURCE_LABELS, tool_source
+from fast_agent.tools.tool_sources import TOOL_SOURCE_LABELS, ToolSource, tool_source
+from fast_agent.utils.action_normalization import enabled_disabled_label
+from fast_agent.utils.text import strip_to_none
+
+PROVIDER_HOSTED_SUFFIX = "provider-hosted"
+PROVIDER_MANAGED_CONNECTOR_SUFFIX = "provider-managed connector"
+PROVIDER_MANAGED_MCP_SUFFIX = "provider-managed MCP"
 
 if TYPE_CHECKING:
     from mcp.types import Tool
 
-    from fast_agent.mcp.provider_management import ProviderManagedMCPState
+    from fast_agent.mcp.provider_management import (
+        ProviderManagedMCPAttachment,
+        ProviderManagedMCPState,
+    )
 
 
 @dataclass(slots=True)
@@ -44,7 +55,57 @@ class ProviderToolSummary:
     name: str
     enabled: bool | None
     description: str
-    suffix: str = "provider-hosted"
+    suffix: str = PROVIDER_HOSTED_SUFFIX
+
+
+@dataclass(frozen=True, slots=True)
+class _ToolNameSets:
+    card: set[str]
+    smart: set[str]
+    agent_backed: set[str]
+
+    def classification_candidates(self) -> tuple[tuple[set[str], str], ...]:
+        return (
+            (self.smart, "(Smart)"),
+            (self.card, "(Card Function)"),
+            (self.agent_backed, "(Subagent)"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ProviderToolDescriptor:
+    name: str
+    supported: Callable[[object | None], bool]
+    enabled: Callable[[object | None], bool]
+    description: str
+
+
+PROVIDER_HOSTED_TOOL_DESCRIPTORS: tuple[_ProviderToolDescriptor, ...] = (
+    _ProviderToolDescriptor(
+        name="web_search",
+        supported=resolve_web_search_supported,
+        enabled=resolve_web_search_enabled,
+        description="Provider-hosted web search tool.",
+    ),
+    _ProviderToolDescriptor(
+        name="web_fetch",
+        supported=resolve_web_fetch_supported,
+        enabled=resolve_web_fetch_enabled,
+        description="Provider-hosted web fetch tool.",
+    ),
+    _ProviderToolDescriptor(
+        name="x_search",
+        supported=resolve_x_search_supported,
+        enabled=resolve_x_search_enabled,
+        description="Provider-hosted X search tool.",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ToolClassification:
+    suffix: str | None
+    is_mcp: bool = False
 
 
 @runtime_checkable
@@ -65,8 +126,83 @@ def _provider_managed_description(
     return base_description
 
 
+def provider_tool_state_label(enabled: bool | None) -> str:
+    if enabled is None:
+        return "Unknown"
+    return enabled_disabled_label(enabled)
+
+
+def provider_tool_status_label(summary: ProviderToolSummary) -> str:
+    return f"{summary.suffix}, {provider_tool_state_label(summary.enabled)}"
+
+
+def _provider_managed_summary(
+    *,
+    name: str,
+    enabled: bool,
+    description: str,
+    suffix: str,
+) -> ProviderToolSummary:
+    return ProviderToolSummary(
+        name=name,
+        enabled=enabled,
+        description=description,
+        suffix=suffix,
+    )
+
+
+def _provider_managed_attachment_summaries(
+    attachment: "ProviderManagedMCPAttachment",
+    *,
+    allowlist: tuple[str, ...] | None,
+) -> list[ProviderToolSummary]:
+    suffix = (
+        PROVIDER_MANAGED_CONNECTOR_SUFFIX
+        if attachment.connector_id is not None
+        else PROVIDER_MANAGED_MCP_SUFFIX
+    )
+    base_description = optional_string(attachment.server_description)
+    if base_description is None:
+        base_description = (
+            f"OpenAI connector {attachment.connector_id}"
+            if attachment.connector_id is not None
+            else "Provider-managed MCP server"
+        )
+
+    description = _provider_managed_description(
+        base_description=base_description,
+        allowlist=allowlist,
+    )
+
+    if allowlist:
+        return [
+            _provider_managed_summary(
+                name=f"{attachment.server_name}/{tool_name}",
+                enabled=True,
+                description=description,
+                suffix=suffix,
+            )
+            for tool_name in allowlist
+        ]
+
+    return [
+        _provider_managed_summary(
+            name=attachment.server_name,
+            enabled=allowlist != (),
+            description=description,
+            suffix=suffix,
+        )
+    ]
+
+
+def _agent_llm(agent: object) -> object | None:
+    if isinstance(agent, LlmCapableProtocol):
+        return agent.llm
+    return None
+
+
 def _provider_managed_tool_summaries(agent: object) -> list[ProviderToolSummary]:
-    llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
+    llm = _agent_llm(agent)
     if llm is None:
         return []
 
@@ -76,115 +212,82 @@ def _provider_managed_tool_summaries(agent: object) -> list[ProviderToolSummary]
                 name="provider_managed_mcp",
                 enabled=None,
                 description="Provider-managed MCP state is unavailable for this model.",
-                suffix="provider-managed MCP",
+                suffix=PROVIDER_MANAGED_MCP_SUFFIX,
             )
         ]
 
     state = llm.provider_managed_mcp_state
     summaries: list[ProviderToolSummary] = []
     for attachment in state.attachments:
-        suffix = (
-            "provider-managed connector"
-            if attachment.connector_id is not None
-            else "provider-managed MCP"
+        summaries.extend(
+            _provider_managed_attachment_summaries(
+                attachment,
+                allowlist=state.tool_allowlists.get(attachment.server_name),
+            )
         )
-        base_description = attachment.server_description
-        if base_description is None:
-            base_description = (
-                f"OpenAI connector {attachment.connector_id}"
-                if attachment.connector_id is not None
-                else "Provider-managed MCP server"
-            )
-
-        allowlist = state.tool_allowlists.get(attachment.server_name)
-        description = _provider_managed_description(
-            base_description=base_description,
-            allowlist=allowlist,
-        )
-        enabled = allowlist != ()
-
-        if allowlist:
-            summaries.extend(
-                ProviderToolSummary(
-                    name=f"{attachment.server_name}/{tool_name}",
-                    enabled=True,
-                    description=description,
-                    suffix=suffix,
-                )
-                for tool_name in allowlist
-            )
-        else:
-            summaries.append(
-                ProviderToolSummary(
-                    name=attachment.server_name,
-                    enabled=enabled,
-                    description=description,
-                    suffix=suffix,
-                )
-            )
 
     return summaries
 
 
-def build_provider_tool_summaries(agent: object) -> list[ProviderToolSummary]:
-    llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
-    candidates = (
-        (
-            "web_search",
-            resolve_web_search_supported(llm),
-            resolve_web_search_enabled(llm),
-            "Provider-hosted web search tool.",
-        ),
-        (
-            "web_fetch",
-            resolve_web_fetch_supported(llm),
-            resolve_web_fetch_enabled(llm),
-            "Provider-hosted web fetch tool.",
-        ),
-        (
-            "x_search",
-            resolve_x_search_supported(llm),
-            resolve_x_search_enabled(llm),
-            "Provider-hosted X search tool.",
-        ),
+def _provider_hosted_tool_summary(
+    descriptor: _ProviderToolDescriptor,
+    llm: object | None,
+) -> ProviderToolSummary | None:
+    if not descriptor.supported(llm):
+        return None
+
+    enabled = descriptor.enabled(llm)
+    return ProviderToolSummary(
+        name=descriptor.name,
+        enabled=enabled,
+        description=descriptor.description,
     )
-    summaries = [
-        ProviderToolSummary(name=name, enabled=enabled, description=description)
-        for name, supported, enabled, description in candidates
-        if supported and enabled
-    ]
+
+
+def build_provider_tool_summaries(agent: object) -> list[ProviderToolSummary]:
+    llm = _agent_llm(agent)
+    summaries = []
+    for descriptor in PROVIDER_HOSTED_TOOL_DESCRIPTORS:
+        summary = _provider_hosted_tool_summary(descriptor, llm)
+        if summary is not None:
+            summaries.append(summary)
     summaries.extend(_provider_managed_tool_summaries(agent))
     return summaries
 
 
-def _format_tool_args(schema: dict[str, Any] | None) -> list[str] | None:
+def _string_set(value: object) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    return {item for item in value if isinstance(item, str)}
+
+
+def _format_tool_args(schema: Mapping[str, object] | None) -> list[str] | None:
     if not schema:
         return None
 
     properties = schema.get("properties")
-    if not isinstance(properties, dict):
+    if not isinstance(properties, Mapping):
         return None
 
-    required = schema.get("required", [])
-    if not isinstance(required, list):
-        required = []
+    required = _string_set(schema.get("required"))
 
-    arg_list: list[str] = []
-    for prop_name in properties:
-        arg_list.append(f"{prop_name}*" if prop_name in required else prop_name)
+    arg_list = [
+        f"{prop_name}*" if prop_name in required else prop_name
+        for prop_name in properties
+        if isinstance(prop_name, str)
+    ]
 
     return arg_list or None
 
 
-def _tool_meta(tool: "Tool") -> dict[str, Any]:
+def _tool_meta(tool: "Tool") -> JsonObject:
     """Return MCP tool metadata, working around upstream model access quirks."""
     if tool.meta:
-        return tool.meta
-    dumped = tool.model_dump().get("meta")
-    return dumped if isinstance(dumped, dict) else {}
+        return json_object(tool.meta)
+    return json_object(tool.model_dump().get("meta"))
 
 
-def _collect_tool_name_sets(agent: object) -> tuple[set[str], set[str], set[str]]:
+def _collect_tool_name_sets(agent: object) -> _ToolNameSets:
     card_tool_names = set(agent.card_tool_names) if isinstance(agent, CardToolProvider) else set()
     smart_tool_names = (
         set(agent.smart_tool_names) if isinstance(agent, SmartToolingCapable) else set()
@@ -194,43 +297,56 @@ def _collect_tool_name_sets(agent: object) -> tuple[set[str], set[str], set[str]
         if isinstance(agent, AgentBackedToolProvider)
         else set()
     )
-    return card_tool_names, smart_tool_names, agent_tool_names
+    return _ToolNameSets(card=card_tool_names, smart=smart_tool_names, agent_backed=agent_tool_names)
+
+
+def _classify_tool(
+    name: str,
+    source: ToolSource | None,
+    tool_name_sets: _ToolNameSets,
+) -> _ToolClassification:
+    for names, suffix in tool_name_sets.classification_candidates():
+        if name in names:
+            return _ToolClassification(suffix=suffix)
+    if source is not None:
+        return _ToolClassification(suffix=f"({TOOL_SOURCE_LABELS[source]})")
+    if is_namespaced_name(name):
+        return _ToolClassification(suffix="(MCP)", is_mcp=True)
+    return _ToolClassification(suffix=None)
+
+
+def _append_tool_suffix(suffix: str | None, label: str) -> str:
+    return f"{suffix} {label}" if suffix else label
+
+
+def _append_app_tool_suffixes(suffix: str | None, meta: Mapping[str, object]) -> str | None:
+    if meta.get("openai/skybridgeEnabled"):
+        suffix = _append_tool_suffix(suffix, "(Apps SDK)")
+    if meta.get("ui/appEnabled"):
+        suffix = _append_tool_suffix(suffix, "(MCP App)")
+    return suffix
 
 
 def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
-    card_tool_names, smart_tool_names, agent_tool_names = _collect_tool_name_sets(agent)
-    child_agent_tool_names = agent_tool_names
+    tool_name_sets = _collect_tool_name_sets(agent)
 
     summaries: list[ToolSummary] = []
 
     for tool in tools:
         name = tool.name
         title = tool.title
-        description = (tool.description or "").strip() or None
+        description = strip_to_none(tool.description)
         meta = _tool_meta(tool)
         source = tool_source(tool)
+        classification = _classify_tool(name, source, tool_name_sets)
 
-        is_mcp = False
-        suffix = None
-        if name in smart_tool_names:
-            suffix = "(Smart)"
-        elif name in card_tool_names:
-            suffix = "(Card Function)"
-        elif name in child_agent_tool_names:
-            suffix = "(Subagent)"
-        elif source is not None:
-            suffix = f"({TOOL_SOURCE_LABELS[source]})"
-        elif name not in agent_tool_names and is_namespaced_name(name):
-            is_mcp = True
-            suffix = "(MCP)"
-
-        if meta.get("openai/skybridgeEnabled"):
-            suffix = f"{suffix} (Apps SDK)" if suffix else "(Apps SDK)"
-        if meta.get("ui/appEnabled"):
-            suffix = f"{suffix} (MCP App)" if suffix else "(MCP App)"
+        suffix = classification.suffix
+        suffix = _append_app_tool_suffixes(suffix, meta)
 
         args = _format_tool_args(tool.inputSchema)
-        template = meta.get("ui/appTemplate") or meta.get("openai/skybridgeTemplate")
+        template = optional_string(meta.get("ui/appTemplate")) or optional_string(
+            meta.get("openai/skybridgeTemplate")
+        )
 
         summaries.append(
             ToolSummary(
@@ -240,7 +356,7 @@ def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
                 args=args,
                 suffix=suffix,
                 template=template,
-                is_mcp=is_mcp,
+                is_mcp=classification.is_mcp,
             )
         )
 

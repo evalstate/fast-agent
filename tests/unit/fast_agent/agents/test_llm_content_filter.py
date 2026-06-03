@@ -189,6 +189,25 @@ def _parse_alert_flags(blocks) -> set[str]:
     return flags
 
 
+def test_removed_block_segment_formats_count_and_mime_types():
+    assert (
+        LlmDecorator._removed_block_segment(
+            count=1,
+            label="vision",
+            mime_types=("image/png",),
+        )
+        == "1 vision block (image/png)"
+    )
+    assert (
+        LlmDecorator._removed_block_segment(
+            count=2,
+            label="document",
+            mime_types=("application/pdf", "text/csv"),
+        )
+        == "2 document blocks (application/pdf, text/csv)"
+    )
+
+
 @pytest.mark.asyncio
 async def test_sanitizes_image_content_for_text_only_model():
     decorator, stub = make_decorator("passthrough")

@@ -17,7 +17,7 @@ from mcp.types import (
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents.mcp_agent import McpAgent, ShellEditToolFlags, ShellEditToolMode
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.context import Context
@@ -27,6 +27,7 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.mcp.mcp_aggregator import NamespacedTool
 from fast_agent.skills.registry import SkillRegistry
+from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -82,6 +83,24 @@ def _bottom_items(call: _DisplayCall) -> list[str]:
     return bottom_items
 
 
+def test_shell_edit_tool_flags_follow_mode_contract() -> None:
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.WRITE_TEXT_FILE) == ShellEditToolFlags(
+        write_text_file=True,
+        apply_patch=False,
+        edit_file=True,
+    )
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.APPLY_PATCH) == ShellEditToolFlags(
+        write_text_file=False,
+        apply_patch=True,
+        edit_file=False,
+    )
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.OFF) == ShellEditToolFlags(
+        write_text_file=False,
+        apply_patch=False,
+        edit_file=False,
+    )
+
+
 def _make_agent_config() -> AgentConfig:
     return AgentConfig(name="test-agent", instruction="do things", servers=[])
 
@@ -102,6 +121,17 @@ class StubLLM:
         self.resolved_model = SimpleNamespace(
             max_output_tokens=ModelDatabase.get_max_output_tokens(model_name)
         )
+        self.instruction = ""
+        self.default_request_params = RequestParams()
+
+    @property
+    def model_info(self) -> ModelInfo | None:
+        return ModelInfo.from_name(self.model_name)
+
+
+class StubLLMWithoutResolvedModel:
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
         self.instruction = ""
         self.default_request_params = RequestParams()
 
@@ -327,6 +357,21 @@ async def test_shell_output_limit_refreshes_after_llm_attach() -> None:
     assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model(
         "claude-opus-4-6"
     )
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_shell_output_limit_falls_back_when_llm_has_no_resolved_model() -> None:
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    agent = McpAgent(config=config, context=Context())
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+
+    agent._on_llm_attached(cast("Any", StubLLMWithoutResolvedModel("gpt-4.1")))
+
+    assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model("gpt-4.1")
 
     await agent._aggregator.close()
 
@@ -816,8 +861,8 @@ async def test_skills_fallback_to_read_skill_when_local_read_text_file_disabled(
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" in tool_names
     assert "read_text_file" not in tool_names
-    assert "read_skill" in tool_names
-    assert agent.skill_read_tool_name == "read_skill"
+    assert READ_SKILL_TOOL_NAME in tool_names
+    assert agent.skill_read_tool_name == READ_SKILL_TOOL_NAME
 
     await agent._aggregator.close()
 

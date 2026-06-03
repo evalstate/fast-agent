@@ -38,21 +38,23 @@ from __future__ import annotations
 
 import platform
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import ClassVar, TypeAlias
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 from fast_agent.io.source_resolver import read_text_source
+from fast_agent.utils.text import strip_to_none
 
 logger = get_logger(__name__)
 
 # Type aliases
 Resolver = Callable[[], Awaitable[str]]  # Type alias for async resolvers
-Set = set  # Preserve built-in set type before method shadowing
+StringSet: TypeAlias = set[str]
 
 
 def _get_current_date() -> str:
@@ -72,8 +74,8 @@ def _get_python_version() -> str:
 
 def _load_internal_resource(resource_id: str) -> str:
     """Load a packaged internal resource by ID."""
-    normalized_id = resource_id.strip()
-    if not normalized_id:
+    normalized_id = strip_to_none(resource_id)
+    if normalized_id is None:
         raise AgentConfigError(
             "Invalid internal resource placeholder",
             "Resource ID must not be empty",
@@ -125,7 +127,7 @@ class InstructionBuilder:
     """
 
     # Built-in values that are automatically available
-    _BUILTINS: dict[str, Callable[[], str]] = {
+    _BUILTINS: ClassVar[dict[str, Callable[[], str]]] = {
         "currentDate": _get_current_date,
         "hostPlatform": _get_host_platform,
         "pythonVer": _get_python_version,
@@ -325,52 +327,54 @@ class InstructionBuilder:
         pattern_name = "file_silent" if silent else "file"
         file_pattern = re.compile(rf"\{{\{{{pattern_name}:([^}}]+)\}}\}}")
 
-        workspace_root = self._static.get("workspaceRoot")
-
-        def _should_fallback(path: Path) -> bool:
-            if not path.parts:
-                return False
-            return path.parts[0] in {".fast-agent", ".dev"}
-
         def replace_file(match: re.Match) -> str:
-            file_path_str = match.group(1).strip()
-            file_path = Path(file_path_str).expanduser()
-
-            # Enforce relative paths
-            if file_path.is_absolute():
-                if silent:
-                    return ""
-                raise ValueError(
-                    f"File template paths must be relative, got absolute path: {file_path_str}"
-                )
-
-            # Resolve against workspaceRoot if available
-            if workspace_root:
-                resolved_path = (Path(workspace_root) / file_path).resolve()
-                if _should_fallback(file_path) and not resolved_path.exists():
-                    fallback_path = (Path.cwd() / file_path).resolve()
-                    if fallback_path.exists():
-                        resolved_path = fallback_path
-            else:
-                resolved_path = file_path.resolve()
-
-            try:
-                return resolved_path.read_text(encoding="utf-8")
-            except FileNotFoundError as exc:
-                if silent:
-                    return ""
-                raise AgentConfigError(
-                    "Instruction file not found for template placeholder",
-                    f"Placeholder: {{{{file:{file_path_str}}}}}\nMissing: {resolved_path}",
-                ) from exc
+            file_path_str = strip_to_none(match.group(1)) or ""
+            return self._read_file_placeholder(file_path_str, silent=silent)
 
         return file_pattern.sub(replace_file, text)
+
+    def _read_file_placeholder(self, file_path_str: str, *, silent: bool) -> str:
+        file_path = Path(file_path_str).expanduser()
+
+        if file_path.is_absolute():
+            if silent:
+                return ""
+            raise ValueError(
+                f"File template paths must be relative, got absolute path: {file_path_str}"
+            )
+
+        resolved_path = self._resolve_file_placeholder_path(file_path)
+        try:
+            return resolved_path.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            if silent:
+                return ""
+            raise AgentConfigError(
+                "Instruction file not found for template placeholder",
+                f"Placeholder: {{{{file:{file_path_str}}}}}\nMissing: {resolved_path}",
+            ) from exc
+
+    def _resolve_file_placeholder_path(self, file_path: Path) -> Path:
+        workspace_root = self._static.get("workspaceRoot")
+        if not workspace_root:
+            return file_path.resolve()
+
+        resolved_path = (Path(workspace_root) / file_path).resolve()
+        if self._should_use_current_directory_fallback(file_path, resolved_path):
+            return (Path.cwd() / file_path).resolve()
+        return resolved_path
+
+    @staticmethod
+    def _should_use_current_directory_fallback(file_path: Path, resolved_path: Path) -> bool:
+        if not file_path.parts or file_path.parts[0] not in {".fast-agent", ".dev"}:
+            return False
+        return not resolved_path.exists() and (Path.cwd() / file_path).resolve().exists()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Utilities
     # ─────────────────────────────────────────────────────────────────────────
 
-    def get_placeholders(self) -> Set[str]:
+    def get_placeholders(self) -> StringSet:
         """
         Extract all placeholder names from the template.
 
@@ -383,7 +387,7 @@ class InstructionBuilder:
         )
         return set(pattern.findall(self._template))
 
-    def get_unresolved_placeholders(self) -> Set[str]:
+    def get_unresolved_placeholders(self) -> StringSet:
         """
         Get placeholders that don't have a source registered.
 

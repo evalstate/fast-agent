@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,9 +9,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from acp.exceptions import RequestError
-from acp.schema import SessionModeState
+from acp.schema import AgentMessageChunk, SessionModeState, UserMessageChunk
+from mcp.types import TextContent
 
 from fast_agent.acp.server.agent_acp_server import ACPSessionState, AgentACPServer
+from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.session import (
@@ -19,9 +23,12 @@ from fast_agent.session import (
     SessionSnapshot,
 )
 from fast_agent.session.session_manager import SessionInfo
+from fast_agent.types import PromptMessageExtended
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.mcp.message_roles import MessageRole
 
 
 class _Agent:
@@ -66,6 +73,50 @@ def _build_server(
         server_name="test",
         permissions_enabled=False,
     )
+
+
+def _prompt_message(role: MessageRole, text: str) -> PromptMessageExtended:
+    return PromptMessageExtended(
+        role=role,
+        content=[TextContent(type="text", text=text)],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+
+def test_build_history_updates_maps_supported_message_roles() -> None:
+    store = ACPServerSessionStore(cast("SessionStoreHost", SimpleNamespace()))
+    ignored = SimpleNamespace(
+        role="system",
+        content=[TextContent(type="text", text="ignored")],
+    )
+
+    updates = store.build_history_updates(
+        [
+            _prompt_message("user", "hello"),
+            _prompt_message("assistant", "hi"),
+            cast("PromptMessageExtended", ignored),
+        ]
+    )
+
+    assert [type(update) for update in updates] == [UserMessageChunk, AgentMessageChunk]
+    assert updates[0].content.text == "hello"
+    assert updates[1].content.text == "hi"
+
+
+def test_extract_session_cwd_trims_metadata_value() -> None:
+    assert ACPServerSessionStore.extract_session_cwd({"cwd": "  /workspace  "}) == "/workspace"
+    assert ACPServerSessionStore.extract_session_cwd({"cwd": "  "}) is None
+
+
+def test_legacy_session_cwd_trims_string_workspace_dir(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manager = SimpleNamespace(
+        workspace_dir=f"  {workspace}  ",
+        base_dir=tmp_path / ".fast-agent" / "sessions",
+    )
+
+    assert ACPServerSessionStore.legacy_session_cwd(manager) == str(workspace.resolve())
 
 
 def _hydration_result(
@@ -1117,6 +1168,55 @@ async def test_list_sessions_rejects_invalid_cursor() -> None:
         await server.list_sessions(cursor="not-a-valid-cursor")
 
     assert exc_info.value.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_rejects_boolean_cursor_offset() -> None:
+    server = _build_server(_build_instance(["main"]))
+    payload = json.dumps({"version": 1, "offset": True}, separators=(",", ":")).encode("utf-8")
+    cursor = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+    with pytest.raises(RequestError) as exc_info:
+        await server.list_sessions(cursor=cursor)
+
+    assert exc_info.value.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_set_session_mode_rejects_unknown_session_as_invalid_params() -> None:
+    server = _build_server(_build_instance(["main"]))
+
+    with pytest.raises(RequestError) as exc_info:
+        await server.set_session_mode(session_id="missing", mode_id="main")
+
+    assert exc_info.value.code == -32602
+    assert exc_info.value.data == {
+        "sessionId": "missing",
+        "modeId": "main",
+        "reason": "session not found",
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_session_mode_rejects_unknown_mode_as_invalid_params() -> None:
+    instance = _build_instance(["main", "review"])
+    server = _build_server(instance)
+    server.sessions["session-1"] = instance
+    server._session_state["session-1"] = ACPSessionState(
+        session_id="session-1",
+        instance=instance,
+    )
+
+    with pytest.raises(RequestError) as exc_info:
+        await server.set_session_mode(session_id="session-1", mode_id="missing")
+
+    assert exc_info.value.code == -32602
+    assert exc_info.value.data == {
+        "sessionId": "session-1",
+        "modeId": "missing",
+        "availableModes": ["main", "review"],
+        "reason": "invalid mode id",
+    }
 
 
 @pytest.mark.asyncio

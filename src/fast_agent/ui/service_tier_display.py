@@ -2,47 +2,50 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
+from fast_agent.commands.model_capabilities import SERVICE_TIER_VALUES, ServiceTierValue
+from fast_agent.ui.binary_indicator import render_supported_glyph_indicator
 from fast_agent.ui.reasoning_effort_display import AUTO_COLOR
+from fast_agent.utils.collections import cycle_next, unique_preserve_order
 
-ServiceTier = Literal["fast", "flex"] | None
+ServiceTier = ServiceTierValue | None
 
 SERVICE_TIER_GLYPH = "»"
 SERVICE_TIER_FAST_COLOR = "ansired"
 SERVICE_TIER_FLEX_COLOR = AUTO_COLOR
 SERVICE_TIER_DISABLED_COLOR = "ansibrightblack"
+DEFAULT_SERVICE_TIERS = SERVICE_TIER_VALUES
+SUPPORTED_SERVICE_TIERS = frozenset(SERVICE_TIER_VALUES)
+SERVICE_TIER_COLOR_BY_VALUE: dict[ServiceTier, str] = {
+    "fast": SERVICE_TIER_FAST_COLOR,
+    "flex": SERVICE_TIER_FLEX_COLOR,
+    None: SERVICE_TIER_DISABLED_COLOR,
+}
 
 
 def _normalize_allowed_tiers(
-    allowed_tiers: tuple[Literal["fast", "flex"], ...] | None,
-) -> tuple[Literal["fast", "flex"], ...]:
-    if not allowed_tiers:
-        return ("fast", "flex")
-    return tuple(tier for tier in allowed_tiers if tier in {"fast", "flex"})
+    allowed_tiers: tuple[ServiceTierValue, ...] | None,
+) -> tuple[ServiceTierValue, ...]:
+    if allowed_tiers is None:
+        return DEFAULT_SERVICE_TIERS
+
+    return tuple(
+        tier
+        for tier in unique_preserve_order(allowed_tiers)
+        if tier in SUPPORTED_SERVICE_TIERS
+    )
 
 
 def cycle_service_tier(
     service_tier: ServiceTier,
     *,
-    allowed_tiers: tuple[Literal["fast", "flex"], ...] | None = None,
+    allowed_tiers: tuple[ServiceTierValue, ...] | None = None,
 ) -> ServiceTier:
     normalized_allowed_tiers = _normalize_allowed_tiers(allowed_tiers)
     if not normalized_allowed_tiers:
         return None
 
-    if service_tier is None:
-        return normalized_allowed_tiers[0]
-
-    try:
-        current_index = normalized_allowed_tiers.index(service_tier)
-    except ValueError:
-        return normalized_allowed_tiers[0]
-
-    next_index = current_index + 1
-    if next_index >= len(normalized_allowed_tiers):
-        return None
-    return normalized_allowed_tiers[next_index]
+    cycle_order: tuple[ServiceTier, ...] = (*normalized_allowed_tiers, None)
+    return cycle_next(service_tier, cycle_order)
 
 
 def render_service_tier_indicator(
@@ -50,13 +53,9 @@ def render_service_tier_indicator(
     supported: bool,
     service_tier: ServiceTier,
 ) -> str | None:
-    if not supported:
-        return None
-
-    if service_tier == "fast":
-        color = SERVICE_TIER_FAST_COLOR
-    elif service_tier == "flex":
-        color = SERVICE_TIER_FLEX_COLOR
-    else:
-        color = SERVICE_TIER_DISABLED_COLOR
-    return f"<style bg='{color}'>{SERVICE_TIER_GLYPH}</style>"
+    color = SERVICE_TIER_COLOR_BY_VALUE.get(service_tier, SERVICE_TIER_DISABLED_COLOR)
+    return render_supported_glyph_indicator(
+        supported=supported,
+        glyph=SERVICE_TIER_GLYPH,
+        color=color,
+    )

@@ -9,14 +9,18 @@ from __future__ import annotations
 
 import io
 import json
+from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, ContentBlock, TextContent, Tool
 
+from fast_agent.llm.provider_types import Provider
 from fast_agent.patch.engine import apply_patch as run_apply_patch
 from fast_agent.patch.errors import ApplyPatchError
 from fast_agent.tools.apply_patch_tool import (
+    APPLY_PATCH_TOOL_NAME,
     build_apply_patch_tool,
     extract_apply_patch_input,
 )
@@ -24,6 +28,7 @@ from fast_agent.tools.attach_media import (
     DEFAULT_ATTACH_MEDIA_MAX_BYTES,
     build_attach_media,
     model_supports_attach_media,
+    normalize_attach_media_max_bytes,
     supported_attach_media_mime_types,
 )
 from fast_agent.tools.edit_file_engine import (
@@ -33,15 +38,35 @@ from fast_agent.tools.edit_file_engine import (
     serialize_edit_file_result,
 )
 from fast_agent.tools.edit_file_tool import (
+    EDIT_FILE_TOOL_NAME,
     build_edit_file_tool,
     extract_edit_file_input,
 )
+from fast_agent.tools.filesystem_tool_args import (
+    coerce_optional_string_argument,
+    coerce_required_string_argument,
+    coerce_tool_arguments,
+    is_permission_error,
+    parse_read_text_file_arguments,
+    parse_write_text_file_arguments,
+    permission_denied_message,
+)
 from fast_agent.tools.filesystem_tool_definitions import (
+    ATTACH_MEDIA_TOOL_NAME,
+    ATTACH_RESOURCE_TOOL_ALIAS,
+    READ_TEXT_FILE_TOOL_NAME,
+    WRITE_TEXT_FILE_TOOL_NAME,
     build_attach_media_tool,
     build_read_text_file_tool,
     build_write_text_file_tool,
 )
-from fast_agent.tools.tool_sources import set_tool_source
+from fast_agent.tools.filesystem_tool_specs import (
+    FilesystemToolSpec,
+    enabled_tool_spec,
+    enabled_tool_specs,
+)
+from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -49,6 +74,56 @@ if TYPE_CHECKING:
     from fast_agent.llm.model_info import ModelInfo
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
     from fast_agent.types import RequestParams
+
+
+def _text_result(message: str, *, is_error: bool) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=message)],
+        isError=is_error,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _AttachMediaArguments:
+    source: str
+    mime_type: str | None = None
+    name: str | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedAttachMediaArguments:
+    arguments: _AttachMediaArguments | None = None
+    error: CallToolResult | None = None
+
+
+_ATTACH_MEDIA_OPTIONAL_STRING_FIELDS = ("mime_type", "name", "description")
+
+
+def _parse_attach_media_arguments(
+    arguments: dict[str, Any] | None,
+) -> _ParsedAttachMediaArguments:
+    try:
+        payload = coerce_tool_arguments(arguments)
+        source_value = coerce_required_string_argument(payload.get("source"), "source", strip=True)
+        optional_values = {
+            field_name: coerce_optional_string_argument(
+                payload.get(field_name),
+                field_name,
+                include_argument_word=False,
+                empty_as_none=True,
+                strip=True,
+            )
+            for field_name in _ATTACH_MEDIA_OPTIONAL_STRING_FIELDS
+        }
+    except ValueError as exc:
+        return _ParsedAttachMediaArguments(
+            error=_text_result(str(exc), is_error=True)
+        )
+
+    return _ParsedAttachMediaArguments(
+        arguments=_AttachMediaArguments(source=source_value, **optional_values)
+    )
 
 
 class LocalFilesystemRuntime:
@@ -82,48 +157,72 @@ class LocalFilesystemRuntime:
         )
         if self._enable_attach_media is None:
             self._enable_attach_media = "auto"
-        self._attach_media_max_bytes = (
+        attach_max_bytes = (
             attach_resource_max_bytes
             if attach_resource_max_bytes is not None
             else attach_media_max_bytes
         )
+        self._attach_media_max_bytes = normalize_attach_media_max_bytes(attach_max_bytes)
         self._model_info = model_info
         self._tool_handler_resolver = tool_handler_resolver
 
-        self._read_tool = set_tool_source(build_read_text_file_tool(), "shell")
-        self._write_tool = set_tool_source(build_write_text_file_tool(), "shell")
-        self._apply_patch_tool = set_tool_source(build_apply_patch_tool(), "shell")
-        self._edit_file_tool = set_tool_source(build_edit_file_tool(), "shell")
+        self._read_tool = set_tool_source(build_read_text_file_tool(), SHELL_TOOL_SOURCE)
+        self._write_tool = set_tool_source(build_write_text_file_tool(), SHELL_TOOL_SOURCE)
+        self._apply_patch_tool = set_tool_source(build_apply_patch_tool(), SHELL_TOOL_SOURCE)
+        self._edit_file_tool = set_tool_source(build_edit_file_tool(), SHELL_TOOL_SOURCE)
         self._pending_media_attachments: list[ContentBlock] = []
 
-        is_google = False
-        if self._model_info is not None:
-            provider_val = getattr(self._model_info.provider, "config_name", None) or getattr(self._model_info.provider, "value", None)
-            is_google = provider_val == "google" or "gemini" in (self._model_info.name or "").lower()
-
-        self._attach_media_tool = set_tool_source(
-            build_attach_media_tool(
-                supported_attach_media_mime_types(self._model_info),
-                is_google=is_google,
+        self._attach_media_tool = self._build_attach_media_tool()
+        self._tool_specs: tuple[FilesystemToolSpec, ...] = (
+            FilesystemToolSpec(
+                name=READ_TEXT_FILE_TOOL_NAME,
+                enabled=lambda: self._enable_read,
+                tool=lambda: self._read_tool,
+                handler=self.read_text_file,
             ),
-            "shell",
+            FilesystemToolSpec(
+                name=WRITE_TEXT_FILE_TOOL_NAME,
+                enabled=lambda: self._enable_write,
+                tool=lambda: self._write_tool,
+                handler=self.write_text_file,
+            ),
+            FilesystemToolSpec(
+                name=APPLY_PATCH_TOOL_NAME,
+                enabled=lambda: self._enable_apply_patch,
+                tool=lambda: self._apply_patch_tool,
+                handler=self.apply_patch,
+            ),
+            FilesystemToolSpec(
+                name=EDIT_FILE_TOOL_NAME,
+                enabled=lambda: self._enable_edit_file,
+                tool=lambda: self._edit_file_tool,
+                handler=self.edit_file,
+            ),
+            FilesystemToolSpec(
+                name=ATTACH_MEDIA_TOOL_NAME,
+                enabled=self._attach_media_enabled,
+                tool=lambda: self._attach_media_tool,
+                handler=self.attach_media,
+            ),
         )
 
     @property
     def tools(self) -> list[Tool]:
         """Return locally supported filesystem tools."""
-        tools: list[Tool] = []
-        if self._enable_read:
-            tools.append(self._read_tool)
-        if self._enable_write:
-            tools.append(self._write_tool)
-        if self._enable_apply_patch:
-            tools.append(self._apply_patch_tool)
-        if self._enable_edit_file:
-            tools.append(self._edit_file_tool)
-        if self._attach_media_enabled():
-            tools.append(self._attach_media_tool)
-        return tools
+        return [spec.tool() for spec in self._enabled_tool_specs()]
+
+    def _enabled_tool_specs(self) -> tuple[FilesystemToolSpec, ...]:
+        return enabled_tool_specs(self._tool_specs)
+
+    def _enabled_tool_spec(self, tool_name: str) -> FilesystemToolSpec | None:
+        return enabled_tool_spec(self._tool_specs, tool_name)
+
+    def _callable_tool_spec(self, tool_name: str) -> FilesystemToolSpec | None:
+        return enabled_tool_spec(
+            self._tool_specs,
+            tool_name,
+            aliases={ATTACH_RESOURCE_TOOL_ALIAS: ATTACH_MEDIA_TOOL_NAME},
+        )
 
     def set_enabled_tools(
         self,
@@ -150,17 +249,23 @@ class LocalFilesystemRuntime:
     def set_model_info(self, model_info: "ModelInfo | None") -> None:
         """Update model capability metadata used by attach_media."""
         self._model_info = model_info
-        is_google = False
-        if self._model_info is not None:
-            provider_val = getattr(self._model_info.provider, "config_name", None) or getattr(self._model_info.provider, "value", None)
-            is_google = provider_val == "google" or "gemini" in (self._model_info.name or "").lower()
+        self._attach_media_tool = self._build_attach_media_tool()
 
-        self._attach_media_tool = set_tool_source(
+    def _build_attach_media_tool(self) -> Tool:
+        return set_tool_source(
             build_attach_media_tool(
                 supported_attach_media_mime_types(self._model_info),
-                is_google=is_google,
+                is_google=self._model_uses_google_media_payloads(),
             ),
-            "shell",
+            SHELL_TOOL_SOURCE,
+        )
+
+    def _model_uses_google_media_payloads(self) -> bool:
+        if self._model_info is None:
+            return False
+        return (
+            self._model_info.provider is Provider.GOOGLE
+            or "gemini" in strip_casefold(self._model_info.name or "")
         )
 
     def set_working_directory(self, working_directory: Path | None) -> None:
@@ -187,28 +292,8 @@ class LocalFilesystemRuntime:
             return candidate.resolve()
         return (self._base_directory() / candidate).resolve()
 
-    @staticmethod
-    def _coerce_positive_int(value: Any, field: str) -> int | None:
-        if value is None:
-            return None
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ValueError(
-                f"Error: '{field}' argument must be an integer greater than or equal to 1"
-            )
-        return value
-
     def has_tool(self, tool_name: str) -> bool:
-        if tool_name == "read_text_file":
-            return self._enable_read
-        if tool_name == "write_text_file":
-            return self._enable_write
-        if tool_name == "apply_patch":
-            return self._enable_apply_patch
-        if tool_name == "edit_file":
-            return self._enable_edit_file
-        if tool_name == "attach_media":
-            return self._attach_media_enabled()
-        return False
+        return self._enabled_tool_spec(tool_name) is not None
 
     def _attach_media_enabled(self) -> bool:
         if self._enable_attach_media == "off":
@@ -225,45 +310,14 @@ class LocalFilesystemRuntime:
         *,
         request_params: "RequestParams | None" = None,
     ) -> CallToolResult:
-        if name == "read_text_file" and self._enable_read:
+        spec = self._callable_tool_spec(name)
+        if spec is not None:
             return await self._call_with_tracking(
-                "read_text_file",
+                spec.name,
                 arguments,
                 tool_use_id,
                 request_params,
-                self.read_text_file,
-            )
-        if name == "write_text_file" and self._enable_write:
-            return await self._call_with_tracking(
-                "write_text_file",
-                arguments,
-                tool_use_id,
-                request_params,
-                self.write_text_file,
-            )
-        if name == "apply_patch" and self._enable_apply_patch:
-            return await self._call_with_tracking(
-                "apply_patch",
-                arguments,
-                tool_use_id,
-                request_params,
-                self.apply_patch,
-            )
-        if name == "edit_file" and self._enable_edit_file:
-            return await self._call_with_tracking(
-                "edit_file",
-                arguments,
-                tool_use_id,
-                request_params,
-                self.edit_file,
-            )
-        if name == "attach_media" and self._attach_media_enabled():
-            return await self._call_with_tracking(
-                "attach_media",
-                arguments,
-                tool_use_id,
-                request_params,
-                self.attach_media,
+                spec.handler,
             )
 
         return CallToolResult(
@@ -307,15 +361,13 @@ class LocalFilesystemRuntime:
             error_text: str | None = None
             if result.isError:
                 error_text = self._extract_error_text(result, tool_name)
-            try:
+            with suppress(Exception):
                 await tool_handler.on_tool_complete(
                     tool_call_id,
                     not result.isError,
                     result.content if not result.isError else None,
                     error_text,
                 )
-            except Exception:
-                pass
 
         return result
 
@@ -337,55 +389,29 @@ class LocalFilesystemRuntime:
         """Read a local text file, optionally slicing by line and limit."""
         del tool_use_id
 
-        if not isinstance(arguments, dict):
-            return CallToolResult(
-                content=[TextContent(type="text", text="Error: arguments must be a dict")],
-                isError=True,
-            )
-
-        path_value = arguments.get("path")
-        if not path_value or not isinstance(path_value, str):
-            return CallToolResult(
-                content=[
-                    TextContent(
-                        type="text",
-                        text="Error: 'path' argument is required and must be a string",
-                    )
-                ],
-                isError=True,
-            )
-
         try:
-            line = self._coerce_positive_int(arguments.get("line"), "line")
-            limit = self._coerce_positive_int(arguments.get("limit"), "limit")
+            parsed = parse_read_text_file_arguments(arguments)
         except ValueError as exc:
-            return CallToolResult(
-                content=[TextContent(type="text", text=str(exc))],
-                isError=True,
-            )
+            return _text_result(str(exc), is_error=True)
 
-        resolved_path = self._resolve_path(path_value.strip())
+        resolved_path = self._resolve_path(parsed.path)
 
         try:
             content = resolved_path.read_text(encoding="utf-8", errors="replace")
-        except Exception as exc:
-            self._logger.error(f"Error reading file: {exc}")
-            return CallToolResult(
-                content=[TextContent(type="text", text=f"Error reading file: {exc}")],
-                isError=True,
-            )
+        except OSError as exc:
+            self._logger.exception("Error reading file")
+            if is_permission_error(exc):
+                return _text_result(permission_denied_message(parsed.path), is_error=True)
+            return _text_result(f"Error reading file: {exc}", is_error=True)
 
-        if line is not None or limit is not None:
+        if parsed.line is not None or parsed.limit is not None:
             lines = content.splitlines()
-            start_index = (line - 1) if line is not None else 0
-            end_index = start_index + limit if limit is not None else None
+            start_index = (parsed.line - 1) if parsed.line is not None else 0
+            end_index = start_index + parsed.limit if parsed.limit is not None else None
             content = "\n".join(lines[start_index:end_index])
 
         self._logger.debug(f"Read local file: {resolved_path} ({len(content)} chars)")
-        return CallToolResult(
-            content=[TextContent(type="text", text=content)],
-            isError=False,
-        )
+        return _text_result(content, is_error=False)
 
     async def write_text_file(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
@@ -393,58 +419,25 @@ class LocalFilesystemRuntime:
         """Write a local text file, creating parent directories as needed."""
         del tool_use_id
 
-        if not isinstance(arguments, dict):
-            return CallToolResult(
-                content=[TextContent(type="text", text="Error: arguments must be a dict")],
-                isError=True,
-            )
+        try:
+            parsed = parse_write_text_file_arguments(arguments)
+        except ValueError as exc:
+            return _text_result(str(exc), is_error=True)
 
-        path_value = arguments.get("path")
-        if not isinstance(path_value, str) or not path_value.strip():
-            return CallToolResult(
-                content=[
-                    TextContent(
-                        type="text",
-                        text="Error: 'path' argument is required and must be a string",
-                    )
-                ],
-                isError=True,
-            )
-
-        content_value = arguments.get("content")
-        if not isinstance(content_value, str):
-            return CallToolResult(
-                content=[
-                    TextContent(
-                        type="text",
-                        text="Error: 'content' argument is required and must be a string",
-                    )
-                ],
-                isError=True,
-            )
-
-        resolved_path = self._resolve_path(path_value.strip())
+        resolved_path = self._resolve_path(parsed.path)
         try:
             resolved_path.parent.mkdir(parents=True, exist_ok=True)
-            resolved_path.write_text(content_value, encoding="utf-8", errors="replace")
-        except Exception as exc:
-            self._logger.error(f"Error writing file: {exc}")
-            return CallToolResult(
-                content=[TextContent(type="text", text=f"Error writing file: {exc}")],
-                isError=True,
-            )
+            resolved_path.write_text(parsed.content, encoding="utf-8", errors="replace")
+        except OSError as exc:
+            self._logger.exception("Error writing file")
+            if is_permission_error(exc):
+                return _text_result(permission_denied_message(parsed.path), is_error=True)
+            return _text_result(f"Error writing file: {exc}", is_error=True)
 
-        self._logger.debug(f"Wrote local file: {resolved_path} ({len(content_value)} chars)")
-        return CallToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        f"Successfully wrote {len(content_value)} characters to {path_value.strip()}"
-                    ),
-                )
-            ],
-            isError=False,
+        self._logger.debug(f"Wrote local file: {resolved_path} ({len(parsed.content)} chars)")
+        return _text_result(
+            f"Successfully wrote {len(parsed.content)} characters to {parsed.path}",
+            is_error=False,
         )
 
     def consume_pending_media_attachments(self) -> list[ContentBlock]:
@@ -459,57 +452,25 @@ class LocalFilesystemRuntime:
         """Stage a local file or provider-fetchable URI as model input."""
         del tool_use_id
 
-        if not isinstance(arguments, dict):
-            return CallToolResult(
-                content=[TextContent(type="text", text="Error: arguments must be a dict")],
-                isError=True,
-            )
-
-        source_value = arguments.get("source")
-        if not isinstance(source_value, str) or not source_value.strip():
-            return CallToolResult(
-                content=[
-                    TextContent(
-                        type="text",
-                        text="Error: 'source' argument is required and must be a string",
-                    )
-                ],
-                isError=True,
-            )
-
-        mime_type = arguments.get("mime_type")
-        if mime_type is not None and not isinstance(mime_type, str):
-            return CallToolResult(
-                content=[TextContent(type="text", text="Error: 'mime_type' must be a string")],
-                isError=True,
-            )
-
-        name = arguments.get("name")
-        if name is not None and not isinstance(name, str):
-            return CallToolResult(
-                content=[TextContent(type="text", text="Error: 'name' must be a string")],
-                isError=True,
-            )
-
-        description = arguments.get("description")
-        if description is not None and not isinstance(description, str):
-            return CallToolResult(
-                content=[TextContent(type="text", text="Error: 'description' must be a string")],
-                isError=True,
-            )
+        parsed = _parse_attach_media_arguments(arguments)
+        if parsed.error is not None:
+            return parsed.error
+        parsed_args = parsed.arguments
+        if parsed_args is None:
+            return _text_result("Error: invalid attach_media arguments", is_error=True)
 
         try:
             attached = build_attach_media(
-                source_value,
+                parsed_args.source,
                 base_directory=self._base_directory(),
-                mime_type=mime_type,
-                name=name,
-                description=description,
+                mime_type=parsed_args.mime_type,
+                name=parsed_args.name,
+                description=parsed_args.description,
                 model_info=self._model_info,
                 max_bytes=self._attach_media_max_bytes,
             )
         except Exception as exc:
-            self._logger.error(f"Error attaching resource: {exc}")
+            self._logger.exception("Error attaching resource")
             return CallToolResult(
                 content=[TextContent(type="text", text=str(exc))],
                 isError=True,
@@ -603,14 +564,13 @@ class LocalFilesystemRuntime:
                 isError=True,
             )
 
-        path_value, old_string, new_string, replace_all = edit_input
-        resolved_path = self._resolve_path(path_value)
+        resolved_path = self._resolve_path(edit_input.path)
         result_payload = run_edit_file(
             resolved_path,
-            display_path=path_value,
-            old_string=old_string,
-            new_string=new_string,
-            replace_all=replace_all,
+            display_path=edit_input.path,
+            old_string=edit_input.old_string,
+            new_string=edit_input.new_string,
+            replace_all=edit_input.replace_all,
         )
         structured_payload = serialize_edit_file_result(result_payload)
         payload_text = json.dumps(structured_payload, ensure_ascii=False, indent=2)
@@ -623,20 +583,8 @@ class LocalFilesystemRuntime:
 
     def metadata(self) -> dict[str, Any]:
         """Expose runtime metadata for tool displays and diagnostics."""
-        tools: list[str] = []
-        if self._enable_read:
-            tools.append("read_text_file")
-        if self._enable_write:
-            tools.append("write_text_file")
-        if self._enable_apply_patch:
-            tools.append("apply_patch")
-        if self._enable_edit_file:
-            tools.append("edit_file")
-        if self._attach_media_enabled():
-            tools.append("attach_media")
-
         return {
             "type": "local_filesystem",
-            "tools": tools,
+            "tools": [spec.name for spec in self._enabled_tool_specs()],
             "working_directory": str(self._base_directory()),
         }

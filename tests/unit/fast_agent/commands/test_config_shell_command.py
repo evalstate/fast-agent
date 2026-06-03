@@ -12,6 +12,7 @@ def test_build_shell_form_uses_minus_one_sentinel_for_show_all_lines() -> None:
 
     field = schema.fields["output_display_lines"]
     assert isinstance(field, IntegerField)
+    assert field.title == "Output Display Lines"
     assert field.default == -1
     assert field.minimum == -1
     assert field.description is not None
@@ -25,6 +26,7 @@ def test_build_shell_form_includes_write_text_file_mode_field() -> None:
 
     mode_field = schema.fields["write_text_file_mode"]
     assert isinstance(mode_field, StringField)
+    assert mode_field.title == "Write Text File Mode"
     assert mode_field.default == "off"
     assert mode_field.description is not None
     assert "auto|on|off|apply_patch" in mode_field.description
@@ -61,6 +63,21 @@ def test_normalize_shell_updates_supports_none_zero_and_positive_line_modes() ->
     assert updates_show_some["output_display_lines"] == 12
 
 
+def test_normalize_shell_updates_rejects_boolean_timeout_values() -> None:
+    updates = _normalize_shell_updates(
+        {
+            "timeout_seconds": True,
+            "warning_interval_seconds": False,
+            "output_display_lines": -1,
+            "output_byte_limit": 0,
+            "show_bash": True,
+        }
+    )
+
+    assert "timeout_seconds" not in updates
+    assert "warning_interval_seconds" not in updates
+
+
 def test_normalize_shell_updates_persists_filesystem_toggles() -> None:
     updates = _normalize_shell_updates(
         {
@@ -93,6 +110,8 @@ def test_normalize_shell_updates_uses_write_text_file_mode() -> None:
 def test_shell_settings_write_text_file_mode_accepts_yaml_boolean_values() -> None:
     assert ShellSettings.model_validate({"write_text_file_mode": False}).write_text_file_mode == "off"
     assert ShellSettings.model_validate({"write_text_file_mode": True}).write_text_file_mode == "on"
+    assert ShellSettings.model_validate({"write_text_file_mode": "enable"}).write_text_file_mode == "on"
+    assert ShellSettings.model_validate({"write_text_file_mode": "disable"}).write_text_file_mode == "off"
 
 
 def test_shell_settings_accepts_deprecated_attach_resource_config_name() -> None:
@@ -112,6 +131,34 @@ def test_normalize_shell_updates_accepts_apply_patch_mode() -> None:
     )
 
     assert updates["write_text_file_mode"] == "apply_patch"
+
+
+def test_normalize_shell_updates_uses_shared_write_text_file_mode_aliases() -> None:
+    updates = _normalize_shell_updates(
+        {
+            "output_display_lines": -1,
+            "output_byte_limit": 0,
+            "show_bash": True,
+            "enable_read_text_file": True,
+            "write_text_file_mode": "yes",
+        }
+    )
+
+    assert updates["write_text_file_mode"] == "on"
+
+
+def test_normalize_shell_updates_defaults_invalid_write_text_file_mode() -> None:
+    updates = _normalize_shell_updates(
+        {
+            "output_display_lines": -1,
+            "output_byte_limit": 0,
+            "show_bash": True,
+            "enable_read_text_file": True,
+            "write_text_file_mode": "sometimes",
+        }
+    )
+
+    assert updates["write_text_file_mode"] == "auto"
 
 
 def test_shell_settings_write_text_file_mode_accepts_apply_patch_string() -> None:

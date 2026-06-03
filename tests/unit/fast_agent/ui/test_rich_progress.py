@@ -8,10 +8,13 @@ from typing import Any
 
 from rich.console import Console
 from rich.live import Live
+from rich.progress import Progress
 from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
-from fast_agent.ui.rich_progress import RichProgressDisplay
+from fast_agent.tools.tool_sources import ACP_TERMINAL_TOOL_SOURCE
+from fast_agent.ui.rich_progress import RichProgressDisplay, SpinnerDescriptionColumn
+from fast_agent.utils.tool_names import EXECUTE_TOOL_NAME
 
 
 def _make_event(
@@ -49,6 +52,31 @@ def _task_fields(display: RichProgressDisplay, task_name: str) -> dict[str, Any]
         if task.id == task_id:
             return task.fields
     raise AssertionError(f"Task not found for {task_name}")
+
+
+def test_spinner_description_column_without_markup_uses_plain_description() -> None:
+    column = SpinnerDescriptionColumn(markup=False)
+    progress = Progress(column)
+    task_id = progress.add_task("[literal] task")
+    task = progress.tasks[task_id]
+
+    rendered = column.render(task)
+
+    assert rendered.plain.startswith("[literal] task")
+    assert "[progress.description]" not in rendered.plain
+
+
+def test_spinner_description_column_applies_default_style_without_wrapper_markup() -> None:
+    column = SpinnerDescriptionColumn(markup=True, description_style="cyan")
+    progress = Progress(column)
+    task_id = progress.add_task("[dim]•[/dim] Sending")
+    task = progress.tasks[task_id]
+
+    rendered = column.render(task)
+
+    assert rendered.plain.startswith("• Sending")
+    assert any(span.style == "dim" for span in rendered.spans)
+    assert "[cyan]" not in rendered.plain
 
 
 class TestStopPreventsResume:
@@ -593,16 +621,16 @@ class TestAggregatorInitializedVisibility:
             _make_event(
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="exec-call-1",
-                tool_name="execute",
-                server_name="acp_terminal",
+                tool_name=EXECUTE_TOOL_NAME,
+                server_name=ACP_TERMINAL_TOOL_SOURCE,
             )
         )
         display.update(
             _make_event(
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="exec-call-2",
-                tool_name="execute",
-                server_name="acp_terminal",
+                tool_name=EXECUTE_TOOL_NAME,
+                server_name=ACP_TERMINAL_TOOL_SOURCE,
             )
         )
 
@@ -621,7 +649,7 @@ class TestAggregatorInitializedVisibility:
             _make_event(
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="exec-call-1",
-                tool_name="execute",
+                tool_name=EXECUTE_TOOL_NAME,
                 server_name="codex",
             )
         )
@@ -629,7 +657,7 @@ class TestAggregatorInitializedVisibility:
             _make_event(
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="exec-call-2",
-                tool_name="execute",
+                tool_name=EXECUTE_TOOL_NAME,
                 server_name="codex",
             )
         )
@@ -856,6 +884,36 @@ class TestCorrelationIdDetails:
         assert details == "id: tool-id"
 
         display.stop()
+
+
+class TestDescriptionFormatting:
+    def test_description_for_event_uses_action_icon_mapping(self) -> None:
+        display = _make_display()
+
+        assert "▶[/dim] Sending" in display._description_for_event(
+            _make_event(action=ProgressAction.SENDING)
+        )
+        assert "◀[/dim] Calling Tool" in display._description_for_event(
+            _make_event(action=ProgressAction.CALLING_TOOL)
+        )
+        assert "▶[/dim] 3/10" in display._description_for_event(
+            _make_event(action=ProgressAction.TOOL_PROGRESS, progress=3, total=10)
+        )
+        assert "•[/dim] Finished" in display._description_for_event(
+            _make_event(action=ProgressAction.FINISHED)
+        )
+
+    def test_description_for_event_escapes_streaming_tokens(self) -> None:
+        display = _make_display()
+
+        description = display._description_for_event(
+            _make_event(
+                action=ProgressAction.STREAMING,
+                streaming_tokens="[red]42[/red]",
+            )
+        )
+
+        assert "◀[/dim] \\[red]42\\[/red]" in description
 
 
 class TestThreadSafety:

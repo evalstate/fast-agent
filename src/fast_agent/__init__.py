@@ -43,138 +43,95 @@ from fast_agent.types import (
     video_link,
 )
 
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "Core": ("fast_agent.core", "Core"),
+    "Context": ("fast_agent.context", "Context"),
+    "ContextDependent": ("fast_agent.context_dependent", "ContextDependent"),
+    "ServerRegistry": ("fast_agent.mcp_server_registry", "ServerRegistry"),
+    "ProgressAction": ("fast_agent.event_progress", "ProgressAction"),
+    "ProgressEvent": ("fast_agent.event_progress", "ProgressEvent"),
+    "ToolAgentSynchronous": ("fast_agent.agents.tool_agent", "ToolAgent"),
+    "LlmAgent": ("fast_agent.agents.llm_agent", "LlmAgent"),
+    "LlmDecorator": ("fast_agent.agents.llm_decorator", "LlmDecorator"),
+    "ToolAgent": ("fast_agent.agents.tool_agent", "ToolAgent"),
+    "McpAgent": ("fast_agent.agents.mcp_agent", "McpAgent"),
+    "FastAgent": ("fast_agent.core.fastagent", "FastAgent"),
+    "Prompt": ("fast_agent.mcp.prompt", "Prompt"),
+    "PromptExitError": ("fast_agent.core.exceptions", "PromptExitError"),
+    "load_prompt": ("fast_agent.mcp.prompts.prompt_load", "load_prompt"),
+}
+
 
 def __getattr__(name: str):
     """Lazy import heavy modules to avoid circular imports during package initialization."""
-    if name == "Core":
-        from fast_agent.core import Core
+    try:
+        module_name, attr_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module '{__name__}' has no attribute '{name}'") from exc
+    from importlib import import_module
 
-        return Core
-    elif name == "Context":
-        from fast_agent.context import Context
-
-        return Context
-    elif name == "ContextDependent":
-        from fast_agent.context_dependent import ContextDependent
-
-        return ContextDependent
-    elif name == "ServerRegistry":
-        from fast_agent.mcp_server_registry import ServerRegistry
-
-        return ServerRegistry
-    elif name == "ProgressAction":
-        from fast_agent.event_progress import ProgressAction
-
-        return ProgressAction
-    elif name == "ProgressEvent":
-        from fast_agent.event_progress import ProgressEvent
-
-        return ProgressEvent
-    elif name == "ToolAgentSynchronous":
-        from fast_agent.agents.tool_agent import ToolAgent
-
-        return ToolAgent
-    elif name == "LlmAgent":
-        from fast_agent.agents.llm_agent import LlmAgent
-
-        return LlmAgent
-    elif name == "LlmDecorator":
-        from fast_agent.agents.llm_decorator import LlmDecorator
-
-        return LlmDecorator
-    elif name == "ToolAgent":
-        from fast_agent.agents.tool_agent import ToolAgent
-
-        return ToolAgent
-    elif name == "McpAgent":
-        # Import directly from submodule to avoid package re-import cycles
-        from fast_agent.agents.mcp_agent import McpAgent
-
-        return McpAgent
-    elif name == "FastAgent":
-        # Import from the canonical implementation to avoid recursive imports
-        from fast_agent.core.fastagent import FastAgent
-
-        return FastAgent
-    elif name == "Prompt":
-        # Prompt helper relies on MCP types; load lazily to speed up import time.
-        from fast_agent.mcp.prompt import Prompt
-
-        return Prompt
-    elif name == "load_prompt":
-        # Prompt loader also depends on MCP; defer import until explicitly requested.
-        from fast_agent.mcp.prompts.prompt_load import load_prompt
-
-        return load_prompt
-    else:
-        raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    return getattr(import_module(module_name), attr_name)
 
 
 # Help static analyzers/IDEs resolve symbols and signatures without importing at runtime.
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
     # Provide a concrete import path for type checkers/IDEs
-    from fast_agent.core.fastagent import FastAgent as FastAgent  # noqa: F401
-    from fast_agent.mcp.prompt import Prompt as Prompt  # noqa: F401
-    from fast_agent.types import ConversationSummary as ConversationSummary  # noqa: F401
-    from fast_agent.types import PromptMessageExtended as PromptMessageExtended  # noqa: F401
+    from fast_agent.core.fastagent import FastAgent as FastAgent
+    from fast_agent.mcp.prompt import Prompt as Prompt
+    from fast_agent.types import ConversationSummary as ConversationSummary
+    from fast_agent.types import PromptMessageExtended as PromptMessageExtended
 
 
 __all__ = [
-    # Core fast-agent components (lazy loaded)
-    "Core",
+    "AnthropicSettings",
+    "AzureSettings",
+    "BedrockSettings",
     "Context",
     "ContextDependent",
-    "ServerRegistry",
-    # Configuration and settings (eagerly loaded)
-    "Settings",
-    "MCPSettings",
-    "MCPServerSettings",
-    "MCPServerAuthSettings",
-    "MCPSamplingSettings",
-    "MCPElicitationSettings",
-    "MCPRootSettings",
-    "AnthropicSettings",
-    "OpenAISettings",
-    "DeepSeekSettings",
-    "GoogleSettings",
-    "XAISettings",
-    "GenericSettings",
-    "OpenRouterSettings",
-    "AzureSettings",
-    "GroqSettings",
-    "OpenTelemetrySettings",
-    "TensorZeroSettings",
-    "BedrockSettings",
-    "HuggingFaceSettings",
-    "LoggerSettings",
-    "SkillsSettings",
-    # Progress and event tracking (lazy loaded)
-    "ProgressAction",
-    "ProgressEvent",
-    # Type definitions and enums (eagerly loaded)
-    "LlmStopReason",
-    "RequestParams",
-    "PromptMessageExtended",
-    "ResourceLink",
     "ConversationSummary",
-    # Content helpers (eagerly loaded)
-    "text_content",
-    "resource_link",
-    "image_link",
-    "video_link",
-    "audio_link",
-    # Search utilities (eagerly loaded)
-    "search_messages",
-    "find_matches",
-    "extract_first",
-    "extract_last",
-    # Prompt helpers (eagerly loaded)
-    "Prompt",
-    "load_prompt",
-    # Agents (lazy loaded)
+    "Core",
+    "DeepSeekSettings",
+    "FastAgent",
+    "GenericSettings",
+    "GoogleSettings",
+    "GroqSettings",
+    "HuggingFaceSettings",
     "LlmAgent",
     "LlmDecorator",
-    "ToolAgent",
+    "LlmStopReason",
+    "LoggerSettings",
+    "MCPElicitationSettings",
+    "MCPRootSettings",
+    "MCPSamplingSettings",
+    "MCPServerAuthSettings",
+    "MCPServerSettings",
+    "MCPSettings",
     "McpAgent",
-    "FastAgent",
+    "OpenAISettings",
+    "OpenRouterSettings",
+    "OpenTelemetrySettings",
+    "ProgressAction",
+    "ProgressEvent",
+    "Prompt",
+    "PromptExitError",
+    "PromptMessageExtended",
+    "RequestParams",
+    "ResourceLink",
+    "ServerRegistry",
+    "Settings",
+    "SkillsSettings",
+    "TensorZeroSettings",
+    "ToolAgent",
+    "ToolAgentSynchronous",
+    "XAISettings",
+    "audio_link",
+    "extract_first",
+    "extract_last",
+    "find_matches",
+    "image_link",
+    "load_prompt",
+    "resource_link",
+    "search_messages",
+    "text_content",
+    "video_link",
 ]

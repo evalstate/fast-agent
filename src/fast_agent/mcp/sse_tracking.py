@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import anyio
@@ -15,7 +17,9 @@ from httpx_sse._exceptions import SSEError
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
+from fast_agent.mcp.http_errors import format_http_error_detail
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName, EventType
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from anyio.abc import TaskStatus
@@ -24,6 +28,138 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ChannelHook = Callable[[ChannelEvent], None]
+
+
+@dataclass(slots=True)
+class _TrackingSSERuntime:
+    url: str
+    channel_hook: ChannelHook | None
+    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
+    write_stream: MemoryObjectSendStream[SessionMessage]
+    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
+    session_id: str | None = None
+
+    def get_session_id(self) -> str | None:
+        return self.session_id
+
+    async def sse_reader(
+        self,
+        event_source: Any,
+        task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
+        try:
+            async for sse in event_source.aiter_sse():
+                if sse.event == "endpoint":
+                    task_status.started(self._endpoint_url_from_event(sse.data))
+                elif sse.event == "message":
+                    await self._handle_message_event(sse.data)
+                else:
+                    _emit_channel_event(
+                        self.channel_hook,
+                        "get",
+                        "keepalive",
+                        raw_event=sse.event or "keepalive",
+                    )
+        except SSEError as sse_exc:
+            logger.exception("Encountered SSE exception")
+            _emit_channel_event(self.channel_hook, "get", "error", detail=str(sse_exc))
+            raise
+        except Exception as exc:
+            logger.exception("Error in sse_reader")
+            _emit_channel_event(self.channel_hook, "get", "error", detail=str(exc))
+            await self.read_stream_writer.send(exc)
+        finally:
+            await self.read_stream_writer.aclose()
+
+    def _endpoint_url_from_event(self, data: str) -> str:
+        endpoint_url = urljoin(self.url, data)
+        logger.debug("Received SSE endpoint URL: %s", endpoint_url)
+
+        if not _same_origin(self.url, endpoint_url):
+            error_msg = f"Endpoint origin does not match connection origin: {endpoint_url}"
+            logger.error(error_msg)
+            _emit_channel_event(self.channel_hook, "get", "error", detail=error_msg)
+            raise ValueError(error_msg)
+
+        self.session_id = _extract_session_id(endpoint_url)
+        return endpoint_url
+
+    async def _handle_message_event(self, data: str) -> None:
+        try:
+            message = types.JSONRPCMessage.model_validate_json(data)
+        except Exception as exc:
+            logger.exception("Error parsing server message")
+            _emit_channel_event(
+                self.channel_hook,
+                "get",
+                "error",
+                detail="Error parsing server message",
+            )
+            await self.read_stream_writer.send(exc)
+            return
+
+        _emit_channel_event(self.channel_hook, "get", "message", message=message)
+        await self.read_stream_writer.send(SessionMessage(message))
+
+    async def post_writer(self, client: httpx.AsyncClient, endpoint_url: str) -> None:
+        try:
+            async with self.write_stream_reader:
+                async for session_message in self.write_stream_reader:
+                    payload = self._payload_for_session_message(session_message)
+                    if payload is None:
+                        continue
+
+                    _emit_channel_event(
+                        self.channel_hook,
+                        "post-sse",
+                        "message",
+                        message=session_message.message,
+                    )
+                    await self._post_payload(client, endpoint_url, payload)
+        except httpx.HTTPStatusError:
+            logger.exception("HTTP error in post_writer")
+        except Exception:
+            logger.exception("Error in post_writer")
+            _emit_channel_event(
+                self.channel_hook,
+                "post-sse",
+                "error",
+                detail="Error sending client message",
+            )
+        finally:
+            await self.write_stream.aclose()
+
+    @staticmethod
+    def _payload_for_session_message(session_message: SessionMessage) -> dict[str, Any] | None:
+        try:
+            return session_message.message.model_dump(
+                by_alias=True,
+                mode="json",
+                exclude_none=True,
+            )
+        except Exception:
+            logger.exception("Invalid session message payload")
+            return None
+
+    async def _post_payload(
+        self,
+        client: httpx.AsyncClient,
+        endpoint_url: str,
+        payload: dict[str, Any],
+    ) -> None:
+        try:
+            response = await client.post(endpoint_url, json=payload)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            error_detail = _format_http_error(exc)
+            _emit_channel_event(
+                self.channel_hook,
+                "post-sse",
+                "error",
+                detail=error_detail.detail,
+                status_code=error_detail.status_code,
+            )
+            raise
 
 
 def _extract_session_id(endpoint_url: str) -> str | None:
@@ -63,19 +199,41 @@ def _emit_channel_event(
         logger.debug("Channel hook raised an exception", exc_info=True)
 
 
-def _format_http_error(exc: httpx.HTTPStatusError) -> tuple[int | None, str]:
-    status_code: int | None = None
-    detail = str(exc)
-    if exc.response is not None:
-        status_code = exc.response.status_code
-        reason = exc.response.reason_phrase or ""
-        if not reason:
-            try:
-                reason = (exc.response.text or "").strip()
-            except Exception:
-                reason = ""
-        detail = f"HTTP {status_code}: {reason or 'response'}"
-    return status_code, detail
+_format_http_error = format_http_error_detail
+
+
+def _origin_port(scheme: str, port: int | None) -> int | None:
+    if scheme == "http" and port == 80:
+        return None
+    if scheme == "https" and port == 443:
+        return None
+    return port
+
+
+def _origin_parts(url: str) -> tuple[str, str | None, int | None]:
+    parsed = urlparse(url)
+    scheme = strip_casefold(parsed.scheme)
+    hostname = strip_casefold(parsed.hostname) if parsed.hostname else None
+    return scheme, hostname, _origin_port(scheme, parsed.port)
+
+
+def _same_origin(base_url: str, endpoint_url: str) -> bool:
+    return _origin_parts(base_url) == _origin_parts(endpoint_url)
+
+
+def _raise_for_sse_status(response: httpx.Response, channel_hook: ChannelHook | None) -> None:
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        error_detail = _format_http_error(exc)
+        _emit_channel_event(
+            channel_hook,
+            "get",
+            "error",
+            detail=error_detail.detail,
+            status_code=error_detail.status_code,
+        )
+        raise
 
 
 @asynccontextmanager
@@ -103,11 +261,13 @@ async def tracking_sse_client(
         0
     )
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
-
-    session_id: str | None = None
-
-    def get_session_id() -> str | None:
-        return session_id
+    runtime = _TrackingSSERuntime(
+        url=url,
+        channel_hook=channel_hook,
+        read_stream_writer=read_stream_writer,
+        write_stream=write_stream,
+        write_stream_reader=write_stream_reader,
+    )
 
     async with anyio.create_task_group() as tg:
         try:
@@ -120,157 +280,24 @@ async def tracking_sse_client(
                 connected = False
                 post_connected = False
 
-                async def sse_reader(
-                    task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
-                ):
-                    try:
-                        async for sse in event_source.aiter_sse():
-                            if sse.event == "endpoint":
-                                endpoint_url = urljoin(url, sse.data)
-                                logger.debug("Received SSE endpoint URL: %s", endpoint_url)
-
-                                url_parsed = urlparse(url)
-                                endpoint_parsed = urlparse(endpoint_url)
-                                if (
-                                    url_parsed.scheme != endpoint_parsed.scheme
-                                    or url_parsed.netloc != endpoint_parsed.netloc
-                                ):
-                                    error_msg = (
-                                        "Endpoint origin does not match connection origin: "
-                                        f"{endpoint_url}"
-                                    )
-                                    logger.error(error_msg)
-                                    _emit_channel_event(
-                                        channel_hook,
-                                        "get",
-                                        "error",
-                                        detail=error_msg,
-                                    )
-                                    raise ValueError(error_msg)
-
-                                nonlocal session_id
-                                session_id = _extract_session_id(endpoint_url)
-                                task_status.started(endpoint_url)
-                            elif sse.event == "message":
-                                try:
-                                    message = types.JSONRPCMessage.model_validate_json(sse.data)
-                                except Exception as exc:
-                                    logger.exception("Error parsing server message")
-                                    _emit_channel_event(
-                                        channel_hook,
-                                        "get",
-                                        "error",
-                                        detail="Error parsing server message",
-                                    )
-                                    await read_stream_writer.send(exc)
-                                    continue
-
-                                _emit_channel_event(channel_hook, "get", "message", message=message)
-                                await read_stream_writer.send(SessionMessage(message))
-                            else:
-                                _emit_channel_event(
-                                    channel_hook,
-                                    "get",
-                                    "keepalive",
-                                    raw_event=sse.event or "keepalive",
-                                )
-                    except SSEError as sse_exc:
-                        logger.exception("Encountered SSE exception")
-                        _emit_channel_event(
-                            channel_hook,
-                            "get",
-                            "error",
-                            detail=str(sse_exc),
-                        )
-                        raise
-                    except Exception as exc:
-                        logger.exception("Error in sse_reader")
-                        _emit_channel_event(
-                            channel_hook,
-                            "get",
-                            "error",
-                            detail=str(exc),
-                        )
-                        await read_stream_writer.send(exc)
-                    finally:
-                        await read_stream_writer.aclose()
-
-                async def post_writer(endpoint_url: str):
-                    try:
-                        async with write_stream_reader:
-                            async for session_message in write_stream_reader:
-                                try:
-                                    payload = session_message.message.model_dump(
-                                        by_alias=True,
-                                        mode="json",
-                                        exclude_none=True,
-                                    )
-                                except Exception:
-                                    logger.exception("Invalid session message payload")
-                                    continue
-
-                                _emit_channel_event(
-                                    channel_hook,
-                                    "post-sse",
-                                    "message",
-                                    message=session_message.message,
-                                )
-
-                                try:
-                                    response = await client.post(endpoint_url, json=payload)
-                                    response.raise_for_status()
-                                except httpx.HTTPStatusError as exc:
-                                    status_code, detail = _format_http_error(exc)
-                                    _emit_channel_event(
-                                        channel_hook,
-                                        "post-sse",
-                                        "error",
-                                        detail=detail,
-                                        status_code=status_code,
-                                    )
-                                    raise
-                    except httpx.HTTPStatusError:
-                        logger.exception("HTTP error in post_writer")
-                    except Exception:
-                        logger.exception("Error in post_writer")
-                        _emit_channel_event(
-                            channel_hook,
-                            "post-sse",
-                            "error",
-                            detail="Error sending client message",
-                        )
-                    finally:
-                        await write_stream.aclose()
-
                 try:
                     async with aconnect_sse(
                         client,
                         "GET",
                         url,
                     ) as event_source:
-                        try:
-                            event_source.response.raise_for_status()
-                        except httpx.HTTPStatusError as exc:
-                            status_code, detail = _format_http_error(exc)
-                            _emit_channel_event(
-                                channel_hook,
-                                "get",
-                                "error",
-                                detail=detail,
-                                status_code=status_code,
-                            )
-                            raise
+                        _raise_for_sse_status(event_source.response, channel_hook)
 
                         _emit_channel_event(channel_hook, "get", "connect")
                         connected = True
 
-                        endpoint_url = await tg.start(sse_reader)
+                        endpoint_url = await tg.start(runtime.sse_reader, event_source)
                         _emit_channel_event(channel_hook, "post-sse", "connect")
                         post_connected = True
-                        tg.start_soon(post_writer, endpoint_url)
+                        tg.start_soon(runtime.post_writer, client, endpoint_url)
 
                         try:
-                            yield read_stream, write_stream, get_session_id
+                            yield read_stream, write_stream, runtime.get_session_id
                         finally:
                             tg.cancel_scope.cancel()
                 except Exception:

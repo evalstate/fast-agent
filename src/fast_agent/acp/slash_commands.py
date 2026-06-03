@@ -16,11 +16,6 @@ import time
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
-    Awaitable,
-    Callable,
-    Iterable,
-    Literal,
-    Sequence,
     cast,
 )
 
@@ -56,23 +51,31 @@ from fast_agent.command_actions.accessors import (
     plugin_commands_for_provider,
 )
 from fast_agent.commands.command_catalog import command_action_names
-from fast_agent.commands.context import CommandContext
+from fast_agent.commands.context import CommandContext, StaticAgentProvider
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.protocols import ACPCommandAllowlistProvider
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
+from fast_agent.commands.renderers.history_markdown import render_history_overview_markdown
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
+from fast_agent.session.identity import SessionStoreScope, normalize_session_store_scope
+from fast_agent.utils.slash_commands import parse_slash_command_line
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Iterable, Sequence
+
     from fast_agent.acp.acp_context import ACPContext
+    from fast_agent.acp.slash.tool_updates import ToolCallStatus
     from fast_agent.command_actions.models import PluginCommandAgentProtocol
     from fast_agent.command_actions.runtime import AttachMcpServerCallback, DetachMcpServerCallback
     from fast_agent.commands.context import AgentProvider
     from fast_agent.config import MCPServerSettings
+    from fast_agent.core.agent_app import AgentCardLoadResult
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 
@@ -98,14 +101,12 @@ class _ACPAgentCardManager:
 
     async def load_agent_card(
         self, source: str, parent_agent: str | None = None
-    ) -> tuple[list[str], list[str]]:
+    ) -> AgentCardLoadResult:
         if not self._handler._card_loader:
             raise RuntimeError("AgentCard loading is not available.")
-        instance, loaded_names, attached_names = await self._handler._card_loader(
-            source, parent_agent
-        )
+        instance, loaded_card = await self._handler._card_loader(source, parent_agent)
         self._handler.instance = instance
-        return loaded_names, attached_names
+        return loaded_card
 
     async def dump_agent_card(self, agent_name: str) -> str:
         if not self._handler._dump_agent_callback:
@@ -143,6 +144,31 @@ class _ACPAgentCardManager:
         return list(self._handler.instance.agents.keys())
 
 
+def _command_input(input_hint: str | None) -> AvailableCommandInput | None:
+    if not input_hint:
+        return None
+    return AvailableCommandInput(root=UnstructuredCommandInput(hint=input_hint))
+
+
+def _append_unshadowed_commands(
+    commands: list[AvailableCommand],
+    command_specs: Iterable[tuple[str, str, str | None]],
+) -> None:
+    existing_names = {strip_casefold(command.name) for command in commands}
+    for name, description, input_hint in command_specs:
+        normalized_name = strip_casefold(name)
+        if normalized_name in existing_names:
+            continue
+        commands.append(
+            AvailableCommand(
+                name=name,
+                description=description,
+                input=_command_input(input_hint),
+            )
+        )
+        existing_names.add(normalized_name)
+
+
 class SlashCommandHandler:
     """Handles slash command execution for ACP sessions."""
 
@@ -158,7 +184,7 @@ class SlashCommandHandler:
         protocol_version: int | None = None,
         session_instructions: dict[str, str] | None = None,
         card_loader: Callable[
-            [str, str | None], Awaitable[tuple["AgentInstance", list[str], list[str]]]
+            [str, str | None], Awaitable[tuple["AgentInstance", AgentCardLoadResult]]
         ]
         | None = None,
         attach_agent_callback: Callable[
@@ -355,63 +381,35 @@ class SlashCommandHandler:
         # Add agent-specific commands if current agent is ACP-aware
         agent = self._get_current_agent()
         if isinstance(agent, ACPAwareProtocol):
-            for name, cmd in agent.acp_commands.items():
-                # Convert ACPCommand to AvailableCommand
-                cmd_input = None
-                if cmd.input_hint:
-                    cmd_input = AvailableCommandInput(
-                        root=UnstructuredCommandInput(hint=cmd.input_hint)
-                    )
-                commands.append(
-                    AvailableCommand(name=name, description=cmd.description, input=cmd_input)
-                )
+            _append_unshadowed_commands(
+                commands,
+                (
+                    (name, command.description, command.input_hint)
+                    for name, command in agent.acp_commands.items()
+                ),
+            )
 
         agent_commands = plugin_commands_for_agent(agent)
         if agent_commands:
-            existing_names = {command.name for command in commands}
-            for name, spec in agent_commands.items():
-                if name in existing_names:
-                    continue
-                cmd_input = None
-                if spec.input_hint:
-                    cmd_input = AvailableCommandInput(
-                        root=UnstructuredCommandInput(hint=spec.input_hint)
-                    )
-                commands.append(
-                    AvailableCommand(name=name, description=spec.description, input=cmd_input)
-                )
+            _append_unshadowed_commands(
+                commands,
+                (
+                    (name, command.description, command.input_hint)
+                    for name, command in agent_commands.items()
+                ),
+            )
 
         global_commands = plugin_commands_for_provider(self.instance.app)
         if global_commands:
-            existing_names = {command.name for command in commands}
-            for name, spec in global_commands.items():
-                if name in existing_names:
-                    continue
-                cmd_input = None
-                if spec.input_hint:
-                    cmd_input = AvailableCommandInput(
-                        root=UnstructuredCommandInput(hint=spec.input_hint)
-                    )
-                commands.append(
-                    AvailableCommand(name=name, description=spec.description, input=cmd_input)
-                )
+            _append_unshadowed_commands(
+                commands,
+                (
+                    (name, command.description, command.input_hint)
+                    for name, command in global_commands.items()
+                ),
+            )
 
         return commands
-
-    def _apply_dynamic_session_command_hints(
-        self, commands_by_name: dict[str, AvailableCommand]
-    ) -> None:
-        model_command = commands_by_name.get("model")
-        if model_command is None:
-            return
-
-        commands_by_name["model"] = AvailableCommand(
-            name=model_command.name,
-            description=model_command.description,
-            input=AvailableCommandInput(
-                root=UnstructuredCommandInput(hint=self._model_command_hint())
-            ),
-        )
 
     def _get_current_llm(self) -> object | None:
         agent = self._get_current_agent()
@@ -426,7 +424,7 @@ class SlashCommandHandler:
         llm = self._get_current_llm()
         if llm is None:
             return (
-                "reasoning <value> | task_budget <off|20k+|status when supported> | "
+                "reasoning <value> | task_budget <off|20k+ when supported> | "
                 "verbosity <value> | fast <on|off|status|flex when supported> | "
                 "web_search <on|off|default> | x_search <on|off|default> | "
                 "web_fetch <on|off|default>"
@@ -434,7 +432,7 @@ class SlashCommandHandler:
 
         options = ["reasoning <value>"]
         if model_handlers.model_supports_task_budget(llm):
-            options.append("task_budget <off|20k+|status>")
+            options.append("task_budget <off|20k+>")
         if model_handlers.model_supports_text_verbosity(llm):
             options.append("verbosity <value>")
         if model_handlers.model_supports_service_tier(llm):
@@ -560,20 +558,16 @@ class SlashCommandHandler:
 
     def _resolve_acp_session_metadata(
         self,
-    ) -> tuple[object | None, Literal["workspace", "app"], object | None]:
+    ) -> tuple[object | None, SessionStoreScope, object | None]:
         if self._acp_context is None:
             return None, "workspace", None
 
         session_cwd = self._acp_context.session_cwd
-
-        session_store_scope: Literal["workspace", "app"] = "workspace"
-        raw_session_store_scope = self._acp_context.session_store_scope
-        if raw_session_store_scope == "workspace":
-            session_store_scope = "workspace"
-        elif raw_session_store_scope == "app":
-            session_store_scope = "app"
-
-        return session_cwd, session_store_scope, self._acp_context.session_store_cwd
+        return (
+            session_cwd,
+            normalize_session_store_scope(self._acp_context.session_store_scope),
+            self._acp_context.session_store_cwd,
+        )
 
     def _build_command_context(self) -> CommandContext:
         settings = get_settings()
@@ -581,11 +575,14 @@ class SlashCommandHandler:
             self._resolve_acp_session_metadata()
         )
         return CommandContext(
-            agent_provider=self._agent_provider(),
+            agent_provider=StaticAgentProvider(
+                cast("dict[str, object]", dict(self.instance.agents))
+            ),
             current_agent_name=self.current_agent_name,
             io=ACPCommandIO(),
             settings=settings,
             noenv=self._noenv,
+            acp_session_id=self.session_id,
             session_cwd=(
                 Path(str(raw_session_cwd)).expanduser().resolve()
                 if raw_session_cwd
@@ -607,11 +604,18 @@ class SlashCommandHandler:
         io: ACPCommandIO | None = None,
     ) -> str:
         extra_messages = io.messages if io else None
-        return render_command_outcome_markdown(
+        markdown = render_command_outcome_markdown(
             outcome,
             heading=heading,
             extra_messages=extra_messages,
         )
+        if io and io.history_overview:
+            history_markdown = render_history_overview_markdown(
+                io.history_overview,
+                heading="conversation history",
+            )
+            return "\n\n".join(part for part in (markdown, history_markdown) if part)
+        return markdown
 
     async def _send_session_info_update(self) -> None:
         if self._acp_context is None:
@@ -681,18 +685,7 @@ class SlashCommandHandler:
         Returns:
             Tuple of (command_name, arguments)
         """
-        text = prompt_text.strip()
-        if not text.startswith("/"):
-            return "", text
-
-        # Remove leading slash
-        text = text[1:]
-
-        # Split on first whitespace
-        command_name, _, arguments = text.partition(" ")
-        arguments = arguments.lstrip()
-
-        return command_name, arguments
+        return parse_slash_command_line(prompt_text) or ("", prompt_text.strip())
 
     async def execute_command(self, command_name: str, arguments: str) -> str:
         """
@@ -705,11 +698,14 @@ class SlashCommandHandler:
         Returns:
             The command response as a string
         """
+        original_command_name = command_name
+        normalized_command_name = strip_casefold(command_name)
+
         # Check session-level commands first (filtered by agent policy)
         allowed_session_commands = self._get_allowed_session_commands()
-        if command_name in allowed_session_commands:
+        if normalized_command_name in allowed_session_commands:
             try:
-                return await slash_dispatch.execute(self, command_name, arguments)
+                return await slash_dispatch.execute(self, normalized_command_name, arguments)
             except slash_dispatch.UnknownSlashCommandError:
                 pass
 
@@ -717,30 +713,30 @@ class SlashCommandHandler:
         agent = self._get_current_agent()
         if isinstance(agent, ACPAwareProtocol):
             agent_commands = agent.acp_commands
-            if command_name in agent_commands:
-                return await agent_commands[command_name].handler(arguments)
+            if original_command_name in agent_commands:
+                return await agent_commands[original_command_name].handler(arguments)
 
         agent_commands = plugin_commands_for_agent(agent)
-        if agent is not None and agent_commands and command_name in agent_commands:
-            spec = agent_commands[command_name]
+        if agent is not None and agent_commands and original_command_name in agent_commands:
+            spec = agent_commands[original_command_name]
             base_path = None
             if isinstance(agent, AgentProtocol) and agent.config.source_path:
                 base_path = agent.config.source_path.parent
             return await self._execute_plugin_command_action(
                 agent,
-                command_name,
+                original_command_name,
                 arguments,
                 spec=spec,
                 base_path=base_path,
             )
 
         global_commands = plugin_commands_for_provider(self.instance.app)
-        if agent is not None and global_commands and command_name in global_commands:
+        if agent is not None and global_commands and original_command_name in global_commands:
             return await self._execute_plugin_command_action(
                 agent,
-                command_name,
+                original_command_name,
                 arguments,
-                spec=global_commands[command_name],
+                spec=global_commands[original_command_name],
                 base_path=plugin_command_base_path_for_provider(self.instance.app),
             )
 
@@ -794,7 +790,7 @@ class SlashCommandHandler:
             )
         except AgentConfigError as exc:
             return f"Command /{command_name} failed to load: {exc}"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._logger.exception("Plugin command action failed", command=command_name)
             return f"Command /{command_name} failed: {exc}"
 
@@ -817,6 +813,16 @@ class SlashCommandHandler:
                 "```",
                 render_markdown=True,
             )
+        if outcome.switch_agent is not None:
+            switched = await self._switch_current_mode(outcome.switch_agent)
+            if not switched:
+                outcome.add_message(
+                    f"Unknown agent: {outcome.switch_agent}",
+                    channel="error",
+                )
+                outcome.switch_agent = None
+        if outcome.requires_refresh and self._acp_context is not None:
+            await self._acp_context.send_available_commands_update()
         return self._format_outcome_as_markdown(outcome, f"/{command_name}")
 
     async def _handle_history(self, arguments: str | None = None) -> str:
@@ -906,7 +912,7 @@ class SlashCommandHandler:
         tool_call_id: str,
         *,
         title: str,
-        status: skills_slash_handlers.ToolCallStatus,
+        status: "ToolCallStatus",
         message: str | None = None,
         start: bool = False,
     ) -> None:
@@ -919,12 +925,6 @@ class SlashCommandHandler:
             message=message,
             start=start,
         )
-
-    async def _handle_save(self, arguments: str | None = None) -> str:
-        return await history_slash_handlers.handle_save(self, arguments)
-
-    async def _handle_load(self, arguments: str | None = None) -> str:
-        return await history_slash_handlers.handle_load(self, arguments)
 
     async def _handle_history_webclear(self) -> str:
         return await history_slash_handlers.handle_history_webclear(self)

@@ -1,25 +1,44 @@
 """Helper functions for type-safe server config access."""
 
-from typing import TYPE_CHECKING, Any, Union
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Protocol, overload, runtime_checkable
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
-
-
-def get_server_config(ctx: Any) -> Union["MCPServerSettings", None]:
-    """Extract server config from context if available.
-
-    Type guard helper that safely accesses server_config with proper type checking.
-    """
-    # Import here to avoid circular import
     from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
-    # Check if ctx has a session attribute (RequestContext case)
-    if hasattr(ctx, "session"):
-        if isinstance(ctx.session, MCPAgentClientSession):
-            return ctx.session.server_config
-    # Also check if ctx itself is MCPAgentClientSession (direct call case)
-    elif isinstance(ctx, MCPAgentClientSession):
+
+@runtime_checkable
+class _SessionRequestContext(Protocol):
+    session: object
+
+
+@overload
+def get_server_config(ctx: MCPAgentClientSession) -> MCPServerSettings | None: ...
+
+
+@overload
+def get_server_config(ctx: _SessionRequestContext) -> MCPServerSettings | None: ...
+
+
+@overload
+def get_server_config(ctx: object) -> MCPServerSettings | None: ...
+
+
+def get_server_config(ctx: object) -> MCPServerSettings | None:
+    """Extract server config from context if available.
+
+    Supports either an MCPAgentClientSession or an MCP request context carrying one.
+    """
+    from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+
+    if isinstance(ctx, MCPAgentClientSession):
         return ctx.server_config
+
+    if isinstance(ctx, _SessionRequestContext) and isinstance(
+        ctx.session, MCPAgentClientSession
+    ):
+        return ctx.session.server_config
 
     return None

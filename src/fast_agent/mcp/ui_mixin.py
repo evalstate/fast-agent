@@ -7,17 +7,36 @@ to add UI resource handling without modifying the base agent implementation.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from mcp.types import CallToolResult, ContentBlock, EmbeddedResource
 
 from fast_agent.constants import MCP_UI
-from fast_agent.ui.mcp_ui_utils import open_links_in_browser, ui_links_from_channel
+from fast_agent.mcp.ui_modes import McpUIMode, normalize_mcp_ui_mode
+from fast_agent.ui.mcp_ui_utils import (
+    open_links_in_browser,
+    ui_links_from_channel,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from rich.text import Text
 
     from fast_agent.types import PromptMessageExtended, RequestParams
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultUIExtraction:
+    tool_results: dict[str, CallToolResult] | None
+    ui_blocks: list[ContentBlock]
+
+
+@dataclass(frozen=True, slots=True)
+class SplitUIBlocks:
+    ui_blocks: list[ContentBlock]
+    other_blocks: list[ContentBlock]
 
 
 class McpUIMixin:
@@ -30,27 +49,25 @@ class McpUIMixin:
 
     Usage:
         class MyAgentWithUI(McpUIMixin, McpAgent):
-            def __init__(self, *args, ui_mode: str = "auto", **kwargs):
+            def __init__(self, *args, ui_mode: object = "auto", **kwargs):
                 super().__init__(*args, **kwargs)
                 self._ui_mode = ui_mode
     """
 
-    def __init__(self, *args, ui_mode: str = "auto", **kwargs):
+    def __init__(self, *args, ui_mode: object = "auto", **kwargs):
         """Initialize the mixin with UI mode configuration."""
         super().__init__(*args, **kwargs)
-        self._ui_mode: str = ui_mode
+        self._ui_mode: McpUIMode = normalize_mcp_ui_mode(ui_mode)
         self._pending_ui_resources: list[ContentBlock] = []
 
-    def set_ui_mode(self, mode: str) -> None:
+    def set_ui_mode(self, mode: object) -> None:
         """
         Set the UI mode for handling MCP-UI resources.
 
         Args:
             mode: One of "disabled", "enabled", or "auto"
         """
-        if mode not in ("disabled", "enabled", "auto"):
-            mode = "auto"
-        self._ui_mode = mode
+        self._ui_mode = normalize_mcp_ui_mode(mode)
 
     async def run_tools(
         self,
@@ -72,21 +89,23 @@ class McpUIMixin:
 
         # Extract UI resources from tool results
         if result and result.tool_results:
-            processed_results, ui_blocks = self._extract_ui_from_tool_results(result.tool_results)
+            extraction = self._extract_ui_from_tool_results(result.tool_results)
 
             # For mode 'auto', only act when we actually extracted something
-            if self._ui_mode == "enabled" or (self._ui_mode == "auto" and ui_blocks):
+            if self._ui_mode == "enabled" or (
+                self._ui_mode == "auto" and extraction.ui_blocks
+            ):
                 # Update tool_results with UI resources removed
-                result.tool_results = processed_results
+                result.tool_results = extraction.tool_results
 
                 # Add UI resources to channels
                 channels = result.channels or {}
                 current = channels.get(MCP_UI, [])
-                channels[MCP_UI] = current + ui_blocks
+                channels[MCP_UI] = current + extraction.ui_blocks
                 result.channels = channels
 
                 # Store for display after assistant message
-                self._pending_ui_resources = ui_blocks
+                self._pending_ui_resources = extraction.ui_blocks
 
         return result
 
@@ -233,40 +252,41 @@ class McpUIMixin:
 
     def _extract_ui_from_tool_results(
         self,
-        tool_results: dict[str, CallToolResult],
-    ) -> tuple[dict[str, CallToolResult], list[ContentBlock]]:
+        tool_results: dict[str, CallToolResult] | None,
+    ) -> ToolResultUIExtraction:
         """
         Extract UI resources from tool results.
 
-        Returns a tuple of (cleaned_tool_results, extracted_ui_blocks).
+        Returns cleaned tool results and the extracted UI blocks.
         """
         if not tool_results:
-            return tool_results, []
+            return ToolResultUIExtraction(tool_results=tool_results, ui_blocks=[])
 
         extracted_ui: list[ContentBlock] = []
         new_results: dict[str, CallToolResult] = {}
 
         for key, result in tool_results.items():
             try:
-                ui_blocks, other_blocks = self._split_ui_blocks(list(result.content or []))
-                if ui_blocks:
-                    extracted_ui.extend(ui_blocks)
+                split_blocks = self._split_ui_blocks(list(result.content or []))
+                if split_blocks.ui_blocks:
+                    extracted_ui.extend(split_blocks.ui_blocks)
 
                 # Recreate CallToolResult without UI blocks
-                new_results[key] = CallToolResult(content=other_blocks, isError=result.isError)
+                new_results[key] = CallToolResult(
+                    content=split_blocks.other_blocks,
+                    isError=result.isError,
+                )
             except Exception:
                 # Pass through untouched on any error
                 new_results[key] = result
 
-        return new_results, extracted_ui
+        return ToolResultUIExtraction(tool_results=new_results, ui_blocks=extracted_ui)
 
-    def _split_ui_blocks(
-        self, blocks: list[ContentBlock]
-    ) -> tuple[list[ContentBlock], list[ContentBlock]]:
+    def _split_ui_blocks(self, blocks: list[ContentBlock]) -> SplitUIBlocks:
         """
         Split content blocks into UI and non-UI blocks.
 
-        Returns tuple of (ui_blocks, other_blocks).
+        Returns UI blocks and non-UI blocks.
         """
         ui_blocks: list[ContentBlock] = []
         other_blocks: list[ContentBlock] = []
@@ -277,7 +297,7 @@ class McpUIMixin:
             else:
                 other_blocks.append(block)
 
-        return ui_blocks, other_blocks
+        return SplitUIBlocks(ui_blocks=ui_blocks, other_blocks=other_blocks)
 
     def _is_ui_embedded_resource(self, block: ContentBlock) -> bool:
         """Check if a content block is a UI embedded resource."""

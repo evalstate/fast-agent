@@ -4,12 +4,27 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from html import escape as escape_html
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from prompt_toolkit.formatted_text import HTML
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
+from fast_agent.commands.model_capabilities import (
+    resolve_model_info,
+    resolve_reasoning_effort,
+    resolve_reasoning_effort_spec,
+    resolve_resolved_model,
+    resolve_service_tier,
+    resolve_service_tier_supported,
+    resolve_text_verbosity,
+    resolve_text_verbosity_spec,
+    resolve_web_fetch_enabled,
+    resolve_web_fetch_supported,
+    resolve_web_search_enabled,
+    resolve_web_search_supported,
+)
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -19,7 +34,10 @@ from fast_agent.ui.attachment_indicator import (
     render_attachment_indicator,
     summarize_draft_attachments,
 )
-from fast_agent.ui.context_usage_display import resolve_context_usage_percent
+from fast_agent.ui.context_usage_display import (
+    ContextUsageAccumulator,
+    resolve_context_usage_percent,
+)
 from fast_agent.ui.model_chip_display import render_model_chip
 from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.toolbar import (
@@ -35,6 +53,8 @@ from fast_agent.ui.prompt.toolbar import (
 from fast_agent.ui.service_tier_display import render_service_tier_indicator
 from fast_agent.ui.web_fetch_display import render_web_fetch_indicator
 from fast_agent.ui.web_search_display import render_web_search_indicator
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.count_display import format_count
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -48,6 +68,16 @@ class ToolbarRenderCache:
     agent_state: ToolbarAgentState | None = None
     attachment_summary_key: tuple[object, ...] | None = None
     attachment_summary: DraftAttachmentSummary | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AttachmentResourceSnapshot:
+    kind: str
+    path: str
+    exists: bool
+    is_file: bool
+    mtime_ns: int | None
+    size: int | None
 
 
 @dataclass(slots=True)
@@ -94,6 +124,44 @@ class ModelVisualState:
     web_fetch_indicator: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ToolbarMode:
+    style: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class AgentUsageContext:
+    context_pct: float | None
+    usage_accumulator: "UsageAccumulator | None"
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedAttachmentSummary:
+    summary: DraftAttachmentSummary | None
+    cache_hit: bool = False
+    skipped: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedToolbarAgentState:
+    state: ToolbarAgentState
+    llm: "FastAgentLLMProtocol | None"
+    cache_hit: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CopyNoticeSegment:
+    html: str
+    should_clear: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ToolbarIdentitySegment:
+    html: str
+    show_shell_path_segment: bool
+
+
 def resolve_active_llm(
     agent_provider: "AgentApp | None",
     agent_name: str,
@@ -102,8 +170,7 @@ def resolve_active_llm(
     if agent is None:
         return None
 
-    llm = _resolve_agent_llm(agent)
-    return llm
+    return _resolve_agent_llm(agent)
 
 
 def render_input_toolbar(
@@ -120,59 +187,61 @@ def render_input_toolbar(
     current_input_text: str = "",
     cache: ToolbarRenderCache | None = None,
 ) -> ToolbarRenderResult:
-    mode_style, mode_text = _resolve_toolbar_mode(multiline_mode)
+    mode = _resolve_toolbar_mode(multiline_mode)
     shortcut_text = ""
-    agent_state, active_llm, agent_state_cache_hit = _resolve_toolbar_agent_state_cached(
+    resolved_agent_state = _resolve_toolbar_agent_state_cached(
         agent_name, agent_provider, cache=cache
     )
     agent_identity_segment = _format_toolbar_agent_identity(
         agent_name,
         toolbar_color,
-        agent_state.agent,
+        resolved_agent_state.state.agent,
     )
-    attachment_summary, attachment_summary_cache_hit, attachment_summary_skipped = (
-        _resolve_attachment_summary(
-            current_input_text=current_input_text,
-            model_name=agent_state.model_name,
-            provider=active_llm.provider if active_llm is not None else None,
-            cwd=shell_state.working_dir,
-            cache=cache,
-        )
+    attachment_summary = _resolve_attachment_summary(
+        current_input_text=current_input_text,
+        model_name=resolved_agent_state.state.model_name,
+        provider=resolved_agent_state.llm.provider if resolved_agent_state.llm is not None else None,
+        cwd=shell_state.working_dir,
+        cache=cache,
     )
-    middle = _build_middle_segment(agent_state, shortcut_text, attachment_summary=attachment_summary)
+    middle = _build_middle_segment(
+        resolved_agent_state.state,
+        shortcut_text,
+        attachment_summary=attachment_summary.summary,
+    )
     notification_segment = _build_notification_segment()
-    copy_notice_segment, clear_copy_notice = _build_copy_notice_segment(
+    copy_notice_segment = _build_copy_notice_segment(
         copy_notice,
         copy_notice_until,
-        mode_style,
+        mode.style,
     )
-    toolbar_identity_segment, show_shell_path_segment = _resolve_toolbar_identity_segment(
+    toolbar_identity_segment = _resolve_toolbar_identity_segment(
         shell_state=shell_state,
         middle=middle,
         agent_identity_segment=agent_identity_segment,
-        mode_style=mode_style,
-        mode_text=mode_text,
+        mode_style=mode.style,
+        mode_text=mode.text,
         version_segment=f"fast-agent {app_version}",
         notification_segment=notification_segment,
-        copy_notice_segment=copy_notice_segment,
+        copy_notice_segment=copy_notice_segment.html,
         shell_path_switch_delay_seconds=shell_path_switch_delay_seconds,
     )
     html = _build_toolbar_html(
         agent_identity_segment=agent_identity_segment,
         middle=middle,
-        mode_style=mode_style,
-        mode_text=mode_text,
-        toolbar_identity_segment=toolbar_identity_segment,
+        mode_style=mode.style,
+        mode_text=mode.text,
+        toolbar_identity_segment=toolbar_identity_segment.html,
         notification_segment=notification_segment,
-        copy_notice_segment=copy_notice_segment,
+        copy_notice_segment=copy_notice_segment.html,
     )
     return ToolbarRenderResult(
         html=html,
-        show_shell_path_segment=show_shell_path_segment,
-        clear_copy_notice=clear_copy_notice,
-        agent_state_cache_hit=agent_state_cache_hit,
-        attachment_summary_cache_hit=attachment_summary_cache_hit,
-        attachment_summary_skipped=attachment_summary_skipped,
+        show_shell_path_segment=toolbar_identity_segment.show_shell_path_segment,
+        clear_copy_notice=copy_notice_segment.should_clear,
+        agent_state_cache_hit=resolved_agent_state.cache_hit,
+        attachment_summary_cache_hit=attachment_summary.cache_hit,
+        attachment_summary_skipped=attachment_summary.skipped,
     )
 
 
@@ -183,9 +252,9 @@ def _resolve_attachment_summary(
     provider: Provider | None,
     cwd: Path | None,
     cache: ToolbarRenderCache | None,
-) -> tuple[DraftAttachmentSummary | None, bool, bool]:
+) -> ResolvedAttachmentSummary:
     if not _should_resolve_attachment_summary(current_input_text):
-        return None, False, True
+        return ResolvedAttachmentSummary(summary=None, skipped=True)
 
     cache_key = _build_attachment_summary_cache_key(
         current_input_text=current_input_text,
@@ -194,7 +263,7 @@ def _resolve_attachment_summary(
         cwd=cwd,
     )
     if cache is not None and cache.attachment_summary_key == cache_key:
-        return cache.attachment_summary, True, False
+        return ResolvedAttachmentSummary(summary=cache.attachment_summary, cache_hit=True)
 
     attachment_summary = summarize_draft_attachments(
         current_input_text,
@@ -205,7 +274,7 @@ def _resolve_attachment_summary(
     if cache is not None:
         cache.attachment_summary_key = cache_key
         cache.attachment_summary = attachment_summary
-    return attachment_summary, False, False
+    return ResolvedAttachmentSummary(summary=attachment_summary)
 
 
 def _build_attachment_summary_cache_key(
@@ -242,19 +311,26 @@ def _attachment_resource_cache_snapshot(
     return tuple(snapshots)
 
 
-def _snapshot_local_attachment_path(path: Path) -> tuple[object, ...]:
+def _snapshot_local_attachment_path(path: Path) -> AttachmentResourceSnapshot:
     try:
         stat_result = path.stat()
     except OSError:
-        return ("file", str(path), False, False, None, None)
+        return AttachmentResourceSnapshot(
+            kind="file",
+            path=str(path),
+            exists=False,
+            is_file=False,
+            mtime_ns=None,
+            size=None,
+        )
 
-    return (
-        "file",
-        str(path),
-        True,
-        path.is_file(),
-        stat_result.st_mtime_ns,
-        stat_result.st_size,
+    return AttachmentResourceSnapshot(
+        kind="file",
+        path=str(path),
+        exists=True,
+        is_file=path.is_file(),
+        mtime_ns=stat_result.st_mtime_ns,
+        size=stat_result.st_size,
     )
 
 
@@ -262,10 +338,10 @@ def _should_resolve_attachment_summary(current_input_text: str) -> bool:
     return "^file:" in current_input_text or "^url:" in current_input_text
 
 
-def _resolve_toolbar_mode(multiline_mode: bool) -> tuple[str, str]:
+def _resolve_toolbar_mode(multiline_mode: bool) -> ToolbarMode:
     if multiline_mode:
-        return "ansired", "MLTI"
-    return "ansigreen", "NRML"
+        return ToolbarMode(style="ansired", text="MLTI")
+    return ToolbarMode(style="ansigreen", text="NRML")
 
 
 def _resolve_toolbar_agent_state(
@@ -282,18 +358,18 @@ def _resolve_toolbar_agent_state_cached(
     agent_provider: "AgentApp | None",
     *,
     cache: ToolbarRenderCache | None,
-) -> tuple[ToolbarAgentState, "FastAgentLLMProtocol | None", bool]:
+) -> ResolvedToolbarAgentState:
     agent = _resolve_current_agent(agent_provider, agent_name)
     llm = _resolve_agent_llm(agent) if agent is not None else None
     cache_key = _build_toolbar_agent_state_cache_key(agent, llm=llm)
     if cache is not None and cache.agent_state_key == cache_key and cache.agent_state is not None:
-        return cache.agent_state, llm, True
+        return ResolvedToolbarAgentState(state=cache.agent_state, llm=llm, cache_hit=True)
 
     state = _build_toolbar_agent_state(agent, llm=llm)
     if cache is not None:
         cache.agent_state_key = cache_key
         cache.agent_state = state
-    return state, llm, False
+    return ResolvedToolbarAgentState(state=state, llm=llm)
 
 
 def _build_toolbar_agent_state(
@@ -303,11 +379,16 @@ def _build_toolbar_agent_state(
         return ToolbarAgentState()
 
     turn_count = _turn_count_for_agent(agent)
-    context_pct, usage_accumulator = _usage_context_for_agent(agent)
+    usage_context = _usage_context_for_agent(agent)
     model_name = _resolve_model_name(agent, llm)
     model_display = _resolve_model_display(agent, model_name, llm=llm)
     model_visuals = _resolve_model_visuals(model_name, llm)
-    context_pct = _resolve_context_pct(context_pct, usage_accumulator, model_name, llm)
+    context_pct = _resolve_context_pct(
+        usage_context.context_pct,
+        usage_context.usage_accumulator,
+        model_name,
+        llm,
+    )
     tdv_segment = _resolve_tdv_segment(agent, model_name, llm)
     return ToolbarAgentState(
         agent=agent,
@@ -352,11 +433,11 @@ def _build_toolbar_agent_state_cache_key(
         _safe_cache_value(
             usage_accumulator.context_window_size if usage_accumulator is not None else None
         ),
-        _safe_cache_value(llm.reasoning_effort if llm is not None else None),
-        _safe_cache_value(llm.text_verbosity if llm is not None else None),
-        _safe_cache_value(llm.service_tier if llm is not None else None),
-        _safe_cache_value(llm.web_search_enabled if llm is not None else None),
-        _safe_cache_value(llm.web_fetch_enabled if llm is not None else None),
+        _safe_cache_value(resolve_reasoning_effort(llm)),
+        _safe_cache_value(resolve_text_verbosity(llm)),
+        _safe_cache_value(resolve_service_tier(llm)),
+        _safe_cache_value(resolve_web_search_enabled(llm)),
+        _safe_cache_value(resolve_web_fetch_enabled(llm)),
         _parallel_fan_out_model_cache_key(agent),
     )
 
@@ -401,11 +482,14 @@ def _turn_count_for_agent(agent: AgentProtocol) -> int:
     return sum(1 for message in agent.message_history if message.role == "user")
 
 
-def _usage_context_for_agent(agent: AgentProtocol) -> tuple[float | None, "UsageAccumulator | None"]:
+def _usage_context_for_agent(agent: AgentProtocol) -> AgentUsageContext:
     usage_accumulator = agent.usage_accumulator
     if usage_accumulator is None:
-        return None, None
-    return usage_accumulator.context_usage_percentage, usage_accumulator
+        return AgentUsageContext(context_pct=None, usage_accumulator=None)
+    return AgentUsageContext(
+        context_pct=usage_accumulator.context_usage_percentage,
+        usage_accumulator=usage_accumulator,
+    )
 
 
 def _resolve_agent_llm(agent: AgentProtocol) -> "FastAgentLLMProtocol | None":
@@ -462,7 +546,7 @@ def _resolve_parallel_model_display(agent: ParallelAgent) -> str:
 
     if not parallel_models:
         return "parallel"
-    deduped_models = list(dict.fromkeys(parallel_models))
+    deduped_models = unique_preserve_order(parallel_models)
     return _truncate_model_display(",".join(deduped_models))
 
 
@@ -480,32 +564,32 @@ def _resolve_model_visuals(
         return visuals
 
     visuals.is_codex_responses_model = llm.provider == Provider.CODEX_RESPONSES
-    resolved_model = llm.resolved_model
+    resolved_model = resolve_resolved_model(llm)
     visuals.is_overlay_model = resolved_model.overlay is not None if resolved_model is not None else False
     visuals.model_gauges = _render_model_gauges(
-        llm.reasoning_effort,
-        llm.reasoning_effort_spec,
-        llm.text_verbosity,
-        llm.text_verbosity_spec,
+        resolve_reasoning_effort(llm),
+        resolve_reasoning_effort_spec(llm),
+        resolve_text_verbosity(llm),
+        resolve_text_verbosity_spec(llm),
     )
     visuals.service_tier_indicator = render_service_tier_indicator(
-        supported=llm.service_tier_supported,
-        service_tier=llm.service_tier,
+        supported=resolve_service_tier_supported(llm),
+        service_tier=resolve_service_tier(llm),
     )
     visuals.web_search_indicator = render_web_search_indicator(
-        supported=llm.web_search_supported,
-        enabled=llm.web_search_enabled,
+        supported=resolve_web_search_supported(llm),
+        enabled=resolve_web_search_enabled(llm),
     )
     visuals.web_fetch_indicator = render_web_fetch_indicator(
-        supported=llm.web_fetch_supported,
-        enabled=llm.web_fetch_enabled,
+        supported=resolve_web_fetch_supported(llm),
+        enabled=resolve_web_fetch_enabled(llm),
     )
     return visuals
 
 
 def _resolve_context_pct(
     context_pct: float | None,
-    usage_accumulator: object | None,
+    usage_accumulator: ContextUsageAccumulator | None,
     model_name: str | None,
     llm: "FastAgentLLMProtocol | None",
 ) -> float | None:
@@ -540,10 +624,12 @@ def _resolve_model_info(
     llm: "FastAgentLLMProtocol | None",
 ) -> ModelInfo | None:
     if llm is not None:
-        info = ModelInfo.from_llm(llm)
+        info = resolve_model_info(llm)
         if info:
             return info
-        return ModelInfo.from_resolved_model(llm.resolved_model)
+        resolved_model = resolve_resolved_model(llm)
+        if resolved_model is not None:
+            return ModelInfo.from_resolved_model(resolved_model)
     if model_name:
         return ModelInfo.from_name(model_name)
     return None
@@ -551,10 +637,24 @@ def _resolve_model_info(
 
 def _style_tdv_flag(letter: str, supported: bool, alert_flags: set[str]) -> str:
     if letter in alert_flags:
-        return f"<style fg='ansired' bg='ansiblack'>{letter}</style>"
+        return _toolbar_style_segment(letter, foreground="ansired")
     if supported:
-        return f"<style fg='ansigreen' bg='ansiblack'>{letter}</style>"
-    return f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
+        return _toolbar_style_segment(letter, foreground="ansigreen")
+    return _toolbar_style_segment(letter, foreground="ansiblack", background="ansiwhite")
+
+
+def _toolbar_style_segment(
+    text: str,
+    *,
+    foreground: str,
+    background: str = "ansiblack",
+    padded: bool = False,
+) -> str:
+    content = f" {text} " if padded else text
+    escaped_foreground = escape_html(foreground, quote=True)
+    escaped_background = escape_html(background, quote=True)
+    escaped_content = escape_html(content, quote=False)
+    return f"<style fg='{escaped_foreground}' bg='{escaped_background}'>{escaped_content}</style>"
 
 
 def _build_middle_segment(
@@ -601,7 +701,7 @@ def _build_notification_segment() -> str:
     if active_status:
         event_type = active_status["type"].upper()
         server = active_status["server"]
-        return f" | <style fg='ansired' bg='ansiblack'>◀ {event_type} ({server})</style>"
+        return f" | {_toolbar_style_segment(f'◀ {event_type} ({server})', foreground='ansired')}"
 
     if notification_tracker.get_count() <= 0:
         return ""
@@ -614,20 +714,21 @@ def _build_notification_segment() -> str:
         return f" | ◀ {label_text}"
 
     summary = notification_tracker.get_summary(compact=True)
-    heading = "event" if total_events == 1 else "events"
-    return f" | ◀ {total_events} {heading} ({summary})"
+    return f" | ◀ {format_count(total_events, 'event')} ({summary})"
 
 
 def _build_copy_notice_segment(
     copy_notice: str | None,
     copy_notice_until: float,
     mode_style: str,
-) -> tuple[str, bool]:
+) -> CopyNoticeSegment:
     if not copy_notice:
-        return "", False
+        return CopyNoticeSegment(html="")
     if time.monotonic() >= copy_notice_until:
-        return "", True
-    return f" | <style fg='{mode_style}' bg='ansiblack'> {copy_notice} </style>", False
+        return CopyNoticeSegment(html="", should_clear=True)
+    return CopyNoticeSegment(
+        html=f" | {_toolbar_style_segment(copy_notice, foreground=mode_style, padded=True)}"
+    )
 
 
 def _resolve_toolbar_identity_segment(
@@ -641,12 +742,15 @@ def _resolve_toolbar_identity_segment(
     notification_segment: str,
     copy_notice_segment: str,
     shell_path_switch_delay_seconds: float,
-) -> tuple[str, bool]:
+) -> ToolbarIdentitySegment:
     if not shell_state.enabled:
-        return version_segment, shell_state.show_path_segment
+        return ToolbarIdentitySegment(
+            html=version_segment,
+            show_shell_path_segment=shell_state.show_path_segment,
+        )
 
     working_dir = shell_state.working_dir or Path.cwd()
-    left_prefix = _toolbar_left_prefix(
+    left_prefix = _format_toolbar_prefix(
         agent_identity_segment=agent_identity_segment,
         middle=middle,
         mode_style=mode_style,
@@ -659,20 +763,23 @@ def _resolve_toolbar_identity_segment(
         - _toolbar_markup_width(right_suffix)
     )
     if _can_fit_shell_path_and_version(working_dir, version_segment, available_width):
-        return (
-            _fit_shell_identity_for_toolbar(working_dir, version_segment, available_width),
-            True,
+        return ToolbarIdentitySegment(
+            html=_fit_shell_identity_for_toolbar(working_dir, version_segment, available_width),
+            show_shell_path_segment=True,
         )
 
     show_path_segment = shell_state.show_path_segment
     if not show_path_segment and (time.monotonic() - shell_state.started_at) >= shell_path_switch_delay_seconds:
         show_path_segment = True
     if show_path_segment:
-        return _fit_shell_path_for_toolbar(working_dir, available_width), True
-    return version_segment, False
+        return ToolbarIdentitySegment(
+            html=_fit_shell_path_for_toolbar(working_dir, available_width),
+            show_shell_path_segment=True,
+        )
+    return ToolbarIdentitySegment(html=version_segment, show_shell_path_segment=False)
 
 
-def _toolbar_left_prefix(
+def _format_toolbar_prefix(
     *,
     agent_identity_segment: str,
     middle: str,
@@ -682,11 +789,11 @@ def _toolbar_left_prefix(
     if middle:
         return (
             f" {agent_identity_segment} "
-            f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
+            f" {middle} | {_toolbar_style_segment(mode_text, foreground=mode_style, padded=True)} | "
         )
     return (
         f" {agent_identity_segment} "
-        f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
+        f"Mode: {_toolbar_style_segment(mode_text, foreground=mode_style, padded=True)} | "
     )
 
 
@@ -700,14 +807,14 @@ def _build_toolbar_html(
     notification_segment: str,
     copy_notice_segment: str,
 ) -> HTML:
-    if middle:
-        return HTML(
-            f" {agent_identity_segment} "
-            f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-            f"{toolbar_identity_segment}{notification_segment}{copy_notice_segment}"
-        )
     return HTML(
-        f" {agent_identity_segment} "
-        f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-        f"{toolbar_identity_segment}{notification_segment}{copy_notice_segment}"
+        (
+            _format_toolbar_prefix(
+                agent_identity_segment=agent_identity_segment,
+                middle=middle,
+                mode_style=mode_style,
+                mode_text=mode_text,
+            )
+            + f"{toolbar_identity_segment}{notification_segment}{copy_notice_segment}"
+        )
     )

@@ -2,7 +2,14 @@ import json
 
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
-from fast_agent.commands.history_summaries import build_history_turn_report
+from fast_agent.commands.history_summaries import (
+    build_history_turn_report,
+    collect_user_turns,
+    extract_message_duration_ms,
+    extract_message_output_tokens,
+    extract_message_tool_timings,
+    group_history_turns,
+)
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
     FAST_AGENT_TIMING,
@@ -159,3 +166,182 @@ def test_build_history_turn_report_counts_provider_mcp_tools() -> None:
     assert report.turn_count == 1
     assert report.total_tool_calls == 1
     assert report.total_tool_errors == 0
+
+
+def test_extract_message_duration_ms_reads_later_valid_channel_block() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        channels={
+            FAST_AGENT_TIMING: [
+                TextContent(type="text", text=""),
+                TextContent(type="text", text="not json"),
+                TextContent(type="text", text='{"duration_ms": 125}'),
+            ]
+        },
+    )
+
+    assert extract_message_duration_ms(message) == 125
+
+
+def test_extract_message_duration_ms_ignores_non_string_payload_keys(monkeypatch) -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        channels={
+            FAST_AGENT_TIMING: [
+                TextContent(type="text", text="{}"),
+            ]
+        },
+    )
+
+    monkeypatch.setattr(
+        "fast_agent.commands.history_summaries.json.loads",
+        lambda _text: {1: "ignored", "duration_ms": 125},
+    )
+
+    assert extract_message_duration_ms(message) == 125
+
+
+def test_extract_message_duration_ms_ignores_non_finite_values() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        channels={
+            FAST_AGENT_TIMING: [
+                TextContent(type="text", text='{"duration_ms": NaN}'),
+            ]
+        },
+    )
+
+    assert extract_message_duration_ms(message) is None
+
+
+def test_extract_message_duration_ms_ignores_negative_values() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        channels={
+            FAST_AGENT_TIMING: [
+                TextContent(type="text", text='{"duration_ms": -1}'),
+            ]
+        },
+    )
+
+    assert extract_message_duration_ms(message) is None
+
+
+def test_extract_message_tool_timings_ignores_negative_values() -> None:
+    message = PromptMessageExtended(
+        role="user",
+        channels={
+            FAST_AGENT_TOOL_TIMING: [
+                TextContent(type="text", text='{"call_1": {"timing_ms": -50}}'),
+            ]
+        },
+    )
+
+    assert extract_message_tool_timings(message)["call_1"].timing_ms is None
+
+
+def test_extract_message_output_tokens_rejects_fractional_counts() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        channels={
+            FAST_AGENT_USAGE: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {"turn": {"output_tokens": 12.9}, "raw_usage": {}, "summary": {}}
+                    ),
+                ),
+            ]
+        },
+    )
+
+    assert extract_message_output_tokens(message) is None
+
+
+def test_extract_message_output_tokens_rejects_negative_counts() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        channels={
+            FAST_AGENT_USAGE: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {"turn": {"output_tokens": -1}, "raw_usage": {}, "summary": {}}
+                    ),
+                ),
+            ]
+        },
+    )
+
+    assert extract_message_output_tokens(message) is None
+
+
+def test_collect_user_turns_returns_named_turns() -> None:
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="first")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="answer")],
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="tool result")],
+                    isError=False,
+                )
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="second")],
+        ),
+    ]
+
+    turns = group_history_turns(messages)
+    user_turns = collect_user_turns(messages)
+
+    assert [turn.start_index for turn in turns] == [0, 3]
+    assert [turn.start_index for turn in user_turns] == [0, 3]
+    assert user_turns[0].first_user_message is messages[0]
+    assert user_turns[0].messages == messages[:3]
+
+
+def test_group_history_turns_keeps_preamble_and_consecutive_users_out_of_new_turns() -> None:
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="preamble")],
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="first part")],
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="second part")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="answer")],
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="next turn")],
+        ),
+    ]
+
+    turns = group_history_turns(messages)
+
+    assert [turn.start_index for turn in turns] == [1, 4]
+    assert turns[0].messages == messages[1:4]
+    assert turns[1].messages == [messages[4]]

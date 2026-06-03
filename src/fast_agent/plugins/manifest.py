@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from fast_agent.command_actions.config import parse_plugin_command_action_specs
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.plugins.models import PLUGIN_MANIFEST_FILENAME, PluginManifest
+from fast_agent.utils.text import strip_to_none
 
 
 class _PluginManifestModel(BaseModel):
@@ -29,6 +30,11 @@ class _PluginManifestModel(BaseModel):
         if not cleaned:
             raise ValueError("plugin name must not be empty")
         return cleaned
+
+    @field_validator("version", "description")
+    @classmethod
+    def _normalize_optional_text(cls, value: str | None) -> str | None:
+        return strip_to_none(value)
 
 
 def load_plugin_manifest(plugin_dir: Path) -> PluginManifest:
@@ -74,5 +80,11 @@ def _resolve_handler(handler: str, plugin_dir: Path) -> str:
         return handler
     module_path = Path(module)
     if module_path.is_absolute():
-        return handler
-    return f"{(plugin_dir / module_path).resolve().as_posix()}:{func}"
+        raise AgentConfigError(f"Plugin handler must be relative to plugin root: {handler}")
+    plugin_root = plugin_dir.resolve()
+    resolved = (plugin_root / module_path).resolve()
+    try:
+        resolved.relative_to(plugin_root)
+    except ValueError as exc:
+        raise AgentConfigError(f"Plugin handler escapes plugin root: {handler}") from exc
+    return f"{resolved.as_posix()}:{func}"

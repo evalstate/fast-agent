@@ -2,17 +2,29 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fast_agent.llm.capabilities import read_capability
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
     from fast_agent.llm.resolved_model import ResolvedModelSpec
+
+_ANTHROPIC_VERTEX_PREFIXES = (
+    f"{Provider.ANTHROPIC_VERTEX.config_name}.",
+    f"{Provider.ANTHROPIC_VERTEX.config_name}/",
+)
+
+
+def _model_without_query(model: str) -> str:
+    return model.partition("?")[0].strip().rstrip("/")
 
 
 def format_model_display_name(model: str | None, *, max_len: int | None = None) -> str | None:
     if not model:
         return model
 
-    trimmed = model.rstrip("/").partition("?")[0]
+    trimmed = _model_without_query(model)
+    if not trimmed:
+        return None
     for provider in Provider:
         dotted_prefix = f"{provider.config_name}."
         slash_prefix = f"{provider.config_name}/"
@@ -22,21 +34,16 @@ def format_model_display_name(model: str | None, *, max_len: int | None = None) 
         if trimmed.startswith(slash_prefix):
             trimmed = trimmed[len(slash_prefix) :]
             break
-    if "/" in trimmed:
-        display = trimmed.split("/")[-1] or trimmed
-    else:
-        display = trimmed
+    display = (trimmed.split("/")[-1] or trimmed) if "/" in trimmed else trimmed
 
     if ":" in display:
         display = display.rsplit(":", 1)[0] or display
 
-    if max_len is not None and len(display) > max_len:
-        return display[: max_len - 1] + "…"
-    return display
+    return _truncate_display_name(display, max_len=max_len)
 
 
 def resolve_resolved_model_display_name(
-    resolved_model: "ResolvedModelSpec | None",
+    resolved_model: ResolvedModelSpec | None,
     *,
     max_len: int | None = None,
 ) -> str | None:
@@ -54,9 +61,7 @@ def resolve_resolved_model_display_name(
     if resolved_model.provider == Provider.ANTHROPIC_VERTEX:
         display = f"{display} · Vertex"
 
-    if max_len is not None and len(display) > max_len:
-        return display[: max_len - 1] + "…"
-    return display
+    return _truncate_display_name(display, max_len=max_len)
 
 
 def resolve_llm_display_name(
@@ -64,10 +69,14 @@ def resolve_llm_display_name(
     *,
     max_len: int | None = None,
 ) -> str | None:
-    if llm is None:
-        return None
+    resolved_model = read_capability(
+        llm,
+        "resolved_model",
+        lambda candidate: candidate.resolved_model,
+        default=None,
+    )
     return resolve_resolved_model_display_name(
-        getattr(llm, "resolved_model", None),
+        resolved_model,
         max_len=max_len,
     )
 
@@ -85,11 +94,17 @@ def resolve_model_display_name(
     if display is None:
         return None
     if model:
-        trimmed = model.partition("?")[0].strip()
-        if trimmed.startswith(f"{Provider.ANTHROPIC_VERTEX.config_name}.") or trimmed.startswith(
-            f"{Provider.ANTHROPIC_VERTEX.config_name}/"
-        ):
+        trimmed = _model_without_query(model)
+        if trimmed.startswith(_ANTHROPIC_VERTEX_PREFIXES):
             display = f"{display} · Vertex"
-    if max_len is not None and len(display) > max_len:
-        return display[: max_len - 1] + "…"
-    return display
+    return _truncate_display_name(display, max_len=max_len)
+
+
+def _truncate_display_name(display: str, *, max_len: int | None) -> str:
+    if max_len is None or len(display) <= max_len:
+        return display
+    if max_len <= 0:
+        return ""
+    if max_len == 1:
+        return "…"
+    return display[: max_len - 1] + "…"

@@ -65,6 +65,19 @@ def test_format_prompt_prefix_omits_default_agent_name() -> None:
     assert input_runtime._format_prompt_prefix("dev") == "dev ❯"
 
 
+def test_echo_visible_command_escapes_markup(monkeypatch: pytest.MonkeyPatch) -> None:
+    printed: list[str] = []
+    monkeypatch.setattr(input_runtime, "rich_print", printed.append)
+
+    input_runtime._echo_visible_command(
+        stripped="/skill install [draft]",
+        agent_name="agent [dev]",
+        default_agent_name=None,
+    )
+
+    assert printed == [r"[dim]agent \[dev] ❯ /skill install \[draft][/dim]"]
+
+
 @pytest.mark.asyncio
 async def test_run_prompt_once_converts_prompt_input_interrupt_to_interrupt_command() -> None:
     class _Buffer:

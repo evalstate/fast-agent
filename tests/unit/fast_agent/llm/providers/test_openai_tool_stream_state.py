@@ -1,3 +1,5 @@
+from typing import Any
+
 from fast_agent.llm.provider.openai.tool_stream_state import OpenAIToolStreamState
 
 
@@ -8,11 +10,13 @@ def test_openai_tool_stream_state_resolves_by_item_id_alias() -> None:
         tool_use_id="call_123",
         name="weather",
         index=1,
-        item_id="fc_123",
-        item_type="function_call",
+        item_id="  fc_123  ",
+        item_type="  function_call  ",
     )
 
     assert tool_state.resolve_open(item_id="fc_123") is entry
+    assert entry.item_id == "fc_123"
+    assert entry.item_type == "function_call"
     assert tool_state.resolve_open(tool_use_id="call_123") is entry
 
 
@@ -55,3 +59,21 @@ def test_openai_tool_stream_state_completed_uses_item_id_aliases() -> None:
 
     assert tool_state.resolve_open(item_id="fc_123") is None
     assert tool_state.is_completed(item_id="fc_123")
+
+
+def test_openai_tool_stream_state_ignores_non_string_item_aliases() -> None:
+    tool_state = OpenAIToolStreamState()
+    bad_item_id: Any = [1]
+
+    entry = tool_state.register(
+        tool_use_id="call_123",
+        name="weather",
+        index=1,
+        item_id=bad_item_id,
+        item_type=bad_item_id,
+    )
+
+    assert entry.item_id is None
+    assert entry.item_type is None
+    assert tool_state.resolve_open(item_id=bad_item_id) is None
+    assert tool_state.resolve_open(tool_use_id="call_123") is entry

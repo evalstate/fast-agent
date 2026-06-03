@@ -11,6 +11,8 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from mcp.types import ResourceLink
+from pydantic import AnyUrl
 
 from fast_agent.acp.tool_call_context import acp_tool_call_context
 from fast_agent.acp.tool_progress import ACPToolProgressManager
@@ -73,6 +75,21 @@ class FakeAgentSideConnection:
         self.notifications.append(update)
 
 
+class DelayedAgentSideConnection(FakeAgentSideConnection):
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = asyncio.Event()
+
+    async def session_update(
+        self,
+        session_id: str = "",
+        update: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        await self.release.wait()
+        await super().session_update(session_id=session_id, update=update, **kwargs)
+
+
 # =============================================================================
 # Tests for ACPToolProgressManager
 # =============================================================================
@@ -109,8 +126,8 @@ class TestACPToolProgressManager:
         assert notification.content == []
 
     @pytest.mark.asyncio
-    async def test_on_tool_start_includes_all_args_in_title(self) -> None:
-        """Tool start title should include trimmed argument list."""
+    async def test_on_tool_start_keeps_args_in_raw_input_not_title(self) -> None:
+        """Tool start should keep payload details in rawInput, not duplicate them in title."""
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
@@ -129,9 +146,10 @@ class TestACPToolProgressManager:
         assert len(connection.notifications) == 1
         notification = connection.notifications[0]
         assert notification.sessionUpdate == "tool_call"
-        assert "media-gen/openai-images-generate" in notification.title
-        assert "prompt=lion" in notification.title
-        assert "tool_result=image" in notification.title
+        assert notification.title == "media-gen/openai-images-generate"
+        assert "prompt=lion" not in notification.title
+        assert "tool_result=image" not in notification.title
+        assert notification.rawInput == arguments
         assert notification.content == []
 
     @pytest.mark.asyncio
@@ -248,7 +266,72 @@ class TestACPToolProgressManager:
         complete = connection.notifications[1]
         assert complete.sessionUpdate == "tool_call_update"
         assert complete.status == "completed"
+        assert complete.title == "tgbot/send_bot_message"
         assert complete.rawInput == arguments
+
+    @pytest.mark.asyncio
+    async def test_permission_denied_clears_ensured_tool_call_state(self) -> None:
+        """Denied non-streaming calls should not leave cached raw input behind."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        arguments = {"path": "/tmp/secret.txt", "content": "replace me"}
+        tool_call_id = await manager.ensure_tool_call_exists(
+            tool_use_id="use-a",
+            tool_name="write_text_file",
+            server_name="filesystem",
+            arguments=arguments,
+        )
+
+        assert manager._raw_inputs[tool_call_id] == arguments
+
+        await manager.on_tool_permission_denied(
+            tool_name="write_text_file",
+            server_name="filesystem",
+            tool_use_id="use-a",
+            error="denied",
+        )
+
+        assert manager._tool_call_id_to_external_id == {}
+        assert manager._simple_titles == {}
+        assert manager._full_titles == {}
+        assert manager._raw_inputs == {}
+
+    @pytest.mark.asyncio
+    async def test_on_tool_complete_preserves_resource_link_metadata(self) -> None:
+        """Completion conversion should use the shared MCP-to-ACP content mapping."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+        tool_call_id = await manager.on_tool_start(
+            tool_name="fetch_resource",
+            server_name="filesystem",
+        )
+
+        await manager.on_tool_complete(
+            tool_call_id=tool_call_id,
+            success=True,
+            content=[
+                ResourceLink(
+                    type="resource_link",
+                    name="Spec",
+                    uri=AnyUrl("file:///tmp/spec.md"),
+                    mimeType="text/markdown",
+                    size=123,
+                    description="Design spec",
+                    title="Spec title",
+                )
+            ],
+            error=None,
+        )
+
+        complete = connection.notifications[1]
+        resource = complete.content[0].content
+        assert resource.name == "Spec"
+        assert resource.uri == "file:///tmp/spec.md"
+        assert resource.mime_type == "text/markdown"
+        assert resource.size == 123
+        assert resource.description == "Design spec"
+        assert resource.title == "Spec title"
 
     @pytest.mark.asyncio
     async def test_delta_events_only_notify_after_threshold(self) -> None:
@@ -400,6 +483,90 @@ class TestACPToolProgressManager:
 
         # But chunks should still be tracked internally
         assert manager._stream_chunk_counts.get("use-123") == 5
+
+    @pytest.mark.asyncio
+    async def test_immediate_deltas_wait_for_delayed_stream_start(self) -> None:
+        connection = DelayedAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__read_file",
+                "tool_use_id": "use-123",
+            },
+        )
+
+        for i in range(25):
+            manager.handle_tool_stream_event(
+                "delta",
+                {
+                    "tool_use_id": "use-123",
+                    "chunk": f"chunk{i}_",
+                },
+            )
+
+        await asyncio.sleep(0)
+        assert connection.notifications == []
+
+        connection.release.set()
+        await asyncio.sleep(0.1)
+
+        assert len(connection.notifications) == 2
+        delta_notification = connection.notifications[1]
+        assert delta_notification.sessionUpdate == "tool_call_update"
+        assert delta_notification.content[0].content.text == "".join(
+            f"chunk{i}_" for i in range(25)
+        )
+
+    @pytest.mark.asyncio
+    async def test_delta_task_does_not_replace_stream_start_task(self) -> None:
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__read_file",
+                "tool_use_id": "use-123",
+            },
+        )
+        start_task = manager._stream_tasks["use-123"]
+
+        manager.handle_tool_stream_event(
+            "delta",
+            {
+                "tool_use_id": "use-123",
+                "chunk": "chunk",
+            },
+        )
+
+        assert manager._stream_tasks["use-123"] is start_task
+        await asyncio.sleep(0.1)
+
+    @pytest.mark.asyncio
+    async def test_cleanup_session_tools_cancels_pending_stream_start_task(self) -> None:
+        connection = DelayedAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__read_file",
+                "tool_use_id": "use-123",
+            },
+        )
+        await asyncio.sleep(0)
+        task = manager._stream_tasks["use-123"]
+
+        await manager.cleanup_session_tools("test-session")
+        connection.release.set()
+        await asyncio.sleep(0)
+
+        assert task.cancelled()
+        assert manager._stream_tasks == {}
+        assert manager._stream_tool_use_ids == {}
+        assert connection.notifications == []
 
     @pytest.mark.asyncio
     async def test_multiple_tools_tracked_independently(self) -> None:
@@ -696,9 +863,9 @@ class TestACPToolProgressManager:
             arguments={"path": "/tmp/large_file.txt"},
         )
 
-        # Verify start notification has full title with args
+        # Verify start notification uses the same simple title as progress.
         start_notification = connection.notifications[0]
-        assert "path=" in start_notification.title
+        assert start_notification.title == "filesystem/read_file"
 
         # Send multiple progress updates
         await manager.on_tool_progress(

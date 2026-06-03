@@ -58,6 +58,25 @@ def test_paste_clipboard_image_to_temp_png_raises_without_image(
         paste_clipboard_image_to_temp_png()
 
 
+def test_wsl_detection_normalizes_kernel_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class KernelReleasePath:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+        def read_text(self, *, encoding: str) -> str:
+            assert self.path == "/proc/sys/kernel/osrelease"
+            assert encoding == "utf-8"
+            return "5.15.167.4-MICROSOFT-standard-WSL2"
+
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    monkeypatch.setattr(clipboard_image.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(clipboard_image, "Path", KernelReleasePath)
+
+    assert clipboard_image._is_probably_wsl() is True
+
+
 def test_wsl_powershell_fallback_maps_windows_temp_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

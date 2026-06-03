@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from fast_agent.commands.model_capabilities import (
+    available_service_tier_values,
+    resolve_reasoning_effort_spec,
+    resolve_service_tier_supported,
+    resolve_text_verbosity_spec,
+)
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSetting,
     ReasoningEffortSpec,
@@ -17,6 +23,8 @@ from fast_agent.llm.text_verbosity import (
     available_text_verbosity_values,
     parse_text_verbosity,
 )
+from fast_agent.ui.model_binary_toggles import MODEL_BINARY_TOGGLES
+from fast_agent.utils.collections import cycle_next, unique_preserve_order
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,13 +34,9 @@ class ModelShortcutHint:
     values_text: str
 
 
-def _dedupe_preserve_order[T](values: list[T]) -> list[T]:
-    deduped: list[T] = []
-    for value in values:
-        if value in deduped:
-            continue
-        deduped.append(value)
-    return deduped
+_SHORTCUT_REASONING_VALUE_LABELS = {
+    "auto": "adaptive",
+}
 
 
 def _shortcut_reasoning_values(spec: ReasoningEffortSpec) -> list[str]:
@@ -52,13 +56,11 @@ def _shortcut_reasoning_values(spec: ReasoningEffortSpec) -> list[str]:
 
 
 def _display_shortcut_reasoning_value(token: str) -> str:
-    if token == "auto":
-        return "adaptive"
-    return token
+    return _SHORTCUT_REASONING_VALUE_LABELS.get(token, token)
 
 
-
-
+def _shortcut_values_text(values: list[str]) -> str:
+    return ", ".join(unique_preserve_order(values))
 
 
 def cycle_reasoning_setting(
@@ -78,20 +80,8 @@ def cycle_reasoning_setting(
         except ValueError:
             continue
 
-    candidates = _dedupe_preserve_order(candidates)
-    if not candidates:
-        return None
-
-    effective_current = current or spec.default
-    if effective_current is None:
-        return candidates[0]
-
-    try:
-        current_index = candidates.index(effective_current)
-    except ValueError:
-        return candidates[0]
-    return candidates[(current_index + 1) % len(candidates)]
-
+    candidates = unique_preserve_order(candidates)
+    return cycle_next(current, candidates, default=spec.default)
 
 
 def cycle_text_verbosity(
@@ -106,28 +96,14 @@ def cycle_text_verbosity(
         for token in available_text_verbosity_values(spec)
         if (value := parse_text_verbosity(token)) is not None
     ]
-    candidates = _dedupe_preserve_order(candidates)
-    if not candidates:
-        return None
-
-    effective_current = current or spec.default
-    try:
-        current_index = candidates.index(effective_current)
-    except ValueError:
-        return candidates[0]
-    return candidates[(current_index + 1) % len(candidates)]
-
-
-
+    candidates = unique_preserve_order(candidates)
+    return cycle_next(current, candidates, default=spec.default)
 
 
 def _service_tier_hint_values(llm: object) -> str:
-    raw_values = getattr(llm, "available_service_tiers", ())
-    available_values = [value for value in raw_values if value in {"fast", "flex"}]
-    if not available_values and bool(getattr(llm, "service_tier_supported", False)):
-        available_values = ["fast", "flex"]
+    available_values = available_service_tier_values(llm)
     values = ["standard", *available_values]
-    return ", ".join(_dedupe_preserve_order(values))
+    return ", ".join(unique_preserve_order(values))
 
 
 def build_model_shortcut_hints(llm: object | None) -> list[ModelShortcutHint]:
@@ -136,7 +112,7 @@ def build_model_shortcut_hints(llm: object | None) -> list[ModelShortcutHint]:
 
     hints: list[ModelShortcutHint] = []
 
-    if bool(getattr(llm, "service_tier_supported", False)):
+    if resolve_service_tier_supported(llm):
         hints.append(
             ModelShortcutHint(
                 key="Shift+Tab",
@@ -145,36 +121,29 @@ def build_model_shortcut_hints(llm: object | None) -> list[ModelShortcutHint]:
             )
         )
 
-    reasoning_spec = getattr(llm, "reasoning_effort_spec", None)
+    reasoning_spec = resolve_reasoning_effort_spec(llm)
     if isinstance(reasoning_spec, ReasoningEffortSpec):
-        values = ", ".join(
-            _dedupe_preserve_order(
-                [_display_shortcut_reasoning_value(token) for token in _shortcut_reasoning_values(reasoning_spec)]
-            )
+        values = _shortcut_values_text(
+            [
+                _display_shortcut_reasoning_value(token)
+                for token in _shortcut_reasoning_values(reasoning_spec)
+            ]
         )
         hints.append(ModelShortcutHint(key="F6", label="Reasoning", values_text=values))
 
-    verbosity_spec = getattr(llm, "text_verbosity_spec", None)
+    verbosity_spec = resolve_text_verbosity_spec(llm)
     if isinstance(verbosity_spec, TextVerbositySpec):
-        values = ", ".join(_dedupe_preserve_order(available_text_verbosity_values(verbosity_spec)))
+        values = _shortcut_values_text(available_text_verbosity_values(verbosity_spec))
         hints.append(ModelShortcutHint(key="F7", label="Verbosity", values_text=values))
 
-    if bool(getattr(llm, "web_search_supported", False)):
-        hints.append(
-            ModelShortcutHint(
-                key="F8",
-                label="Web search",
-                values_text="on, off",
+    for toggle in MODEL_BINARY_TOGGLES:
+        if toggle.resolve_supported(llm):
+            hints.append(
+                ModelShortcutHint(
+                    key=toggle.shortcut_key,
+                    label=toggle.label,
+                    values_text="on, off",
+                )
             )
-        )
-
-    if bool(getattr(llm, "web_fetch_supported", False)):
-        hints.append(
-            ModelShortcutHint(
-                key="F9",
-                label="Web fetch",
-                values_text="on, off",
-            )
-        )
 
     return hints

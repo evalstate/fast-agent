@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-import shlex
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
+from fast_agent.commands.shared_command_intents import (
+    parse_agent_tool_intent,
+    parse_card_load_intent,
+)
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
@@ -13,81 +16,29 @@ if TYPE_CHECKING:
 
 
 async def handle_card(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    args = (arguments or "").strip()
-    tokens: list[str] = []
-    if args:
-        try:
-            tokens = shlex.split(args)
-        except ValueError as exc:
-            return f"Invalid arguments: {exc}"
-
-    add_tool = False
-    remove_tool = False
-    filename = None
-    for token in tokens:
-        if token in {"tool", "--tool", "--as-tool", "-t"}:
-            add_tool = True
-            continue
-        if token in {"remove", "--remove"}:
-            add_tool = True
-            remove_tool = True
-            continue
-        if filename is None:
-            filename = token
-
+    intent = parse_card_load_intent(arguments)
+    if intent.error:
+        return intent.error
     manager = handler._build_card_manager()
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
     outcome = await agent_card_handlers.handle_card_load(
         ctx,
         manager=manager,
-        filename=filename,
-        add_tool=add_tool,
-        remove_tool=remove_tool,
+        filename=intent.filename,
+        add_tool=intent.add_tool,
+        remove_tool=intent.remove_tool,
         current_agent=handler.current_agent_name or handler.primary_agent_name,
     )
     return handler._format_outcome_as_markdown(outcome, "card", io=io)
 
 
 async def handle_agent(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    args = (arguments or "").strip()
-    if not args:
-        return "Usage: /agent <name> --tool | /agent [name] --dump"
+    intent = parse_agent_tool_intent(arguments)
+    if intent.error:
+        return intent.error
 
-    try:
-        tokens = shlex.split(args)
-    except ValueError as exc:
-        return f"Invalid arguments: {exc}"
-
-    add_tool = False
-    remove_tool = False
-    dump = False
-    agent_name = None
-    unknown: list[str] = []
-    for token in tokens:
-        if token in {"tool", "--tool", "--as-tool", "-t"}:
-            add_tool = True
-            continue
-        if token in {"remove", "--remove"}:
-            add_tool = True
-            remove_tool = True
-            continue
-        if token in {"dump", "--dump", "-d"}:
-            dump = True
-            continue
-        if agent_name is None:
-            agent_name = token[1:] if token.startswith("@") else token
-            continue
-        unknown.append(token)
-
-    if unknown:
-        return f"Unexpected arguments: {', '.join(unknown)}"
-    if add_tool and dump:
-        return "Use either --tool or --dump, not both."
-    if not add_tool and not dump:
-        return "Usage: /agent <name> --tool [remove] | /agent [name] --dump"
-
-    target_agent = agent_name or handler.current_agent_name or handler.primary_agent_name
+    target_agent = intent.agent_name or handler.current_agent_name or handler.primary_agent_name
     if not target_agent:
         return "No agent available for this session."
 
@@ -97,10 +48,10 @@ async def handle_agent(handler: "SlashCommandHandler", arguments: str | None = N
         ctx,
         manager=handler._build_card_manager(),
         current_agent=handler.current_agent_name or handler.primary_agent_name or target_agent,
-        target_agent=agent_name,
-        add_tool=add_tool,
-        remove_tool=remove_tool,
-        dump=dump,
+        target_agent=intent.agent_name,
+        add_tool=intent.add_tool,
+        remove_tool=intent.remove_tool,
+        dump=intent.dump,
     )
     return handler._format_outcome_as_markdown(outcome, "agent", io=io)
 

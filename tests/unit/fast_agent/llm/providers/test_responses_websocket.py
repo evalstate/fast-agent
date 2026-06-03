@@ -28,12 +28,18 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     send_response_create,
     send_response_request,
 )
-from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
+from fast_agent.llm.provider.openai.streaming_utils import (
+    validate_incomplete_tool_entries,
+    with_stream_idle_timeout,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 
 if TYPE_CHECKING:
     from mcp import Tool
+
+    from fast_agent.core.logging.logger import Logger
 
 
 class _FakeSession:
@@ -73,6 +79,7 @@ class _FakeWebSocket:
         self._fail_send_times = fail_send_times
         self.sent_payloads: list[str] = []
         self._exception: BaseException | None = None
+        self.close_code: int | None = None
 
     async def receive(self, timeout: float | None = None) -> SimpleNamespace:
         del timeout
@@ -309,6 +316,32 @@ async def test_with_stream_idle_timeout_preserves_get_final_response() -> None:
 
     assert observed == ["a"]
     assert await cast("Any", timed_stream).get_final_response() is final_response
+
+
+def test_format_incomplete_tool_call_error_uses_singular_label() -> None:
+    assert format_incomplete_tool_call_error(["lookup:call-1"]) == (
+        "Streaming completed but tool call never finished: lookup:call-1"
+    )
+
+
+def test_format_incomplete_tool_call_error_uses_plural_label() -> None:
+    assert format_incomplete_tool_call_error(["lookup:call-1", "search:call-2"]) == (
+        "Streaming completed but tool calls never finished: lookup:call-1, search:call-2"
+    )
+
+
+def test_validate_incomplete_tool_entries_raises_formatted_error() -> None:
+    entries = [
+        SimpleNamespace(tool_name="lookup", tool_use_id="call-1"),
+        SimpleNamespace(tool_name="search", tool_use_id="call-2"),
+    ]
+
+    with pytest.raises(RuntimeError, match="tool calls never finished"):
+        validate_incomplete_tool_entries(
+            incomplete_entries=entries,
+            final_response=SimpleNamespace(status="completed"),
+            logger=cast("Logger", _CapturingLogger()),
+        )
 
 
 @pytest.mark.asyncio
@@ -665,9 +698,7 @@ async def test_websocket_stream_terminal_events_and_final_response() -> None:
     websocket = _FakeWebSocket(messages)
     stream = WebSocketResponsesStream(websocket)
 
-    collected: list[Any] = []
-    async for event in stream:
-        collected.append(event)
+    collected = [event async for event in stream]
 
     assert len(collected) == 2
     assert getattr(collected[0], "type", None) == "response.output_text.delta"
@@ -734,9 +765,7 @@ async def test_websocket_stream_reconstructs_empty_terminal_response_output() ->
     ]
     stream = WebSocketResponsesStream(_FakeWebSocket(messages))
 
-    collected: list[Any] = []
-    async for event in stream:
-        collected.append(event)
+    collected = [event async for event in stream]
 
     completed_response = getattr(collected[-1], "response", None)
     assert completed_response is not None
@@ -755,6 +784,61 @@ async def test_websocket_stream_reconstructs_empty_terminal_response_output() ->
 
 
 @pytest.mark.asyncio
+async def test_websocket_stream_ignores_boolean_output_item_indexes() -> None:
+    messages = [
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "sequence_number": 1,
+                    "output_index": False,
+                    "item": {
+                        "type": "message",
+                        "id": "msg_unindexed",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "fallback"}],
+                    },
+                }
+            ),
+        ),
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "sequence_number": 2,
+                    "output_index": 1,
+                    "item": {
+                        "type": "message",
+                        "id": "msg_indexed",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "indexed"}],
+                    },
+                }
+            ),
+        ),
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.completed",
+                    "sequence_number": 3,
+                    "response": {"status": "completed", "output": []},
+                }
+            ),
+        ),
+    ]
+    stream = WebSocketResponsesStream(_FakeWebSocket(messages))
+
+    collected = [event async for event in stream]
+
+    completed_response = getattr(collected[-1], "response", None)
+    assert completed_response is not None
+    assert [item.id for item in completed_response.output] == ["msg_indexed", "msg_unindexed"]
+
+
+@pytest.mark.asyncio
 async def test_websocket_stream_close_before_completion_raises() -> None:
     websocket = _FakeWebSocket([SimpleNamespace(type=WSMsgType.CLOSED, data=None)])
     stream = WebSocketResponsesStream(websocket)
@@ -763,6 +847,21 @@ async def test_websocket_stream_close_before_completion_raises() -> None:
         await stream.__anext__()
 
     assert not excinfo.value.stream_started
+
+
+@pytest.mark.asyncio
+async def test_websocket_stream_close_prefers_message_close_code() -> None:
+    websocket = _FakeWebSocket([SimpleNamespace(type=WSMsgType.CLOSED, data=0)])
+    websocket.close_code = 1008
+    stream = WebSocketResponsesStream(websocket)
+
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        await stream.__anext__()
+
+    message = str(excinfo.value)
+    assert "close_code=0" in message
+    assert "close_code=1008" not in message
+    assert "policy_violation" not in message
 
 
 @pytest.mark.asyncio
@@ -776,9 +875,9 @@ async def test_websocket_stream_error_payload_exposes_error_details() -> None:
                         "type": "error",
                         "status": 400,
                         "error": {
-                            "code": "previous_response_not_found",
-                            "message": "Previous response with id 'resp_abc' not found.",
-                            "param": "previous_response_id",
+                            "code": " previous_response_not_found ",
+                            "message": " Previous response with id 'resp_abc' not found. ",
+                            "param": " previous_response_id ",
                         },
                     }
                 ),
@@ -790,9 +889,38 @@ async def test_websocket_stream_error_payload_exposes_error_details() -> None:
     with pytest.raises(ResponsesWebSocketError) as excinfo:
         await stream.__anext__()
 
+    assert str(excinfo.value) == "Previous response with id 'resp_abc' not found."
     assert excinfo.value.error_code == "previous_response_not_found"
     assert excinfo.value.status == 400
     assert excinfo.value.error_param == "previous_response_id"
+
+
+@pytest.mark.asyncio
+async def test_websocket_stream_error_payload_ignores_boolean_status_values() -> None:
+    websocket = _FakeWebSocket(
+        [
+            SimpleNamespace(
+                type=WSMsgType.TEXT,
+                data=json.dumps(
+                    {
+                        "type": "error",
+                        "status": True,
+                        "error": {
+                            "status": False,
+                            "message": "Invalid request",
+                        },
+                    }
+                ),
+            )
+        ]
+    )
+    stream = WebSocketResponsesStream(websocket)
+
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        await stream.__anext__()
+
+    assert str(excinfo.value) == "Invalid request"
+    assert excinfo.value.status is None
 
 
 @pytest.mark.asyncio

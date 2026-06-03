@@ -3,7 +3,9 @@ from __future__ import annotations
 import shlex
 import sys
 
+from fast_agent.config import Settings, ShellSettings
 from fast_agent.ui.interactive_shell import (
+    _interactive_shell_prefers_pty,
     _PtyCleanupState,
     _update_alt_screen_state,
     run_interactive_shell_command,
@@ -12,6 +14,16 @@ from fast_agent.ui.interactive_shell import (
 
 def _python_shell_command(script: str) -> str:
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+
+
+def test_interactive_shell_prefers_pty_reads_typed_shell_setting(monkeypatch) -> None:
+    monkeypatch.setattr("fast_agent.ui.interactive_shell.os.name", "posix")
+    monkeypatch.setattr(
+        "fast_agent.ui.interactive_shell.get_settings",
+        lambda: Settings(shell_execution=ShellSettings(interactive_use_pty=False)),
+    )
+
+    assert not _interactive_shell_prefers_pty()
 
 
 def test_run_interactive_shell_command_captures_output() -> None:

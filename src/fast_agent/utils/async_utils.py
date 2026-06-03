@@ -1,11 +1,12 @@
 import asyncio
 import concurrent.futures
 import contextlib
-import os
 import sys
 import warnings
 from collections.abc import Awaitable, Callable, Iterable
 from typing import ParamSpec, TypeVar
+
+from fast_agent.utils.env import optional_env_flag
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -22,6 +23,10 @@ _ASYNCIO_SET_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE = (
 )
 _ASYNCIO_ABSTRACT_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE = (
     r"'asyncio\.AbstractEventLoopPolicy' is deprecated and slated for removal in Python 3\.16"
+)
+_UVLOOP_EVENT_LOOP_POLICY_DEPRECATION_MESSAGES = (
+    _ASYNCIO_SET_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE,
+    _ASYNCIO_ABSTRACT_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE,
 )
 
 
@@ -75,23 +80,12 @@ def _suppress_known_uvloop_event_loop_policy_deprecations(
     if current_version < (3, 14):
         return
 
-    warnings.filterwarnings(
-        "ignore",
-        message=_ASYNCIO_SET_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE,
-        category=DeprecationWarning,
-    )
-    warnings.filterwarnings(
-        "ignore",
-        message=_ASYNCIO_ABSTRACT_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE,
-        category=DeprecationWarning,
-    )
-
-
-def _env_value(name: str) -> bool | None:
-    value = os.getenv(name)
-    if value is None:
-        return None
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    for message in _UVLOOP_EVENT_LOOP_POLICY_DEPRECATION_MESSAGES:
+        warnings.filterwarnings(
+            "ignore",
+            message=message,
+            category=DeprecationWarning,
+        )
 
 
 def configure_uvloop(
@@ -109,8 +103,8 @@ def configure_uvloop(
 
     install_known_runtime_warning_filters()
 
-    explicit_enable = _env_value(env_var)
-    explicit_disable = _env_value(disable_env_var)
+    explicit_enable = optional_env_flag(env_var)
+    explicit_disable = optional_env_flag(disable_env_var)
     requested = explicit_enable is True and explicit_disable is not True
     enabled = False
 

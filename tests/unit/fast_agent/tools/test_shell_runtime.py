@@ -15,6 +15,10 @@ import pytest
 from mcp.types import TextContent
 
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.constants import (
+    DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+)
 from fast_agent.event_progress import ProgressAction
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
@@ -171,6 +175,40 @@ def _extract_progress_payloads(logger: RecordingFastLogger) -> list[dict[str, An
     return payloads
 
 
+def test_shell_output_byte_limit_coerces_invalid_values() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(activation_reason="test", logger=logger)
+
+    for value in (None, 0, -1, True):
+        runtime.set_output_byte_limit(value)  # type: ignore[arg-type]
+        assert runtime.output_byte_limit == DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+    runtime.set_output_byte_limit(MAX_TERMINAL_OUTPUT_BYTE_LIMIT + 1)
+    assert runtime.output_byte_limit == MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+
+    runtime.set_output_byte_limit(1024)
+    assert runtime.output_byte_limit == 1024
+
+
+def test_shell_runtime_reads_typed_shell_settings() -> None:
+    settings = Settings(
+        shell_execution=ShellSettings(
+            output_display_lines=7,
+            show_bash=False,
+            prefer_local_shell=True,
+        )
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        config=settings,
+    )
+
+    assert runtime._output_display_lines == 7
+    assert runtime._show_bash_output is False
+    assert runtime.prefer_local_shell is True
+
+
 def test_shell_process_plan_exports_runtime_home(tmp_path: Path) -> None:
     settings = Settings()
     settings._fast_agent_home = str(tmp_path / ".fast-agent")
@@ -194,6 +232,18 @@ def test_shell_process_plan_strips_runtime_home_in_noenv(tmp_path: Path) -> None
 
     assert "FAST_AGENT_RUNTIME_ENVIRONMENT" not in plan.process_kwargs["env"]
     assert "ENVIRONMENT_DIR" not in plan.process_kwargs["env"]
+
+
+def test_shell_process_plan_normalizes_shell_name(tmp_path: Path) -> None:
+    runtime = _TestShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        runtime_info={"name": " PWSH ", "path": "/usr/bin/pwsh"},
+    )
+
+    plan = runtime._build_process_plan(tmp_path)
+
+    assert plan.shell_name == "pwsh"
 
 
 def _terminate_pid(pid_path: Path) -> None:
@@ -249,6 +299,35 @@ async def test_execute_command_with_exit_code() -> None:
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
     assert "exit code" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_invalid_argument_payloads() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+    )
+
+    invalid_results = [
+        await runtime.execute(None),
+        await runtime.execute({}),
+        await runtime.execute({"command": "   "}),
+        await runtime.execute({"command": 123}),  # type: ignore[dict-item]
+    ]
+
+    assert [result.isError for result in invalid_results] == [True, True, True, True]
+    messages: list[str] = []
+    for result in invalid_results:
+        assert result.content is not None
+        assert isinstance(result.content[0], TextContent)
+        messages.append(result.content[0].text)
+
+    assert messages == [
+        "Error: arguments must be a dict",
+        "Error: 'command' argument is required and must be a string",
+        "Error: 'command' argument is required and must be a string",
+        "Error: 'command' argument is required and must be a string",
+    ]
 
 
 @pytest.mark.asyncio
@@ -538,10 +617,7 @@ async def test_execute_no_output_shows_compact_exit_banner_detail() -> None:
     logger = logging.getLogger("shell-runtime-test")
     runtime = ShellRuntime(activation_reason="test", logger=logger, timeout_seconds=10)
 
-    if platform.system() == "Windows":
-        command = "exit 0"
-    else:
-        command = "true"
+    command = "exit 0" if platform.system() == "Windows" else "true"
 
     with console.console.capture() as capture:
         result = await runtime.execute(

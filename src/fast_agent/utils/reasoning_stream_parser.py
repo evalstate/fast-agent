@@ -1,8 +1,10 @@
 from dataclasses import dataclass
-from typing import List
+
+_OPENING_TAG = "<think>"
+_CLOSING_TAG = "</think>"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ReasoningSegment:
     """Represents a slice of streamed text and whether it's a reasoning chunk."""
 
@@ -22,6 +24,11 @@ class ReasoningStreamParser:
         """Whether the parser is currently inside a <think>...</think> block."""
         return self._in_think
 
+    @property
+    def has_pending_text(self) -> bool:
+        """Whether a possible partial tag is waiting for more input."""
+        return bool(self._buffer)
+
     def feed(self, chunk: str) -> list[ReasoningSegment]:
         """Consume a new chunk and return parsed segments."""
         if not chunk:
@@ -39,39 +46,43 @@ class ReasoningStreamParser:
         return [remaining]
 
     def _extract_segments(self) -> list[ReasoningSegment]:
-        segments: List[ReasoningSegment] = []
+        segments: list[ReasoningSegment] = []
 
         while self._buffer:
-            if self._in_think:
-                closing_index = self._buffer.find("</think>")
-                if closing_index == -1:
-                    segments.append(ReasoningSegment(text=self._buffer, is_thinking=True))
-                    self._buffer = ""
-                    break
+            tag = _CLOSING_TAG if self._in_think else _OPENING_TAG
+            tag_index = self._buffer.find(tag)
+            if tag_index == -1:
+                safe_text, self._buffer = _split_possible_tag_suffix(self._buffer, tag)
+                _append_segment(segments, safe_text, is_thinking=self._in_think)
+                break
 
-                if closing_index > 0:
-                    segments.append(
-                        ReasoningSegment(text=self._buffer[:closing_index], is_thinking=True)
-                    )
+            if tag_index > 0:
+                _append_segment(
+                    segments,
+                    self._buffer[:tag_index],
+                    is_thinking=self._in_think,
+                )
 
-                self._buffer = self._buffer[closing_index + len("</think>") :]
-                self._in_think = False
-            else:
-                opening_index = self._buffer.find("<think>")
-                if opening_index == -1:
-                    segments.append(ReasoningSegment(text=self._buffer, is_thinking=False))
-                    self._buffer = ""
-                    break
+            self._buffer = self._buffer[tag_index + len(tag) :]
+            self._in_think = not self._in_think
 
-                if opening_index > 0:
-                    segments.append(
-                        ReasoningSegment(
-                            text=self._buffer[:opening_index],
-                            is_thinking=False,
-                        )
-                    )
+        return segments
 
-                self._buffer = self._buffer[opening_index + len("<think>") :]
-                self._in_think = True
 
-        return [segment for segment in segments if segment.text]
+def _append_segment(
+    segments: list[ReasoningSegment],
+    text: str,
+    *,
+    is_thinking: bool,
+) -> None:
+    if text:
+        segments.append(ReasoningSegment(text=text, is_thinking=is_thinking))
+
+
+def _split_possible_tag_suffix(text: str, tag: str) -> tuple[str, str]:
+    """Keep a trailing partial tag buffered until the next chunk arrives."""
+    for suffix_length in range(min(len(text), len(tag) - 1), 0, -1):
+        suffix = text[-suffix_length:]
+        if tag.startswith(suffix):
+            return text[:-suffix_length], suffix
+    return text, ""

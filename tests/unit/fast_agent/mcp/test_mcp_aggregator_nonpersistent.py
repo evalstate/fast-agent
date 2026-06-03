@@ -161,15 +161,14 @@ async def test_handle_auth_challenge_reports_retry_failure() -> None:
         del session
         raise AssertionError("try_execute should not run when reconnect fails")
 
-    result, success = await aggregator._handle_auth_challenge(
+    recovery = await aggregator._handle_auth_challenge(
         "alpha",
         _try_execute,
         lambda message: message,
-        RuntimeError("401 Unauthorized"),
     )
 
-    assert success is False
-    assert result == "OAuth callback timed out"
+    assert recovery.success is False
+    assert recovery.result == "OAuth callback timed out"
 
 
 @pytest.mark.asyncio
@@ -573,7 +572,7 @@ def test_is_capability_probe_error_with_method_not_found_message_no_code() -> No
     assert _is_capability_probe_error(exc) is False
 
     # When code is genuinely absent (None), message fallback works
-    exc2 = _make_mcp_error_none_code("Method not found on server")
+    exc2 = _make_mcp_error_none_code(" METHOD NOT FOUND on server ")
     assert _is_capability_probe_error(exc2) is True
 
 

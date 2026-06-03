@@ -50,6 +50,20 @@ def test_summarize_draft_attachments_includes_remote_url() -> None:
     assert summary.mime_types == ("image/png",)
 
 
+def test_summarize_draft_attachments_preserves_local_and_remote_mime_order(tmp_path) -> None:
+    image = tmp_path / "image.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    summary = summarize_draft_attachments(
+        f"describe ^file:{image} and ^url:https://example.com/report.pdf",
+        model_name="gpt-4.1",
+    )
+
+    assert summary is not None
+    assert summary.count == 2
+    assert summary.mime_types == ("image/png", "application/pdf")
+
+
 def test_summarize_draft_attachments_infers_remote_query_image_type() -> None:
     summary = summarize_draft_attachments(
         "describe ^url:https://pbs.twimg.com/media/HCaWzdDWYAArgCf?format=jpg&name=4096x4096",
@@ -121,6 +135,16 @@ def test_render_attachment_indicator_formats_supported_indicator() -> None:
 
     assert indicator == (
         f"<style bg='{ATTACHMENT_SUPPORTED_COLOR}'> {ATTACHMENT_GLYPH}1</style>"
+    )
+
+
+def test_render_attachment_indicator_compacts_double_digit_counts() -> None:
+    indicator = render_attachment_indicator(
+        DraftAttachmentSummary(count=10, mime_types=("image/png",), any_questionable=False)
+    )
+
+    assert indicator == (
+        f"<style bg='{ATTACHMENT_SUPPORTED_COLOR}'> {ATTACHMENT_GLYPH}+</style>"
     )
 
 

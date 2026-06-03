@@ -32,6 +32,19 @@ class _StubLLM:
     resolved_model: ResolvedModelSpec
 
 
+@dataclass(slots=True)
+class _LightweightLLM:
+    model_name: str
+
+
+class _BrokenResolvedModelPropertyLLM:
+    model_name = "custom/raw-model"
+
+    @property
+    def resolved_model(self) -> object:
+        raise AttributeError("resolved_model")
+
+
 def _make_llm(model: str):
     return ModelFactory.create_factory(model)(LlmAgent(AgentConfig(name="display-test")))
 
@@ -63,6 +76,54 @@ def test_resolve_model_display_name_formats_raw_model_strings() -> None:
         resolve_model_display_name("anthropic-vertex.claude-sonnet-4-6")
         == "claude-sonnet-4-6 · Vertex"
     )
+
+
+def test_resolve_model_display_name_strips_raw_model_strings() -> None:
+    assert resolve_model_display_name(" provider/model-name ") == "model-name"
+    assert resolve_model_display_name("   ") is None
+
+
+def test_resolve_model_display_name_strips_trailing_slash_before_query() -> None:
+    assert resolve_model_display_name("provider/model-name/?reasoning=low") == "model-name"
+    assert (
+        resolve_model_display_name("anthropic-vertex/claude-sonnet-4-6/?reasoning=high")
+        == "claude-sonnet-4-6 · Vertex"
+    )
+
+
+def test_resolve_model_display_name_truncates_raw_model_display() -> None:
+    assert resolve_model_display_name("provider/really-long-model-name", max_len=12) == (
+        "really-long…"
+    )
+
+
+@pytest.mark.parametrize(
+    ("max_len", "expected"),
+    [
+        (1, "…"),
+        (0, ""),
+        (-1, ""),
+    ],
+)
+def test_resolve_model_display_name_handles_tiny_truncation_limits(
+    max_len: int,
+    expected: str,
+) -> None:
+    assert resolve_model_display_name("provider/model-name", max_len=max_len) == expected
+
+
+def test_resolve_llm_display_name_allows_lightweight_llms_without_resolved_model() -> None:
+    llm = _LightweightLLM(model_name="custom/raw-model")
+
+    assert resolve_llm_display_name(llm) is None
+    assert resolve_model_display_name(llm.model_name, llm=llm) == "raw-model"
+
+
+def test_resolve_llm_display_name_does_not_mask_broken_resolved_model_property() -> None:
+    llm = _BrokenResolvedModelPropertyLLM()
+
+    with pytest.raises(AttributeError, match="resolved_model"):
+        resolve_llm_display_name(llm)
 
 
 def test_resolve_llm_display_name_uses_overlay_name() -> None:

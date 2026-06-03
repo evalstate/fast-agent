@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolRequest, ContentBlock, EmbeddedResource
 
@@ -12,6 +12,7 @@ from fast_agent.constants import (
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
 )
+from fast_agent.llm.provider.openai.tool_event_helpers import first_nonempty_string
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
     get_image_data,
@@ -29,6 +30,8 @@ from fast_agent.tools.apply_patch_tool import (
 from fast_agent.types.assistant_message_phase import coerce_assistant_message_phase
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
     from fast_agent.core.logging.logger import Logger
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.types.assistant_message_phase import AssistantMessagePhase
@@ -146,17 +149,10 @@ class ResponsesContentMixin:
             return []
 
         items: list[dict[str, Any]] = []
-        for block in raw_blocks:
-            text = get_text(block)
-            if not text:
-                continue
-            try:
-                payload = json.loads(text)
-            except json.JSONDecodeError:
-                self.logger.debug("Skipping malformed OpenAI tool_search replay payload")
-                continue
-            if not isinstance(payload, dict):
-                continue
+        for payload in self._json_channel_payloads(
+            raw_blocks,
+            malformed_log_message="Skipping malformed OpenAI tool_search replay payload",
+        ):
             item = self._tool_search_payload_to_input_item(payload)
             if item is not None:
                 items.append(item)
@@ -173,8 +169,8 @@ class ResponsesContentMixin:
 
         item: dict[str, Any] = {"type": provider_tool_type}
         for field in ("id", "call_id", "status", "execution"):
-            value = payload.get(field)
-            if isinstance(value, str) and value:
+            value = first_nonempty_string(payload.get(field))
+            if value is not None:
                 item[field] = value
 
         if provider_tool_type == "tool_search_call":
@@ -205,17 +201,10 @@ class ResponsesContentMixin:
             return []
 
         items: list[dict[str, Any]] = []
-        for block in raw_blocks:
-            text = get_text(block)
-            if not text:
-                continue
-            try:
-                payload = json.loads(text)
-            except json.JSONDecodeError:
-                self.logger.debug("Skipping malformed OpenAI mcp_list_tools item")
-                continue
-            if not isinstance(payload, dict):
-                continue
+        for payload in self._json_channel_payloads(
+            raw_blocks,
+            malformed_log_message="Skipping malformed OpenAI mcp_list_tools item",
+        ):
             if payload.get("type") != "mcp_list_tools":
                 continue
             items.append(dict(payload))
@@ -232,17 +221,10 @@ class ResponsesContentMixin:
             return []
 
         items: list[dict[str, Any]] = []
-        for block in raw_blocks:
-            text = get_text(block)
-            if not text:
-                continue
-            try:
-                payload = json.loads(text)
-            except json.JSONDecodeError:
-                self.logger.debug("Skipping malformed OpenAI assistant message item")
-                continue
-            if not isinstance(payload, dict):
-                continue
+        for payload in self._json_channel_payloads(
+            raw_blocks,
+            malformed_log_message="Skipping malformed OpenAI assistant message item",
+        ):
             if payload.get("type") != "message":
                 continue
             payload = dict(payload)
@@ -269,22 +251,38 @@ class ResponsesContentMixin:
 
         summary = self._build_reasoning_summary_payload(channels)
         items: list[dict[str, Any]] = []
-        for block in encrypted_blocks:
+        for data in self._json_channel_payloads(
+            encrypted_blocks,
+            malformed_log_message="Skipping malformed encrypted reasoning block",
+        ):
+            if not data.get("encrypted_content"):
+                continue
+            item = dict(data)
+            item.setdefault("type", "reasoning")
+            if item.get("summary") is None:
+                item["summary"] = summary
+            items.append(item)
+        return items
+
+    def _json_channel_payloads(
+        self,
+        blocks: Iterable[ContentBlock],
+        *,
+        malformed_log_message: str,
+    ) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        for block in blocks:
             text = get_text(block)
             if not text:
                 continue
             try:
-                data = json.loads(text)
+                payload = json.loads(text)
             except json.JSONDecodeError:
-                self.logger.debug("Skipping malformed encrypted reasoning block")
+                self.logger.debug(malformed_log_message)
                 continue
-            if isinstance(data, dict) and data.get("encrypted_content"):
-                item = dict(data)
-                item.setdefault("type", "reasoning")
-                if item.get("summary") is None:
-                    item["summary"] = summary
-                items.append(item)
-        return items
+            if isinstance(payload, dict):
+                payloads.append(payload)
+        return payloads
 
     def _build_reasoning_summary_payload(
         self, channels: Mapping[str, Iterable[ContentBlock]] | None
@@ -342,33 +340,54 @@ class ResponsesContentMixin:
             ),
         }
 
-    def _content_to_input_part(self, content: ContentBlock) -> dict[str, Any] | None:
-        mime_type = self._content_mime_type(content)
+    def _data_content_to_input_part(
+        self, content: ContentBlock, *, mime_type: str | None
+    ) -> dict[str, Any] | None:
         data = get_image_data(content)
-        if data:
-            if mime_type and is_image_mime_type(mime_type):
-                return {"type": "input_image", "image_url": f"data:{mime_type};base64,{data}"}
-            if mime_type:
-                input_part: dict[str, Any] = {"type": "input_file", "file_data": data}
-                filename = self._content_filename(content)
-                if filename:
-                    input_part["filename"] = filename
-                return input_part
+        if not data or not mime_type:
             return None
 
-        if is_resource_content(content):
-            resource_uri = get_resource_uri(content)
-            if resource_uri:
-                if mime_type and is_image_mime_type(mime_type):
-                    return {"type": "input_image", "image_url": resource_uri}
-                return {"type": "input_file", "file_url": resource_uri}
-        if is_resource_link(content):
-            resource_uri = getattr(content, "uri", None)
-            if resource_uri:
-                if mime_type and is_image_mime_type(mime_type):
-                    return {"type": "input_image", "image_url": str(resource_uri)}
-                return {"type": "input_file", "file_url": str(resource_uri)}
+        if is_image_mime_type(mime_type):
+            return {"type": "input_image", "image_url": f"data:{mime_type};base64,{data}"}
 
+        input_part: dict[str, Any] = {"type": "input_file", "file_data": data}
+        filename = self._content_filename(content)
+        if filename:
+            input_part["filename"] = filename
+        return input_part
+
+    @staticmethod
+    def _uri_to_input_part(
+        resource_uri: str, *, mime_type: str | None
+    ) -> dict[str, Any]:
+        if mime_type and is_image_mime_type(mime_type):
+            return {"type": "input_image", "image_url": resource_uri}
+        return {"type": "input_file", "file_url": resource_uri}
+
+    def _resource_content_to_input_part(
+        self, content: ContentBlock, *, mime_type: str | None
+    ) -> dict[str, Any] | None:
+        resource_uri = get_resource_uri(content)
+        if not resource_uri:
+            return None
+        return self._uri_to_input_part(resource_uri, mime_type=mime_type)
+
+    def _resource_link_to_input_part(
+        self, content: ContentBlock, *, mime_type: str | None
+    ) -> dict[str, Any] | None:
+        resource_uri = getattr(content, "uri", None)
+        if not resource_uri:
+            return None
+        return self._uri_to_input_part(str(resource_uri), mime_type=mime_type)
+
+    def _content_to_input_part(self, content: ContentBlock) -> dict[str, Any] | None:
+        mime_type = self._content_mime_type(content)
+        if input_part := self._data_content_to_input_part(content, mime_type=mime_type):
+            return input_part
+        if is_resource_content(content):
+            return self._resource_content_to_input_part(content, mime_type=mime_type)
+        if is_resource_link(content):
+            return self._resource_link_to_input_part(content, mime_type=mime_type)
         return None
 
     def _normalize_tool_ids(self, tool_use_id: str | None) -> tuple[str, str]:
@@ -473,20 +492,20 @@ class ResponsesContentMixin:
     def _convert_tool_calls(self, tool_calls: dict[str, CallToolRequest]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for index, (tool_use_id, request) in enumerate(tool_calls.items()):
-            tool_use_id = tool_use_id or f"tool_{index}"
+            resolved_tool_use_id = tool_use_id or f"tool_{index}"
             params = getattr(request, "params", None)
             name = getattr(params, "name", None) or "tool"
             arguments = getattr(params, "arguments", None) or {}
-            fc_id, call_id = self._normalize_tool_ids(tool_use_id)
-            self._tool_call_id_map[tool_use_id] = call_id
-            self._tool_name_map[tool_use_id] = name
+            fc_id, call_id = self._normalize_tool_ids(resolved_tool_use_id)
+            self._tool_call_id_map[resolved_tool_use_id] = call_id
+            self._tool_name_map[resolved_tool_use_id] = name
             tool_kind = self._resolve_tool_call_kind(
-                tool_use_id=tool_use_id,
+                tool_use_id=resolved_tool_use_id,
                 fc_id=fc_id,
                 call_id=call_id,
             )
             self._record_tool_call_kind(
-                tool_use_id=tool_use_id,
+                tool_use_id=resolved_tool_use_id,
                 fc_id=fc_id,
                 call_id=call_id,
                 kind=tool_kind,
@@ -519,9 +538,9 @@ class ResponsesContentMixin:
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for index, (tool_use_id, result) in enumerate(tool_results.items()):
-            tool_use_id = tool_use_id or f"tool_{index}"
-            fc_id, normalized_call_id = self._normalize_tool_ids(tool_use_id)
-            call_id = self._tool_call_id_map.get(tool_use_id)
+            resolved_tool_use_id = tool_use_id or f"tool_{index}"
+            fc_id, normalized_call_id = self._normalize_tool_ids(resolved_tool_use_id)
+            call_id = self._tool_call_id_map.get(resolved_tool_use_id)
             if not call_id:
                 call_id = normalized_call_id
             canonical_content = canonicalize_tool_result_content_for_llm(
@@ -531,12 +550,12 @@ class ResponsesContentMixin:
             )
             output = self._tool_result_content_to_output(canonical_content)
             tool_kind = self._resolve_tool_call_kind(
-                tool_use_id=tool_use_id,
+                tool_use_id=resolved_tool_use_id,
                 fc_id=fc_id,
                 call_id=call_id,
             )
             self._record_tool_call_kind(
-                tool_use_id=tool_use_id,
+                tool_use_id=resolved_tool_use_id,
                 fc_id=fc_id,
                 call_id=call_id,
                 kind=tool_kind,
@@ -559,40 +578,9 @@ class ResponsesContentMixin:
         parts: list[dict[str, Any]] = []
         has_attachment = False
         for item in contents:
-            if is_text_content(item):
-                parts.append({"type": "input_text", "text": get_text(item) or ""})
-                continue
-
-            if is_resource_content(item):
-                text_part = self._content_to_input_text_part(item)
-                if text_part:
-                    parts.append(text_part)
-                    continue
-
-            if is_image_content(item) or is_resource_content(item) or is_resource_link(item):
-                input_part = self._content_to_input_part(item)
-                if input_part:
-                    parts.append(input_part)
-                    has_attachment = True
-                    continue
-
-            text = get_text(item)
-            if text is not None:
-                parts.append({"type": "input_text", "text": text})
-                continue
-
-            resource_uri = get_resource_uri(item)
-            if resource_uri:
-                parts.append({"type": "input_text", "text": f"[Resource]({resource_uri})"})
-                continue
-            if is_resource_link(item):
-                uri = getattr(item, "uri", None)
-                if uri:
-                    parts.append({"type": "input_text", "text": f"[Resource]({uri})"})
-                    continue
-            parts.append(
-                {"type": "input_text", "text": f"[Unsupported content: {type(item).__name__}]"}
-            )
+            part, is_attachment = self._tool_result_item_to_part(item)
+            parts.append(part)
+            has_attachment = has_attachment or is_attachment
 
         if has_attachment:
             return parts
@@ -601,3 +589,44 @@ class ResponsesContentMixin:
             for part in parts
             if part.get("type") == "input_text" and (text := part.get("text"))
         )
+
+    def _tool_result_item_to_part(
+        self, item: ContentBlock
+    ) -> tuple[dict[str, Any], bool]:
+        text_part = self._tool_result_item_to_text_part(item)
+        if text_part is not None:
+            return text_part, False
+
+        attachment_part = self._tool_result_item_to_attachment_part(item)
+        if attachment_part is not None:
+            return attachment_part, True
+
+        fallback_part = self._tool_result_item_to_fallback_text_part(item)
+        return fallback_part, False
+
+    def _tool_result_item_to_text_part(self, item: ContentBlock) -> dict[str, Any] | None:
+        if is_text_content(item):
+            return {"type": "input_text", "text": get_text(item) or ""}
+        if not is_resource_content(item):
+            return None
+        return self._content_to_input_text_part(item)
+
+    def _tool_result_item_to_attachment_part(
+        self, item: ContentBlock
+    ) -> dict[str, Any] | None:
+        if not (is_image_content(item) or is_resource_content(item) or is_resource_link(item)):
+            return None
+        return self._content_to_input_part(item)
+
+    def _tool_result_item_to_fallback_text_part(self, item: ContentBlock) -> dict[str, Any]:
+        text = get_text(item)
+        if text is not None:
+            return {"type": "input_text", "text": text}
+
+        resource_uri = get_resource_uri(item)
+        if not resource_uri and is_resource_link(item):
+            resource_uri = getattr(item, "uri", None)
+        if resource_uri:
+            return {"type": "input_text", "text": f"[Resource]({resource_uri})"}
+
+        return {"type": "input_text", "text": f"[Unsupported content: {type(item).__name__}]"}

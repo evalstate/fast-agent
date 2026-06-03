@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,6 +40,12 @@ class _TerminalTargets:
     opened_tty: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _ResolvedInteractiveTtyTargets:
+    use_pty: bool
+    targets: _TerminalTargets
+
+
 @dataclass(slots=True)
 class _PtyCleanupState:
     master_fd: int | None = None
@@ -47,6 +54,12 @@ class _PtyCleanupState:
     needs_scroll_reset: bool = False
     scan_tail: bytes = b""
     alt_screen_modes: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True, slots=True)
+class _LaunchedPtyShellProcess:
+    proc: subprocess.Popen[bytes]
+    cleanup_state: _PtyCleanupState
 
 
 def _build_interactive_shell_env() -> dict[str, str]:
@@ -59,17 +72,13 @@ def _interactive_shell_prefers_pty() -> bool:
     if os.name == "nt":
         return False
 
-    settings = get_settings()
-    shell_settings = getattr(settings, "shell_execution", None)
-    if shell_settings is None:
-        return True
-    return bool(getattr(shell_settings, "interactive_use_pty", True))
+    return get_settings().shell_execution.interactive_use_pty
 
 
-def _resolve_interactive_tty_targets() -> tuple[bool, _TerminalTargets]:
+def _resolve_interactive_tty_targets() -> _ResolvedInteractiveTtyTargets:
     targets = _TerminalTargets()
     if not _interactive_shell_prefers_pty():
-        return False, targets
+        return _ResolvedInteractiveTtyTargets(use_pty=False, targets=targets)
 
     try:
         targets.tty_fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
@@ -80,14 +89,14 @@ def _resolve_interactive_tty_targets() -> tuple[bool, _TerminalTargets]:
         targets.tty_in_fd = targets.tty_fd
         targets.tty_out_fd = targets.tty_fd
         targets.opened_tty = True
-        return True, targets
+        return _ResolvedInteractiveTtyTargets(use_pty=True, targets=targets)
 
     if sys.stdin.isatty() and sys.stdout.isatty():
         targets.tty_in_fd = sys.stdin.fileno()
         targets.tty_out_fd = sys.stdout.fileno()
-        return True, targets
+        return _ResolvedInteractiveTtyTargets(use_pty=True, targets=targets)
 
-    return False, targets
+    return _ResolvedInteractiveTtyTargets(use_pty=False, targets=targets)
 
 
 def _copy_tty_window_size_to_pty_slave(
@@ -120,14 +129,10 @@ def _copy_tty_window_size_to_pty_slave(
 
 def _configure_pty_child(slave_fd: int, fcntl_module: Any, termios_module: Any):
     def _configure_child() -> None:
-        try:
+        with suppress(OSError):
             os.setsid()
-        except OSError:
-            pass
-        try:
+        with suppress(OSError):
             fcntl_module.ioctl(slave_fd, termios_module.TIOCSCTTY, 0)
-        except OSError:
-            pass
 
     return _configure_child
 
@@ -153,7 +158,7 @@ def _launch_pty_shell_process(
     *,
     shell_env: dict[str, str],
     targets: _TerminalTargets,
-) -> tuple[subprocess.Popen[bytes], _PtyCleanupState]:
+) -> _LaunchedPtyShellProcess:
     import fcntl
     import pty
     import struct
@@ -190,7 +195,7 @@ def _launch_pty_shell_process(
         termios_module=termios,
         tty_module=tty,
     )
-    return proc, cleanup_state
+    return _LaunchedPtyShellProcess(proc=proc, cleanup_state=cleanup_state)
 
 
 def _update_alt_screen_state(cleanup_state: _PtyCleanupState, data: bytes) -> None:
@@ -350,18 +355,14 @@ def _run_pipe_shell_loop(
 
 
 def _interrupt_shell_process(proc: subprocess.Popen[Any]) -> int:
-    try:
+    with suppress(ProcessLookupError):
         os.killpg(proc.pid, signal.SIGINT)
-    except ProcessLookupError:
-        pass
 
     try:
         return_code = proc.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        try:
+        with suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
         return_code = proc.wait()
 
     rich_print("[yellow]Shell command interrupted[/yellow]")
@@ -376,14 +377,12 @@ def _restore_tty_mode(targets: _TerminalTargets, cleanup_state: _PtyCleanupState
     ):
         return
 
-    try:
+    with suppress(Exception):
         cleanup_state.termios_module.tcsetattr(
             targets.tty_in_fd,
             cleanup_state.termios_module.TCSADRAIN,
             cleanup_state.old_tty,
         )
-    except Exception:
-        pass
 
 
 def _reset_alt_screen_modes(targets: _TerminalTargets, cleanup_state: _PtyCleanupState) -> None:
@@ -412,10 +411,8 @@ def _reset_tty_scroll_region(targets: _TerminalTargets, cleanup_state: _PtyClean
     if targets.tty_out_fd is None or not os.isatty(targets.tty_out_fd):
         return
 
-    try:
+    with suppress(OSError):
         os.write(targets.tty_out_fd, b"\x1b[r")
-    except OSError:
-        pass
 
 
 def _close_interactive_shell_fds(
@@ -423,16 +420,12 @@ def _close_interactive_shell_fds(
     cleanup_state: _PtyCleanupState,
 ) -> None:
     if cleanup_state.master_fd is not None:
-        try:
+        with suppress(OSError):
             os.close(cleanup_state.master_fd)
-        except OSError:
-            pass
 
     if targets.opened_tty and targets.tty_fd is not None:
-        try:
+        with suppress(OSError):
             os.close(targets.tty_fd)
-        except OSError:
-            pass
 
 
 def _cleanup_interactive_shell(targets: _TerminalTargets, cleanup_state: _PtyCleanupState) -> None:
@@ -458,15 +451,18 @@ def run_interactive_shell_command(
         print(f"$ {command}", flush=True)
 
     shell_env = _build_interactive_shell_env()
-    use_pty, targets = _resolve_interactive_tty_targets()
+    resolved_targets = _resolve_interactive_tty_targets()
+    targets = resolved_targets.targets
 
     try:
-        if use_pty:
-            proc, cleanup_state = _launch_pty_shell_process(
+        if resolved_targets.use_pty:
+            launched_process = _launch_pty_shell_process(
                 command,
                 shell_env=shell_env,
                 targets=targets,
             )
+            proc = launched_process.proc
+            cleanup_state = launched_process.cleanup_state
             return_code = _run_pty_shell_loop(
                 proc,
                 cleanup_state=cleanup_state,

@@ -5,25 +5,38 @@ Loads Python functions from files for use as native FastMCP tools.
 Supports both direct callables and string specs like "module.py:function_name".
 """
 
-import importlib.util
 import inspect
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, TypeAlias, cast, runtime_checkable
 
 from fastmcp.tools import FunctionTool, ToolResult
 
 from fast_agent.agents.agent_types import ScopedFunctionToolConfig
-from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.tools.function_tool_config import FunctionToolSpec
+from fast_agent.tools.python_file_loader import (
+    PythonCallableLoadMessages,
+    load_callable_from_file_spec,
+)
 
 logger = get_logger(__name__)
 
 
 class _SignatureWritable(Protocol):
     __signature__: inspect.Signature
+
+
+@runtime_checkable
+class _FastToolMetadataCallable(Protocol):
+    _fast_tool_name: str | None
+    _fast_tool_description: str | None
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+FunctionToolConfig: TypeAlias = Callable[..., Any] | str | ScopedFunctionToolConfig | FunctionToolSpec
 
 
 def _set_signature(wrapper: Callable[..., Any], source: Callable[..., Any]) -> None:
@@ -108,62 +121,26 @@ def load_function_from_spec(spec: str, base_path: Path | None = None) -> Callabl
     Raises:
         AgentConfigError: If the spec format is invalid or the tool cannot be loaded.
     """
-    if ":" not in spec:
-        raise AgentConfigError(
-            f"Invalid function tool spec '{spec}'. Expected format: 'module.py:function_name'"
-        )
-
-    module_path_str, func_name = spec.rsplit(":", 1)
-    module_path = Path(module_path_str)
-
-    if not module_path.is_absolute():
-        if base_path is not None:
-            module_path = (base_path / module_path).resolve()
-        else:
-            module_path = Path.cwd() / module_path
-
-    if not module_path.exists():
-        raise AgentConfigError(
-            f"Function tool module file not found for '{spec}'",
-            f"Resolved path: {module_path}",
-        )
-
-    module_name = f"_function_tool_{module_path.stem}_{id(spec)}"
-    spec_obj = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec_obj is None or spec_obj.loader is None:
-        raise AgentConfigError(
-            f"Failed to create module spec for '{spec}'",
-            f"Resolved path: {module_path}",
-        )
-
-    module = importlib.util.module_from_spec(spec_obj)
-    try:
-        spec_obj.loader.exec_module(module)
-    except Exception as exc:  # noqa: BLE001
-        raise AgentConfigError(
-            f"Failed to import function tool module for '{spec}'",
-            str(exc),
-        ) from exc
-
-    if not hasattr(module, func_name):
-        raise AgentConfigError(
-            f"Function '{func_name}' not found for '{spec}'",
-            f"Module path: {module_path}",
-        )
-
-    func = getattr(module, func_name)
-    if not callable(func):
-        raise AgentConfigError(
-            f"Function '{func_name}' is not callable for '{spec}'",
-            f"Module path: {module_path}",
-        )
-
-    return func
+    return load_callable_from_file_spec(
+        spec,
+        base_path=base_path,
+        module_name_prefix="_function_tool",
+        messages=PythonCallableLoadMessages(
+            invalid_spec=(
+                "Invalid function tool spec '{spec}'. Expected format: "
+                "'module.py:function_name'"
+            ),
+            module_not_found="Function tool module file not found for '{spec}'",
+            module_spec_failed="Failed to create module spec for '{spec}'",
+            import_failed="Failed to import function tool module for '{spec}'",
+            callable_not_found="Function '{func_name}' not found for '{spec}'",
+            not_callable="Function '{func_name}' is not callable for '{spec}'",
+        ),
+    )
 
 
 def load_function_tools(
-    tools_config: list[Callable[..., Any] | str | ScopedFunctionToolConfig | FunctionToolSpec]
-    | None,
+    tools_config: list[FunctionToolConfig] | None,
     base_path: Path | None = None,
 ) -> list[FunctionTool]:
     """
@@ -184,35 +161,46 @@ def load_function_tools(
     result: list[FunctionTool] = []
     for tool_spec in tools_config:
         try:
-            if isinstance(tool_spec, ScopedFunctionToolConfig):
-                result.append(
-                    build_default_function_tool(
-                        tool_spec.function,
-                        name=tool_spec.name,
-                        description=tool_spec.description,
-                    )
-                )
-            elif callable(tool_spec):
-                tool_name = getattr(tool_spec, "_fast_tool_name", None)
-                tool_desc = getattr(tool_spec, "_fast_tool_description", None)
-                result.append(
-                    build_default_function_tool(tool_spec, name=tool_name, description=tool_desc)
-                )
-            elif isinstance(tool_spec, str):
-                result.append(
-                    build_default_function_tool(load_function_from_spec(tool_spec, base_path))
-                )
-            elif isinstance(tool_spec, FunctionToolSpec):
-                result.append(
-                    build_default_function_tool(
-                        load_function_from_spec(tool_spec.entrypoint, base_path),
-                        metadata=tool_spec.metadata(),
-                    )
-                )
-            else:
+            tool = _function_tool_from_config(tool_spec, base_path)
+            if tool is None:
                 logger.warning(f"Skipping invalid function tool config: {tool_spec}")
+                continue
+            result.append(tool)
         except Exception as exc:
             logger.error(f"Failed to load function tool '{tool_spec}': {exc}")
             raise
 
     return result
+
+
+def _function_tool_from_config(
+    tool_spec: FunctionToolConfig,
+    base_path: Path | None,
+) -> FunctionTool | None:
+    if isinstance(tool_spec, ScopedFunctionToolConfig):
+        return build_default_function_tool(
+            tool_spec.function,
+            name=tool_spec.name,
+            description=tool_spec.description,
+        )
+
+    if isinstance(tool_spec, str):
+        return build_default_function_tool(load_function_from_spec(tool_spec, base_path))
+
+    if isinstance(tool_spec, FunctionToolSpec):
+        return build_default_function_tool(
+            load_function_from_spec(tool_spec.entrypoint, base_path),
+            metadata=tool_spec.metadata(),
+        )
+
+    if isinstance(tool_spec, _FastToolMetadataCallable):
+        return build_default_function_tool(
+            tool_spec,
+            name=tool_spec._fast_tool_name,
+            description=tool_spec._fast_tool_description,
+        )
+
+    if callable(tool_spec):
+        return build_default_function_tool(tool_spec)
+
+    return None

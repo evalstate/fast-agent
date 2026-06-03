@@ -15,6 +15,11 @@ def test_model_database_normalizes_provider_prefix_dot() -> None:
     )
 
 
+def test_model_database_normalizes_case_and_whitespace() -> None:
+    assert ModelDatabase.normalize_model_name("  GPT-5-MINI  ") == "gpt-5-mini"
+    assert ModelDatabase.normalize_model_name("  OPENAI.GPT-4.1  ") == "gpt-4.1"
+
+
 def test_model_database_normalizes_provider_prefix_slash() -> None:
     assert ModelDatabase.get_max_output_tokens("openai/gpt-4.1") == ModelDatabase.get_max_output_tokens(
         "gpt-4.1"
@@ -30,6 +35,9 @@ def test_model_database_normalizes_aliases() -> None:
     )
     assert ModelDatabase.get_max_output_tokens("codexspark") == ModelDatabase.get_max_output_tokens(
         "gpt-5.3-codex-spark"
+    )
+    assert ModelDatabase.get_max_output_tokens("  SONNET  ") == ModelDatabase.get_max_output_tokens(
+        "claude-sonnet-4-6"
     )
 
 

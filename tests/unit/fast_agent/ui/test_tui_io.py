@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from fast_agent.commands.results import CommandMessage
+from fast_agent.commands.results import CommandChannel, CommandMessage
 from fast_agent.config import Settings
+from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.message_primitives import MessageType
@@ -82,6 +83,26 @@ class _FakeProvider:
         return {}
 
 
+@pytest.mark.parametrize(
+    ("channel", "style"),
+    [
+        ("info", "cyan"),
+        ("warning", "yellow"),
+        ("error", "red"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_emit_applies_channel_styles(channel: CommandChannel, style: str) -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+
+    await io.emit(CommandMessage(text="status", channel=channel))
+
+    assert display.status_messages[0].plain == "status"
+    assert display.status_messages[0].spans[0].style == style
+
+
 @pytest.mark.asyncio
 async def test_emit_render_markdown_uses_assistant_renderer() -> None:
     display = _FakeDisplay()
@@ -108,6 +129,28 @@ async def test_emit_render_markdown_uses_assistant_renderer() -> None:
     assert display_call["right_info"] == "session"
     assert display_call["truncate_content"] is False
     assert display_call["render_markdown"] is True
+
+
+@pytest.mark.asyncio
+async def test_handle_model_activation_returns_false_on_provider_key_error(monkeypatch) -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+
+    def fail_login() -> None:
+        raise ProviderKeyError("Codex OAuth failed", "no token")
+
+    monkeypatch.setattr("fast_agent.ui.console.ensure_blocking_console", lambda: None)
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.codex_oauth.login_codex_oauth",
+        fail_login,
+    )
+
+    activated = await io._handle_model_activation("codex-login")
+
+    assert activated is False
+    assert display.status_messages[-1].plain == "Codex OAuth failed: no token"
+    assert display.status_messages[-1].spans[0].style == "red"
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,13 @@
 """Shared formatting helpers for user-facing tool call identifiers."""
 
-TOOL_CALL_ID_MAX_LENGTH = 12
 TOOL_CALL_ID_PREFIX_LENGTH = 5
 TOOL_CALL_ID_SUFFIX_LENGTH = 6
 TOOL_CALL_ID_ELLIPSIS = "…"
+TOOL_CALL_ID_MAX_LENGTH = (
+    TOOL_CALL_ID_PREFIX_LENGTH
+    + len(TOOL_CALL_ID_ELLIPSIS)
+    + TOOL_CALL_ID_SUFFIX_LENGTH
+)
 
 
 def format_tool_call_id(tool_call_id: str | None) -> str | None:

@@ -70,6 +70,55 @@ def test_clean_schema_for_google_const_non_string_dropped():
     assert "enum" not in cleaned_num
 
 
+def test_clean_schema_for_google_resolves_escaped_refs_and_preserves_siblings():
+    converter = GoogleConverter()
+    schema = {
+        "$defs": {
+            "path/with~tilde": {
+                "type": "string",
+                "minLength": 3,
+            }
+        },
+        "type": "object",
+        "properties": {
+            "name": {
+                "$ref": "#/$defs/path~1with~0tilde",
+                "description": "Display name",
+                "default": "Ada",
+            }
+        },
+    }
+
+    cleaned = converter._clean_schema_for_google(schema)
+
+    assert "$defs" not in cleaned
+    assert cleaned["properties"]["name"] == {
+        "type": "string",
+        "minLength": 3,
+        "description": "Display name",
+        "default": "Ada",
+    }
+
+
+def test_convert_from_google_content_handles_missing_content_parts():
+    converter = GoogleConverter()
+
+    assert converter.convert_from_google_content(None) == []
+    assert converter.convert_from_google_content(types.Content(role="model", parts=None)) == []
+
+
+def test_convert_from_google_content_list_handles_missing_content_parts():
+    converter = GoogleConverter()
+
+    missing_content = converter._convert_from_google_content(None)
+    missing_parts = converter.convert_from_google_content_list(
+        [types.Content(role="model", parts=None)]
+    )[0]
+
+    assert missing_content.content == []
+    assert missing_parts.content == []
+
+
 def test_convert_video_resource():
     converter = GoogleConverter()
     
@@ -441,7 +490,7 @@ def test_gemini3_removes_sampling_parameters_and_budget():
 
     converter = GoogleConverter()
     params = RequestParams(
-        model="gemini-3.5-flash",
+        model=" GEMINI-3.5-FLASH ",
         temperature=0.7,
         top_k=40,
         top_p=0.9,

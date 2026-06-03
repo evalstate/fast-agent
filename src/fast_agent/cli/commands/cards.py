@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path  # noqa: TC003
+from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
 from typing import Annotated
 
 import typer
 from rich.markdown import Markdown
-from rich.table import Table
 
 from fast_agent.cards import manager as card_manager
 from fast_agent.cards import service as card_service
@@ -21,13 +20,20 @@ from fast_agent.cli.display import (
     DetailDisplayRow,
     UpdateDisplayRow,
     format_display_path,
+    indexed_table,
     print_detail_section,
     print_hint,
     print_section_header,
     print_update_table,
+    print_warning,
+)
+from fast_agent.marketplace.formatting import (
+    format_installed_revision_display,
+    format_source_provenance,
 )
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.ui.console import console
+from fast_agent.utils.count_display import format_count
 
 DEFAULT_CLI_CARD_REGISTRY = "https://github.com/fast-agent-ai/card-packs"
 
@@ -78,16 +84,16 @@ def _print_local_packs() -> None:
     )
 
     if not packs:
-        console.print("[yellow]No card packs installed.[/yellow]")
+        print_warning(console, "No card packs installed.")
         print_hint(console, "Install with: fast-agent cards add <number|name>")
         return
 
-    table = Table(show_header=True, box=None)
-    table.add_column("#", justify="right", style="dim", header_style="bold bright_white")
-    table.add_column("Name", style="cyan", header_style="bold bright_white")
-    table.add_column("Source", style="dim", header_style="bold bright_white")
-    table.add_column("Provenance", style="white", header_style="bold bright_white")
-    table.add_column("Installed", style="green", header_style="bold bright_white")
+    table = indexed_table(
+        ("Name", "cyan"),
+        ("Source", "dim"),
+        ("Provenance", "white"),
+        ("Installed", "green"),
+    )
 
     for entry in packs:
         source_path = format_display_path(entry.pack_dir)
@@ -99,11 +105,12 @@ def _print_local_packs() -> None:
             continue
 
         source = entry.source
-        ref_label = f"@{source.repo_ref}" if source.repo_ref else ""
-        provenance = f"{source.repo_url}{ref_label} ({source.repo_path})"
-        installed = (
-            f"{card_manager.format_installed_at_display(source.installed_at)} "
-            f"· {card_manager.format_revision_short(source.installed_revision)}"
+        provenance = format_source_provenance(source.repo_url, source.repo_ref, source.repo_path)
+        installed = format_installed_revision_display(
+            source.installed_at,
+            source.installed_revision,
+            separator=" · ",
+            revision_label="",
         )
         table.add_row(str(entry.index), entry.name, source_path, provenance, installed)
 
@@ -112,14 +119,10 @@ def _print_local_packs() -> None:
 
 def _print_marketplace_packs(packs: list[card_manager.MarketplaceCardPack]) -> None:
     if not packs:
-        console.print("[yellow]No card packs found in the marketplace.[/yellow]")
+        print_warning(console, "No card packs found in the marketplace.")
         return
 
-    table = Table(show_header=True, box=None)
-    table.add_column("#", justify="right", style="dim", header_style="bold bright_white")
-    table.add_column("Name", style="cyan", header_style="bold bright_white")
-    table.add_column("Kind", style="white", header_style="bold bright_white")
-    table.add_column("Description", style="dim", header_style="bold bright_white")
+    table = indexed_table(("Name", "cyan"), ("Kind", "white"), ("Description", "dim"))
 
     for index, entry in enumerate(packs, 1):
         table.add_row(str(index), entry.name, entry.kind, entry.description or "")
@@ -130,7 +133,7 @@ def _print_marketplace_packs(packs: list[card_manager.MarketplaceCardPack]) -> N
 def _print_updates(updates: list[card_manager.CardPackUpdateInfo], *, title: str) -> None:
     print_section_header(console, title.rstrip(":"), color="blue")
     if not updates:
-        console.print("[yellow]No managed card packs found.[/yellow]")
+        print_warning(console, "No managed card packs found.")
         return
     print_update_table(
         console,
@@ -180,16 +183,8 @@ def _print_publish_result(result: card_manager.CardPackPublishResult) -> None:
         )
     print_detail_section(console, "Card Pack Publish", rows)
 
-    status = result.status.replace("_", " ")
-    if result.detail:
-        status = f"{status}: {result.detail}"
-
-    style = "yellow"
-    if result.status in {"published", "committed", "no_changes"}:
-        style = "green"
-    elif result.status == "unmanaged":
-        style = "white"
-
+    status, style = card_manager.format_card_pack_publish_status(result)
+    style = style or "white"
     console.print(f"[{style}]Status: {status}[/{style}]")
 
 
@@ -231,7 +226,7 @@ def cards_add(
 
     try:
         marketplace = card_service.scan_marketplace_sync(marketplace_input)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Failed to load marketplace: {exc}", err=True)
         raise typer.Exit(1) from exc
 
@@ -262,7 +257,7 @@ def cards_add(
     except card_service.CardPackLookupError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Failed to install card pack: {exc}", err=True)
         raise typer.Exit(1) from exc
 
@@ -277,7 +272,7 @@ def cards_add(
             ),
             DetailDisplayRow(
                 label="managed files",
-                value=len(result.install_result.installed_files),
+                value=format_count(len(result.install_result.installed_files), "file"),
                 value_style="green",
             ),
         ],
@@ -299,7 +294,7 @@ def cards_remove(
     env_paths = _environment_paths()
     packs = card_service.list_installed_packs(environment_paths=env_paths)
     if not packs:
-        console.print("[yellow]No local card packs to remove.[/yellow]")
+        print_warning(console, "No local card packs to remove.")
         raise typer.Exit(0)
 
     if not selector:
@@ -312,7 +307,7 @@ def cards_remove(
     except card_service.CardPackLookupError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Failed to remove card pack: {exc}", err=True)
         raise typer.Exit(1) from exc
 
@@ -320,7 +315,7 @@ def cards_remove(
         DetailDisplayRow(label="name", value=removal.pack_name),
         DetailDisplayRow(
             label="removed files",
-            value=len(removal.removed_paths),
+            value=format_count(len(removal.removed_paths), "file"),
             value_style="green",
         ),
     ]
@@ -328,7 +323,7 @@ def cards_remove(
         rows.append(
             DetailDisplayRow(
                 label="skipped files",
-                value=len(removal.skipped_paths),
+                value=format_count(len(removal.skipped_paths), "file"),
                 value_style="yellow",
             )
         )
@@ -346,7 +341,7 @@ def cards_readme(
     env_paths = _environment_paths()
     packs = card_service.list_installed_packs(environment_paths=env_paths)
     if not packs:
-        console.print("[yellow]No local card packs installed.[/yellow]")
+        print_warning(console, "No local card packs installed.")
         raise typer.Exit(0)
 
     if not selector:
@@ -356,8 +351,9 @@ def cards_readme(
                 selector=packs[0].name,
             )
             if not record.readme:
-                console.print(
-                    f"[yellow]Card pack '{record.pack_name}' does not include a README.md.[/yellow]"
+                print_warning(
+                    console,
+                    f"Card pack '{record.pack_name}' does not include a README.md.",
                 )
                 raise typer.Exit(0)
             _print_card_pack_readme(record.pack_name, record.readme)
@@ -376,7 +372,7 @@ def cards_readme(
         raise typer.Exit(1) from exc
 
     if not record.readme:
-        console.print(f"[yellow]Card pack '{record.pack_name}' does not include a README.md.[/yellow]")
+        print_warning(console, f"Card pack '{record.pack_name}' does not include a README.md.")
         raise typer.Exit(0)
 
     _print_card_pack_readme(record.pack_name, record.readme)
@@ -420,7 +416,7 @@ def cards_update(
 
     if len(plan.selected) > 1 and not yes:
         _print_updates(plan.selected, title="Update plan:")
-        console.print("[yellow]Multiple card packs selected. Re-run with --yes to apply updates.[/yellow]")
+        print_warning(console, "Multiple card packs selected. Re-run with --yes to apply updates.")
         raise typer.Exit(1)
 
     applied = card_service.apply_update_plan(
@@ -475,7 +471,7 @@ def cards_publish(
     env_paths = _environment_paths()
     packs = card_service.list_installed_packs(environment_paths=env_paths)
     if not packs:
-        console.print("[yellow]No local card packs to publish.[/yellow]")
+        print_warning(console, "No local card packs to publish.")
         raise typer.Exit(0)
 
     if not selector:
@@ -501,10 +497,10 @@ def cards_publish(
         raise typer.Exit(1) from exc
     _print_publish_result(result)
 
-    if result.status in {"published", "committed", "no_changes"}:
+    if card_service.is_card_pack_publish_success(result.status):
         raise typer.Exit(0)
 
-    if result.status == "publish_failed" and result.patch_path is not None:
+    if card_service.is_card_pack_publish_failure(result.status) and result.patch_path is not None:
         console.print(
             "[yellow]Push was rejected. Share the generated patch with a maintainer or open a PR.[/yellow]"
         )

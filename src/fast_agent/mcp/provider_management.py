@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
 from urllib.parse import urlparse, urlunparse
 
 from fast_agent.cli.commands.url_parser import parse_server_url
 from fast_agent.mcp.hf_auth import add_hf_auth_header
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.text import starts_with_casefold, strip_casefold
+from fast_agent.utils.transports import uses_mcp_remote_transport
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.config import MCPServerSettings
 
@@ -16,11 +21,30 @@ _WILDCARD_CHARS = frozenset("*?[")
 _AUTHORIZATION_HEADER_NAMES = frozenset({"authorization"})
 
 
+def _truthy(value: object) -> bool:
+    return bool(value)
+
+
+def _is_not_none(value: object) -> bool:
+    return value is not None
+
+
+_PROVIDER_MANAGED_UNSUPPORTED_FIELD_CHECKS: tuple[tuple[str, Callable[[object], bool]], ...] = (
+    ("command", _is_not_none),
+    ("args", _truthy),
+    ("env", _truthy),
+    ("cwd", _is_not_none),
+    ("headers", _truthy),
+    ("auth", _is_not_none),
+    ("roots", _truthy),
+)
+
+
 def normalize_access_token(value: str | None) -> str | None:
     if value is None:
         return None
     normalized = value.strip()
-    if normalized.lower().startswith("bearer "):
+    if starts_with_casefold(normalized, "bearer "):
         normalized = normalized[7:].strip()
     if not normalized:
         raise ValueError("access_token must not be empty")
@@ -30,7 +54,19 @@ def normalize_access_token(value: str | None) -> str | None:
 def has_authorization_header(headers: Mapping[str, str] | None) -> bool:
     if not headers:
         return False
-    return any(key.strip().lower() in _AUTHORIZATION_HEADER_NAMES for key in headers)
+    return any(strip_casefold(key) in _AUTHORIZATION_HEADER_NAMES for key in headers)
+
+
+def _require_url(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("url must be a string")
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class ClientManagedUrlServer:
+    url: str
+    headers: dict[str, str] | None
 
 
 def normalize_client_managed_url_server(
@@ -39,7 +75,8 @@ def normalize_client_managed_url_server(
     url: str,
     headers: Mapping[str, str] | None,
     access_token: str | None,
-) -> tuple[str, dict[str, str] | None]:
+) -> ClientManagedUrlServer:
+    url = _require_url(url)
     final_headers = dict(headers) if headers else None
 
     if access_token is not None:
@@ -56,10 +93,11 @@ def normalize_client_managed_url_server(
         _server_name, _transport, final_url = parse_server_url(url)
 
     final_headers = add_hf_auth_header(final_url, final_headers)
-    return final_url, final_headers or None
+    return ClientManagedUrlServer(url=final_url, headers=final_headers or None)
 
 
 def normalize_provider_managed_url_server(*, transport: str, url: str) -> str:
+    url = _require_url(url)
     final_url = url
     if transport == "http":
         _server_name, _transport, final_url = parse_server_url(url)
@@ -68,6 +106,7 @@ def normalize_provider_managed_url_server(*, transport: str, url: str) -> str:
 
 def provider_managed_base_url(url: str) -> str:
     """Return a provider-facing base URL from a normalized MCP endpoint URL."""
+    url = _require_url(url)
     parsed = urlparse(url)
     path = (parsed.path or "").rstrip("/")
     for suffix in ("/mcp", "/sse"):
@@ -156,8 +195,60 @@ ProviderManagedMCPAttachment = ProviderManagedToolAttachment
 ProviderManagedMCPState = ProviderManagedToolState
 
 
+@dataclass(frozen=True, slots=True)
+class ManagedServerNameSplit:
+    client_managed: list[str]
+    provider_managed: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderManagedServerValidation:
+    has_url: bool
+    has_connector_id: bool
+    invalid_fields: tuple[str, ...]
+    missing_connector_access_token: bool
+
+    def has_exactly_one_source(self) -> bool:
+        return self.has_url != self.has_connector_id
+
+
+@dataclass(frozen=True, slots=True)
+class AnthropicProviderManagedMcpPayload:
+    servers: list[dict[str, Any]]
+    tools: list[dict[str, Any]]
+
+
 def _contains_wildcard(pattern: str) -> bool:
     return any(char in pattern for char in _WILDCARD_CHARS)
+
+
+def validate_provider_managed_server_settings(
+    settings: MCPServerSettings,
+) -> ProviderManagedServerValidation:
+    has_url = bool(settings.url)
+    has_connector_id = settings.connector_id is not None
+
+    invalid_fields = _unsupported_provider_managed_fields(settings)
+    if has_url and not uses_mcp_remote_transport(settings.transport):
+        invalid_fields.append("transport")
+    if has_connector_id and "transport" in settings.model_fields_set:
+        invalid_fields.append("transport")
+
+    return ProviderManagedServerValidation(
+        has_url=has_url,
+        has_connector_id=has_connector_id,
+        invalid_fields=tuple(sorted(invalid_fields)),
+        missing_connector_access_token=has_connector_id and settings.access_token is None,
+    )
+
+
+def _unsupported_provider_managed_fields(settings: MCPServerSettings) -> list[str]:
+    invalid_fields: list[str] = []
+    for field_name, is_invalid in _PROVIDER_MANAGED_UNSUPPORTED_FIELD_CHECKS:
+        value = getattr(settings, field_name)
+        if is_invalid(value):
+            invalid_fields.append(field_name)
+    return invalid_fields
 
 
 def _validate_provider_managed_server(
@@ -165,42 +256,84 @@ def _validate_provider_managed_server(
     server_name: str,
     settings: MCPServerSettings,
 ) -> None:
-    has_url = bool(settings.url)
-    has_connector_id = settings.connector_id is not None
-    if has_url == has_connector_id:
+    validation = validate_provider_managed_server_settings(settings)
+    if not validation.has_exactly_one_source():
         raise ValueError(
             f"Provider-managed MCP server '{server_name}' requires exactly one of url or connector_id"
         )
 
-    invalid_fields: list[str] = []
-    if settings.command is not None:
-        invalid_fields.append("command")
-    if settings.args:
-        invalid_fields.append("args")
-    if settings.env:
-        invalid_fields.append("env")
-    if settings.cwd is not None:
-        invalid_fields.append("cwd")
-    if settings.headers:
-        invalid_fields.append("headers")
-    if settings.auth is not None:
-        invalid_fields.append("auth")
-    if settings.roots:
-        invalid_fields.append("roots")
-    if has_url and settings.transport not in {"http", "sse"}:
-        invalid_fields.append("transport")
-    if has_connector_id and "transport" in settings.model_fields_set:
-        invalid_fields.append("transport")
-
-    if invalid_fields:
-        invalid_list = ", ".join(sorted(invalid_fields))
+    if validation.invalid_fields:
+        invalid_list = ", ".join(validation.invalid_fields)
         raise ValueError(
             f"Provider-managed MCP server '{server_name}' has unsupported settings: {invalid_list}"
         )
-    if has_connector_id and settings.access_token is None:
+    if validation.missing_connector_access_token:
         raise ValueError(
             f"Provider-managed MCP server '{server_name}' requires access_token when connector_id is set"
         )
+
+
+def _iter_unique_agent_servers(agent_config: AgentConfig) -> tuple[str, ...]:
+    return tuple(unique_preserve_order(agent_config.servers))
+
+
+def _provider_managed_settings_for_server(
+    *,
+    server_name: str,
+    server_settings_by_name: Mapping[str, MCPServerSettings],
+) -> MCPServerSettings | None:
+    settings = server_settings_by_name.get(server_name)
+    if settings is None:
+        raise ValueError(f"Unknown MCP server '{server_name}'")
+    if settings.management != "provider":
+        return None
+    _validate_provider_managed_server(server_name=server_name, settings=settings)
+    return settings
+
+
+def _provider_managed_tool_patterns(
+    *,
+    server_name: str,
+    agent_config: AgentConfig,
+) -> tuple[str, ...]:
+    tool_patterns = tuple(agent_config.tools.get(server_name, ()))
+    for tool_name in tool_patterns:
+        if _contains_wildcard(tool_name):
+            raise ValueError(
+                f"Provider-managed MCP server '{server_name}' requires exact tool names; "
+                f"unsupported wildcard filter: {tool_name}"
+            )
+    return tool_patterns
+
+
+def _reject_provider_managed_prompt_resource_filters(
+    *,
+    server_name: str,
+    agent_config: AgentConfig,
+) -> None:
+    if agent_config.prompts.get(server_name):
+        raise ValueError(
+            f"Provider-managed MCP server '{server_name}' does not support prompt filters"
+        )
+    if agent_config.resources.get(server_name):
+        raise ValueError(
+            f"Provider-managed MCP server '{server_name}' does not support resource filters"
+        )
+
+
+def _provider_managed_attachment(
+    *,
+    server_name: str,
+    settings: MCPServerSettings,
+) -> ProviderManagedToolAttachment:
+    return ProviderManagedToolAttachment(
+        server_name=server_name,
+        server_description=settings.description,
+        server_url=settings.url,
+        connector_id=settings.connector_id,
+        access_token=settings.access_token,
+        defer_loading=settings.defer_loading,
+    )
 
 
 def build_provider_managed_mcp_state(
@@ -213,53 +346,26 @@ def build_provider_managed_mcp_state(
 
     attachments: list[ProviderManagedToolAttachment] = []
     tool_allowlists: dict[str, tuple[str, ...]] = {}
-    seen_server_names: set[str] = set()
 
-    for server_name in agent_config.servers:
-        if server_name in seen_server_names:
-            continue
-        seen_server_names.add(server_name)
-
-        settings = server_settings_by_name.get(server_name)
+    for server_name in _iter_unique_agent_servers(agent_config):
+        settings = _provider_managed_settings_for_server(
+            server_name=server_name,
+            server_settings_by_name=server_settings_by_name,
+        )
         if settings is None:
-            raise ValueError(f"Unknown MCP server '{server_name}'")
-        if settings.management != "provider":
             continue
 
-        _validate_provider_managed_server(server_name=server_name, settings=settings)
-
-        tool_patterns = tuple(agent_config.tools.get(server_name, ()))
-        for tool_name in tool_patterns:
-            if _contains_wildcard(tool_name):
-                raise ValueError(
-                    f"Provider-managed MCP server '{server_name}' requires exact tool names; "
-                    f"unsupported wildcard filter: {tool_name}"
-                )
-        if server_name in agent_config.prompts and agent_config.prompts.get(server_name):
-            raise ValueError(
-                f"Provider-managed MCP server '{server_name}' does not support prompt filters"
-            )
-        if server_name in agent_config.resources and agent_config.resources.get(server_name):
-            raise ValueError(
-                f"Provider-managed MCP server '{server_name}' does not support resource filters"
-            )
-        if settings.url is None and settings.connector_id is None:
-            raise ValueError(
-                f"Provider-managed MCP server '{server_name}' requires url or connector_id"
-            )
-
+        tool_patterns = _provider_managed_tool_patterns(
+            server_name=server_name,
+            agent_config=agent_config,
+        )
+        _reject_provider_managed_prompt_resource_filters(
+            server_name=server_name,
+            agent_config=agent_config,
+        )
         if server_name in agent_config.tools:
             tool_allowlists[server_name] = tool_patterns
-        attachments.append(
-            ProviderManagedToolAttachment(
-                server_name=server_name,
-                server_description=settings.description,
-                server_url=settings.url,
-                connector_id=settings.connector_id,
-                access_token=settings.access_token,
-                defer_loading=settings.defer_loading,
-            )
-        )
+        attachments.append(_provider_managed_attachment(server_name=server_name, settings=settings))
 
     return ProviderManagedToolState(
         attachments=tuple(attachments),
@@ -269,7 +375,7 @@ def build_provider_managed_mcp_state(
 
 def build_anthropic_provider_managed_mcp_payload(
     state: ProviderManagedToolState,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> AnthropicProviderManagedMcpPayload:
     mcp_servers: list[dict[str, Any]] = []
     toolsets: list[dict[str, Any]] = []
 
@@ -304,7 +410,7 @@ def build_anthropic_provider_managed_mcp_payload(
                 }
         toolsets.append(tool_payload)
 
-    return mcp_servers, toolsets
+    return AnthropicProviderManagedMcpPayload(servers=mcp_servers, tools=toolsets)
 
 
 def build_openai_provider_managed_mcp_tools(
@@ -349,9 +455,9 @@ def build_openai_provider_managed_mcp_tools(
 def split_managed_server_names(
     server_names: Sequence[str],
     server_settings_by_name: Mapping[str, MCPServerSettings] | None,
-) -> tuple[list[str], list[str]]:
+) -> ManagedServerNameSplit:
     if not server_settings_by_name:
-        return list(server_names), []
+        return ManagedServerNameSplit(client_managed=list(server_names), provider_managed=[])
 
     client_managed: list[str] = []
     provider_managed: list[str] = []
@@ -363,14 +469,21 @@ def split_managed_server_names(
         else:
             client_managed.append(server_name)
 
-    return client_managed, provider_managed
+    return ManagedServerNameSplit(
+        client_managed=client_managed,
+        provider_managed=provider_managed,
+    )
 
 
 __all__ = [
-    "ProviderManagedToolAttachment",
-    "ProviderManagedToolState",
+    "AnthropicProviderManagedMcpPayload",
+    "ClientManagedUrlServer",
+    "ManagedServerNameSplit",
     "ProviderManagedMCPAttachment",
     "ProviderManagedMCPState",
+    "ProviderManagedServerValidation",
+    "ProviderManagedToolAttachment",
+    "ProviderManagedToolState",
     "build_anthropic_provider_managed_mcp_payload",
     "build_openai_provider_managed_mcp_tools",
     "build_provider_managed_mcp_state",
@@ -383,4 +496,5 @@ __all__ = [
     "normalize_provider_managed_url_server",
     "provider_managed_base_url",
     "split_managed_server_names",
+    "validate_provider_managed_server_settings",
 ]

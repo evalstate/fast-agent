@@ -1,10 +1,14 @@
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers.model import (
+    MODEL_ACTION_HANDLERS,
+    _parse_web_tool_setting,
+    get_model_action_handler,
     handle_model_fast,
     handle_model_reasoning,
     handle_model_switch,
@@ -14,6 +18,7 @@ from fast_agent.commands.handlers.model import (
     handle_model_web_search,
     handle_model_x_search,
 )
+from fast_agent.commands.shared_command_intents import MODEL_DIRECT_HANDLER_ACTIONS
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_database import ModelParameters
@@ -249,6 +254,75 @@ class _StubLLM:
             raise ValueError("Current model does not support task budget configuration.")
         self._task_budget_tokens = value
 
+    def set_text_verbosity(self, value: object | None) -> None:
+        self.text_verbosity = value
+
+
+class _MissingWebToolEnabledLLM(_StubLLM):
+    @property
+    def web_search_enabled(self) -> bool:
+        raise AttributeError("web_search_enabled")
+
+    @property
+    def web_fetch_enabled(self) -> bool:
+        raise AttributeError("web_fetch_enabled")
+
+    @property
+    def x_search_enabled(self) -> bool:
+        raise AttributeError("x_search_enabled")
+
+
+class _MissingWebSearchSetterLLM(_StubLLM):
+    @property
+    def set_web_search_enabled(self) -> object:
+        raise AttributeError("set_web_search_enabled")
+
+
+class _MissingTextVerbositySpecLLM(_StubLLM):
+    @property
+    def text_verbosity_spec(self) -> TextVerbositySpec | None:
+        raise AttributeError("text_verbosity_spec")
+
+    @text_verbosity_spec.setter
+    def text_verbosity_spec(self, value: TextVerbositySpec | None) -> None:
+        del value
+
+
+class _MissingTextVerbosityValueLLM(_StubLLM):
+    @property
+    def text_verbosity(self) -> object:
+        raise AttributeError("text_verbosity")
+
+    @text_verbosity.setter
+    def text_verbosity(self, value: object) -> None:
+        del value
+
+
+class _MissingTextVerbositySetterLLM(_StubLLM):
+    @property
+    def set_text_verbosity(self) -> object:
+        raise AttributeError("set_text_verbosity")
+
+
+class _MissingReasoningSpecLLM(_StubLLM):
+    @property
+    def reasoning_effort_spec(self) -> ReasoningEffortSpec | None:
+        raise AttributeError("reasoning_effort_spec")
+
+    @reasoning_effort_spec.setter
+    def reasoning_effort_spec(self, value: ReasoningEffortSpec | None) -> None:
+        del value
+
+
+class _MissingResolvedModelLLM(_StubLLM):
+    @property
+    def resolved_model(self) -> object:
+        raise AttributeError("resolved_model")
+
+    @resolved_model.setter
+    def resolved_model(self, value: object) -> None:
+        del value
+
 
 class _StubShellRuntime:
     def __init__(self, output_byte_limit: int) -> None:
@@ -314,6 +388,14 @@ class _StubAgentProvider:
         return {}
 
 
+def test_get_model_action_handler_resolves_shared_dispatch_table() -> None:
+    assert frozenset(MODEL_ACTION_HANDLERS) == MODEL_DIRECT_HANDLER_ACTIONS
+    assert get_model_action_handler("reasoning") is handle_model_reasoning
+    assert get_model_action_handler("fast") is handle_model_fast
+    assert get_model_action_handler(" FAST ") is handle_model_fast
+    assert get_model_action_handler("missing") is None
+
+
 @pytest.mark.asyncio
 async def test_model_reasoning_includes_shell_budget_details() -> None:
     llm = _StubLLM("claude-opus-4-6")
@@ -373,6 +455,41 @@ async def test_model_reasoning_is_overlay_aware_for_context_and_output_limits() 
 
 
 @pytest.mark.asyncio
+async def test_model_reasoning_ignores_boolean_numeric_model_metadata() -> None:
+    llm = _StubLLM("custom-model")
+    llm.resolved_model = ResolvedModelSpec(
+        raw_input="custom-model",
+        selected_model_name="custom-model",
+        source="direct",
+        model_config=ModelConfig(provider=Provider.RESPONSES, model_name="custom-model"),
+        provider=Provider.RESPONSES,
+        wire_model_name="custom-model",
+        model_params=ModelParameters.model_construct(
+            context_window=cast("Any", True),
+            max_output_tokens=cast("Any", False),
+            tokenizes=["text/plain"],
+            json_mode=None,
+            reasoning=None,
+            default_provider=Provider.RESPONSES,
+        ),
+    )
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Context window: True." not in text_messages
+    assert "Model max output tokens: False." not in text_messages
+    assert not any(message.startswith("Shell output budget: 1 bytes") for message in text_messages)
+
+
+@pytest.mark.asyncio
 async def test_model_reasoning_includes_config_override_budget_when_runtime_missing() -> None:
     llm = _StubLLM("claude-opus-4-6")
     provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
@@ -413,6 +530,28 @@ async def test_model_reasoning_includes_transport_details_for_configurable_model
 
 
 @pytest.mark.asyncio
+async def test_model_reasoning_trims_transport_detail_values() -> None:
+    llm = _StubLLM("gpt-5.3-codex")
+    llm.configured_transport = " websocket "
+    llm.active_transport = " sse "
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Configured transport: websocket." in text_messages
+    assert (
+        "Active transport: sse (websocket fallback was used for this turn)." in text_messages
+    )
+
+
+@pytest.mark.asyncio
 async def test_model_reasoning_includes_runtime_setting_details_when_available() -> None:
     llm = _StubLLM(
         "gpt-5.4",
@@ -438,6 +577,56 @@ async def test_model_reasoning_includes_runtime_setting_details_when_available()
     assert "Service tier: flex." in text_messages
     assert "Web search: enabled." in text_messages
     assert "Web fetch: disabled." in text_messages
+
+
+@pytest.mark.asyncio
+async def test_model_reasoning_does_not_swallow_broken_web_tool_attrs() -> None:
+    llm = _MissingWebToolEnabledLLM(
+        "gpt-5.4",
+        web_search_supported=True,
+        x_search_supported=True,
+        web_fetch_supported=True,
+    )
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    with pytest.raises(AttributeError, match="web_search_enabled"):
+        await handle_model_reasoning(ctx, agent_name="test", value=None)
+
+
+@pytest.mark.asyncio
+async def test_model_reasoning_does_not_swallow_broken_text_verbosity_spec() -> None:
+    llm = _MissingTextVerbositySpecLLM("gpt-5.4")
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    with pytest.raises(AttributeError, match="text_verbosity_spec"):
+        await handle_model_reasoning(ctx, agent_name="test", value=None)
+
+
+@pytest.mark.asyncio
+async def test_model_reasoning_does_not_swallow_broken_reasoning_spec() -> None:
+    llm = _MissingReasoningSpecLLM("gpt-5.4")
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    with pytest.raises(AttributeError, match="reasoning_effort_spec"):
+        await handle_model_reasoning(ctx, agent_name="test", value=None)
 
 
 @pytest.mark.asyncio
@@ -516,6 +705,39 @@ async def test_model_reasoning_rounds_noisy_sampling_override_floats() -> None:
 
 
 @pytest.mark.asyncio
+async def test_model_reasoning_ignores_malformed_sampling_override_values() -> None:
+    llm = _StubLLM("gpt-5.4")
+    llm.default_request_params = cast(
+        "Any",
+        SimpleNamespace(
+            temperature=True,
+            top_p=float("nan"),
+            top_k=40,
+            min_p=float("inf"),
+            presence_penalty=None,
+            frequency_penalty="0.1",
+            repetition_penalty=1.0,
+        ),
+    )
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Sampling overrides: top_k=40, repetition_penalty=1.0." in text_messages
+    assert all("temperature=True" not in message for message in text_messages)
+    assert all("top_p=nan" not in message for message in text_messages)
+    assert all("min_p=inf" not in message for message in text_messages)
+    assert all("frequency_penalty=0.1" not in message for message in text_messages)
+
+
+@pytest.mark.asyncio
 async def test_model_verbosity_shows_model_details_when_unsupported() -> None:
     llm = _StubLLM("o1")
     llm.text_verbosity_spec = None
@@ -536,6 +758,55 @@ async def test_model_verbosity_shows_model_details_when_unsupported() -> None:
 
 
 @pytest.mark.asyncio
+async def test_model_verbosity_does_not_swallow_broken_spec() -> None:
+    llm = _MissingTextVerbositySpecLLM("gpt-5.4")
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    with pytest.raises(AttributeError, match="text_verbosity_spec"):
+        await handle_model_verbosity(ctx, agent_name="test", value=None)
+
+
+@pytest.mark.asyncio
+async def test_model_verbosity_does_not_swallow_broken_current_value() -> None:
+    llm = _MissingTextVerbosityValueLLM("gpt-5.4")
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    with pytest.raises(AttributeError, match="text_verbosity"):
+        await handle_model_verbosity(ctx, agent_name="test", value=None)
+
+
+@pytest.mark.asyncio
+async def test_model_verbosity_reports_missing_setter_as_unsupported() -> None:
+    llm = _MissingTextVerbositySetterLLM("gpt-5.4")
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_verbosity(ctx, agent_name="test", value="low")
+
+    assert [str(message.text) for message in outcome.messages if message.channel == "error"] == [
+        "Current model does not support text verbosity configuration. "
+        "Allowed values: low, medium, high."
+    ]
+
+
+@pytest.mark.asyncio
 async def test_model_web_search_reports_when_unsupported() -> None:
     llm = _StubLLM("gpt-4.1", web_search_supported=False)
     provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
@@ -550,6 +821,29 @@ async def test_model_web_search_reports_when_unsupported() -> None:
     text_messages = [str(m.text) for m in outcome.messages]
 
     assert "Current model does not support web_search configuration." in text_messages
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (" ON ", True),
+        ("enabled", True),
+        ("0", False),
+        (" OFF ", False),
+        ("Default", None),
+        (" unset ", None),
+    ],
+)
+def test_parse_web_tool_setting_uses_shared_action_normalization(
+    value: str,
+    expected: bool | None,
+) -> None:
+    assert _parse_web_tool_setting(value) is expected
+
+
+def test_parse_web_tool_setting_rejects_non_boolean_action_values() -> None:
+    with pytest.raises(ValueError, match="Allowed values: on, off, default."):
+        _parse_web_tool_setting("high")
 
 
 @pytest.mark.asyncio
@@ -574,6 +868,47 @@ async def test_model_web_search_set_and_reset_to_default() -> None:
     reset_outcome = await handle_model_web_search(ctx, agent_name="test", value="default")
     reset_text = [str(m.text) for m in reset_outcome.messages]
     assert "Web search: set to default (disabled)." in reset_text
+
+
+@pytest.mark.asyncio
+async def test_model_web_search_treats_missing_setter_as_unsupported() -> None:
+    llm = _MissingWebSearchSetterLLM("gpt-5", web_search_supported=True)
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_web_search(ctx, agent_name="test", value="on")
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Current model does not support web search configuration." in text_messages
+
+
+@pytest.mark.asyncio
+async def test_model_web_search_parses_boolean_aliases_without_reasoning_levels() -> None:
+    llm = _StubLLM("gpt-5", web_search_supported=True)
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    enable_outcome = await handle_model_web_search(ctx, agent_name="test", value="enabled")
+    enable_text = [str(m.text) for m in enable_outcome.messages]
+    assert "Web search: set to enabled." in enable_text
+
+    disable_outcome = await handle_model_web_search(ctx, agent_name="test", value="0")
+    disable_text = [str(m.text) for m in disable_outcome.messages]
+    assert "Web search: set to disabled." in disable_text
+
+    reasoning_outcome = await handle_model_web_search(ctx, agent_name="test", value="high")
+    reasoning_text = [str(m.text) for m in reasoning_outcome.messages]
+    assert "Invalid web_search value 'high'. Allowed values: on, off, default." in reasoning_text
 
 
 @pytest.mark.asyncio
@@ -645,6 +980,14 @@ async def test_model_fast_toggle_and_status() -> None:
     flex_text = [str(m.text) for m in flex_outcome.messages]
     assert "Service tier: set to flex." in flex_text
 
+    padded_status_outcome = await handle_model_fast(ctx, agent_name="test", value=" STATUS ")
+    padded_status_text = [str(m.text) for m in padded_status_outcome.messages]
+    assert "Service tier: flex. Allowed values: on, off, flex, status." in padded_status_text
+
+    flex_toggle_outcome = await handle_model_fast(ctx, agent_name="test", value="toggle")
+    flex_toggle_text = [str(m.text) for m in flex_toggle_outcome.messages]
+    assert "Service tier: set to default." in flex_toggle_text
+
 
 @pytest.mark.asyncio
 async def test_model_fast_codexresponses_omits_flex_value() -> None:
@@ -686,6 +1029,10 @@ async def test_model_fast_rejects_invalid_value() -> None:
     text_messages = [str(m.text) for m in outcome.messages]
 
     assert "Invalid service tier value 'maybe'. Allowed values: on, off, flex, status." in text_messages
+
+    blank_outcome = await handle_model_fast(ctx, agent_name="test", value="  ")
+    blank_text_messages = [str(m.text) for m in blank_outcome.messages]
+    assert "Invalid service tier value '  '. Allowed values: on, off, flex, status." in blank_text_messages
 
 
 @pytest.mark.asyncio
@@ -766,6 +1113,23 @@ async def test_model_switch_uses_selector_when_value_missing() -> None:
     assert agent.config.model == "gpt-5-mini"
     assert llm.model_name == "gpt-5-mini"
     assert outcome.reset_session is True
+
+
+@pytest.mark.asyncio
+async def test_model_switch_selector_does_not_swallow_broken_resolved_model() -> None:
+    llm = _MissingResolvedModelLLM("custom-model")
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    io = _StubIO(model_selection_response=None)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=io,
+        settings=Settings(),
+    )
+
+    with pytest.raises(AttributeError, match="resolved_model"):
+        await handle_model_switch(ctx, agent_name="test", value=None)
 
 
 @pytest.mark.asyncio

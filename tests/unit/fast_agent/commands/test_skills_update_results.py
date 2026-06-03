@@ -1,39 +1,7 @@
 from pathlib import Path
 
-from fast_agent.commands.handlers.skills import _format_update_results, _parse_update_argument
+from fast_agent.commands.handlers.skills import _format_update_results
 from fast_agent.skills.models import InstalledSkillSource, SkillUpdateInfo
-
-
-def test_parse_update_argument_dry_run() -> None:
-    selector, force, yes, error = _parse_update_argument(None)
-    assert selector is None
-    assert force is False
-    assert yes is False
-    assert error is None
-
-
-def test_parse_update_argument_with_flags_and_selector() -> None:
-    selector, force, yes, error = _parse_update_argument("--force alpha")
-    assert selector == "alpha"
-    assert force is True
-    assert yes is False
-    assert error is None
-
-
-def test_parse_update_argument_all_with_yes() -> None:
-    selector, force, yes, error = _parse_update_argument("all --yes")
-    assert selector == "all"
-    assert force is False
-    assert yes is True
-    assert error is None
-
-
-def test_parse_update_argument_rejects_unknown_option() -> None:
-    selector, force, yes, error = _parse_update_argument("--bogus")
-    assert selector is None
-    assert force is False
-    assert yes is False
-    assert error == "Unknown option: --bogus"
 
 
 def test_format_update_results_shows_short_revision_and_installed_time() -> None:
@@ -106,7 +74,7 @@ def test_format_update_results_shows_error_status_text() -> None:
     assert "status: source unreachable: git ls-remote failed" in rendered
 
 
-def test_format_update_results_unmanaged_omits_redundant_status_line() -> None:
+def test_format_update_results_unmanaged_shows_status_line() -> None:
     updates = [
         SkillUpdateInfo(
             index=1,
@@ -120,5 +88,5 @@ def test_format_update_results_unmanaged_omits_redundant_status_line() -> None:
     rendered = _format_update_results(updates, title="Skill update check:").plain
 
     assert "provenance: unmanaged." in rendered
-    assert "status: unmanaged" not in rendered
+    assert "status: unmanaged" in rendered
     assert "unmanaged: no sidecar metadata" not in rendered

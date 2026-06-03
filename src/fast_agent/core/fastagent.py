@@ -12,17 +12,15 @@ import inspect
 import os
 import pathlib
 import sys
-from contextlib import asynccontextmanager
+from collections.abc import Callable
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from functools import partial
 from importlib.metadata import version as get_version
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterator,
-    Awaitable,
-    Callable,
-    Sequence,
     TypeAlias,
     TypeVar,
     cast,
@@ -33,12 +31,15 @@ import yaml.parser
 from opentelemetry import trace
 
 from fast_agent import config
+from fast_agent.agents.agent_types import AgentConfig, MCPConnectTarget
 from fast_agent.core import Core
-from fast_agent.core.agent_app import AgentApp, AgentRefreshResult
+from fast_agent.core.agent_app import AgentApp, AgentCardLoadResult, AgentRefreshResult
+from fast_agent.core.agent_card_paths import is_agent_card_path, is_markdown_agent_card_path
 from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.direct_decorators import DecoratorMixin
 from fast_agent.core.direct_factory import (
+    AgentToolAttachable,
     create_agents_in_dependency_order,
     get_default_model_source,
     get_model_factory,
@@ -65,10 +66,16 @@ from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.tools.function_tool_config import function_tool_entrypoint
+from fast_agent.tools.python_file_loader import parse_callable_file_spec
 from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
+from fast_agent.utils.count_display import plural_label
+from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.transports import uses_protocol_stdio
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Awaitable, Sequence
+
     from fastmcp.tools import FunctionTool
 
     from fast_agent.config import MCPServerSettings
@@ -125,8 +132,8 @@ class RuntimeCallbacks:
     refresh_shared_instance: Callable[[], Awaitable[AgentRefreshResult]]
     reload_and_refresh: Callable[[], Awaitable[AgentRefreshResult]]
     reload_source: Callable[[], Awaitable[bool]] | None
-    load_card_and_refresh: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
-    load_card_source: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
+    load_card_and_refresh: Callable[[str, str | None], Awaitable[AgentCardLoadResult]]
+    load_card_source: Callable[[str, str | None], Awaitable[AgentCardLoadResult]]
     attach_agent_tools_and_refresh: Callable[[str, Sequence[str]], Awaitable[list[str]]]
     detach_agent_tools_and_refresh: Callable[[str, Sequence[str]], Awaitable[list[str]]]
     attach_agent_tools_source: Callable[[str, Sequence[str]], Awaitable[list[str]]]
@@ -139,6 +146,13 @@ class RuntimeCallbacks:
     list_attached_mcp_servers: Callable[[str], Awaitable[list[str]]]
     list_configured_detached_mcp_servers: Callable[[str], Awaitable[list[str]]]
     dump_agent_card: Callable[[str], Awaitable[str]]
+
+
+@dataclass(frozen=True)
+class ResolvedMCPConnectEntry:
+    name: str
+    settings: "MCPServerSettings"
+    target_label: str
 
 
 @dataclass(frozen=True)
@@ -191,267 +205,22 @@ class FastAgent(DecoratorMixin):
         """
 
         self.args = argparse.Namespace()  # Initialize args always
-        self._programmatic_quiet = quiet  # Store the programmatic quiet setting
-        self._environment_dir_override = self._normalize_environment_dir(environment_dir)
-        self._skills_directory_override = self._normalize_skill_directories(skills_directory)
-        self._default_skill_manifests: list[SkillManifest] = []
-        self._server_instance_factory = None
-        self._server_instance_dispose = None
-        self._server_managed_instances: list[AgentInstance] = []
-
-        # --- Wrap argument parsing logic ---
+        self._initialize_runtime_options(
+            quiet=quiet,
+            environment_dir=environment_dir,
+            skills_directory=skills_directory,
+        )
         if parse_cli_args:
-            # Setup command line argument parsing
-            parser = argparse.ArgumentParser(description="DirectFastAgent Application")
-            parser.add_argument(
-                "--model",
-                help="Override the default model for all agents",
-            )
-            parser.add_argument(
-                "--agent",
-                default=None,
-                help="Agent name for --message/--prompt-file (defaults to the app default agent)",
-            )
-            parser.add_argument(
-                "-m",
-                "--message",
-                help="Message to send to the specified agent",
-            )
-            parser.add_argument(
-                "-p", "--prompt-file", help="Path to a prompt file to use (either text or JSON)"
-            )
-            parser.add_argument(
-                "--quiet",
-                action="store_true",
-                help="Disable progress display, tool and message logging for cleaner output",
-            )
-            parser.add_argument(
-                "--version",
-                action="store_true",
-                help="Show version and exit",
-            )
-            parser.add_argument(
-                "--server",
-                action="store_true",
-                help="Run as an MCP server",
-            )
-            parser.add_argument(
-                "--transport",
-                choices=["http", "stdio", "acp"],
-                default=None,
-                help="Transport protocol to use when running as a server (http, stdio, or acp)",
-            )
-            parser.add_argument(
-                "--port",
-                type=int,
-                default=8000,
-                help="Port to use when running as a server with HTTP transport",
-            )
-            parser.add_argument(
-                "--host",
-                default="0.0.0.0",
-                help="Host address to bind to when running as a server with HTTP transport",
-            )
-            parser.add_argument(
-                "--instance-scope",
-                choices=["shared", "connection", "request"],
-                default="shared",
-                help=(
-                    "Control MCP agent instancing behaviour (shared, connection, request). "
-                    "ACP is always connection-scoped."
-                ),
-            )
-            parser.add_argument(
-                "--env",
-                help="Override the base fast-agent environment directory",
-            )
-            parser.add_argument(
-                "--skills",
-                help="Path to skills directory to use instead of default skills directories",
-            )
-            parser.add_argument(
-                "--dump",
-                "--dump-agents",
-                dest="dump_agents",
-                help="Export all loaded agents as Markdown AgentCards into a directory",
-            )
-            parser.add_argument(
-                "--dump-yaml",
-                "--dump-agents-yaml",
-                dest="dump_agents_yaml",
-                help="Export all loaded agents as YAML AgentCards into a directory",
-            )
-            parser.add_argument(
-                "--dump-agent",
-                help="Export a single agent by name",
-            )
-            parser.add_argument(
-                "--dump-agent-path",
-                help="Output file path for --dump-agent",
-            )
-            parser.add_argument(
-                "--dump-agent-yaml",
-                action="store_true",
-                help="Export a single agent as YAML (default: Markdown)",
-            )
-            parser.add_argument(
-                "--reload",
-                action="store_true",
-                help="Enable manual AgentCard reloads (/reload)",
-            )
-            parser.add_argument(
-                "--watch",
-                action="store_true",
-                help="Watch AgentCard paths and reload when files change",
-            )
-            parser.add_argument(
-                "--noenv",
-                "--no-env",
-                action="store_true",
-                help="Disable fast-agent home/environment directory use",
-            )
-            parser.add_argument(
-                "--card-tool",
-                action="append",
-                dest="card_tools",
-                help="Path, HTTP(S) URL, file:// URI, or hf:// URI to an AgentCard file to load as a tool (repeatable)",
-            )
-            if ignore_unknown_args:
-                known_args, _ = parser.parse_known_args()
-                self.args = known_args
-            else:
-                # Use parse_known_args here too, to avoid crashing on uvicorn args etc.
-                # even if ignore_unknown_args is False, we only care about *our* args.
-                known_args, unknown = parser.parse_known_args()
-                self.args = known_args
-                # Optionally, warn about unknown args if not ignoring?
-                # if unknown and not ignore_unknown_args:
-                #     logger.warning(f"Ignoring unknown command line arguments: {unknown}")
-
-            # Track whether CLI flags were explicitly provided
-            cli_args = sys.argv[1:]
-            server_flag_used = "--server" in cli_args
-            transport_flag_used = any(
-                arg == "--transport" or arg.startswith("--transport=") for arg in cli_args
-            )
-
-            # If a transport was provided, assume server mode even without --server
-            if transport_flag_used and not getattr(self.args, "server", False):
-                self.args.server = True
-
-            # Default the transport if still unset
-            if getattr(self.args, "transport", None) is None:
-                self.args.transport = "http"
-
-            # Warn that --server is deprecated when the user supplied it explicitly
-            if server_flag_used:
-                print(
-                    "--server is deprecated; server mode is implied when --transport is provided. "
-                    "This flag will be removed in a future release.",
-                    file=sys.stderr,
-                )
-
-            # Handle version flag
-            if self.args.version:
-                try:
-                    app_version = get_version("fast-agent-mcp")
-                except:  # noqa: E722
-                    app_version = "unknown"
-                print(f"fast-agent-mcp v{app_version}")
-                sys.exit(0)
-        # --- End of wrapped logic ---
-
-        # Force quiet mode automatically when running ACP transport
-        transport = getattr(self.args, "transport", None)
-        if transport == "acp":
-            self._programmatic_quiet = True
-            setattr(self.args, "quiet", True)
-
-        # Apply programmatic quiet setting (overrides CLI if both are set)
-        if self._programmatic_quiet:
-            self.args.quiet = True
-
-        if noenv:
-            self.args.noenv = True
-        elif not hasattr(self.args, "noenv"):
-            self.args.noenv = False
-
-        # Apply CLI environment directory if not already set programmatically
-        if self._environment_dir_override is None and hasattr(self.args, "env") and self.args.env:
-            self._environment_dir_override = self._normalize_environment_dir(self.args.env)
-
-        if self._environment_dir_override is not None:
-            from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
-
-            os.environ[FAST_AGENT_RUNTIME_ENVIRONMENT] = str(self._environment_dir_override)
-            os.environ["ENVIRONMENT_DIR"] = str(self._environment_dir_override)
-
-        # Apply CLI skills directory if not already set programmatically
-        if (
-            self._skills_directory_override is None
-            and hasattr(self.args, "skills")
-            and self.args.skills
-        ):
-            self._skills_directory_override = self._normalize_skill_directories(self.args.skills)
+            self._parse_constructor_cli_args(ignore_unknown_args=ignore_unknown_args)
+        self._apply_constructor_runtime_flags(noenv=noenv)
 
         self.name = name
         self.config_path = config_path
 
         try:
-            # Load configuration directly for this instance
-            self._load_config()
-
-            # Apply programmatic quiet mode to config before creating app
-            if self._programmatic_quiet and hasattr(self, "config"):
-                if "logger" not in self.config:
-                    self.config["logger"] = {}
-                self.config["logger"]["progress_display"] = False
-                self.config["logger"]["show_chat"] = False
-                self.config["logger"]["show_tools"] = False
-
-            # Propagate environment dir override into config so path helpers resolve consistently
-            if self._environment_dir_override is not None and hasattr(self, "config"):
-                self.config["environment_dir"] = str(self._environment_dir_override)
-
-            # Propagate CLI skills override into config so resolve_skill_directories() works everywhere
-            if self._skills_directory_override is not None and hasattr(self, "config"):
-                if "skills" not in self.config:
-                    self.config["skills"] = {}
-                self.config["skills"]["directories"] = [
-                    str(p) for p in self._skills_directory_override
-                ]
-
-            # Create settings and update global settings so resolve_skill_directories() works
-            instance_settings = config.Settings(**self.config) if hasattr(self, "config") else None
-            if instance_settings is not None:
-                instance_settings._config_file = getattr(self, "_loaded_config_file", None)
-                instance_settings._secrets_file = getattr(self, "_loaded_secrets_file", None)
-                instance_settings._fast_agent_home = getattr(self, "_loaded_fast_agent_home", None)
-                instance_settings._fast_agent_home_source = getattr(
-                    self, "_loaded_fast_agent_home_source", None
-                )
-                instance_settings._fast_agent_noenv = bool(
-                    getattr(self, "_loaded_fast_agent_noenv", False)
-                )
-            if instance_settings is not None:
-                config.update_global_settings(instance_settings)
-
-            # Create the app with our local settings
-            self.app = Core(
-                name=name,
-                settings=instance_settings,
-                **kwargs,
-            )
-
-            # Stop progress display immediately if quiet mode is requested
-            if self._programmatic_quiet:
-                if getattr(self.args, "server", False) and getattr(
-                    self.args, "transport", None
-                ) in ["stdio", "acp"]:
-                    configure_console_stream("stderr")
-                from fast_agent.ui.progress_display import progress_display
-
-                progress_display.stop()
+            instance_settings = self._load_instance_settings()
+            self.app = Core(name=name, settings=instance_settings, **kwargs)
+            self._stop_progress_display_if_quiet()
 
         except yaml.parser.ParserError as e:
             handle_error(
@@ -459,14 +228,245 @@ class FastAgent(DecoratorMixin):
                 "YAML Parsing Error",
                 "There was an error parsing the config or secrets YAML configuration file.",
             )
-            raise SystemExit(1)
+            raise SystemExit(1) from e
 
-        # Dictionary to store agent configurations from decorators
+        self._initialize_agent_registries()
+
+    def _initialize_runtime_options(
+        self,
+        *,
+        quiet: bool,
+        environment_dir: str | pathlib.Path | None,
+        skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None,
+    ) -> None:
+        self._programmatic_quiet = quiet
+        self._environment_dir_override = self._normalize_environment_dir(environment_dir)
+        self._skills_directory_override = self._normalize_skill_directories(skills_directory)
+        self._default_skill_manifests: list[SkillManifest] = []
+        self._server_instance_factory = None
+        self._server_instance_dispose = None
+        self._server_managed_instances: list[AgentInstance] = []
+
+    def _parse_constructor_cli_args(self, *, ignore_unknown_args: bool) -> None:
+        parser = self._constructor_arg_parser()
+        known_args, _unknown = parser.parse_known_args()
+        self.args = known_args
+        self._normalize_constructor_cli_server_flags()
+        self._handle_constructor_version_flag()
+
+    @staticmethod
+    def _constructor_arg_parser() -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(description="DirectFastAgent Application")
+        parser.add_argument("--model", help="Override the default model for all agents")
+        parser.add_argument(
+            "--agent",
+            default=None,
+            help="Agent name for --message/--prompt-file (defaults to the app default agent)",
+        )
+        parser.add_argument("-m", "--message", help="Message to send to the specified agent")
+        parser.add_argument(
+            "-p",
+            "--prompt-file",
+            help="Path to a prompt file to use (either text or JSON)",
+        )
+        parser.add_argument(
+            "--quiet",
+            action="store_true",
+            help="Disable progress display, tool and message logging for cleaner output",
+        )
+        parser.add_argument("--version", action="store_true", help="Show version and exit")
+        parser.add_argument("--server", action="store_true", help="Run as an MCP server")
+        parser.add_argument(
+            "--transport",
+            choices=["http", "stdio", "acp"],
+            default=None,
+            help="Transport protocol to use when running as a server (http, stdio, or acp)",
+        )
+        parser.add_argument(
+            "--port",
+            type=int,
+            default=8000,
+            help="Port to use when running as a server with HTTP transport",
+        )
+        parser.add_argument(
+            "--host",
+            default="0.0.0.0",
+            help="Host address to bind to when running as a server with HTTP transport",
+        )
+        parser.add_argument(
+            "--instance-scope",
+            choices=["shared", "connection", "request"],
+            default="shared",
+            help=(
+                "Control MCP agent instancing behaviour (shared, connection, request). "
+                "ACP is always connection-scoped."
+            ),
+        )
+        parser.add_argument("--env", help="Override the base fast-agent environment directory")
+        parser.add_argument(
+            "--skills",
+            help="Path to skills directory to use instead of default skills directories",
+        )
+        parser.add_argument(
+            "--dump",
+            "--dump-agents",
+            dest="dump_agents",
+            help="Export all loaded agents as Markdown AgentCards into a directory",
+        )
+        parser.add_argument(
+            "--dump-yaml",
+            "--dump-agents-yaml",
+            dest="dump_agents_yaml",
+            help="Export all loaded agents as YAML AgentCards into a directory",
+        )
+        parser.add_argument("--dump-agent", help="Export a single agent by name")
+        parser.add_argument("--dump-agent-path", help="Output file path for --dump-agent")
+        parser.add_argument(
+            "--dump-agent-yaml",
+            action="store_true",
+            help="Export a single agent as YAML (default: Markdown)",
+        )
+        parser.add_argument(
+            "--reload",
+            action="store_true",
+            help="Enable manual AgentCard reloads (/reload)",
+        )
+        parser.add_argument(
+            "--watch",
+            action="store_true",
+            help="Watch AgentCard paths and reload when files change",
+        )
+        parser.add_argument(
+            "--noenv",
+            "--no-env",
+            action="store_true",
+            help="Disable fast-agent home/environment directory use",
+        )
+        parser.add_argument(
+            "--card-tool",
+            action="append",
+            dest="card_tools",
+            help=(
+                "Path, HTTP(S) URL, file:// URI, or hf:// URI to an AgentCard file to load "
+                "as a tool (repeatable)"
+            ),
+        )
+        return parser
+
+    def _normalize_constructor_cli_server_flags(self) -> None:
+        cli_args = sys.argv[1:]
+        server_flag_used = "--server" in cli_args
+        transport_flag_used = any(
+            arg == "--transport" or arg.startswith("--transport=") for arg in cli_args
+        )
+
+        if transport_flag_used and not getattr(self.args, "server", False):
+            self.args.server = True
+        if getattr(self.args, "transport", None) is None:
+            self.args.transport = "http"
+        if server_flag_used:
+            print(
+                "--server is deprecated; server mode is implied when --transport is provided. "
+                "This flag will be removed in a future release.",
+                file=sys.stderr,
+            )
+
+    def _handle_constructor_version_flag(self) -> None:
+        if not getattr(self.args, "version", False):
+            return
+
+        try:
+            app_version = get_version("fast-agent-mcp")
+        except Exception:
+            app_version = "unknown"
+        print(f"fast-agent-mcp v{app_version}")
+        sys.exit(0)
+
+    def _apply_constructor_runtime_flags(self, *, noenv: bool) -> None:
+        if getattr(self.args, "transport", None) == "acp":
+            self._programmatic_quiet = True
+            self.args.quiet = True
+
+        if self._programmatic_quiet:
+            self.args.quiet = True
+
+        if noenv:
+            self.args.noenv = True
+        elif "noenv" not in vars(self.args):
+            self.args.noenv = False
+
+        self._apply_constructor_environment_override()
+        self._apply_constructor_skills_override()
+
+    def _apply_constructor_environment_override(self) -> None:
+        args_env = vars(self.args).get("env")
+        if self._environment_dir_override is None and args_env:
+            self._environment_dir_override = self._normalize_environment_dir(args_env)
+
+        if self._environment_dir_override is None:
+            return
+
+        from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
+
+        os.environ[FAST_AGENT_RUNTIME_ENVIRONMENT] = str(self._environment_dir_override)
+        os.environ["ENVIRONMENT_DIR"] = str(self._environment_dir_override)
+
+    def _apply_constructor_skills_override(self) -> None:
+        args_skills = vars(self.args).get("skills")
+        if self._skills_directory_override is None and args_skills:
+            self._skills_directory_override = self._normalize_skill_directories(args_skills)
+
+    def _load_instance_settings(self) -> config.Settings:
+        self._load_config()
+        self._apply_constructor_config_overrides()
+        instance_settings = config.Settings(**self.config)
+        self._copy_loaded_settings_metadata(instance_settings)
+        config.update_global_settings(instance_settings)
+        return instance_settings
+
+    def _apply_constructor_config_overrides(self) -> None:
+        if self._programmatic_quiet:
+            logger_config = self.config.setdefault("logger", {})
+            logger_config["progress_display"] = False
+            logger_config["show_chat"] = False
+            logger_config["show_tools"] = False
+
+        if self._environment_dir_override is not None:
+            self.config["environment_dir"] = str(self._environment_dir_override)
+
+        if self._skills_directory_override is not None:
+            skills_config = self.config.setdefault("skills", {})
+            skills_config["directories"] = [str(path) for path in self._skills_directory_override]
+
+    def _copy_loaded_settings_metadata(self, instance_settings: config.Settings) -> None:
+        instance_settings._config_file = getattr(self, "_loaded_config_file", None)
+        instance_settings._secrets_file = getattr(self, "_loaded_secrets_file", None)
+        instance_settings._fast_agent_home = getattr(self, "_loaded_fast_agent_home", None)
+        instance_settings._fast_agent_home_source = getattr(
+            self,
+            "_loaded_fast_agent_home_source",
+            None,
+        )
+        instance_settings._fast_agent_noenv = bool(
+            getattr(self, "_loaded_fast_agent_noenv", False)
+        )
+
+    def _stop_progress_display_if_quiet(self) -> None:
+        if not self._programmatic_quiet:
+            return
+
+        if getattr(self.args, "server", False) and uses_protocol_stdio(
+            getattr(self.args, "transport", None)
+        ):
+            configure_console_stream("stderr")
+
+        from fast_agent.ui.progress_display import progress_display
+
+        progress_display.stop()
+
+    def _initialize_agent_registries(self) -> None:
         self.agents: dict[str, AgentCardData] = {}
-        # Global function-tool registry populated by @fast.tool.
-        # These are local Python tools, not AgentConfig.tools MCP filter maps.
         self._registered_tools: list[FunctionTool] = []
-        # Tracking for AgentCard-loaded agents
         self._agent_card_sources: dict[str, Path] = {}
         self._agent_card_roots: dict[Path, set[str]] = {}
         self._agent_card_root_files: dict[Path, set[Path]] = {}
@@ -640,7 +640,7 @@ class FastAgent(DecoratorMixin):
         ]
         if missing:
             missing_list = ", ".join(missing)
-            raise AgentConfigError(f"Agent(s) not found: {missing_list}")
+            raise AgentConfigError(f"{plural_label(len(missing), 'Agent')} not found: {missing_list}")
 
         existing = list(parent_data.get("child_agents") or [])
         added: list[str] = []
@@ -699,8 +699,8 @@ class FastAgent(DecoratorMixin):
         """
         return resolve_default_agent_name(
             self.agents,
-            is_default=lambda _name, agent_data: bool(
-                getattr(agent_data.get("config"), "default", False)
+            is_default=lambda _name, agent_data: (
+                isinstance(config := agent_data.get("config"), AgentConfig) and config.default
             ),
             is_tool_only=lambda _name, agent_data: bool(agent_data.get("tool_only", False)),
         )
@@ -995,10 +995,6 @@ class FastAgent(DecoratorMixin):
 
         return bool(card_snapshot.removed_files or watch_snapshot.changed_files)
 
-    @staticmethod
-    def _agent_card_extensions() -> set[str]:
-        return {".md", ".markdown", ".yaml", ".yml"}
-
     def _collect_agent_card_files(self, root: Path) -> set[Path]:
         def _has_frontmatter(path: Path) -> bool:
             try:
@@ -1015,18 +1011,17 @@ class FastAgent(DecoratorMixin):
             return False
 
         if root.is_dir():
-            extensions = self._agent_card_extensions()
             return {
                 entry
                 for entry in root.iterdir()
                 if entry.is_file()
-                and entry.suffix.lower() in extensions
-                and (entry.suffix.lower() not in {".md", ".markdown"} or _has_frontmatter(entry))
+                and is_agent_card_path(entry)
+                and (not is_markdown_agent_card_path(entry) or _has_frontmatter(entry))
             }
 
-        if root.suffix.lower() not in self._agent_card_extensions():
+        if not is_agent_card_path(root):
             raise AgentConfigError(f"Unsupported AgentCard file extension: {root}")
-        if root.suffix.lower() in {".md", ".markdown"} and not _has_frontmatter(root):
+        if is_markdown_agent_card_path(root) and not _has_frontmatter(root):
             raise AgentConfigError(
                 "AgentCard markdown files must include frontmatter",
                 f"Missing frontmatter in {root}",
@@ -1043,40 +1038,92 @@ class FastAgent(DecoratorMixin):
             return tool_paths
         for spec in function_tools:
             entrypoint = function_tool_entrypoint(spec)
-            if not entrypoint or ":" not in entrypoint:
+            if not entrypoint:
                 continue
-            module_path_str, _func_name = entrypoint.rsplit(":", 1)
-            module_path = Path(module_path_str)
+            try:
+                parsed = parse_callable_file_spec(
+                    entrypoint,
+                    invalid_message="Invalid function tool spec '{spec}'",
+                )
+            except AgentConfigError:
+                continue
+
+            module_path = Path(parsed.module_path_text)
             if not module_path.is_absolute():
                 module_path = (card_path.parent / module_path).resolve()
-            if module_path.suffix.lower() == ".py":
+            if strip_casefold(module_path.suffix) == ".py":
                 tool_paths.add(module_path)
         return tool_paths
 
-    def _apply_agent_card_updates(
-        self,
-        root: Path,
-        *,
-        current_files: set[Path],
-        removed_files: set[Path],
-        changed_cards: list[LoadedAgentCard],
-        current_stats: dict[Path, tuple[int, int]],
-    ) -> None:
-        removed_names = {
+    def _removed_agent_card_names(self, removed_files: set[Path]) -> set[str]:
+        return {
             self._agent_card_name_by_path[path]
             for path in removed_files
             if path in self._agent_card_name_by_path
         }
-        removed_dependents: set[str] = set()
-        if removed_names:
-            from fast_agent.core.validation import get_agent_dependencies
 
-            removed_set = set(removed_names)
-            for name, agent_data in self.agents.items():
-                if get_agent_dependencies(agent_data) & removed_set:
-                    removed_dependents.add(name)
+    def _agent_card_dependents(self, agent_names: set[str]) -> set[str]:
+        if not agent_names:
+            return set()
 
-        new_names_by_path: dict[Path, str] = {}
+        from fast_agent.core.validation import get_agent_dependencies
+
+        return {
+            name
+            for name, agent_data in self.agents.items()
+            if get_agent_dependencies(agent_data) & agent_names
+        }
+
+    @staticmethod
+    def _is_tool_card_path(path: Path) -> bool:
+        return path.parent.name == "tool-cards"
+
+    def _handle_agent_card_source_collision(
+        self,
+        card: LoadedAgentCard,
+        existing_source: Path,
+        removed_files: set[Path],
+        removed_names: set[str],
+    ) -> bool:
+        if existing_source in removed_files:
+            return False
+
+        existing_is_tool = self._is_tool_card_path(existing_source)
+        new_is_tool = self._is_tool_card_path(card.path)
+        if existing_is_tool == new_is_tool:
+            raise AgentConfigError(
+                f"Agent '{card.name}' already loaded from {existing_source}",
+                f"Path: {card.path}",
+            )
+
+        if new_is_tool:
+            warning_msg = (
+                f"Agent '{card.name}' defined in both tool-cards and agent-cards. "
+                f"Using tool-card version from {card.path}. "
+                f"Skipping agent-card at {existing_source}."
+            )
+            print(f"Warning: {warning_msg}", file=sys.stderr)
+            self._card_collision_warnings.append(warning_msg)
+            removed_names.add(card.name)
+            return False
+
+        warning_msg = (
+            f"Agent '{card.name}' defined in both tool-cards and agent-cards. "
+            f"Using tool-card version from {existing_source}. "
+            f"Skipping agent-card at {card.path}."
+        )
+        print(f"Warning: {warning_msg}", file=sys.stderr)
+        self._card_collision_warnings.append(warning_msg)
+        return True
+
+    def _validate_changed_agent_cards(
+        self,
+        root: Path,
+        *,
+        removed_files: set[Path],
+        changed_cards: list[LoadedAgentCard],
+        removed_names: set[str],
+    ) -> set[str]:
         seen_names: dict[str, Path] = {}
         changed_names: set[str] = set()
         for card in changed_cards:
@@ -1087,7 +1134,6 @@ class FastAgent(DecoratorMixin):
                     f"Conflicts: {seen_names[card.name]} and {card.path}",
                 )
             seen_names[card.name] = card.path
-            new_names_by_path[card.path] = card.name
 
             existing_source = self._agent_card_sources.get(card.name)
             if card.name in self.agents and existing_source is None:
@@ -1096,53 +1142,22 @@ class FastAgent(DecoratorMixin):
                     f"Path: {root}",
                 )
             if existing_source is not None and existing_source != card.path:
-                if existing_source in removed_files:
+                should_skip = self._handle_agent_card_source_collision(
+                    card,
+                    existing_source,
+                    removed_files,
+                    removed_names,
+                )
+                if should_skip:
                     continue
-
-                # Check if this is a tool-cards vs agent-cards collision
-                def _is_tool_card_path(path: Path) -> bool:
-                    return path.parent.name == "tool-cards"
-
-                existing_is_tool = _is_tool_card_path(Path(existing_source))
-                new_is_tool = _is_tool_card_path(card.path)
-
-                if existing_is_tool != new_is_tool:
-                    # Cross-directory collision - tool-cards takes priority
-                    if new_is_tool:
-                        # New card is tool-card, existing is agent-card
-                        # Override: clean up existing, let new card load
-                        warning_msg = (
-                            f"Agent '{card.name}' defined in both tool-cards and agent-cards. "
-                            f"Using tool-card version from {card.path}. "
-                            f"Skipping agent-card at {existing_source}."
-                        )
-                        print(f"Warning: {warning_msg}", file=sys.stderr)
-                        self._card_collision_warnings.append(warning_msg)
-                        # Mark existing agent-card for removal so tool-card can replace it
-                        removed_names.add(card.name)
-                        # Continue to let this card be processed normally
-                    else:
-                        # Existing is tool-card, new is agent-card
-                        # Skip: keep existing, don't load new
-                        warning_msg = (
-                            f"Agent '{card.name}' defined in both tool-cards and agent-cards. "
-                            f"Using tool-card version from {existing_source}. "
-                            f"Skipping agent-card at {card.path}."
-                        )
-                        print(f"Warning: {warning_msg}", file=sys.stderr)
-                        self._card_collision_warnings.append(warning_msg)
-                        continue  # Skip loading this agent-card
-                else:
-                    # Same directory type collision - error as before
-                    raise AgentConfigError(
-                        f"Agent '{card.name}' already loaded from {existing_source}",
-                        f"Path: {card.path}",
-                    )
 
             previous_name = self._agent_card_name_by_path.get(card.path)
             if previous_name and previous_name != card.name:
                 removed_names.add(previous_name)
 
+        return changed_names
+
+    def _remove_agent_cards(self, removed_names: set[str], removed_files: set[Path]) -> None:
         for name in sorted(removed_names):
             self.agents.pop(name, None)
             self._agent_card_sources.pop(name, None)
@@ -1154,9 +1169,9 @@ class FastAgent(DecoratorMixin):
             self._agent_card_name_by_path.pop(path_entry, None)
             self._agent_card_file_cache.pop(path_entry, None)
 
+    def _register_changed_agent_cards(self, changed_cards: list[LoadedAgentCard]) -> None:
         for card in changed_cards:
             self.agents[card.name] = card.agent_data
-
             self._agent_card_sources[card.name] = card.path
             self._agent_card_name_by_path[card.path] = card.name
 
@@ -1167,16 +1182,25 @@ class FastAgent(DecoratorMixin):
                 self._agent_card_history_mtime.pop(card.name, None)
                 self._agent_card_history_len.pop(card.name, None)
 
-        if removed_names:
-            removed_set = set(removed_names)
-            for agent_data in self.agents.values():
-                child_agents = agent_data.get("child_agents")
-                if not child_agents:
-                    continue
-                pruned = [name for name in child_agents if name not in removed_set]
-                if pruned != child_agents:
-                    agent_data["child_agents"] = pruned
+    def _prune_removed_child_agents(self, removed_names: set[str]) -> None:
+        if not removed_names:
+            return
 
+        for agent_data in self.agents.values():
+            child_agents = agent_data.get("child_agents")
+            if not child_agents:
+                continue
+            pruned = [name for name in child_agents if name not in removed_names]
+            if pruned != child_agents:
+                agent_data["child_agents"] = pruned
+
+    def _cache_agent_card_files(
+        self,
+        root: Path,
+        *,
+        current_files: set[Path],
+        current_stats: dict[Path, tuple[int, int]],
+    ) -> None:
         for path_entry, signature in current_stats.items():
             self._agent_card_file_cache[path_entry] = signature
 
@@ -1187,22 +1211,50 @@ class FastAgent(DecoratorMixin):
             if path_entry in self._agent_card_name_by_path
         }
 
+    def _record_agent_card_reload_changes(
+        self,
+        *,
+        changed_names: set[str],
+        removed_names: set[str],
+        removed_dependents: set[str],
+    ) -> None:
+        self._apply_skills_to_agent_configs(self._default_skill_manifests)
+        self._agent_card_last_changed.update(changed_names)
+        self._agent_card_last_removed.update(removed_names)
+        self._agent_card_last_dependents.update(removed_dependents)
+        self._agent_card_last_dependents.update(
+            self._agent_card_dependents(changed_names) - changed_names
+        )
+
+    def _apply_agent_card_updates(
+        self,
+        root: Path,
+        *,
+        current_files: set[Path],
+        removed_files: set[Path],
+        changed_cards: list[LoadedAgentCard],
+        current_stats: dict[Path, tuple[int, int]],
+    ) -> None:
+        removed_names = self._removed_agent_card_names(removed_files)
+        removed_dependents = self._agent_card_dependents(removed_names)
+        changed_names = self._validate_changed_agent_cards(
+            root,
+            removed_files=removed_files,
+            changed_cards=changed_cards,
+            removed_names=removed_names,
+        )
+
+        self._remove_agent_cards(removed_names, removed_files)
+        self._register_changed_agent_cards(changed_cards)
+        self._prune_removed_child_agents(removed_names)
+        self._cache_agent_card_files(root, current_files=current_files, current_stats=current_stats)
+
         if changed_cards or removed_files:
-            self._apply_skills_to_agent_configs(self._default_skill_manifests)
-            from fast_agent.core.validation import get_agent_dependencies
-
-            if changed_names:
-                changed_dependents: set[str] = set()
-                for name, agent_data in self.agents.items():
-                    if name in changed_names:
-                        continue
-                    if get_agent_dependencies(agent_data) & changed_names:
-                        changed_dependents.add(name)
-                self._agent_card_last_dependents.update(changed_dependents)
-
-            self._agent_card_last_changed.update(changed_names)
-            self._agent_card_last_removed.update(removed_names)
-            self._agent_card_last_dependents.update(removed_dependents)
+            self._record_agent_card_reload_changes(
+                changed_names=changed_names,
+                removed_names=removed_names,
+                removed_dependents=removed_dependents,
+            )
 
     @staticmethod
     def _settings_signature(settings: MCPServerSettings) -> dict[str, Any]:
@@ -1218,47 +1270,168 @@ class FastAgent(DecoratorMixin):
         copied.name = name
         return copied
 
-    def _sync_agent_card_mcp_servers(self) -> None:
+    def _ensure_app_mcp_settings(self):
         context = getattr(self.app, "context", None)
         if context is None:
-            return
+            return None
 
         app_config = getattr(context, "config", None)
         if app_config is None:
-            return
+            return None
 
         if app_config.mcp is None:
             app_config.mcp = config.MCPSettings()
+        return context, app_config
 
-        configured_servers = app_config.mcp.servers or {}
-        if self._base_mcp_servers is None:
-            self._base_mcp_servers = {
-                name: self._copy_server_settings(server, name=name)
-                for name, server in configured_servers.items()
-            }
+    def _remember_base_mcp_servers(
+        self,
+        configured_servers: dict[str, MCPServerSettings],
+    ) -> None:
+        if self._base_mcp_servers is not None:
+            return
+        self._base_mcp_servers = {
+            name: self._copy_server_settings(server, name=name)
+            for name, server in configured_servers.items()
+        }
 
-        registry = getattr(context, "server_registry", None)
-        existing_registry = getattr(registry, "registry", {}) if registry is not None else {}
+    def _preserved_runtime_mcp_servers(
+        self,
+        existing_registry: object,
+    ) -> dict[str, MCPServerSettings]:
+        if not isinstance(existing_registry, dict):
+            return {}
 
-        preserved_runtime_servers: dict[str, MCPServerSettings] = {}
-        if isinstance(existing_registry, dict):
-            for name, server in existing_registry.items():
-                if name in self._dynamic_mcp_server_names:
-                    continue
-                if not isinstance(server, config.MCPServerSettings):
-                    continue
-                preserved_runtime_servers[name] = self._copy_server_settings(server, name=name)
+        preserved: dict[str, MCPServerSettings] = {}
+        for name, server in existing_registry.items():
+            if not isinstance(name, str):
+                continue
+            if name in self._dynamic_mcp_server_names:
+                continue
+            if not isinstance(server, config.MCPServerSettings):
+                continue
+            preserved[name] = self._copy_server_settings(server, name=name)
+        return preserved
 
+    def _effective_mcp_servers(
+        self,
+        preserved_runtime_servers: dict[str, MCPServerSettings],
+    ) -> dict[str, MCPServerSettings]:
         effective_servers: dict[str, MCPServerSettings] = {
             name: self._copy_server_settings(server, name=name)
             for name, server in (self._base_mcp_servers or {}).items()
         }
-
         for name, server in preserved_runtime_servers.items():
-            if name in effective_servers:
-                continue
-            effective_servers[name] = server
+            effective_servers.setdefault(name, server)
+        return effective_servers
 
+    @staticmethod
+    def _connector_mcp_payload(entry: MCPConnectTarget, explicit_name: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": explicit_name,
+            "description": entry.description,
+            "management": entry.management,
+            "connector_id": entry.connector_id,
+            "headers": dict(entry.headers) if entry.headers is not None else None,
+            "access_token": entry.access_token,
+            "auth": dict(entry.auth) if entry.auth is not None else None,
+        }
+        if entry.defer_loading is not None:
+            payload["defer_loading"] = entry.defer_loading
+        return payload
+
+    @staticmethod
+    def _target_mcp_overrides(entry: MCPConnectTarget) -> dict[str, Any]:
+        optional_fields = {
+            "description": entry.description,
+            "management": entry.management,
+            "headers": dict(entry.headers) if entry.headers is not None else None,
+            "access_token": entry.access_token,
+            "defer_loading": entry.defer_loading,
+            "auth": dict(entry.auth) if entry.auth is not None else None,
+        }
+        return {name: value for name, value in optional_fields.items() if value is not None}
+
+    def _resolve_connector_mcp_entry(
+        self,
+        agent_name: str,
+        index: int,
+        entry: MCPConnectTarget,
+        explicit_name: str | None,
+    ) -> ResolvedMCPConnectEntry:
+        if entry.target is not None:
+            raise AgentConfigError(
+                f"Invalid mcp_connect entry for agent '{agent_name}'",
+                f"Entry {index}: target must be omitted when connector_id is set",
+            )
+        if explicit_name is None:
+            raise AgentConfigError(
+                f"Invalid mcp_connect entry for agent '{agent_name}'",
+                f"Entry {index}: name is required when connector_id is set",
+            )
+
+        try:
+            settings = config.MCPServerSettings.model_validate(
+                self._connector_mcp_payload(entry, explicit_name)
+            )
+        except Exception as exc:
+            raise AgentConfigError(
+                f"Invalid mcp_connect entry for agent '{agent_name}'",
+                f"Entry {index} connector_id '{entry.connector_id}': {exc}",
+            ) from exc
+
+        return ResolvedMCPConnectEntry(
+            name=explicit_name,
+            settings=settings,
+            target_label=str(entry.connector_id),
+        )
+
+    def _resolve_target_mcp_entry(
+        self,
+        agent_name: str,
+        index: int,
+        entry: MCPConnectTarget,
+        explicit_name: str | None,
+    ) -> ResolvedMCPConnectEntry:
+        target = entry.target
+        if target is None:
+            raise AgentConfigError(
+                f"Invalid mcp_connect entry for agent '{agent_name}'",
+                f"Entry {index}: target must be a non-empty string",
+            )
+
+        try:
+            resolved_entry = resolve_target_entry(
+                target=target,
+                default_name=explicit_name,
+                overrides=self._target_mcp_overrides(entry),
+                source_path=f"mcp_connect[{index}].target",
+            )
+        except Exception as exc:
+            raise AgentConfigError(
+                f"Invalid mcp_connect entry for agent '{agent_name}'",
+                f"Entry {index} target '{target}': {exc}",
+            ) from exc
+
+        return ResolvedMCPConnectEntry(
+            name=resolved_entry.server_name,
+            settings=resolved_entry.settings,
+            target_label=target,
+        )
+
+    def _resolve_mcp_connect_entry(
+        self,
+        agent_name: str,
+        index: int,
+        entry: MCPConnectTarget,
+    ) -> ResolvedMCPConnectEntry:
+        if entry.connector_id is not None:
+            return self._resolve_connector_mcp_entry(agent_name, index, entry, entry.name)
+        return self._resolve_target_mcp_entry(agent_name, index, entry, entry.name)
+
+    def _resolve_agent_mcp_connect_servers(
+        self,
+        effective_servers: dict[str, MCPServerSettings],
+    ) -> tuple[dict[str, list[str]], dict[str, set[str]], set[str]]:
         resolved_servers_by_agent: dict[str, list[str]] = {}
         card_owners: dict[str, set[str]] = {}
         all_dynamic_server_names: set[str] = set()
@@ -1266,129 +1439,72 @@ class FastAgent(DecoratorMixin):
         for agent_name in sorted(self.agents.keys()):
             agent_data = self.agents[agent_name]
             config_obj = agent_data.get("config")
-            if config_obj is None:
+            if not isinstance(config_obj, AgentConfig):
                 continue
 
-            entries = list(getattr(config_obj, "mcp_connect", []) or [])
+            entries = config_obj.mcp_connect
             if not entries:
                 resolved_servers_by_agent[agent_name] = []
                 continue
 
-            owner = str(getattr(config_obj, "source_path", None) or f"agent:{agent_name}")
+            owner = str(config_obj.source_path or f"agent:{agent_name}")
             for index, entry in enumerate(entries):
-                explicit_name = entry.name
-
-                if entry.connector_id is not None:
-                    if entry.target is not None:
-                        raise AgentConfigError(
-                            f"Invalid mcp_connect entry for agent '{agent_name}'",
-                            f"Entry {index}: target must be omitted when connector_id is set",
-                        )
-                    if explicit_name is None:
-                        raise AgentConfigError(
-                            f"Invalid mcp_connect entry for agent '{agent_name}'",
-                            f"Entry {index}: name is required when connector_id is set",
-                        )
-
-                    payload: dict[str, Any] = {
-                        "name": explicit_name,
-                        "description": entry.description,
-                        "management": entry.management,
-                        "connector_id": entry.connector_id,
-                        "headers": dict(entry.headers) if entry.headers is not None else None,
-                        "access_token": entry.access_token,
-                        "auth": dict(entry.auth) if entry.auth is not None else None,
-                    }
-                    if entry.defer_loading is not None:
-                        payload["defer_loading"] = entry.defer_loading
-                    try:
-                        resolved_settings = config.MCPServerSettings.model_validate(payload)
-                    except Exception as exc:  # noqa: BLE001
-                        raise AgentConfigError(
-                            f"Invalid mcp_connect entry for agent '{agent_name}'",
-                            f"Entry {index} connector_id '{entry.connector_id}': {exc}",
-                        ) from exc
-                    resolved_name = explicit_name
-                    target_label = entry.connector_id
-                else:
-                    target = entry.target
-                    if target is None:
-                        raise AgentConfigError(
-                            f"Invalid mcp_connect entry for agent '{agent_name}'",
-                            f"Entry {index}: target must be a non-empty string",
-                        )
-
-                    overrides: dict[str, Any] = {}
-                    if entry.description is not None:
-                        overrides["description"] = entry.description
-                    if entry.management is not None:
-                        overrides["management"] = entry.management
-                    if entry.headers is not None:
-                        overrides["headers"] = dict(entry.headers)
-                    if entry.access_token is not None:
-                        overrides["access_token"] = entry.access_token
-                    if entry.defer_loading is not None:
-                        overrides["defer_loading"] = entry.defer_loading
-                    if entry.auth is not None:
-                        overrides["auth"] = dict(entry.auth)
-
-                    try:
-                        resolved_name, resolved_settings = resolve_target_entry(
-                            target=target,
-                            default_name=explicit_name,
-                            overrides=overrides,
-                            source_path=f"mcp_connect[{index}].target",
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        raise AgentConfigError(
-                            f"Invalid mcp_connect entry for agent '{agent_name}'",
-                            f"Entry {index} target '{target}': {exc}",
-                        ) from exc
-                    target_label = target
-
-                existing = effective_servers.get(resolved_name)
+                resolved = self._resolve_mcp_connect_entry(agent_name, index, entry)
+                existing = effective_servers.get(resolved.name)
                 if existing is not None and not self._settings_equivalent(
-                    existing, resolved_settings
+                    existing,
+                    resolved.settings,
                 ):
                     raise AgentConfigError(
                         (
-                            f"Server name collision for '{resolved_name}' from mcp_connect "
-                            f"target '{target_label}'."
+                            f"Server name collision for '{resolved.name}' from mcp_connect "
+                            f"target '{resolved.target_label}'."
                         ),
                         "Set an explicit unique `name` or change target.",
                     )
 
                 if existing is None:
-                    effective_servers[resolved_name] = self._copy_server_settings(
-                        resolved_settings,
-                        name=resolved_name,
+                    effective_servers[resolved.name] = self._copy_server_settings(
+                        resolved.settings,
+                        name=resolved.name,
                     )
 
-                resolved_servers_by_agent.setdefault(agent_name, []).append(resolved_name)
-                card_owners.setdefault(owner, set()).add(resolved_name)
-                all_dynamic_server_names.add(resolved_name)
+                resolved_servers_by_agent.setdefault(agent_name, []).append(resolved.name)
+                card_owners.setdefault(owner, set()).add(resolved.name)
+                all_dynamic_server_names.add(resolved.name)
 
+        return resolved_servers_by_agent, card_owners, all_dynamic_server_names
+
+    def _merge_agent_mcp_servers(
+        self,
+        resolved_servers_by_agent: dict[str, list[str]],
+    ) -> None:
         active_agent_names = set(self.agents.keys())
         for name, agent_data in self.agents.items():
             config_obj = agent_data.get("config")
-            if config_obj is None:
+            if not isinstance(config_obj, AgentConfig):
                 continue
 
-            current_declared = list(getattr(config_obj, "servers", []))
+            current_declared = list(config_obj.servers)
             if name not in self._agent_declared_servers or name in self._agent_card_last_changed:
                 self._agent_declared_servers[name] = current_declared
 
             base_servers = list(self._agent_declared_servers.get(name, []))
             self._agent_declared_servers[name] = base_servers
-            merged_servers = list(
+            config_obj.servers = list(
                 dict.fromkeys(base_servers + resolved_servers_by_agent.get(name, []))
             )
-            config_obj.servers = merged_servers
 
         for name in list(self._agent_declared_servers.keys()):
             if name not in active_agent_names:
                 self._agent_declared_servers.pop(name, None)
 
+    def _publish_effective_mcp_servers(
+        self,
+        app_config: Any,
+        registry: Any,
+        effective_servers: dict[str, MCPServerSettings],
+    ) -> None:
         app_config.mcp.servers = {
             name: self._copy_server_settings(server, name=name)
             for name, server in effective_servers.items()
@@ -1399,6 +1515,25 @@ class FastAgent(DecoratorMixin):
                 for name, server in effective_servers.items()
             }
 
+    def _sync_agent_card_mcp_servers(self) -> None:
+        sync_context = self._ensure_app_mcp_settings()
+        if sync_context is None:
+            return
+        context, app_config = sync_context
+
+        self._remember_base_mcp_servers(app_config.mcp.servers or {})
+
+        registry = getattr(context, "server_registry", None)
+        existing_registry = getattr(registry, "registry", {}) if registry is not None else {}
+        effective_servers = self._effective_mcp_servers(
+            self._preserved_runtime_mcp_servers(existing_registry)
+        )
+        resolved_servers_by_agent, card_owners, all_dynamic_server_names = (
+            self._resolve_agent_mcp_connect_servers(effective_servers)
+        )
+
+        self._merge_agent_mcp_servers(resolved_servers_by_agent)
+        self._publish_effective_mcp_servers(app_config, registry, effective_servers)
         self._card_mcp_owned_servers = card_owners
         self._dynamic_mcp_server_names = all_dynamic_server_names
 
@@ -1457,7 +1592,7 @@ class FastAgent(DecoratorMixin):
         quiet_mode = getattr(self.args, "quiet", False)
         server_mode = bool(getattr(self.args, "server", False))
         transport = getattr(self.args, "transport", None)
-        if transport in ["stdio", "acp"] and server_mode:
+        if uses_protocol_stdio(transport) and server_mode:
             quiet_mode = True
             configure_console_stream("stderr")
 
@@ -1509,7 +1644,7 @@ class FastAgent(DecoratorMixin):
 
         try:
             return registry.load_manifests()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning(
                 "Failed to load skills; continuing without them",
                 data={"error": str(exc)},
@@ -1737,11 +1872,11 @@ class FastAgent(DecoratorMixin):
             if last_mtime is None:
                 if current_len != 0:
                     continue
-            elif allow_unchanged_empty and current_len == 0 and files_mtime == last_mtime:
-                pass
-            elif files_mtime <= last_mtime:
-                continue
-            elif last_len is not None and current_len != last_len:
+            elif not (
+                allow_unchanged_empty and current_len == 0 and files_mtime == last_mtime
+            ) and (
+                files_mtime <= last_mtime or (last_len is not None and current_len != last_len)
+            ):
                 continue
 
             messages: list[PromptMessageExtended] = []
@@ -1942,20 +2077,20 @@ class FastAgent(DecoratorMixin):
         parent_name: str | None,
         *,
         should_refresh: bool,
-    ) -> tuple[list[str], list[str]]:
+    ) -> AgentCardLoadResult:
         loaded_names = self.load_agents(source)
 
-        added_names: list[str] = []
+        attached_names: list[str] = []
         if parent_name:
             target_name = parent_name
             if target_name not in self.agents:
                 target_name = next(iter(self.agents.keys()), None)
             if target_name and loaded_names:
-                added_names = self.attach_agent_tools(target_name, loaded_names)
+                attached_names = self.attach_agent_tools(target_name, loaded_names)
 
         if should_refresh:
             await self._refresh_shared_instance(state)
-        return loaded_names, added_names
+        return AgentCardLoadResult(loaded_names=loaded_names, attached_names=attached_names)
 
     async def _attach_agent_tools_and_refresh(
         self,
@@ -2044,113 +2179,66 @@ class FastAgent(DecoratorMixin):
     async def _dump_agent_card_callback(self, name: str) -> str:
         return self.dump_agent_card_text(name)
 
+    async def _create_runtime_agent_instance(self, state: ManagedRunState) -> AgentInstance:
+        instance = await self._instantiate_agent_instance(state.runtime)
+        self._configure_runtime_mcp_callbacks(instance.app)
+        return instance
+
     def _build_runtime_callbacks(
         self,
         state: ManagedRunState,
         settings: RunSettings,
     ) -> RuntimeCallbacks:
-        callbacks: RuntimeCallbacks
-
-        async def create_instance() -> AgentInstance:
-            instance = await self._instantiate_agent_instance(state.runtime)
-            self._configure_runtime_mcp_callbacks(instance.app)
-            return instance
-
-        async def dispose_instance(instance: AgentInstance) -> None:
-            await self._dispose_agent_instance(state.runtime, instance)
-
-        async def refresh_shared_instance() -> AgentRefreshResult:
-            return await self._refresh_shared_instance(state)
-
-        async def reload_and_refresh() -> AgentRefreshResult:
-            return await self._reload_and_refresh(state)
-
-        async def load_card_and_refresh(
-            source: str,
-            parent_name: str | None,
-        ) -> tuple[list[str], list[str]]:
-            return await self._load_card_core(state, source, parent_name, should_refresh=True)
-
-        async def load_card_source(
-            source: str,
-            parent_name: str | None,
-        ) -> tuple[list[str], list[str]]:
-            return await self._load_card_core(state, source, parent_name, should_refresh=False)
-
-        async def attach_agent_tools_and_refresh(
-            parent_name: str,
-            child_names: Sequence[str],
-        ) -> list[str]:
-            return await self._attach_agent_tools_and_refresh(state, parent_name, child_names)
-
-        async def detach_agent_tools_and_refresh(
-            parent_name: str,
-            child_names: Sequence[str],
-        ) -> list[str]:
-            return await self._detach_agent_tools_and_refresh(state, parent_name, child_names)
-
-        async def attach_agent_tools_source(
-            parent_name: str,
-            child_names: Sequence[str],
-        ) -> list[str]:
-            return self.attach_agent_tools(parent_name, child_names)
-
-        async def detach_agent_tools_source(
-            parent_name: str,
-            child_names: Sequence[str],
-        ) -> list[str]:
-            return self.detach_agent_tools(parent_name, child_names)
-
-        async def attach_mcp_server(
-            agent_name: str,
-            server_name: str,
-            server_config: MCPServerSettings | None = None,
-            options: MCPAttachOptions | None = None,
-        ) -> MCPAttachResult:
-            return await self._attach_mcp_server_and_refresh(
-                state.active_agents,
-                agent_name,
-                server_name,
-                server_config,
-                options,
-            )
-
-        async def detach_mcp_server(
-            agent_name: str,
-            server_name: str,
-        ) -> MCPDetachResult:
-            return await self._detach_mcp_server_and_refresh(
-                state.active_agents, agent_name, server_name
-            )
-
-        async def list_attached_mcp_servers(agent_name: str) -> list[str]:
-            return await self._list_attached_mcp_servers(state.active_agents, agent_name)
-
-        async def list_configured_detached_mcp_servers(agent_name: str) -> list[str]:
-            return await self._list_configured_detached_mcp_servers(
-                state.active_agents,
-                agent_name,
-            )
-
-        callbacks = RuntimeCallbacks(
-            create_instance=create_instance,
-            dispose_instance=dispose_instance,
-            refresh_shared_instance=refresh_shared_instance,
-            reload_and_refresh=reload_and_refresh,
+        return RuntimeCallbacks(
+            create_instance=partial(self._create_runtime_agent_instance, state),
+            dispose_instance=partial(self._dispose_agent_instance, state.runtime),
+            refresh_shared_instance=partial(self._refresh_shared_instance, state),
+            reload_and_refresh=partial(self._reload_and_refresh, state),
             reload_source=self.reload_agents if settings.reload_enabled else None,
-            load_card_and_refresh=load_card_and_refresh,
-            load_card_source=load_card_source,
-            attach_agent_tools_and_refresh=attach_agent_tools_and_refresh,
-            detach_agent_tools_and_refresh=detach_agent_tools_and_refresh,
-            attach_agent_tools_source=attach_agent_tools_source,
-            detach_agent_tools_source=detach_agent_tools_source,
-            attach_mcp_server=attach_mcp_server,
-            detach_mcp_server=detach_mcp_server,
-            list_attached_mcp_servers=list_attached_mcp_servers,
-            list_configured_detached_mcp_servers=list_configured_detached_mcp_servers,
+            load_card_and_refresh=partial(self._load_card_core, state, should_refresh=True),
+            load_card_source=partial(self._load_card_core, state, should_refresh=False),
+            attach_agent_tools_and_refresh=partial(
+                self._attach_agent_tools_and_refresh,
+                state,
+            ),
+            detach_agent_tools_and_refresh=partial(
+                self._detach_agent_tools_and_refresh,
+                state,
+            ),
+            attach_agent_tools_source=self._attach_agent_tools_source,
+            detach_agent_tools_source=self._detach_agent_tools_source,
+            attach_mcp_server=partial(
+                self._attach_mcp_server_and_refresh,
+                state.active_agents,
+            ),
+            detach_mcp_server=partial(
+                self._detach_mcp_server_and_refresh,
+                state.active_agents,
+            ),
+            list_attached_mcp_servers=partial(
+                self._list_attached_mcp_servers,
+                state.active_agents,
+            ),
+            list_configured_detached_mcp_servers=partial(
+                self._list_configured_detached_mcp_servers,
+                state.active_agents,
+            ),
             dump_agent_card=self._dump_agent_card_callback,
         )
-        return callbacks
+
+    async def _attach_agent_tools_source(
+        self,
+        parent_name: str,
+        child_names: Sequence[str],
+    ) -> list[str]:
+        return self.attach_agent_tools(parent_name, child_names)
+
+    async def _detach_agent_tools_source(
+        self,
+        parent_name: str,
+        child_names: Sequence[str],
+    ) -> list[str]:
+        return self.detach_agent_tools(parent_name, child_names)
 
     def _configure_runtime_mcp_callbacks(self, app: AgentApp) -> None:
         def active_agents() -> dict[str, AgentProtocol]:
@@ -2264,14 +2352,15 @@ class FastAgent(DecoratorMixin):
         if default_agent is None:
             return
 
-        add_tool_fn = getattr(default_agent, "add_agent_tool", None)
-        if not callable(add_tool_fn):
-            return
+        if not isinstance(default_agent, AgentToolAttachable):
+            raise AgentConfigError(
+                f"Agent '{default_agent_name or 'default'}' does not support agents-as-tools"
+            )
 
         tool_agents = [
             state.active_agents.get(tool_agent_name) for tool_agent_name in card_tool_agent_names
         ]
-        add_tools_for_agents(add_tool_fn, tool_agents)
+        add_tools_for_agents(default_agent.add_agent_tool, tool_agents)
 
     def _print_server_startup(self, output_stream: Any) -> None:
         print(f"Starting fast-agent  '{self.name}' in server mode", file=output_stream)
@@ -2368,7 +2457,7 @@ class FastAgent(DecoratorMixin):
         if not settings.server_mode:
             return
 
-        is_stdio_transport = settings.transport in ["stdio", "acp"]
+        is_stdio_transport = uses_protocol_stdio(settings.transport)
         configure_console_stream("stderr" if is_stdio_transport else "stdout")
         output_stream = sys.stderr if is_stdio_transport else sys.stdout
 
@@ -2383,7 +2472,7 @@ class FastAgent(DecoratorMixin):
         except KeyboardInterrupt:
             if not settings.quiet_mode:
                 print("\nServer stopped by user (Ctrl+C)", file=output_stream)
-            raise SystemExit(0)
+            raise SystemExit(0) from None
         except Exception as exc:
             if not settings.quiet_mode:
                 import traceback
@@ -2428,7 +2517,7 @@ class FastAgent(DecoratorMixin):
             raise
         except Exception as exc:
             display_agent = agent_name or "<default>"
-            print(f"\n\nError sending message to agent '{display_agent}': {str(exc)}")
+            print(f"\n\nError sending message to agent '{display_agent}': {exc!s}")
             raise SystemExit(1) from exc
 
     async def _handle_prompt_file_mode(
@@ -2452,17 +2541,15 @@ class FastAgent(DecoratorMixin):
             raise
         except Exception as exc:
             display_agent = agent_name or "<default>"
-            print(f"\n\nError sending message to agent '{display_agent}': {str(exc)}")
+            print(f"\n\nError sending message to agent '{display_agent}': {exc!s}")
             raise SystemExit(1) from exc
 
     async def _stop_watch_task(self) -> None:
         if self._agent_card_watch_task is None:
             return
         self._agent_card_watch_task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await self._agent_card_watch_task
-        except asyncio.CancelledError:
-            pass
         self._agent_card_watch_task = None
         self._agent_card_watch_reload = None
 
@@ -2491,18 +2578,14 @@ class FastAgent(DecoratorMixin):
         if self._server_managed_instances and self._server_instance_dispose is not None:
             remaining_instances = list(self._server_managed_instances)
             for instance in remaining_instances:
-                try:
+                with suppress(Exception):
                     await self._server_instance_dispose(instance)
-                except Exception:
-                    pass
             self._server_managed_instances.clear()
             return
 
         for agent in active_agents.values():
-            try:
+            with suppress(Exception):
                 await agent.shutdown()
-            except Exception:
-                pass
 
     async def _finalize_run(
         self,
@@ -2587,7 +2670,7 @@ class FastAgent(DecoratorMixin):
                 # User requested exit - not an error, show usage report
                 shutdown_timeout = _PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS
                 self._handle_error(e)
-                raise SystemExit(0)
+                raise SystemExit(0) from e
             except (
                 ServerConfigError,
                 ProviderKeyError,
@@ -2598,7 +2681,7 @@ class FastAgent(DecoratorMixin):
             ) as e:
                 had_error = True
                 self._handle_error(e)
-                raise SystemExit(1)
+                raise SystemExit(1) from e
 
             finally:
                 await self._finalize_run(
@@ -2730,61 +2813,76 @@ class FastAgent(DecoratorMixin):
         self,
         entry: SkillConfig,
     ) -> list[SkillManifest]:
-        if entry is SKILLS_DEFAULT:
-            return []
-        if entry is None:
+        if entry is SKILLS_DEFAULT or entry is None:
             return []
         if isinstance(entry, list):
-            filtered: list[SkillEntry] = []
-            for item in entry:
-                if isinstance(item, (SkillManifest, SkillRegistry, Path, str)):
-                    filtered.append(item)
-                elif item is not None:
-                    logger.debug(
-                        "Unsupported skill entry type",
-                        data={"type": type(item).__name__},
-                    )
-            if not filtered:
-                return []
-            directory_entries = [item for item in filtered if isinstance(item, (Path, str))]
-            if len(directory_entries) == len(filtered):
-                directories: list[Path | str] = []
-                for item in directory_entries:
-                    directories.append(Path(item) if isinstance(item, str) else item)
-                registry = SkillRegistry(base_dir=Path.cwd(), directories=directories)
-                return registry.load_manifests()
-            manifests: list[SkillManifest] = []
-            for item in filtered:
-                manifests.extend(self._resolve_skills(item))
-            return manifests
-        if isinstance(entry, SkillManifest):
-            return [entry]
-        if isinstance(entry, SkillRegistry):
-            try:
-                return entry.load_manifests()
-            except Exception:
-                logger.debug(
-                    "Failed to load skills from registry",
-                    data={"registry": type(entry).__name__},
-                )
-                return []
-        if isinstance(entry, (Path, str)):
-            # Use instance method to preserve original path for relative path computation
-            path = Path(entry) if isinstance(entry, str) else entry
-            registry = SkillRegistry(base_dir=Path.cwd(), directories=[path])
-            return registry.load_manifests()
+            return self._resolve_skill_entries(cast("list[SkillEntry | None]", entry))
+        return self._resolve_single_skill_entry(cast("SkillEntry", entry))
 
-        logger.debug(
-            "Unsupported skill entry type",
-            data={"type": type(entry).__name__},
-        )
-        return []
+    def _resolve_single_skill_entry(self, entry: SkillEntry) -> list[SkillManifest]:
+        if isinstance(entry, SkillManifest):
+            resolved = [entry]
+        elif isinstance(entry, SkillRegistry):
+            resolved = self._load_skill_registry(entry)
+        elif isinstance(entry, (Path, str)):
+            # Use instance method to preserve original path for relative path computation
+            resolved = self._load_skill_directories([entry])
+        else:
+            logger.debug(
+                "Unsupported skill entry type",
+                data={"type": type(entry).__name__},
+            )
+            resolved = []
+        return resolved
+
+    def _resolve_skill_entries(self, entries: list[SkillEntry | None]) -> list[SkillManifest]:
+        filtered = self._supported_skill_entries(entries)
+        if not filtered:
+            return []
+        directory_entries = [item for item in filtered if isinstance(item, (Path, str))]
+        if len(directory_entries) == len(filtered):
+            return self._load_skill_directories(directory_entries)
+
+        manifests: list[SkillManifest] = []
+        for item in filtered:
+            manifests.extend(self._resolve_skills(item))
+        return manifests
+
+    @staticmethod
+    def _supported_skill_entries(entries: list[SkillEntry | None]) -> list[SkillEntry]:
+        filtered: list[SkillEntry] = []
+        for item in entries:
+            if isinstance(item, (SkillManifest, SkillRegistry, Path, str)):
+                filtered.append(item)
+            elif item is not None:
+                logger.debug(
+                    "Unsupported skill entry type",
+                    data={"type": type(item).__name__},
+                )
+        return filtered
+
+    @staticmethod
+    def _load_skill_registry(registry: SkillRegistry) -> list[SkillManifest]:
+        try:
+            return registry.load_manifests()
+        except Exception:
+            logger.debug(
+                "Failed to load skills from registry",
+                data={"registry": type(registry).__name__},
+            )
+            return []
+
+    @staticmethod
+    def _load_skill_directories(entries: list[Path | str]) -> list[SkillManifest]:
+        directories = [Path(item) if isinstance(item, str) else item for item in entries]
+        registry = SkillRegistry(base_dir=Path.cwd(), directories=directories)
+        return registry.load_manifests()
 
     @staticmethod
     def _deduplicate_skills(manifests: list[SkillManifest]) -> list[SkillManifest]:
         unique: dict[str, SkillManifest] = {}
         for manifest in manifests:
-            key = manifest.name.lower()
+            key = strip_casefold(manifest.name)
             if key not in unique:
                 unique[key] = manifest
         return list(unique.values())
@@ -2883,10 +2981,7 @@ class FastAgent(DecoratorMixin):
         # This method simply updates the command line arguments and uses run()
         # to ensure we follow the same initialization path for all operations
 
-        # Store original args
-        original_args = None
-        if hasattr(self, "args"):
-            original_args = self.args
+        original_args = getattr(self, "args", None)
 
         # Create our own args object with server settings
         from argparse import Namespace
@@ -2906,30 +3001,23 @@ class FastAgent(DecoratorMixin):
         )
         self.args.permissions_enabled = permissions_enabled
         # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
-        self.args.quiet = (
-            original_args.quiet if original_args and hasattr(original_args, "quiet") else False
-        )
-        if transport in ["stdio", "acp"]:
+        self.args.quiet = bool(getattr(original_args, "quiet", False))
+        if uses_protocol_stdio(transport):
             self.args.quiet = True
         self.args.model = None
-        if original_args is not None and hasattr(original_args, "model"):
-            self.args.model = original_args.model
-        if original_args is not None and hasattr(original_args, "agent"):
-            self.args.agent = original_args.agent
-        if original_args is not None and hasattr(original_args, "reload"):
-            self.args.reload = original_args.reload
-        if original_args is not None and hasattr(original_args, "watch"):
-            self.args.watch = original_args.watch
-        if original_args is not None and hasattr(original_args, "card_tools"):
-            self.args.card_tools = original_args.card_tools
+        missing_arg = object()
+        for arg_name in ("model", "agent", "reload", "watch", "card_tools"):
+            arg_value = getattr(original_args, arg_name, missing_arg)
+            if arg_value is not missing_arg:
+                setattr(self.args, arg_name, arg_value)
 
-        # Run the application, which will detect the server flag and start server mode
-        async with self.run():
-            pass  # This won't be reached due to SystemExit in run()
-
-        # Restore original args (if we get here)
-        if original_args:
-            self.args = original_args
+        try:
+            # Run the application, which will detect the server flag and start server mode
+            async with self.run():
+                pass  # This won't be reached due to SystemExit in run()
+        finally:
+            if original_args:
+                self.args = original_args
 
     async def run_with_mcp_server(
         self,
@@ -2980,7 +3068,7 @@ class FastAgent(DecoratorMixin):
             # This doesn't actually do anything - the check happens in run()
             # But it provides a way for application code to know if server mode
             # was requested for conditionals
-            is_server_mode = hasattr(self, "args") and self.args.server
+            is_server_mode = await fast.main()
 
             # Normal run - this will handle server mode automatically if requested
             async with fast.run() as agent:
@@ -2994,7 +3082,7 @@ class FastAgent(DecoratorMixin):
         """
         # Just check if the flag is set, no action here
         # The actual server code will be handled by run()
-        return hasattr(self, "args") and self.args.server
+        return bool(getattr(getattr(self, "args", None), "server", False))
 
 
 @dataclass

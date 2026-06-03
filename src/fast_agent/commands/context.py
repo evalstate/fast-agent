@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Iterable, Literal, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Protocol
 
 from fast_agent.config import Settings, get_settings
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from fast_agent.commands.results import CommandMessage
     from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.session import SessionManager
+    from fast_agent.session.identity import SessionStoreScope
     from fast_agent.types import PromptMessageExtended
 
 
@@ -265,8 +267,9 @@ class CommandContext:
     io: CommandIO
     settings: Settings | None = None
     noenv: bool = False
+    acp_session_id: str | None = None
     session_cwd: Path | None = None
-    session_store_scope: Literal["workspace", "app"] = "workspace"
+    session_store_scope: SessionStoreScope = "workspace"
     session_store_cwd: Path | None = None
 
     def resolve_settings(self) -> Settings:

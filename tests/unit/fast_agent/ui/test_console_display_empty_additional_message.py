@@ -1,7 +1,9 @@
 import asyncio
 import json
+from types import SimpleNamespace
 
-from mcp.types import CallToolResult, TextContent
+import pytest
+from mcp.types import CallToolResult, ImageContent, TextContent
 from rich.console import Group
 from rich.syntax import Syntax
 from rich.text import Text
@@ -11,8 +13,9 @@ from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import console
-from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.console_display import ConsoleDisplay, ParallelAgentDisplayResult
 from fast_agent.ui.message_primitives import MessageType
+from fast_agent.ui.streaming_preferences import resolve_streaming_preferences
 
 
 def _contains_renderable_type(renderable: object, renderable_type: type[object]) -> bool:
@@ -42,6 +45,22 @@ class _CaptureContentDisplay(ConsoleDisplay):
         self.displayed_content.append(content)
 
 
+class _ReadOnlyPartialConfig:
+    @property
+    def logger(self) -> SimpleNamespace:
+        return SimpleNamespace(show_chat=True)
+
+
+class _FailingLoggerConfig:
+    @property
+    def logger(self) -> None:
+        return None
+
+    @logger.setter
+    def logger(self, value: LoggerSettings) -> None:
+        raise RuntimeError("logger setter failed")
+
+
 def test_console_display_uses_logger_render_settings_by_default() -> None:
     display = ConsoleDisplay(
         config=Settings(
@@ -62,6 +81,149 @@ def test_console_display_wraps_code_by_default() -> None:
     display = ConsoleDisplay(config=None)
 
     assert display.code_word_wrap is True
+
+
+def test_console_display_defaults_missing_logger_on_lightweight_config() -> None:
+    config = SimpleNamespace()
+
+    display = ConsoleDisplay(config=config)
+
+    assert display.code_word_wrap is True
+    assert isinstance(config.logger, LoggerSettings)
+
+
+def test_console_display_syncs_logger_settings_to_mapping_config() -> None:
+    config: dict[str, object] = {}
+
+    display = ConsoleDisplay(config=config)
+
+    assert display.code_word_wrap is True
+    assert isinstance(config["logger"], LoggerSettings)
+
+
+def test_console_display_defaults_missing_logger_fields_on_lightweight_config() -> None:
+    config = SimpleNamespace(logger=SimpleNamespace(show_chat=False))
+
+    display = ConsoleDisplay(config=config)
+
+    assert display.code_word_wrap is True
+    assert display.render_fences_with_syntax is True
+    assert display.resolve_streaming_preferences().enabled is False
+
+
+def test_console_display_does_not_swallow_logger_setter_failures() -> None:
+    with pytest.raises(RuntimeError, match="logger setter failed"):
+        ConsoleDisplay(config=_FailingLoggerConfig())
+
+
+def test_tool_display_uses_normalized_logger_settings_for_read_only_config() -> None:
+    display = ConsoleDisplay(config=_ReadOnlyPartialConfig())
+
+    with console.console.capture() as capture:
+        display.show_tool_call("lookup", {"query": "docs"})
+
+    assert "lookup" in capture.get()
+
+
+def test_assistant_images_use_normalized_settings_for_read_only_config() -> None:
+    display = ConsoleDisplay(config=_ReadOnlyPartialConfig())
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Final answer")],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=message,
+                name="dev",
+                model="gpt-test",
+            )
+        return capture.get()
+
+    assert "Final answer" in asyncio.run(_render())
+
+
+def test_console_display_resolves_streaming_preferences_from_logger_settings() -> None:
+    display = ConsoleDisplay(
+        config=Settings(
+            logger=LoggerSettings(
+                show_chat=False,
+                streaming="plain",
+            )
+        )
+    )
+
+    preferences = display.resolve_streaming_preferences()
+
+    assert preferences.mode == "plain"
+    assert preferences.enabled is False
+
+
+def test_streaming_preferences_normalizes_legacy_and_invalid_modes() -> None:
+    plain_preferences = resolve_streaming_preferences(
+        SimpleNamespace(
+            show_chat=True,
+            streaming="markdown",
+            streaming_plain_text=True,
+            streaming_display=True,
+        )
+    )
+    invalid_preferences = resolve_streaming_preferences(
+        SimpleNamespace(show_chat=True, streaming="bogus", streaming_display=True)
+    )
+
+    assert plain_preferences.mode == "plain"
+    assert plain_preferences.enabled is True
+    assert invalid_preferences.mode == "markdown"
+    assert invalid_preferences.enabled is True
+
+
+def test_parallel_result_header_prints_bracketed_model_literally() -> None:
+    display = ConsoleDisplay(config=None)
+
+    with console.console.capture() as capture:
+        display._show_parallel_result_header(
+            ParallelAgentDisplayResult(
+                name="worker",
+                model="[draft]",
+                content="ok",
+                tokens=0,
+                tool_calls=0,
+            )
+        )
+
+    assert "[draft]" in capture.get()
+
+
+def test_parallel_summary_prints_with_styled_text() -> None:
+    display = ConsoleDisplay(config=None)
+    summary = display._parallel_summary_text(
+        [
+            ParallelAgentDisplayResult(
+                name="worker",
+                model="[draft]",
+                content="ok",
+                tokens=12,
+                tool_calls=1,
+            )
+        ]
+    )
+
+    assert summary == "1 model • 12 tokens • 1 tool"
+
+
+def test_parallel_result_usage_label_pluralizes_tools() -> None:
+    result = ParallelAgentDisplayResult(
+        name="worker",
+        model="gpt",
+        content="ok",
+        tokens=0,
+        tool_calls=1,
+    )
+
+    assert ConsoleDisplay._parallel_result_usage_label(result) == "1 tool"
 
 
 def test_normalize_assistant_display_text_trims_trailing_blank_lines() -> None:
@@ -327,6 +489,40 @@ def test_openai_phase_blocks_render_with_friendly_labels_in_assistant_output() -
     rendered = asyncio.run(_render())
     assert "Commentary" in rendered
     assert "Let me inspect that first." in rendered
+    assert "Final Answer:" in rendered
+    assert "Final answer" in rendered
+
+
+def test_openai_phase_blocks_skip_non_text_items() -> None:
+    display = ConsoleDisplay(config=None)
+
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Final answer")],
+        channels={
+            OPENAI_ASSISTANT_MESSAGE_ITEMS: [
+                ImageContent(type="image", data="abc", mimeType="image/png"),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "message",
+                            "phase": "final_answer",
+                            "content": [{"type": "output_text", "text": "Final answer"}],
+                        }
+                    ),
+                ),
+            ]
+        },
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(message_text=message, name="dev", model="gpt-test")
+        return capture.get()
+
+    rendered = asyncio.run(_render())
     assert "Final Answer:" in rendered
     assert "Final answer" in rendered
 

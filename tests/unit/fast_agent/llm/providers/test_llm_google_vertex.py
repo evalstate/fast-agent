@@ -103,6 +103,8 @@ def test_vertex_partner_model_names_are_not_rewritten_to_google_publisher() -> N
     llm = _build_llm(config)
 
     assert llm._resolve_model_name("claude-sonnet-4-6") == "claude-sonnet-4-6"
+    mixed_case_model = "  Claude-Sonnet-4-6  "
+    assert llm._resolve_model_name(mixed_case_model) == mixed_case_model
     assert (
         llm._resolve_model_name("publishers/anthropic/models/claude-sonnet-4-6")
         == "publishers/anthropic/models/claude-sonnet-4-6"

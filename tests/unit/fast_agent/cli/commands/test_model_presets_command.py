@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 from fast_agent.cli.commands import model as model_command
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider_types import Provider
 
 
 def test_model_presets_filters_by_provider_json() -> None:
@@ -20,6 +21,10 @@ def test_model_presets_filters_by_provider_json() -> None:
     assert {row["provider"] for row in rows} == {"anthropic"}
     opus = next(row for row in rows if row["alias"] == "opus")
     assert opus["model"] == ModelFactory.parse_model_string("opus").model_name
+
+
+def test_model_presets_provider_filter_normalizes_aliases() -> None:
+    assert model_command._model_presets_provider_filter("  HuggingFace  ") == Provider.HUGGINGFACE
 
 
 def test_model_presets_text_shows_downstream_model() -> None:

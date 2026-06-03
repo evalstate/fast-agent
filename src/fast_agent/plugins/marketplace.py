@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from fast_agent.marketplace import source_utils as marketplace_source_utils
-from fast_agent.plugins.models import MarketplacePlugin
+from fast_agent.plugins.models import PLUGIN_MANIFEST_FILENAME, MarketplacePlugin
 from fast_agent.plugins.provenance import normalize_repo_path
+from fast_agent.utils.action_normalization import normalize_action_token
+
+if TYPE_CHECKING:
+    from pydantic import ValidationInfo
+
+_CARD_PACK_ENTRY_KINDS = frozenset(("card", "card_pack", "card-pack", "bundle"))
+
+
+def _is_card_pack_marketplace_entry(kind: str | None) -> bool:
+    return normalize_action_token(kind) in _CARD_PACK_ENTRY_KINDS
 
 
 class MarketplacePluginEntryModel(BaseModel):
@@ -26,42 +35,79 @@ class MarketplacePluginEntryModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_entry(cls, data: Any, info: Any) -> Any:
+    def _normalize_entry(cls, data: Any, info: "ValidationInfo") -> Any:
         if not isinstance(data, dict):
             return data
-        context = getattr(info, "context", None) or {}
-        repo_url = _first_str(data, "repo", "repository", "git", "repo_url")
-        repo_ref = _first_str(data, "repo_ref", "ref", "branch", "tag", "revision", "commit")
-        repo_path = _first_str(data, "path", "plugin_path", "directory", "dir", "repo_path")
-        source_url = _first_str(data, "source_url", "url", "source")
+        context = info.context or {}
+        default_repo_url = context.get("repo_url")
+        default_source_url = context.get("source_url")
+        repo_fields = marketplace_source_utils.marketplace_repo_fields(
+            data,
+            repo_path_keys=("path", "plugin_path", "directory", "dir", "repo_path"),
+        )
+        repo_url = repo_fields.repo_url
+        repo_ref = repo_fields.repo_ref
+        repo_path = repo_fields.repo_path
+        source_url_value = marketplace_source_utils.explicit_entry_source_url(
+            data,
+            "source_url",
+            "url",
+            default_source_url=default_source_url,
+        )
+        source_value = marketplace_source_utils.first_nonempty_str(data, "source")
+        source_url_value_is_url = marketplace_source_utils.is_git_source_url(source_url_value)
+        source_value_is_url = marketplace_source_utils.is_git_source_url(source_value)
+        source_url = (
+            source_value
+            if source_value_is_url
+            else source_url_value
+            if source_url_value_is_url
+            else None
+        )
+        if (
+            source_url_value
+            and repo_path
+            and not source_url
+            and not repo_url
+        ):
+            repo_url = source_url_value
+            source_url = source_url_value
+        source_path = (
+            source_value
+            if not source_value_is_url
+            else None
+        )
 
-        parsed = marketplace_source_utils.parse_github_url(repo_url) if repo_url else None
-        if parsed and not repo_path:
-            repo_url, repo_ref, repo_path = parsed
-        elif parsed:
-            repo_url = parsed[0]
-            repo_ref = repo_ref or parsed[1]
-
-        if source_url and (not repo_url or not repo_path):
+        if source_url and (not repo_url or repo_url == default_repo_url or not repo_path):
             parsed_source = marketplace_source_utils.parse_github_url(source_url)
             if parsed_source:
-                repo_url, repo_ref, repo_path = parsed_source
+                repo_url = parsed_source.repo_url
+                repo_ref = parsed_source.repo_ref
+                repo_path = parsed_source.repo_path
+            elif not repo_url or repo_url == default_repo_url:
+                repo_url = source_url
+        if source_path and not repo_path:
+            repo_path = source_path
 
-        repo_url = repo_url or context.get("repo_url")
+        repo_url = repo_url or default_repo_url
         repo_ref = repo_ref or context.get("repo_ref")
-        name = _first_str(data, "name", "id", "slug", "title")
+        name = marketplace_source_utils.first_nonempty_str(data, "name", "id", "slug", "title")
         if not name and repo_path:
-            name = PurePosixPath(repo_path).name or repo_path
+            name = _plugin_name_from_repo_path(repo_path)
 
         return {
             "name": name,
-            "description": _first_str(data, "description", "summary"),
-            "kind": _first_str(data, "kind", "type"),
+            "description": marketplace_source_utils.first_nonempty_str(
+                data,
+                "description",
+                "summary",
+            ),
+            "kind": marketplace_source_utils.first_nonempty_str(data, "kind", "type"),
             "repo_url": repo_url,
             "repo_ref": repo_ref,
             "repo_path": repo_path,
             "source_url": source_url or context.get("source_url"),
-            "bundle_name": _first_str(data, "bundle_name"),
+            "bundle_name": marketplace_source_utils.first_nonempty_str(data, "bundle_name"),
         }
 
 
@@ -72,7 +118,7 @@ class MarketplacePluginPayloadModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_payload(cls, data: Any, info: Any) -> Any:
+    def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
         return marketplace_source_utils.normalize_marketplace_payload(
             data,
             info,
@@ -85,22 +131,15 @@ def parse_marketplace_plugins(
     *,
     source_url: str | None = None,
 ) -> list[MarketplacePlugin]:
-    repo_url = None
-    repo_ref = None
-    if source_url:
-        parsed = marketplace_source_utils.parse_github_url(source_url)
-        if parsed:
-            repo_url, repo_ref, _ = parsed
-        else:
-            repo_url = marketplace_source_utils.derive_local_repo_root(source_url)
+    source_context = marketplace_source_utils.marketplace_source_context(source_url)
 
     model = MarketplacePluginPayloadModel.model_validate(
         payload,
-        context={"source_url": source_url, "repo_url": repo_url, "repo_ref": repo_ref},
+        context=source_context.as_validation_context(),
     )
     plugins: list[MarketplacePlugin] = []
     for entry in model.entries:
-        if (entry.kind or "").strip().lower() in {"card", "card_pack", "card-pack", "bundle"}:
+        if _is_card_pack_marketplace_entry(entry.kind):
             continue
         if not entry.repo_url or not entry.repo_path:
             continue
@@ -122,21 +161,17 @@ def parse_marketplace_plugins(
 
 
 def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
-    if isinstance(payload, list):
-        return [entry for entry in payload if isinstance(entry, dict)]
-    if isinstance(payload, dict):
-        for key in ("command_plugins", "fast_agent_plugins", "plugins"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [entry for entry in value if isinstance(entry, dict)]
-        if isinstance(payload.get("entries"), list):
-            return [entry for entry in payload["entries"] if isinstance(entry, dict)]
-    raise ValueError("Unsupported plugin marketplace payload format.")
+    try:
+        return marketplace_source_utils.extract_dict_entries(
+            payload,
+            ("command_plugins", "fast_agent_plugins", "plugins", "entries"),
+        )
+    except ValueError as exc:
+        raise ValueError("Unsupported plugin marketplace payload format.") from exc
 
 
-def _first_str(data: dict[str, Any], *keys: str) -> str | None:
-    for key in keys:
-        value = data.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
+def _plugin_name_from_repo_path(repo_path: str) -> str:
+    return marketplace_source_utils.repo_name_for_manifest_path(
+        repo_path,
+        PLUGIN_MANIFEST_FILENAME,
+    )

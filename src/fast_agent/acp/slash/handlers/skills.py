@@ -3,25 +3,25 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
-from acp.helpers import text_block, tool_content
-from acp.schema import (
-    ContentToolCallContent,
-    FileEditToolCallContent,
-    TerminalToolCallContent,
-    ToolCallProgress,
-    ToolCallStart,
+from fast_agent.acp.slash.tool_updates import (
+    ToolCallStatus,
+    send_fetch_tool_call_start,
+    send_tool_call_progress,
 )
-
+from fast_agent.commands.command_catalog import (
+    format_unknown_command_action,
+    normalize_command_action,
+)
 from fast_agent.commands.command_discovery import render_direct_command_help
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.renderers.skills_markdown import (
     render_marketplace_skills,
     render_skill_list,
     render_skills_by_directory,
-    render_skills_registry_overview,
     render_skills_remove_list,
 )
 from fast_agent.config import get_settings
@@ -30,27 +30,31 @@ from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.command_support import (
     filter_marketplace_skills,
     marketplace_repository_hint,
+    parse_skills_slash_options,
     skills_usage_lines,
 )
-from fast_agent.skills.configuration import (
-    format_marketplace_display_url,
-    get_marketplace_url,
-    resolve_skill_registries,
-)
+from fast_agent.skills.configuration import format_marketplace_display_url, get_marketplace_url
 from fast_agent.skills.operations import (
-    candidate_marketplace_urls,
     fetch_marketplace_skills,
-    fetch_marketplace_skills_with_source,
     reload_skill_manifests,
 )
-from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
+from fast_agent.skills.registry import SkillRegistry
 from fast_agent.skills.scope import (
     order_skill_directories_for_display,
     resolve_skill_directories,
     resolve_skills_management_scope,
 )
+from fast_agent.utils.action_normalization import (
+    is_cancel_action,
+    is_help_flag,
+    split_action_arguments,
+)
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.markdown import markdown_code_span
+from fast_agent.utils.path_display import format_relative_path
+from fast_agent.utils.text import strip_to_none
 
-ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
+SkillsActionHandler = Callable[["SlashCommandHandler", str], Awaitable[str]]
 
 
 def _skills_usage_text() -> str:
@@ -67,29 +71,31 @@ async def handle_skills_available(
     handler: "SlashCommandHandler",
     *,
     query: str | None = None,
+    registry: str | None = None,
 ) -> str:
-    heading = "skills available" if not query else "skills search"
-    marketplace_url = get_marketplace_url(get_settings())
+    normalized_query = strip_to_none(query)
+    heading = "skills available" if normalized_query is None else "skills search"
+    marketplace_url = registry or get_marketplace_url(get_settings())
     display_url = format_marketplace_display_url(marketplace_url)
     try:
         marketplace = await fetch_marketplace_skills(marketplace_url)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return (
             f"# {heading}\n\n"
             f"Failed to load marketplace: {exc}\n\n"
-            f"Repository: `{display_url}`"
+            f"Repository: {markdown_code_span(display_url)}"
         )
 
     if not marketplace:
         return f"# {heading}\n\nNo skills found in the marketplace."
 
     selected_marketplace = list(marketplace)
-    if query and query.strip():
-        selected_marketplace = filter_marketplace_skills(marketplace, query)
+    if normalized_query is not None:
+        selected_marketplace = filter_marketplace_skills(marketplace, normalized_query)
         if not selected_marketplace:
             return (
                 "# skills search\n\n"
-                f"No skills matched query `{query.strip()}`.\n\n"
+                f"No skills matched query {markdown_code_span(normalized_query)}.\n\n"
                 "Try `/skills available` to browse all skills."
             )
 
@@ -103,7 +109,7 @@ async def handle_skills_available(
         heading=heading,
         repository=repository,
     )
-    if query and query.strip():
+    if normalized_query is not None:
         rendered = "\n".join(
             [
                 rendered,
@@ -115,134 +121,91 @@ async def handle_skills_available(
 
 
 async def handle_skills(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    if is_help_flag(arguments):
+        return _skills_usage_text()
+
     direct_help = render_direct_command_help("skills", arguments)
     if direct_help is not None:
         return direct_help
 
-    tokens = (arguments or "").strip().split(maxsplit=1)
-    action = tokens[0].lower() if tokens else "list"
-    remainder = tokens[1] if len(tokens) > 1 else ""
+    action, remainder = _parse_skills_action(arguments)
+    action_handler = _SKILLS_ACTION_HANDLERS.get(action, _handle_unknown_skills_action)
+    return await action_handler(handler, remainder)
 
-    if action in {"help", "--help", "-h"}:
+
+def _parse_skills_action(arguments: str | None) -> tuple[str, str]:
+    requested_action_value, remainder = split_action_arguments(arguments, default_action="")
+    requested_action = requested_action_value or ""
+    action = normalize_command_action("skills", requested_action)
+    if action in _SKILLS_ACTION_HANDLERS:
+        return action, remainder
+    return "unknown", requested_action
+
+
+async def _handle_skills_help_action(
+    _handler: "SlashCommandHandler", _remainder: str
+) -> str:
+    return _skills_usage_text()
+
+
+async def _handle_skills_list_action(handler: "SlashCommandHandler", remainder: str) -> str:
+    if is_help_flag(remainder):
         return _skills_usage_text()
+    parsed = parse_skills_slash_options(remainder)
+    if parsed.error:
+        return f"# skills\n\n{parsed.error}"
+    return handle_skills_list(handler, skills_dir=parsed.skills_dir)
 
-    if action in {"list", ""}:
-        if remainder.strip().lower() in {"help", "--help", "-h"}:
-            return _skills_usage_text()
-        return handle_skills_list(handler)
-    if action in {"available", "browse", "marketplace"}:
-        return await handle_skills_available(handler)
-    if action in {"search", "find"}:
-        query = remainder.strip()
-        if not query:
-            return "# skills search\n\nUsage: /skills search <query>"
-        return await handle_skills_available(handler, query=query)
-    if action in {"add", "install"}:
-        return await handle_skills_add(handler, remainder)
-    if action in {"registry", "source"}:
-        return await handle_skills_registry(handler, remainder)
-    if action in {"remove", "rm", "delete", "uninstall"}:
-        return await handle_skills_remove(handler, remainder)
-    if action in {"update", "refresh", "upgrade"}:
-        return await handle_skills_update(handler, remainder)
 
-    return (
-        "Unknown /skills action. "
-        "Use `/skills list`, `/skills available`, `/skills search`, `/skills add`, "
-        "`/skills remove`, `/skills update`, or `/skills registry`."
-    )
+async def _handle_skills_available_action(
+    handler: "SlashCommandHandler", remainder: str
+) -> str:
+    parsed = parse_skills_slash_options(remainder)
+    if parsed.error:
+        return f"# skills available\n\n{parsed.error}"
+    return await handle_skills_available(handler, registry=parsed.registry)
+
+
+async def _handle_skills_search_action(handler: "SlashCommandHandler", remainder: str) -> str:
+    parsed = parse_skills_slash_options(remainder)
+    if parsed.error:
+        return f"# skills search\n\n{parsed.error}"
+    query = strip_to_none(parsed.argument)
+    if query is None:
+        return "# skills search\n\nUsage: /skills search <query>"
+    return await handle_skills_available(handler, query=query, registry=parsed.registry)
+
+
+async def _handle_unknown_skills_action(
+    _handler: "SlashCommandHandler", remainder: str
+) -> str:
+    return format_unknown_command_action("skills", remainder)
 
 
 async def handle_skills_registry(handler: "SlashCommandHandler", argument: str) -> str:
-    heading = "# skills registry"
-    argument = argument.strip()
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await skills_handlers.handle_set_skills_registry(
+        ctx,
+        argument=argument,
+    )
+    return handler._format_outcome_as_markdown(outcome, "skills registry", io=io)
 
+
+def handle_skills_list(
+    handler: "SlashCommandHandler",
+    *,
+    skills_dir: str | None = None,
+) -> str:
     settings = get_settings()
-    configured_urls = resolve_skill_registries(settings)
-
-    if not argument:
-        current = get_marketplace_url(settings)
-        display_current = format_marketplace_display_url(current)
-        display_registries = [format_marketplace_display_url(url) for url in configured_urls]
-        return render_skills_registry_overview(
-            heading="skills registry",
-            current_registry=display_current,
-            configured_urls=display_registries,
-        )
-
-    if argument.isdigit():
-        index = int(argument)
-        if not configured_urls:
-            return f"{heading}\n\nNo registries configured."
-        if 1 <= index <= len(configured_urls):
-            url = configured_urls[index - 1]
-        else:
-            return f"{heading}\n\nInvalid registry number. Use 1-{len(configured_urls)}."
-    else:
-        url = argument
-
-    candidates = candidate_marketplace_urls(url)
-    try:
-        marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
-    except Exception as exc:  # noqa: BLE001
-        display_url = format_marketplace_display_url(url)
-        handler._logger.warning(
-            "Failed to load skills registry",
-            data={
-                "registry": url,
-                "candidates": candidates,
-                "error": str(exc),
-            },
-        )
-        return "\n".join(
-            [
-                heading,
-                "",
-                f"Failed to load registry: {exc}",
-                f"Registry: {display_url}",
-            ]
-        )
-
-    if not marketplace:
-        display_url = format_marketplace_display_url(url)
-        return "\n".join(
-            [
-                heading,
-                "",
-                "No skills found in the registry; registry unchanged.",
-                f"Registry: {display_url}",
-            ]
-        )
-
-    settings.skills.marketplace_url = resolved_url
-
-    display_url = format_marketplace_display_url(resolved_url)
-    if candidates:
-        handler._logger.debug(
-            "Resolved skills registry",
-            data={
-                "input": url,
-                "resolved": resolved_url,
-                "candidates": candidates,
-            },
-        )
-    response_lines = [
-        heading,
-        "",
-        f"Registry set to: `{display_url}`",
-        "",
-        f"Skills discovered: {len(marketplace)}",
-    ]
-
-    return "\n".join(response_lines)
-
-
-def handle_skills_list(handler: "SlashCommandHandler") -> str:
-    settings = get_settings()
-    management_scope = resolve_skills_management_scope(settings)
+    management_scope = resolve_skills_management_scope(
+        settings,
+        managed_directory_override=skills_dir,
+    )
     discovered_directories = order_skill_directories_for_display(
         management_scope.discovered_directories,
         settings=settings,
+        managed_directory_override=skills_dir,
     )
     all_manifests = {
         directory: SkillRegistry.load_directory(directory) if directory.exists() else []
@@ -267,12 +230,8 @@ def skills_override_section(handler: "SlashCommandHandler") -> str | None:
     for manifest in manifests:
         path = manifest.path
         source_path = path.parent if Path(path).is_file() else Path(path)
-        try:
-            display_path = source_path.relative_to(Path.cwd())
-        except ValueError:
-            display_path = source_path
-        sources.append(str(display_path))
-    sources = sorted(set(sources))
+        sources.append(format_relative_path(source_path))
+    sources = unique_preserve_order(sources)
     lines = [
         "## Active agent skills (override)",
         "",
@@ -280,7 +239,7 @@ def skills_override_section(handler: "SlashCommandHandler") -> str | None:
         "Update settings.skills.directories or the --skills flag to change this list.",
     ]
     if sources:
-        sources_list = ", ".join(f"`{source}`" for source in sources)
+        sources_list = ", ".join(markdown_code_span(source) for source in sources)
         lines.extend(["", f"Sources: {sources_list}"])
     lines.append("")
     if not manifests:
@@ -292,16 +251,22 @@ def skills_override_section(handler: "SlashCommandHandler") -> str | None:
 
 
 async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> str:
-    if argument.strip().lower() in {"q", "quit", "exit"}:
+    if is_cancel_action(argument):
         return "Cancelled."
+
+    parsed = parse_skills_slash_options(argument)
+    if parsed.error:
+        return f"# skills add\n\n{parsed.error}"
 
     agent, error = handler._get_current_agent_or_error("# skills add")
     if error:
         return error
-    assert agent is not None
+    if agent is None:
+        return "# skills add\n\nNo agent available for this session."
 
-    argument_value = argument.strip() or None
-    loading_message = "Installing skill…" if argument_value else "Fetching marketplace…"
+    argument_value = strip_to_none(parsed.argument)
+    if not argument_value:
+        return await _render_skills_add_marketplace(registry=parsed.registry)
 
     tool_call_id = build_tool_call_id()
     await send_skills_update(
@@ -310,33 +275,9 @@ async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> st
         tool_call_id,
         title="Install skill",
         status="in_progress",
-        message=loading_message,
+        message="Installing skill…",
         start=True,
     )
-
-    if not argument_value:
-        marketplace_url = get_marketplace_url(get_settings())
-        display_url = format_marketplace_display_url(marketplace_url)
-        try:
-            marketplace = await fetch_marketplace_skills(marketplace_url)
-        except Exception as exc:  # noqa: BLE001
-            return (
-                "# skills add\n\n"
-                f"Failed to load marketplace: {exc}\n\n"
-                f"Repository: `{display_url}`"
-            )
-
-        repository = display_url
-        if marketplace:
-            repo_url = marketplace[0].repo_url
-            repo_ref = marketplace[0].repo_ref
-            repository = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
-
-        return render_marketplace_skills(
-            marketplace,
-            heading="skills add",
-            repository=repository,
-        )
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
@@ -346,8 +287,10 @@ async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> st
             agent_name=handler.current_agent_name,
             argument=argument_value,
             interactive=False,
+            marketplace_url_override=parsed.registry,
+            managed_directory_override=parsed.skills_dir,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         await send_skills_update(
             handler,
             agent,
@@ -380,13 +323,45 @@ async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> st
     return handler._format_outcome_as_markdown(outcome, "skills add", io=io)
 
 
+async def _render_skills_add_marketplace(*, registry: str | None = None) -> str:
+    marketplace_url = registry or get_marketplace_url(get_settings())
+    display_url = format_marketplace_display_url(marketplace_url)
+    try:
+        marketplace = await fetch_marketplace_skills(marketplace_url)
+    except Exception as exc:
+        return (
+            "# skills add\n\n"
+            f"Failed to load marketplace: {exc}\n\n"
+            f"Repository: {markdown_code_span(display_url)}"
+        )
+
+    repository = display_url
+    if marketplace:
+        repo_url = marketplace[0].repo_url
+        repo_ref = marketplace[0].repo_ref
+        repository = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
+
+    return render_marketplace_skills(
+        marketplace,
+        heading="skills add",
+        repository=repository,
+    )
+
+
 async def handle_skills_remove(handler: "SlashCommandHandler", argument: str) -> str:
-    if argument.strip().lower() in {"q", "quit", "exit"}:
+    if is_cancel_action(argument):
         return "Cancelled."
 
-    argument_value = argument.strip() or None
+    parsed = parse_skills_slash_options(argument)
+    if parsed.error:
+        return f"# skills remove\n\n{parsed.error}"
+
+    argument_value = strip_to_none(parsed.argument)
     if not argument_value:
-        management_scope = resolve_skills_management_scope(get_settings())
+        management_scope = resolve_skills_management_scope(
+            get_settings(),
+            managed_directory_override=parsed.skills_dir,
+        )
         managed_skills_dir = management_scope.managed_directory
         manifests = SkillRegistry.load_directory(managed_skills_dir)
         return render_skills_remove_list(
@@ -404,26 +379,44 @@ async def handle_skills_remove(handler: "SlashCommandHandler", argument: str) ->
             agent_name=handler.current_agent_name,
             argument=argument_value,
             interactive=False,
+            managed_directory_override=parsed.skills_dir,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"# skills remove\n\nFailed to remove skill: {exc}"
 
     return handler._format_outcome_as_markdown(outcome, "skills remove", io=io)
 
 
 async def handle_skills_update(handler: "SlashCommandHandler", argument: str) -> str:
+    parsed = parse_skills_slash_options(argument)
+    if parsed.error:
+        return f"# skills update\n\n{parsed.error}"
+
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
     try:
         outcome = await skills_handlers.handle_update_skill(
             ctx,
             agent_name=handler.current_agent_name,
-            argument=argument.strip() or None,
+            argument=strip_to_none(parsed.argument),
+            managed_directory_override=parsed.skills_dir,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"# skills update\n\nFailed to update skills: {exc}"
 
     return handler._format_outcome_as_markdown(outcome, "skills update", io=io)
+
+
+_SKILLS_ACTION_HANDLERS: dict[str, SkillsActionHandler] = {
+    "help": _handle_skills_help_action,
+    "list": _handle_skills_list_action,
+    "available": _handle_skills_available_action,
+    "search": _handle_skills_search_action,
+    "add": handle_skills_add,
+    "registry": handle_skills_registry,
+    "remove": handle_skills_remove,
+    "update": handle_skills_update,
+}
 
 
 async def refresh_agent_skills(agent: "AgentProtocol") -> None:
@@ -431,17 +424,10 @@ async def refresh_agent_skills(agent: "AgentProtocol") -> None:
     registry, manifests = reload_skill_manifests(
         base_dir=Path.cwd(), override_directories=override_dirs
     )
-    instruction_context = None
-    try:
-        skills_text = format_skills_for_prompt(manifests, read_tool_name="read_text_file")
-        instruction_context = {"agentSkills": skills_text}
-    except Exception:
-        instruction_context = None
 
     await rebuild_agent_instruction(
         agent,
         skill_manifests=manifests,
-        context=instruction_context,
         skill_registry=registry,
     )
 
@@ -467,29 +453,18 @@ async def send_skills_update(
     acp = agent.acp
     if not acp:
         return
-    try:
-        if start:
-            await acp.send_session_update(
-                ToolCallStart(
-                    tool_call_id=tool_call_id,
-                    title=title,
-                    kind="fetch",
-                    status="in_progress",
-                    session_update="tool_call",
-                )
-            )
-        content: (
-            list[ContentToolCallContent | FileEditToolCallContent | TerminalToolCallContent]
-            | None
-        ) = [tool_content(text_block(message))] if message else None
-        await acp.send_session_update(
-            ToolCallProgress(
-                tool_call_id=tool_call_id,
-                title=title,
-                status=status,
-                content=content,
-                session_update="tool_call_update",
-            )
+    if start:
+        started = await send_fetch_tool_call_start(
+            acp,
+            tool_call_id=tool_call_id,
+            title=title,
         )
-    except Exception:
-        return
+        if not started:
+            return
+    await send_tool_call_progress(
+        acp,
+        tool_call_id=tool_call_id,
+        title=title,
+        status=status,
+        message=message,
+    )

@@ -32,7 +32,7 @@ async def handle_tools(handler: "SlashCommandHandler") -> str:
 
     try:
         tools_result: "ListToolsResult" = await agent.list_tools()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return "\n".join(
             [
                 f"# {heading}",

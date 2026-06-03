@@ -91,6 +91,43 @@ class TestParseUrlElicitationRequiredData:
         assert "non-compliant" in parsed.issues[0]
         assert "elicitation_id" in parsed.issues[0]
 
+    def test_trims_snake_case_elicitation_id_compatibility_value(self) -> None:
+        parsed = parse_url_elicitation_required_data(
+            {
+                "elicitations": [
+                    {
+                        "mode": "url",
+                        "message": "Authorize",
+                        "url": "https://example.com/auth",
+                        "elicitation_id": "  snake-1  ",
+                    }
+                ]
+            }
+        )
+
+        assert len(parsed.elicitations) == 1
+        assert parsed.elicitations[0].elicitationId == "snake-1"
+        assert len(parsed.issues) == 1
+        assert "non-compliant" in parsed.issues[0]
+
+    def test_rejects_blank_snake_case_elicitation_id(self) -> None:
+        parsed = parse_url_elicitation_required_data(
+            {
+                "elicitations": [
+                    {
+                        "mode": "url",
+                        "message": "Authorize",
+                        "url": "https://example.com/auth",
+                        "elicitation_id": "   ",
+                    }
+                ]
+            }
+        )
+
+        assert parsed.elicitations == []
+        assert len(parsed.issues) == 1
+        assert "error.data.elicitations[0] is invalid" in parsed.issues[0]
+
 
 class TestUrlElicitationRequiredErrorDetection:
     def _make_session(self) -> MCPAgentClientSession:

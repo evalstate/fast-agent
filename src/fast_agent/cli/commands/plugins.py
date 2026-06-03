@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
-from rich.table import Table
 
 from fast_agent.cli.command_support import (
     ensure_context_object,
@@ -18,12 +17,18 @@ from fast_agent.cli.display import (
     DetailDisplayRow,
     UpdateDisplayRow,
     format_display_path,
+    indexed_table,
     print_detail_section,
     print_hint,
     print_update_table,
+    print_warning,
 )
 from fast_agent.config import resolve_global_plugin_home_path
 from fast_agent.home import PREFERRED_CONFIG_FILENAME
+from fast_agent.marketplace.formatting import (
+    format_installed_revision_display,
+    format_source_provenance,
+)
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.plugins import operations as plugin_ops
 from fast_agent.plugins.configuration import (
@@ -31,8 +36,10 @@ from fast_agent.plugins.configuration import (
     enable_plugin_in_config,
     get_marketplace_url,
 )
-from fast_agent.plugins.provenance import format_installed_at_display, format_revision_short
+from fast_agent.plugins.manifest import load_plugin_manifest
+from fast_agent.plugins.provenance import format_revision_short
 from fast_agent.ui.console import console
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     import click
@@ -60,8 +67,9 @@ def _context_env_dir(ctx: typer.Context) -> Path | None:
             env_dir = payload.get("env_dir")
             if isinstance(env_dir, Path):
                 return env_dir
-            if isinstance(env_dir, str) and env_dir.strip():
-                return Path(env_dir)
+            normalized_env_dir = strip_to_none(env_dir) if isinstance(env_dir, str) else None
+            if normalized_env_dir is not None:
+                return Path(normalized_env_dir)
         current = current.parent
     return None
 
@@ -83,16 +91,16 @@ def _print_local_plugins(ctx: typer.Context) -> None:
         [DetailDisplayRow(label="plugins directory", value=format_display_path(env_paths.plugins))],
     )
     if not plugins:
-        console.print("[yellow]No plugins installed.[/yellow]")
+        print_warning(console, "No plugins installed.")
         print_hint(console, "Install with: fast-agent plugins add <number|name>")
         return
-    table = Table(show_header=True, box=None)
-    table.add_column("#", justify="right", style="dim", header_style="bold bright_white")
-    table.add_column("Name", style="cyan", header_style="bold bright_white")
-    table.add_column("Commands", style="white", header_style="bold bright_white")
-    table.add_column("Keys", style="white", header_style="bold bright_white")
-    table.add_column("Provenance", style="dim", header_style="bold bright_white")
-    table.add_column("Installed", style="green", header_style="bold bright_white")
+    table = indexed_table(
+        ("Name", "cyan"),
+        ("Commands", "white"),
+        ("Keys", "white"),
+        ("Provenance", "dim"),
+        ("Installed", "green"),
+    )
     for entry in plugins:
         commands = ", ".join(entry.manifest.commands) if entry.manifest else "invalid manifest"
         keys = _format_plugin_keys(entry)
@@ -101,9 +109,12 @@ def _print_local_plugins(ctx: typer.Context) -> None:
             table.add_row(str(entry.index), entry.name, commands, keys, provenance, "-")
             continue
         source = entry.source
-        ref_label = f"@{source.repo_ref}" if source.repo_ref else ""
-        provenance = f"{source.repo_url}{ref_label} ({source.repo_path})"
-        installed = f"{format_installed_at_display(source.installed_at)} {format_revision_short(source.installed_revision)}"
+        provenance = format_source_provenance(source.repo_url, source.repo_ref, source.repo_path)
+        installed = format_installed_revision_display(
+            source.installed_at,
+            source.installed_revision,
+            revision_label="",
+        )
         table.add_row(str(entry.index), entry.name, commands, keys, provenance, installed)
     console.print(table)
 
@@ -112,27 +123,24 @@ def _format_plugin_keys(entry) -> str:
     if entry.manifest is None:
         return "-"
     key_labels = [
-        f"{name}: {spec.key}"
+        f"{name}: {normalized_key}"
         for name, spec in entry.manifest.commands.items()
-        if spec.key is not None and spec.key.strip()
+        if (normalized_key := strip_to_none(spec.key)) is not None
     ]
     return ", ".join(key_labels) if key_labels else "-"
 
 
 def _print_marketplace_plugins(plugins) -> None:
     if not plugins:
-        console.print("[yellow]No plugins found in the marketplace.[/yellow]")
+        print_warning(console, "No plugins found in the marketplace.")
         return
-    table = Table(show_header=True, box=None)
-    table.add_column("#", justify="right", style="dim", header_style="bold bright_white")
-    table.add_column("Name", style="cyan", header_style="bold bright_white")
-    table.add_column("Description", style="dim", header_style="bold bright_white")
+    table = indexed_table(("Name", "cyan"), ("Description", "dim"))
     for index, entry in enumerate(plugins, 1):
         table.add_row(str(index), entry.name, entry.description or "")
     console.print(table)
 
 
-def _print_updates(updates, *, title: str) -> None:
+def _print_updates(updates) -> None:
     print_update_table(
         console,
         [
@@ -193,11 +201,11 @@ def plugins_add(
             destination_root=destination_root,
             replace_existing=force,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Failed to install plugin: {exc}", err=True)
         raise typer.Exit(1) from exc
-    manifest = plugin_ops.load_plugin_manifest(plugin_dir) if hasattr(plugin_ops, "load_plugin_manifest") else None
-    plugin_name = manifest.name if manifest else selected.name
+    manifest = load_plugin_manifest(plugin_dir)
+    plugin_name = manifest.name
     enable_plugin_in_config(config_path, plugin_name)
     print_detail_section(
         console,
@@ -245,7 +253,7 @@ def plugins_update(
     updates = plugin_ops.check_plugin_updates(destination_root=env_paths.plugins)
     if not selector:
         print_detail_section(console, "Plugin Update Check", [DetailDisplayRow(label="plugins directory", value=format_display_path(env_paths.plugins))])
-        _print_updates(updates, title="Plugin update check")
+        _print_updates(updates)
         print_hint(console, "Apply with: fast-agent plugins update <number|name|all> [--force] [--yes]")
         raise typer.Exit(0)
     selected = plugin_ops.select_plugin_updates(updates, selector)
@@ -253,11 +261,11 @@ def plugins_update(
         typer.echo(f"Plugin not found: {selector}", err=True)
         raise typer.Exit(1)
     if len(selected) > 1 and not yes:
-        _print_updates(selected, title="Update plan")
-        console.print("[yellow]Multiple plugins selected. Re-run with --yes to apply updates.[/yellow]")
+        _print_updates(selected)
+        print_warning(console, "Multiple plugins selected. Re-run with --yes to apply updates.")
         raise typer.Exit(1)
     applied = plugin_ops.apply_plugin_updates(selected, force=force)
-    _print_updates(applied, title="Plugin update results")
+    _print_updates(applied)
 
 
 def _target_install_context(ctx: typer.Context, *, global_install: bool) -> tuple[Path, Path]:

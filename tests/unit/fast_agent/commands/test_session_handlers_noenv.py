@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp.types import TextContent
 
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import sessions as session_handlers
+from fast_agent.commands.results import CommandOutcome
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from fast_agent.session import ResumeSessionAgentsResult
+from fast_agent.session import ResumeSessionAgentsResult, Session
+
+if TYPE_CHECKING:
+    from fast_agent.session.session_manager import SessionManager
 
 
 class _StubIO:
@@ -82,6 +86,32 @@ class _Agent:
         self.usage_accumulator = None
         self.llm = None
         self.config = SimpleNamespace(model="passthrough")
+
+
+class _PinSessionManager:
+    def __init__(
+        self,
+        *,
+        current_session: object | None = None,
+        listed_names: list[str] | None = None,
+        sessions: dict[str, object] | None = None,
+        resolved_names: dict[str, str | None] | None = None,
+    ) -> None:
+        self.current_session = current_session
+        self._listed_names = list(listed_names or [])
+        self._sessions = dict(sessions or {})
+        self._resolved_names = dict(resolved_names or {})
+
+    def resolve_session_name(self, name: str | None) -> str | None:
+        if name is None:
+            return None
+        return self._resolved_names.get(name, name)
+
+    def get_session(self, name: str) -> object | None:
+        return self._sessions.get(name)
+
+    def list_sessions(self) -> list[SimpleNamespace]:
+        return [SimpleNamespace(name=name) for name in self._listed_names]
 
 
 class _ResumeAgentProvider:
@@ -162,11 +192,117 @@ async def test_noenv_resume_session_returns_disabled_message() -> None:
 def test_strip_wrapping_quotes_removes_matching_outer_quotes() -> None:
     assert session_handlers._strip_wrapping_quotes('"quoted title"') == "quoted title"
     assert session_handlers._strip_wrapping_quotes("'quoted title'") == "quoted title"
+    assert session_handlers._strip_wrapping_quotes('"  quoted title  "') == "quoted title"
+    assert session_handlers._strip_wrapping_quotes('"   "') is None
 
 
 def test_strip_wrapping_quotes_preserves_unmatched_quotes() -> None:
     assert session_handlers._strip_wrapping_quotes('"quoted title') == '"quoted title'
     assert session_handlers._strip_wrapping_quotes("plain title") == "plain title"
+
+
+def test_resolve_pin_state_toggles_current_state() -> None:
+    assert session_handlers._resolve_pin_state(None, current=False).desired is True
+    assert session_handlers._resolve_pin_state("  ", current=False).desired is True
+    assert session_handlers._resolve_pin_state("toggle", current=True).desired is False
+    assert session_handlers._resolve_pin_state(" TOGGLE ", current=True).desired is False
+
+
+@pytest.mark.parametrize("value", ["on", "true", "yes", "enable", "enabled"])
+def test_resolve_pin_state_accepts_on_aliases(value: str) -> None:
+    assert session_handlers._resolve_pin_state(value, current=False).desired is True
+
+
+@pytest.mark.parametrize("value", ["off", "false", "no", "disable", "disabled"])
+def test_resolve_pin_state_accepts_off_aliases(value: str) -> None:
+    assert session_handlers._resolve_pin_state(value, current=True).desired is False
+
+
+@pytest.mark.parametrize("value", ["1", "0"])
+def test_resolve_pin_state_rejects_numeric_aliases(value: str) -> None:
+    result = session_handlers._resolve_pin_state(value, current=False)
+
+    assert result.desired is None
+    assert result.error == "Usage: /session pin [on|off|id|number]"
+
+
+def test_resolve_pin_state_reports_invalid_value() -> None:
+    result = session_handlers._resolve_pin_state("maybe", current=False)
+
+    assert result.desired is None
+    assert result.error == "Usage: /session pin [on|off|id|number]"
+
+
+def test_session_for_pin_prefers_explicit_target() -> None:
+    session = SimpleNamespace(info=SimpleNamespace(name="target", metadata={}))
+    manager = _PinSessionManager(
+        current_session=object(),
+        sessions={"resolved-target": session},
+        resolved_names={"target": "resolved-target"},
+    )
+    outcome = CommandOutcome()
+
+    resolved = session_handlers._session_for_pin(
+        cast("SessionManager", manager),
+        outcome,
+        target="target",
+    )
+
+    assert resolved is cast("Session", session)
+    assert outcome.messages == []
+
+
+def test_session_for_pin_trims_explicit_target() -> None:
+    session = SimpleNamespace(info=SimpleNamespace(name="target", metadata={}))
+    manager = _PinSessionManager(
+        current_session=object(),
+        sessions={"resolved-target": session},
+        resolved_names={"target": "resolved-target"},
+    )
+    outcome = CommandOutcome()
+
+    resolved = session_handlers._session_for_pin(
+        cast("SessionManager", manager),
+        outcome,
+        target=" target ",
+    )
+
+    assert resolved is cast("Session", session)
+    assert outcome.messages == []
+
+
+def test_session_for_pin_falls_back_to_first_listed_session() -> None:
+    session = SimpleNamespace(info=SimpleNamespace(name="first", metadata={}))
+    manager = _PinSessionManager(
+        listed_names=["first"],
+        sessions={"first": session},
+    )
+    outcome = CommandOutcome()
+
+    resolved = session_handlers._session_for_pin(
+        cast("SessionManager", manager),
+        outcome,
+        target=None,
+    )
+
+    assert resolved is cast("Session", session)
+    assert outcome.messages == []
+
+
+def test_session_for_pin_reports_missing_session() -> None:
+    manager = _PinSessionManager()
+    outcome = CommandOutcome()
+
+    resolved = session_handlers._session_for_pin(
+        cast("SessionManager", manager),
+        outcome,
+        target=None,
+    )
+
+    assert resolved is None
+    assert [str(message.text) for message in outcome.messages] == [
+        "No session available to pin."
+    ]
 
 
 @pytest.mark.asyncio
@@ -202,6 +338,120 @@ async def test_create_session_uses_context_session_cwd(
 
     assert outcome.messages
     assert manager_calls == [workspace.resolve()]
+
+
+@pytest.mark.asyncio
+async def test_create_session_can_replace_explicit_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str | None, dict[str, str] | None]] = []
+
+    class _Manager:
+        def delete_session(self, name: str) -> bool:
+            calls.append(("delete", name, None))
+            return True
+
+        def create_session_with_id(self, session_id: str, metadata: dict | None = None):
+            calls.append(("create_with_id", session_id, metadata))
+            return SimpleNamespace(
+                info=SimpleNamespace(metadata=metadata or {}, name=session_id)
+            )
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+
+    outcome = await session_handlers.handle_create_session(
+        _build_context(),
+        session_name="Fresh start",
+        session_id="acp-session-1",
+        replace_existing=True,
+    )
+
+    assert calls == [
+        ("delete", "acp-session-1", None),
+        ("create_with_id", "acp-session-1", {"title": "Fresh start"}),
+    ]
+    assert outcome.messages
+    assert "Created session: Fresh start" in str(outcome.messages[0].text)
+
+
+@pytest.mark.asyncio
+async def test_clear_sessions_all_pluralizes_deleted_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    deleted: list[str] = []
+
+    class _Manager:
+        def list_sessions(self):
+            return [
+                SimpleNamespace(name="session-1"),
+                SimpleNamespace(name="session-2"),
+            ]
+
+        def delete_session(self, name: str) -> bool:
+            deleted.append(name)
+            return True
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+
+    outcome = await session_handlers.handle_clear_sessions(
+        _build_context(),
+        target="all",
+    )
+
+    assert deleted == ["session-1", "session-2"]
+    assert [str(message.text) for message in outcome.messages] == ["Deleted 2 sessions."]
+
+
+@pytest.mark.asyncio
+async def test_clear_sessions_trims_all_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    deleted: list[str] = []
+
+    class _Manager:
+        def list_sessions(self):
+            return [
+                SimpleNamespace(name="session-1"),
+                SimpleNamespace(name="session-2"),
+            ]
+
+        def delete_session(self, name: str) -> bool:
+            deleted.append(name)
+            return True
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+
+    outcome = await session_handlers.handle_clear_sessions(
+        _build_context(),
+        target=" all ",
+    )
+
+    assert deleted == ["session-1", "session-2"]
+    assert [str(message.text) for message in outcome.messages] == ["Deleted 2 sessions."]
+
+
+@pytest.mark.asyncio
+async def test_clear_sessions_normalizes_all_target_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deleted: list[str] = []
+
+    class _Manager:
+        def list_sessions(self):
+            return [
+                SimpleNamespace(name="session-1"),
+                SimpleNamespace(name="session-2"),
+            ]
+
+        def delete_session(self, name: str) -> bool:
+            deleted.append(name)
+            return True
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+
+    outcome = await session_handlers.handle_clear_sessions(
+        _build_context(),
+        target="ALL",
+    )
+
+    assert deleted == ["session-1", "session-2"]
+    assert [str(message.text) for message in outcome.messages] == ["Deleted 2 sessions."]
 
 
 @pytest.mark.asyncio

@@ -3,15 +3,46 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from rich.text import Text
 
-from fast_agent.commands.handlers._marketplace_argument_parsing import parse_update_argument
-from fast_agent.commands.handlers._text_formatting import append_heading, append_wrapped_text
-from fast_agent.commands.results import CommandMessage, CommandOutcome
+from fast_agent.commands.command_catalog import (
+    format_unknown_command_action,
+    normalize_command_action,
+)
+from fast_agent.commands.handlers._marketplace_argument_parsing import (
+    optional_selector,
+    parse_add_argument,
+    parse_update_argument,
+    resolve_registry_argument,
+)
+from fast_agent.commands.handlers._text_formatting import (
+    append_detail_line,
+    append_heading,
+    append_indexed_current_line,
+    append_indexed_name_line,
+    append_revision_line,
+    append_status_line,
+    append_warning_line,
+    append_wrapped_text,
+    format_display_path,
+    update_status_text,
+)
+from fast_agent.commands.handlers.shared import (
+    add_info_messages,
+    prompt_selection_after_message,
+    unique_selection_options,
+)
+from fast_agent.commands.results import CommandOutcome
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+from fast_agent.marketplace.formatting import (
+    format_installed_revision_display,
+    format_source_provenance,
+)
+from fast_agent.marketplace.update_status import is_update_applied
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.command_support import (
     SKILLS_ADD_HINT_SLASH,
@@ -37,46 +68,37 @@ from fast_agent.skills.operations import (
     select_skill_updates,
 )
 from fast_agent.skills.provenance import (
-    format_installed_at_display,
     format_revision_short,
     format_skill_provenance_details,
 )
-from fast_agent.skills.registry import SkillManifest, SkillRegistry, format_skills_for_prompt
+from fast_agent.skills.registry import SkillManifest, SkillRegistry
 from fast_agent.skills.scope import (
     order_skill_directories_for_display,
     resolve_skill_directories,
     resolve_skills_management_scope,
 )
 from fast_agent.skills.service import install_skill_from_selector
+from fast_agent.utils.action_normalization import is_help_flag
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.commands.context import CommandContext
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.skills.models import SkillUpdateInfo
-
-
-_parse_update_argument = parse_update_argument
+    from fast_agent.skills.models import MarketplaceSkill, SkillUpdateInfo
 
 
 def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -> None:
-    entry = Text()
-    entry.append(f"[{index:2}] ", style="dim cyan")
-    entry.append(manifest.name, style="bright_blue bold")
-    content.append_text(entry)
-    content.append("\n")
+    append_indexed_name_line(content, index, manifest.name)
 
     if manifest.description:
         append_wrapped_text(content, manifest.description, indent="     ")
 
     source_path = manifest.path.parent if manifest.path.is_file() else manifest.path
-    try:
-        source_display = source_path.relative_to(Path.cwd())
-    except ValueError:
-        source_display = source_path
     content.append("     ", style="dim")
-    content.append(f"source: {source_display}", style="dim green")
+    content.append(f"source: {format_display_path(source_path)}", style="dim green")
     content.append("\n")
     provenance_text, installed_text = format_skill_provenance_details(source_path)
     content.append("     ", style="dim")
@@ -96,14 +118,7 @@ def _append_registry_entry(
     index: int,
     is_current: bool,
 ) -> None:
-    entry = Text()
-    entry.append(f"[{index:2}] ", style="dim cyan")
-    entry.append(display_url, style="bright_blue bold")
-    if is_current:
-        entry.append(" • ", style="dim")
-        entry.append("current", style="dim green")
-    content.append_text(entry)
-    content.append("\n")
+    append_indexed_current_line(content, index, display_url, is_current=is_current)
 
 
 def _format_local_skills_by_directory(manifests_by_dir: dict[Path, list[SkillManifest]]) -> Text:
@@ -112,12 +127,7 @@ def _format_local_skills_by_directory(manifests_by_dir: dict[Path, list[SkillMan
     total_skills = sum(len(manifests) for manifests in manifests_by_dir.values())
 
     for directory, manifests in manifests_by_dir.items():
-        try:
-            display_dir = directory.relative_to(Path.cwd())
-        except ValueError:
-            display_dir = directory
-
-        append_heading(content, f"Skills in {display_dir}:")
+        append_heading(content, f"Skills in {format_display_path(directory)}:")
 
         if not manifests:
             content.append_text(Text("No skills in this directory", style="yellow"))
@@ -128,10 +138,8 @@ def _format_local_skills_by_directory(manifests_by_dir: dict[Path, list[SkillMan
             skill_index += 1
             _append_manifest_entry(content, manifest, skill_index)
 
-    if total_skills == 0:
-        content.append_text(Text("Browse marketplace skills with /skills available", style="dim"))
-    else:
-        content.append_text(Text("Browse marketplace skills with /skills available", style="dim"))
+    content.append_text(Text("Browse marketplace skills with /skills available", style="dim"))
+    if total_skills > 0:
         content.append("\n")
         content.append_text(Text("Search marketplace skills with /skills search <query>", style="dim"))
         content.append("\n")
@@ -168,13 +176,13 @@ def _format_agent_skills_override(
     return content
 
 
-def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
+def _format_marketplace_skills(marketplace: Sequence[MarketplaceSkill]) -> Text:
     content = Text()
     current_bundle = None
 
     for index, entry in enumerate(marketplace, 1):
-        bundle_name = getattr(entry, "bundle_name", None)
-        bundle_description = getattr(entry, "bundle_description", None)
+        bundle_name = entry.bundle_name
+        bundle_description = entry.bundle_description
         if bundle_name and bundle_name != current_bundle:
             current_bundle = bundle_name
             append_heading(content, bundle_name)
@@ -182,137 +190,232 @@ def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
                 append_wrapped_text(content, bundle_description)
             content.append("\n")
 
-        name = getattr(entry, "name", "")
-        description = getattr(entry, "description", "")
-        source_url = getattr(entry, "source_url", None)
+        append_indexed_name_line(content, index, entry.name)
 
-        entry_line = Text()
-        entry_line.append(f"[{index:2}] ", style="dim cyan")
-        entry_line.append(str(name), style="bright_blue bold")
-        content.append_text(entry_line)
-        content.append("\n")
-
-        if description:
-            append_wrapped_text(content, str(description), indent="     ")
-        if source_url:
+        if entry.description:
+            append_wrapped_text(content, entry.description, indent="     ")
+        if entry.source_url:
             content.append("     ", style="dim")
-            content.append(f"source: {source_url}", style="dim green")
+            content.append(f"source: {entry.source_url}", style="dim green")
             content.append("\n")
         content.append("\n")
 
     return content
 
 
-def _is_help_flag(value: str | None) -> bool:
-    token = (value or "").strip().lower()
-    return token in {"help", "--help", "-h"}
-
-
 def _format_install_result(skill_name: str, install_path: Path) -> Text:
-    try:
-        display_path = install_path.relative_to(Path.cwd())
-    except ValueError:
-        display_path = install_path
     content = Text()
     content.append(f"Installed skill: {skill_name}", style="green")
     content.append("\n")
-    content.append(f"location: {display_path}", style="dim green")
+    content.append(f"location: {format_display_path(install_path)}", style="dim green")
     return content
+
+
+def _format_marketplace_skill_list(marketplace: Sequence[MarketplaceSkill]) -> Text:
+    content = Text()
+    append_heading(content, "Marketplace skills:")
+    repo_hint = marketplace_repository_hint(marketplace)
+    if repo_hint:
+        content.append_text(
+            Text(
+                f"Repository: {format_marketplace_display_url(repo_hint)}",
+                style="dim",
+            )
+        )
+        content.append("\n\n")
+    content.append_text(_format_marketplace_skills(marketplace))
+    return content
+
+
+def _marketplace_skill_selection_options(marketplace: Sequence[MarketplaceSkill]) -> list[str]:
+    return unique_selection_options(
+        option
+        for entry in marketplace
+        for option in (entry.name, entry.install_dir_name)
+    )
+
+
+def _format_skill_selection_list(
+    manifests: Sequence[SkillManifest],
+    *,
+    skills_dir: Path,
+) -> Text:
+    content = Text()
+    append_heading(content, f"Skills in {skills_dir}:")
+    for index, manifest in enumerate(manifests, 1):
+        _append_manifest_entry(content, manifest, index)
+    return content
+
+
+def _add_noninteractive_add_skill_hints(
+    outcome: CommandOutcome,
+    *,
+    agent_name: str,
+) -> None:
+    add_info_messages(
+        outcome,
+        (
+            SKILLS_ADD_HINT_SLASH,
+            "Browse marketplace with `/skills available`.",
+            "Search marketplace with `/skills search <query>`.",
+            "Change registry with `/skills registry`.",
+        ),
+        right_info="skills",
+        agent_name=agent_name,
+    )
+
+
+async def _install_skill_from_add_selector(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    marketplace_url: str,
+    managed_skills_dir: Path,
+    selection: str,
+    managed_directory_override: str | Path | None = None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    try:
+        installed = await install_skill_from_selector(
+            marketplace_url,
+            selection,
+            destination_root=managed_skills_dir,
+        )
+    except Exception as exc:
+        outcome.add_message(f"Failed to install skill: {exc}", channel="error")
+        return outcome
+
+    outcome.add_message(
+        _format_install_result(installed.name, installed.skill_dir),
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    await _refresh_agent_skills(
+        ctx,
+        agent_name,
+        managed_directory_override=managed_directory_override,
+    )
+    return outcome
+
+
+async def _select_skill_for_add(
+    ctx: CommandContext,
+    *,
+    outcome: CommandOutcome,
+    marketplace: Sequence[MarketplaceSkill],
+    agent_name: str,
+    interactive: bool,
+) -> str | None:
+    content = _format_marketplace_skill_list(marketplace)
+    if not interactive:
+        outcome.add_message(content, right_info="skills", agent_name=agent_name)
+        _add_noninteractive_add_skill_hints(outcome, agent_name=agent_name)
+        return None
+
+    return await prompt_selection_after_message(
+        ctx,
+        content=content,
+        right_info="skills",
+        agent_name=agent_name,
+        prompt="Install skill by number or name (empty to cancel): ",
+        options=_marketplace_skill_selection_options(marketplace),
+        allow_cancel=True,
+    )
+
+
+def _add_skill_not_found_message(
+    outcome: CommandOutcome,
+    *,
+    selection: str,
+    agent_name: str,
+) -> None:
+    outcome.add_message(f"Skill not found: {selection}", channel="error")
+    outcome.add_message(
+        "Run `/skills available` to browse skills or `/skills search <query>` to filter.",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+
+
+async def _install_selected_marketplace_skill(
+    ctx: CommandContext,
+    *,
+    outcome: CommandOutcome,
+    skill: MarketplaceSkill,
+    managed_skills_dir: Path,
+    agent_name: str,
+    managed_directory_override: str | Path | None = None,
+) -> CommandOutcome:
+    try:
+        install_path = await install_marketplace_skill(
+            skill,
+            destination_root=managed_skills_dir,
+        )
+    except Exception as exc:
+        outcome.add_message(f"Failed to install skill: {exc}", channel="error")
+        return outcome
+
+    outcome.add_message(
+        _format_install_result(skill.name, install_path),
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    await _refresh_agent_skills(
+        ctx,
+        agent_name,
+        managed_directory_override=managed_directory_override,
+    )
+    return outcome
 
 
 def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) -> Text:
     content = Text()
     append_heading(content, title)
     if not updates:
-        content.append_text(Text("No managed skills found.", style="yellow"))
+        append_warning_line(content, "No managed skills found.")
         return content
 
-    status_labels: dict[str, str] = {
-        "up_to_date": "already up to date",
-        "update_available": "update available",
-        "updated": "updated",
-        "unmanaged": "unmanaged",
-        "invalid_metadata": "invalid metadata",
-        "invalid_local_skill": "invalid local skill",
-        "unknown_revision": "unknown revision",
-        "source_unreachable": "source unreachable",
-        "source_ref_missing": "source ref missing",
-        "source_path_missing": "source path missing",
-        "skipped_dirty": "skipped (local modifications)",
-    }
-    status_detail_channels = {
-        "invalid_metadata",
-        "invalid_local_skill",
-        "unknown_revision",
-        "source_unreachable",
-        "source_ref_missing",
-        "source_path_missing",
-        "skipped_dirty",
-    }
-    detail_prefix = "  - "
-
     for update in updates:
-        row = Text()
-        row.append(f"[{update.index:2}] ", style="dim cyan")
-        row.append(update.name, style="bright_blue bold")
-        content.append_text(row)
-        content.append("\n")
+        append_indexed_name_line(content, update.index, update.name)
 
-        source_path = update.skill_dir
-        try:
-            source_display = source_path.relative_to(Path.cwd())
-        except ValueError:
-            source_display = source_path
-        content.append(detail_prefix, style="dim")
-        content.append(f"source: {source_display}", style="dim green")
-        content.append("\n")
+        append_detail_line(
+            content,
+            "source",
+            format_display_path(update.skill_dir),
+            value_style="dim green",
+        )
 
         if update.managed_source is not None:
             source = update.managed_source
-            ref_label = f"@{source.repo_ref}" if source.repo_ref else ""
-            provenance_text = f"{source.repo_url}{ref_label} ({source.repo_path})"
-            installed_text = (
-                f"{format_installed_at_display(source.installed_at)} "
-                f"revision: {format_revision_short(source.installed_revision)}"
+            provenance_text = format_source_provenance(
+                source.repo_url,
+                source.repo_ref,
+                source.repo_path,
+            )
+            installed_text = format_installed_revision_display(
+                source.installed_at,
+                source.installed_revision,
             )
         else:
             provenance_text, installed_text = format_skill_provenance_details(update.skill_dir)
 
-        content.append(detail_prefix, style="dim")
-        content.append(f"provenance: {provenance_text}", style="dim")
-        content.append("\n")
+        append_detail_line(content, "provenance", provenance_text, value_style="dim")
         if installed_text:
-            content.append(detail_prefix, style="dim")
-            content.append(f"installed: {installed_text}", style="dim")
-            content.append("\n")
+            append_detail_line(content, "installed", installed_text, value_style="dim")
 
-        if update.current_revision or update.available_revision:
-            installed_revision = format_revision_short(update.current_revision)
-            current_revision = format_revision_short(update.available_revision)
-            content.append(detail_prefix, style="dim")
-            content.append(f"revision: {installed_revision} -> {current_revision}", style="dim")
-            content.append("\n")
+        append_revision_line(
+            content,
+            update.current_revision,
+            update.available_revision,
+            format_revision=format_revision_short,
+        )
 
-        if update.status != "unmanaged":
-            status_text = status_labels.get(update.status, update.status.replace("_", " "))
-            if update.status in status_detail_channels and update.detail:
-                status_text = f"{status_text}: {update.detail}"
-
-            status_style: str | None = None
-            if update.status in {"up_to_date", "updated"}:
-                status_style = "green"
-            elif update.status == "update_available":
-                status_style = "bold bright_yellow"
-            elif update.status not in {"unmanaged"}:
-                status_style = "yellow"
-
-            content.append(detail_prefix, style="dim")
-            content.append("status: ", style="dim")
-            if status_style is None:
-                content.append(status_text)
-            else:
-                content.append(status_text, style=status_style)
-            content.append("\n")
+        status = update_status_text(
+            update.status,
+            detail=update.detail,
+        )
+        append_status_line(content, status)
 
         content.append("\n")
 
@@ -322,45 +425,127 @@ def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) ->
 def _get_agent_skill_override_sources(manifests: list[SkillManifest]) -> list[str]:
     sources: list[str] = []
     for manifest in manifests:
-        path = Path(getattr(manifest, "path", Path(".")))
+        path = Path(manifest.path)
         source_path = path.parent if path.is_file() else path
-        try:
-            display_path = source_path.relative_to(Path.cwd())
-        except ValueError:
-            display_path = source_path
-        sources.append(str(display_path))
-    return sorted(set(sources))
+        sources.append(format_display_path(source_path))
+    return unique_preserve_order(sources)
 
 
-async def _refresh_agent_skills(ctx: CommandContext, agent_name: str) -> None:
+def _format_skills_registry_overview(
+    *,
+    current_url: str,
+    configured_urls: list[str],
+) -> Text:
+    current_display = format_marketplace_display_url(current_url)
+    configured_displays = [
+        format_marketplace_display_url(reg_url) for reg_url in configured_urls
+    ]
+    current_in_configured = current_display in configured_displays
+    content = Text()
+    if not current_in_configured:
+        current_line = Text()
+        current_line.append("current", style="dim green")
+        current_line.append(" • ", style="dim")
+        current_line.append(current_display, style="bright_blue bold")
+        content.append_text(current_line)
+        content.append("\n\n")
+        content.append_text(Text("Configured registries:", style="dim"))
+        content.append("\n")
+
+    for index, display in enumerate(configured_displays, 1):
+        _append_registry_entry(
+            content,
+            display_url=display,
+            index=index,
+            is_current=display == current_display,
+        )
+
+    content.append("\n")
+    content.append_text(Text("Usage: /skills registry <number|url|path>", style="dim"))
+    return content
+
+
+def _resolve_skills_registry_argument(
+    registry_arg: str,
+    configured_urls: list[str],
+    outcome: CommandOutcome,
+) -> str | None:
+    resolved = resolve_registry_argument(registry_arg, configured_urls)
+    if resolved.warning is not None:
+        outcome.add_message(resolved.warning, channel="warning")
+    return resolved.url
+
+
+def _add_empty_skills_registry_warning(outcome: CommandOutcome, url: str) -> None:
+    content = Text()
+    content.append_text(
+        Text("No skills found in the registry; registry unchanged.", style="yellow")
+    )
+    content.append("\n")
+    content.append_text(Text(f"Registry: {format_marketplace_display_url(url)}", style="dim"))
+    outcome.add_message(content, channel="warning", right_info="skills")
+
+
+def _format_skills_registry_success(
+    *,
+    url: str,
+    resolved_url: str,
+    skill_count: int,
+) -> Text:
+    content = Text()
+    if resolved_url != url:
+        content.append_text(Text(f"Resolved from: {url}", style="dim"))
+        content.append("\n")
+    content.append_text(
+        Text(
+            f"Registry set to: {format_marketplace_display_url(resolved_url)}",
+            style="green",
+        )
+    )
+    content.append("\n")
+    content.append_text(Text(f"Skills discovered: {skill_count}", style="dim"))
+    return content
+
+
+async def _refresh_agent_skills(
+    ctx: CommandContext,
+    agent_name: str,
+    *,
+    managed_directory_override: str | Path | None = None,
+) -> None:
     agent = ctx.agent_provider._agent(agent_name)
-    override_dirs = resolve_skill_directories(ctx.resolve_settings())
+    override_dirs = resolve_skill_directories(
+        ctx.resolve_settings(),
+        managed_directory_override=managed_directory_override,
+    )
     registry, manifests = reload_skill_manifests(
         base_dir=Path.cwd(), override_directories=override_dirs
     )
-    instruction_context = None
-    try:
-        skills_text = format_skills_for_prompt(manifests, read_tool_name="read_skill")
-        instruction_context = {"agentSkills": skills_text}
-    except Exception:
-        instruction_context = None
 
     await rebuild_agent_instruction(
         agent,
         skill_manifests=manifests,
-        context=instruction_context,
         skill_registry=registry,
     )
 
 
-async def handle_list_skills(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
+async def handle_list_skills(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    managed_directory_override: str | Path | None = None,
+) -> CommandOutcome:
     outcome = CommandOutcome()
 
     settings = ctx.resolve_settings()
-    management_scope = resolve_skills_management_scope(settings)
+    management_scope = resolve_skills_management_scope(
+        settings,
+        managed_directory_override=managed_directory_override,
+    )
     discovered_directories = order_skill_directories_for_display(
         management_scope.discovered_directories,
         settings=settings,
+        managed_directory_override=managed_directory_override,
     )
     manifests_by_dir: dict[Path, list[SkillManifest]] = {}
     for directory in discovered_directories:
@@ -398,77 +583,41 @@ async def handle_set_skills_registry(
     settings = ctx.resolve_settings()
     configured_urls = resolve_skill_registries(settings)
 
-    if not argument:
-        current = get_marketplace_url(settings)
-        current_display = format_marketplace_display_url(current)
-        configured_displays = [
-            format_marketplace_display_url(reg_url) for reg_url in configured_urls
-        ]
-        current_in_configured = current_display in configured_displays
-        content = Text()
-        if not current_in_configured:
-            current_line = Text()
-            current_line.append("current", style="dim green")
-            current_line.append(" • ", style="dim")
-            current_line.append(current_display, style="bright_blue bold")
-            content.append_text(current_line)
-            content.append("\n\n")
-            content.append_text(Text("Configured registries:", style="dim"))
-            content.append("\n")
-
-        for index, display in enumerate(configured_displays, 1):
-            _append_registry_entry(
-                content,
-                display_url=display,
-                index=index,
-                is_current=display == current_display,
-            )
-
-        content.append("\n")
-        content.append_text(Text("Usage: /skills registry <number|url|path>", style="dim"))
-        outcome.add_message(content, right_info="skills")
+    registry_arg = optional_selector(argument)
+    if registry_arg is None:
+        outcome.add_message(
+            _format_skills_registry_overview(
+                current_url=get_marketplace_url(settings),
+                configured_urls=configured_urls,
+            ),
+            right_info="skills",
+        )
         return outcome
 
-    arg = str(argument).strip()
-    if arg.isdigit():
-        index = int(arg)
-        if not configured_urls:
-            outcome.add_message("No registries configured.", channel="warning")
-            return outcome
-        if 1 <= index <= len(configured_urls):
-            url = configured_urls[index - 1]
-        else:
-            outcome.add_message(
-                f"Invalid registry number. Use 1-{len(configured_urls)}.",
-                channel="warning",
-            )
-            return outcome
-    else:
-        url = arg
+    url = _resolve_skills_registry_argument(registry_arg, configured_urls, outcome)
+    if url is None:
+        return outcome
 
     try:
         marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to load registry: {exc}", channel="error")
         return outcome
 
-    skills_settings = getattr(settings, "skills", None)
-    if skills_settings is not None:
-        skills_settings.marketplace_url = resolved_url
+    if not marketplace:
+        _add_empty_skills_registry_warning(outcome, url)
+        return outcome
 
-    content = Text()
-    if resolved_url != url:
-        content.append_text(Text(f"Resolved from: {url}", style="dim"))
-        content.append("\n")
-    content.append_text(
-        Text(
-            f"Registry set to: {format_marketplace_display_url(resolved_url)}",
-            style="green",
-        )
+    settings.skills.marketplace_url = resolved_url
+
+    outcome.add_message(
+        _format_skills_registry_success(
+            url=url,
+            resolved_url=resolved_url,
+            skill_count=len(marketplace),
+        ),
+        right_info="skills",
     )
-    content.append("\n")
-    content.append_text(Text(f"Skills discovered: {len(marketplace)}", style="dim"))
-    outcome.add_message(content, right_info="skills")
     return outcome
 
 
@@ -487,13 +636,14 @@ async def handle_list_marketplace_skills(
     *,
     agent_name: str,
     query: str | None = None,
+    marketplace_url_override: str | None = None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    marketplace_url = get_marketplace_url(ctx.resolve_settings())
+    marketplace_url = marketplace_url_override or get_marketplace_url(ctx.resolve_settings())
     try:
         marketplace = await fetch_marketplace_skills(marketplace_url)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to load marketplace: {exc}", channel="error")
         return outcome
 
@@ -501,14 +651,15 @@ async def handle_list_marketplace_skills(
         outcome.add_message("No skills found in the marketplace.", channel="warning")
         return outcome
 
-    selected_marketplace: Sequence[object] = marketplace
-    if query and query.strip():
-        selected_marketplace = filter_marketplace_skills(marketplace, query)
+    normalized_query = strip_to_none(query)
+    selected_marketplace: Sequence[MarketplaceSkill] = marketplace
+    if normalized_query is not None:
+        selected_marketplace = filter_marketplace_skills(marketplace, normalized_query)
 
     content = Text()
     heading = "Marketplace skills:"
-    if query and query.strip():
-        heading = f"Marketplace skills (search: {query.strip()}):"
+    if normalized_query is not None:
+        heading = f"Marketplace skills (search: {normalized_query}):"
     append_heading(content, heading)
 
     repo_hint = marketplace_repository_hint(marketplace)
@@ -524,9 +675,9 @@ async def handle_list_marketplace_skills(
     if not selected_marketplace:
         content.append_text(Text("No matching skills found.", style="yellow"))
         outcome.add_message(content, right_info="skills", agent_name=agent_name)
-        outcome.add_message(
-            "Try `/skills available` to browse all skills.",
-            channel="info",
+        add_info_messages(
+            outcome,
+            ("Try `/skills available` to browse all skills.",),
             right_info="skills",
             agent_name=agent_name,
         )
@@ -534,15 +685,12 @@ async def handle_list_marketplace_skills(
 
     content.append_text(_format_marketplace_skills(selected_marketplace))
     outcome.add_message(content, right_info="skills", agent_name=agent_name)
-    outcome.add_message(
-        SKILLS_ADD_HINT_SLASH,
-        channel="info",
-        right_info="skills",
-        agent_name=agent_name,
-    )
-    outcome.add_message(
-        "Search with `/skills search <query>`.",
-        channel="info",
+    add_info_messages(
+        outcome,
+        (
+            SKILLS_ADD_HINT_SLASH,
+            "Search with `/skills search <query>`.",
+        ),
         right_info="skills",
         agent_name=agent_name,
     )
@@ -555,36 +703,38 @@ async def handle_add_skill(
     agent_name: str,
     argument: str | None,
     interactive: bool = True,
+    marketplace_url_override: str | None = None,
+    managed_directory_override: str | Path | None = None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
+    parsed = parse_add_argument(argument, allow_force=False)
+    if parsed.error is not None:
+        outcome.add_message(parsed.error, channel="warning")
+        return outcome
 
-    management_scope = resolve_skills_management_scope(ctx.resolve_settings())
+    management_scope = resolve_skills_management_scope(
+        ctx.resolve_settings(),
+        managed_directory_override=parsed.skills_dir or managed_directory_override,
+    )
     managed_skills_dir = management_scope.managed_directory
-    selection = argument
-    marketplace_url = get_marketplace_url(ctx.resolve_settings())
+    selection = parsed.selector
+    marketplace_url = parsed.registry or marketplace_url_override or get_marketplace_url(
+        ctx.resolve_settings()
+    )
 
     if selection:
-        try:
-            installed = await install_skill_from_selector(
-                marketplace_url,
-                selection,
-                destination_root=managed_skills_dir,
-            )
-        except Exception as exc:  # noqa: BLE001
-            outcome.add_message(f"Failed to install skill: {exc}", channel="error")
-            return outcome
-
-        outcome.add_message(
-            _format_install_result(installed.name, installed.skill_dir),
-            right_info="skills",
+        return await _install_skill_from_add_selector(
+            ctx,
             agent_name=agent_name,
+            marketplace_url=marketplace_url,
+            managed_skills_dir=managed_skills_dir,
+            selection=selection,
+            managed_directory_override=parsed.skills_dir or managed_directory_override,
         )
-        await _refresh_agent_skills(ctx, agent_name)
-        return outcome
 
     try:
         marketplace = await fetch_marketplace_skills(marketplace_url)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to load marketplace: {exc}", channel="error")
         return outcome
 
@@ -592,85 +742,29 @@ async def handle_add_skill(
         outcome.add_message("No skills found in the marketplace.", channel="warning")
         return outcome
 
-    if not selection:
-        content = Text()
-        append_heading(content, "Marketplace skills:")
-        repo_hint = marketplace_repository_hint(marketplace)
-        if repo_hint:
-            content.append_text(
-                Text(
-                    f"Repository: {format_marketplace_display_url(repo_hint)}",
-                    style="dim",
-                )
-            )
-            content.append("\n\n")
-        content.append_text(_format_marketplace_skills(marketplace))
-
-        if not interactive:
-            outcome.add_message(content, right_info="skills", agent_name=agent_name)
-            outcome.add_message(
-                SKILLS_ADD_HINT_SLASH,
-                channel="info",
-                right_info="skills",
-                agent_name=agent_name,
-            )
-            outcome.add_message(
-                "Browse marketplace with `/skills available`.",
-                channel="info",
-                right_info="skills",
-                agent_name=agent_name,
-            )
-            outcome.add_message(
-                "Search marketplace with `/skills search <query>`.",
-                channel="info",
-                right_info="skills",
-                agent_name=agent_name,
-            )
-            outcome.add_message(
-                "Change registry with `/skills registry`.",
-                channel="info",
-                right_info="skills",
-                agent_name=agent_name,
-            )
-            return outcome
-
-        await ctx.io.emit(CommandMessage(text=content, right_info="skills", agent_name=agent_name))
-
-        selection = await ctx.io.prompt_selection(
-            "Install skill by number or name (empty to cancel): ",
-            options=[getattr(entry, "name", "") for entry in marketplace],
-            allow_cancel=True,
-        )
-        if selection is None:
-            return outcome
+    selection = await _select_skill_for_add(
+        ctx,
+        outcome=outcome,
+        marketplace=marketplace,
+        agent_name=agent_name,
+        interactive=interactive,
+    )
+    if selection is None:
+        return outcome
 
     skill = select_skill_by_name_or_index(marketplace, selection)
     if not skill:
-        outcome.add_message(f"Skill not found: {selection}", channel="error")
-        outcome.add_message(
-            "Run `/skills available` to browse skills or `/skills search <query>` to filter.",
-            channel="info",
-            right_info="skills",
-            agent_name=agent_name,
-        )
+        _add_skill_not_found_message(outcome, selection=selection, agent_name=agent_name)
         return outcome
 
-    try:
-        install_path = await install_marketplace_skill(
-            skill,
-            destination_root=managed_skills_dir,
-        )
-    except Exception as exc:  # noqa: BLE001
-        outcome.add_message(f"Failed to install skill: {exc}", channel="error")
-        return outcome
-
-    outcome.add_message(
-        _format_install_result(getattr(skill, "name", ""), install_path),
-        right_info="skills",
+    return await _install_selected_marketplace_skill(
+        ctx,
+        outcome=outcome,
+        skill=skill,
+        managed_skills_dir=managed_skills_dir,
         agent_name=agent_name,
+        managed_directory_override=managed_directory_override,
     )
-    await _refresh_agent_skills(ctx, agent_name)
-    return outcome
 
 
 async def handle_remove_skill(
@@ -679,22 +773,28 @@ async def handle_remove_skill(
     agent_name: str,
     argument: str | None,
     interactive: bool = True,
+    managed_directory_override: str | Path | None = None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
+    parsed = parse_add_argument(argument, allow_registry=False, allow_force=False)
+    if parsed.error is not None:
+        outcome.add_message(parsed.error, channel="warning")
+        return outcome
+    directory_override = parsed.skills_dir or managed_directory_override
 
-    management_scope = resolve_skills_management_scope(ctx.resolve_settings())
+    management_scope = resolve_skills_management_scope(
+        ctx.resolve_settings(),
+        managed_directory_override=directory_override,
+    )
     managed_skills_dir = management_scope.managed_directory
     manifests = SkillRegistry.load_directory(managed_skills_dir)
     if not manifests:
         outcome.add_message("No local skills to remove.", channel="warning")
         return outcome
 
-    selection = argument
+    selection = parsed.selector
     if not selection:
-        content = Text()
-        append_heading(content, f"Skills in {managed_skills_dir}:")
-        for index, manifest in enumerate(manifests, 1):
-            _append_manifest_entry(content, manifest, index)
+        content = _format_skill_selection_list(manifests, skills_dir=managed_skills_dir)
 
         if not interactive:
             outcome.add_message(content, right_info="skills", agent_name=agent_name)
@@ -706,10 +806,12 @@ async def handle_remove_skill(
             )
             return outcome
 
-        await ctx.io.emit(CommandMessage(text=content, right_info="skills", agent_name=agent_name))
-
-        selection = await ctx.io.prompt_selection(
-            "Remove skill by number or name (empty to cancel): ",
+        selection = await prompt_selection_after_message(
+            ctx,
+            content=content,
+            right_info="skills",
+            agent_name=agent_name,
+            prompt="Remove skill by number or name (empty to cancel): ",
             options=[manifest.name for manifest in manifests],
             allow_cancel=True,
         )
@@ -724,7 +826,7 @@ async def handle_remove_skill(
     try:
         skill_dir = Path(manifest.path).parent
         remove_local_skill(skill_dir, destination_root=managed_skills_dir)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to remove skill: {exc}", channel="error")
         return outcome
 
@@ -734,7 +836,11 @@ async def handle_remove_skill(
         right_info="skills",
         agent_name=agent_name,
     )
-    await _refresh_agent_skills(ctx, agent_name)
+    await _refresh_agent_skills(
+        ctx,
+        agent_name,
+        managed_directory_override=directory_override,
+    )
     return outcome
 
 
@@ -743,19 +849,24 @@ async def handle_update_skill(
     *,
     agent_name: str,
     argument: str | None,
+    managed_directory_override: str | Path | None = None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    selector, force, yes, parse_error = parse_update_argument(argument)
-    if parse_error:
-        outcome.add_message(parse_error, channel="error")
+    parsed = parse_update_argument(argument, allow_skills_dir=True)
+    if parsed.error:
+        outcome.add_message(parsed.error, channel="error")
         return outcome
+    directory_override = parsed.skills_dir or managed_directory_override
 
-    management_scope = resolve_skills_management_scope(ctx.resolve_settings())
+    management_scope = resolve_skills_management_scope(
+        ctx.resolve_settings(),
+        managed_directory_override=directory_override,
+    )
     managed_skills_dir = management_scope.managed_directory
     updates = check_skill_updates(destination_root=managed_skills_dir)
 
-    if selector is None:
+    if parsed.selector is None:
         outcome.add_message(
             _format_update_results(updates, title="Skill update check:"),
             right_info="skills",
@@ -769,12 +880,12 @@ async def handle_update_skill(
         )
         return outcome
 
-    selected = select_skill_updates(updates, selector)
+    selected = select_skill_updates(updates, parsed.selector)
     if not selected:
-        outcome.add_message(f"Skill not found: {selector}", channel="error")
+        outcome.add_message(f"Skill not found: {parsed.selector}", channel="error")
         return outcome
 
-    if len(selected) > 1 and not yes:
+    if len(selected) > 1 and not parsed.yes:
         outcome.add_message(
             _format_update_results(selected, title="Update plan:"),
             right_info="skills",
@@ -788,17 +899,85 @@ async def handle_update_skill(
         )
         return outcome
 
-    applied = await asyncio.to_thread(apply_skill_updates, selected, force=force)
+    applied = await asyncio.to_thread(apply_skill_updates, selected, force=parsed.force)
     outcome.add_message(
         _format_update_results(applied, title="Skill update results:"),
         right_info="skills",
         agent_name=agent_name,
     )
 
-    if any(result.status == "updated" for result in applied):
-        await _refresh_agent_skills(ctx, agent_name)
+    if any(is_update_applied(result.status) for result in applied):
+        await _refresh_agent_skills(
+            ctx,
+            agent_name,
+            managed_directory_override=directory_override,
+        )
 
     return outcome
+
+
+type _SkillsActionHandler = Callable[
+    ["CommandContext", str, str | None],
+    Awaitable[CommandOutcome],
+]
+
+
+async def _handle_skills_list_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    _argument: str | None,
+) -> CommandOutcome:
+    return await handle_list_skills(ctx, agent_name=agent_name)
+
+
+async def _handle_skills_available_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    _argument: str | None,
+) -> CommandOutcome:
+    return await handle_list_marketplace_skills(ctx, agent_name=agent_name, query=None)
+
+
+async def _handle_skills_add_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    return await handle_add_skill(ctx, agent_name=agent_name, argument=argument)
+
+
+async def _handle_skills_registry_action(
+    ctx: "CommandContext",
+    _agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    return await handle_set_skills_registry(ctx, argument=argument)
+
+
+async def _handle_skills_remove_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    return await handle_remove_skill(ctx, agent_name=agent_name, argument=argument)
+
+
+async def _handle_skills_update_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    return await handle_update_skill(ctx, agent_name=agent_name, argument=argument)
+
+
+_SKILLS_ACTION_HANDLERS: dict[str, _SkillsActionHandler] = {
+    "list": _handle_skills_list_action,
+    "available": _handle_skills_available_action,
+    "add": _handle_skills_add_action,
+    "registry": _handle_skills_registry_action,
+    "remove": _handle_skills_remove_action,
+    "update": _handle_skills_update_action,
+}
 
 
 async def handle_skills_command(
@@ -808,20 +987,13 @@ async def handle_skills_command(
     action: str | None,
     argument: str | None,
 ) -> CommandOutcome:
-    normalized = str(action or "list").lower()
+    normalized = normalize_command_action("skills", action)
 
-    if _is_help_flag(action) or _is_help_flag(argument):
+    if is_help_flag(action) or is_help_flag(argument):
         return handle_skills_help(agent_name=agent_name)
 
-    if normalized in {"help"}:
-        return handle_skills_help(agent_name=agent_name)
-
-    if normalized in {"list", ""}:
-        return await handle_list_skills(ctx, agent_name=agent_name)
-    if normalized in {"available", "marketplace", "browse"}:
-        return await handle_list_marketplace_skills(ctx, agent_name=agent_name, query=None)
-    if normalized in {"search", "find"}:
-        query = argument.strip() if argument else ""
+    if normalized == "search":
+        query = strip_to_none(argument) or ""
         if not query:
             outcome = CommandOutcome()
             outcome.add_message(
@@ -832,21 +1004,14 @@ async def handle_skills_command(
             )
             return outcome
         return await handle_list_marketplace_skills(ctx, agent_name=agent_name, query=query)
-    if normalized in {"add", "install"}:
-        return await handle_add_skill(ctx, agent_name=agent_name, argument=argument)
-    if normalized in {"registry", "source"}:
-        return await handle_set_skills_registry(ctx, argument=argument)
-    if normalized in {"remove", "rm", "delete", "uninstall"}:
-        return await handle_remove_skill(ctx, agent_name=agent_name, argument=argument)
-    if normalized in {"update", "refresh", "upgrade"}:
-        return await handle_update_skill(ctx, agent_name=agent_name, argument=argument)
+
+    handler = _SKILLS_ACTION_HANDLERS.get(normalized)
+    if handler is not None:
+        return await handler(ctx, agent_name, argument)
 
     outcome = CommandOutcome()
     outcome.add_message(
-        (
-            f"Unknown /skills action: {normalized}. "
-            "Use list/available/search/add/remove/update/registry/help."
-        ),
+        format_unknown_command_action("skills", normalized),
         channel="warning",
         right_info="skills",
         agent_name=agent_name,

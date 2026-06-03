@@ -2,20 +2,35 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from rich import print as rich_print
+from rich.text import Text
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.interfaces import AgentBackedToolProvider, AgentProtocol
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.utils.count_display import plural_label
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from fast_agent.core.agent_app import AgentApp
 
+
+@dataclass(frozen=True, slots=True)
+class AgentResourceCounts:
+    tool_count: int | None
+    prompt_count: int | None
+    resource_count: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ChildAgentCounts:
+    server_count: int
+    resource_counts: AgentResourceCounts
 
 
 async def display_agent_info(
@@ -33,14 +48,20 @@ async def display_agent_info(
     except Exception:
         return
 
-    try:
-        content = await _build_agent_info_content(agent)
-        if content:
-            rich_print(f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {content}")
-        await _show_skybridge_summary(agent_name, agent)
-        shown_agents.add(agent_name)
-    except Exception:
-        return
+    content = await _build_agent_info_content(agent)
+    if content:
+        rich_print(_agent_info_text(agent_name, content))
+    await _show_skybridge_summary(agent_name, agent)
+    shown_agents.add(agent_name)
+
+
+def _agent_info_text(agent_name: str, content_markup: str) -> Text:
+    text = Text()
+    text.append("Agent ", style="dim")
+    text.append(agent_name, style="blue")
+    text.append(": ", style="dim")
+    text.append_text(Text.from_markup(content_markup))
+    return text
 
 
 async def _build_agent_info_content(agent: AgentProtocol) -> str | None:
@@ -61,34 +82,41 @@ async def _build_agent_info_content(agent: AgentProtocol) -> str | None:
 def _format_child_agent_count(child_count: int) -> str | None:
     if child_count <= 0:
         return None
-    child_word = "child agent" if child_count == 1 else "child agents"
-    return f"{child_count:,}[dim] {child_word}[/dim]"
+    return _format_dim_count(child_count, "child agent", "child agents")
+
+
+def _format_dim_count(
+    count: int,
+    singular: str,
+    plural: str | None = None,
+    *,
+    suffix: str = "",
+) -> str:
+    label = plural_label(count, singular, plural)
+    return f"{count:,}[dim] {label}{suffix}[/dim]"
 
 
 async def _build_standard_agent_info_parts(agent: AgentProtocol) -> list[str]:
     content_parts: list[str] = []
     tool_children = collect_tool_children(agent)
     if tool_children:
-        child_count = len(tool_children)
-        child_word = "child agent" if child_count == 1 else "child agents"
-        content_parts.append(f"{child_count:,}[dim] {child_word}[/dim]")
+        content_parts.append(_format_dim_count(len(tool_children), "child agent", "child agents"))
 
     server_count = _server_count_for_agent(agent)
-    tool_count, prompt_count, resource_count = await _resource_counts_for_agent(agent)
+    resource_counts = await _resource_counts_for_agent(agent)
     if server_count > 0:
         content_parts.append(
             _format_server_summary(
                 server_count=server_count,
-                tool_count=tool_count,
-                prompt_count=prompt_count,
-                resource_count=resource_count,
+                tool_count=resource_counts.tool_count,
+                prompt_count=resource_counts.prompt_count,
+                resource_count=resource_counts.resource_count,
             )
         )
 
     skill_count = _skill_count_for_agent(agent)
     if skill_count > 0:
-        skill_word = "skill" if skill_count == 1 else "skills"
-        content_parts.append(f"{skill_count:,}[dim] {skill_word}[/dim][dim] available[/dim]")
+        content_parts.append(f"{_format_dim_count(skill_count, 'skill')}[dim] available[/dim]")
 
     return content_parts
 
@@ -100,41 +128,64 @@ def _server_count_for_agent(agent: AgentProtocol) -> int:
     return len(server_names) if server_names else 0
 
 
-async def _resource_counts_for_agent(agent: AgentProtocol) -> tuple[int, int, int]:
-    tools_result = await agent.list_tools()
-    tool_count = len(tools_result.tools)
+async def _resource_counts_for_agent(agent: AgentProtocol) -> AgentResourceCounts:
+    try:
+        tools_result = await agent.list_tools()
+        tool_count = len(tools_result.tools)
+    except Exception:
+        tool_count = None
 
-    resources_dict = await agent.list_resources()
-    resource_count = sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
+    try:
+        resources_dict = await agent.list_resources()
+        resource_count = (
+            sum(len(resources) for resources in resources_dict.values())
+            if resources_dict
+            else 0
+        )
+    except Exception:
+        resource_count = None
 
-    prompts_dict = await agent.list_prompts()
-    prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
-    return tool_count, prompt_count, resource_count
+    try:
+        prompts_dict = await agent.list_prompts()
+        prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
+    except Exception:
+        prompt_count = None
+    return AgentResourceCounts(
+        tool_count=tool_count,
+        prompt_count=prompt_count,
+        resource_count=resource_count,
+    )
 
 
 def _format_server_summary(
     *,
     server_count: int,
-    tool_count: int,
-    prompt_count: int,
-    resource_count: int,
+    tool_count: int | None,
+    prompt_count: int | None,
+    resource_count: int | None,
 ) -> str:
-    sub_parts: list[str] = []
-    if tool_count > 0:
-        tool_word = "tool" if tool_count == 1 else "tools"
-        sub_parts.append(f"{tool_count:,}[dim] {tool_word}[/dim]")
-    if prompt_count > 0:
-        prompt_word = "prompt" if prompt_count == 1 else "prompts"
-        sub_parts.append(f"{prompt_count:,}[dim] {prompt_word}[/dim]")
-    if resource_count > 0:
-        resource_word = "resource" if resource_count == 1 else "resources"
-        sub_parts.append(f"{resource_count:,}[dim] {resource_word}[/dim]")
+    sub_parts = _resource_count_parts(
+        (
+            (tool_count, "tool"),
+            (prompt_count, "prompt"),
+            (resource_count, "resource"),
+        )
+    )
 
-    server_word = "Server" if server_count == 1 else "Servers"
-    server_text = f"{server_count:,}[dim] MCP {server_word}[/dim]"
+    server_text = _format_dim_count(server_count, "MCP Server", "MCP Servers")
     if not sub_parts:
         return server_text
     return f"{server_text}[dim] ([/dim]" + "[dim], [/dim]".join(sub_parts) + "[dim])[/dim]"
+
+
+def _resource_count_parts(counts: Iterable[tuple[int | None, str]]) -> list[str]:
+    parts: list[str] = []
+    for count, noun in counts:
+        if count is None:
+            parts.append(f"[dim]unknown {plural_label(2, noun)}[/dim]")
+        elif count > 0:
+            parts.append(_format_dim_count(count, noun))
+    return parts
 
 
 def _skill_count_for_agent(agent: AgentProtocol) -> int:
@@ -147,12 +198,13 @@ def _skill_count_for_agent(agent: AgentProtocol) -> int:
 
 
 async def _show_skybridge_summary(agent_name: str, agent: AgentProtocol) -> None:
+    if not isinstance(agent, McpAgentProtocol):
+        return
     try:
-        if isinstance(agent, McpAgentProtocol):
-            skybridge_configs = await agent.aggregator.get_skybridge_configs()
-            agent.display.show_skybridge_summary(agent_name, skybridge_configs)
+        skybridge_configs = await agent.aggregator.get_skybridge_configs()
     except Exception:
         return
+    agent.display.show_skybridge_summary(agent_name, skybridge_configs)
 
 
 async def display_all_agents_with_hierarchy(
@@ -265,34 +317,58 @@ async def _display_child_agent_info(
     agent_provider: "AgentApp | None",
 ) -> None:
     del agent_provider
-    try:
-        server_count, tool_count, prompt_count, resource_count = await _child_agent_counts(child_agent)
-        if server_count > 0:
-            rich_print(
-                f"[dim]  {prefix} [/dim][blue]{child_agent.name}[/blue][dim]:[/dim] "
-                f"{server_count:,}[dim] MCP {'Server' if server_count == 1 else 'Servers'}, [/dim]"
-                f"{tool_count:,}[dim] {'tool' if tool_count == 1 else 'tools'}, [/dim]"
-                f"{resource_count:,}[dim] {'resource' if resource_count == 1 else 'resources'}, [/dim]"
-                f"{prompt_count:,}[dim] {'prompt' if prompt_count == 1 else 'prompts'} available[/dim]"
+    counts = await _child_agent_counts(child_agent)
+    if counts.server_count > 0:
+        rich_print(
+            _child_agent_info_text(
+                child_agent.name,
+                prefix,
+                _child_agent_counts_markup(counts),
             )
-            return
-        rich_print(f"[dim]  {prefix} [/dim][blue]{child_agent.name}[/blue][dim]: No MCP Servers[/dim]")
-    except Exception:
-        rich_print(f"[dim]  {prefix} [/dim][blue]{child_agent.name}[/blue]")
+        )
+        return
+    rich_print(_child_agent_info_text(child_agent.name, prefix, "[dim]No MCP Servers[/dim]"))
 
 
-async def _child_agent_counts(child_agent: AgentProtocol) -> tuple[int, int, int, int]:
+def _child_agent_counts_markup(counts: ChildAgentCounts) -> str:
+    sub_parts = _resource_count_parts(
+        (
+            (counts.resource_counts.tool_count, "tool"),
+            (counts.resource_counts.resource_count, "resource"),
+            (counts.resource_counts.prompt_count, "prompt"),
+        )
+    )
+
+    server_text = _format_dim_count(counts.server_count, "MCP Server", "MCP Servers")
+    if not sub_parts:
+        return server_text
+    return f"{server_text}[dim], [/dim]" + "[dim], [/dim]".join(sub_parts)
+
+
+def _child_agent_name_text(agent_name: str, prefix: str) -> Text:
+    text = Text()
+    text.append(f"  {prefix} ", style="dim")
+    text.append(agent_name, style="blue")
+    return text
+
+
+def _child_agent_info_text(agent_name: str, prefix: str, detail_markup: str) -> Text:
+    text = _child_agent_name_text(agent_name, prefix)
+    text.append(": ", style="dim")
+    text.append_text(Text.from_markup(detail_markup))
+    return text
+
+
+async def _child_agent_counts(child_agent: AgentProtocol) -> ChildAgentCounts:
     server_count = 0
     if isinstance(child_agent, McpAgentProtocol):
-        server_names = child_agent.aggregator.server_names
-        server_count = len(server_names) if server_names else 0
+        try:
+            server_names = child_agent.aggregator.server_names
+            server_count = len(server_names) if server_names else 0
+        except Exception:
+            server_count = 0
 
-    tools_result = await child_agent.list_tools()
-    tool_count = len(tools_result.tools)
-
-    resources_dict = await child_agent.list_resources()
-    resource_count = sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
-
-    prompts_dict = await child_agent.list_prompts()
-    prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
-    return server_count, tool_count, prompt_count, resource_count
+    return ChildAgentCounts(
+        server_count=server_count,
+        resource_counts=await _resource_counts_for_agent(child_agent),
+    )

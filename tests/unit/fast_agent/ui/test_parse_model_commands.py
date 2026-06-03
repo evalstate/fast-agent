@@ -1,4 +1,9 @@
+from fast_agent.commands.shared_command_intents import (
+    MODEL_MANAGER_COMMAND_ACTIONS,
+    MODEL_VALUE_COMMAND_ACTIONS,
+)
 from fast_agent.ui.command_payloads import (
+    CommandError,
     ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
@@ -10,6 +15,19 @@ from fast_agent.ui.command_payloads import (
     ModelXSearchCommand,
 )
 from fast_agent.ui.enhanced_prompt import parse_special_input
+from fast_agent.ui.prompt import parser as prompt_parser
+
+
+def test_prompt_model_value_factories_match_shared_action_classification() -> None:
+    assert frozenset(prompt_parser._MODEL_VALUE_COMMAND_FACTORIES) == MODEL_VALUE_COMMAND_ACTIONS
+
+
+def test_prompt_model_manager_actions_match_shared_action_classification() -> None:
+    for action in MODEL_MANAGER_COMMAND_ACTIONS:
+        result = parse_special_input(f"/model {action}")
+        assert isinstance(result, ModelsCommand)
+        assert result.action == action
+        assert result.command_name == "model"
 
 
 def test_parse_model_reasoning_command() -> None:
@@ -71,6 +89,31 @@ def test_parse_model_switch_command() -> None:
     result = parse_special_input("/model switch gpt-5-mini")
     assert isinstance(result, ModelSwitchCommand)
     assert result.value == "gpt-5-mini"
+
+
+def test_parse_model_switch_matches_case_insensitively() -> None:
+    result = parse_special_input("/MODEL SWITCH gpt-5-mini")
+    assert isinstance(result, ModelSwitchCommand)
+    assert result.value == "gpt-5-mini"
+
+
+def test_parse_model_switch_command_unquotes_single_argument() -> None:
+    result = parse_special_input('/model switch "gpt-5-mini"')
+    assert isinstance(result, ModelSwitchCommand)
+    assert result.value == "gpt-5-mini"
+
+
+def test_parse_model_switch_command_accepts_quoted_subcommand() -> None:
+    result = parse_special_input('/model "switch" gpt-5-mini')
+    assert isinstance(result, ModelSwitchCommand)
+    assert result.value == "gpt-5-mini"
+
+
+def test_parse_model_command_reports_unclosed_quotes() -> None:
+    result = parse_special_input('/model switch "gpt-5')
+
+    assert isinstance(result, CommandError)
+    assert result.message == "Invalid /model arguments: No closing quotation"
 
 
 def test_parse_model_doctor_command() -> None:

@@ -22,6 +22,7 @@ from fast_agent.session.snapshot import (
 from fast_agent.session.trace_export_codex import CodexTraceWriter
 from fast_agent.session.trace_export_errors import SessionExportUploadError
 from fast_agent.session.trace_export_models import ResolvedSessionExport
+from fast_agent.utils.filename import sanitize_filename_component
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -74,10 +75,24 @@ class BatchTraceRecorder:
         self._captured: list[PromptMessageExtended] | None = None
         self._manifest_path = self.trace_dir / "manifest.jsonl"
 
-    def initialize(self) -> None:
+    def initialize(self, *, resume: bool = False) -> None:
         self.trace_dir.mkdir(parents=True, exist_ok=True)
+        if resume:
+            self._ensure_manifest_append_boundary()
+            return
         with self._manifest_path.open("w", encoding="utf-8") as handle:
             handle.write("")
+
+    def _ensure_manifest_append_boundary(self) -> None:
+        if not self._manifest_path.exists():
+            self._manifest_path.touch()
+            return
+        if self._manifest_path.stat().st_size == 0:
+            return
+        with self._manifest_path.open("rb+") as handle:
+            handle.seek(-1, 2)
+            if handle.read(1) != b"\n":
+                handle.write(b"\n")
 
     def install_hook(self) -> None:
         if not isinstance(self._agent, ToolRunnerHookCapable):
@@ -233,8 +248,8 @@ class BatchTraceRecorder:
         )
 
     def _trace_path(self, active: _RowTraceContext) -> Path:
-        identity = _sanitize_filename_component(str(active.identity))[:80]
-        agent = _sanitize_filename_component(self._agent.name)
+        identity = sanitize_filename_component(str(active.identity), fallback="row")[:80]
+        agent = sanitize_filename_component(self._agent.name, fallback="row")
         return self.trace_dir / f"row-{active.row_number:06d}__id-{identity}__{agent}.codex.jsonl"
 
     def _write_manifest(
@@ -339,11 +354,6 @@ def _first_timestamp(messages: list[PromptMessageExtended]) -> datetime | None:
     return None
 
 
-def _sanitize_filename_component(value: str) -> str:
-    sanitized = "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
-    return sanitized or "row"
-
-
 def _json_metadata(metadata: dict[str, object]) -> dict[str, JsonValue]:
     return {
         key: value
@@ -367,10 +377,11 @@ def _agent_provider(agent: AgentProtocol) -> str | None:
 def _resolve_dataset_path(run_id: str, dataset_path: str | None) -> str:
     if dataset_path is None:
         return f"traces/{run_id}"
-    normalized = dataset_path.strip().strip("/")
+    stripped = dataset_path.strip()
+    normalized = stripped.strip("/")
     if not normalized:
         return f"traces/{run_id}"
-    if dataset_path.endswith("/"):
+    if stripped.endswith("/"):
         return f"{normalized}/{run_id}"
     return normalized
 

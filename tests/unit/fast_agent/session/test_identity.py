@@ -3,7 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
-from fast_agent.session.identity import SessionSaveContext, resolve_session_for_save
+from fast_agent.session.identity import (
+    SessionSaveContext,
+    normalize_session_store_scope,
+    resolve_session_for_save,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -53,6 +57,13 @@ class _Manager:
         self.current_session = session
         self.created.append(metadata)
         return session
+
+
+def test_normalize_session_store_scope_defaults_to_workspace() -> None:
+    assert normalize_session_store_scope("app") == "app"
+    assert normalize_session_store_scope("workspace") == "workspace"
+    assert normalize_session_store_scope("invalid") == "workspace"
+    assert normalize_session_store_scope(None) == "workspace"
 
 
 def test_resolve_session_for_save_uses_app_manager_for_app_scope(tmp_path: Path) -> None:

@@ -11,7 +11,7 @@ import os
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from fast_agent.core.logging.logger import get_logger
 
@@ -19,6 +19,11 @@ _logger = get_logger(__name__)
 
 STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
 STREAM_CAPTURE_DIR = Path("stream-debug")
+
+
+@runtime_checkable
+class _ModelDumpable(Protocol):
+    def model_dump(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 def stream_capture_filename(turn: int) -> Path | None:
@@ -50,7 +55,7 @@ def save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
         chunk_file = filename_base.with_name(f"{filename_base.name}_chunks.jsonl")
         with chunk_file.open("a") as handle:
             chunk_dict: Any
-            if hasattr(chunk, "model_dump"):
+            if isinstance(chunk, _ModelDumpable):
                 with warnings.catch_warnings():
                     warnings.filterwarnings(
                         "ignore",

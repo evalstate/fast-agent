@@ -6,7 +6,7 @@ by determining the best agent for a request and dispatching to it.
 """
 
 import json
-from typing import TYPE_CHECKING, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any
 
 from google.protobuf.json_format import MessageToDict
 from mcp import Tool
@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.workflow.request_params import child_request_params
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -76,7 +77,7 @@ class RouterAgent(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        agents: List[LlmAgent],
+        agents: list[LlmAgent],
         routing_instruction: str | None = None,
         context: "Context | None" = None,
         default_request_params: RequestParams | None = None,
@@ -147,11 +148,11 @@ class RouterAgent(LlmAgent):
             try:
                 await agent.shutdown()
             except Exception as e:
-                logger.warning(f"Error shutting down agent: {str(e)}")
+                logger.warning(f"Error shutting down agent: {e!s}")
 
     @staticmethod
     async def _generate_routing_instruction(
-        agents: List[LlmAgent], routing_instruction: Optional[str] = None
+        agents: list[LlmAgent], routing_instruction: str | None = None
     ) -> str:
         """
         Generate the complete routing instruction with agent cards.
@@ -198,9 +199,9 @@ class RouterAgent(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
-        request_params: Optional[RequestParams] = None,
-        tools: List[Tool] | None = None,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Route the request to the most appropriate agent and return its response.
@@ -225,9 +226,9 @@ class RouterAgent(LlmAgent):
 
             # Get the selected agent
             agent: LlmAgent = self.agent_map[route.agent]
+            forward_params = child_request_params(request_params)
 
-            # Dispatch the request to the selected agent
-            # discarded request_params: use llm defaults for subagents
+            # Dispatch through the public agent API so child defaults and request params are applied.
             telemetry_arguments = {
                 "agent": route.agent,
                 "confidence": route.confidence,
@@ -240,7 +241,7 @@ class RouterAgent(LlmAgent):
             ) as step:
                 if route.reasoning:
                     await step.update(message=route.reasoning)
-                result = await agent.generate_impl(messages)
+                result = await agent.generate(messages, forward_params)
                 await step.finish(
                     True,
                     text=f"Delegated to {agent.name}",
@@ -249,10 +250,10 @@ class RouterAgent(LlmAgent):
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
-        model: Type[ModelT],
-        request_params: Optional[RequestParams] = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+        messages: list[PromptMessageExtended],
+        model: type[ModelT],
+        request_params: RequestParams | None = None,
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Route the request to the most appropriate agent and parse its response.
 
@@ -276,6 +277,7 @@ class RouterAgent(LlmAgent):
 
             # Get the selected agent
             agent: LlmAgent = self.agent_map[route.agent]
+            forward_params = child_request_params(request_params)
 
             # Dispatch the request to the selected agent
             telemetry_arguments = {
@@ -290,7 +292,52 @@ class RouterAgent(LlmAgent):
             ) as step:
                 if route.reasoning:
                     await step.update(message=route.reasoning)
-                structured_response = await agent.structured_impl(messages, model, request_params)
+                structured_response = await agent.structured(messages, model, forward_params)
+                await step.finish(
+                    True,
+                    text=f"{agent.name} produced structured output",
+                )
+                return structured_response
+
+    async def structured_schema_impl(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """
+        Route the request to the most appropriate agent and validate against a raw schema.
+        """
+
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"Routing: '{self.name}' structured_schema"):
+            route, warn = await self._route_request(messages[-1])
+
+            if not route:
+                return None, Prompt.assistant(
+                    warn or "No routing result or warning received (structured_schema)"
+                )
+
+            agent = self.agent_map[route.agent]
+            forward_params = child_request_params(request_params)
+
+            telemetry_arguments = {
+                "agent": route.agent,
+                "confidence": route.confidence,
+                "reasoning": route.reasoning,
+            }
+            async with self.workflow_telemetry.start_step(
+                "router.delegate_structured_schema",
+                server_name=self.name,
+                arguments=telemetry_arguments,
+            ) as step:
+                if route.reasoning:
+                    await step.update(message=route.reasoning)
+                structured_response = await agent.structured_schema(
+                    messages,
+                    schema,
+                    forward_params,
+                )
                 await step.finish(
                     True,
                     text=f"{agent.name} produced structured output",
@@ -299,7 +346,7 @@ class RouterAgent(LlmAgent):
 
     async def _route_request(
         self, message: PromptMessageExtended
-    ) -> Tuple[RoutingResponse | None, str | None]:
+    ) -> tuple[RoutingResponse | None, str | None]:
         """
         Determine which agent to route the request to.
 
@@ -319,49 +366,49 @@ class RouterAgent(LlmAgent):
                 agent=self.agents[0].name, confidence="high", reasoning="Only one agent available"
             ), None
 
-        assert self._llm
         # Display the user's routing request
         self.display.show_user_message(
             message.first_text(),
             name=self.name,
-            show_hook_indicator=getattr(self, "has_external_hooks", False),
+            show_hook_indicator=self.has_external_hooks,
         )
 
         # No need to add routing instruction here - it's already in the system prompt
-        response, _ = await self._llm.structured(
+        response, _ = await self._require_llm().structured(
             [message],
             RoutingResponse,
             self._default_request_params,
         )
 
-        warn: str | None = None
-        if not response:
+        if response is None:
             warn = "No routing response received from LLM"
-        elif response.agent not in self.agent_map:
-            warn = f"A response was received, but the agent {response.agent} was not known to the Router"
-
-        if warn:
             logger.warning(warn)
             return None, warn
-        else:
-            assert response
-            logger.info(
-                f"Routing structured request to agent: {response.agent or 'error'} (confidence: {response.confidence or ''})"
+        if response.agent not in self.agent_map:
+            warn = (
+                f"A response was received, but the agent {response.agent} "
+                "was not known to the Router"
             )
+            logger.warning(warn)
+            return None, warn
 
-            routing_message = f"Routing to: {response.agent}"
-            if response.reasoning:
-                routing_message += f" ({response.reasoning})"
+        logger.info(
+            f"Routing structured request to agent: {response.agent or 'error'} (confidence: {response.confidence or ''})"
+        )
 
-            agent_keys = list(self.agent_map.keys())
-            highlight_index = resolve_highlight_index(agent_keys, response.agent)
+        routing_message = f"Routing to: {response.agent}"
+        if response.reasoning:
+            routing_message += f" ({response.reasoning})"
 
-            await self.display.show_assistant_message(
-                routing_message,
-                bottom_items=agent_keys,
-                highlight_index=highlight_index,
-                name=self.name,
-                show_hook_indicator=getattr(self, "has_external_hooks", False),
-            )
+        agent_keys = list(self.agent_map.keys())
+        highlight_index = resolve_highlight_index(agent_keys, response.agent)
 
-            return response, None
+        await self.display.show_assistant_message(
+            routing_message,
+            bottom_items=agent_keys,
+            highlight_index=highlight_index,
+            name=self.name,
+            show_hook_indicator=self.has_external_hooks,
+        )
+
+        return response, None

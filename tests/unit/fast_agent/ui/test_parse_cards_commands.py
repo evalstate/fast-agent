@@ -16,8 +16,22 @@ def test_parse_cards_with_action_and_argument() -> None:
     assert result.argument == "all --force"
 
 
+def test_parse_cards_preserves_raw_argument_text() -> None:
+    result = parse_special_input('/cards add "team pack" --registry local')
+    assert isinstance(result, CardsCommand)
+    assert result.action == "add"
+    assert result.argument == '"team pack" --registry local'
+
+
 def test_parse_cards_readme_with_argument() -> None:
     result = parse_special_input("/cards readme alpha")
     assert isinstance(result, CardsCommand)
     assert result.action == "readme"
     assert result.argument == "alpha"
+
+
+def test_parse_cards_accepts_quoted_action_and_preserves_raw_argument() -> None:
+    result = parse_special_input('/cards "readme" "team pack"')
+    assert isinstance(result, CardsCommand)
+    assert result.action == "readme"
+    assert result.argument == '"team pack"'

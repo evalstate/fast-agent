@@ -8,7 +8,7 @@ from openai.types.completion_usage import (
     CompletionUsage as OpenAIUsage,
 )
 
-from fast_agent.core.logging.json_serializer import snapshot_json_value
+from fast_agent.core.logging.json_serializer import JSONSerializer, snapshot_json_value
 from fast_agent.llm.provider.openai.responses_websocket import _AttrObjectView
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.response_telemetry import build_usage_payload
@@ -225,6 +225,34 @@ def test_snapshot_json_value_falls_back_to_strings_for_unknown_nested_objects():
         "input_tokens": 11,
         "details": "unknown-leaf",
     }
+
+
+def test_snapshot_json_value_retries_model_dump_without_json_mode():
+    class PlainModelDumpUsage:
+        def model_dump(self, *args: object, **kwargs: object) -> dict[str, int]:
+            if kwargs.get("mode") == "json":
+                raise TypeError("mode is not supported")
+            return {"input_tokens": 12}
+
+    assert snapshot_json_value(PlainModelDumpUsage()) == {"input_tokens": 12}
+
+
+def test_snapshot_json_value_uses_dict_after_model_dump_failure():
+    class DictFallbackUsage:
+        def model_dump(self, *args: object, **kwargs: object) -> dict[str, int]:
+            del args, kwargs
+            raise ValueError("broken model dump")
+
+        def dict(self) -> dict[str, int]:
+            return {"input_tokens": 13}
+
+    assert snapshot_json_value(DictFallbackUsage()) == {"input_tokens": 13}
+
+
+def test_json_serializer_sensitive_keys_use_normalized_matching():
+    payload = JSONSerializer().serialize({" API_KEY ": "abcdefghijklmnopqrstuvwxyz"})
+
+    assert payload == {" API_KEY ": "abcdefghij....."}
 
 
 def test_usage_accumulator():

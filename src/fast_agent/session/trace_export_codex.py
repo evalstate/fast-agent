@@ -41,6 +41,7 @@ from fast_agent.mcp.helpers.content_helpers import (
 from fast_agent.mcp.mime_utils import is_image_mime_type, is_text_mime_type
 from fast_agent.privacy.sanitizer import RedactionAccumulator, RedactionSummary, TraceSanitizer
 from fast_agent.session.trace_export_models import ExportResult, ResolvedSessionExport
+from fast_agent.utils.count_display import format_count
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -49,6 +50,15 @@ if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.privacy.sanitizer import SanitizedText
     from fast_agent.session.snapshot import SessionAgentSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _WebSearchFields:
+    action: str | None
+    query: str | None
+    queries: list[str]
+    url: str | None
+    pattern: str | None
 
 
 def _normalize_utc(value: datetime) -> datetime:
@@ -119,7 +129,8 @@ class _TraceSanitization:
         if total_texts > 0:
             self._emit_progress(
                 "Privacy filter: sanitizing "
-                f"{total_texts:,} text value(s), {total_characters:,} characters total..."
+                f"{format_count(total_texts, 'text value')}, "
+                f"{format_count(total_characters, 'character')} total..."
             )
 
     def text(self, value: str) -> str:
@@ -142,16 +153,17 @@ class _TraceSanitization:
             return
         percent = min(100, round((self._processed_texts / self._total_texts) * 100))
         if (
-            self._processed_texts != 1
-            and self._processed_texts != self._total_texts
+            self._processed_texts not in (1, self._total_texts)
             and percent < self._last_progress_percent + 5
         ):
             return
         self._last_progress_percent = percent
         self._emit_progress(
             "Privacy filter: overall "
-            f"{self._processed_texts:,}/{self._total_texts:,} text value(s) "
-            f"({percent}%, {self._processed_characters:,}/{self._total_characters:,} chars)..."
+            f"{self._processed_texts:,} of {format_count(self._total_texts, 'text value')} "
+            f"({percent}%, "
+            f"{self._processed_characters:,} of "
+            f"{format_count(self._total_characters, 'character')})..."
         )
 
     def _emit_progress(self, message: str) -> None:
@@ -252,20 +264,15 @@ def _text_item(
     }
 
 
-def _attachment_summary_text(block: ContentBlock) -> str | None:
-    mime_type = _content_mime_type(block)
+def _resource_link_summary(block: ResourceLink, mime_type: str | None) -> str:
+    resource_uri = str(block.uri)
+    filename = block.name or _content_filename(block) or resource_uri
+    if mime_type:
+        return f"Attached resource: {filename} ({mime_type}) — {resource_uri}"
+    return f"Attached resource: {filename} — {resource_uri}"
 
-    if isinstance(block, ResourceLink):
-        resource_uri = str(block.uri)
-        filename = block.name or _content_filename(block) or resource_uri
-        if mime_type:
-            return f"Attached resource: {filename} ({mime_type}) — {resource_uri}"
-        return f"Attached resource: {filename} — {resource_uri}"
 
-    if isinstance(block, AudioContent):
-        return f"Attached audio ({mime_type})" if mime_type else "Attached audio"
-
-    filename = _content_filename(block)
+def _file_summary(filename: str | None, mime_type: str | None) -> str | None:
     if filename and mime_type:
         return f"Attached file: {filename} ({mime_type})"
     if filename:
@@ -273,6 +280,35 @@ def _attachment_summary_text(block: ContentBlock) -> str | None:
     if mime_type:
         return f"Attached file ({mime_type})"
     return None
+
+
+def _attachment_summary_text(block: ContentBlock) -> str | None:
+    mime_type = _content_mime_type(block)
+
+    if isinstance(block, ResourceLink):
+        return _resource_link_summary(block, mime_type)
+
+    if isinstance(block, AudioContent):
+        return f"Attached audio ({mime_type})" if mime_type else "Attached audio"
+
+    return _file_summary(_content_filename(block), mime_type)
+
+
+def _file_data_item(block: ContentBlock, data: str) -> dict[str, object]:
+    item: dict[str, object] = {"type": "input_file", "file_data": data}
+    filename = _content_filename(block)
+    if filename is not None:
+        item["filename"] = filename
+    return item
+
+
+def _uri_attachment_item(
+    resource_uri: str,
+    mime_type: str | None,
+) -> dict[str, object]:
+    if mime_type and is_image_mime_type(mime_type):
+        return {"type": "input_image", "image_url": resource_uri}
+    return {"type": "input_file", "file_url": resource_uri}
 
 
 def _tool_attachment_item(block: ContentBlock) -> dict[str, object] | None:
@@ -284,24 +320,13 @@ def _tool_attachment_item(block: ContentBlock) -> dict[str, object] | None:
     if data is not None:
         if mime_type and is_image_mime_type(mime_type):
             return {"type": "input_image", "image_url": f"data:{mime_type};base64,{data}"}
-
-        item: dict[str, object] = {"type": "input_file", "file_data": data}
-        filename = _content_filename(block)
-        if filename is not None:
-            item["filename"] = filename
-        return item
+        return _file_data_item(block, data)
 
     if is_resource_content(block):
-        resource_uri = str(block.resource.uri)
-        if mime_type and is_image_mime_type(mime_type):
-            return {"type": "input_image", "image_url": resource_uri}
-        return {"type": "input_file", "file_url": resource_uri}
+        return _uri_attachment_item(str(block.resource.uri), mime_type)
 
     if is_resource_link(block):
-        resource_uri = str(block.uri)
-        if mime_type and is_image_mime_type(mime_type):
-            return {"type": "input_image", "image_url": resource_uri}
-        return {"type": "input_file", "file_url": resource_uri}
+        return _uri_attachment_item(str(block.uri), mime_type)
 
     return None
 
@@ -491,46 +516,73 @@ def _string_list_field(mapping: dict[str, object] | None, key: str) -> list[str]
     return [item for item in value if isinstance(item, str) and item]
 
 
+def _web_search_fields(
+    payload: dict[str, object],
+    sanitization: _TextSanitization | None,
+) -> _WebSearchFields:
+    tool_input = _server_tool_input(payload)
+    query = _string_field(tool_input, "query") or _string_field(payload, "query")
+    pattern = _string_field(tool_input, "pattern") or _string_field(payload, "pattern")
+    return _WebSearchFields(
+        action=_string_field(payload, "action"),
+        query=_sanitize_text(sanitization, query) if query is not None else None,
+        queries=[
+            _sanitize_text(sanitization, item)
+            for item in (
+                _string_list_field(tool_input, "queries")
+                or _string_list_field(payload, "queries")
+            )
+        ],
+        url=_string_field(tool_input, "url") or _string_field(payload, "url"),
+        pattern=_sanitize_text(sanitization, pattern) if pattern is not None else None,
+    )
+
+
+def _open_page_action(fields: _WebSearchFields) -> dict[str, object] | None:
+    if fields.action not in {"open_page", "open_url", "fetch"} and (
+        fields.url is None or fields.query or fields.queries
+    ):
+        return None
+    result: dict[str, object] = {"type": "open_page"}
+    if fields.url is not None:
+        result["url"] = fields.url
+    return result
+
+
+def _find_in_page_action(fields: _WebSearchFields) -> dict[str, object] | None:
+    if fields.action not in {"find_in_page", "find"} and (
+        fields.url is None or fields.pattern is None
+    ):
+        return None
+    result: dict[str, object] = {"type": "find_in_page"}
+    if fields.url is not None:
+        result["url"] = fields.url
+    if fields.pattern is not None:
+        result["pattern"] = fields.pattern
+    return result
+
+
+def _search_action(fields: _WebSearchFields) -> dict[str, object] | None:
+    if fields.query is None and not fields.queries:
+        return None
+    result: dict[str, object] = {"type": "search"}
+    if fields.query is not None:
+        result["query"] = fields.query
+    if fields.queries:
+        result["queries"] = fields.queries
+    return result
+
+
 def _web_search_action(
     payload: dict[str, object],
     sanitization: _TextSanitization | None = None,
 ) -> dict[str, object] | None:
-    tool_input = _server_tool_input(payload)
-    action = _string_field(payload, "action")
-    query = _string_field(tool_input, "query") or _string_field(payload, "query")
-    queries = _string_list_field(tool_input, "queries") or _string_list_field(payload, "queries")
-    url = _string_field(tool_input, "url") or _string_field(payload, "url")
-    pattern = _string_field(tool_input, "pattern") or _string_field(payload, "pattern")
-
-    if query is not None:
-        query = _sanitize_text(sanitization, query)
-    queries = [_sanitize_text(sanitization, item) for item in queries]
-    if pattern is not None:
-        pattern = _sanitize_text(sanitization, pattern)
-
-    if action in {"open_page", "open_url", "fetch"} or (url is not None and not query and not queries):
-        result: dict[str, object] = {"type": "open_page"}
-        if url is not None:
-            result["url"] = url
-        return result
-
-    if action in {"find_in_page", "find"} or (url is not None and pattern is not None):
-        result: dict[str, object] = {"type": "find_in_page"}
-        if url is not None:
-            result["url"] = url
-        if pattern is not None:
-            result["pattern"] = pattern
-        return result
-
-    if query is None and not queries:
-        return None
-
-    result: dict[str, object] = {"type": "search"}
-    if query is not None:
-        result["query"] = query
-    if queries:
-        result["queries"] = queries
-    return result
+    fields = _web_search_fields(payload, sanitization)
+    return (
+        _open_page_action(fields)
+        or _find_in_page_action(fields)
+        or _search_action(fields)
+    )
 
 
 def _server_tool_response_items(
@@ -622,6 +674,43 @@ def _function_call_item(
     }
 
 
+def _flush_tool_text_parts(
+    items: list[dict[str, object]],
+    text_parts: list[str],
+    sanitization: _TextSanitization | None,
+) -> None:
+    if not text_parts:
+        return
+    text = _sanitize_text(sanitization, "\n".join(text_parts))
+    items.append({"type": "input_text", "text": text})
+    text_parts.clear()
+
+
+def _tool_result_block_item(
+    block: ContentBlock,
+    sanitization: _TextSanitization | None,
+) -> dict[str, object] | None:
+    if isinstance(block, EmbeddedResource):
+        text_item = _embedded_text_item(
+            block,
+            output_text=False,
+            sanitization=sanitization,
+        )
+        if text_item is not None:
+            return text_item
+    return _tool_attachment_item(block)
+
+
+def _collapse_tool_result_items(items: list[dict[str, object]]) -> object:
+    if not items:
+        return ""
+    if len(items) == 1 and items[0].get("type") == "input_text":
+        text = items[0].get("text")
+        if isinstance(text, str):
+            return text
+    return items
+
+
 def _tool_result_output(
     result: CallToolResult,
     sanitization: _TextSanitization | None = None,
@@ -629,43 +718,19 @@ def _tool_result_output(
     items: list[dict[str, object]] = []
     text_parts: list[str] = []
 
-    def flush_text_parts() -> None:
-        if not text_parts:
-            return
-        text = _sanitize_text(sanitization, "\n".join(text_parts))
-        items.append({"type": "input_text", "text": text})
-        text_parts.clear()
-
     for block in canonicalize_tool_result_content_for_llm(result):
         if isinstance(block, TextContent):
             text_parts.append(block.text)
             continue
 
-        flush_text_parts()
+        _flush_tool_text_parts(items, text_parts, sanitization)
 
-        if isinstance(block, EmbeddedResource):
-            text_item = _embedded_text_item(
-                block,
-                output_text=False,
-                sanitization=sanitization,
-            )
-            if text_item is not None:
-                items.append(text_item)
-                continue
+        item = _tool_result_block_item(block, sanitization)
+        if item is not None:
+            items.append(item)
 
-        attachment = _tool_attachment_item(block)
-        if attachment is not None:
-            items.append(attachment)
-
-    flush_text_parts()
-
-    if items:
-        if len(items) == 1 and items[0].get("type") == "input_text":
-            text = items[0].get("text")
-            if isinstance(text, str):
-                return text
-        return items
-    return ""
+    _flush_tool_text_parts(items, text_parts, sanitization)
+    return _collapse_tool_result_items(items)
 
 
 def _tool_result_status(result: CallToolResult) -> str:
@@ -675,11 +740,7 @@ def _tool_result_status(result: CallToolResult) -> str:
 def _object_mapping(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None
-    result: dict[str, object] = {}
-    for key, item in value.items():
-        if isinstance(key, str):
-            result[key] = item
-    return result
+    return {key: item for key, item in value.items() if isinstance(key, str)}
 
 
 def _string_field(mapping: dict[str, object] | None, key: str) -> str | None:
@@ -794,10 +855,7 @@ def _full_model_spec(agent_snapshot: "SessionAgentSnapshot") -> str | None:
     model_spec = agent_snapshot.model_spec
     if model_spec is not None:
         stripped = model_spec.strip()
-        if stripped:
-            model_spec = stripped
-        else:
-            model_spec = None
+        model_spec = stripped or None
     model = agent_snapshot.model
     if model_spec is None and model is not None:
         stripped = model.strip()
@@ -1189,6 +1247,136 @@ class _TurnState:
         return self.llm_duration_ms if self.llm_duration_ms > 0 else None
 
 
+def _initial_session_records(
+    resolved: ResolvedSessionExport,
+    meta: _TraceMeta,
+    sanitization: _TextSanitization | None,
+) -> list[dict[str, object]]:
+    records = [
+        _record(
+            "session_meta",
+            _session_meta_payload(resolved, meta, sanitization=sanitization),
+            timestamp=resolved.snapshot.created_at,
+        )
+    ]
+    agent_snapshot = resolved.snapshot.continuation.agents[resolved.agent_name]
+    if agent_snapshot.resolved_prompt:
+        records.append(
+            _record(
+                "response_item",
+                _developer_message_item(
+                    agent_snapshot.resolved_prompt,
+                    sanitization=sanitization,
+                ),
+            )
+        )
+    return records
+
+
+def _start_turn_records(
+    resolved: ResolvedSessionExport,
+    meta: _TraceMeta,
+    turn: _TurnState,
+    user_message: PromptMessageExtended | None,
+    sanitization: _TextSanitization | None,
+) -> list[dict[str, object]]:
+    records = [
+        _record(
+            "event_msg",
+            _turn_started_payload(
+                turn.turn_id,
+                model_context_window=meta.model_context_window,
+                started_at=turn.started_at,
+            ),
+            timestamp=turn.started_at,
+        )
+    ]
+    if user_message is not None:
+        records.append(
+            _record(
+                "event_msg",
+                _user_event_payload(user_message, sanitization=sanitization),
+                timestamp=turn.started_at,
+            )
+        )
+    records.append(
+        _record(
+            "turn_context",
+            _turn_context_payload(
+                resolved,
+                turn_id=turn.turn_id,
+                meta=meta,
+                turn_timestamp=turn.started_at,
+            ),
+        )
+    )
+    return records
+
+
+def _finish_turn_record(
+    turn: _TurnState,
+    sanitization: _TextSanitization | None,
+) -> dict[str, object]:
+    completed_at = turn.completed_at
+    return _record(
+        "event_msg",
+        _turn_complete_payload(
+            turn.turn_id,
+            turn.last_agent_message,
+            completed_at=completed_at,
+            duration_ms=turn.duration_ms(),
+            time_to_first_token_ms=turn.time_to_first_token_ms,
+            sanitization=sanitization,
+        ),
+        timestamp=completed_at,
+    )
+
+
+def _observe_turn_message(
+    turn: _TurnState,
+    message: PromptMessageExtended,
+    message_timestamp: datetime | None,
+) -> None:
+    if message.role != "assistant":
+        return
+    turn.observe_assistant_message(message, message_timestamp)
+    texts = _message_texts(message.content)
+    if texts:
+        turn.last_agent_message = texts[-1]
+
+
+def _message_records(
+    message: PromptMessageExtended,
+    message_timestamp: datetime | None,
+    meta: _TraceMeta,
+    sanitization: _TextSanitization | None,
+) -> list[dict[str, object]]:
+    records = [
+        _record(
+            "response_item",
+            item,
+            timestamp=message_timestamp,
+        )
+        for item in _response_items(message, sanitization=sanitization)
+    ]
+    if message.role != "assistant":
+        return records
+
+    token_count = _token_count_payload(
+        message,
+        model_context_window=meta.model_context_window,
+    )
+    if token_count is not None:
+        records.append(
+            _record(
+                "event_msg",
+                token_count,
+                timestamp=message_timestamp,
+            )
+        )
+    return records
+
+
 _PRIVACY_FILTER_LIMITATIONS = [
     "file_paths_not_redacted",
     "directory_names_not_redacted",
@@ -1300,26 +1488,7 @@ class CodexTraceWriter:
     ) -> list[dict[str, object]]:
         meta = _trace_meta(resolved)
         turn_timestamps = _turn_timestamps(resolved)
-        records: list[dict[str, object]] = []
-        records.append(
-            _record(
-                "session_meta",
-                _session_meta_payload(resolved, meta, sanitization=sanitization),
-                timestamp=resolved.snapshot.created_at,
-            )
-        )
-
-        agent_snapshot = resolved.snapshot.continuation.agents[resolved.agent_name]
-        if agent_snapshot.resolved_prompt:
-            records.append(
-                _record(
-                    "response_item",
-                    _developer_message_item(
-                        agent_snapshot.resolved_prompt,
-                        sanitization=sanitization,
-                    ),
-                )
-            )
+        records = _initial_session_records(resolved, meta, sanitization)
 
         turn_counter = 0
         current_turn: _TurnState | None = None
@@ -1334,34 +1503,13 @@ class CodexTraceWriter:
                 turn_id=f"turn-{turn_counter}",
                 started_at=turn_timestamp,
             )
-            records.append(
-                _record(
-                    "event_msg",
-                    _turn_started_payload(
-                        current_turn.turn_id,
-                        model_context_window=meta.model_context_window,
-                        started_at=turn_timestamp,
-                    ),
-                    timestamp=turn_timestamp,
-                )
-            )
-            if user_message is not None:
-                records.append(
-                    _record(
-                        "event_msg",
-                        _user_event_payload(user_message, sanitization=sanitization),
-                        timestamp=turn_timestamp,
-                    )
-                )
-            records.append(
-                _record(
-                    "turn_context",
-                    _turn_context_payload(
-                        resolved,
-                        turn_id=current_turn.turn_id,
-                        meta=meta,
-                        turn_timestamp=turn_timestamp,
-                    ),
+            records.extend(
+                _start_turn_records(
+                    resolved,
+                    meta,
+                    current_turn,
+                    user_message,
+                    sanitization,
                 )
             )
 
@@ -1369,21 +1517,7 @@ class CodexTraceWriter:
             nonlocal current_turn
             if current_turn is None:
                 return
-            completed_at = current_turn.completed_at
-            records.append(
-                _record(
-                    "event_msg",
-                    _turn_complete_payload(
-                        current_turn.turn_id,
-                        current_turn.last_agent_message,
-                        completed_at=completed_at,
-                        duration_ms=current_turn.duration_ms(),
-                        time_to_first_token_ms=current_turn.time_to_first_token_ms,
-                        sanitization=sanitization,
-                    ),
-                    timestamp=completed_at,
-                )
-            )
+            records.append(_finish_turn_record(current_turn, sanitization))
             current_turn = None
 
         for message, message_timestamp in zip(
@@ -1395,33 +1529,9 @@ class CodexTraceWriter:
             elif current_turn is None:
                 start_turn(None)
 
-            if current_turn is not None and message.role == "assistant":
-                current_turn.observe_assistant_message(message, message_timestamp)
-                texts = _message_texts(message.content)
-                if texts:
-                    current_turn.last_agent_message = texts[-1]
-
-            for item in _response_items(message, sanitization=sanitization):
-                records.append(
-                    _record(
-                        "response_item",
-                        item,
-                        timestamp=message_timestamp,
-                    )
-                )
-            if message.role == "assistant":
-                token_count = _token_count_payload(
-                    message,
-                    model_context_window=meta.model_context_window,
-                )
-                if token_count is not None:
-                    records.append(
-                        _record(
-                            "event_msg",
-                            token_count,
-                            timestamp=message_timestamp,
-                        )
-                    )
+            if current_turn is not None:
+                _observe_turn_message(current_turn, message, message_timestamp)
+            records.extend(_message_records(message, message_timestamp, meta, sanitization))
 
         finish_turn()
         return records

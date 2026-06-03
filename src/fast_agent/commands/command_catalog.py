@@ -6,7 +6,10 @@ import difflib
 from dataclasses import dataclass
 from typing import Final
 
-from fast_agent.skills.command_support import SKILLS_ADD_SELECTOR
+from fast_agent.utils.action_normalization import normalize_action_token
+from fast_agent.utils.collections import unique_preserve_order
+
+SKILLS_ADD_SELECTOR: Final = "number|name|github-url|path"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +56,29 @@ class CommandSpec:
     actions: tuple[CommandActionSpec, ...]
     default_action: str
     examples: tuple[str, ...] = ()
+
+
+def _model_catalog_action(command: str, *, example_provider: str) -> CommandActionSpec:
+    return CommandActionSpec(
+        action="catalog",
+        help="Show model catalog for a provider",
+        usage=f"/{command} catalog <provider> [--all]",
+        examples=(f"/{command} catalog {example_provider} --all",),
+        arguments=(
+            CommandArgumentSpec(
+                name="provider",
+                value_name="provider",
+                summary="Provider name, for example anthropic or openai.",
+                required=True,
+            ),
+        ),
+        options=(
+            CommandOptionSpec(
+                name="--all",
+                summary="Show the full provider catalog instead of the curated default view.",
+            ),
+        ),
+    )
 
 
 COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
@@ -188,7 +214,10 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         default_action="list",
         examples=(
             "/skills available",
+            "/skills search docker",
             f"/skills add <{SKILLS_ADD_SELECTOR}>",
+            "/skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md",
+            "/skills add ./skills/example",
             "/skills registry",
         ),
     ),
@@ -244,6 +273,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
             ),
             CommandActionSpec(
                 action="readme",
+                aliases=("show", "cat"),
                 help="Show an installed card pack README",
                 usage="/cards readme [<number|name>]",
                 examples=("/cards readme <number|name>",),
@@ -336,6 +366,106 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         ),
     ),
     CommandSpec(
+        command="plugins",
+        summary="Manage command plugins",
+        usage="/plugins [list|available|add|remove|update|registry|help] [args]",
+        actions=(
+            CommandActionSpec(
+                action="list",
+                help="List installed plugins",
+                usage="/plugins list",
+            ),
+            CommandActionSpec(
+                action="available",
+                aliases=("marketplace", "browse"),
+                help="Browse marketplace plugins",
+                usage="/plugins available",
+                examples=("/plugins available",),
+            ),
+            CommandActionSpec(
+                action="add",
+                aliases=("install",),
+                help="Install a plugin",
+                usage="/plugins add [<number|name>] [--registry url]",
+                examples=("/plugins add <number|name>",),
+                arguments=(
+                    CommandArgumentSpec(
+                        name="selector",
+                        value_name="number|name",
+                        summary="Plugin name or marketplace index.",
+                    ),
+                ),
+                options=(
+                    CommandOptionSpec(
+                        name="--registry",
+                        aliases=("-r",),
+                        value_name="url|path",
+                        summary="Override the plugin registry for this invocation.",
+                    ),
+                ),
+            ),
+            CommandActionSpec(
+                action="remove",
+                aliases=("rm", "delete", "uninstall"),
+                help="Remove an installed plugin",
+                usage="/plugins remove [<number|name>]",
+                examples=("/plugins remove <number|name>",),
+                arguments=(
+                    CommandArgumentSpec(
+                        name="selector",
+                        value_name="number|name",
+                        summary="Installed plugin name or index.",
+                    ),
+                ),
+            ),
+            CommandActionSpec(
+                action="update",
+                aliases=("refresh", "upgrade"),
+                help="Check or apply plugin updates",
+                usage="/plugins update [<number|name|all>] [--force] [--yes]",
+                examples=("/plugins update all --yes",),
+                arguments=(
+                    CommandArgumentSpec(
+                        name="selector",
+                        value_name="number|name|all",
+                        summary="Plugin name, index, or 'all'. Omit to run an update check.",
+                    ),
+                ),
+                options=(
+                    CommandOptionSpec(name="--force", summary="Overwrite local modifications."),
+                    CommandOptionSpec(name="--yes", summary="Confirm multi-plugin apply."),
+                ),
+            ),
+            CommandActionSpec(
+                action="registry",
+                aliases=("source",),
+                help="Set the plugin registry",
+                usage="/plugins registry [<number|url|path>]",
+                examples=("/plugins registry",),
+                arguments=(
+                    CommandArgumentSpec(
+                        name="target",
+                        value_name="number|url|path",
+                        summary="Registry selection, URL, or filesystem path.",
+                    ),
+                ),
+            ),
+            CommandActionSpec(
+                action="help",
+                aliases=("--help", "-h"),
+                help="Show plugins command usage",
+            ),
+        ),
+        default_action="list",
+        examples=(
+            "/plugins available",
+            "/plugins add <number|name>",
+            "/plugins remove <number|name>",
+            "/plugins update all --yes",
+            "/plugins registry",
+        ),
+    ),
+    CommandSpec(
         command="model",
         summary="Model inspection, switching, and runtime settings",
         usage="/model [reasoning|task_budget|verbosity|fast|web_search|x_search|web_fetch|switch|doctor|references|catalog|help] [args]",
@@ -361,7 +491,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
             CommandActionSpec(
                 action="fast",
                 help="Inspect or set service tier",
-                usage="/model fast [on|off|status]",
+                usage="/model fast [on|off|flex|status]",
                 examples=("/model fast on",),
             ),
             CommandActionSpec(
@@ -406,32 +536,14 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="references",
                 help="List or manage model references",
                 usage=(
-                    "/model references | /model references set [<token> [<model-spec>]] "
+                    "/model references [list] | "
+                    "/model references set [<token> [<model-spec>]] "
                     "[--target env|project] [--dry-run] | "
                     "/model references unset [<token>] [--target env|project] [--dry-run]"
                 ),
                 examples=("/model references",),
             ),
-            CommandActionSpec(
-                action="catalog",
-                help="Show model catalog for a provider",
-                usage="/model catalog <provider> [--all]",
-                examples=("/model catalog openai --all",),
-                arguments=(
-                    CommandArgumentSpec(
-                        name="provider",
-                        value_name="provider",
-                        summary="Provider name, for example anthropic or openai.",
-                        required=True,
-                    ),
-                ),
-                options=(
-                    CommandOptionSpec(
-                        name="--all",
-                        summary="Show the full provider catalog instead of the curated default view.",
-                    ),
-                ),
-            ),
+            _model_catalog_action("model", example_provider="openai"),
             CommandActionSpec(
                 action="help",
                 aliases=("--help", "-h"),
@@ -464,20 +576,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 usage="/models references",
                 examples=("/models references",),
             ),
-            CommandActionSpec(
-                action="catalog",
-                help="Show model catalog for a provider",
-                usage="/models catalog <provider>",
-                examples=("/models catalog anthropic",),
-                arguments=(
-                    CommandArgumentSpec(
-                        name="provider",
-                        value_name="provider",
-                        summary="Provider name, for example anthropic or openai.",
-                        required=True,
-                    ),
-                ),
-            ),
+            _model_catalog_action("models", example_provider="anthropic"),
             CommandActionSpec(
                 action="help",
                 aliases=("--help", "-h"),
@@ -488,7 +587,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         examples=(
             "/models doctor",
             "/models references",
-            "/models catalog anthropic",
+            "/models catalog anthropic --all",
         ),
     ),
     CommandSpec(
@@ -500,7 +599,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="run",
                 help="Run fast-agent check diagnostics",
                 usage="/check [args]",
-                examples=("/check", "/check --for-model"),
+                examples=("/check", "/check models --for-model gpt-5"),
             ),
         ),
         default_action="run",
@@ -511,29 +610,41 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
 _COMMAND_SPECS_BY_NAME: Final[dict[str, CommandSpec]] = {
     spec.command: spec for spec in COMMAND_SPECS
 }
+_COMMAND_ACTION_SPECS_BY_NAME: Final[dict[str, dict[str, CommandActionSpec]]] = {
+    spec.command: {
+        name: action
+        for action in spec.actions
+        for name in (action.action, *action.aliases)
+    }
+    for spec in COMMAND_SPECS
+}
+_COMMAND_ACTION_CANDIDATES_BY_NAME: Final[dict[str, tuple[str, ...]]] = {
+    command: tuple(actions)
+    for command, actions in _COMMAND_ACTION_SPECS_BY_NAME.items()
+}
+_COMMAND_ACTION_CANONICAL_BY_CANDIDATE: Final[dict[str, dict[str, str]]] = {
+    command: {candidate: action.action for candidate, action in actions.items()}
+    for command, actions in _COMMAND_ACTION_SPECS_BY_NAME.items()
+}
 
 
 def get_command_spec(command_name: str) -> CommandSpec | None:
     """Return catalog metadata for a command family."""
 
-    return _COMMAND_SPECS_BY_NAME.get(command_name.strip().lower())
+    return _COMMAND_SPECS_BY_NAME.get(normalize_action_token(command_name))
 
 
 def get_command_action_spec(command_name: str, action_name: str) -> CommandActionSpec | None:
     """Return metadata for a command action, resolving aliases."""
 
-    spec = get_command_spec(command_name)
-    if spec is None:
-        return None
-
-    normalized = action_name.strip().lower()
+    normalized = normalize_action_token(action_name)
     if not normalized:
         return None
 
-    for action in spec.actions:
-        if action.action == normalized or normalized in action.aliases:
-            return action
-    return None
+    actions = _COMMAND_ACTION_SPECS_BY_NAME.get(normalize_action_token(command_name))
+    if actions is None:
+        return None
+    return actions.get(normalized)
 
 
 def command_action_names(command_name: str) -> tuple[str, ...]:
@@ -545,24 +656,71 @@ def command_action_names(command_name: str) -> tuple[str, ...]:
     return tuple(action.action for action in spec.actions)
 
 
-def command_alias_map(command_name: str) -> dict[str, str]:
-    """Return alias-to-action mapping for a command family."""
+def command_action_tokens(
+    command_name: str,
+    action_name: str,
+    *,
+    include_action: bool = True,
+) -> tuple[str, ...]:
+    """Return the accepted tokens for one command action.
+
+    The command catalog owns action aliases; consumers that need to recognize
+    typed subcommands should use this instead of mirroring alias sets.
+    """
+
+    normalized_action = normalize_action_token(action_name)
+    action = get_command_action_spec(command_name, normalized_action)
+    if action is None:
+        return ()
+    return ((action.action,) if include_action else ()) + action.aliases
+
+
+def command_usage_lines(command_name: str) -> list[str]:
+    """Return user-facing usage lines for a catalogued command family."""
 
     spec = get_command_spec(command_name)
     if spec is None:
-        return {}
+        raise ValueError(f"unknown command catalog entry: {command_name}")
 
-    aliases: dict[str, str] = {}
-    for action in spec.actions:
-        for alias in action.aliases:
-            aliases[alias.lower()] = action.action
-    return aliases
+    lines = [f"Usage: {spec.usage}"]
+    if spec.examples:
+        lines.extend(("", "Examples:"))
+        lines.extend(f"- {example}" for example in spec.examples)
+    return lines
+
+
+def format_unknown_command_action(command_name: str, action: str) -> str:
+    """Return a warning for an unrecognized action on a catalogued command."""
+
+    actions = "/".join(command_action_names(command_name))
+    return (
+        f"Unknown /{command_name} action: {action}. "
+        f"Use {actions}.{_suggestion_suffix(suggest_command_action(command_name, action))}"
+    )
+
+
+def _suggestion_suffix(suggestions: tuple[str, ...]) -> str:
+    if not suggestions:
+        return ""
+    return " Did you mean: " + ", ".join(f"`{name}`" for name in suggestions)
+
+
+def normalize_command_action(command_name: str, action_name: str | None) -> str:
+    """Return a canonical action name for a command family action or alias."""
+    raw_action = normalize_action_token(action_name)
+    spec = get_command_spec(command_name)
+    if spec is None:
+        return raw_action
+    if not raw_action:
+        return spec.default_action
+    action_spec = get_command_action_spec(command_name, raw_action)
+    return action_spec.action if action_spec is not None else raw_action
 
 
 def suggest_command_name(command_name: str, *, limit: int = 3) -> tuple[str, ...]:
     """Suggest similar top-level command names."""
 
-    normalized = command_name.strip().lower()
+    normalized = normalize_action_token(command_name)
     candidates = [spec.command for spec in COMMAND_SPECS] + [
         "commands",
         "mcp",
@@ -581,7 +739,7 @@ def suggest_command_name(command_name: str, *, limit: int = 3) -> tuple[str, ...
 def suggest_command_action(command_name: str, action: str, *, limit: int = 3) -> tuple[str, ...]:
     """Suggest similar action names for a command family."""
 
-    normalized = action.strip().lower()
+    normalized = normalize_action_token(action)
     if not normalized:
         return ()
 
@@ -589,8 +747,7 @@ def suggest_command_action(command_name: str, action: str, *, limit: int = 3) ->
     if spec is None:
         return ()
 
-    candidates = [entry.action for entry in spec.actions]
-    for entry in spec.actions:
-        candidates.extend(entry.aliases)
+    candidates = _COMMAND_ACTION_CANDIDATES_BY_NAME.get(spec.command, ())
     matches = difflib.get_close_matches(normalized, candidates, n=limit, cutoff=0.5)
-    return tuple(matches)
+    canonical_by_candidate = _COMMAND_ACTION_CANONICAL_BY_CANDIDATE[spec.command]
+    return tuple(unique_preserve_order(canonical_by_candidate[match] for match in matches))

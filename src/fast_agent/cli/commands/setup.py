@@ -1,3 +1,4 @@
+from contextlib import suppress
 from pathlib import Path
 
 import typer
@@ -7,6 +8,23 @@ from fast_agent.ui.console import console as shared_console
 
 app = typer.Typer(add_completion=False)
 console = shared_console
+
+SCAFFOLD_FILENAMES = (
+    "fast-agent.yaml",
+    "fast-agent.secrets.yaml",
+    "agent.py",
+)
+PYPROJECT_FILENAME = "pyproject.toml"
+GITIGNORE_FILENAME = ".gitignore"
+SECRETS_FILENAME = "fast-agent.secrets.yaml"
+_SETUP_TEMPLATE_RESOURCE_NAMES: dict[str, str] = {
+    SECRETS_FILENAME: "fast-agent.secrets.yaml.example",
+    PYPROJECT_FILENAME: "pyproject.toml.tmpl",
+}
+
+
+def _template_resource_name(filename: str) -> str:
+    return _SETUP_TEMPLATE_RESOURCE_NAMES.get(filename, filename)
 
 
 def load_template_text(filename: str) -> str:
@@ -19,13 +37,7 @@ def load_template_text(filename: str) -> str:
     """
     from importlib.resources import files
 
-    # Map requested filenames to resource templates
-    if filename == "fast-agent.secrets.yaml":
-        res_name = "fast-agent.secrets.yaml.example"
-    elif filename == "pyproject.toml":
-        res_name = "pyproject.toml.tmpl"
-    else:
-        res_name = filename
+    res_name = _template_resource_name(filename)
     resource_path = files("fast_agent").joinpath("resources").joinpath("setup").joinpath(res_name)
     if resource_path.is_file():
         return resource_path.read_text()
@@ -66,6 +78,120 @@ def create_file(path: Path, content: str, force: bool = False) -> bool:
     return True
 
 
+def _ensure_config_dir(config_path: Path) -> None:
+    if config_path.exists():
+        return
+
+    should_create = Confirm.ask(
+        f"Directory {config_path} does not exist. Create it?", default=True
+    )
+    if not should_create:
+        raise typer.Abort()
+    config_path.mkdir(parents=True)
+
+
+def _print_scaffold_preview(config_path: Path, *, needs_gitignore: bool) -> None:
+    console.print("\n[bold]fast-agent scaffold[/bold]\n")
+    console.print("This will create the following files:")
+    for filename in (*SCAFFOLD_FILENAMES, PYPROJECT_FILENAME):
+        console.print(f"  - {config_path / filename}")
+    if needs_gitignore:
+        console.print(f"  - {config_path / GITIGNORE_FILENAME}")
+
+
+def _render_pyproject(template_text: str) -> str:
+    # Always use latest fast-agent-mcp (no version pin)
+    fast_agent_dep = '"fast-agent-mcp"'
+
+    return template_text.replace("{{python_requires}}", _python_requires()).replace(
+        "{{fast_agent_dep}}", fast_agent_dep
+    )
+
+
+def _python_requires() -> str:
+    """Return installed package Python requirement, with scaffold fallback."""
+    with suppress(Exception):
+        from importlib.metadata import metadata
+
+        req = metadata("fast-agent-mcp").get("Requires-Python")
+        if req:
+            return req
+    return ">=3.13.7"
+
+
+def _create_scaffold_files(config_path: Path, *, force: bool, needs_gitignore: bool) -> list[str]:
+    created = [
+        filename
+        for filename in SCAFFOLD_FILENAMES
+        if create_file(config_path / filename, load_template_text(filename), force)
+    ]
+
+    pyproject_text = _render_pyproject(load_template_text(PYPROJECT_FILENAME))
+    if create_file(config_path / PYPROJECT_FILENAME, pyproject_text, force):
+        created.append(PYPROJECT_FILENAME)
+
+    if needs_gitignore and create_file(
+        config_path / GITIGNORE_FILENAME,
+        load_template_text(GITIGNORE_FILENAME),
+        force,
+    ):
+        created.append(GITIGNORE_FILENAME)
+
+    return created
+
+
+def _print_created_file_summary(config_path: Path, created: list[str]) -> None:
+    console.print("\n[green]Scaffold completed successfully![/green]")
+    console.print(f"Created fast-agent home: {config_path}")
+    if "fast-agent.yaml" in created:
+        console.print(f"Created config file:     {config_path / 'fast-agent.yaml'}")
+    if SECRETS_FILENAME in created:
+        console.print(f"Created secrets file:    {config_path / SECRETS_FILENAME}")
+
+
+def _print_gitignore_note(*, needs_gitignore: bool) -> None:
+    if needs_gitignore:
+        return
+
+    console.print(
+        "[yellow]Note:[/yellow] Found an existing .gitignore in this or a parent directory. "
+        f"Ensure it ignores '{SECRETS_FILENAME}' to avoid committing secrets."
+    )
+
+
+def _print_secrets_next_steps(created: list[str]) -> None:
+    if SECRETS_FILENAME not in created:
+        return
+
+    console.print("\n[yellow]Important:[/yellow] Remember to:")
+    console.print(
+        "1. Add your API keys to fast-agent.secrets.yaml, or set environment variables. Use [cyan]fast-agent check[/cyan] to verify."
+    )
+    console.print(
+        "2. Keep fast-agent.secrets.yaml secure and never commit it to version control"
+    )
+    console.print(
+        "3. Update fast-agent.yaml to set a default model (currently system default is 'gpt-5-mini?reasoning=low')"
+    )
+
+
+def _print_scaffold_result(
+    config_path: Path,
+    created: list[str],
+    *,
+    needs_gitignore: bool,
+) -> None:
+    if not created:
+        console.print("\n[yellow]No files were created or modified.[/yellow]")
+        return
+
+    _print_created_file_summary(config_path, created)
+    _print_gitignore_note(needs_gitignore=needs_gitignore)
+    _print_secrets_next_steps(created)
+    console.print("\nTo get started, run:")
+    console.print("  uv run agent.py")
+
+
 @app.callback(invoke_without_command=True)
 def init(
     config_dir: str = typer.Option(
@@ -79,103 +205,19 @@ def init(
     """Initialize a new FastAgent project with configuration files and example agent."""
 
     config_path = Path(config_dir).resolve()
-    if not config_path.exists():
-        should_create = Confirm.ask(
-            f"Directory {config_path} does not exist. Create it?", default=True
-        )
-        if should_create:
-            config_path.mkdir(parents=True)
-        else:
-            raise typer.Abort()
+    _ensure_config_dir(config_path)
 
     # Check for existing .gitignore
     needs_gitignore = not find_gitignore(config_path)
 
-    console.print("\n[bold]fast-agent scaffold[/bold]\n")
-    console.print("This will create the following files:")
-    console.print(f"  - {config_path}/fast-agent.yaml")
-    console.print(f"  - {config_path}/fast-agent.secrets.yaml")
-    console.print(f"  - {config_path}/agent.py")
-    console.print(f"  - {config_path}/pyproject.toml")
-    if needs_gitignore:
-        console.print(f"  - {config_path}/.gitignore")
+    _print_scaffold_preview(config_path, needs_gitignore=needs_gitignore)
 
     if not Confirm.ask("\nContinue?", default=True):
         raise typer.Abort()
 
-    # Create configuration files
-    created = []
-    if create_file(
-        config_path / "fast-agent.yaml", load_template_text("fast-agent.yaml"), force
-    ):
-        created.append("fast-agent.yaml")
-
-    if create_file(
-        config_path / "fast-agent.secrets.yaml", load_template_text("fast-agent.secrets.yaml"), force
-    ):
-        created.append("fast-agent.secrets.yaml")
-
-    if create_file(config_path / "agent.py", load_template_text("agent.py"), force):
-        created.append("agent.py")
-
-    # Create a minimal pyproject.toml so `uv run` installs dependencies
-    def _render_pyproject(template_text: str) -> str:
-        # Determine Python requirement from installed fast-agent-mcp metadata, fall back if missing
-        py_req = ">=3.13.7"
-        try:
-            from importlib.metadata import metadata
-
-            md = metadata("fast-agent-mcp")
-            req = md.get("Requires-Python")
-            if req:
-                py_req = req
-        except Exception:
-            pass
-
-        # Always use latest fast-agent-mcp (no version pin)
-        fast_agent_dep = '"fast-agent-mcp"'
-
-        return template_text.replace("{{python_requires}}", py_req).replace(
-            "{{fast_agent_dep}}", fast_agent_dep
-        )
-
-    pyproject_template = load_template_text("pyproject.toml")
-    pyproject_text = _render_pyproject(pyproject_template)
-    if create_file(config_path / "pyproject.toml", pyproject_text, force):
-        created.append("pyproject.toml")
-
-    # Only create .gitignore if none exists in parent directories
-    if needs_gitignore and create_file(
-        config_path / ".gitignore", load_template_text(".gitignore"), force
-    ):
-        created.append(".gitignore")
-
-    if created:
-        console.print("\n[green]Scaffold completed successfully![/green]")
-        console.print(f"Created fast-agent home: {config_path}")
-        if "fast-agent.yaml" in created:
-            console.print(f"Created config file:     {config_path / 'fast-agent.yaml'}")
-        if "fast-agent.secrets.yaml" in created:
-            console.print(
-                f"Created secrets file:    {config_path / 'fast-agent.secrets.yaml'}"
-            )
-        if not needs_gitignore:
-            console.print(
-                "[yellow]Note:[/yellow] Found an existing .gitignore in this or a parent directory. "
-                "Ensure it ignores 'fast-agent.secrets.yaml' to avoid committing secrets."
-            )
-        if "fast-agent.secrets.yaml" in created:
-            console.print("\n[yellow]Important:[/yellow] Remember to:")
-            console.print(
-                "1. Add your API keys to fast-agent.secrets.yaml, or set environment variables. Use [cyan]fast-agent check[/cyan] to verify."
-            )
-            console.print(
-                "2. Keep fast-agent.secrets.yaml secure and never commit it to version control"
-            )
-            console.print(
-                "3. Update fast-agent.yaml to set a default model (currently system default is 'gpt-5-mini?reasoning=low')"
-            )
-        console.print("\nTo get started, run:")
-        console.print("  uv run agent.py")
-    else:
-        console.print("\n[yellow]No files were created or modified.[/yellow]")
+    created = _create_scaffold_files(
+        config_path,
+        force=force,
+        needs_gitignore=needs_gitignore,
+    )
+    _print_scaffold_result(config_path, created, needs_gitignore=needs_gitignore)

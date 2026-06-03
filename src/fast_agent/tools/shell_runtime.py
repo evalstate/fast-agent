@@ -3,15 +3,14 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
-import shutil
 import signal
 import subprocess
 import time
 from collections import deque
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp.types import CallToolResult, TextContent, Tool
 from rich.text import Text
@@ -29,7 +28,11 @@ from fast_agent.constants import (
 from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
 from fast_agent.home import build_child_environment
-from fast_agent.tools.tool_sources import set_tool_source
+from fast_agent.tools.filesystem_tool_args import (
+    coerce_required_string_argument,
+    coerce_tool_arguments,
+)
+from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.display_suppression import display_tools_enabled
@@ -38,12 +41,23 @@ from fast_agent.ui.shell_output_truncation import (
     SHELL_OUTPUT_TRUNCATION_MARKER,
     split_shell_output_line_limit,
 )
+from fast_agent.utils.path_display import format_relative_path
+from fast_agent.utils.shell_detection import shell_runtime_info
+from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.tool_names import EXECUTE_TOOL_NAME
 
 _STREAM_READ_CHUNK_SIZE = 4096
 _MAX_PENDING_STREAM_BYTES = 65536
 _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _PROCESS_EXIT_POLL_SECONDS = 0.1
 _asyncio_sleep = asyncio.sleep
+
+
+def _text_result(message: str, *, is_error: bool) -> CallToolResult:
+    return CallToolResult(
+        isError=is_error,
+        content=[TextContent(type="text", text=message)],
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +99,12 @@ class _ShellDisplayState:
     )
 
 
+def _coerce_output_byte_limit(output_byte_limit: int | None) -> int:
+    if type(output_byte_limit) is not int or output_byte_limit <= 0:
+        return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+    return min(output_byte_limit, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
+
+
 class ShellRuntime:
     """Helper for managing the optional local shell execute tool."""
 
@@ -117,11 +137,10 @@ class ShellRuntime:
         self._show_bash_output = True
         self._prefer_local_shell = False
         if config is not None:
-            shell_config = getattr(config, "shell_execution", None)
-            if shell_config is not None:
-                self._output_display_lines = getattr(shell_config, "output_display_lines", None)
-                self._show_bash_output = bool(getattr(shell_config, "show_bash", True))
-                self._prefer_local_shell = shell_config.prefer_local_shell
+            shell_config = config.shell_execution
+            self._output_display_lines = shell_config.output_display_lines
+            self._show_bash_output = shell_config.show_bash
+            self._prefer_local_shell = shell_config.prefer_local_shell
 
         if self.enabled:
             # Detect the shell early so we can include it in the tool description
@@ -130,7 +149,7 @@ class ShellRuntime:
 
             self._tool = set_tool_source(
                 Tool(
-                    name="execute",
+                    name=EXECUTE_TOOL_NAME,
                     description=f"Run a shell command directly in {shell_name}.",
                     inputSchema={
                         "type": "object",
@@ -144,7 +163,7 @@ class ShellRuntime:
                         "additionalProperties": False,
                     },
                 ),
-                "shell",
+                SHELL_TOOL_SOURCE,
             )
 
     @property
@@ -168,8 +187,7 @@ class ShellRuntime:
 
     def set_output_byte_limit(self, output_byte_limit: int | None) -> None:
         """Set output retention byte limit, honoring global defaults and hard cap."""
-        resolved_limit = output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
-        self._output_byte_limit = min(resolved_limit, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
+        self._output_byte_limit = _coerce_output_byte_limit(output_byte_limit)
 
     def announce(self) -> None:
         """Inform the user why the local shell tool is active."""
@@ -229,44 +247,14 @@ class ShellRuntime:
     def runtime_info(self) -> dict[str, str | None]:
         """Best-effort detection of the shell runtime used for local execution.
 
-        Uses modern Python APIs (platform.system(), shutil.which()) to detect
-        and prefer modern shells like pwsh (PowerShell 7+) and bash.
+        Prefers modern shells like pwsh (PowerShell 7+) and bash.
         """
-        system = platform.system()
-
-        if system == "Windows":
-            # Preference order: pwsh > powershell > cmd
-            for shell_name in ["pwsh", "powershell", "cmd"]:
-                shell_path = shutil.which(shell_name)
-                if shell_path:
-                    return {"name": shell_name, "path": shell_path}
-
-            # Fallback to COMSPEC if nothing found in PATH
-            comspec = os.environ.get("COMSPEC", "cmd.exe")
-            return {"name": Path(comspec).name, "path": comspec}
-        else:
-            # Unix-like: check SHELL env, then search for common shells
-            shell_env = os.environ.get("SHELL")
-            if shell_env and Path(shell_env).exists():
-                return {"name": Path(shell_env).name, "path": shell_env}
-
-            # Preference order: bash > zsh > sh
-            for shell_name in ["bash", "zsh", "sh"]:
-                shell_path = shutil.which(shell_name)
-                if shell_path:
-                    return {"name": shell_name, "path": shell_path}
-
-            # Fallback to generic sh
-            return {"name": "sh", "path": None}
+        return shell_runtime_info()
 
     def metadata(self, command: str | None) -> dict[str, Any]:
         """Build metadata for display when the shell tool is invoked."""
         info = self.runtime_info()
         working_dir = self.working_directory()
-        try:
-            working_dir_display = str(working_dir.relative_to(Path.cwd()))
-        except ValueError:
-            working_dir_display = str(working_dir)
 
         return {
             "variant": "shell",
@@ -274,7 +262,7 @@ class ShellRuntime:
             "shell_name": info.get("name"),
             "shell_path": info.get("path"),
             "working_dir": str(working_dir),
-            "working_dir_display": working_dir_display,
+            "working_dir_display": format_relative_path(working_dir),
             "timeout_seconds": self._timeout_seconds,
             "warning_interval_seconds": self._warning_interval_seconds,
             "output_byte_limit": self._output_byte_limit,
@@ -283,21 +271,16 @@ class ShellRuntime:
         }
 
     def _invalid_execute_result(self, message: str) -> CallToolResult:
-        return CallToolResult(
-            isError=True,
-            content=[TextContent(type="text", text=message)],
-        )
+        return _text_result(message, is_error=True)
 
-    def _extract_command(self, arguments: dict[str, Any] | None) -> str | None:
-        command_value = (arguments or {}).get("command") if arguments else None
-        if not isinstance(command_value, str) or not command_value.strip():
-            return None
-        return command_value.strip()
+    def _extract_command(self, arguments: dict[str, Any] | None) -> str:
+        payload = coerce_tool_arguments(arguments)
+        return coerce_required_string_argument(payload.get("command"), "command", strip=True)
 
     def _build_process_plan(self, configured_working_dir: Path) -> _ShellProcessPlan:
         working_dir = self._resolve_working_directory(configured_working_dir)
         runtime_details = self.runtime_info()
-        shell_name = str(runtime_details.get("name") or "").lower()
+        shell_name = strip_casefold(str(runtime_details.get("name") or ""))
         shell_path = runtime_details.get("path")
         is_windows = platform.system() == "Windows"
         process_kwargs: dict[str, Any] = {
@@ -359,12 +342,10 @@ class ShellRuntime:
             display_line_limit=display_line_limit,
         )
         if display_line_limit is not None and display_line_limit > 0:
-            display_head_limit, display_tail_limit = split_shell_output_line_limit(
-                display_line_limit
-            )
-            state.display_head_limit = display_head_limit
-            state.display_tail_limit = display_tail_limit
-            state.display_tail_buffer = deque(maxlen=max(display_tail_limit, 1))
+            display_window = split_shell_output_line_limit(display_line_limit)
+            state.display_head_limit = display_window.head_lines
+            state.display_tail_limit = display_window.tail_lines
+            state.display_tail_buffer = deque(maxlen=max(display_window.tail_lines, 1))
         return state
 
     def _append_output_text(self, output_text: str, state: _ShellOutputState) -> None:
@@ -614,7 +595,6 @@ class ShellRuntime:
         self,
         process: asyncio.subprocess.Process,
         *,
-        tool_use_id: str | None,
         is_windows: bool,
         output_state: _ShellOutputState,
         display_state: _ShellDisplayState,
@@ -680,17 +660,13 @@ class ShellRuntime:
             for task in pending:
                 task.cancel()
             for task in pending:
-                try:
+                with suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
         return drain_timed_out
 
     async def _wait_for_process_exit(
         self,
         process: asyncio.subprocess.Process,
-        *,
-        is_windows: bool,
     ) -> int:
         while process.returncode is None:
             await _asyncio_sleep(_PROCESS_EXIT_POLL_SECONDS)
@@ -797,20 +773,14 @@ class ShellRuntime:
         if output_state.timeout_occurred:
             combined_output += f"(timeout after {self._timeout_seconds}s - process terminated)"
             return (
-                CallToolResult(
-                    isError=True,
-                    content=[TextContent(type="text", text=combined_output)],
-                ),
+                _text_result(combined_output, is_error=True),
                 f"failed (timeout after {self._timeout_seconds}s)",
             )
 
         combined_output += f"process exit code was {return_code}"
         completion_state = "completed" if return_code == 0 else "failed"
         return (
-            CallToolResult(
-                isError=return_code != 0,
-                content=[TextContent(type="text", text=combined_output)],
-            ),
+            _text_result(combined_output, is_error=return_code != 0),
             f"{completion_state} (exit {return_code})",
         )
 
@@ -859,9 +829,10 @@ class ShellRuntime:
         suppress_display = True
         if defer_display_to_tool_result and self._show_bash_output:
             suppress_display = False
-        setattr(result, "_suppress_display", suppress_display)
-        setattr(result, "exit_code", return_code)
-        setattr(result, "output_line_count", output_state.output_line_count)
+        result_meta = cast("Any", result)
+        result_meta._suppress_display = suppress_display
+        result_meta.exit_code = return_code
+        result_meta.output_line_count = output_state.output_line_count
         return result
 
     async def execute(
@@ -873,11 +844,10 @@ class ShellRuntime:
         defer_display_to_tool_result: bool = False,
     ) -> CallToolResult:
         """Execute a shell command and stream output to the console with timeout detection."""
-        command = self._extract_command(arguments)
-        if command is None:
-            return self._invalid_execute_result(
-                "The execute tool requires a 'command' string argument."
-            )
+        try:
+            command = self._extract_command(arguments)
+        except ValueError as exc:
+            return self._invalid_execute_result(str(exc))
         self._logger.debug(
             f"Executing command with idle_timeout={self._timeout_seconds}s, warning_interval={self._warning_interval_seconds}s"
         )
@@ -923,17 +893,13 @@ class ShellRuntime:
                 watchdog_task = asyncio.create_task(
                     self._watch_process_timeout(
                         process,
-                        tool_use_id=tool_use_id,
                         is_windows=plan.is_windows,
                         output_state=output_state,
                         display_state=display_state,
                     )
                 )
 
-                return_code = await self._wait_for_process_exit(
-                    process,
-                    is_windows=plan.is_windows,
-                )
+                return_code = await self._wait_for_process_exit(process)
                 await self._cancel_task_if_running(watchdog_task)
                 output_state.io_drain_timed_out = await self._drain_output_tasks(
                     [stdout_task, stderr_task],
@@ -971,10 +937,7 @@ class ShellRuntime:
                     tool_state="failed",
                     tool_terminal=True,
                 )
-                return CallToolResult(
-                    isError=True,
-                    content=[TextContent(type="text", text=f"Command execution failed: {exc}")],
-                )
+                return _text_result(f"Command execution failed: {exc}", is_error=True)
 
     def _emit_progress_event(
         self,
@@ -995,7 +958,7 @@ class ShellRuntime:
 
         payload: dict[str, Any] = build_progress_payload(
             action=action,
-            tool_name="execute",
+            tool_name=EXECUTE_TOOL_NAME,
             server_name="local",
             agent_name=self._agent_name,
             tool_use_id=tool_use_id,

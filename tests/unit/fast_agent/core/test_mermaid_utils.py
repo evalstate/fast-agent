@@ -260,6 +260,7 @@ class TestDetectDiagramType:
     def test_sequence_detection(self):
         """Test detection of sequence diagrams."""
         assert detect_diagram_type("sequenceDiagram\n    Alice->>Bob: Hello") == "Sequence"
+        assert detect_diagram_type("  SequenceDiagram\n    Alice->>Bob: Hello") == "Sequence"
 
     def test_pie_chart_detection(self):
         """Test detection of pie charts."""

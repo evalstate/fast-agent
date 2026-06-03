@@ -88,7 +88,7 @@ async def configure_otel(config: "Settings") -> None:
 
     try:
         app_version = version("fast-agent-mcp")
-    except:  # noqa: E722
+    except Exception:
         app_version = "unknown"
 
     resource = Resource.create(
@@ -187,9 +187,9 @@ async def configure_logger(config: "Settings") -> None:
     )
 
 
-async def configure_executor(config: "Settings"):
+async def configure_executor():
     """
-    Configure the executor based on the application config.
+    Configure the application executor.
     """
     return AsyncioExecutor()
 
@@ -210,10 +210,9 @@ async def initialize_context(
     context.config = config
     context.server_registry = ServerRegistry(config=config)
 
-    skills_settings = getattr(config, "skills", None)
     override_directories = None
-    if skills_settings and getattr(skills_settings, "directories", None):
-        override_directories = [Path(entry).expanduser() for entry in skills_settings.directories]
+    if config.skills.directories:
+        override_directories = [Path(entry).expanduser() for entry in config.skills.directories]
     context.skill_registry = SkillRegistry(
         base_dir=Path.cwd(),
         directories=override_directories,
@@ -224,7 +223,7 @@ async def initialize_context(
     await configure_logger(config)
 
     # Configure the executor
-    context.executor = await configure_executor(config)
+    context.executor = await configure_executor()
     context.task_registry = ActivityRegistry()
 
     # Store the tracer in context if needed

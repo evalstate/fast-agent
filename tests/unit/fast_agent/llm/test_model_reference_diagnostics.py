@@ -77,3 +77,34 @@ def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_referen
             references=("agent card helper", "card pack smart"),
         ),
     )
+
+
+def test_collect_model_reference_setup_diagnostics_reports_transitive_missing_reference(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+
+    (workspace / "fastagent.config.yaml").write_text(
+        'default_model: "$system.default"\n'
+        "model_references:\n"
+        "  system:\n"
+        '    default: "$system.fast"\n',
+        encoding="utf-8",
+    )
+
+    diagnostics = collect_model_reference_setup_diagnostics(
+        cwd=workspace,
+        env_dir=workspace / ".fast-agent",
+    )
+
+    assert diagnostics.items == (
+        ModelReferenceSetupItem(
+            token="$system.fast",
+            priority="required",
+            status="missing",
+            current_value=None,
+            summary="Referenced model reference is not configured.",
+            references=("default_model via $system.default",),
+        ),
+    )
