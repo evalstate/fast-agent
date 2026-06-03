@@ -18,6 +18,7 @@ CommonMarketplaceUpdateStatus: TypeAlias = Literal[
     "source_ref_missing",
     "source_path_missing",
     "skipped_dirty",
+    "integrity_error",
 ]
 
 MarketplaceUpdateStatus: TypeAlias = CommonMarketplaceUpdateStatus | Literal[
@@ -41,6 +42,7 @@ ALL_MARKETPLACE_UPDATE_STATUSES: tuple[MarketplaceUpdateStatus, ...] = (
     "source_ref_missing",
     "source_path_missing",
     "skipped_dirty",
+    "integrity_error",
     "ownership_conflict",
 )
 
@@ -63,6 +65,7 @@ COMMON_UPDATE_STATUS_LABELS: dict[MarketplaceUpdateStatus, str] = {
     "source_ref_missing": "source ref missing",
     "source_path_missing": "source path missing",
     "skipped_dirty": "skipped (local modifications)",
+    "integrity_error": "integrity error",
 }
 COMMON_UPDATE_DETAIL_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset(
     {
@@ -77,6 +80,7 @@ COMMON_UPDATE_DETAIL_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset(
         "source_ref_missing",
         "source_path_missing",
         "skipped_dirty",
+        "integrity_error",
     }
 )
 UNSTYLED_UPDATE_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset({"unmanaged"})
@@ -94,6 +98,7 @@ COMMON_UPDATE_STATUS_STYLES: dict[MarketplaceUpdateStatus, str] = {
     "source_ref_missing": "yellow",
     "source_path_missing": "yellow",
     "skipped_dirty": "yellow",
+    "integrity_error": "yellow",
 }
 
 

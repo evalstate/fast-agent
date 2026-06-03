@@ -187,6 +187,7 @@ async def handle_skills_registry(handler: "SlashCommandHandler", argument: str) 
     io = cast("ACPCommandIO", ctx.io)
     outcome = await skills_handlers.handle_set_skills_registry(
         ctx,
+        agent_name=handler.current_agent_name,
         argument=argument,
     )
     return handler._format_outcome_as_markdown(outcome, "skills registry", io=io)

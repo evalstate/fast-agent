@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from mcp.types import ListToolsResult, Tool
 
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.ui.prompt import agent_info
@@ -16,6 +17,7 @@ from fast_agent.ui.prompt.agent_info import (
     _format_child_agent_count,
     _format_dim_count,
     _format_server_summary,
+    _mcp_resource_counts_for_agent,
     _resource_counts_for_agent,
     display_agent_info,
 )
@@ -155,6 +157,33 @@ def test_resource_counts_for_agent_marks_failed_resource_probes_unknown() -> Non
         tool_count=None,
         prompt_count=2,
         resource_count=None,
+    )
+
+
+def test_mcp_resource_counts_use_aggregator_only() -> None:
+    class Aggregator:
+        async def list_tools(self) -> ListToolsResult:
+            return ListToolsResult(
+                tools=[
+                    Tool(name="hf.tool_1", inputSchema={}),
+                    Tool(name="hf.tool_2", inputSchema={}),
+                ]
+            )
+
+        async def list_resources(self) -> dict[str, list[str]]:
+            return {"hf": ["skill://index.json", "skill://datasets/SKILL.md"]}
+
+        async def list_prompts(self) -> dict[str, list[object]]:
+            return {"hf": [object()]}
+
+    agent = SimpleNamespace(aggregator=Aggregator())
+
+    counts = asyncio.run(_mcp_resource_counts_for_agent(cast("Any", agent)))
+
+    assert counts == AgentResourceCounts(
+        tool_count=2,
+        prompt_count=1,
+        resource_count=2,
     )
 
 

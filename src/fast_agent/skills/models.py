@@ -30,7 +30,7 @@ SKILL_MANIFEST_FILENAME_LOWER = strip_casefold(SKILL_MANIFEST_FILENAME)
 SKILL_SOURCE_SCHEMA_VERSION = 1
 LOCAL_REVISION = "local"
 
-SkillSourceOrigin = Literal["remote", "local"]
+SkillSourceOrigin = Literal["remote", "local", "mcp"]
 SkillUpdateStatus = CommonMarketplaceUpdateStatus | Literal["invalid_local_skill"]
 SkillManagementSource = Literal["override", "settings", "default"]
 
@@ -49,6 +49,10 @@ class InstalledSkillSource:
     installed_revision: str
     installed_at: str
     content_fingerprint: str
+    mcp_server_name: str | None = None
+    mcp_server_version: str | None = None
+    artifact_digest: str | None = None
+    artifact_type: str | None = None
 
 
 @dataclass(frozen=True)

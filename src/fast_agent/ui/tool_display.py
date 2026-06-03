@@ -12,6 +12,7 @@ from rich.text import Text
 
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.tool_result_metadata import get_tool_result_media_preview
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import (
@@ -993,12 +994,13 @@ class ToolDisplay:
                 read_text_display.additional_message,
             )
             post_content: RenderableType | None = None
-            if result.content:
+            image_content = get_tool_result_media_preview(result) or result.content
+            if image_content:
                 from fast_agent.ui.terminal_images import render_tool_result_images_for_settings
 
                 post_content = render_tool_result_images_for_settings(
                     self._display.terminal_image_settings,
-                    result.content,
+                    image_content,
                 )
 
             if has_structured:

@@ -297,6 +297,7 @@ class _McpAttachCounts:
     prompts_added_count: int
     tools_refreshed_count: int
     prompts_refreshed_count: int
+    skills_count: int | None = None
 
     @property
     def new_count(self) -> int:
@@ -324,7 +325,10 @@ class _McpResourceCounts:
 
 
 def _format_added_summary(counts: _McpAttachCounts) -> Text:
-    return _format_resource_change_summary("Added", counts.added)
+    summary = _format_resource_change_summary("Added", counts.added, trailing_period=False)
+    _append_skills_count(summary, counts.skills_count)
+    summary.append(".", style="dim")
+    return summary
 
 
 def _format_refreshed_summary(counts: _McpAttachCounts) -> Text:
@@ -335,7 +339,9 @@ def _format_refreshed_summary(counts: _McpAttachCounts) -> Text:
     )
     summary.append(" (", style="dim")
     summary.append(str(counts.new_count), style="bold bright_cyan")
-    summary.append(" new).", style="dim")
+    summary.append(" new)", style="dim")
+    _append_skills_count(summary, counts.skills_count)
+    summary.append(".", style="dim")
     return summary
 
 
@@ -363,6 +369,14 @@ def _append_resource_pair(summary: Text, counts: _McpResourceCounts) -> None:
     _append_counted_resource(summary, counts.prompts, "prompt")
 
 
+def _append_skills_count(summary: Text, skills_count: int | None) -> None:
+    if skills_count is None:
+        return
+    summary.append("; ", style="dim")
+    _append_counted_resource(summary, skills_count, "skill")
+    summary.append(" available from the server", style="dim")
+
+
 def _append_counted_resource(summary: Text, count: int, singular: str) -> None:
     count_text, label = format_count_parts(count, singular)
     summary.append(count_text, style="bold bright_cyan")
@@ -374,6 +388,7 @@ def _mcp_attach_counts(result: MCPAttachResult) -> _McpAttachCounts:
     prompts_added_count = len(result.prompts_added)
     tools_total = nonnegative_int_or_none(result.tools_total)
     prompts_total = nonnegative_int_or_none(result.prompts_total)
+    skills_total = nonnegative_int_or_none(result.skills_total)
     tools_refreshed_count = tools_total if tools_total is not None else tools_added_count
     prompts_refreshed_count = prompts_total if prompts_total is not None else prompts_added_count
     return _McpAttachCounts(
@@ -381,6 +396,7 @@ def _mcp_attach_counts(result: MCPAttachResult) -> _McpAttachCounts:
         prompts_added_count=prompts_added_count,
         tools_refreshed_count=tools_refreshed_count,
         prompts_refreshed_count=prompts_refreshed_count,
+        skills_count=skills_total,
     )
 
 

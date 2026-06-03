@@ -195,7 +195,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="registry",
                 aliases=("source",),
                 help="Set the skills registry",
-                usage="/skills registry [<number|url|path>]",
+                usage="/skills registry [<number|url|path|mcp-server>]",
                 examples=("/skills registry",),
                 arguments=(
                     CommandArgumentSpec(

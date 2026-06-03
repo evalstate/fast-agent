@@ -129,6 +129,9 @@ def _server_count_for_agent(agent: AgentProtocol) -> int:
 
 
 async def _resource_counts_for_agent(agent: AgentProtocol) -> AgentResourceCounts:
+    if isinstance(agent, McpAgentProtocol):
+        return await _mcp_resource_counts_for_agent(agent)
+
     try:
         tools_result = await agent.list_tools()
         tool_count = len(tools_result.tools)
@@ -150,6 +153,37 @@ async def _resource_counts_for_agent(agent: AgentProtocol) -> AgentResourceCount
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
     except Exception:
         prompt_count = None
+    return AgentResourceCounts(
+        tool_count=tool_count,
+        prompt_count=prompt_count,
+        resource_count=resource_count,
+    )
+
+
+async def _mcp_resource_counts_for_agent(agent: McpAgentProtocol) -> AgentResourceCounts:
+    """Count MCP server surfaces without local runtime or child-agent tools."""
+    try:
+        tools_result = await agent.aggregator.list_tools()
+        tool_count = len(tools_result.tools)
+    except Exception:
+        tool_count = None
+
+    try:
+        resources_dict = await agent.aggregator.list_resources()
+        resource_count = (
+            sum(len(resources) for resources in resources_dict.values())
+            if resources_dict
+            else 0
+        )
+    except Exception:
+        resource_count = None
+
+    try:
+        prompts_dict = await agent.aggregator.list_prompts()
+        prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
+    except Exception:
+        prompt_count = None
+
     return AgentResourceCounts(
         tool_count=tool_count,
         prompt_count=prompt_count,

@@ -61,6 +61,7 @@ uv run scripts/docs.py cast-build tui-shell
 uv run scripts/docs.py cast-build model-picker
 uv run scripts/docs.py cast-build skills-direct-install
 uv run scripts/docs.py cast-build skills-slash-commands
+uv run scripts/docs.py cast-build skills-over-mcp
 ```
 
 The `tui-shell` scenario records `fast-agent` starting with shell access and a visible model
@@ -71,6 +72,9 @@ The `model-picker` scenario records `fast-agent go` opening the startup model pi
 the provider/model lists with arrow keys.
 The skills scenarios record direct install and update-check flows from a temporary local git
 repository, using either CLI commands or `/skills` slash commands in the TUI.
+The `skills-over-mcp` scenario connects to `https://huggingface.co/mcp`, selects the `hf`
+MCP-backed registry, searches the registry, and installs a SHA256-verified skill. Override
+`FAST_AGENT_SKILLS_MCP_DEMO_SERVER` to record against a local SEP-2640 server.
 
 By default, cast recordings stop by killing the tmux session after the final demonstrated action,
 so the user-facing recording does not show a trailing `/exit`. Set

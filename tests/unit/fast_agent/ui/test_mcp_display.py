@@ -2,6 +2,7 @@ import io
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from click.utils import strip_ansi
 from rich.console import Console
 
 from fast_agent.mcp.mcp_aggregator import ServerStatus
@@ -386,6 +387,54 @@ async def test_render_mcp_status_renders_server_details_and_calls() -> None:
     assert "reconnects:" in output
     assert "STDIO" in output
     assert "session" in output
+
+
+@pytest.mark.asyncio
+async def test_render_mcp_status_shows_skills_hint_above_capability_bar() -> None:
+    agent = _FakeAgent(
+        {
+            "skills-server": ServerStatus(
+                server_name="skills-server",
+                is_connected=True,
+                staleness_seconds=202,
+                transport="stdio",
+                mcp_skills_enabled=True,
+                transport_channels=TransportSnapshot(
+                    activity_bucket_seconds=30,
+                    activity_bucket_count=4,
+                    stdio=ChannelSnapshot(
+                        state="connected",
+                        message_count=1,
+                        request_count=1,
+                        response_count=1,
+                        notification_count=0,
+                        activity_buckets=["request", "response"],
+                    ),
+                ),
+            )
+        },
+        instruction="",
+    )
+
+    original_console = _set_console_size(width=120)
+    try:
+        with console.console.capture() as capture:
+            await render_mcp_status(agent, indent="  ")
+        output = strip_ansi(capture.get())
+    finally:
+        _restore_console_size(original_console)
+
+    assert "last activity:" in output
+    assert "last activity:" in output and "SEP-2640" in output
+    assert "last activity:" not in next(line for line in output.splitlines() if "SEP-2640" in line)
+
+    lines = output.splitlines()
+    transport_index = next(index for index, line in enumerate(lines) if "STDIO" in line)
+    skills_index = next(index for index, line in enumerate(lines) if "SEP-2640" in line)
+    capability_index = next(index for index, line in enumerate(lines) if "─| " in line)
+
+    assert transport_index < skills_index < capability_index
+    assert " Sk " in lines[capability_index] or " Sk" in lines[capability_index]
 
 
 @pytest.mark.asyncio

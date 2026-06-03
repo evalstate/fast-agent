@@ -5,6 +5,10 @@ from mcp.types import ImageContent, TextContent
 
 from fast_agent.config import LoggerSettings, Settings, TerminalImageSettings
 from fast_agent.mcp.prompt_render import render_content_blocks
+from fast_agent.mcp.tool_result_metadata import (
+    get_tool_result_media_preview,
+    set_tool_result_media_preview,
+)
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.terminal_images import (
     extract_image_artifacts,
@@ -73,6 +77,23 @@ def test_tool_result_images_render_without_console_display_state() -> None:
     )
 
     assert render_tool_result_images(config, [_image_content()]) is not None
+
+
+def test_tool_result_media_preview_is_display_only() -> None:
+    from mcp.types import CallToolResult
+
+    result = CallToolResult(
+        content=[TextContent(type="text", text="Staged image for the next model call.")],
+        isError=False,
+    )
+
+    set_tool_result_media_preview(result, [_image_content()])
+
+    assert len(result.content) == 1
+    preview = get_tool_result_media_preview(result)
+    assert preview is not None
+    assert len(preview) == 1
+    assert isinstance(preview[0], ImageContent)
 
 
 def test_tool_result_image_rendering_does_not_create_console_display_state() -> None:

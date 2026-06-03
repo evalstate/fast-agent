@@ -46,6 +46,7 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.plugins.models import InstalledPluginSource
 from fast_agent.plugins.provenance import write_installed_plugin_source
 from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.skills.mcp_registry import McpRegistrySkill, McpSkillRegistry
 from fast_agent.skills.models import (
     DEFAULT_SKILL_REGISTRIES,
     InstalledSkillSource,
@@ -221,6 +222,39 @@ class _MentionFilteredAggregatorStub(_MentionAggregatorStub):
 class _MentionFilteredAgentStub(_MentionAgentStub):
     def __init__(self) -> None:
         self.aggregator = _MentionFilteredAggregatorStub()
+
+
+class _McpSkillRegistryAggregatorStub:
+    async def list_mcp_skill_registries(self) -> list[McpSkillRegistry]:
+        return [
+            McpSkillRegistry(
+                server_name="hf",
+                server_version="1.2.3",
+                skills=[
+                    McpRegistrySkill(
+                        name="datasets",
+                        description="Work with datasets",
+                        source_url="skill://datasets/SKILL.md",
+                        server_name="hf",
+                        digest="sha256:" + "0" * 64,
+                        server_version="1.2.3",
+                    ),
+                    McpRegistrySkill(
+                        name="spaces",
+                        description="Work with Spaces",
+                        source_url="skill://spaces/SKILL.md",
+                        server_name="hf",
+                        digest="sha256:" + "1" * 64,
+                        server_version="1.2.3",
+                    ),
+                ],
+            )
+        ]
+
+
+class _McpSkillRegistryAgentStub:
+    def __init__(self) -> None:
+        self.aggregator = _McpSkillRegistryAggregatorStub()
 
 
 class _HistoryAgentStub:
@@ -2247,6 +2281,58 @@ def test_get_completions_for_skills_registry_supports_file_paths(
         assert "marketplace.json" in names
     finally:
         update_global_settings(old_settings)
+
+
+def test_get_completions_for_skills_registry_includes_mcp_registry() -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "skills": SkillsSettings(
+                marketplace_urls=["https://example.com/registry-one.json"],
+            )
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(
+            agents=["agent1"],
+            current_agent="agent1",
+            agent_provider=cast("AgentApp", _ProviderStub(_McpSkillRegistryAgentStub())),
+        )
+        doc = Document("/skills registry ", cursor_position=len("/skills registry "))
+        completions = list(completer.get_completions(doc, None))
+        meta_by_text = {completion.text: completion.display_meta_text for completion in completions}
+
+        assert "1" in meta_by_text
+        assert meta_by_text["2"] == "mcp-server hf@1.2.3 (2 skills)"
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_get_completions_for_skills_registry_completes_mcp_server_name() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_McpSkillRegistryAgentStub())),
+    )
+    doc = Document("/skills registry h", cursor_position=len("/skills registry h"))
+    completions = list(completer.get_completions(doc, None))
+    names = [completion.text for completion in completions]
+
+    assert "hf" in names
+
+
+def test_get_completions_for_skills_registry_completes_mcp_source_uri() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_McpSkillRegistryAgentStub())),
+    )
+    doc = Document("/skills registry mcp://h", cursor_position=len("/skills registry mcp://h"))
+    completions = list(completer.get_completions(doc, None))
+    names = [completion.text for completion in completions]
+
+    assert "mcp://hf" in names
 
 
 def test_get_completions_for_skills_update_only_managed():
