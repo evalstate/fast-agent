@@ -1367,7 +1367,7 @@ class MCPAggregator(ContextDependent):
     async def list_mcp_skill_registries(self) -> list[McpSkillRegistry]:
         if not self.initialized:
             await self.load_servers()
-        return await list_mcp_skill_registries(self, self.server_names)
+        return await list_mcp_skill_registries(self, self.list_attached_servers())
 
     async def _mcp_server_version(self, server_name: str) -> str | None:
         manager = self._persistent_connection_manager
@@ -1617,13 +1617,27 @@ class MCPAggregator(ContextDependent):
 
             self._apply_config_status(status, server_cfg, server_conn)
             if status.server_capabilities is None:
-                status.server_capabilities = await self.get_capabilities(server_name)
+                status.server_capabilities = await self._capabilities_for_status(server_name)
             status.mcp_skills_enabled = server_supports_mcp_skills(
                 status.server_capabilities
             )
             status_map[server_name] = status
 
         return status_map
+
+    async def _capabilities_for_status(self, server_name: str) -> ServerCapabilities | None:
+        async with self._capabilities_cache_lock:
+            cached = self._capabilities_cache.get(server_name)
+        if cached is not None:
+            return cached
+
+        manager = self._persistent_connection_manager
+        if self.connection_persistence and manager is not None:
+            with suppress(Exception):
+                async with manager._lock:
+                    server_conn = manager.running_servers.get(server_name)
+                return server_conn.server_capabilities if server_conn else None
+        return None
 
     def _server_status_from_stats(self, server_name: str, now: datetime) -> ServerStatus:
         stats = self._server_stats.get(server_name)

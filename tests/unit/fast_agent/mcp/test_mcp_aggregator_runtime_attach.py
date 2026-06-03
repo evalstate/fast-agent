@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import ListToolsResult, Tool
+from mcp.types import ListToolsResult, ServerCapabilities, Tool
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
@@ -280,3 +280,72 @@ async def test_startup_attach_result_does_not_scan_mcp_skill_registry() -> None:
     )
 
     assert result.skills_total is None
+
+
+@pytest.mark.asyncio
+async def test_collect_server_status_does_not_probe_detached_capabilities() -> None:
+    context = _build_context(
+        {
+            "deferred": MCPServerSettings(
+                name="deferred",
+                transport="http",
+                url="https://example.com/mcp",
+                load_on_start=False,
+            )
+        }
+    )
+
+    class _NoCapabilityProbeAggregator(MCPAggregator):
+        async def get_capabilities(self, server_name: str):
+            raise AssertionError(f"unexpected capability probe for {server_name}")
+
+    aggregator = _NoCapabilityProbeAggregator(
+        server_names=["deferred"],
+        connection_persistence=True,
+        context=context,
+    )
+
+    status = await aggregator.collect_server_status()
+
+    assert status["deferred"].mcp_skills_enabled is False
+    assert aggregator.list_attached_servers() == []
+
+
+@pytest.mark.asyncio
+async def test_list_mcp_skill_registries_scans_only_attached_servers() -> None:
+    context = _build_context(
+        {
+            "attached": MCPServerSettings(
+                name="attached",
+                transport="http",
+                url="https://attached.example/mcp",
+            ),
+            "detached": MCPServerSettings(
+                name="detached",
+                transport="http",
+                url="https://detached.example/mcp",
+            ),
+        }
+    )
+
+    class _RegistryScanAggregator(MCPAggregator):
+        def __init__(self, **kwargs) -> None:
+            super().__init__(**kwargs)
+            self.capability_probes: list[str] = []
+
+        async def get_capabilities(self, server_name: str):
+            self.capability_probes.append(server_name)
+            return ServerCapabilities()
+
+    aggregator = _RegistryScanAggregator(
+        server_names=["attached", "detached"],
+        connection_persistence=False,
+        context=context,
+    )
+    aggregator.initialized = True
+    aggregator._attached_server_names = ["attached"]
+
+    registries = await aggregator.list_mcp_skill_registries()
+
+    assert registries == []
+    assert aggregator.capability_probes == ["attached"]
