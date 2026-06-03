@@ -764,7 +764,7 @@ async def test_slash_command_history_load() -> None:
 
         assert "load conversation" in response.lower()
         assert "loaded 2 messages" in response.lower()
-        assert temp_path in response
+        assert escape_markdown_text(temp_path) in response
         assert len(stub_agent.message_history) == 2
         assert stub_agent.cleared is True  # History should be cleared before loading
     finally:
