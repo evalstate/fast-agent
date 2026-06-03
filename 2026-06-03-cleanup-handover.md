@@ -106,6 +106,30 @@ The latest follow-on code slice inspected but was not applied before stopping:
 - The safe next change is to import `strip_casefold` and replace the Nova check at the current `reasoning_budget == 0` branch with `if model and "nova" in strip_casefold(model) and reasoning_budget == 0:`.
 - Leave the remaining Bedrock `.lower()` calls for now; they are error-message retry heuristics and should be extracted only behind named predicates with unchanged matching behavior and focused tests.
 
+Further verified follow-on slices were applied after that handover note, but remain uncommitted for the same reason: the touched code files are entangled with a much broader dirty tree.
+
+- Bedrock Nova model classification now uses `strip_casefold()` and has focused coverage for padded, mixed-case Nova model names.
+- Provider-key retry classification in `src/fast_agent/llm/fastagent_llm.py` now uses a named retryable-term tuple plus `casefold_text()`, with direct coverage for retryable and fatal `ProviderKeyError` cases.
+- WSL clipboard image detection in `src/fast_agent/ui/prompt/clipboard_image.py` now uses `casefold_text()` for the kernel-release string, with direct WSL detection coverage.
+- Anthropic BetaTextBlock validation-error detection now uses `casefold_text()`, with direct positive and negative predicate tests.
+- Bedrock reasoning/performance and system-message fallback heuristics were extracted into named predicates using `casefold_text()`, with direct positive and negative tests.
+- Card registry settings in `src/fast_agent/cards/manager.py` now use direct typed `Settings.cards` / `CardsSettings` field access, with tests for marketplace URL precedence and registry ordering.
+- Shell runtime initialization in `src/fast_agent/tools/shell_runtime.py` now uses direct typed `Settings.shell_execution` / `ShellSettings` field access, with a focused runtime initialization test.
+- The remaining raw case-normalization scan in `src/fast_agent` is down to `src/fast_agent/utils/text.py` itself and `src/fast_agent/mcp/auth/middleware.py` byte-header comparison.
+
+Representative focused test commands from these latest slices:
+
+```bash
+uv run pytest tests/unit/fast_agent/llm/providers/test_bedrock_converter.py -q
+uv run pytest tests/unit/fast_agent/llm/test_retry_errors.py -q
+uv run pytest tests/unit/fast_agent/ui/test_clipboard_image.py -q
+uv run pytest tests/unit/fast_agent/llm/provider/anthropic/test_anthropic_stream_replay.py -q
+uv run pytest tests/unit/fast_agent/cards/test_registry_parsing.py -q
+uv run pytest tests/unit/fast_agent/tools/test_shell_runtime.py -q
+uv run scripts/lint.py
+uv run scripts/typecheck.py
+```
+
 The final committed checkpoint verification run was:
 
 ```bash
@@ -149,7 +173,8 @@ The broader goal, "tidy the codebase, make it pythonic", is not complete. Remain
 - Audit the many existing modified and untracked files before deciding what belongs in future commits.
 - Continue replacing ad hoc normalization with shared helpers where behavior is stable and tested.
 - Decide whether to keep, split, or discard the uncommitted follow-on normalization slices listed above.
-- Finish or skip the Bedrock Nova classification cleanup as a separate small change.
+- Decide whether to keep, split, or discard the later uncommitted follow-on slices listed in the second follow-on section.
+- Treat the byte-header `.lower()` in MCP auth middleware as intentionally byte-level normalization unless a future pass introduces a named helper for header matching.
 - Split the follow-on normalization slices into reviewable commits only after checking each touched file for pre-existing changes.
 - Avoid broad mechanical rewrites unless they can be verified by focused tests and the repo gates.
 - Re-run the relevant focused tests plus `uv run scripts/lint.py` and `uv run scripts/typecheck.py` after each code change.
