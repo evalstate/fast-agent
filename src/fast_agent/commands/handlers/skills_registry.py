@@ -26,7 +26,7 @@ from fast_agent.skills.source_resolver import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from fast_agent.commands.context import CommandContext
     from fast_agent.skills.mcp_registry import McpSkillRegistry
@@ -149,7 +149,13 @@ async def _list_mcp_skill_registries(
 
 
 async def handle_set_skills_registry(
-    ctx: "CommandContext", *, argument: str | None, agent_name: str | None = None
+    ctx: "CommandContext",
+    *,
+    argument: str | None,
+    agent_name: str | None = None,
+    fetch_skills_with_source: Callable[
+        [str], Awaitable[tuple[Sequence[object], str]]
+    ] = fetch_marketplace_skills_with_source,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     active_agent_name = agent_name or ctx.current_agent_name
@@ -205,7 +211,7 @@ async def handle_set_skills_registry(
         return outcome
 
     try:
-        marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
+        marketplace, resolved_url = await fetch_skills_with_source(url)
     except Exception as exc:
         outcome.add_message(f"Failed to load registry: {exc}", channel="error")
         return outcome

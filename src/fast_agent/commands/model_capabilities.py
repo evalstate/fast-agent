@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from fast_agent.utils.collections import unique_preserve_order
 
@@ -18,42 +18,54 @@ ServiceTierValue = Literal["fast", "flex"]
 SERVICE_TIER_VALUES: tuple[ServiceTierValue, ...] = ("fast", "flex")
 
 
+def _llm_attr(llm: object | None, name: str) -> object | None:
+    if llm is None:
+        return None
+    try:
+        return object.__getattribute__(llm, name)
+    except AttributeError as exc:
+        if any(name in vars(cls) for cls in type(llm).__mro__):
+            raise exc
+        return None
+
+
 def resolve_web_search_enabled(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and bool(llm.web_search_enabled)
+    return bool(_llm_attr(llm, "web_search_enabled"))
 
 
 def resolve_x_search_enabled(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and bool(llm.x_search_enabled)
+    return bool(_llm_attr(llm, "x_search_enabled"))
 
 
 def resolve_web_fetch_enabled(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and bool(llm.web_fetch_enabled)
+    return bool(_llm_attr(llm, "web_fetch_enabled"))
 
 
 def resolve_web_search_supported(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and bool(llm.web_search_supported)
+    return bool(_llm_attr(llm, "web_search_supported"))
 
 
 def resolve_x_search_supported(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and bool(llm.x_search_supported)
+    return bool(_llm_attr(llm, "x_search_supported"))
 
 
 def resolve_web_fetch_supported(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and bool(llm.web_fetch_supported)
+    return bool(_llm_attr(llm, "web_fetch_supported"))
 
 
 def resolve_resolved_model(
     llm: "FastAgentLLMProtocol | None",
 ) -> "ResolvedModelSpec | None":
-    return None if llm is None else llm.resolved_model
+    return cast("ResolvedModelSpec | None", _llm_attr(llm, "resolved_model"))
 
 
 def resolve_model_name(llm: "FastAgentLLMProtocol | None") -> str | None:
-    return None if llm is None else llm.model_name
+    value = _llm_attr(llm, "model_name")
+    return value if isinstance(value, str) else None
 
 
 def resolve_model_info(llm: "FastAgentLLMProtocol | None") -> "ModelInfo | None":
-    return None if llm is None else llm.model_info
+    return cast("ModelInfo | None", _llm_attr(llm, "model_info"))
 
 
 def resolve_reasoning_effort(

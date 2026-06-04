@@ -13,6 +13,7 @@ from fast_agent.commands.command_catalog import (
     format_unknown_command_action,
     normalize_command_action,
 )
+from fast_agent.commands.handlers import skills_registry as skills_registry_handlers
 from fast_agent.commands.handlers._marketplace_argument_parsing import (
     parse_add_argument,
     parse_update_argument,
@@ -33,7 +34,6 @@ from fast_agent.commands.handlers.shared import (
     prompt_selection_after_message,
     unique_selection_options,
 )
-from fast_agent.commands.handlers.skills_registry import handle_set_skills_registry
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.marketplace.formatting import (
@@ -53,6 +53,7 @@ from fast_agent.skills.mcp_registry import McpRegistrySkill
 from fast_agent.skills.models import MarketplaceSkill, SkillUpdateInfo
 from fast_agent.skills.operations import (
     check_skill_updates,
+    fetch_marketplace_skills_with_source,
     reload_skill_manifests,
     remove_local_skill,
     select_manifest_by_name_or_index,
@@ -79,6 +80,17 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.skills.sources import SkillCatalogEntry, SkillInstallSource
+
+
+async def handle_set_skills_registry(
+    ctx: "CommandContext", *, argument: str | None, agent_name: str | None = None
+) -> CommandOutcome:
+    return await skills_registry_handlers.handle_set_skills_registry(
+        ctx,
+        argument=argument,
+        agent_name=agent_name,
+        fetch_skills_with_source=fetch_marketplace_skills_with_source,
+    )
 
 
 def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -> None:
