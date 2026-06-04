@@ -116,6 +116,31 @@ def _skills_over_mcp_scenario() -> TerminalCastScenario:
     )
 
 
+def _hf_image_generation_scenario() -> TerminalCastScenario:
+    command = os.environ.get(
+        "FAST_AGENT_HF_IMAGE_DEMO_COMMAND",
+        "fast-agent -x --model codexplan --url 'https://huggingface.co/mcp?bouquet=dynamic_space'",
+    )
+    prompt = os.environ.get(
+        "FAST_AGENT_HF_IMAGE_DEMO_PROMPT",
+        (
+            "generate a wide cinematic landscape: a quiet alpine lake at sunrise, "
+            "dark pine silhouettes, snow-capped mountains, warm orange sky reflected "
+            "in the water, bold simple shapes, high contrast, no text"
+        ),
+    )
+    return TerminalCastScenario(
+        name="hf-image-generation",
+        title="fast-agent Hugging Face image generation",
+        output=ASSETS / "tui" / "hf-image-generation.cast",
+        cols=int(os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_COLS", "120")),
+        rows=int(os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_ROWS", "34")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_IDLE_TIME_LIMIT", "1.3")),
+        prompt=prompt,
+        shell_command=command,
+    )
+
+
 def _scenarios() -> dict[str, TerminalCastScenario]:
     scenarios = [
         _tui_shell_scenario(),
@@ -123,6 +148,7 @@ def _scenarios() -> dict[str, TerminalCastScenario]:
         _skills_direct_install_scenario(),
         _skills_slash_commands_scenario(),
         _skills_over_mcp_scenario(),
+        _hf_image_generation_scenario(),
     ]
     return {scenario.name: scenario for scenario in scenarios}
 
@@ -397,6 +423,53 @@ tmux attach-session -t "$SESSION" || true
 """
 
 
+def _hf_image_generation_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_STARTUP_WAIT", "8")
+    response_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_RESPONSE_WAIT", "35")
+    final_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_FINAL_WAIT", "2")
+    typing_delay = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_TYPING_DELAY", "0.035")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    prompt = scenario.prompt.replace("'", "'\"'\"'")
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-hf-image.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV NO_COLOR && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} LOGGER__TERMINAL_IMAGES__ENABLED=true LOGGER__TERMINAL_IMAGES__BACKEND=halfcell LOGGER__TERMINAL_IMAGES__WIDTH=${{LOGGER__TERMINAL_IMAGES__WIDTH:-96}} LOGGER__TERMINAL_IMAGES__HEIGHT=${{LOGGER__TERMINAL_IMAGES__HEIGHT:-24}} bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep 1
+  type_slow "$SESSION" '{command}' 0.035
+  tmux send-keys -t "$SESSION" Enter
+  sleep {startup_wait}
+  type_slow "$SESSION" '{prompt}' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {response_wait}
+  sleep {final_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
+
+
 def _required_assets() -> list[Path]:
     return [
         VENDOR_ASCIINEMA / "README.md",
@@ -442,6 +515,8 @@ def _record_script(scenario: TerminalCastScenario) -> str:
         return _skills_slash_commands_record_script(scenario)
     if scenario.name == "skills-over-mcp":
         return _skills_over_mcp_record_script(scenario)
+    if scenario.name == "hf-image-generation":
+        return _hf_image_generation_record_script(scenario)
 
     typing_delay = os.environ.get("FAST_AGENT_TUI_DEMO_TYPING_DELAY", "0.055")
     shell_delay = os.environ.get("FAST_AGENT_TUI_DEMO_SHELL_TYPING_DELAY", "0.045")
