@@ -26,7 +26,7 @@
 | `response_format` | `Union` | `None` |  |
 | `structured_schema` | `Union` | `None` |  |
 | `structured_tool_policy` | `Literal` | `'auto'` |  |
-| `template_vars` | `dict` | `PydanticUndefined` |  |
+| `template_vars` | `dict` | `{}` |  |
 | `mcp_metadata` | `Union` | `None` |  |
 | `tool_execution_handler` | `Union` | `None` |  |
 | `emit_loop_progress` | `bool` | `False` |  |

@@ -15,6 +15,6 @@
 | `gpt-5.2` \* | `gpt-5.2` | `o3` \* | `o3` |
 | `gpt-5.3-chat-latest` \* | `gpt-5.3-chat-latest` | `o3-mini` \* | `o3-mini` |
 | `gpt-5.3-codex` \* | `gpt-5.3-codex` | `o4-mini` \* | `o4-mini` |
-| `gpt-5.4` \* | `gpt-5.4` | `openai/gpt-oss-120b` | `openai/gpt-oss-120b` |
+| `gpt-5.4` \* | `gpt-5.4` |  |  |
 
 \* _Via OpenAI Responses API_

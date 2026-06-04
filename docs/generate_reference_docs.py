@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from pydantic_core import PydanticUndefined
+
 DOCS_ROOT = Path(__file__).resolve().parent
 GENERATED_DIR = DOCS_ROOT / "docs" / "_generated"
 
@@ -64,9 +66,35 @@ def _md_code(lang: str, code: str) -> str:
     return f"```{lang}\n{code.rstrip()}\n```\n"
 
 
+def _clean_signature_text(text: str) -> str:
+    return (
+        text.replace("collections.abc.Callable", "Callable")
+        .replace("collections.abc.Coroutine", "Coroutine")
+        .replace("typing.Any", "Any")
+    )
+
+
 def _format_signature(name: str, func: Any) -> str:
-    sig = str(inspect.signature(func))
+    sig = _clean_signature_text(str(inspect.signature(func)))
     return f"{name}{sig}"
+
+
+def _field_default_text(field_info: Any) -> str:
+    if field_info.default_factory is not None:
+        factory = field_info.default_factory
+        if factory is list:
+            return "`[]`"
+        if factory is dict:
+            return "`{}`"
+        name = getattr(factory, "__name__", "factory")
+        return f"`<factory: {name}>`"
+
+    default = field_info.default
+    if default is PydanticUndefined:
+        return "`required`"
+    if default is None:
+        return "`None`"
+    return f"`{default!r}`"
 
 
 def generate_workflows_reference() -> str:
@@ -116,11 +144,7 @@ def generate_request_params_reference() -> str:
     for field_name, field_info in RequestParams.model_fields.items():
         annotation = field_info.annotation
         type_str = getattr(annotation, "__name__", None) or str(annotation)
-        default = field_info.default
-        if default is None and field_info.default_factory is not None:
-            default_str = "`<factory>`"
-        else:
-            default_str = "`None`" if default is None else f"`{default!r}`"
+        default_str = _field_default_text(field_info)
 
         desc = (field_info.description or "").replace("\n", " ").strip()
         lines.append(f"| `{field_name}` | `{type_str}` | {default_str} | {desc} |\n")
@@ -744,6 +768,30 @@ def generate_openai_merged_table(*, repo_root: Path) -> str:
     return table
 
 
+def generate_current_model_table(provider_name: str) -> str:
+    from fast_agent.llm.model_selection import ModelSelectionCatalog
+    from fast_agent.llm.provider_types import Provider
+
+    providers = {provider.config_name: provider for provider in Provider}
+    provider = providers[provider_name]
+
+    lines = [
+        "| Model string or alias | Resolves to / equivalent | Notes |\n",
+        "| --- | --- | --- |\n",
+    ]
+
+    for entry in ModelSelectionCatalog.list_current_entries(provider):
+        notes: list[str] = []
+        if entry.fast:
+            notes.append("Fast")
+        if entry.description:
+            notes.append(entry.description)
+        note = ", ".join(notes) if notes else "—"
+        lines.append(f"| `{entry.alias}` | `{entry.model}` | {note} |\n")
+
+    return "".join(lines)
+
+
 def main() -> int:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     repo_root = _find_fast_agent_repo()
@@ -860,6 +908,12 @@ def main() -> int:
             _write(GENERATED_DIR / "workflows_reference.md", generate_workflows_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
+        _write(GENERATED_DIR / "current_models_responses.md", generate_current_model_table("responses"))
+        _write(
+            GENERATED_DIR / "current_models_codexresponses.md",
+            generate_current_model_table("codexresponses"),
+        )
+        _write(GENERATED_DIR / "current_models_openai.md", generate_current_model_table("openai"))
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         (GENERATED_DIR / "_generation_warnings.md").unlink(missing_ok=True)
     except Exception as exc:

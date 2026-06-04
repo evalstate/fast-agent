@@ -42,6 +42,9 @@ Encrypted reasoning blocks are used to maintain model intelligence between tool 
 
 ## Model availability
 
+The tables below show current recommended aliases for each OpenAI-facing provider path.
+For the complete generated capability reference, see [Models Reference](../models_reference/).
+
 ### Responses models
 
 Use `responses` for OpenAI Responses API models and for using the `flex` service tier or Remote MCP/Connectors.
@@ -61,21 +64,9 @@ Reasoning summaries are displayed, with encrypted blocks stored locally for sess
     Encrypted reasoning blocks are not transferable between API keys or credentials.
 
 
-Responses models also have short aliases.
+Current Responses models:
 
-| Model string or alias | Resolves to / equivalent | Notes |
-| --- | --- | --- |
-| `gpt55` | `responses.gpt-5.5` | Current GPT-5.5 shortcut |
-| `gpt54` | `responses.gpt-5.4` | GPT-5.4 shortcut |
-| `gpt54-mini` | `responses.gpt-5.4-mini` | Smaller GPT-5.4 shortcut |
-| `gpt54-nano` | `responses.gpt-5.4-nano` | Smallest GPT-5.4 shortcut |
-| `gpt52` | `responses.gpt-5.2` | GPT-5.2 shortcut |
-| `gpt51` | `responses.gpt-5.1` | GPT-5.1 shortcut |
-| `gpt-5`, `gpt-5-mini`, `gpt-5-nano` | `responses.<model>` | GPT-5 family defaults to Responses |
-| `o3`, `o3-mini`, `o4-mini`, `o1` | `responses.<model>` | OpenAI reasoning models default to Responses |
-| `chatgpt`, `chat-latest` | `responses.chat-latest` | ChatGPT-latest shortcut |
-| `codex` | `responses.gpt-5.3-codex` | OpenAI API Codex model, not Codex subscription auth |
-| `responses.<model>` | exact Responses model name | Explicit form for any supported Responses model |
+--8<-- "_generated/current_models_responses.md"
 
 Examples:
 
@@ -95,13 +86,9 @@ The `codexresponses` provider is similar to `responses`, with these main differe
 - The supported model list includes `gpt-5.3-codex-spark`.
 - Billing is via the Codex subscription.
 
-| Model string or alias | Resolves to / equivalent | Notes |
-| --- | --- | --- |
-| `codexplan` | `codexresponses.gpt-5.5?reasoning=medium` | Default Codex planning alias |
-| `codexplan54` | `codexresponses.gpt-5.4?reasoning=high` | Pinned GPT-5.4 planning alias |
-| `codexplan53` | `codexresponses.gpt-5.3-codex?reasoning=medium` | Pinned GPT-5.3 Codex planning alias |
-| `codexspark` | `codexresponses.gpt-5.3-codex-spark` | Spark model; no reasoning effort controls |
-| `codexresponses.<model>` | exact Codex Responses model name | Explicit form for supported Codex Responses models |
+Current Codex Responses models:
+
+--8<-- "_generated/current_models_codexresponses.md"
 
 Examples:
 
@@ -116,14 +103,9 @@ Examples:
     Use `openai` when you specifically need the legacy Chat Completions-compatible path. Prefer
     the explicit `openai.` prefix so the selected API surface is obvious.
 
-| Model string | API model | Notes |
-| --- | --- | --- |
-| `openai.gpt-4.1` | `gpt-4.1` | Legacy Chat Completions-compatible GPT-4.1 |
-| `openai.gpt-4.1-mini` | `gpt-4.1-mini` | Smaller GPT-4.1 |
-| `openai.gpt-4.1-nano` | `gpt-4.1-nano` | Smallest GPT-4.1 |
-| `openai.gpt-4o` | `gpt-4o` | GPT-4o Chat Completions path |
-| `openai.gpt-4o-mini` | `gpt-4o-mini` | Smaller GPT-4o |
-| `openai.<model_name>` | exact Chat Completions model name | Explicit form for custom deployments or newly released Chat Completions models |
+Current legacy Chat Completions models:
+
+--8<-- "_generated/current_models_openai.md"
 
 Examples:
 
