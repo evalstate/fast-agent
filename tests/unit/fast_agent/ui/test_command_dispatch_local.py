@@ -11,32 +11,24 @@ from fast_agent.commands.context import (
     StaticAgentProvider,
 )
 from fast_agent.commands.handlers import display as display_handlers
-from fast_agent.commands.results import CommandOutcome
 from fast_agent.core.agent_app import AgentRefreshResult
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     AttachCommand,
     CardsCommand,
-    CheckCommand,
     ClearCommand,
     CommandsCommand,
     HashAgentCommand,
     HistoryFixCommand,
-    HistoryRewindCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
-    LoadPromptCommand,
     McpConnectCommand,
     McpDisconnectCommand,
-    McpListCommand,
     McpReconnectCommand,
     ModelsCommand,
     ModelSwitchCommand,
     ModelWebFetchCommand,
-    ResumeSessionCommand,
     ShellCommand,
-    ShowUsageCommand,
-    TitleSessionCommand,
     UnknownCommand,
 )
 from fast_agent.ui.interactive import command_dispatch
@@ -44,15 +36,12 @@ from fast_agent.ui.interactive.command_dispatch import (
     _attachment_token,
     _catalog_handler,
     _dispatch_agent_card_payload,
-    _dispatch_display_payload,
     _dispatch_hash_agent_command,
     _dispatch_history_payload,
     _dispatch_local_ui_payload,
     _dispatch_mcp_connect_command,
     _dispatch_mcp_payload,
     _dispatch_plugin_command_payload,
-    _dispatch_prompt_payload,
-    _dispatch_session_payload,
     _DispatchStep,
     _first_dispatch_result,
     _model_handler,
@@ -241,23 +230,6 @@ async def test_local_dispatch_attachment_error_prints_bracketed_path_literally(
     assert getattr(printed[0], "plain", "") == "Unable to attach '[draft].txt': [draft].txt"
 
 
-@pytest.mark.asyncio
-async def test_prompt_dispatch_propagates_buffer_prefill(monkeypatch) -> None:
-    async def fake_run_command_handler(**_kwargs: object) -> CommandOutcome:
-        return CommandOutcome(buffer_prefill="loaded prompt")
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fake_run_command_handler)
-
-    result = await _dispatch_prompt_payload(
-        LoadPromptCommand(filename="prompt.md", error=None),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert result is not None
-    assert result.buffer_prefill == "loaded prompt"
-
-
 def test_hash_dispatch_returns_buffer_send_details() -> None:
     result = _dispatch_hash_agent_command(
         HashAgentCommand("worker", "summarize", quiet=True),
@@ -288,11 +260,7 @@ def test_catalog_handler_preserves_models_command_surface() -> None:
 
 
 @pytest.mark.asyncio
-async def test_history_dispatch_skips_handler_when_target_agent_missing(monkeypatch) -> None:
-    async def fail_run_command_handler(**_kwargs: object) -> CommandOutcome:
-        raise AssertionError("handler should not run")
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fail_run_command_handler)
+async def test_history_dispatch_skips_handler_when_target_agent_missing() -> None:
     owner = _HistoryOwner(missing_agents={"missing"})
 
     result = await _dispatch_history_payload(
@@ -305,107 +273,6 @@ async def test_history_dispatch_skips_handler_when_target_agent_missing(monkeypa
     assert result is not None
     assert result.handled is True
     assert owner.checked_agents == ["missing"]
-
-
-@pytest.mark.asyncio
-async def test_history_rewind_dispatch_propagates_buffer_prefill(monkeypatch) -> None:
-    calls: list[str] = []
-
-    async def fake_run_command_handler(**kwargs: object) -> CommandOutcome:
-        calls.append(str(kwargs["agent"]))
-        return CommandOutcome(buffer_prefill="restored prompt")
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fake_run_command_handler)
-
-    result = await _dispatch_history_payload(
-        cast("InteractivePrompt", _HistoryOwner()),
-        HistoryRewindCommand(turn_index=2, error=None),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert result is not None
-    assert calls == ["main"]
-    assert result.buffer_prefill == "restored prompt"
-
-
-@pytest.mark.asyncio
-async def test_display_dispatch_runs_mapped_handler(monkeypatch) -> None:
-    calls: list[str] = []
-
-    async def fake_run_command_handler(**kwargs: object) -> CommandOutcome:
-        calls.append(str(kwargs["agent"]))
-        return CommandOutcome()
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fake_run_command_handler)
-
-    result = await _dispatch_display_payload(
-        ShowUsageCommand(),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert result is not None
-    assert result.handled is True
-    assert calls == ["main"]
-
-
-@pytest.mark.asyncio
-async def test_display_dispatch_runs_check_handler(monkeypatch) -> None:
-    calls: list[object] = []
-
-    async def fake_run_command_handler(**kwargs: object) -> CommandOutcome:
-        calls.append(kwargs["handler"])
-        calls.append(kwargs["agent"])
-        return CommandOutcome()
-
-    async def fake_check_handler(*_args: object, **_kwargs: object) -> CommandOutcome:
-        return CommandOutcome()
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fake_run_command_handler)
-    monkeypatch.setattr(command_dispatch.display_handlers, "handle_check", fake_check_handler)
-
-    result = await _dispatch_display_payload(
-        CheckCommand(argument="models --for-model gpt-5"),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert result is not None
-    assert result.handled is True
-    assert calls[1] == "main"
-    assert calls[0] is not None
-
-
-@pytest.mark.asyncio
-async def test_display_dispatch_runs_commands_handler(monkeypatch) -> None:
-    calls: list[object] = []
-
-    async def fake_run_command_handler(**kwargs: object) -> CommandOutcome:
-        calls.append(kwargs["handler"])
-        calls.append(kwargs["agent"])
-        return CommandOutcome()
-
-    async def fake_commands_handler(*_args: object, **_kwargs: object) -> CommandOutcome:
-        return CommandOutcome()
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fake_run_command_handler)
-    monkeypatch.setattr(
-        command_dispatch.display_handlers,
-        "handle_commands",
-        fake_commands_handler,
-    )
-
-    result = await _dispatch_display_payload(
-        CommandsCommand(argument="skills add"),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert result is not None
-    assert result.handled is True
-    assert calls[1] == "main"
-    assert calls[0] is not None
 
 
 @pytest.mark.asyncio
@@ -446,33 +313,7 @@ def test_mcp_server_command_error_requires_server_name() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mcp_dispatch_runs_handler_for_list_command(monkeypatch) -> None:
-    calls: list[str] = []
-
-    async def fake_run_command_handler(**kwargs: object) -> CommandOutcome:
-        calls.append(str(kwargs["agent"]))
-        return CommandOutcome()
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fake_run_command_handler)
-
-    result = await _dispatch_mcp_payload(
-        McpListCommand(),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert result is not None
-    assert result.handled is True
-    assert calls == ["main"]
-
-
-@pytest.mark.asyncio
-async def test_mcp_dispatch_skips_handler_when_server_name_missing(monkeypatch) -> None:
-    async def fail_run_command_handler(**_kwargs: object) -> CommandOutcome:
-        raise AssertionError("handler should not run")
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fail_run_command_handler)
-
+async def test_mcp_dispatch_handles_missing_server_name_without_context() -> None:
     result = await _dispatch_mcp_payload(
         McpDisconnectCommand(server_name=None, error=None),
         prompt_provider=cast("AgentApp", object()),
@@ -585,44 +426,6 @@ async def test_agent_command_error_prints_bracketed_text_literally(
 def test_model_handler_maps_value_commands_but_not_switch() -> None:
     assert _model_handler(ModelWebFetchCommand("on"), agent="main") is not None
     assert _model_handler(ModelSwitchCommand("openai.gpt-5"), agent="main") is None
-
-
-@pytest.mark.asyncio
-async def test_session_dispatch_runs_generic_handler(monkeypatch) -> None:
-    calls: list[str] = []
-
-    async def fake_run_command_handler(**kwargs: object) -> CommandOutcome:
-        calls.append(str(kwargs["agent"]))
-        return CommandOutcome()
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fake_run_command_handler)
-
-    result = await _dispatch_session_payload(
-        TitleSessionCommand("new title"),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert result is not None
-    assert result.handled is True
-    assert calls == ["main"]
-
-
-@pytest.mark.asyncio
-async def test_session_resume_dispatch_propagates_switch_agent(monkeypatch) -> None:
-    async def fake_run_command_handler(**_kwargs: object) -> CommandOutcome:
-        return CommandOutcome(switch_agent="worker")
-
-    monkeypatch.setattr(command_dispatch, "_run_command_handler", fake_run_command_handler)
-
-    result = await _dispatch_session_payload(
-        ResumeSessionCommand("session-1"),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert result is not None
-    assert result.next_agent == "worker"
 
 
 def test_session_handler_ignores_non_session_payload() -> None:

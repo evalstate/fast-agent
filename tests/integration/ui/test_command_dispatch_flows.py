@@ -236,3 +236,25 @@ async def test_dispatch_attach_command_rejects_directories(tmp_path: Path) -> No
     )
 
     assert result.buffer_prefill == "draft"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dispatch_mcp_list_reports_attached_and_detached_servers() -> None:
+    provider = CommandSurfaceProvider(
+        {"main": CommandSurfaceAgent(name="main")},
+        attached_mcp_servers=["local"],
+        detached_mcp_servers=["docs"],
+    )
+    owner = CommandSurfaceOwner(agent_types=provider.agent_types())
+
+    result = await dispatch_tui_command(
+        "/mcp list",
+        owner=owner,
+        prompt_provider=provider,
+    )
+
+    emitted = "\n".join(provider._agent("main").display.messages)
+    assert result.handled is True
+    assert "Attached MCP servers: local" in emitted
+    assert "Configured but detached: docs" in emitted
