@@ -83,6 +83,7 @@ Images received from the Assistant or tool calls are rendered to the console on 
 <!--
 Cast asset:
 - Source: docs/docs/assets/tui/hf-image-generation.cast
+- Regenerate: uv run scripts/docs.py cast-build hf-image-generation
 - Replay locally: asciinema play docs/docs/assets/tui/hf-image-generation.cast
 -->
 
