@@ -71,6 +71,12 @@ from fast_agent.mcp.mcp_aggregator import (
     NamespacedTool,
     ServerStatus,
 )
+from fast_agent.mcp.mcp_skills_loader import (
+    INDEX_URI,
+    SkillTemplateEntry,
+    load_mcp_skill_manifests,
+    merge_filesystem_and_mcp_manifests,
+)
 from fast_agent.mcp.prompt_metadata import prompt_display_name
 from fast_agent.mcp.provider_management import (
     ProviderManagedMCPState,
@@ -202,6 +208,13 @@ class McpAgent(ABC, ToolAgent):
         self._skill_manifests: list[SkillManifest] = []
         self._skill_map: dict[str, SkillManifest] = {}
         self._skill_reader: SkillReader | None = None
+        # `mcp-resource-template` entries — held until the user resolves via `/skills resolve`.
+        self._skill_template_entries: list[SkillTemplateEntry] = []
+        # Servers with an active `skill://index.json` subscription (idempotent re-subscribe).
+        self._skill_subscribed_servers: set[str] = set()
+        self._skill_discovery_lock: asyncio.Lock | None = None
+        # `/skills disable <name>` results — lowercased to match SkillRegistry dedup.
+        self._disabled_skill_names: set[str] = set()
         self._no_shell_requested = bool(context and getattr(context, "no_shell", False))
         self.set_skill_manifests(manifests)
         self.skill_registry: SkillRegistry | None = None
@@ -233,15 +246,14 @@ class McpAgent(ABC, ToolAgent):
             else:
                 self._shell_runtime_activation_reason = "via " + " and ".join(reasons)
 
-        # Derive skills directory from this agent's manifests (respects per-agent config)
+        # URI-backed (Skills-over-MCP) manifests have no filesystem path; pick the first
+        # filesystem-backed manifest to anchor the skills directory.
         skills_directory = None
-        if self._skill_manifests:
-            # Get the skills directory from the first manifest's path
-            # Path structure: <env>/skills/skill-name/SKILL.md
-            # So we need parent.parent of the manifest path
-            first_manifest = self._skill_manifests[0]
-            if first_manifest.path:
-                skills_directory = first_manifest.path.parent.parent
+        first_fs_manifest = next(
+            (m for m in self._skill_manifests if m.path is not None), None
+        )
+        if first_fs_manifest is not None:
+            skills_directory = first_fs_manifest.path.parent.parent  # <env>/skills
 
         self._shell_access_modes: tuple[str, ...] = ()
         if self._shell_runtime_activation_reason is not None:
@@ -320,6 +332,10 @@ class McpAgent(ABC, ToolAgent):
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
         await self.__aenter__()
+
+        # Discover MCP skills before the instruction template is built so frontmatter
+        # lands in {{agentSkills}}.
+        await self._load_mcp_skill_manifests()
 
         # Apply template substitution to the instruction with server instructions
         await self._apply_instruction_templates()
@@ -503,7 +519,9 @@ class McpAgent(ABC, ToolAgent):
 
     @property
     def skill_read_tool_name(self) -> str:
-        """Return the tool name that should be referenced for reading skill content."""
+        """Tool the model uses to read skill content. Forced to ``read_skill`` when any manifest is URI-backed (only it accepts both filesystem paths and resource URIs)."""
+        if any(manifest.uri for manifest in self._skill_manifests):
+            return "read_skill"
         return "read_text_file" if self.has_filesystem_read_text_file_tool else "read_skill"
 
     @property
@@ -594,14 +612,288 @@ class McpAgent(ABC, ToolAgent):
                 surface="startup_once",
             )
 
-    def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
+    async def _load_mcp_skill_manifests(self) -> None:
+        """Fetch skills served by connected MCP servers per the Skills-over-MCP SEP.
+
+        Merges discovered MCP manifests with any pre-existing filesystem
+        manifests and updates the skill reader. On name collision, the
+        filesystem manifest wins (consistent with SkillRegistry dedup).
+        Disabled per-server via MCPServerSettings.mcp_skills.
+        """
+        server_names = tuple(self._aggregator.server_names or ())
+        if not server_names:
+            return
+
+        enabled_servers: set[str] | None = None
+        if self._context and self._context.config and self._context.config.mcp:
+            server_settings = self._context.config.mcp.servers or {}
+            enabled_servers = {
+                name
+                for name in server_names
+                if getattr(server_settings.get(name), "mcp_skills", True)
+            }
+            if not enabled_servers:
+                return
+
+        try:
+            loaded = await load_mcp_skill_manifests(
+                self._aggregator,
+                server_names,
+                enabled_servers=enabled_servers,
+            )
+        except Exception as exc:
+            # Discovery must not break agent startup.
+            self.logger.error(
+                "Failed to load MCP skills",
+                data={"error": str(exc)},
+                exc_info=True,
+            )
+            return
+
+        if not loaded.manifests:
+            return
+
+        merged, warnings = merge_filesystem_and_mcp_manifests(
+            self._skill_manifests, loaded.manifests
+        )
+        for message in warnings:
+            self._record_warning(f"[dim]{message}[/dim]", surface="startup_once")
+
+        self._skill_template_entries = list(loaded.template_entries)
+
+        self.set_skill_manifests(merged)
+
+        # `resources/subscribe` is SHOULD on servers; failures are normal and silent.
+        await self._subscribe_to_skill_index(server_names, enabled_servers)
+
+    async def _subscribe_to_skill_index(
+        self,
+        server_names: Sequence[str],
+        enabled_servers: set[str] | None,
+    ) -> None:
+        """Subscribe to `skill://index.json` for each enabled server.
+
+        Also wires up the agent-level notification callback once. Multiple
+        agents using the same aggregator would conflict on this callback,
+        so we set it only if it's unset — if another agent already set it
+        we don't override (live skill updates won't fire for us, but the
+        already-installed callback continues to do its job).
+        """
+        # Don't clobber an existing notification handler if one is already wired.
+        agg = self._aggregator
+        if getattr(agg, "server_notification_callback", None) is None:
+            agg.server_notification_callback = self._on_server_notification
+
+        for server_name in server_names:
+            if enabled_servers is not None and server_name not in enabled_servers:
+                continue
+            if server_name in self._skill_subscribed_servers:
+                continue
+            try:
+                ok = await agg.subscribe_to_resource(server_name, INDEX_URI)
+            except Exception:
+                ok = False
+            if ok:
+                self._skill_subscribed_servers.add(server_name)
+
+    async def _on_server_notification(self, server_name: str, notification) -> None:
+        """Handle server notifications relayed via the aggregator.
+
+        We only care about `notifications/resources/updated` targeting
+        `skill://index.json`; everything else is a no-op so this can
+        safely be the global handler without disturbing other behaviors.
+        """
+        # Lazy import — most agents never hit this notification path.
+        try:
+            from mcp.types import ResourceUpdatedNotification
+        except Exception:
+            return
+
+        root = getattr(notification, "root", None)
+        if not isinstance(root, ResourceUpdatedNotification):
+            return
+
+        uri = str(root.params.uri).rstrip("/")
+        if uri != INDEX_URI.rstrip("/"):
+            return
+
+        # Notification handlers must not block the message loop.
+        asyncio.create_task(self._refresh_skills_after_index_update(server_name))
+
+    async def _refresh_skills_after_index_update(self, server_name: str) -> None:
+        """Re-fetch the index for one server and merge changes into state."""
+        if self._skill_discovery_lock is None:
+            self._skill_discovery_lock = asyncio.Lock()
+        async with self._skill_discovery_lock:
+            try:
+                loaded = await load_mcp_skill_manifests(
+                    self._aggregator,
+                    [server_name],
+                    enabled_servers=None,
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    "Skill index refresh failed",
+                    data={"server": server_name, "error": str(exc)},
+                )
+                return
+
+            # Diff is scoped to this server — others' manifests must not move.
+            previous_for_server = {
+                m.name
+                for m in self._skill_manifests
+                if m.server_name == server_name
+            }
+            new_for_server = {m.name for m in loaded.manifests}
+            added = sorted(new_for_server - previous_for_server)
+            removed = sorted(previous_for_server - new_for_server)
+
+            # Replace this server's manifests wholesale; keep everyone else's.
+            kept = [
+                m
+                for m in self._skill_manifests
+                if m.server_name != server_name
+            ]
+            merged, warnings = merge_filesystem_and_mcp_manifests(
+                kept, loaded.manifests
+            )
+            for message in warnings:
+                self._record_warning(
+                    f"[dim]{message}[/dim]", surface="startup_once"
+                )
+
+            kept_templates = [
+                t
+                for t in self._skill_template_entries
+                if getattr(t, "server_name", None) != server_name
+            ]
+            self._skill_template_entries = kept_templates + list(loaded.template_entries)
+
+            self.set_skill_manifests(merged)
+
+        if added or removed:
+            # System prompt's <available_skills> block is frozen in conversation history;
+            # we surface the diff via the toolbar instead. SkillReader's allow-list does
+            # update, so removed skills become unreadable.
+            change_summary = ", ".join(
+                [f"+{n}" for n in added] + [f"-{n}" for n in removed]
+            )
+            self._record_warning(
+                (
+                    f"[dim]Skills updated from server '{server_name}': "
+                    f"{change_summary}[/dim]"
+                ),
+                surface="runtime_toolbar",
+            )
+
+    @property
+    def skill_template_entries(self) -> list[SkillTemplateEntry]:
+        """Discovered `mcp-resource-template` entries awaiting resolution."""
+        return list(self._skill_template_entries)
+
+    async def complete_skill_template_argument(
+        self,
+        template: SkillTemplateEntry,
+        argument_name: str,
+        value: str = "",
+        context_args: dict[str, str] | None = None,
+    ) -> list[str]:
+        """Ask the publishing server for completion candidates for a template variable.
+
+        Thin wrapper over `MCPAggregator.complete_resource_argument`. The
+        wrapper exists so the slash-command handler doesn't need to reach
+        through the agent into the aggregator and can mock-test against
+        the agent alone.
+        """
+        completion = await self._aggregator.complete_resource_argument(
+            server_name=template.server_name,
+            template_uri=template.url_template,
+            argument_name=argument_name,
+            value=value,
+            context_args=context_args,
+        )
+        return list(getattr(completion, "values", []) or [])
+
+    async def register_resolved_skill_template(
+        self,
+        template: SkillTemplateEntry,
+        variables: dict[str, str],
+    ) -> "SkillManifest | None":
+        """Expand `template` against `variables`, fetch the resulting SKILL.md,
+        and merge it into the active manifest set.
+
+        Returns the new manifest on success, or None if expansion or
+        fetch failed (the reason is already logged by the loader). The
+        host emits its own user-facing notice from the caller.
+        """
+        from fast_agent.mcp.mcp_skills_loader import resolve_skill_template
+
+        manifest = await resolve_skill_template(self._aggregator, template, variables)
+        if manifest is None:
+            return None
+        if manifest.name in self._skill_map:
+            # Mirrors `merge_filesystem_and_mcp_manifests` dedup — earlier manifest wins
+            # so resolution can't silently shadow a configured skill.
+            return None
+        new_manifests = list(self._skill_manifests) + [manifest]
+        self.set_skill_manifests(new_manifests)
+        return manifest
+
+    def set_skill_manifests(
+        self,
+        manifests: Sequence[SkillManifest],
+    ) -> None:
         self._skill_manifests = list(manifests)
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
+        self._rebuild_skill_reader()
+
+    def _rebuild_skill_reader(self) -> None:
+        """(Re)build the SkillReader against the current manifest + disabled-set.
+
+        Called whenever manifests change OR the disabled-skill set is
+        toggled. Splitting this out keeps the toggle path from having to
+        re-derive `_skill_manifests` itself — just filters at reader
+        construction time.
+        """
         if self._skill_manifests:
-            self._skill_reader = SkillReader(self._skill_manifests, self.logger)
+            visible = [
+                m
+                for m in self._skill_manifests
+                if m.name.lower() not in self._disabled_skill_names
+            ]
+            self._skill_reader = SkillReader(
+                visible,
+                self.logger,
+                aggregator=self._aggregator,
+            )
             self._ensure_shell_runtime_for_skills()
         else:
             self._skill_reader = None
+
+    @property
+    def disabled_skill_names(self) -> set[str]:
+        """Lowercased names of skills toggled off this session."""
+        return set(self._disabled_skill_names)
+
+    def disable_skill(self, name: str) -> bool:
+        """Hide a skill from this session. Returns True if state changed."""
+        key = name.strip().lower()
+        if not key or key not in {m.name.lower() for m in self._skill_manifests}:
+            return False
+        if key in self._disabled_skill_names:
+            return False
+        self._disabled_skill_names.add(key)
+        self._rebuild_skill_reader()
+        return True
+
+    def enable_skill(self, name: str) -> bool:
+        """Restore a previously-disabled skill. Returns True if state changed."""
+        key = name.strip().lower()
+        if key not in self._disabled_skill_names:
+            return False
+        self._disabled_skill_names.discard(key)
+        self._rebuild_skill_reader()
+        return True
 
     def _ensure_shell_runtime_for_skills(self) -> None:
         if self._no_shell_requested:
@@ -611,12 +903,13 @@ class McpAgent(ABC, ToolAgent):
         if self._external_runtime is not None:
             return
 
-        # Derive skills directory from manifests (respects per-agent config)
+        # Filesystem-backed manifest only — URI-backed skills can't anchor a shell runtime.
         skills_directory = None
-        if self._skill_manifests:
-            first_manifest = self._skill_manifests[0]
-            if first_manifest.path:
-                skills_directory = first_manifest.path.parent.parent
+        first_fs_manifest = next(
+            (m for m in self._skill_manifests if m.path is not None), None
+        )
+        if first_fs_manifest is not None:
+            skills_directory = first_fs_manifest.path.parent.parent
 
         self._activate_shell_runtime(
             "because agent skills are configured",
