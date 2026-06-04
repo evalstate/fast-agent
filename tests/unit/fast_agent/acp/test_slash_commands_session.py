@@ -201,11 +201,17 @@ async def test_handle_session_blank_arguments_default_to_list(
         primary_agent_name="main",
     )
 
-    monkeypatch.setattr(session_slash_handlers, "render_session_list", lambda _handler: "# sessions")
+    class _Manager:
+        current_session = None
+
+        def list_sessions(self) -> list[object]:
+            return []
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
 
     output = await session_slash_handlers.handle_session(handler, "   ")
 
-    assert output == "# sessions"
+    assert "# sessions" in output
 
 
 @pytest.mark.asyncio

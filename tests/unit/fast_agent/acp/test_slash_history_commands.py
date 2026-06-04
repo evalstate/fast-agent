@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from fast_agent.acp.command_io import ACPCommandIO
 from fast_agent.acp.slash.handlers import history as history_slash_handlers
+from fast_agent.commands.context import CommandContext
 from fast_agent.commands.results import CommandOutcome
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.acp.slash_commands import SlashCommandHandler
+    from fast_agent.types import PromptMessageExtended
 
 
 class _Handler:
@@ -20,6 +23,60 @@ class _Handler:
 
     def _get_current_agent(self) -> object:
         return object()
+
+
+class _HistoryOverviewAgent:
+    def __init__(self) -> None:
+        self.message_history: list[PromptMessageExtended] = []
+        self.usage_accumulator = None
+
+
+class _HistoryOverviewProvider:
+    def __init__(self, agent: _HistoryOverviewAgent) -> None:
+        self.agent = agent
+
+    def _agent(self, name: str) -> _HistoryOverviewAgent:
+        assert name == "main"
+        return self.agent
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name or "main"
+
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
+        return ["main"]
+
+    def registered_agent_names(self) -> list[str]:
+        return ["main"]
+
+    def registered_agents(self) -> dict[str, object]:
+        return {"main": self.agent}
+
+    async def list_prompts(
+        self,
+        namespace: str | None,
+        agent_name: str | None = None,
+    ) -> object:
+        del namespace, agent_name
+        return {}
+
+
+class _HistoryOverviewHandler(_Handler):
+    def __init__(self) -> None:
+        self.agent = _HistoryOverviewAgent()
+        self.instance = SimpleNamespace(agents={"main": self.agent})
+        self.io = ACPCommandIO()
+
+    def _get_current_agent_or_error(self, heading: str, missing_template: str | None = None):
+        del heading, missing_template
+        return self.agent, None
+
+    def _build_command_context(self) -> CommandContext:
+        return CommandContext(
+            agent_provider=_HistoryOverviewProvider(self.agent),
+            current_agent_name="main",
+            io=self.io,
+        )
 
 
 class _HistoryLoadHandler(_Handler):
@@ -43,22 +100,12 @@ class _HistoryLoadHandler(_Handler):
 
 
 @pytest.mark.asyncio
-async def test_handle_history_uses_shared_parser_for_empty_overview(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[Any] = []
-
-    async def fake_overview(handler: object) -> str:
-        calls.append(handler)
-        return "# history"
-
-    monkeypatch.setattr(history_slash_handlers, "render_history_overview", fake_overview)
-
-    handler = cast("SlashCommandHandler", _Handler())
+async def test_handle_history_blank_arguments_default_to_overview() -> None:
+    handler = cast("SlashCommandHandler", _HistoryOverviewHandler())
     output = await history_slash_handlers.handle_history(handler, "")
 
-    assert output == "# history"
-    assert calls == [handler]
+    assert "# conversation history" in output
+    assert "No messages yet." in output
 
 
 @pytest.mark.asyncio
