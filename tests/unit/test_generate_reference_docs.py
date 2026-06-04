@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -38,6 +39,32 @@ def test_clean_signature_text_removes_noisy_module_prefixes() -> None:
     assert "collections.abc.Coroutine" not in cleaned
     assert "typing.Any" not in cleaned
     assert cleaned == "Callable[[Any], Coroutine[Any, Any, str]]"
+
+
+def test_workflow_return_annotation_wraps_common_decorator_return() -> None:
+    generator = _load_generator()
+
+    wrapped = generator._wrap_workflow_return_annotation(
+        "Callable[[Callable[~P, Coroutine[Any, Any, +R]]], Callable[~P, Coroutine[Any, Any, +R]]]"
+    )
+
+    assert wrapped == (
+        "Callable[\n"
+        "    [Callable[~P, Coroutine[Any, Any, +R]]],\n"
+        "    Callable[~P, Coroutine[Any, Any, +R]],\n"
+        "]"
+    )
+
+
+def test_compact_signature_defaults_elides_long_string_defaults() -> None:
+    generator = _load_generator()
+
+    def func(instruction: str = "line one\nline two") -> None:
+        pass
+
+    compact = generator._compact_signature_defaults(inspect.signature(func))
+
+    assert compact.parameters["instruction"].default == "..."
 
 
 def test_current_model_table_uses_current_catalog_entries() -> None:

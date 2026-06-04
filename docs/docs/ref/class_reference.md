@@ -59,6 +59,8 @@ The `FastAgent` class provides several decorators for creating agents and workfl
 
 See [Defining Agents](../agents/defining/) for detailed usage of these decorators.
 
+--8<-- "_generated/workflows_reference.md"
+
 ### Methods
 
 #### `run()`

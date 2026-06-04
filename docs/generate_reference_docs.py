@@ -74,8 +74,29 @@ def _clean_signature_text(text: str) -> str:
     )
 
 
+def _wrap_workflow_return_annotation(text: str) -> str:
+    return text.replace(
+        "Callable[[Callable[~P, Coroutine[Any, Any, +R]]], Callable[~P, Coroutine[Any, Any, +R]]]",
+        "Callable[\n"
+        "    [Callable[~P, Coroutine[Any, Any, +R]]],\n"
+        "    Callable[~P, Coroutine[Any, Any, +R]],\n"
+        "]",
+    )
+
+
+def _compact_signature_defaults(sig: inspect.Signature) -> inspect.Signature:
+    params = []
+    for param in sig.parameters.values():
+        default = param.default
+        if isinstance(default, str) and ("\n" in default or len(default) > 60):
+            param = param.replace(default="...")
+        params.append(param)
+    return sig.replace(parameters=params)
+
+
 def _format_signature(name: str, func: Any) -> str:
-    sig = _clean_signature_text(str(inspect.signature(func)))
+    sig = _compact_signature_defaults(inspect.signature(func)).format(max_width=88)
+    sig = _wrap_workflow_return_annotation(_clean_signature_text(sig))
     return f"{name}{sig}"
 
 
