@@ -239,6 +239,8 @@ def _provider_hosted_tool_summary(
         return None
 
     enabled = descriptor.enabled(llm)
+    if not enabled:
+        return None
     return ProviderToolSummary(
         name=descriptor.name,
         enabled=enabled,
@@ -253,7 +255,11 @@ def build_provider_tool_summaries(agent: object) -> list[ProviderToolSummary]:
         summary = _provider_hosted_tool_summary(descriptor, llm)
         if summary is not None:
             summaries.append(summary)
-    summaries.extend(_provider_managed_tool_summaries(agent))
+    summaries.extend(
+        summary
+        for summary in _provider_managed_tool_summaries(agent)
+        if summary.enabled is True
+    )
     return summaries
 
 

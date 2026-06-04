@@ -88,15 +88,21 @@ class _AgentStub:
 
 
 class _ProviderToolLlmStub:
-    web_search_supported = True
-    web_search_enabled = True
     web_fetch_supported = True
     web_fetch_enabled = False
     x_search_supported = False
     x_search_enabled = False
 
-    def __init__(self, state: ProviderManagedMCPState | None = None) -> None:
+    def __init__(
+        self,
+        state: ProviderManagedMCPState | None = None,
+        *,
+        web_search_supported: bool = True,
+        web_search_enabled: bool = True,
+    ) -> None:
         self._state = state or ProviderManagedMCPState()
+        self.web_search_supported = web_search_supported
+        self.web_search_enabled = web_search_enabled
 
     @property
     def provider_managed_mcp_state(self) -> ProviderManagedMCPState:
@@ -104,12 +110,17 @@ class _ProviderToolLlmStub:
 
 
 class _ProviderToolAgentStub:
-    def __init__(self, state: ProviderManagedMCPState | None = None) -> None:
-        self._state = state
+    def __init__(
+        self,
+        state: ProviderManagedMCPState | None = None,
+        *,
+        llm: object | None = None,
+    ) -> None:
+        self._llm = llm or _ProviderToolLlmStub(state)
 
     @property
     def llm(self):
-        return _ProviderToolLlmStub(self._state)
+        return self._llm
 
 
 class _ProviderToolLlmWithoutManagedMCPStateStub:
@@ -119,6 +130,28 @@ class _ProviderToolLlmWithoutManagedMCPStateStub:
     web_fetch_enabled = False
     x_search_supported = False
     x_search_enabled = False
+
+
+class _TruthyProviderToolLlmStub:
+    web_fetch_supported = False
+    web_fetch_enabled = False
+    x_search_supported = False
+    x_search_enabled = False
+
+    def __init__(self) -> None:
+        self._state = ProviderManagedMCPState()
+
+    @property
+    def web_search_supported(self):
+        return 1
+
+    @property
+    def web_search_enabled(self):
+        return 1
+
+    @property
+    def provider_managed_mcp_state(self) -> ProviderManagedMCPState:
+        return self._state
 
 
 class _ProviderToolAgentWithoutManagedMCPStateStub:
@@ -302,13 +335,35 @@ def test_build_tool_summaries_keeps_app_badges_additive_with_source_suffix() -> 
     assert summaries[0].suffix == "(Shell) (MCP App)"
 
 
-def test_build_provider_tool_summaries_lists_supported_hosted_tools_with_state() -> None:
+def test_build_provider_tool_summaries_lists_enabled_supported_hosted_tools() -> None:
     summaries = build_provider_tool_summaries(_ProviderToolAgentStub())
 
     assert [(summary.name, summary.suffix, summary.enabled) for summary in summaries] == [
         ("web_search", PROVIDER_HOSTED_SUFFIX, True),
-        ("web_fetch", PROVIDER_HOSTED_SUFFIX, False),
     ]
+
+
+def test_build_provider_tool_summaries_reflects_current_hosted_tool_state() -> None:
+    llm = _ProviderToolLlmStub(web_search_enabled=False)
+    agent = _ProviderToolAgentStub(llm=llm)
+
+    assert build_provider_tool_summaries(agent) == []
+
+    llm.web_search_enabled = True
+
+    assert (
+        _provider_summary_by_name(build_provider_tool_summaries(agent), "web_search").enabled
+        is True
+    )
+
+
+def test_build_provider_tool_summaries_accepts_truthy_hosted_tool_state() -> None:
+    summary = _provider_summary_by_name(
+        build_provider_tool_summaries(_ProviderToolAgentStub(llm=_TruthyProviderToolLlmStub())),
+        "web_search",
+    )
+
+    assert summary.enabled is True
 
 
 def test_build_provider_tool_summaries_evaluates_hosted_enabled_once(
@@ -364,14 +419,12 @@ def test_provider_tool_status_label_combines_suffix_and_state() -> None:
     assert provider_tool_status_label(summary) == f"{PROVIDER_MANAGED_MCP_SUFFIX}, Unknown"
 
 
-def test_build_provider_tool_summaries_marks_missing_managed_mcp_state_unknown() -> None:
+def test_build_provider_tool_summaries_omits_missing_managed_mcp_state() -> None:
     summaries = build_provider_tool_summaries(_ProviderToolAgentWithoutManagedMCPStateStub())
 
     assert [(summary.name, summary.suffix, summary.enabled) for summary in summaries] == [
         ("web_search", PROVIDER_HOSTED_SUFFIX, True),
-        ("provider_managed_mcp", PROVIDER_MANAGED_MCP_SUFFIX, None),
     ]
-    assert summaries[1].description == "Provider-managed MCP state is unavailable for this model."
 
 
 def test_build_provider_tool_summaries_lists_connector_allowlist() -> None:
@@ -469,7 +522,7 @@ def test_build_provider_tool_summaries_uses_mcp_fallback_for_blank_description()
     assert summary.description == "Provider-managed MCP server; tools loaded by provider"
 
 
-def test_build_provider_tool_summaries_marks_empty_allowlist_disabled() -> None:
+def test_build_provider_tool_summaries_omits_empty_allowlist() -> None:
     state = ProviderManagedMCPState(
         attachments=(
             ProviderManagedMCPAttachment(
@@ -484,6 +537,4 @@ def test_build_provider_tool_summaries_marks_empty_allowlist_disabled() -> None:
 
     summaries = build_provider_tool_summaries(_ProviderToolAgentStub(state))
 
-    summary = _provider_summary_by_name(summaries, "gmail")
-    assert summary.enabled is False
-    assert summary.description == "Gmail connector; no allowed tools configured"
+    assert [summary.name for summary in summaries] == ["web_search"]

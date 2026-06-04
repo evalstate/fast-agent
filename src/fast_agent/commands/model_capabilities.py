@@ -19,27 +19,27 @@ SERVICE_TIER_VALUES: tuple[ServiceTierValue, ...] = ("fast", "flex")
 
 
 def resolve_web_search_enabled(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and llm.web_search_enabled is True
+    return llm is not None and bool(llm.web_search_enabled)
 
 
 def resolve_x_search_enabled(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and llm.x_search_enabled is True
+    return llm is not None and bool(llm.x_search_enabled)
 
 
 def resolve_web_fetch_enabled(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and llm.web_fetch_enabled is True
+    return llm is not None and bool(llm.web_fetch_enabled)
 
 
 def resolve_web_search_supported(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and llm.web_search_supported is True
+    return llm is not None and bool(llm.web_search_supported)
 
 
 def resolve_x_search_supported(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and llm.x_search_supported is True
+    return llm is not None and bool(llm.x_search_supported)
 
 
 def resolve_web_fetch_supported(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and llm.web_fetch_supported is True
+    return llm is not None and bool(llm.web_fetch_supported)
 
 
 def resolve_resolved_model(
