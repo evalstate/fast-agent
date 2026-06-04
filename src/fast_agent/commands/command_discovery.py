@@ -342,12 +342,12 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         {
             "name": "mcp",
             "summary": "Runtime MCP control",
-            "usage": "/mcp [list|connect|disconnect|reconnect|session] [args]",
+            "usage": "/mcp [list|connect|disconnect|reconnect] [args]",
             "actions": [
                 {"name": name, "summary": summary}
                 for name, summary in MCP_TOP_LEVEL_ACTION_DESCRIPTIONS.items()
             ],
-            "examples": ["/mcp list", "/mcp connect <target>", "/mcp session list"],
+            "examples": ["/mcp list", "/mcp connect <target>", "/mcp disconnect <server>"],
         },
         _session_detail_entry(),
         _simple_command_entry(

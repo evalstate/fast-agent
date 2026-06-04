@@ -69,7 +69,6 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
-    McpSessionCommand,
     ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
@@ -701,27 +700,6 @@ def _mcp_handler(
                     agent_name=agent,
                 )
             )
-        case McpSessionCommand(
-            action=action,
-            server_identity=server_identity,
-            session_id=session_id,
-            title=title,
-            clear_all=clear_all,
-            error=error,
-        ):
-            if error:
-                _print_styled(error, "red")
-                handler = None
-            else:
-                handler = partial(
-                    mcp_runtime_handlers.handle_mcp_session,
-                    agent_name=agent,
-                    action=action,
-                    server_identity=server_identity,
-                    session_id=session_id,
-                    title=title,
-                    clear_all=clear_all,
-                )
         case _:
             handler = None
     return handler
@@ -790,7 +768,6 @@ async def _dispatch_mcp_payload(
                         McpListCommand,
                         McpDisconnectCommand,
                         McpReconnectCommand,
-                        McpSessionCommand,
                     ),
                 ):
                     return result

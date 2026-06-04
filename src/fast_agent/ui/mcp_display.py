@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 from rich.text import Text
 
 from fast_agent.ui import console
-from fast_agent.utils.text import strip_casefold, strip_to_none
+from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.time import format_compact_duration, format_two_unit_duration
 
 if TYPE_CHECKING:
@@ -213,96 +213,6 @@ def _truncate_middle(value: str, *, max_length: int, edge_length: int) -> str:
         return value
     return f"{value[:edge_length]}...{value[-edge_length:]}"
 
-
-def _cookie_string_field(cookie: dict[str, object] | None, key: str) -> str | None:
-    if not isinstance(cookie, dict):
-        return None
-    raw_value = cookie.get(key)
-    if not isinstance(raw_value, str):
-        return None
-    return strip_to_none(raw_value)
-
-
-def _cookie_timestamp_field(cookie: dict[str, object] | None, *keys: str) -> str | None:
-    if not isinstance(cookie, dict):
-        return None
-
-    for key in keys:
-        value = _cookie_string_field(cookie, key)
-        if value:
-            return value
-
-    data = cookie.get("data")
-    if isinstance(data, dict):
-        key_set = set(keys)
-        for data_key, raw_value in data.items():
-            if data_key not in key_set or not isinstance(raw_value, str):
-                continue
-            if raw_value.strip():
-                return raw_value.strip()
-
-    return None
-
-
-def _format_cookie_timestamp_local(timestamp: str) -> str:
-    try:
-        parsed = datetime.fromisoformat(timestamp)
-    except ValueError:
-        return _truncate_middle(timestamp, max_length=32, edge_length=14)
-
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    parsed = parsed.astimezone()
-
-    return parsed.strftime("%d/%m/%y %H:%M")
-
-
-def _format_experimental_session_status(status: ServerStatus) -> Text:
-    text = Text()
-    supported = status.experimental_session_supported
-    if supported is True:
-        cookie_id = _cookie_string_field(status.session_cookie, "sessionId")
-        created = _cookie_timestamp_field(
-            status.session_cookie,
-            "created",
-            "created_at",
-            "createdAt",
-        )
-        expiry = _cookie_timestamp_field(
-            status.session_cookie,
-            "expiry",
-            "expires",
-            "expires_at",
-            "expiresAt",
-        )
-
-        if cookie_id:
-            text.append(
-                _truncate_middle(cookie_id, max_length=32, edge_length=14),
-                style=Colours.TEXT_SUCCESS,
-            )
-        else:
-            text.append("none", style=Colours.TEXT_DIM)
-
-        if created or expiry:
-            text.append(" (", style=Colours.TEXT_DIM)
-            if created:
-                text.append(_format_cookie_timestamp_local(created), style=Colours.TEXT_DEFAULT)
-            if created and expiry:
-                text.append(" → ", style=Colours.TEXT_DIM)
-            if expiry:
-                text.append(_format_cookie_timestamp_local(expiry), style=Colours.TEXT_DEFAULT)
-            text.append(")", style=Colours.TEXT_DIM)
-        else:
-            text.append(" (unknown)", style=Colours.TEXT_DIM)
-        return text
-
-    if supported is False:
-        text.append("not advertised", style=Colours.TEXT_DIM)
-        return text
-
-    text.append("unknown", style=Colours.TEXT_DIM)
-    return text
 
 def _build_aligned_field(
     label: str, value: Text | str, *, label_width: int = 9, value_style: str = Colours.TEXT_DEFAULT
@@ -1120,12 +1030,6 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
     session_line = Text(indent + "  ")
     session_line.append_text(_build_aligned_field("session", _format_session_id(status.session_id)))
     console.console.print(session_line)
-
-    experimental_session_line = Text(indent + "  ")
-    experimental_session_line.append_text(
-        _build_aligned_field("sessions", _format_experimental_session_status(status))
-    )
-    console.console.print(experimental_session_line)
 
     health_text = _build_health_text(status)
     if health_text is not None:

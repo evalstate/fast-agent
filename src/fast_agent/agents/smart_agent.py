@@ -48,9 +48,7 @@ from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.mcp_command_intents import (
-    MCP_SESSION_USAGE,
     parse_mcp_server_name_tokens,
-    parse_mcp_session_tokens,
 )
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.results import CommandMessage, CommandOutcome
@@ -595,10 +593,9 @@ def _render_unknown_slash_command(command_name: str) -> str:
 
 def _mcp_usage_text() -> str:
     return (
-        "Usage: /mcp [list|connect|disconnect|reconnect|session|help] [args]\n"
+        "Usage: /mcp [list|connect|disconnect|reconnect|help] [args]\n"
         "- /mcp list\n"
-        "- /mcp connect <target> [--name <server>] [--auth <token-value>] [--timeout <seconds>]\n"
-        f"- {MCP_SESSION_USAGE.removeprefix('Usage: ')}"
+        "- /mcp connect <target> [--name <server>] [--auth <token-value>] [--timeout <seconds>]"
     )
 
 
@@ -879,33 +876,10 @@ async def _run_mcp_reconnect_command(
     )
 
 
-async def _run_mcp_session_command(
-    mcp_context: _SmartMcpCommandContext,
-    tokens: list[str],
-) -> str:
-    session_request = parse_mcp_session_tokens(tokens[1:])
-    if session_request.error is not None:
-        raise AgentConfigError(
-            "Invalid /mcp session arguments",
-            session_request.error,
-        )
-    outcome = await mcp_runtime_handlers.handle_mcp_session(
-        mcp_context.context,
-        agent_name=mcp_context.agent_name,
-        action=session_request.action,
-        server_identity=session_request.server_identity,
-        session_id=session_request.session_id,
-        title=session_request.title,
-        clear_all=session_request.clear_all,
-    )
-    return _render_smart_slash_outcome(outcome, heading="mcp", io=mcp_context.io)
-
-
 _SMART_MCP_ROUTES: dict[str, SmartMcpRoute] = {
     "list": _run_mcp_list_command,
     "disconnect": _run_mcp_disconnect_command,
     "reconnect": _run_mcp_reconnect_command,
-    "session": _run_mcp_session_command,
 }
 
 

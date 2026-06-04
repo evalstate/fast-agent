@@ -57,13 +57,11 @@ if TYPE_CHECKING:
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import FastAgentLLMProtocol
-    from fast_agent.mcp.experimental_session_client import ServerCookiesView
     from fast_agent.types import PromptMessageExtended
 
 
 CompletionResultT = TypeVar("CompletionResultT")
 McpConnectCompletionContext = Literal["target", "flag", "flag_value", "new_token"]
-SessionCookieChoice = tuple[str, str | None, bool]
 JSON_FILE_SUFFIXES = frozenset({".json"})
 HISTORY_FILE_SUFFIXES = frozenset({".json", ".md"})
 AGENT_CARD_FILE_SUFFIXES = frozenset({".md", ".markdown", ".yaml", ".yml"})
@@ -207,23 +205,6 @@ class CompleterMcpAgent(Protocol):
     def aggregator(self) -> CompleterMcpAggregator: ...
 
 
-class CompleterSessionClient(Protocol):
-    async def list_server_cookies(
-        self,
-        server_identifier: str | None,
-    ) -> ServerCookiesView: ...
-
-
-class CompleterSessionAggregator(CompleterMcpAggregator, Protocol):
-    @property
-    def experimental_sessions(self) -> CompleterSessionClient: ...
-
-
-class CompleterSessionAgent(Protocol):
-    @property
-    def aggregator(self) -> CompleterSessionAggregator: ...
-
-
 class CompleterResourceAgent(Protocol):
     async def list_resources(self, *, namespace: str) -> object: ...
 
@@ -302,7 +283,7 @@ class AgentCompleter(Completer):
         self.cwd = cwd
         # Map commands to their descriptions for better completion hints
         self.commands = {
-            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect|session)",
+            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect)",
             "connect": "Alias for /mcp connect with target auto-detection",
             "history": (
                 "Show conversation history overview "
@@ -1482,48 +1463,6 @@ class AgentCompleter(Completer):
             return names
         return await self._resource_server_names_from_capabilities_api(aggregator)
 
-    async def _list_server_session_cookie_choices(
-        self,
-        server_identifier: str | None,
-    ) -> list[SessionCookieChoice]:
-        agent = cast("CompleterSessionAgent | None", self._current_agent_object())
-        if agent is None:
-            return []
-
-        try:
-            list_server_cookies = agent.aggregator.experimental_sessions.list_server_cookies
-        except Exception:
-            return []
-
-        try:
-            server_cookies = await list_server_cookies(server_identifier)
-        except Exception:
-            return []
-
-        choices: list[SessionCookieChoice] = []
-        for cookie in server_cookies.cookies:
-            choice = self._session_cookie_choice(cookie, server_cookies.active_session_id)
-            if choice is None:
-                continue
-            choices.append(choice)
-
-        return choices
-
-    @staticmethod
-    def _session_cookie_choice(
-        cookie: object,
-        active_session_id: str | None,
-    ) -> SessionCookieChoice | None:
-        if not isinstance(cookie, Mapping):
-            return None
-        cookie_values = cast("Mapping[object, object]", cookie)
-        cookie_id = cookie_values.get("id")
-        if not isinstance(cookie_id, str) or not cookie_id:
-            return None
-        title = cookie_values.get("title")
-        title_text = strip_str_to_none(title)
-        return cookie_id, title_text, cookie_id == active_session_id
-
     async def _list_connected_mcp_servers_with_identity(self) -> list[tuple[str, str | None]]:
         agent = cast("CompleterMcpAgent | None", self._current_agent_object())
         if agent is None:
@@ -1538,49 +1477,6 @@ class AgentCompleter(Completer):
         if connected is not None:
             return connected
         return self._connected_servers_from_attached_api(aggregator)
-
-    async def _list_attached_session_cookie_choices(
-        self,
-    ) -> list[tuple[str, str | None, str, str | None, bool]]:
-        agent = cast("CompleterSessionAgent | None", self._current_agent_object())
-        if agent is None:
-            return []
-
-        try:
-            list_server_cookies = agent.aggregator.experimental_sessions.list_server_cookies
-        except Exception:
-            return []
-
-        choices: list[tuple[str, str | None, str, str | None, bool]] = []
-        servers = await self._list_connected_mcp_servers_with_identity()
-        for server_name, fallback_identity in servers:
-            try:
-                server_cookies = await list_server_cookies(server_name)
-            except Exception:
-                continue
-
-            display_identity = (
-                server_cookies.server_identity
-                if isinstance(server_cookies.server_identity, str)
-                and server_cookies.server_identity.strip()
-                else fallback_identity
-            )
-            for cookie in server_cookies.cookies:
-                choice = self._session_cookie_choice(cookie, server_cookies.active_session_id)
-                if choice is None:
-                    continue
-                cookie_id, title_text, is_active = choice
-                choices.append(
-                    (
-                        server_name,
-                        display_identity,
-                        cookie_id,
-                        title_text,
-                        is_active,
-                    )
-                )
-
-        return choices
 
     def _completion_cache_get(self, key: tuple[Any, ...]) -> tuple[Completion, ...] | None:
         cached = self._mention_cache.get(key)

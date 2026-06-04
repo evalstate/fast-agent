@@ -7,7 +7,6 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
-    McpSessionCommand,
     ShowMcpStatusCommand,
     UnknownCommand,
 )
@@ -154,38 +153,6 @@ def test_parse_mcp_reconnect_rejects_extra_args() -> None:
     assert result.error == "Usage: /mcp reconnect <server_name>"
 
 
-def test_parse_mcp_session_server_shortcut() -> None:
-    result = parse_special_input("/mcp session demo-server")
-    assert isinstance(result, McpSessionCommand)
-    assert result.action == "list"
-    assert result.server_identity == "demo-server"
-    assert result.error is None
-
-
-def test_parse_mcp_session_server_shortcut_preserves_case() -> None:
-    result = parse_special_input("/mcp session MyServer")
-    assert isinstance(result, McpSessionCommand)
-    assert result.action == "list"
-    assert result.server_identity == "MyServer"
-    assert result.error is None
-
-
-def test_parse_mcp_session_new_with_title() -> None:
-    result = parse_special_input('/mcp session new demo --title "Demo Run"')
-    assert isinstance(result, McpSessionCommand)
-    assert result.action == "new"
-    assert result.server_identity == "demo"
-    assert result.title == "Demo Run"
-    assert result.error is None
-
-
-def test_parse_mcp_session_invalid_arguments_stays_session_command() -> None:
-    result = parse_special_input('/mcp session "unterminated')
-    assert isinstance(result, McpSessionCommand)
-    assert result.error is not None
-    assert "Invalid arguments:" in result.error
-
-
 def test_parse_unknown_mcp_subcommand_preserves_context() -> None:
     result = parse_special_input("/mcp frob target")
     assert result == UnknownCommand(command="/mcp frob target")
@@ -195,30 +162,3 @@ def test_parse_unknown_mcp_subcommand_invalid_quoting_is_not_connect() -> None:
     result = parse_special_input('/mcp frob "unterminated')
     assert isinstance(result, CommandError)
     assert "Invalid arguments:" in result.message
-
-
-def test_parse_mcp_session_resume() -> None:
-    result = parse_special_input("/mcp session resume demo sess-123")
-    assert isinstance(result, McpSessionCommand)
-    assert result.action == "use"
-    assert result.server_identity == "demo"
-    assert result.session_id == "sess-123"
-    assert result.error is None
-
-
-def test_parse_mcp_session_clear_requires_target_or_all_flag() -> None:
-    result = parse_special_input("/mcp session clear")
-    assert isinstance(result, McpSessionCommand)
-    assert result.action == "clear"
-    assert result.clear_all is False
-    assert result.server_identity is None
-    assert result.error == "Usage: /mcp session clear <server|--all>"
-
-
-def test_parse_mcp_session_clear_all_with_explicit_flag() -> None:
-    result = parse_special_input("/mcp session clear --all")
-    assert isinstance(result, McpSessionCommand)
-    assert result.action == "clear"
-    assert result.clear_all is True
-    assert result.server_identity is None
-    assert result.error is None

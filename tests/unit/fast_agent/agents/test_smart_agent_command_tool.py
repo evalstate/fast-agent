@@ -14,7 +14,6 @@ from fast_agent.agents.smart_agent import (
     _resolve_command_agent_map,
     _run_slash_command_call,
 )
-from fast_agent.commands.mcp_command_intents import MCP_SESSION_USAGE
 from fast_agent.config import Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
@@ -225,19 +224,6 @@ async def test_run_slash_command_mcp_server_commands_require_one_name(
 
 
 @pytest.mark.asyncio
-async def test_run_slash_command_mcp_session_uses_shared_parser_errors(
-    tmp_path: Path,
-) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
-    agent = _SmartAgentStub(settings=settings)
-
-    with pytest.raises(AgentConfigError, match="Invalid /mcp session arguments") as exc_info:
-        await _run_slash_command_call(agent, "/mcp session jar one two")
-
-    assert "Usage: /mcp session jar" in str(exc_info.value)
-
-
-@pytest.mark.asyncio
 async def test_run_slash_command_mcp_help_returns_usage(tmp_path: Path) -> None:
     settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
@@ -246,7 +232,6 @@ async def test_run_slash_command_mcp_help_returns_usage(tmp_path: Path) -> None:
 
     assert "Usage: /mcp" in result
     assert "- /mcp connect <target> [--name <server>]" in result
-    assert f"- {MCP_SESSION_USAGE.removeprefix('Usage: ')}" in result
 
 
 @pytest.mark.asyncio

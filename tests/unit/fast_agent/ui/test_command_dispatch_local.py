@@ -30,7 +30,6 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
-    McpSessionCommand,
     ModelsCommand,
     ModelSwitchCommand,
     ModelWebFetchCommand,
@@ -520,29 +519,6 @@ def test_mcp_server_error_prints_bracketed_text_literally(
 
     assert handler is None
     assert [getattr(item, "plain", item) for item in printed] == ["bad [server]"]
-
-
-def test_mcp_handler_returns_none_for_session_parse_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    printed: list[object] = []
-    monkeypatch.setattr(command_dispatch, "rich_print", printed.append)
-
-    handler = command_dispatch._mcp_handler(
-        McpSessionCommand(
-            action="list",
-            server_identity=None,
-            session_id=None,
-            title=None,
-            clear_all=False,
-            error="bad [session] command",
-        ),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert handler is None
-    assert [getattr(item, "plain", item) for item in printed] == ["bad [session] command"]
 
 
 def test_mcp_handler_maps_server_commands() -> None:

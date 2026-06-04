@@ -52,7 +52,6 @@ from fast_agent.core.model_resolution import (
 )
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
-from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
@@ -89,7 +88,7 @@ from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.async_utils import gather_with_cancel
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.env import env_flag
-from fast_agent.utils.text import strip_casefold, strip_str_to_none
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -155,26 +154,13 @@ class _AttachedRegistryScanClient:
         return await self.aggregator._get_resource_from_server(server_name, resource_uri)
 
 
-SESSION_NOT_FOUND_ERROR_CODE = -32043
-LEGACY_SESSION_REQUIRED_ERROR_CODE = -32002
 METHOD_NOT_FOUND_ERROR_CODE = -32601
 METHOD_NOT_FOUND_MESSAGE = "method not found"
 
 
 @runtime_checkable
-class ExperimentalSessionCapable(Protocol):
+class ElicitationModeCapable(Protocol):
     effective_elicitation_mode: str | None
-    experimental_session_supported: bool
-    experimental_session_features: tuple[str, ...] | list[str]
-    experimental_session_cookie: dict[str, Any] | None
-    experimental_session_title: str | None
-
-
-@runtime_checkable
-class SessionCookieCapable(Protocol):
-    experimental_session_id: str | None
-
-    def set_experimental_session_cookie(self, cookie: dict[str, Any] | None) -> None: ...
 
 
 @runtime_checkable
@@ -258,10 +244,6 @@ class ServerStatus(BaseModel):
     sampling_mode: str | None = None
     spoofing_enabled: bool | None = None
     session_id: str | None = None
-    experimental_session_supported: bool | None = None
-    experimental_session_features: list[str] | None = None
-    session_cookie: dict[str, Any] | None = None
-    session_title: str | None = None
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
     mcp_skills_enabled: bool | None = None
@@ -455,9 +437,6 @@ class MCPAggregator(ContextDependent):
         self._capabilities_cache: dict[str, ServerCapabilities] = {}
         self._capabilities_cache_lock = Lock()
 
-        # Focused API for experimental data-layer session metadata controls.
-        self.experimental_sessions = ExperimentalSessionClient(self)
-
     @property
     def tool_execution_handler(self) -> ToolExecutionHandler:
         return self._tool_handler
@@ -637,10 +616,6 @@ class MCPAggregator(ContextDependent):
                 aggregator=self,
                 **kwargs,  # Pass through any additional kwargs like server_config
             )
-
-            bootstrap_cookie = self.experimental_sessions.bootstrap_cookie_for_server(server_name)
-            if isinstance(bootstrap_cookie, dict):
-                session.set_experimental_session_cookie(bootstrap_cookie)
 
             return session
 
@@ -1742,7 +1717,7 @@ class MCPAggregator(ContextDependent):
         status.instructions_included = bool(server_conn.server_instructions)
 
         self._apply_ping_status(status, server_conn)
-        self._apply_experimental_session_status(status, server_conn)
+        self._apply_session_status(status, server_conn)
         self._apply_transport_status(status, server_conn)
 
     @staticmethod
@@ -1770,47 +1745,17 @@ class MCPAggregator(ContextDependent):
         status.ping_last_fail_at = server_conn._ping_last_fail_at
         status.ping_last_error = server_conn._ping_last_error
 
-    def _apply_experimental_session_status(
+    def _apply_session_status(
         self,
         status: ServerStatus,
         server_conn: ServerConnection,
     ) -> None:
         session = server_conn.session
-        if not isinstance(session, ExperimentalSessionCapable):
-            return
+        if isinstance(session, ElicitationModeCapable):
+            status.elicitation_mode = session.effective_elicitation_mode
 
-        status.elicitation_mode = session.effective_elicitation_mode
-        status.experimental_session_supported = session.experimental_session_supported
-        status.experimental_session_features = [
-            str(feature)
-            for feature in session.experimental_session_features
-            if isinstance(feature, str) and feature
-        ]
-
-        raw_cookie = session.experimental_session_cookie
-        if isinstance(raw_cookie, dict):
-            status.session_cookie = dict(raw_cookie)
-
-        raw_title = session.experimental_session_title
-        if (title := strip_str_to_none(raw_title)) is not None:
-            status.session_title = title
-        elif status.session_cookie is not None:
-            status.session_title = self._session_title_from_cookie(status.session_cookie)
-
+        # Mcp-Session-Id from the transport, when the server assigns one.
         status.session_id = server_conn.session_id or self._session_id_from_callback(server_conn)
-        if not status.session_id and status.session_cookie is not None:
-            cookie_id = status.session_cookie.get("id")
-            if isinstance(cookie_id, str) and cookie_id:
-                status.session_id = cookie_id
-
-    @staticmethod
-    def _session_title_from_cookie(session_cookie: dict[str, Any]) -> str | None:
-        cookie_data = session_cookie.get("data")
-        if not isinstance(cookie_data, dict):
-            return None
-
-        cookie_title = cookie_data.get("title") or cookie_data.get("label")
-        return strip_str_to_none(cookie_title)
 
     @staticmethod
     def _session_id_from_callback(server_conn: ServerConnection) -> str | None:
@@ -2030,18 +1975,11 @@ class MCPAggregator(ContextDependent):
             else:
                 result = await method(**kwargs)
 
-            if method_name == "call_tool":
-                self._maybe_mark_rejected_session_cookie_from_tool_result(
-                    server_name=server_name,
-                    client=client,
-                    result=result,
-                )
             return result
         except (ConnectionError, ServerSessionTerminatedError):
             raise
         except Exception as e:
             return self._handle_session_method_error(
-                client,
                 exc=e,
                 server_name=server_name,
                 operation_name=operation_name,
@@ -2067,7 +2005,6 @@ class MCPAggregator(ContextDependent):
 
     def _handle_session_method_error(
         self,
-        client: ClientSession,
         *,
         exc: Exception,
         server_name: str,
@@ -2075,7 +2012,6 @@ class MCPAggregator(ContextDependent):
         method_name: str,
         error_factory: Callable[[str], R] | None,
     ) -> R:
-        self._maybe_mark_rejected_session_cookie(server_name=server_name, client=client, exc=exc)
         error_msg = f"Failed to {method_name} '{operation_name}' on server '{server_name}': {exc}"
         logger.error(error_msg)
         if error_factory is None:
@@ -2212,126 +2148,6 @@ class MCPAggregator(ContextDependent):
                     success=False,
                 )
             raise
-
-    @staticmethod
-    def _is_session_required_error(exc: Exception) -> bool:
-        if not isinstance(exc, McpError):
-            return False
-
-        code = exc.error.code
-        return code in {
-            SESSION_NOT_FOUND_ERROR_CODE,
-            LEGACY_SESSION_REQUIRED_ERROR_CODE,
-        }
-
-    def _maybe_mark_rejected_session_cookie(
-        self,
-        *,
-        server_name: str,
-        client: ClientSession,
-        exc: Exception,
-    ) -> None:
-        if not self._is_session_required_error(exc):
-            return
-
-        assert isinstance(exc, McpError)
-        reason = exc.error.message
-        reason_text = str(reason) if isinstance(reason, str) and reason else None
-
-        self._invalidate_session_cookie(
-            server_name=server_name,
-            client=client,
-            reason=reason_text,
-        )
-
-    def _maybe_mark_rejected_session_cookie_from_tool_result(
-        self,
-        *,
-        server_name: str,
-        client: ClientSession,
-        result: Any,
-    ) -> None:
-        if not self._is_session_required_tool_error_result(result):
-            return
-
-        self._invalidate_session_cookie(
-            server_name=server_name,
-            client=client,
-            reason=self._extract_tool_error_text(result),
-        )
-
-    @staticmethod
-    def _extract_tool_error_text(result: Any) -> str | None:
-        if not isinstance(result, CallToolResult):
-            return None
-        content = result.content
-
-        for item in content:
-            if isinstance(item, TextContent):
-                text = item.text.strip()
-                if text:
-                    return text
-                continue
-
-            text = get_text(item)
-            if text is not None and text.strip():
-                return text.strip()
-
-        return None
-
-    @classmethod
-    def _is_session_required_tool_error_result(cls, result: Any) -> bool:
-        if not isinstance(result, CallToolResult) or not result.isError:
-            return False
-
-        text = cls._extract_tool_error_text(result)
-        if not text:
-            return False
-
-        normalized = strip_casefold(text)
-        return (
-            "session not found" in normalized
-            or "session required" in normalized
-            or "send sessions/create" in normalized
-        )
-
-    def _invalidate_session_cookie(
-        self,
-        *,
-        server_name: str,
-        client: ClientSession,
-        reason: str | None,
-    ) -> None:
-        if not isinstance(client, SessionCookieCapable):
-            return
-
-        session_id = client.experimental_session_id
-        if not isinstance(session_id, str) or not session_id:
-            return
-
-        try:
-            client.set_experimental_session_cookie(None)
-        except Exception:
-            logger.debug(
-                "Failed clearing rejected MCP session metadata",
-                server_name=server_name,
-                session_id=session_id,
-                exc_info=True,
-            )
-
-        try:
-            self.experimental_sessions.mark_cookie_invalidated(
-                server_name,
-                session_id=session_id,
-                reason=reason,
-            )
-        except Exception:
-            logger.debug(
-                "Failed marking MCP session entry invalidated",
-                server_name=server_name,
-                session_id=session_id,
-                exc_info=True,
-            )
 
     async def _handle_connection_error(
         self,

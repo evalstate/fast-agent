@@ -3,10 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from mcp.types import TextContent
 
 from fast_agent.config import get_settings, update_global_settings
-from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import get_session_manager, reset_session_manager
 from tests.support.command_surface import (
     CommandSurfaceAgent,
@@ -51,45 +49,6 @@ async def test_tui_and_acp_share_session_pin_state_effect(tmp_path: Path) -> Non
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_tui_and_acp_share_mcp_session_use_state_effect() -> None:
-    provider = CommandSurfaceProvider(
-        {
-            "main": CommandSurfaceAgent(
-                name="main",
-                message_history=[
-                    PromptMessageExtended(
-                        role="user",
-                        content=[TextContent(type="text", text="hello")],
-                    )
-                ],
-            )
-        }
-    )
-    owner = CommandSurfaceOwner(agent_types=provider.agent_types())
-    session_client = provider._agent("main").aggregator.experimental_sessions
-
-    await dispatch_tui_command(
-        "/mcp session use demo sess-123",
-        owner=owner,
-        prompt_provider=provider,
-    )
-    assert session_client.active_session_id == "sess-123"
-    assert any(
-        "Selected MCP session for demo." in message
-        for message in provider._agent("main").display.messages
-    )
-
-    session_client.active_session_id = "sess-initial"
-
-    handler = build_acp_handler(provider)
-    response = await handler.execute_command("mcp", "session use demo sess-123")
-
-    assert session_client.active_session_id == "sess-123"
-    assert "Selected MCP session for demo." in response
 
 
 @pytest.mark.integration

@@ -7,11 +7,9 @@ from pathlib import Path
 
 from fast_agent.commands.mcp_command_intents import (
     MCP_TOP_LEVEL_ACTIONS,
-    McpSessionIntent,
     is_mcp_server_name_action,
     parse_mcp_no_args_tokens,
     parse_mcp_server_name_tokens,
-    parse_mcp_session_tokens,
 )
 from fast_agent.commands.shared_command_intents import (
     MODEL_MANAGER_COMMAND_ACTIONS,
@@ -54,7 +52,6 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
-    McpSessionCommand,
     ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
@@ -139,14 +136,8 @@ def _parse_mcp_list_command(tokens: list[str], _remainder: str) -> CommandPayloa
     return McpListCommand()
 
 
-def _parse_mcp_session_command(tokens: list[str], _remainder: str) -> CommandPayload:
-    session = parse_mcp_session_tokens(tokens[1:])
-    return _mcp_session_payload_from_intent(session)
-
-
 _MCP_TOKEN_PARSERS: dict[str, _McpTokenParser] = {
     "list": _parse_mcp_list_command,
-    "session": _parse_mcp_session_command,
     **dict.fromkeys(_MCP_SERVER_COMMAND_TYPES, _parse_mcp_server_name_command),
 }
 
@@ -446,33 +437,11 @@ def _parse_mcp_tokens(tokens: list[str], remainder: str) -> CommandPayload:
     return UnknownCommand(command=f"/mcp {remainder}".strip())
 
 
-def _mcp_session_payload_from_intent(intent: McpSessionIntent) -> McpSessionCommand:
-    return McpSessionCommand(
-        action=intent.action,
-        server_identity=intent.server_identity,
-        session_id=intent.session_id,
-        title=intent.title,
-        clear_all=intent.clear_all,
-        error=intent.error,
-    )
-
-
 def _mcp_invalid_arguments_payload(subcmd: str, message: str) -> CommandPayload:
     error = f"Invalid arguments: {message}"
     if is_mcp_server_name_action(subcmd):
         server_command_type = _MCP_SERVER_COMMAND_TYPES[subcmd]
         return server_command_type(server_name=None, error=error)
-    if subcmd == "session":
-        return _mcp_session_payload_from_intent(
-            McpSessionIntent(
-                action="list",
-                server_identity=None,
-                session_id=None,
-                title=None,
-                clear_all=False,
-                error=error,
-            )
-        )
     return CommandError(error)
 
 

@@ -22,10 +22,6 @@ from fast_agent.commands.command_catalog import (
     get_command_spec,
 )
 from fast_agent.commands.mcp_command_intents import (
-    MCP_SESSION_ACTION_DESCRIPTIONS,
-    MCP_SESSION_CLEAR_ACTION,
-    MCP_SESSION_SERVER_SCOPED_ACTIONS,
-    MCP_SESSION_USE_ACTIONS,
     MCP_TOP_LEVEL_ACTION_DESCRIPTIONS,
 )
 from fast_agent.commands.shared_command_intents import MODEL_MANAGER_COMMAND_ACTIONS
@@ -41,7 +37,6 @@ from fast_agent.config import (
 )
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.text_verbosity import TextVerbositySpec
-from fast_agent.mcp.experimental_session_client import ServerCookiesView
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.plugins.models import InstalledPluginSource
 from fast_agent.plugins.provenance import write_installed_plugin_source
@@ -103,39 +98,6 @@ class _VerbosityLlmStub:
     service_tier_supported = False
     web_search_supported = False
     web_fetch_supported = False
-
-
-class _McpSessionClientStub:
-    async def list_server_cookies(self, server_identifier: str | None):
-        if server_identifier not in {"demo", "demo-server"}:
-            return ServerCookiesView(
-                server_name="other",
-                server_identity="other-server",
-                target=None,
-                sessions_supported=None,
-                active_session_id=None,
-                cookies=[],
-            )
-        return ServerCookiesView(
-            server_name="demo",
-            server_identity="demo-server",
-            target=None,
-            sessions_supported=True,
-            active_session_id="sess-123",
-            cookies=[
-                {"id": "sess-123", "title": "Current", "active": True},
-                {"id": "sess-456", "title": "Older", "active": False},
-            ],
-        )
-
-
-class _McpSessionAgentStub:
-    def __init__(self) -> None:
-        self.aggregator = self
-        self.experimental_sessions = _McpSessionClientStub()
-
-    def list_attached_servers(self) -> list[str]:
-        return ["demo"]
 
 
 class _MentionAggregatorStub:
@@ -1744,7 +1706,6 @@ def test_get_completions_for_mcp_subcommands() -> None:
     uppercase_names = [c.text for c in uppercase_completions]
 
     assert "connect" in uppercase_names
-    assert "session" in uppercase_names
 
 
 def test_get_completions_for_mcp_disconnect_servers() -> None:
@@ -1829,168 +1790,6 @@ def test_mcp_connect_context_ignores_inline_value_flags_as_target(flag: str) -> 
     assert context.context == "flag"
     assert context.target_count == 2
     assert context.partial == "--"
-
-
-def test_get_completions_for_mcp_session_subcommands() -> None:
-    completer = AgentCompleter(agents=["agent1"])
-
-    doc = Document("/mcp session ", cursor_position=len("/mcp session "))
-    completions = list(completer.get_completions(doc, None))
-    names = [c.text for c in completions]
-
-    assert names == list(MCP_SESSION_ACTION_DESCRIPTIONS)
-
-
-def test_mcp_session_completion_handlers_cover_argument_actions() -> None:
-    expected_actions = (
-        set(MCP_SESSION_SERVER_SCOPED_ACTIONS)
-        | set(MCP_SESSION_USE_ACTIONS)
-        | {MCP_SESSION_CLEAR_ACTION}
-    )
-
-    assert set(completion_sources._MCP_SESSION_COMPLETION_HANDLERS) == expected_actions
-    assert expected_actions <= set(MCP_SESSION_ACTION_DESCRIPTIONS)
-
-
-def test_get_completions_for_mcp_session_resume_subcommand_prefix() -> None:
-    completer = AgentCompleter(agents=["agent1"])
-
-    doc = Document("/mcp session res", cursor_position=len("/mcp session res"))
-    completions = list(completer.get_completions(doc, None))
-    names = [c.text for c in completions]
-
-    assert names == ["resume"]
-
-
-def test_get_completions_for_mcp_session_list_without_space_only_completes_subcommand() -> None:
-    completer = AgentCompleter(
-        agents=["agent1"],
-        current_agent="agent1",
-        agent_provider=cast("AgentApp", _ProviderStub(_McpAgentStub(["docs", "local"]))),
-    )
-
-    doc = Document("/mcp session list", cursor_position=len("/mcp session list"))
-    completions = list(completer.get_completions(doc, None))
-    names = [completion.text for completion in completions]
-
-    assert names == ["list"]
-
-
-@pytest.mark.parametrize("subcommand", ["new", "create"])
-def test_get_completions_for_mcp_session_new_aliases_offer_title_option(
-    subcommand: str,
-) -> None:
-    completer = AgentCompleter(
-        agents=["agent1"],
-        current_agent="agent1",
-        agent_provider=cast("AgentApp", _ProviderStub(_McpAgentStub(["docs"]))),
-    )
-
-    text = f"/mcp session {subcommand} "
-    doc = Document(text, cursor_position=len(text))
-    completions = list(completer.get_completions(doc, None))
-    names = [completion.text for completion in completions]
-
-    assert "--title" in names
-
-
-def test_get_completions_for_mcp_session_use_cookie_ids() -> None:
-    completer = AgentCompleter(
-        agents=["agent1"],
-        current_agent="agent1",
-        agent_provider=cast("AgentApp", _ProviderStub(_McpSessionAgentStub())),
-    )
-
-    doc = Document("/mcp session use demo ", cursor_position=len("/mcp session use demo "))
-    completions = list(completer.get_completions(doc, None))
-    names = [c.text for c in completions]
-
-    assert "sess-123" in names
-    assert "sess-456" in names
-
-    doc = Document("/mcp session use DEM", cursor_position=len("/mcp session use DEM"))
-    completions = list(completer.get_completions(doc, None))
-    names = [c.text for c in completions]
-
-    assert "demo sess-123" in names
-    assert "demo sess-456" in names
-
-
-def test_session_cookie_choice_validates_cookie_shape() -> None:
-    assert AgentCompleter._session_cookie_choice(object(), "sess-123") is None
-    assert AgentCompleter._session_cookie_choice({"title": "Missing id"}, "sess-123") is None
-    assert AgentCompleter._session_cookie_choice({"id": ""}, "sess-123") is None
-    assert AgentCompleter._session_cookie_choice(
-        {"id": "sess-123", "title": "  Current  "},
-        "sess-123",
-    ) == ("sess-123", "Current", True)
-
-
-def test_get_completions_for_mcp_session_resume_cookie_ids() -> None:
-    completer = AgentCompleter(
-        agents=["agent1"],
-        current_agent="agent1",
-        agent_provider=cast("AgentApp", _ProviderStub(_McpSessionAgentStub())),
-    )
-
-    doc = Document("/mcp session resume demo ", cursor_position=len("/mcp session resume demo "))
-    completions = list(completer.get_completions(doc, None))
-    names = [c.text for c in completions]
-
-    assert "sess-123" in names
-    assert "sess-456" in names
-
-
-def test_get_completions_for_mcp_session_use_shows_connected_session_shortcuts() -> None:
-    completer = AgentCompleter(
-        agents=["agent1"],
-        current_agent="agent1",
-        agent_provider=cast("AgentApp", _ProviderStub(_McpSessionAgentStub())),
-    )
-
-    doc = Document("/mcp session use ", cursor_position=len("/mcp session use "))
-    completions = list(completer.get_completions(doc, None))
-
-    completion_texts = [completion.text for completion in completions]
-    assert "demo sess-123" in completion_texts
-    assert "demo sess-456" in completion_texts
-
-    display_values = [completion.display_text for completion in completions]
-    assert any(display.startswith("1-sess-") for display in display_values)
-
-    display_meta_values = [completion.display_meta_text for completion in completions]
-    assert any("demo-server" in value for value in display_meta_values)
-    assert any("Current" in value for value in display_meta_values)
-
-
-def test_get_completions_for_mcp_session_use_cookie_ids_partial() -> None:
-    completer = AgentCompleter(
-        agents=["agent1"],
-        current_agent="agent1",
-        agent_provider=cast("AgentApp", _ProviderStub(_McpSessionAgentStub())),
-    )
-
-    doc = Document(
-        "/mcp session use demo SESS-4",
-        cursor_position=len("/mcp session use demo SESS-4"),
-    )
-    completions = list(completer.get_completions(doc, None))
-    names = [c.text for c in completions]
-
-    assert names == ["sess-456"]
-
-
-def test_get_completions_for_mcp_session_jar_suppresses_single_server_noise() -> None:
-    completer = AgentCompleter(
-        agents=["agent1"],
-        current_agent="agent1",
-        agent_provider=cast("AgentApp", _ProviderStub(_McpSessionAgentStub())),
-    )
-
-    doc = Document("/mcp session jar ", cursor_position=len("/mcp session jar "))
-    completions = list(completer.get_completions(doc, None))
-
-    assert completions == []
 
 
 def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:

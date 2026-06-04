@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Literal, TypeGuard
 
-from fast_agent.commands.mcp_command_intents import McpSessionAction
 from fast_agent.mcp.connect_targets import (
     McpConnectMode,
     ParsedMcpConnectRequest,
@@ -117,17 +116,6 @@ class McpReconnectCommand(CommandBase):
     server_name: str | None
     error: str | None
     kind: Literal["mcp_reconnect"] = "mcp_reconnect"
-
-
-@dataclass(frozen=True, slots=True)
-class McpSessionCommand(CommandBase):
-    action: McpSessionAction
-    server_identity: str | None
-    session_id: str | None
-    title: str | None
-    clear_all: bool
-    error: str | None
-    kind: Literal["mcp_session"] = "mcp_session"
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,7 +429,6 @@ CommandPayload = (
     | McpConnectCommand
     | McpDisconnectCommand
     | McpReconnectCommand
-    | McpSessionCommand
     | ListToolsCommand
     | ListPromptsCommand
     | ListSkillsCommand

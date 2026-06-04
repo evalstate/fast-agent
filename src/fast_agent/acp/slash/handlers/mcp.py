@@ -13,13 +13,11 @@ from fast_agent.acp.slash.tool_updates import (
 )
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.mcp_command_intents import (
-    MCP_SESSION_USAGE,
     MCP_TOP_LEVEL_ACTIONS,
     McpServerNameIntent,
     is_mcp_top_level_action,
     parse_mcp_no_args_tokens,
     parse_mcp_server_name_tokens,
-    parse_mcp_session_tokens,
 )
 from fast_agent.mcp.connect_targets import (
     parse_connect_command_text,
@@ -126,7 +124,6 @@ def _mcp_usage_text(heading: str) -> str:
         "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
         "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
         "  Example: /mcp connect \"C:\\Program Files\\Tool\\tool.exe\" --flag\n"
-        f"- {MCP_SESSION_USAGE.removeprefix('Usage: ')}\n"
         "- /mcp disconnect <server_name>\n"
         "- /mcp reconnect <server_name>"
     )
@@ -437,32 +434,6 @@ async def _handle_mcp_connect_command(
     return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
 
-async def _handle_mcp_session_command(
-    handler: "SlashCommandHandler",
-    *,
-    heading: str,
-    ctx,
-    io: "ACPCommandIO",
-    tokens: list[str],
-    manager=None,
-) -> str:
-    del manager
-    parsed_session = parse_mcp_session_tokens(tokens[1:])
-    if parsed_session.error:
-        return f"{heading}\n\n{parsed_session.error}"
-
-    outcome = await mcp_runtime_handlers.handle_mcp_session(
-        ctx,
-        agent_name=handler.current_agent_name,
-        action=parsed_session.action,
-        server_identity=parsed_session.server_identity,
-        session_id=parsed_session.session_id,
-        title=parsed_session.title,
-        clear_all=parsed_session.clear_all,
-    )
-    return handler._format_outcome_as_markdown(outcome, heading, io=io)
-
-
 async def _handle_mcp_disconnect_command(
     handler: "SlashCommandHandler",
     *,
@@ -521,7 +492,6 @@ async def _handle_mcp_reconnect_command(
 
 _MCP_COMMAND_HANDLERS: dict[str, "_McpCommandHandler"] = {
     "list": _handle_mcp_list_command,
-    "session": _handle_mcp_session_command,
     "disconnect": _handle_mcp_disconnect_command,
     "reconnect": _handle_mcp_reconnect_command,
 }

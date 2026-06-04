@@ -24,7 +24,6 @@ from fast_agent.ui.command_payloads import (
     LoadPromptCommand,
     McpConnectCommand,
     McpListCommand,
-    McpSessionCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
     TitleSessionCommand,
@@ -186,18 +185,6 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             id="agent-tool-remove-alias",
         ),
         pytest.param(
-            "/mcp session use demo sess-123",
-            McpSessionCommand(
-                action="use",
-                server_identity="demo",
-                session_id="sess-123",
-                title=None,
-                clear_all=False,
-                error=None,
-            ),
-            id="mcp-session-use",
-        ),
-        pytest.param(
             "/session new review",
             CreateSessionCommand(session_name="review"),
             id="session-new",
@@ -271,18 +258,6 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             "/check models --for-model gpt-5",
             CheckCommand(argument="models --for-model gpt-5"),
             id="check-command",
-        ),
-        pytest.param(
-            "/mcp session use demo",
-            McpSessionCommand(
-                action="use",
-                server_identity=None,
-                session_id=None,
-                title=None,
-                clear_all=False,
-                error="Usage: /mcp session use <server_or_mcp_name> <session_id>",
-            ),
-            id="mcp-session-use-invalid-arity",
         ),
         pytest.param(
             "/connect https://example.com/mcp",

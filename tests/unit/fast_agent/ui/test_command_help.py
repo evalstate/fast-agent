@@ -23,3 +23,9 @@ def test_render_help_lines_uses_shared_session_export_usage() -> None:
     assert "--download-privacy-filter" in rendered
     assert "--privacy-filter-device" in rendered
     assert "--show-redactions" in rendered
+
+
+def test_render_help_lines_omits_removed_mcp_session_commands() -> None:
+    rendered = "\n".join(render_help_lines(show_webclear_help=False))
+
+    assert "/mcp session" not in rendered

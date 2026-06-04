@@ -15,11 +15,6 @@ from fast_agent.commands.command_catalog import (
     get_command_spec,
 )
 from fast_agent.commands.mcp_command_intents import (
-    MCP_SESSION_ACTION_DESCRIPTIONS,
-    MCP_SESSION_CLEAR_ACTION,
-    MCP_SESSION_NEW_ACTIONS,
-    MCP_SESSION_SERVER_SCOPED_ACTIONS,
-    MCP_SESSION_USE_ACTIONS,
     MCP_TOP_LEVEL_ACTION_DESCRIPTIONS,
 )
 from fast_agent.commands.session_export_help import build_session_export_action_detail
@@ -42,7 +37,6 @@ if TYPE_CHECKING:
 
 
 MODEL_TOOL_STATE_VALUES = ("on", "off", "default")
-AttachedSessionChoice = tuple[str, str | None, str, str | None, bool]
 ModelValueCompletionSpec = tuple["Iterable[str]", str]
 _MODEL_VALUE_COMPLETION_SUBCOMMANDS = MODEL_VALUE_COMMAND_ACTIONS - frozenset(("switch",))
 ModelManagerCompletionHandler = Callable[
@@ -54,10 +48,6 @@ MarketplaceCompletionHandler = Callable[
     list[Completion],
 ]
 MarketplaceCompletionDispatch = tuple[tuple[frozenset[str], MarketplaceCompletionHandler], ...]
-McpSessionCompletionHandler = Callable[
-    ["AgentCompleter", list[str], str, list[str], str],
-    list[Completion],
-]
 SessionPrefixCompletionHandler = Callable[
     ["AgentCompleter", str, str],
     list[Completion] | None,
@@ -1283,290 +1273,6 @@ def _model_command_completions(
     return None
 
 
-def _attached_session_choices(completer: "AgentCompleter") -> list[AttachedSessionChoice]:
-    choices = completer._run_async_completion(
-        completer._list_attached_session_cookie_choices
-    )
-    if not isinstance(choices, list):
-        return []
-    return choices
-
-
-def _session_choice_meta(
-    server_name: str,
-    identity: str | None,
-    title: str | None,
-    *,
-    is_active: bool,
-) -> str:
-    meta_parts = [identity or server_name]
-    if title:
-        meta_parts.append(title)
-    state = "active" if is_active else "stored"
-    return f"{state} session | {', '.join(meta_parts)}"
-
-
-def _attached_session_completion(
-    choice: AttachedSessionChoice,
-    *,
-    index: int,
-    start_position: int,
-) -> Completion:
-    server_name, identity, cookie_id, title, is_active = choice
-    return Completion(
-        f"{server_name} {cookie_id}",
-        start_position=start_position,
-        display=f"{index}-{cookie_id}",
-        display_meta=_session_choice_meta(
-            server_name,
-            identity,
-            title,
-            is_active=is_active,
-        ),
-    )
-
-
-def _attached_session_choice_matches(
-    choice: AttachedSessionChoice,
-    *,
-    display: str,
-    partial: str,
-) -> bool:
-    if not partial:
-        return True
-    server_name, _identity, cookie_id, _title, _is_active = choice
-    return (
-        starts_with_casefold(display, partial)
-        or starts_with_casefold(cookie_id, partial)
-        or starts_with_casefold(server_name, partial)
-    )
-
-
-def _attached_session_shortcut_completions(
-    completer: "AgentCompleter",
-    *,
-    partial: str = "",
-    start_position: int = 0,
-) -> list[Completion]:
-    completions: list[Completion] = []
-    for index, choice in enumerate(_attached_session_choices(completer), start=1):
-        display = f"{index}-{choice[2]}"
-        if not _attached_session_choice_matches(
-            choice,
-            display=display,
-            partial=partial,
-        ):
-            continue
-        completions.append(
-            _attached_session_completion(
-                choice,
-                index=index,
-                start_position=start_position,
-            )
-        )
-    return completions
-
-
-def _attached_server_completions(
-    attached: list[str],
-    *,
-    partial: str,
-) -> list[Completion]:
-    return [
-        Completion(
-            server,
-            start_position=-len(partial),
-            display=server,
-            display_meta="attached mcp server",
-        )
-        for server in attached
-        if starts_with_casefold(server, partial)
-    ]
-
-
-def _server_session_cookie_completions(
-    completer: "AgentCompleter",
-    *,
-    server_identifier: str,
-    cookie_partial: str,
-) -> list[Completion]:
-    cookie_choices = completer._run_async_completion(
-        lambda: completer._list_server_session_cookie_choices(server_identifier)
-    )
-    if not isinstance(cookie_choices, list):
-        return []
-
-    return [
-        Completion(
-            cookie_id,
-            start_position=-len(cookie_partial),
-            display=cookie_id,
-            display_meta=(
-                f"{'active' if is_active else 'stored'} session"
-                + (f" · {title}" if isinstance(title, str) and title else "")
-            ),
-        )
-        for cookie_id, title, is_active in cookie_choices
-        if starts_with_casefold(cookie_id, cookie_partial)
-    ]
-
-
-def _mcp_session_use_completions(
-    completer: "AgentCompleter",
-    attached: list[str],
-    tail: str,
-    tail_tokens: list[str],
-    partial: str,
-) -> list[Completion]:
-    if not tail_tokens:
-        return _attached_session_shortcut_completions(completer)
-
-    if len(tail_tokens) <= 1 and not tail.endswith(" "):
-        server_completions = _attached_server_completions(attached, partial=partial)
-        session_completions = _attached_session_shortcut_completions(
-            completer,
-            partial=partial,
-            start_position=-len(partial),
-        )
-        return session_completions + server_completions
-
-    server_identifier = tail_tokens[0]
-    if not tail.endswith(" ") and len(tail_tokens) < 2:
-        return []
-
-    cookie_partial = "" if tail.endswith(" ") else tail_tokens[-1]
-    return _server_session_cookie_completions(
-        completer,
-        server_identifier=server_identifier,
-        cookie_partial=cookie_partial,
-    )
-
-
-def _mcp_session_use_completion_handler(
-    completer: "AgentCompleter",
-    attached: list[str],
-    tail: str,
-    tail_tokens: list[str],
-    partial: str,
-) -> list[Completion]:
-    return _mcp_session_use_completions(completer, attached, tail, tail_tokens, partial)
-
-
-def _mcp_session_server_scoped_completions(
-    *,
-    subcmd: str,
-    attached: list[str],
-    tail: str,
-    tail_tokens: list[str],
-    partial: str,
-) -> list[Completion]:
-    is_new_action = subcmd in MCP_SESSION_NEW_ACTIONS
-    if is_new_action and "--title" in tail_tokens:
-        return []
-    if "--title" in strip_casefold(partial):
-        return []
-    if subcmd == "jar" and not tail_tokens and not partial and len(attached) <= 1:
-        return []
-
-    completions: list[Completion] = []
-    if is_new_action and (not tail_tokens or tail.endswith(" ")):
-        completions.append(
-            Completion(
-                "--title",
-                start_position=0,
-                display="--title",
-                display_meta="session title hint",
-            )
-        )
-
-    completions.extend(_attached_server_completions(attached, partial=partial))
-    return completions
-
-
-def _mcp_session_server_scoped_completion_handler(
-    _completer: "AgentCompleter",
-    attached: list[str],
-    tail: str,
-    tail_tokens: list[str],
-    partial: str,
-    *,
-    subcmd: str,
-) -> list[Completion]:
-    return _mcp_session_server_scoped_completions(
-        subcmd=subcmd,
-        attached=attached,
-        tail=tail,
-        tail_tokens=tail_tokens,
-        partial=partial,
-    )
-
-
-def _mcp_session_clear_completions(
-    attached: list[str],
-    partial: str,
-) -> list[Completion]:
-    options = ["--all", *attached]
-    return [
-        Completion(
-            option,
-            start_position=-len(partial),
-            display=option,
-            display_meta="clear full session store" if option == "--all" else "attached mcp server",
-        )
-        for option in options
-        if starts_with_casefold(option, partial)
-    ]
-
-
-def _mcp_session_clear_completion_handler(
-    _completer: "AgentCompleter",
-    attached: list[str],
-    _tail: str,
-    _tail_tokens: list[str],
-    partial: str,
-) -> list[Completion]:
-    return _mcp_session_clear_completions(attached, partial)
-
-
-_MCP_SESSION_COMPLETION_HANDLERS: dict[str, McpSessionCompletionHandler] = {
-    **{
-        action: partial(_mcp_session_server_scoped_completion_handler, subcmd=action)
-        for action in MCP_SESSION_SERVER_SCOPED_ACTIONS
-    },
-    **{action: _mcp_session_use_completion_handler for action in MCP_SESSION_USE_ACTIONS},
-    MCP_SESSION_CLEAR_ACTION: _mcp_session_clear_completion_handler,
-}
-
-
-def _mcp_session_completions(
-    completer: "AgentCompleter",
-    text: str,
-) -> list[Completion]:
-    remainder = text[len("/mcp session ") :]
-    parts = _completion_parts(remainder)
-    results = list(
-        completer._complete_subcommands(
-            parts,
-            remainder,
-            MCP_SESSION_ACTION_DESCRIPTIONS,
-        )
-    )
-    if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
-        return results
-
-    attached = _attached_mcp_servers_for_completion(completer)
-    subcmd = strip_casefold(parts[0])
-    tail = parts[1] if len(parts) > 1 else ""
-    tail_tokens = tail.split()
-    partial = tail_tokens[-1] if tail and not tail.endswith(" ") else ""
-
-    completion_handler = _MCP_SESSION_COMPLETION_HANDLERS.get(subcmd)
-    if completion_handler is not None:
-        return completion_handler(completer, attached, tail, tail_tokens, partial)
-
-    return results
-
-
 def _mcp_prefix_completion(
     completer: "AgentCompleter",
     text: str,
@@ -1608,9 +1314,6 @@ def _mcp_command_completions(
     prefix_completions = _mcp_prefix_completion(completer, text, text_lower)
     if prefix_completions is not None:
         return prefix_completions
-
-    if text_lower.startswith("/mcp session "):
-        return _mcp_session_completions(completer, text)
 
     return _mcp_subcommand_completions(completer, text, text_lower)
 

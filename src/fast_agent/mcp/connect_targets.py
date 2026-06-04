@@ -18,7 +18,7 @@ from fast_agent.utils.commandline import (
     resolve_commandline_syntax,
     split_commandline,
 )
-from fast_agent.utils.text import starts_with_any_casefold, strip_casefold, strip_to_none
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -769,7 +769,7 @@ def _normalize_connect_config_target_text(
 
 
 def _reject_url_target_cli_flags(tokens: Sequence[str], *, source_path: str) -> None:
-    if not any(_is_url_token(token) for token in tokens):
+    if not _is_url_config_target_tokens(tokens):
         return
 
     for token in tokens:
@@ -778,8 +778,27 @@ def _reject_url_target_cli_flags(tokens: Sequence[str], *, source_path: str) -> 
             raise ValueError(_build_url_target_flag_error(source_path=source_path, flag=flag))
 
 
-def _is_url_token(token: str) -> bool:
-    return starts_with_any_casefold(token.strip(), ("http://", "https://"))
+def _is_url_config_target_tokens(tokens: Sequence[str]) -> bool:
+    if infer_connect_mode_from_tokens(tokens) == "url":
+        return True
+
+    target_tokens = _tokens_after_leading_connect_flags(tokens)
+    return bool(target_tokens) and infer_connect_mode_from_tokens(target_tokens) == "url"
+
+
+def _tokens_after_leading_connect_flags(tokens: Sequence[str]) -> Sequence[str]:
+    idx = 0
+    while idx < len(tokens):
+        token = tokens[idx]
+        if token == "--":
+            return tokens[idx + 1 :]
+        if token in _CONNECT_SWITCH_OPTIONS:
+            idx += 1
+            continue
+        if _connect_value_option_for_token(token) is None:
+            return tokens[idx:]
+        idx += 1 if "=" in token else 2
+    return ()
 
 
 def _explicit_connect_config_tokens(

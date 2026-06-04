@@ -399,6 +399,24 @@ def test_normalize_connect_config_target_allows_stdio_flags_in_target_args() -> 
     assert normalized.target.args == ("server.py", "--timeout", "30", "--name", "workspace")
 
 
+def test_normalize_connect_config_target_allows_stdio_url_args_with_flag_names() -> None:
+    normalized = normalize_connect_config_target(
+        target="uvx demo-server --endpoint https://example.com --name workspace",
+        source_path="mcp.targets[0].target",
+    )
+
+    assert normalized.overrides == {}
+    assert normalized.target.mode == "uvx"
+    assert normalized.target.command == "uvx"
+    assert normalized.target.args == (
+        "demo-server",
+        "--endpoint",
+        "https://example.com",
+        "--name",
+        "workspace",
+    )
+
+
 def test_normalize_connect_config_target_ignores_blank_configured_server_name() -> None:
     normalized = normalize_connect_config_target(
         target="npx demo-server",

@@ -497,12 +497,6 @@ class MCPServerSettings(BaseModel):
 
     implementation: Implementation | None = None
 
-    experimental_session_advertise: bool = False
-    """Advertise MCP session test capability in client initialize payload."""
-
-    experimental_session_advertise_version: int = 2
-    """Reserved compatibility knob for session test capability advertisement."""
-
     defer_loading: bool = False
     """Provider-managed OpenAI Responses hint to defer remote tool loading."""
 
@@ -517,13 +511,6 @@ class MCPServerSettings(BaseModel):
     @classmethod
     def _reject_bool_timeout_value(cls, value: Any) -> Any:
         return _reject_bool_integer_field(value, field_name="MCP timeout fields")
-
-    @field_validator("experimental_session_advertise_version", mode="after")
-    @classmethod
-    def _validate_experimental_session_advertise_version(cls, value: int) -> int:
-        if value <= 0:
-            raise ValueError("experimental_session_advertise_version must be greater than zero.")
-        return value
 
     @field_validator("max_missed_pings", mode="before")
     @classmethod
