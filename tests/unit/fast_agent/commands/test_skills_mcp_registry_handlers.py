@@ -55,12 +55,14 @@ def _ctx(
     settings: Settings,
     *,
     agent_provider: StaticAgentProvider | None = None,
+    acp_session_id: str | None = None,
 ) -> CommandContext:
     return CommandContext(
         agent_provider=agent_provider or StaticAgentProvider({"main": _Agent()}),
         current_agent_name="main",
         io=NonInteractiveCommandIOBase(),
         settings=settings,
+        acp_session_id=acp_session_id,
     )
 
 
@@ -142,15 +144,14 @@ async def test_skills_available_uses_selected_mcp_registry() -> None:
 @pytest.mark.asyncio
 async def test_selected_mcp_registry_survives_fresh_command_context() -> None:
     settings = Settings()
-    agent_provider = StaticAgentProvider({"main": _Agent()})
     await handle_set_skills_registry(
-        _ctx(settings, agent_provider=agent_provider),
+        _ctx(settings, acp_session_id="skills-registry-test-session"),
         agent_name="main",
         argument="hf",
     )
 
     outcome = await handle_list_marketplace_skills(
-        _ctx(settings, agent_provider=agent_provider),
+        _ctx(settings, acp_session_id="skills-registry-test-session"),
         agent_name="main",
         query=None,
     )

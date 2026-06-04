@@ -258,7 +258,7 @@ class NonInteractiveCommandIOBase(CommandIO):
         del agent_name, system_prompt, server_count
 
 
-_SESSION_SKILL_SOURCE_OVERRIDES: dict[tuple[int, str], str] = {}
+_SESSION_SKILL_SOURCE_OVERRIDES: dict[tuple[str, str, str], str] = {}
 
 
 @dataclass(slots=True)
@@ -292,8 +292,10 @@ class CommandContext:
         self.skill_source_overrides.pop(agent_name, None)
         _SESSION_SKILL_SOURCE_OVERRIDES.pop(self._skill_source_override_key(agent_name), None)
 
-    def _skill_source_override_key(self, agent_name: str) -> tuple[int, str]:
-        return (id(self.agent_provider), agent_name)
+    def _skill_source_override_key(self, agent_name: str) -> tuple[str, str, str]:
+        if self.acp_session_id is not None:
+            return ("acp", self.acp_session_id, agent_name)
+        return ("provider", str(id(self.agent_provider)), agent_name)
 
     def resolve_session_manager(self) -> "SessionManager":
         from fast_agent.session import get_session_manager

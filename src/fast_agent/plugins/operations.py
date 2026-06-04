@@ -194,8 +194,10 @@ def load_enabled_plugin_commands(
 ) -> dict[str, Any]:
     commands: dict[str, Any] = {}
     for name in enabled:
+        plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
+        if not (plugin_dir / PLUGIN_MANIFEST_FILENAME).is_file():
+            continue
         try:
-            plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
             manifest = load_plugin_manifest(plugin_dir)
         except Exception as exc:
             warnings.warn(

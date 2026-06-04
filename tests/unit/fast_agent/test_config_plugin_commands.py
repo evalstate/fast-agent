@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
-
-import pytest
 
 from fast_agent.config import _enabled_plugin_sources, get_settings
 
@@ -219,7 +218,7 @@ def test_default_user_global_plugins_are_loaded(tmp_path: Path, monkeypatch) -> 
     assert set(settings.commands) == {"global-finder"}
 
 
-def test_missing_home_plugin_does_not_drop_project_plugins(
+def test_missing_home_plugin_is_skipped_without_dropping_project_plugins(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -260,9 +259,11 @@ def test_missing_home_plugin_does_not_drop_project_plugins(
     monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())
     monkeypatch.chdir(project)
 
-    with pytest.warns(UserWarning, match="missing-global"):
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
         settings = get_settings(config_path)
 
+    assert captured == []
     assert settings.commands is not None
     assert set(settings.commands) == {"project-helper"}
 
