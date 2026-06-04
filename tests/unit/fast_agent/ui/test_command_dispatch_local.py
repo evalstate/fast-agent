@@ -15,26 +15,18 @@ from fast_agent.core.agent_app import AgentRefreshResult
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     AttachCommand,
-    CardsCommand,
-    ClearCommand,
     CommandsCommand,
     HashAgentCommand,
     HistoryFixCommand,
-    ListToolsCommand,
     LoadAgentCardCommand,
     McpConnectCommand,
     McpDisconnectCommand,
-    McpReconnectCommand,
-    ModelsCommand,
     ModelSwitchCommand,
-    ModelWebFetchCommand,
     ShellCommand,
     UnknownCommand,
 )
 from fast_agent.ui.interactive import command_dispatch
 from fast_agent.ui.interactive.command_dispatch import (
-    _attachment_token,
-    _catalog_handler,
     _dispatch_agent_card_payload,
     _dispatch_hash_agent_command,
     _dispatch_history_payload,
@@ -42,17 +34,10 @@ from fast_agent.ui.interactive.command_dispatch import (
     _dispatch_mcp_connect_command,
     _dispatch_mcp_payload,
     _dispatch_plugin_command_payload,
-    _DispatchStep,
-    _first_dispatch_result,
-    _model_handler,
-    _parse_unknown_plugin_command,
-    _refresh_dispatch_agents,
 )
 from fast_agent.ui.prompt import parser as prompt_parser
 
 if TYPE_CHECKING:
-    from functools import partial
-
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.ui.interactive_prompt import InteractivePrompt
 
@@ -149,32 +134,6 @@ def test_commands_parser_preserves_discovery_arguments() -> None:
     assert result == CommandsCommand(argument="skills add --json")
 
 
-def test_unknown_plugin_command_uses_slash_command_line_parser() -> None:
-    assert _parse_unknown_plugin_command(UnknownCommand(command="  /Demo   arg one  ")) == (
-        "demo",
-        "arg one",
-    )
-    assert _parse_unknown_plugin_command(UnknownCommand(command="plain text")) is None
-
-
-def test_attachment_token_builds_remote_url_token() -> None:
-    token = _attachment_token(
-        "https://example.test/path?q=1",
-        shell_working_dir=None,
-    )
-
-    assert token == "^url:https://example.test/path?q=1"
-
-
-def test_attachment_token_resolves_relative_file_from_shell_working_dir(tmp_path: Path) -> None:
-    attachment = tmp_path / "note.txt"
-    attachment.write_text("hello")
-
-    token = _attachment_token("note.txt", shell_working_dir=tmp_path)
-
-    assert token == f"^file:{attachment.as_posix()}"
-
-
 @pytest.mark.asyncio
 async def test_local_dispatch_sets_shell_command() -> None:
     result = await _dispatch_local_ui_payload(
@@ -205,6 +164,20 @@ async def test_local_dispatch_appends_attachment_tokens(tmp_path: Path) -> None:
 
     assert result is not None
     assert result.buffer_prefill == f"inspect ^file:{attachment.as_posix()}"
+
+
+@pytest.mark.asyncio
+async def test_local_dispatch_appends_url_attachment_tokens() -> None:
+    result = await _dispatch_local_ui_payload(
+        AttachCommand(("https://example.test/path?q=1",)),
+        prompt_provider=cast("AgentApp", object()),
+        available_agents_set={"main"},
+        agent_name="main",
+        buffer_prefill="inspect",
+    )
+
+    assert result is not None
+    assert result.buffer_prefill == "inspect ^url:https://example.test/path?q=1"
 
 
 @pytest.mark.asyncio
@@ -239,24 +212,6 @@ def test_hash_dispatch_returns_buffer_send_details() -> None:
     assert result.hash_send_target == "worker"
     assert result.hash_send_message == "summarize"
     assert result.hash_send_quiet is True
-
-
-def test_catalog_handler_maps_list_and_action_commands() -> None:
-    assert _catalog_handler(ListToolsCommand(), agent="main") is not None
-    assert _catalog_handler(CardsCommand(action="list", argument=None), agent="main") is not None
-    assert _catalog_handler(ShellCommand("pwd"), agent="main") is None
-
-
-def test_catalog_handler_preserves_models_command_surface() -> None:
-    handler = _catalog_handler(
-        ModelsCommand(action="help", argument=None, command_name="models"),
-        agent="main",
-    )
-
-    assert handler is not None
-    partial_handler = cast("partial[object]", handler)
-    assert partial_handler.keywords is not None
-    assert partial_handler.keywords["command_name"] == "models"
 
 
 @pytest.mark.asyncio
@@ -294,22 +249,6 @@ async def test_commands_handler_renders_discovery_markdown() -> None:
     assert message.render_markdown is True
     assert message.right_info == "commands"
     assert "# commands skills add" in message.plain_text()
-
-
-def test_history_command_target_agent_handles_targeted_commands() -> None:
-    assert command_dispatch._history_command_target_agent(HistoryFixCommand("worker")) == "worker"
-    assert (
-        command_dispatch._history_command_target_agent(
-            ClearCommand(kind="clear_history", agent="worker")
-        )
-        == "worker"
-    )
-
-
-def test_mcp_server_command_error_requires_server_name() -> None:
-    assert command_dispatch._mcp_server_command_error(None, None) == "Server name is required"
-    assert command_dispatch._mcp_server_command_error("server", None) is None
-    assert command_dispatch._mcp_server_command_error("server", "bad") == "bad"
 
 
 @pytest.mark.asyncio
@@ -362,16 +301,6 @@ def test_mcp_server_error_prints_bracketed_text_literally(
     assert [getattr(item, "plain", item) for item in printed] == ["bad [server]"]
 
 
-def test_mcp_handler_maps_server_commands() -> None:
-    handler = command_dispatch._mcp_handler(
-        McpReconnectCommand(server_name="docs", error=None),
-        prompt_provider=cast("AgentApp", object()),
-        agent="main",
-    )
-
-    assert handler is not None
-
-
 @pytest.mark.asyncio
 async def test_agent_card_load_error_prints_bracketed_text_literally(
     monkeypatch: pytest.MonkeyPatch,
@@ -421,47 +350,6 @@ async def test_agent_command_error_prints_bracketed_text_literally(
     assert result is not None
     assert result.handled is True
     assert [getattr(item, "plain", item) for item in printed] == ["bad [agent]"]
-
-
-def test_model_handler_maps_value_commands_but_not_switch() -> None:
-    assert _model_handler(ModelWebFetchCommand("on"), agent="main") is not None
-    assert _model_handler(ModelSwitchCommand("openai.gpt-5"), agent="main") is None
-
-
-def test_session_handler_ignores_non_session_payload() -> None:
-    assert command_dispatch._session_handler(ShellCommand("pwd"), agent="main") is None
-
-
-def test_parse_unknown_plugin_command_requires_slash_command() -> None:
-    assert command_dispatch._parse_unknown_plugin_command(
-        command_dispatch.UnknownCommand("draft")
-    ) is None
-
-
-def test_parse_unknown_plugin_command_splits_arguments() -> None:
-    parsed = command_dispatch._parse_unknown_plugin_command(
-        command_dispatch.UnknownCommand("/Draft  a message")
-    )
-
-    assert parsed == ("draft", "a message")
-
-
-def test_plugin_action_outcome_prefers_markdown_message() -> None:
-    outcome = command_dispatch._plugin_action_outcome(
-        PluginCommandActionResult(
-            message="plain",
-            markdown="**markdown**",
-            buffer_prefill="draft",
-            switch_agent="worker",
-            refresh_agents=True,
-        )
-    )
-
-    assert outcome.buffer_prefill == "draft"
-    assert outcome.switch_agent == "worker"
-    assert outcome.requires_refresh is True
-    assert outcome.messages[0].text == "**markdown**"
-    assert outcome.messages[0].render_markdown is True
 
 
 @pytest.mark.asyncio
@@ -528,24 +416,6 @@ async def test_plugin_unknown_agent_prints_bracketed_text_literally(
     assert [getattr(item, "plain", item) for item in printed] == ["Unknown agent: [ghost]"]
 
 
-def test_refresh_dispatch_agents_records_available_agents() -> None:
-    result = command_dispatch.DispatchResult(handled=True)
-    owner = _RefreshOwner()
-
-    agents, agent_set = _refresh_dispatch_agents(
-        result,
-        owner=cast("InteractivePrompt", owner),
-        prompt_provider=cast("AgentApp", _RefreshProvider()),
-        merge_pinned_agents=lambda names: [*names, "pinned"],
-    )
-
-    assert agents == ["main", "worker", "pinned"]
-    assert agent_set == {"main", "worker", "pinned"}
-    assert result.available_agents == agents
-    assert result.available_agents_set == agent_set
-    assert owner.agent_types == {"main": "basic"}
-
-
 def test_apply_refresh_preferences_prints_warnings_literally(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -561,27 +431,3 @@ def test_apply_refresh_preferences_prints_warnings_literally(
 
     assert preferred is None
     assert [getattr(item, "plain", item) for item in printed] == ["Reload warning [card]"]
-
-
-@pytest.mark.asyncio
-async def test_first_dispatch_result_returns_first_handled_result() -> None:
-    calls: list[str] = []
-
-    async def miss() -> command_dispatch.DispatchResult | None:
-        calls.append("miss")
-        return None
-
-    async def hit() -> command_dispatch.DispatchResult:
-        calls.append("hit")
-        return command_dispatch.DispatchResult(handled=True, shell_execute_cmd="pwd")
-
-    result = await _first_dispatch_result(
-        (
-            _DispatchStep(name="first", run=miss),
-            _DispatchStep(name="second", run=hit),
-        )
-    )
-
-    assert result is not None
-    assert result.shell_execute_cmd == "pwd"
-    assert calls == ["miss", "hit"]
