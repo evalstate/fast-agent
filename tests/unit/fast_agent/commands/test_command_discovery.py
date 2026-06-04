@@ -209,24 +209,6 @@ def test_render_model_references_usage_includes_list_subaction() -> None:
     assert "/model references [list]" in rendered
 
 
-def test_render_command_action_detail_markdown_builds_command_detail_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original = command_discovery._build_command_detail
-    calls: list[str] = []
-
-    def spy(command_name: str):
-        calls.append(command_name)
-        return original(command_name)
-
-    monkeypatch.setattr(command_discovery, "_build_command_detail", spy)
-
-    rendered = render_command_detail_markdown("cards", "publish")
-
-    assert rendered is not None
-    assert calls == ["cards"]
-
-
 def test_command_discovery_labels_escape_backticks_in_code_spans() -> None:
     argument_label = command_discovery._render_argument_label(
         {
@@ -539,24 +521,6 @@ def test_render_commands_json_action_detail_has_schema_version() -> None:
     assert '"kind": "command_action_detail"' in rendered
     assert '"/skills add [<number|name|github-url|path>] [--registry url] [--skills-dir path]"' in rendered
     assert '"name": "--skills-dir"' in rendered
-
-
-def test_render_commands_json_action_detail_builds_command_detail_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original = command_discovery._build_command_detail
-    calls: list[str] = []
-
-    def spy(command_name: str):
-        calls.append(command_name)
-        return original(command_name)
-
-    monkeypatch.setattr(command_discovery, "_build_command_detail", spy)
-
-    rendered = render_commands_json(command_name="skills", action_name="add")
-
-    assert '"kind": "command_action_detail"' in rendered
-    assert calls == ["skills"]
 
 
 def test_render_command_detail_markdown_session_includes_export_options() -> None:

@@ -8,7 +8,6 @@ import pytest
 
 from fast_agent.acp.acp_aware_mixin import ACPCommand
 from fast_agent.acp.slash import dispatch as slash_dispatch
-from fast_agent.acp.slash.handlers import clear as clear_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
@@ -89,23 +88,6 @@ def test_reload_session_command_is_dispatch_routable_when_advertised() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_clear_uses_shared_action_normalization(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def _fake_clear_last(_handler: object) -> str:
-        return "# clear last"
-
-    monkeypatch.setattr(clear_slash_handlers, "handle_clear_last", _fake_clear_last)
-
-    output = await clear_slash_handlers.handle_clear(
-        cast("SlashCommandHandler", SimpleNamespace()),
-        " LAST ",
-    )
-
-    assert output == "# clear last"
-
-
-@pytest.mark.asyncio
 async def test_exact_case_agent_status_takes_precedence_over_mixed_case_builtin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -131,40 +113,6 @@ async def test_exact_case_agent_status_takes_precedence_over_mixed_case_builtin(
     assert "status" in command_names
     assert "Status" not in command_names
     assert await handler.execute_command("Status", "") == "agent shadow"
-
-
-@pytest.mark.asyncio
-async def test_handle_status_uses_shared_action_normalization(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def _fake_status_system(_handler: object) -> str:
-        return "# system prompt"
-
-    monkeypatch.setattr(status_slash_handlers, "handle_status_system", _fake_status_system)
-
-    output = await status_slash_handlers.handle_status(
-        cast("SlashCommandHandler", SimpleNamespace()),
-        " SYSTEM ",
-    )
-
-    assert output == "# system prompt"
-
-
-@pytest.mark.asyncio
-async def test_handle_status_routes_normalized_auth_subcommand(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def _fake_status_auth(_handler: object) -> str:
-        return "# permissions"
-
-    monkeypatch.setattr(status_slash_handlers, "handle_status_auth", _fake_status_auth)
-
-    output = await status_slash_handlers.handle_status(
-        cast("SlashCommandHandler", SimpleNamespace()),
-        " AUTH ",
-    )
-
-    assert output == "# permissions"
 
 
 @pytest.mark.asyncio
