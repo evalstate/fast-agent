@@ -71,13 +71,13 @@ def resolve_model_info(llm: "FastAgentLLMProtocol | None") -> "ModelInfo | None"
 def resolve_reasoning_effort(
     llm: "FastAgentLLMProtocol | None",
 ) -> "ReasoningEffortSetting | None":
-    return None if llm is None else llm.reasoning_effort
+    return cast("ReasoningEffortSetting | None", _llm_attr(llm, "reasoning_effort"))
 
 
 def resolve_reasoning_effort_spec(
     llm: "FastAgentLLMProtocol | None",
 ) -> "ReasoningEffortSpec | None":
-    return None if llm is None else llm.reasoning_effort_spec
+    return cast("ReasoningEffortSpec | None", _llm_attr(llm, "reasoning_effort_spec"))
 
 
 def set_reasoning_effort(
@@ -90,13 +90,13 @@ def set_reasoning_effort(
 def resolve_text_verbosity(
     llm: "FastAgentLLMProtocol | None",
 ) -> "TextVerbosityLevel | None":
-    return None if llm is None else llm.text_verbosity
+    return cast("TextVerbosityLevel | None", _llm_attr(llm, "text_verbosity"))
 
 
 def resolve_text_verbosity_spec(
     llm: "FastAgentLLMProtocol | None",
 ) -> "TextVerbositySpec | None":
-    return None if llm is None else llm.text_verbosity_spec
+    return cast("TextVerbositySpec | None", _llm_attr(llm, "text_verbosity_spec"))
 
 
 def set_text_verbosity(
@@ -119,13 +119,14 @@ def set_web_fetch_enabled(llm: "FastAgentLLMProtocol", value: bool | None) -> No
 
 
 def resolve_task_budget_supported(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and llm.task_budget_supported is True
+    return _llm_attr(llm, "task_budget_supported") is True
 
 
 def resolve_task_budget_tokens(llm: "FastAgentLLMProtocol | None") -> int | None:
-    if llm is None or isinstance(llm.task_budget_tokens, bool):
+    value = _llm_attr(llm, "task_budget_tokens")
+    if not isinstance(value, int) or isinstance(value, bool):
         return None
-    return llm.task_budget_tokens
+    return value
 
 
 def set_task_budget_tokens(llm: "FastAgentLLMProtocol", value: int | None) -> None:
@@ -133,16 +134,19 @@ def set_task_budget_tokens(llm: "FastAgentLLMProtocol", value: int | None) -> No
 
 
 def resolve_service_tier_supported(llm: "FastAgentLLMProtocol | None") -> bool:
-    return llm is not None and llm.service_tier_supported is True
+    return _llm_attr(llm, "service_tier_supported") is True
 
 
 def available_service_tier_values(
     llm: "FastAgentLLMProtocol | None",
 ) -> tuple[ServiceTierValue, ...]:
-    raw_values = () if llm is None else llm.available_service_tiers
-    values = tuple(
-        unique_preserve_order(value for value in raw_values if value in SERVICE_TIER_VALUES)
+    raw_values = _llm_attr(llm, "available_service_tiers")
+    if not isinstance(raw_values, tuple):
+        raw_values = ()
+    service_tiers = (
+        cast("ServiceTierValue", value) for value in raw_values if value in SERVICE_TIER_VALUES
     )
+    values = tuple(unique_preserve_order(service_tiers))
     if values:
         return values
     if resolve_service_tier_supported(llm):
@@ -159,8 +163,8 @@ def service_tier_command_values(llm: "FastAgentLLMProtocol | None") -> tuple[str
 
 
 def resolve_service_tier(llm: "FastAgentLLMProtocol | None") -> ServiceTierValue | None:
-    value = None if llm is None else llm.service_tier
-    return value if value in SERVICE_TIER_VALUES else None
+    value = _llm_attr(llm, "service_tier")
+    return cast("ServiceTierValue", value) if value in SERVICE_TIER_VALUES else None
 
 
 def set_service_tier(
