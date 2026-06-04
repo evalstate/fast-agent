@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.7.15"
+version = "0.7.16"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -16,7 +16,7 @@ requires-python = ">=3.13.5,<3.15"
 dependencies = [
     "fastapi==0.136.3",
     "fastmcp==3.3.1",
-    "mcp==1.27.1",
+    "mcp==1.27.2",
     "pydantic-settings==2.14.1",
     "pydantic==2.13.4",
     "pyyaml==6.0.3",

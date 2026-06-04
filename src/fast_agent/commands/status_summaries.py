@@ -37,7 +37,7 @@ ERROR_BLOCK_PREVIEW_LENGTH = 60
 
 if TYPE_CHECKING:
     from fast_agent.core.fastagent import AgentInstance
-    from fast_agent.interfaces import AgentProtocol
+    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
 
 
 @dataclass(slots=True)
@@ -155,7 +155,7 @@ def _collect_client_info(
     return summary
 
 
-def _resolve_model_info_from_llm(llm: object | None) -> ModelInfo | None:
+def _resolve_model_info_from_llm(llm: "FastAgentLLMProtocol | None") -> ModelInfo | None:
     model_info = resolve_model_info(llm)
     if model_info is not None or llm is None:
         return model_info
@@ -178,7 +178,7 @@ def _model_capability_labels(model_info: ModelInfo) -> list[str]:
     ]
 
 
-def _hf_provider_display(llm: object | None) -> str | None:
+def _hf_provider_display(llm: "FastAgentLLMProtocol | None") -> str | None:
     if not isinstance(llm, HfDisplayInfoProvider):
         return None
     provider = llm.get_hf_display_info().get("provider")

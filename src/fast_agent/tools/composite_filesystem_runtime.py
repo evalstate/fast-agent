@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, TextContent
 
+from fast_agent.mcp.tool_result_metadata import set_fatal_tool_error
 from fast_agent.tools.filesystem_tool_definitions import (
     ATTACH_MEDIA_TOOL_NAME,
     ATTACH_RESOURCE_TOOL_ALIAS,
@@ -33,17 +34,19 @@ def _runtime_supports_tool(runtime: FilesystemRuntime, tool_name: str) -> bool:
 
 
 def _unsupported_tool_result(name: str) -> CallToolResult:
-    result = CallToolResult(
-        content=[
-            TextContent(
-                type="text",
-                text=f"Error: unsupported filesystem tool '{name}'",
-            )
-        ],
-        isError=True,
+    message = f"Error: unsupported filesystem tool '{name}'"
+    return set_fatal_tool_error(
+        CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=message,
+                )
+            ],
+            isError=True,
+        ),
+        message,
     )
-    setattr(result, "_fast_agent_fatal_tool_error", f"Error: unsupported filesystem tool '{name}'")
-    return result
 
 
 def _primary_owns_tool_name(primary: FilesystemRuntime, tool_name: str) -> bool:

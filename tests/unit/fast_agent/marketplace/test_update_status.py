@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import pytest
+
 from fast_agent.marketplace.update_status import (
     ALL_MARKETPLACE_UPDATE_STATUSES,
     COMMON_UPDATE_DETAIL_STATUSES,
     COMMON_UPDATE_STATUS_LABELS,
     COMMON_UPDATE_STATUS_STYLES,
     UNSTYLED_UPDATE_STATUSES,
+    CommonMarketplaceUpdateStatus,
+    decide_source_update_status,
     format_update_status_text,
     is_update_applicable,
     is_update_applied,
@@ -73,3 +77,39 @@ def test_format_update_status_text_normalizes_detail_whitespace() -> None:
         == "source unreachable: git failed"
     )
     assert format_update_status_text("source_unreachable", detail="   ") == "source unreachable"
+
+
+@pytest.mark.parametrize(
+    (
+        "available_path_oid",
+        "current_path_oid",
+        "available_revision",
+        "current_revision",
+        "expected_status",
+        "expected_detail",
+    ),
+    [
+        ("new-tree", "old-tree", "new-rev", "old-rev", "update_available", "content changed"),
+        ("same-tree", "same-tree", "new-rev", "old-rev", "up_to_date", "already up to date"),
+        (None, "old-tree", "new-rev", "old-rev", "update_available", "new revision available"),
+        (None, "old-tree", "same-rev", "same-rev", "up_to_date", "already up to date"),
+    ],
+)
+def test_decide_source_update_status(
+    available_path_oid: str | None,
+    current_path_oid: str | None,
+    available_revision: str,
+    current_revision: str,
+    expected_status: CommonMarketplaceUpdateStatus,
+    expected_detail: str,
+) -> None:
+    decision = decide_source_update_status(
+        available_path_oid=available_path_oid,
+        current_path_oid=current_path_oid,
+        available_revision=available_revision,
+        current_revision=current_revision,
+        content_changed_detail="content changed",
+    )
+
+    assert decision.status == expected_status
+    assert decision.detail == expected_detail

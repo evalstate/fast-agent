@@ -75,7 +75,21 @@ class _ProviderStub:
         return self._agent_obj
 
 
-class _ReasoningLlmStub:
+class _CapabilityLlmStub:
+    reasoning_effort_spec = None
+    text_verbosity_spec = None
+    service_tier_supported = False
+    available_service_tiers: tuple[str, ...] = ()
+    task_budget_supported = False
+    web_search_supported = False
+    x_search_supported = False
+    web_fetch_supported = False
+    web_search_enabled = False
+    x_search_enabled = False
+    web_fetch_enabled = False
+
+
+class _ReasoningLlmStub(_CapabilityLlmStub):
     reasoning_effort_spec = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh", "max"],
@@ -85,19 +99,12 @@ class _ReasoningLlmStub:
     )
 
 
-class _MissingModelCompletionAttrsLlm:
-    service_tier_supported = False
-    web_search_supported = False
-    web_fetch_supported = False
+class _MissingModelCompletionAttrsLlm(_CapabilityLlmStub):
+    pass
 
 
-class _VerbosityLlmStub:
-    reasoning_effort_spec = None
-    task_budget_supported = False
+class _VerbosityLlmStub(_CapabilityLlmStub):
     text_verbosity_spec = TextVerbositySpec(allowed=("low", "medium", "high"), default="medium")
-    service_tier_supported = False
-    web_search_supported = False
-    web_fetch_supported = False
 
 
 class _MentionAggregatorStub:
@@ -187,7 +194,7 @@ class _MentionFilteredAgentStub(_MentionAgentStub):
 
 
 class _McpSkillRegistryAggregatorStub:
-    async def list_mcp_skill_registries(self) -> list[McpSkillRegistry]:
+    def cached_mcp_skill_registries(self) -> list[McpSkillRegistry]:
         return [
             McpSkillRegistry(
                 server_name="hf",
@@ -613,7 +620,7 @@ def test_get_completions_for_history_detail_turns_not_limited_to_summary_window(
 
 
 def test_get_completions_for_history_subcommands_includes_webclear_when_enabled() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         web_tools_enabled = (True, False)
 
     class _AgentStub:
@@ -633,7 +640,7 @@ def test_get_completions_for_history_subcommands_includes_webclear_when_enabled(
 
 
 def test_get_completions_for_history_subcommands_includes_webclear_when_web_search_enabled_bool() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         web_search_enabled = True
 
     class _AgentStub:
@@ -653,7 +660,7 @@ def test_get_completions_for_history_subcommands_includes_webclear_when_web_sear
 
 
 def test_get_completions_for_history_subcommands_ignores_missing_web_tool_attrs() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         pass
 
     class _AgentStub:
@@ -673,7 +680,7 @@ def test_get_completions_for_history_subcommands_ignores_missing_web_tool_attrs(
 
 
 def test_get_completions_for_history_subcommands_includes_webclear_when_web_fetch_only_enabled() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         web_search_enabled = False
         web_tools_enabled = (False, True)
 
@@ -694,7 +701,7 @@ def test_get_completions_for_history_subcommands_includes_webclear_when_web_fetc
 
 
 def test_get_completions_for_model_subcommands_includes_web_search_when_supported() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = None
         service_tier_supported = True
@@ -724,7 +731,7 @@ def test_get_completions_for_model_subcommands_includes_web_search_when_supporte
 
 
 def test_get_completions_for_model_subcommands_match_case_insensitively() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = TextVerbositySpec(allowed=("low", "medium", "high"), default="medium")
         service_tier_supported = False
@@ -749,7 +756,7 @@ def test_get_completions_for_model_subcommands_match_case_insensitively() -> Non
 
 
 def test_get_completions_for_model_subcommands_includes_web_fetch_when_supported() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = None
         service_tier_supported = False
@@ -775,7 +782,7 @@ def test_get_completions_for_model_subcommands_includes_web_fetch_when_supported
 
 
 def test_get_completions_for_model_supported_value_settings_are_visible() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = ReasoningEffortSpec(
             kind="effort",
             allowed_efforts=["low", "medium", "high"],
@@ -833,7 +840,7 @@ def test_get_completions_for_model_supported_value_settings_are_visible() -> Non
 
 
 def test_get_completions_for_model_fast_values() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = None
         service_tier_supported = True
@@ -861,7 +868,7 @@ def test_get_completions_for_model_fast_values() -> None:
 
 
 def test_get_completions_for_model_task_budget_values() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = None
         service_tier_supported = False
@@ -887,7 +894,7 @@ def test_get_completions_for_model_task_budget_values() -> None:
 
 
 def test_get_completions_for_model_values_match_case_insensitively() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = TextVerbositySpec(allowed=("low", "medium", "high"), default="medium")
         service_tier_supported = False
@@ -912,7 +919,7 @@ def test_get_completions_for_model_values_match_case_insensitively() -> None:
 
 
 def test_get_completions_for_model_fast_values_codexresponses_omit_flex() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = None
         service_tier_supported = True
@@ -937,7 +944,7 @@ def test_get_completions_for_model_fast_values_codexresponses_omit_flex() -> Non
 
 
 def test_get_completions_for_model_web_search_values() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = None
         service_tier_supported = False
@@ -964,7 +971,7 @@ def test_get_completions_for_model_web_search_values() -> None:
 
 
 def test_get_completions_for_model_web_fetch_values_omits_unsupported_setting() -> None:
-    class _LlmStub:
+    class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None
         text_verbosity_spec = None
         service_tier_supported = False

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fast_agent.commands.model_capabilities import (
     available_service_tier_values,
@@ -25,6 +26,9 @@ from fast_agent.llm.text_verbosity import (
 )
 from fast_agent.ui.model_binary_toggles import MODEL_BINARY_TOGGLES
 from fast_agent.utils.collections import cycle_next, unique_preserve_order
+
+if TYPE_CHECKING:
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,13 +104,13 @@ def cycle_text_verbosity(
     return cycle_next(current, candidates, default=spec.default)
 
 
-def _service_tier_hint_values(llm: object) -> str:
+def _service_tier_hint_values(llm: "FastAgentLLMProtocol") -> str:
     available_values = available_service_tier_values(llm)
     values = ["standard", *available_values]
     return ", ".join(unique_preserve_order(values))
 
 
-def build_model_shortcut_hints(llm: object | None) -> list[ModelShortcutHint]:
+def build_model_shortcut_hints(llm: "FastAgentLLMProtocol | None") -> list[ModelShortcutHint]:
     if llm is None:
         return []
 

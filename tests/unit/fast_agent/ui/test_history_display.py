@@ -16,6 +16,7 @@ from fast_agent.ui.history_display import (
     _shade_block,
     display_history_show,
 )
+from fast_agent.ui.history_display_models import HistoryTimelineEntry
 
 
 def test_history_overview_summary_window_shows_twelve_rows() -> None:
@@ -47,7 +48,9 @@ def test_shade_block_uses_expected_threshold_markers() -> None:
 
 
 def test_build_history_bar_uses_singular_turn_count() -> None:
-    bar = _build_history_bar([{"role": "user", "chars": 1, "non_text": False}])
+    bar = _build_history_bar(
+        [HistoryTimelineEntry(role="user", chars=1, non_text=False, is_error=False)]
+    )
 
     assert bar.detail.plain == "1 turn"
 
@@ -124,13 +127,13 @@ def test_build_history_rows_places_provider_tool_activity_before_assistant_row()
 
     rows = _build_history_rows(history)
 
-    assert [row["role"] for row in rows] == ["user", "tool", "tool", "assistant"]
-    assert rows[1]["preview"] == "{}"
-    assert rows[1]["label"] == "remote tool call"
-    assert rows[1]["arrow"] == "◀"
-    assert rows[2]["preview"] == "evalstate"
-    assert rows[2]["label"] == "remote tool result"
-    assert rows[3]["preview"] == "You're evalstate."
+    assert [row.role for row in rows] == ["user", "tool", "tool", "assistant"]
+    assert rows[1].preview == "{}"
+    assert rows[1].label == "remote tool call"
+    assert rows[1].arrow == "◀"
+    assert rows[2].preview == "evalstate"
+    assert rows[2].label == "remote tool result"
+    assert rows[3].preview == "You're evalstate."
 
 
 def test_message_role_normalizes_role_case() -> None:

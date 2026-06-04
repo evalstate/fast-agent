@@ -18,6 +18,7 @@ from fast_agent.commands.summary_utils import JsonObject, json_object, optional_
 from fast_agent.interfaces import (
     AgentBackedToolProvider,
     CardToolProvider,
+    FastAgentLLMProtocol,
     LlmCapableProtocol,
     SmartToolingCapable,
 )
@@ -33,6 +34,7 @@ PROVIDER_MANAGED_MCP_SUFFIX = "provider-managed MCP"
 if TYPE_CHECKING:
     from mcp.types import Tool
 
+    from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.mcp.provider_management import (
         ProviderManagedMCPAttachment,
         ProviderManagedMCPState,
@@ -75,8 +77,8 @@ class _ToolNameSets:
 @dataclass(frozen=True, slots=True)
 class _ProviderToolDescriptor:
     name: str
-    supported: Callable[[object | None], bool]
-    enabled: Callable[[object | None], bool]
+    supported: "Callable[[FastAgentLLMProtocol | None], bool]"
+    enabled: "Callable[[FastAgentLLMProtocol | None], bool]"
     description: str
 
 
@@ -195,7 +197,7 @@ def _provider_managed_attachment_summaries(
     ]
 
 
-def _agent_llm(agent: object) -> object | None:
+def _agent_llm(agent: object) -> FastAgentLLMProtocol | None:
     if isinstance(agent, LlmCapableProtocol):
         return agent.llm
     return None
@@ -231,7 +233,7 @@ def _provider_managed_tool_summaries(agent: object) -> list[ProviderToolSummary]
 
 def _provider_hosted_tool_summary(
     descriptor: _ProviderToolDescriptor,
-    llm: object | None,
+    llm: FastAgentLLMProtocol | None,
 ) -> ProviderToolSummary | None:
     if not descriptor.supported(llm):
         return None

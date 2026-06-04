@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
+from fast_agent.marketplace.source_models import SourceUpdateDecision
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Set
 
@@ -136,3 +138,29 @@ def format_update_status_text(
     if status in merged_detail_statuses and cleaned_detail:
         return f"{status_text}: {cleaned_detail}"
     return status_text
+
+
+def decide_source_update_status(
+    *,
+    available_path_oid: str | None,
+    current_path_oid: str | None,
+    available_revision: str,
+    current_revision: str,
+    content_changed_detail: str,
+) -> SourceUpdateDecision:
+    if available_path_oid and current_path_oid:
+        if available_path_oid != current_path_oid:
+            return SourceUpdateDecision(
+                status="update_available",
+                detail=content_changed_detail,
+            )
+    elif available_revision != current_revision:
+        return SourceUpdateDecision(
+            status="update_available",
+            detail="new revision available",
+        )
+
+    return SourceUpdateDecision(
+        status="up_to_date",
+        detail="already up to date",
+    )

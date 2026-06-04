@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from fast_agent.marketplace import registry_urls, source_utils
+from fast_agent.marketplace import registry_urls
+from fast_agent.marketplace.source_urls import normalize_marketplace_url
 from fast_agent.plugins.models import DEFAULT_PLUGIN_MARKETPLACE_URL, DEFAULT_PLUGIN_REGISTRIES
 
 if TYPE_CHECKING:
@@ -19,7 +20,7 @@ def get_marketplace_url(settings: "Settings | None" = None) -> str:
     url = settings.plugins.marketplace_url if settings is not None else None
     if not url and settings is not None and settings.plugins.marketplace_urls:
         url = settings.plugins.marketplace_urls[0]
-    return source_utils.normalize_marketplace_url(url or DEFAULT_PLUGIN_MARKETPLACE_URL)
+    return normalize_marketplace_url(url or DEFAULT_PLUGIN_MARKETPLACE_URL)
 
 
 def get_manager_directory(settings: "Settings | None" = None, *, cwd: Path | None = None) -> Path:

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fast_agent.llm.capabilities import read_capability
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
+    from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 _ANTHROPIC_VERTEX_PREFIXES = (
@@ -65,16 +65,11 @@ def resolve_resolved_model_display_name(
 
 
 def resolve_llm_display_name(
-    llm: object | None,
+    llm: "FastAgentLLMProtocol | None",
     *,
     max_len: int | None = None,
 ) -> str | None:
-    resolved_model = read_capability(
-        llm,
-        "resolved_model",
-        lambda candidate: candidate.resolved_model,
-        default=None,
-    )
+    resolved_model = None if llm is None else llm.resolved_model
     return resolve_resolved_model_display_name(
         resolved_model,
         max_len=max_len,
@@ -84,7 +79,7 @@ def resolve_llm_display_name(
 def resolve_model_display_name(
     model: str | None = None,
     *,
-    llm: object | None = None,
+    llm: "FastAgentLLMProtocol | None" = None,
     max_len: int | None = None,
 ) -> str | None:
     resolved_display = resolve_llm_display_name(llm, max_len=max_len)

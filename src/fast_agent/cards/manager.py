@@ -22,9 +22,14 @@ from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import parse_model_reference_token
 from fast_agent.home import CONFIG_FILENAMES, PREFERRED_CONFIG_FILENAME, find_config_in_directory
+from fast_agent.marketplace import fetch as marketplace_fetch
 from fast_agent.marketplace import formatting as marketplace_formatting
+from fast_agent.marketplace import git_sources as marketplace_git_sources
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
 from fast_agent.marketplace import registry_urls as marketplace_registry_urls
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import source_models as marketplace_source_models
+from fast_agent.marketplace import source_urls as marketplace_source_urls
+from fast_agent.marketplace import update_status as marketplace_update_status
 from fast_agent.marketplace.models import MarketplaceEntryFieldsModel
 from fast_agent.marketplace.selection import (
     select_one_by_name_or_index,
@@ -109,8 +114,8 @@ CARD_PACK_PUBLISH_STATUS_STYLES: dict[CardPackPublishStatus, str | None] = {
     **{status: "yellow" for status in CARD_PACK_PUBLISH_WARNING_STATUSES},
 }
 
-CardPackHeadResolution = marketplace_source_utils.SourceRevision[CardPackUpdateStatus]
-CardPackPathResolution = marketplace_source_utils.SourcePathOid[CardPackUpdateStatus]
+CardPackHeadResolution = marketplace_source_models.SourceRevision[CardPackUpdateStatus]
+CardPackPathResolution = marketplace_source_models.SourcePathOid[CardPackUpdateStatus]
 CardPackHeadCache = dict[tuple[str, str | None], CardPackHeadResolution]
 CardPackPathCache = dict[tuple[str, str | None, str, str], CardPackPathResolution]
 
@@ -228,7 +233,7 @@ class MarketplaceCardPack:
 
     @property
     def repo_subdir(self) -> str:
-        return marketplace_source_utils.repo_subdir_for_manifest_path(
+        return marketplace_provenance_io.repo_subdir_for_manifest_path(
             self.repo_path,
             CARD_PACK_MANIFEST_FILENAME,
         )
@@ -294,14 +299,14 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
         default_repo_ref = context.get("repo_ref")
         default_source_url = context.get("source_url")
 
-        repo_url = marketplace_source_utils.first_nonempty_str(
+        repo_url = marketplace_source_urls.first_nonempty_str(
             data,
             "repo",
             "repository",
             "git",
             "repo_url",
         )
-        repo_ref = marketplace_source_utils.first_nonempty_str(
+        repo_ref = marketplace_source_urls.first_nonempty_str(
             data,
             "ref",
             "branch",
@@ -309,7 +314,7 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
             "revision",
             "commit",
         )
-        repo_path = marketplace_source_utils.first_nonempty_str(
+        repo_path = marketplace_source_urls.first_nonempty_str(
             data,
             "path",
             "repo_path",
@@ -317,14 +322,14 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
             "dir",
             "location",
         )
-        explicit_source_url = marketplace_source_utils.explicit_entry_source_url(
+        explicit_source_url = marketplace_source_urls.explicit_entry_source_url(
             data,
             "url",
             "source_url",
             default_source_url=default_source_url,
         )
 
-        parsed = marketplace_source_utils.parse_github_url(repo_url) if repo_url else None
+        parsed = marketplace_source_urls.parse_github_url(repo_url) if repo_url else None
         if parsed and not repo_path:
             repo_url = parsed.repo_url
             repo_ref = parsed.repo_ref
@@ -334,7 +339,7 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
             repo_ref = repo_ref or parsed.repo_ref
 
         source_parsed = (
-            marketplace_source_utils.parse_github_url(explicit_source_url)
+            marketplace_source_urls.parse_github_url(explicit_source_url)
             if explicit_source_url
             else None
         )
@@ -344,17 +349,17 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
             repo_path = source_parsed.repo_path
         elif (
             explicit_source_url
-            and marketplace_source_utils.is_git_source_url(explicit_source_url)
+            and marketplace_source_urls.is_git_source_url(explicit_source_url)
             and (not repo_url or repo_url == default_repo_url)
         ):
             repo_url = explicit_source_url
         elif explicit_source_url and repo_path and not repo_url:
             repo_url = explicit_source_url
 
-        name = marketplace_source_utils.first_nonempty_str(data, "name", "id", "slug", "title")
-        description = marketplace_source_utils.first_nonempty_str(data, "description", "summary")
-        kind = marketplace_source_utils.first_nonempty_str(data, "kind", "type")
-        bundle_name = marketplace_source_utils.first_nonempty_str(data, "bundle_name")
+        name = marketplace_source_urls.first_nonempty_str(data, "name", "id", "slug", "title")
+        description = marketplace_source_urls.first_nonempty_str(data, "description", "summary")
+        kind = marketplace_source_urls.first_nonempty_str(data, "kind", "type")
+        bundle_name = marketplace_source_urls.first_nonempty_str(data, "bundle_name")
 
         repo_url = repo_url or default_repo_url
         repo_ref = repo_ref or default_repo_ref
@@ -383,7 +388,7 @@ class MarketplacePayloadModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
-        return marketplace_source_utils.normalize_marketplace_payload(
+        return marketplace_fetch.normalize_marketplace_payload(
             data,
             info,
             extract_entries=_extract_marketplace_entries,
@@ -402,7 +407,7 @@ def get_marketplace_url(settings: Settings | None = None) -> str:
     url = cards_settings.marketplace_url
     if not url and cards_settings.marketplace_urls:
         url = cards_settings.marketplace_urls[0]
-    return marketplace_source_utils.normalize_marketplace_url(url or DEFAULT_CARD_REGISTRY_URL)
+    return marketplace_source_urls.normalize_marketplace_url(url or DEFAULT_CARD_REGISTRY_URL)
 
 
 def resolve_card_registries(settings: Settings | None = None) -> list[str]:
@@ -511,7 +516,7 @@ def compute_card_pack_content_fingerprint(
 def read_installed_card_pack_source(
     pack_dir: Path,
 ) -> tuple[InstalledCardPackSource | None, str | None]:
-    read_result = marketplace_source_utils.read_installed_source_file(
+    read_result = marketplace_provenance_io.read_installed_source_file(
         get_card_pack_source_sidecar_path(pack_dir),
         parse_payload=_parse_installed_card_pack_source,
     )
@@ -519,7 +524,7 @@ def read_installed_card_pack_source(
 
 
 def write_installed_card_pack_source(pack_dir: Path, source: InstalledCardPackSource) -> None:
-    marketplace_source_utils.write_installed_source_file(
+    marketplace_provenance_io.write_installed_source_file(
         get_card_pack_source_sidecar_path(pack_dir),
         source,
         extra_payload={
@@ -586,11 +591,11 @@ async def fetch_marketplace_card_packs(url: str) -> list[MarketplaceCardPack]:
 async def fetch_marketplace_card_packs_with_source(
     url: str,
 ) -> tuple[list[MarketplaceCardPack], str]:
-    return await marketplace_source_utils.fetch_marketplace_entries_with_source(
+    return await marketplace_fetch.fetch_marketplace_entries_with_source(
         url,
         candidate_urls=candidate_marketplace_urls,
-        normalize_url=marketplace_source_utils.normalize_marketplace_url,
-        load_local_payload=marketplace_source_utils.load_local_marketplace_payload,
+        normalize_url=marketplace_source_urls.normalize_marketplace_url,
+        load_local_payload=marketplace_fetch.load_local_marketplace_payload,
         parse_payload=lambda payload, source_url: _parse_marketplace_payload(
             payload,
             source_url=source_url,
@@ -994,7 +999,7 @@ def _prepare_publish_workspace(
     keep_temp: bool,
     stack: contextlib.ExitStack,
 ) -> _PublishWorkspace | CardPackPublishResult:
-    local_repo = marketplace_source_utils.resolve_local_repo(source.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(source.repo_url)
     if local_repo is not None:
         return _PublishWorkspace(repo_root=local_repo, retained_temp_dir=None)
 
@@ -1040,7 +1045,7 @@ def _resolve_publish_destination(
     workspace: _PublishWorkspace,
 ) -> Path | CardPackPublishResult:
     try:
-        return marketplace_source_utils.resolve_repo_subdir(
+        return marketplace_git_sources.resolve_repo_subdir(
             workspace.repo_root,
             source.repo_path,
             label="Card pack",
@@ -1124,7 +1129,7 @@ def _stage_publish_changes(
             pack_dir=pack_dir,
             workspace=workspace,
             status="publish_failed",
-            detail=marketplace_source_utils.subprocess_failure_detail(
+            detail=marketplace_git_sources.subprocess_failure_detail(
                 add_result,
                 "git add failed",
             ),
@@ -1142,7 +1147,7 @@ def _stage_publish_changes(
             pack_dir=pack_dir,
             workspace=workspace,
             status="publish_failed",
-            detail=marketplace_source_utils.subprocess_failure_detail(
+            detail=marketplace_git_sources.subprocess_failure_detail(
                 status_result,
                 "git status failed",
             ),
@@ -1157,7 +1162,7 @@ def _finish_publish_without_changes(
     environment_paths: EnvironmentPaths,
     workspace: _PublishWorkspace,
 ) -> CardPackPublishResult:
-    current_commit = marketplace_source_utils.resolve_git_commit(workspace.repo_root, "HEAD")
+    current_commit = marketplace_git_sources.resolve_git_commit(workspace.repo_root, "HEAD")
     if current_commit:
         metadata_error = _refresh_publish_sidecar_safely(
             pack_dir=pack_dir,
@@ -1207,13 +1212,13 @@ def _commit_publish_changes(
             pack_dir=pack_dir,
             workspace=workspace,
             status="publish_failed",
-            detail=marketplace_source_utils.subprocess_failure_detail(
+            detail=marketplace_git_sources.subprocess_failure_detail(
                 commit_result,
                 "git commit failed",
             ),
         )
 
-    commit = marketplace_source_utils.resolve_git_commit(workspace.repo_root, "HEAD")
+    commit = marketplace_git_sources.resolve_git_commit(workspace.repo_root, "HEAD")
     if not commit:
         return commit
 
@@ -1260,7 +1265,7 @@ def _push_published_card_pack(
             commit=commit,
         )
 
-    push_error = marketplace_source_utils.subprocess_failure_detail(
+    push_error = marketplace_git_sources.subprocess_failure_detail(
         push_result,
         "git push failed",
     )
@@ -1402,7 +1407,7 @@ def _install_marketplace_card_pack_sync(
         write_installed_card_pack_source(staged_pack_dir, source)
 
         if install_root.exists():
-            marketplace_source_utils.atomic_replace_directory(
+            marketplace_git_sources.atomic_replace_directory(
                 existing_dir=install_root,
                 staged_dir=staged_pack_dir,
             )
@@ -1421,16 +1426,16 @@ def _copy_pack_from_marketplace_source(
     *,
     destination_dir: Path,
     pinned_revision: str | None,
-) -> marketplace_source_utils.SourceCopyResult[CardPackSourceOrigin]:
-    checkout_ref = marketplace_source_utils.pinned_checkout_ref(
+) -> marketplace_source_models.SourceCopyResult[CardPackSourceOrigin]:
+    checkout_ref = marketplace_git_sources.pinned_checkout_ref(
         pinned_revision,
         local_revision=LOCAL_REVISION,
     )
-    local_repo = marketplace_source_utils.resolve_local_repo(pack.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(pack.repo_url)
     if local_repo is not None:
         requested_revision = checkout_ref or pack.repo_ref
         if requested_revision:
-            commit = marketplace_source_utils.resolve_git_commit(local_repo, requested_revision)
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, requested_revision)
             if commit is None:
                 raise FileNotFoundError(f"Card pack source ref not found: {requested_revision}")
             _copy_pack_source_from_git_commit(
@@ -1440,28 +1445,28 @@ def _copy_pack_from_marketplace_source(
                 destination_dir=destination_dir,
             )
         else:
-            source_dir = marketplace_source_utils.resolve_repo_subdir(
+            source_dir = marketplace_git_sources.resolve_repo_subdir(
                 local_repo,
                 pack.repo_subdir,
                 label="Card pack",
             )
             _validate_pack_source_dir(source_dir, pack.repo_subdir)
             shutil.copytree(source_dir, destination_dir)
-            if marketplace_source_utils.is_git_source_dirty(local_repo, source_dir):
-                return marketplace_source_utils.SourceCopyResult(
+            if marketplace_git_sources.is_git_source_dirty(local_repo, source_dir):
+                return marketplace_source_models.SourceCopyResult(
                     origin="local",
                     commit=None,
                     path_oid=None,
                 )
-            commit = marketplace_source_utils.resolve_git_commit(local_repo, "HEAD")
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, "HEAD")
 
-        path_oid = marketplace_source_utils.resolve_git_path_oid_if_commit(
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
             local_repo,
             commit,
             pack.repo_subdir,
-            resolve_git_path_oid_fn=marketplace_source_utils.resolve_git_path_oid,
+            resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
         )
-        return marketplace_source_utils.SourceCopyResult(
+        return marketplace_source_models.SourceCopyResult(
             origin="local",
             commit=commit,
             path_oid=path_oid,
@@ -1469,7 +1474,7 @@ def _copy_pack_from_marketplace_source(
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
-        marketplace_source_utils.clone_sparse_checkout(
+        marketplace_git_sources.clone_sparse_checkout(
             repo_url=pack.repo_url,
             repo_ref=pack.repo_ref,
             repo_subdir=pack.repo_subdir,
@@ -1477,7 +1482,7 @@ def _copy_pack_from_marketplace_source(
             checkout_ref=checkout_ref,
         )
 
-        source_dir = marketplace_source_utils.resolve_repo_subdir(
+        source_dir = marketplace_git_sources.resolve_repo_subdir(
             tmp_path,
             pack.repo_subdir,
             label="Card pack",
@@ -1486,14 +1491,14 @@ def _copy_pack_from_marketplace_source(
 
         shutil.copytree(source_dir, destination_dir)
 
-        commit = marketplace_source_utils.resolve_git_commit(tmp_path, "HEAD")
-        path_oid = marketplace_source_utils.resolve_git_path_oid_if_commit(
+        commit = marketplace_git_sources.resolve_git_commit(tmp_path, "HEAD")
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
             tmp_path,
             commit,
             pack.repo_subdir,
-            resolve_git_path_oid_fn=marketplace_source_utils.resolve_git_path_oid,
+            resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
         )
-        return marketplace_source_utils.SourceCopyResult(
+        return marketplace_source_models.SourceCopyResult(
             origin="remote",
             commit=commit,
             path_oid=path_oid,
@@ -1516,7 +1521,7 @@ def _copy_pack_source_from_git_commit(
     repo_path: str,
     destination_dir: Path,
 ) -> None:
-    marketplace_source_utils.copy_git_path_from_commit(
+    marketplace_git_sources.copy_git_path_from_commit(
         repo_root=repo_root,
         commit=commit,
         repo_subdir=repo_path,
@@ -2098,7 +2103,7 @@ def _evaluate_card_pack_path_update(
         ).path_oid
 
     current_revision = source.installed_commit or source.installed_revision
-    decision = marketplace_source_utils.decide_source_update_status(
+    decision = marketplace_update_status.decide_source_update_status(
         available_path_oid=available_path.path_oid,
         current_path_oid=current_path_oid,
         available_revision=available_revision,
@@ -2211,7 +2216,7 @@ def _collect_installed_file_owners(destination_root: Path) -> dict[str, set[str]
 
 
 def _parse_installed_card_pack_source(payload: dict[str, Any]) -> InstalledCardPackSource:
-    parsed = marketplace_source_utils.parse_installed_source_fields(
+    parsed = marketplace_provenance_io.parse_installed_source_fields(
         payload,
         expected_schema_version=CARD_PACK_SOURCE_SCHEMA_VERSION,
         normalize_repo_path=_normalize_repo_path,
@@ -2295,7 +2300,7 @@ def _refresh_published_sidecar(
     repo_root: Path,
     commit: str,
 ) -> None:
-    installed_path_oid = marketplace_source_utils.resolve_git_path_oid(
+    installed_path_oid = marketplace_git_sources.resolve_git_path_oid(
         repo_root,
         commit,
         source.repo_path,
@@ -2316,12 +2321,12 @@ def _refresh_published_sidecar(
 
 
 def _validate_source_path_exists(source: InstalledCardPackSource) -> str | None:
-    local_repo = marketplace_source_utils.resolve_local_repo(source.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(source.repo_url)
     if local_repo is None:
         return None
 
     try:
-        source_dir = marketplace_source_utils.resolve_repo_subdir(
+        source_dir = marketplace_git_sources.resolve_repo_subdir(
             local_repo,
             source.repo_path,
             label="Card pack",
@@ -2341,15 +2346,15 @@ def _resolve_source_revision(
     source: InstalledCardPackSource,
     head_cache: CardPackHeadCache,
 ) -> CardPackHeadResolution:
-    return marketplace_source_utils.resolve_source_revision(
+    return marketplace_git_sources.resolve_source_revision(
         repo_url=source.repo_url,
         repo_ref=source.repo_ref,
         head_cache=head_cache,
         local_revision=LOCAL_REVISION,
         source_ref_missing_status="source_ref_missing",
         source_unreachable_status="source_unreachable",
-        resolve_local_repo_fn=marketplace_source_utils.resolve_local_repo,
-        resolve_git_commit_fn=marketplace_source_utils.resolve_git_commit,
+        resolve_local_repo_fn=marketplace_git_sources.resolve_local_repo,
+        resolve_git_commit_fn=marketplace_git_sources.resolve_git_commit,
     )
 
 
@@ -2358,7 +2363,7 @@ def _resolve_source_path_oid(
     commit: str,
     path_cache: CardPackPathCache,
 ) -> CardPackPathResolution:
-    return marketplace_source_utils.resolve_source_path_oid(
+    return marketplace_git_sources.resolve_source_path_oid(
         repo_url=source.repo_url,
         repo_ref=source.repo_ref,
         repo_path=source.repo_path,
@@ -2367,13 +2372,13 @@ def _resolve_source_path_oid(
         source_ref_missing_status="source_ref_missing",
         source_unreachable_status="source_unreachable",
         source_path_missing_status="source_path_missing",
-        resolve_local_repo_fn=marketplace_source_utils.resolve_local_repo,
-        resolve_git_path_oid_fn=marketplace_source_utils.resolve_git_path_oid,
+        resolve_local_repo_fn=marketplace_git_sources.resolve_local_repo,
+        resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
     )
 
 
 def candidate_marketplace_urls(url: str) -> list[str]:
-    return marketplace_source_utils.candidate_marketplace_urls(url)
+    return marketplace_source_urls.candidate_marketplace_urls(url)
 
 
 def _parse_marketplace_payload(
@@ -2381,7 +2386,7 @@ def _parse_marketplace_payload(
     *,
     source_url: str | None = None,
 ) -> list[MarketplaceCardPack]:
-    source_context = marketplace_source_utils.marketplace_source_context(source_url)
+    source_context = marketplace_fetch.marketplace_source_context(source_url)
 
     try:
         model = MarketplacePayloadModel.model_validate(
@@ -2423,7 +2428,7 @@ def _card_pack_from_entry_model(model: MarketplaceEntryModel) -> MarketplaceCard
 
 
 def _card_pack_name_from_repo_path(repo_path: str) -> str:
-    return marketplace_source_utils.repo_name_for_manifest_path(
+    return marketplace_provenance_io.repo_name_for_manifest_path(
         repo_path,
         CARD_PACK_MANIFEST_FILENAME,
     )
@@ -2441,7 +2446,7 @@ def _normalize_card_pack_kind(value: object) -> CardPackKind | None:
 
 
 def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
-    return marketplace_source_utils.extract_dict_entries(
+    return marketplace_fetch.extract_dict_entries(
         payload,
         ("card_packs", "cards", "entries", "items", "marketplace", "plugins"),
         allow_mapping_values=True,
@@ -2481,7 +2486,7 @@ def _validate_manifest_install_path(value: str) -> str:
 
 
 def _normalize_repo_path(path: str) -> str | None:
-    return marketplace_source_utils.normalize_relative_repo_path(path)
+    return marketplace_provenance_io.normalize_relative_repo_path(path)
 
 
 def _clone_publish_repository(*, source: InstalledCardPackSource, destination_dir: Path) -> str | None:
@@ -2499,7 +2504,7 @@ def _clone_publish_repository(*, source: InstalledCardPackSource, destination_di
 
     clone_result = subprocess.run(clone_args, capture_output=True, text=True, check=False)
     if clone_result.returncode != 0:
-        return marketplace_source_utils.subprocess_failure_detail(
+        return marketplace_git_sources.subprocess_failure_detail(
             clone_result,
             "git clone failed",
         )
@@ -2511,7 +2516,7 @@ def _clone_publish_repository(*, source: InstalledCardPackSource, destination_di
         check=False,
     )
     if sparse_result.returncode != 0:
-        return marketplace_source_utils.subprocess_failure_detail(
+        return marketplace_git_sources.subprocess_failure_detail(
             sparse_result,
             "git sparse-checkout failed",
         )
@@ -2524,7 +2529,7 @@ def _clone_publish_repository(*, source: InstalledCardPackSource, destination_di
         check=False,
     )
     if checkout_result.returncode != 0:
-        return marketplace_source_utils.subprocess_failure_detail(
+        return marketplace_git_sources.subprocess_failure_detail(
             checkout_result,
             "git checkout failed",
         )

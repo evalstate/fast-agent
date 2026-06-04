@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from fast_agent.config import Settings, get_settings
@@ -258,6 +258,9 @@ class NonInteractiveCommandIOBase(CommandIO):
         del agent_name, system_prompt, server_count
 
 
+_SESSION_SKILL_SOURCE_OVERRIDES: dict[tuple[int, str], str] = {}
+
+
 @dataclass(slots=True)
 class CommandContext:
     """Context passed to shared command handlers."""
@@ -271,9 +274,26 @@ class CommandContext:
     session_cwd: Path | None = None
     session_store_scope: SessionStoreScope = "workspace"
     session_store_cwd: Path | None = None
+    skill_source_overrides: dict[str, str] = field(default_factory=dict)
 
     def resolve_settings(self) -> Settings:
         return self.settings or get_settings()
+
+    def active_skill_source(self, agent_name: str) -> str | None:
+        return self.skill_source_overrides.get(
+            agent_name
+        ) or _SESSION_SKILL_SOURCE_OVERRIDES.get(self._skill_source_override_key(agent_name))
+
+    def set_active_skill_source(self, agent_name: str, source: str) -> None:
+        self.skill_source_overrides[agent_name] = source
+        _SESSION_SKILL_SOURCE_OVERRIDES[self._skill_source_override_key(agent_name)] = source
+
+    def clear_active_skill_source(self, agent_name: str) -> None:
+        self.skill_source_overrides.pop(agent_name, None)
+        _SESSION_SKILL_SOURCE_OVERRIDES.pop(self._skill_source_override_key(agent_name), None)
+
+    def _skill_source_override_key(self, agent_name: str) -> tuple[int, str]:
+        return (id(self.agent_provider), agent_name)
 
     def resolve_session_manager(self) -> "SessionManager":
         from fast_agent.session import get_session_manager

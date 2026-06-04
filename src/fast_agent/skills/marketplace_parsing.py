@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import fetch as marketplace_fetch
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
+from fast_agent.marketplace import source_urls as marketplace_source_urls
 from fast_agent.marketplace.models import MarketplaceEntryFieldsModel
 from fast_agent.skills.models import SKILL_MANIFEST_FILENAME_LOWER, MarketplaceSkill
 from fast_agent.utils.text import strip_str_to_none, strip_to_none
@@ -45,23 +47,23 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
         default_repo_ref = context.get("repo_ref")
         default_source_url = context.get("source_url")
 
-        repo_fields = marketplace_source_utils.marketplace_repo_fields(
+        repo_fields = marketplace_source_urls.marketplace_repo_fields(
             data,
             repo_path_keys=_ENTRY_REPO_PATH_KEYS,
         )
         repo_url = repo_fields.repo_url
         repo_ref = repo_fields.repo_ref
         repo_path = repo_fields.repo_path
-        source_value = marketplace_source_utils.first_nonempty_str(
+        source_value = marketplace_source_urls.first_nonempty_str(
             data,
             "url",
             "skill_url",
             "source",
             "skill_source",
         )
-        source_value_is_url = marketplace_source_utils.is_git_source_url(source_value)
+        source_value_is_url = marketplace_source_urls.is_git_source_url(source_value)
         source_url = source_value if source_value_is_url else None
-        source_url_value = marketplace_source_utils.explicit_entry_source_url(
+        source_url_value = marketplace_source_urls.explicit_entry_source_url(
             data,
             "source_url",
             default_source_url=default_source_url,
@@ -69,7 +71,7 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
         if source_url is None and source_url_value:
             source_url = source_url_value
 
-        resolved_fields = marketplace_source_utils.repo_fields_from_source_url(
+        resolved_fields = marketplace_source_urls.repo_fields_from_source_url(
             repo_url=repo_url,
             repo_ref=repo_ref,
             repo_path=repo_path,
@@ -82,10 +84,10 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
         if source_value and not source_value_is_url and not repo_path:
             repo_path = _normalize_source_path(source_value, data)
 
-        name = marketplace_source_utils.first_nonempty_str(data, "name", "id", "slug", "title")
-        description = marketplace_source_utils.first_nonempty_str(data, "description", "summary")
-        bundle_name = marketplace_source_utils.first_nonempty_str(data, "bundle_name")
-        bundle_description = marketplace_source_utils.first_nonempty_str(
+        name = marketplace_source_urls.first_nonempty_str(data, "name", "id", "slug", "title")
+        description = marketplace_source_urls.first_nonempty_str(data, "description", "summary")
+        bundle_name = marketplace_source_urls.first_nonempty_str(data, "bundle_name")
+        bundle_description = marketplace_source_urls.first_nonempty_str(
             data,
             "bundle_description",
         )
@@ -115,7 +117,7 @@ class MarketplacePayloadModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
-        return marketplace_source_utils.normalize_marketplace_payload(
+        return marketplace_fetch.normalize_marketplace_payload(
             data,
             info,
             extract_entries=_extract_marketplace_entries,
@@ -127,7 +129,7 @@ def parse_marketplace_payload(
     *,
     source_url: str | None = None,
 ) -> list[MarketplaceSkill]:
-    source_context = marketplace_source_utils.marketplace_source_context(source_url)
+    source_context = marketplace_fetch.marketplace_source_context(source_url)
     try:
         model = MarketplacePayloadModel.model_validate(
             payload,
@@ -149,7 +151,7 @@ def parse_marketplace_payload(
 
 
 def normalize_repo_path(path: str) -> str | None:
-    return marketplace_source_utils.normalize_relative_repo_path(path, allow_current_dir=True)
+    return marketplace_provenance_io.normalize_relative_repo_path(path, allow_current_dir=True)
 
 
 def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
@@ -165,7 +167,7 @@ def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
                 entries.extend(_expand_plugin_entry(entry, plugin_root))
         return entries
 
-    return marketplace_source_utils.extract_dict_entries(
+    return marketplace_fetch.extract_dict_entries(
         payload,
         ("skills", "items", "entries", "marketplace", "plugins"),
         allow_mapping_values=True,
@@ -174,7 +176,7 @@ def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
 
 def _extract_optional_dict_entries(payload: Any, keys: tuple[str, ...]) -> list[dict[str, Any]]:
     try:
-        return marketplace_source_utils.extract_dict_entries(
+        return marketplace_fetch.extract_dict_entries(
             payload,
             keys,
             allow_mapping_values=True,
@@ -259,7 +261,7 @@ def _skill_name_from_plugin_skill_path(
         or strip_to_none(skill_path)
         or skill_path
     )
-    return marketplace_source_utils.repo_name_for_manifest_path(
+    return marketplace_provenance_io.repo_name_for_manifest_path(
         normalized_path,
         SKILL_MANIFEST_FILENAME_LOWER,
         allow_current_dir=True,
@@ -277,12 +279,12 @@ def _parse_plugin_source(
 
     source_text = strip_str_to_none(source)
     if source_text is not None:
-        parsed_github_source = marketplace_source_utils.parse_github_url(source_text)
+        parsed_github_source = marketplace_source_urls.parse_github_url(source_text)
         if parsed_github_source is not None:
             repo_url = parsed_github_source.repo_url
             repo_ref = parsed_github_source.repo_ref
             repo_path = parsed_github_source.repo_path
-        elif marketplace_source_utils.is_git_source_url(source_text):
+        elif marketplace_source_urls.is_git_source_url(source_text):
             repo_url = source_text
         else:
             if _is_invalid_relative_path(source_text):
@@ -295,11 +297,11 @@ def _parse_plugin_source(
         if _is_invalid_relative_path(repo_path):
             return _ParsedPluginSource(invalid_path=True)
         if source_kind == "github":
-            repo = marketplace_source_utils.first_nonempty_str(source, "repo")
+            repo = marketplace_source_urls.first_nonempty_str(source, "repo")
             if repo:
                 repo_url = _github_repo_url(repo)
         else:
-            repo_url = marketplace_source_utils.first_nonempty_str(
+            repo_url = marketplace_source_urls.first_nonempty_str(
                 source,
                 "url",
                 "repo",
@@ -310,7 +312,7 @@ def _parse_plugin_source(
         repo_path
         and plugin_root
         and not plugin_root_applied
-        and not marketplace_source_utils.is_git_source_url(repo_path)
+        and not marketplace_source_urls.is_git_source_url(repo_path)
     ):
         repo_path = _join_relative_paths(plugin_root, repo_path)
 
@@ -319,18 +321,18 @@ def _parse_plugin_source(
 
 def _github_repo_url(repo: str) -> str:
     normalized_repo = strip_to_none(repo) or repo
-    if marketplace_source_utils.is_git_source_url(normalized_repo):
+    if marketplace_source_urls.is_git_source_url(normalized_repo):
         return normalized_repo
     return f"https://github.com/{normalized_repo.strip('/')}"
 
 
 def _parse_source_ref_and_path(source: dict[str, Any]) -> tuple[str | None, str | None]:
     return (
-        marketplace_source_utils.first_nonempty_str(
+        marketplace_source_urls.first_nonempty_str(
             source,
-            *marketplace_source_utils.MARKETPLACE_REPO_REF_KEYS,
+            *marketplace_source_urls.MARKETPLACE_REPO_REF_KEYS,
         ),
-        marketplace_source_utils.first_nonempty_str(source, *_PLUGIN_SOURCE_PATH_KEYS),
+        marketplace_source_urls.first_nonempty_str(source, *_PLUGIN_SOURCE_PATH_KEYS),
     )
 
 
@@ -347,7 +349,7 @@ def _join_relative_paths(base: str | None, leaf: str | None) -> str | None:
 def _clean_relative_path(value: str | None) -> str | None:
     if value is None:
         return None
-    cleaned = marketplace_source_utils.normalize_relative_repo_path(
+    cleaned = marketplace_provenance_io.normalize_relative_repo_path(
         value,
         allow_current_dir=True,
     )
@@ -359,7 +361,7 @@ def _clean_relative_path(value: str | None) -> str | None:
 def _is_invalid_relative_path(value: str | None) -> bool:
     if not value:
         return False
-    return marketplace_source_utils.normalize_relative_repo_path(
+    return marketplace_provenance_io.normalize_relative_repo_path(
         value,
         allow_current_dir=True,
     ) is None
@@ -383,5 +385,5 @@ def _normalize_source_path(source: str, entry: dict[str, Any]) -> str | None:
     if not source_path:
         return None
 
-    name = marketplace_source_utils.first_nonempty_str(entry, "name", "id", "slug", "title")
+    name = marketplace_source_urls.first_nonempty_str(entry, "name", "id", "slug", "title")
     return _skill_scoped_source_path(source_path, name)

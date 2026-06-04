@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import httpx
 
 from fast_agent.io.path_uri import file_uri_to_path
-from fast_agent.marketplace.source_utils import (
+from fast_agent.marketplace.source_urls import (
     github_raw_file_url,
     is_git_source_url,
     parse_github_url,

@@ -111,9 +111,9 @@ class ResolvedAgentLlm:
 class WebToolSetting:
     label: str
     setting_name: str
-    supported: Callable[[object], bool]
-    enabled: Callable[[object], bool]
-    set_enabled: Callable[[object, bool | None], None]
+    supported: "Callable[[FastAgentLLMProtocol], bool]"
+    enabled: "Callable[[FastAgentLLMProtocol], bool]"
+    set_enabled: "Callable[[FastAgentLLMProtocol, bool | None], None]"
 
 
 WEB_SEARCH_SETTING = WebToolSetting(

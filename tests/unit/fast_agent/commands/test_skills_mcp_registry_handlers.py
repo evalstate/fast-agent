@@ -51,9 +51,13 @@ class _Agent:
     aggregator = _Aggregator()
 
 
-def _ctx(settings: Settings) -> CommandContext:
+def _ctx(
+    settings: Settings,
+    *,
+    agent_provider: StaticAgentProvider | None = None,
+) -> CommandContext:
     return CommandContext(
-        agent_provider=StaticAgentProvider({"main": _Agent()}),
+        agent_provider=agent_provider or StaticAgentProvider({"main": _Agent()}),
         current_agent_name="main",
         io=NonInteractiveCommandIOBase(),
         settings=settings,
@@ -82,11 +86,13 @@ async def test_skills_registry_lists_mcp_servers() -> None:
 @pytest.mark.asyncio
 async def test_skills_registry_can_select_mcp_server_by_name() -> None:
     settings = Settings()
+    ctx = _ctx(settings)
 
-    outcome = await handle_set_skills_registry(_ctx(settings), agent_name="main", argument="hf")
+    outcome = await handle_set_skills_registry(ctx, agent_name="main", argument="hf")
 
     rendered = "\n".join(_plain(message.text) for message in outcome.messages)
-    assert settings.skills.marketplace_url == "mcp://hf"
+    assert settings.skills.marketplace_url is None
+    assert ctx.active_skill_source("main") == "mcp://hf"
     assert "Registry set to: mcp-server hf@1.2.3" in rendered
     assert "Skills discovered: 1" in rendered
 
@@ -95,12 +101,13 @@ async def test_skills_registry_can_select_mcp_server_by_name() -> None:
 async def test_skills_registry_filters_active_mcp_source_from_configured_numbers() -> None:
     settings = Settings(
         skills=SkillsSettings(
-            marketplace_url="mcp://hf",
             marketplace_urls=["https://github.com/example/skills"],
         )
     )
+    ctx = _ctx(settings)
+    ctx.set_active_skill_source("main", "mcp://hf")
 
-    list_outcome = await handle_set_skills_registry(_ctx(settings), agent_name="main", argument=None)
+    list_outcome = await handle_set_skills_registry(ctx, agent_name="main", argument=None)
     rendered_list = "\n".join(_plain(message.text) for message in list_outcome.messages)
 
     assert "https://github.com/example/skills" in rendered_list
@@ -108,20 +115,44 @@ async def test_skills_registry_filters_active_mcp_source_from_configured_numbers
     assert "MCP registries:" in rendered_list
     assert "mcp-server hf@1.2.3" in rendered_list
 
-    select_outcome = await handle_set_skills_registry(_ctx(settings), agent_name="main", argument="2")
+    select_outcome = await handle_set_skills_registry(ctx, agent_name="main", argument="2")
     rendered_select = "\n".join(_plain(message.text) for message in select_outcome.messages)
 
-    assert settings.skills.marketplace_url == "mcp://hf"
+    assert settings.skills.marketplace_url is None
+    assert ctx.active_skill_source("main") == "mcp://hf"
     assert "Registry set to: mcp-server hf@1.2.3" in rendered_select
     assert "Failed to load registry" not in rendered_select
 
 
 @pytest.mark.asyncio
 async def test_skills_available_uses_selected_mcp_registry() -> None:
-    settings = Settings(skills=SkillsSettings(marketplace_url="mcp://hf"))
+    settings = Settings()
+    ctx = _ctx(settings)
+    await handle_set_skills_registry(ctx, agent_name="main", argument="hf")
 
     outcome = await handle_list_marketplace_skills(
-        _ctx(settings), agent_name="main", query=None
+        ctx, agent_name="main", query=None
+    )
+
+    rendered = "\n".join(_plain(message.text) for message in outcome.messages)
+    assert "MCP skills from mcp-server hf@1.2.3" in rendered
+    assert "hub-search" in rendered
+
+
+@pytest.mark.asyncio
+async def test_selected_mcp_registry_survives_fresh_command_context() -> None:
+    settings = Settings()
+    agent_provider = StaticAgentProvider({"main": _Agent()})
+    await handle_set_skills_registry(
+        _ctx(settings, agent_provider=agent_provider),
+        agent_name="main",
+        argument="hf",
+    )
+
+    outcome = await handle_list_marketplace_skills(
+        _ctx(settings, agent_provider=agent_provider),
+        agent_name="main",
+        query=None,
     )
 
     rendered = "\n".join(_plain(message.text) for message in outcome.messages)

@@ -78,6 +78,7 @@ from fast_agent.mcp.tool_permission_handler import (
     ToolPermissionHandler,
     ToolPermissionResult,
 )
+from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 from fast_agent.skills.mcp_registry import (
     McpSkillRegistry,
@@ -1378,6 +1379,12 @@ class MCPAggregator(ContextDependent):
             registries.append(registry)
         return registries
 
+    def cached_mcp_skill_registries(self) -> list[McpSkillRegistry]:
+        return sorted(
+            self._mcp_skill_registries.values(),
+            key=lambda registry: registry.server_name.lower(),
+        )
+
     async def _mcp_server_version(self, server_name: str) -> str | None:
         manager = self._persistent_connection_manager
         if self.connection_persistence and manager is not None:
@@ -2021,8 +2028,7 @@ class MCPAggregator(ContextDependent):
         payload = MCPAgentClientSession.get_url_elicitation_required_payload(exc)
         if payload is not None:
             with suppress(Exception):
-                error_result_meta = cast("Any", error_result)
-                error_result_meta._fast_agent_url_elicitation_required = payload
+                set_url_elicitation_required_payload(error_result, payload)
         return error_result
 
     async def _execute_initial_server_operation(

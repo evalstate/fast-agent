@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from contextlib import suppress
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass
-from typing import Any, cast
+from typing import Any
 
 from fastmcp.tools import FunctionTool, ToolResult
 from mcp.types import CallToolResult, ContentBlock, ListToolsResult, TextContent, Tool
@@ -30,6 +30,11 @@ from fast_agent.interfaces import LlmAgentProtocol, ToolRunnerHookCapable
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+from fast_agent.mcp.tool_result_metadata import (
+    fatal_tool_error,
+    set_url_elicitation_required_payload,
+    url_elicitation_required_payload,
+)
 from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.tools.function_tool_loader import build_default_function_tool
@@ -910,7 +915,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             fatal_errors = [
                 str(error)
                 for result in tool_results.values()
-                if (error := getattr(result, "_fast_agent_fatal_tool_error", None))
+                if (error := fatal_tool_error(result))
             ]
             if fatal_errors:
                 content.extend(text_content(error) for error in fatal_errors)
@@ -933,7 +938,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
     ) -> list[dict[str, object]]:
         payloads: list[dict[str, object]] = []
         for result in tool_results.values():
-            payload = getattr(result, "_fast_agent_url_elicitation_required", None)
+            payload = url_elicitation_required_payload(result)
             if isinstance(payload, URLElicitationRequiredDisplayPayload):
                 payloads.append(asdict(payload))
         return payloads
@@ -1037,11 +1042,10 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 content=[text_content(f"Error: {e!s}")],
                 isError=True,
             )
-            payload = getattr(e, "_fast_agent_url_elicitation_required", None)
+            payload = url_elicitation_required_payload(e)
             if payload is not None:
                 with suppress(Exception):
-                    tool_result_meta = cast("Any", tool_result)
-                    tool_result_meta._fast_agent_url_elicitation_required = payload
+                    set_url_elicitation_required_payload(tool_result, payload)
             if tool_handler and tool_call_id:
                 with suppress(Exception):
                     await tool_handler.on_tool_complete(tool_call_id, False, None, str(e))

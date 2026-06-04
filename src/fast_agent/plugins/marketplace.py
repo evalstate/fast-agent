@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import fetch as marketplace_fetch
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
+from fast_agent.marketplace import source_urls as marketplace_source_urls
 from fast_agent.marketplace.models import MarketplaceEntryFieldsModel
 from fast_agent.plugins.models import PLUGIN_MANIFEST_FILENAME, MarketplacePlugin
 from fast_agent.plugins.provenance import normalize_repo_path
@@ -31,22 +33,22 @@ class MarketplacePluginEntryModel(MarketplaceEntryFieldsModel):
         context = info.context or {}
         default_repo_url = context.get("repo_url")
         default_source_url = context.get("source_url")
-        repo_fields = marketplace_source_utils.marketplace_repo_fields(
+        repo_fields = marketplace_source_urls.marketplace_repo_fields(
             data,
             repo_path_keys=("path", "plugin_path", "directory", "dir", "repo_path"),
         )
         repo_url = repo_fields.repo_url
         repo_ref = repo_fields.repo_ref
         repo_path = repo_fields.repo_path
-        source_url_value = marketplace_source_utils.explicit_entry_source_url(
+        source_url_value = marketplace_source_urls.explicit_entry_source_url(
             data,
             "source_url",
             "url",
             default_source_url=default_source_url,
         )
-        source_value = marketplace_source_utils.first_nonempty_str(data, "source")
-        source_url_value_is_url = marketplace_source_utils.is_git_source_url(source_url_value)
-        source_value_is_url = marketplace_source_utils.is_git_source_url(source_value)
+        source_value = marketplace_source_urls.first_nonempty_str(data, "source")
+        source_url_value_is_url = marketplace_source_urls.is_git_source_url(source_url_value)
+        source_value_is_url = marketplace_source_urls.is_git_source_url(source_value)
         source_url = (
             source_value
             if source_value_is_url
@@ -68,7 +70,7 @@ class MarketplacePluginEntryModel(MarketplaceEntryFieldsModel):
             else None
         )
 
-        resolved_fields = marketplace_source_utils.repo_fields_from_source_url(
+        resolved_fields = marketplace_source_urls.repo_fields_from_source_url(
             repo_url=repo_url,
             repo_ref=repo_ref,
             repo_path=repo_path,
@@ -83,23 +85,23 @@ class MarketplacePluginEntryModel(MarketplaceEntryFieldsModel):
 
         repo_url = repo_url or default_repo_url
         repo_ref = repo_ref or context.get("repo_ref")
-        name = marketplace_source_utils.first_nonempty_str(data, "name", "id", "slug", "title")
+        name = marketplace_source_urls.first_nonempty_str(data, "name", "id", "slug", "title")
         if not name and repo_path:
             name = _plugin_name_from_repo_path(repo_path)
 
         return {
             "name": name,
-            "description": marketplace_source_utils.first_nonempty_str(
+            "description": marketplace_source_urls.first_nonempty_str(
                 data,
                 "description",
                 "summary",
             ),
-            "kind": marketplace_source_utils.first_nonempty_str(data, "kind", "type"),
+            "kind": marketplace_source_urls.first_nonempty_str(data, "kind", "type"),
             "repo_url": repo_url,
             "repo_ref": repo_ref,
             "repo_path": repo_path,
             "source_url": source_url or context.get("source_url"),
-            "bundle_name": marketplace_source_utils.first_nonempty_str(data, "bundle_name"),
+            "bundle_name": marketplace_source_urls.first_nonempty_str(data, "bundle_name"),
         }
 
 
@@ -111,7 +113,7 @@ class MarketplacePluginPayloadModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
-        return marketplace_source_utils.normalize_marketplace_payload(
+        return marketplace_fetch.normalize_marketplace_payload(
             data,
             info,
             extract_entries=_extract_marketplace_entries,
@@ -123,7 +125,7 @@ def parse_marketplace_plugins(
     *,
     source_url: str | None = None,
 ) -> list[MarketplacePlugin]:
-    source_context = marketplace_source_utils.marketplace_source_context(source_url)
+    source_context = marketplace_fetch.marketplace_source_context(source_url)
 
     model = MarketplacePluginPayloadModel.model_validate(
         payload,
@@ -154,7 +156,7 @@ def parse_marketplace_plugins(
 
 def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
     try:
-        return marketplace_source_utils.extract_dict_entries(
+        return marketplace_fetch.extract_dict_entries(
             payload,
             ("command_plugins", "fast_agent_plugins", "plugins", "entries"),
         )
@@ -163,7 +165,7 @@ def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
 
 
 def _plugin_name_from_repo_path(repo_path: str) -> str:
-    return marketplace_source_utils.repo_name_for_manifest_path(
+    return marketplace_provenance_io.repo_name_for_manifest_path(
         repo_path,
         PLUGIN_MANIFEST_FILENAME,
     )

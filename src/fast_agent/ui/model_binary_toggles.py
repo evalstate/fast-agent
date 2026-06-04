@@ -18,6 +18,8 @@ from fast_agent.ui.binary_indicator import render_toolbar_binary_indicator
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from fast_agent.interfaces import FastAgentLLMProtocol
+
 ModelBinaryToggleId = Literal["web_search", "web_fetch"]
 
 
@@ -27,9 +29,9 @@ class ModelBinaryToggle:
     shortcut_key: str
     label: str
     glyph: str
-    resolve_supported: "Callable[[object | None], bool]"
-    resolve_enabled: "Callable[[object | None], bool]"
-    set_enabled: "Callable[[object, bool | None], None]"
+    resolve_supported: "Callable[[FastAgentLLMProtocol | None], bool]"
+    resolve_enabled: "Callable[[FastAgentLLMProtocol | None], bool]"
+    set_enabled: "Callable[[FastAgentLLMProtocol, bool | None], None]"
 
 
 WEB_SEARCH_TOGGLE = ModelBinaryToggle(
@@ -56,7 +58,9 @@ MODEL_BINARY_TOGGLES: tuple[ModelBinaryToggle, ...] = (
 )
 
 
-def cycle_model_binary_toggle(llm: object | None, toggle: ModelBinaryToggle) -> None:
+def cycle_model_binary_toggle(
+    llm: "FastAgentLLMProtocol | None", toggle: ModelBinaryToggle
+) -> None:
     if llm is None or not toggle.resolve_supported(llm):
         return
 

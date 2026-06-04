@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from fast_agent.marketplace.source_utils import repo_subdir_for_manifest_path
+from fast_agent.marketplace.provenance_io import repo_subdir_for_manifest_path
 from fast_agent.marketplace.update_status import CommonMarketplaceUpdateStatus
 from fast_agent.utils.text import strip_casefold
 

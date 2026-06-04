@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -26,15 +27,13 @@ from fast_agent.llm.model_overlays import LoadedModelOverlay, ModelOverlayManife
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.resolved_model import ResolvedModelSpec
 
+if TYPE_CHECKING:
+    from fast_agent.interfaces import FastAgentLLMProtocol
+
 
 @dataclass(slots=True)
 class _StubLLM:
     resolved_model: ResolvedModelSpec
-
-
-@dataclass(slots=True)
-class _LightweightLLM:
-    model_name: str
 
 
 class _BrokenResolvedModelPropertyLLM:
@@ -112,18 +111,15 @@ def test_resolve_model_display_name_handles_tiny_truncation_limits(
     assert resolve_model_display_name("provider/model-name", max_len=max_len) == expected
 
 
-def test_resolve_llm_display_name_allows_lightweight_llms_without_resolved_model() -> None:
-    llm = _LightweightLLM(model_name="custom/raw-model")
-
-    assert resolve_llm_display_name(llm) is None
-    assert resolve_model_display_name(llm.model_name, llm=llm) == "raw-model"
+def test_resolve_model_display_name_uses_raw_model_without_llm() -> None:
+    assert resolve_model_display_name("custom/raw-model") == "raw-model"
 
 
 def test_resolve_llm_display_name_does_not_mask_broken_resolved_model_property() -> None:
     llm = _BrokenResolvedModelPropertyLLM()
 
     with pytest.raises(AttributeError, match="resolved_model"):
-        resolve_llm_display_name(llm)
+        resolve_llm_display_name(cast("FastAgentLLMProtocol", llm))
 
 
 def test_resolve_llm_display_name_uses_overlay_name() -> None:
@@ -152,4 +148,6 @@ def test_resolve_llm_display_name_uses_overlay_name() -> None:
     )
 
     assert resolved_model.display_name == "haikutiny"
-    assert resolve_llm_display_name(_StubLLM(resolved_model)) == "haikutiny"
+    assert resolve_llm_display_name(
+        cast("FastAgentLLMProtocol", _StubLLM(resolved_model))
+    ) == "haikutiny"

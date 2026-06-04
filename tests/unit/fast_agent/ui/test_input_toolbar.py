@@ -53,6 +53,7 @@ class _StubAgent:
 @dataclass
 class _StubLlm:
     model_name: str | None = None
+    model_info: object | None = None
     resolved_model: object | None = None
     provider: object | None = None
     default_request_params: object | None = None
@@ -62,16 +63,24 @@ class _StubLlm:
     text_verbosity_spec: object | None = None
     service_tier: object | None = None
     service_tier_supported: bool = False
+    available_service_tiers: tuple[str, ...] = ()
     web_search_supported: bool = False
     web_search_enabled: bool = False
+    x_search_supported: bool = False
+    x_search_enabled: bool = False
     web_fetch_supported: bool = False
     web_fetch_enabled: bool = False
+    task_budget_supported: bool = False
+    task_budget_tokens: int | None = None
 
 
-class _MissingOptionalLlm:
-    model_name = "unknown.custom"
-    default_request_params = None
-    provider = Provider.GENERIC
+class _MinimalToolbarLlm(_StubLlm):
+    def __init__(self) -> None:
+        super().__init__(
+            model_name="unknown.custom",
+            default_request_params=None,
+            provider=Provider.GENERIC,
+        )
 
 
 class _StubAgentProvider:
@@ -239,11 +248,11 @@ def test_toolbar_agent_state_cache_hits_until_history_changes() -> None:
     assert result.cache_hit is False
 
 
-def test_toolbar_agent_state_tolerates_llm_optional_properties() -> None:
+def test_toolbar_agent_state_uses_protocol_default_capabilities() -> None:
     agent = _StubAgent(
         config=_StubConfig(model=None),
         message_history=[_StubMessage(role="user")],
-        _llm=_MissingOptionalLlm(),
+        _llm=_MinimalToolbarLlm(),
     )
     provider = cast("AgentApp", _StubAgentProvider(agent))
     cache = ToolbarRenderCache()

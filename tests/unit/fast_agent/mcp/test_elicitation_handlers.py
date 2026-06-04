@@ -10,6 +10,11 @@ from fast_agent.mcp.elicitation_handlers import (
     forms_elicitation_handler,
 )
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
+from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationDisplayItem,
+    URLElicitationRequiredDisplayPayload,
+)
 
 
 @dataclass
@@ -28,6 +33,26 @@ def test_parse_elicitation_content_accepts_json_object_with_required_fields() ->
     )
 
     assert content == {"name": "Ada", "age": 37}
+
+
+def test_url_elicitation_payload_round_trips_on_builtin_exception() -> None:
+    exc = Exception("url elicitation required")
+    payload = URLElicitationRequiredDisplayPayload(
+        server_name="session-server",
+        request_method="tools/call",
+        elicitations=[
+            URLElicitationDisplayItem(
+                message="Open browser to continue",
+                url="https://example.com/continue",
+                elicitation_id="form-url-1",
+            )
+        ],
+        issues=[],
+    )
+
+    set_url_elicitation_required_payload(exc, payload)
+
+    assert MCPAgentClientSession.get_url_elicitation_required_payload(exc) is payload
 
 
 @pytest.mark.parametrize("payload", ['["Ada"]', '"Ada"', "42", "true"])

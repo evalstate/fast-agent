@@ -18,7 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import fetch as marketplace_fetch
+from fast_agent.marketplace import git_sources as marketplace_git_sources
+from fast_agent.marketplace import source_models as marketplace_source_models
+from fast_agent.marketplace import source_urls as marketplace_source_urls
+from fast_agent.marketplace import update_status as marketplace_update_status
 from fast_agent.marketplace.selection import (
     select_one_by_name_or_index,
     select_updates_by_name_or_index,
@@ -49,7 +53,7 @@ from fast_agent.utils.text import strip_casefold
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
 
-HeadResolution = marketplace_source_utils.SourceRevision[SkillUpdateStatus]
+HeadResolution = marketplace_source_models.SourceRevision[SkillUpdateStatus]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +62,7 @@ class _CopiedSkillSource:
     commit: str | None
     path_oid: str | None
     resolved_repo_path: str
-PathResolution = marketplace_source_utils.SourcePathOid[SkillUpdateStatus]
+PathResolution = marketplace_source_models.SourcePathOid[SkillUpdateStatus]
 HeadCache = dict[tuple[str, str | None], HeadResolution]
 PathCache = dict[tuple[str, str | None, str, str], PathResolution]
 __all__ = [
@@ -85,11 +89,11 @@ class InvalidSkillManifestError(ValueError):
 
 
 def normalize_marketplace_url(url: str) -> str:
-    return marketplace_source_utils.normalize_marketplace_url(url)
+    return marketplace_source_urls.normalize_marketplace_url(url)
 
 
 def candidate_marketplace_urls(url: str) -> list[str]:
-    return marketplace_source_utils.candidate_marketplace_urls(url)
+    return marketplace_source_urls.candidate_marketplace_urls(url)
 
 
 async def fetch_marketplace_skills(url: str) -> list[MarketplaceSkill]:
@@ -100,11 +104,11 @@ async def fetch_marketplace_skills(url: str) -> list[MarketplaceSkill]:
 async def fetch_marketplace_skills_with_source(
     url: str,
 ) -> tuple[list[MarketplaceSkill], str]:
-    skills, resolved_source = await marketplace_source_utils.fetch_marketplace_entries_with_source(
+    skills, resolved_source = await marketplace_fetch.fetch_marketplace_entries_with_source(
         url,
         candidate_urls=candidate_marketplace_urls,
         normalize_url=normalize_marketplace_url,
-        load_local_payload=marketplace_source_utils.load_local_marketplace_payload,
+        load_local_payload=marketplace_fetch.load_local_marketplace_payload,
         parse_payload=lambda payload, source_url: parse_marketplace_payload(
             payload,
             source_url=source_url,
@@ -546,7 +550,7 @@ def _evaluate_managed_skill_update(
         ).path_oid
 
     current_revision = source.installed_commit or source.installed_revision
-    decision = marketplace_source_utils.decide_source_update_status(
+    decision = marketplace_update_status.decide_source_update_status(
         available_path_oid=available_path.path_oid,
         current_path_oid=current_path_oid,
         available_revision=available_revision,
@@ -570,7 +574,7 @@ def _validate_source_path_exists(
     source: InstalledSkillSource,
     skill_name: str | None,
 ) -> str | None:
-    local_repo = marketplace_source_utils.resolve_local_repo(source.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(source.repo_url)
     if local_repo is None:
         return None
 
@@ -597,7 +601,7 @@ def resolve_source_revision(
     resolve_local_repo_fn: Callable[[str], Path | None] | None = None,
     run_subprocess_fn: Callable[..., subprocess.CompletedProcess[str]] | None = None,
 ) -> HeadResolution:
-    return marketplace_source_utils.resolve_source_revision(
+    return marketplace_git_sources.resolve_source_revision(
         repo_url=source.repo_url,
         repo_ref=source.repo_ref,
         head_cache=head_cache,
@@ -605,8 +609,8 @@ def resolve_source_revision(
         source_ref_missing_status="source_ref_missing",
         source_unreachable_status="source_unreachable",
         resolve_local_repo_fn=resolve_local_repo_fn
-        or marketplace_source_utils.resolve_local_repo,
-        resolve_git_commit_fn=marketplace_source_utils.resolve_git_commit,
+        or marketplace_git_sources.resolve_local_repo,
+        resolve_git_commit_fn=marketplace_git_sources.resolve_git_commit,
         run_subprocess_fn=run_subprocess_fn or subprocess.run,
     )
 
@@ -616,7 +620,7 @@ def parse_ls_remote_commit(output: str) -> str | None:
 
     For annotated tags, prefer the peeled commit (`refs/tags/<tag>^{}`) when present.
     """
-    return marketplace_source_utils.parse_ls_remote_commit(output)
+    return marketplace_git_sources.parse_ls_remote_commit(output)
 
 
 def _resolve_source_path_oid(
@@ -624,7 +628,7 @@ def _resolve_source_path_oid(
     commit: str,
     path_cache: PathCache,
 ) -> PathResolution:
-    return marketplace_source_utils.resolve_source_path_oid(
+    return marketplace_git_sources.resolve_source_path_oid(
         repo_url=source.repo_url,
         repo_ref=source.repo_ref,
         repo_path=source.repo_path,
@@ -633,8 +637,8 @@ def _resolve_source_path_oid(
         source_ref_missing_status="source_ref_missing",
         source_unreachable_status="source_unreachable",
         source_path_missing_status="source_path_missing",
-        resolve_local_repo_fn=marketplace_source_utils.resolve_local_repo,
-        resolve_git_path_oid_fn=marketplace_source_utils.resolve_git_path_oid,
+        resolve_local_repo_fn=marketplace_git_sources.resolve_local_repo,
+        resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
     )
 
 
@@ -678,7 +682,7 @@ def _reinstall_skill_from_source(
             fingerprint=fingerprint,
         )
         write_installed_skill_source(staged_dir, staged_source)
-        marketplace_source_utils.atomic_replace_directory(
+        marketplace_git_sources.atomic_replace_directory(
             existing_dir=skill_dir,
             staged_dir=staged_dir,
         )
@@ -703,15 +707,15 @@ def _copy_skill_from_marketplace_source(
     destination_dir: Path,
     pinned_revision: str | None,
 ) -> _CopiedSkillSource:
-    checkout_ref = marketplace_source_utils.pinned_checkout_ref(
+    checkout_ref = marketplace_git_sources.pinned_checkout_ref(
         pinned_revision,
         local_revision=LOCAL_REVISION,
     )
-    local_repo = marketplace_source_utils.resolve_local_repo(skill.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(skill.repo_url)
     if local_repo is not None:
         requested_revision = checkout_ref or skill.repo_ref
         if requested_revision:
-            commit = marketplace_source_utils.resolve_git_commit(
+            commit = marketplace_git_sources.resolve_git_commit(
                 local_repo,
                 requested_revision,
             )
@@ -731,19 +735,19 @@ def _copy_skill_from_marketplace_source(
                 raise FileNotFoundError(f"Skill path not found in repository: {skill.repo_subdir}")
             _copy_skill_source(source_dir, destination_dir)
             resolved_repo_path = _repo_relative_skill_path(local_repo, source_dir)
-            if marketplace_source_utils.is_git_source_dirty(local_repo, source_dir):
+            if marketplace_git_sources.is_git_source_dirty(local_repo, source_dir):
                 return _CopiedSkillSource(
                     origin="local",
                     commit=None,
                     path_oid=None,
                     resolved_repo_path=resolved_repo_path,
                 )
-            commit = marketplace_source_utils.resolve_git_commit(local_repo, "HEAD")
-        path_oid = marketplace_source_utils.resolve_git_path_oid_if_commit(
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, "HEAD")
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
             local_repo,
             commit,
             resolved_repo_path,
-            resolve_git_path_oid_fn=marketplace_source_utils.resolve_git_path_oid,
+            resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
         )
         return _CopiedSkillSource(
             origin="local",
@@ -754,7 +758,7 @@ def _copy_skill_from_marketplace_source(
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
-        marketplace_source_utils.clone_sparse_checkout(
+        marketplace_git_sources.clone_sparse_checkout(
             repo_url=skill.repo_url,
             repo_ref=skill.repo_ref,
             repo_subdir=skill.repo_subdir,
@@ -769,12 +773,12 @@ def _copy_skill_from_marketplace_source(
 
         _copy_skill_source(source_dir, destination_dir)
         resolved_repo_path = _repo_relative_skill_path(tmp_path, source_dir)
-        commit = marketplace_source_utils.resolve_git_commit(tmp_path, "HEAD")
-        path_oid = marketplace_source_utils.resolve_git_path_oid_if_commit(
+        commit = marketplace_git_sources.resolve_git_commit(tmp_path, "HEAD")
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
             tmp_path,
             commit,
             resolved_repo_path,
-            resolve_git_path_oid_fn=marketplace_source_utils.resolve_git_path_oid,
+            resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
         )
         return _CopiedSkillSource(
             origin="remote",
@@ -795,11 +799,11 @@ def _expand_implicit_skill_bundle(skill: MarketplaceSkill) -> list[MarketplaceSk
     if not _may_be_implicit_skill_bundle(skill):
         return [skill]
 
-    local_repo = marketplace_source_utils.resolve_local_repo(skill.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(skill.repo_url)
     try:
         if local_repo is not None:
             if skill.repo_ref:
-                commit = marketplace_source_utils.resolve_git_commit(
+                commit = marketplace_git_sources.resolve_git_commit(
                     local_repo,
                     skill.repo_ref,
                 )
@@ -815,7 +819,7 @@ def _expand_implicit_skill_bundle(skill: MarketplaceSkill) -> list[MarketplaceSk
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            marketplace_source_utils.clone_sparse_checkout(
+            marketplace_git_sources.clone_sparse_checkout(
                 repo_url=skill.repo_url,
                 repo_ref=skill.repo_ref,
                 repo_subdir=skill.repo_subdir,
@@ -835,7 +839,7 @@ def _discover_nested_marketplace_skills_from_git_commit(
 ) -> list[MarketplaceSkill]:
     with tempfile.TemporaryDirectory() as tmp_dir:
         extracted_dir = Path(tmp_dir) / "source"
-        marketplace_source_utils.copy_git_path_from_commit(
+        marketplace_git_sources.copy_git_path_from_commit(
             repo_root=repo_root,
             commit=commit,
             repo_subdir=skill.repo_subdir,
@@ -888,7 +892,7 @@ def _discover_nested_marketplace_skills(
 
 
 def _resolve_repo_subdir(repo_root: Path, repo_subdir: str) -> Path:
-    return marketplace_source_utils.resolve_repo_subdir(
+    return marketplace_git_sources.resolve_repo_subdir(
         repo_root,
         repo_subdir,
         label="Skill",
@@ -917,7 +921,7 @@ def _copy_skill_source_from_git_commit(
 ) -> str:
     with tempfile.TemporaryDirectory() as tmp_dir:
         extracted_dir = Path(tmp_dir) / "source"
-        marketplace_source_utils.copy_git_path_from_commit(
+        marketplace_git_sources.copy_git_path_from_commit(
             repo_root=repo_root,
             commit=commit,
             repo_subdir=repo_subdir,

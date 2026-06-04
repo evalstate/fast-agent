@@ -662,16 +662,16 @@ def test_resolve_source_revision_prefers_peeled_annotated_tag_commit() -> None:
             stderr="",
         )
 
-    revision, status, error = resolve_source_revision(
+    resolution = resolve_source_revision(
         source,
         {},
         resolve_local_repo_fn=lambda _: None,
         run_subprocess_fn=_fake_run,
     )
 
-    assert revision == "2222222222222222222222222222222222222222"
-    assert status is None
-    assert error is None
+    assert resolution.revision == "2222222222222222222222222222222222222222"
+    assert resolution.status is None
+    assert resolution.detail is None
 
 
 def test_parse_ls_remote_commit_falls_back_when_no_peeled_ref() -> None:

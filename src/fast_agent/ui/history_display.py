@@ -2,26 +2,26 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from shutil import get_terminal_size
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.commands.history_summaries import build_history_turn_report
-from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING
-from fast_agent.history.tool_activities import remote_tool_activities
-from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
+from fast_agent.ui import history_display_rows as _row_extraction
+from fast_agent.ui.history_display_models import (
+    HistoryChromeBar,
+    HistoryDisplayRow,
+    HistoryTimelineEntry,
+)
 from fast_agent.utils.count_display import format_count
-from fast_agent.utils.text import collapse_whitespace, strip_casefold
 from fast_agent.utils.timing_display import format_duration_ms, format_rate_per_second
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from mcp.types import CallToolRequest, CallToolResult
     from rich.console import Console
 
     from fast_agent.commands.history_summaries import HistoryTurnSummary
@@ -43,48 +43,9 @@ _SHADE_BLOCK_THRESHOLDS: tuple[tuple[int, str, str], ...] = (
 
 
 @dataclass(frozen=True, slots=True)
-class ToolResultSummary:
-    preview: str
-    chars: int
-    non_text: bool
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryChromeBar:
-    bar: Text
-    detail: Text
-
-
-@dataclass(frozen=True, slots=True)
 class _SummaryTextWidths:
     preview: int
     detail: int
-
-
-@dataclass(frozen=True, slots=True)
-class _TextSummary:
-    normalized: str
-    chars: int
-    preview: str
-    non_text: bool
-
-
-@dataclass(frozen=True, slots=True)
-class _ToolResultRows:
-    rows: list[dict[str, Any]]
-    names: list[str]
-    total_chars: int
-    has_non_text: bool
-    has_error: bool
-    timing_ms: float | str | None
-
-
-@dataclass(frozen=True, slots=True)
-class _ProviderRows:
-    rows: list[dict[str, Any]]
-    total_chars: int
-    has_non_text: bool
-    has_error: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,11 +70,16 @@ class Colours:
     TOOL_DETAIL = "dim magenta"
 
 
-def _format_tool_detail(prefix: str, names: Sequence[str]) -> Text:
-    detail = Text(prefix, style=Colours.TOOL_DETAIL)
-    if names:
-        detail.append(", ".join(names), style=Colours.TOOL_DETAIL)
-    return detail
+def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[HistoryDisplayRow]:
+    return _row_extraction.build_history_rows(history)
+
+
+def _extract_tool_result_summary(result, *, limit: int = 80):
+    return _row_extraction._extract_tool_result_summary(result, limit=limit)
+
+
+def _message_role(message: PromptMessageExtended) -> str:
+    return _row_extraction._message_role(message)
 
 
 def _ensure_text(value: object | None) -> Text:
@@ -279,51 +245,6 @@ def _compose_summary_text(
     )
 
 
-def _preview_text(value: str | None, limit: int = 80) -> str:
-    normalized = collapse_whitespace(value)
-    if not normalized:
-        return "<no text>"
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1] + "…"
-
-
-def _has_non_text_content(message: PromptMessageExtended) -> bool:
-    for block in message.content:
-        block_type = block.type
-        if block_type and block_type != "text":
-            return True
-    return False
-
-
-def _extract_tool_result_summary(result, *, limit: int = 80) -> ToolResultSummary:
-    preview: str | None = None
-    total_chars = 0
-    saw_non_text = False
-
-    for block in result.content:
-        text = get_text(block)
-        if text:
-            normalized = collapse_whitespace(text)
-            if preview is None:
-                preview = _preview_text(normalized, limit=limit)
-            total_chars += len(normalized)
-        else:
-            saw_non_text = True
-
-    if preview is not None:
-        return ToolResultSummary(
-            preview=preview,
-            chars=total_chars,
-            non_text=saw_non_text,
-        )
-    return ToolResultSummary(
-        preview=f"{NON_TEXT_MARKER} non-text tool result",
-        chars=0,
-        non_text=True,
-    )
-
-
 def format_chars(value: int) -> str:
     if value <= 0:
         return "—"
@@ -334,342 +255,18 @@ def format_chars(value: int) -> str:
     return str(value)
 
 
-def _extract_timing_ms(message: PromptMessageExtended) -> float | None:
-    """Extract timing duration in milliseconds from message channels."""
-    channels = message.channels
-    if not channels:
-        return None
-
-    timing_blocks = channels.get(FAST_AGENT_TIMING, [])
-    if not timing_blocks:
-        return None
-
-    timing_text = get_text(timing_blocks[0])
-    if not timing_text:
-        return None
-
-    try:
-        timing_data = json.loads(timing_text)
-        return timing_data.get("duration_ms")
-    except (json.JSONDecodeError, AttributeError, KeyError):
-        return None
-
-
-def _extract_tool_timings(message: PromptMessageExtended) -> dict[str, dict[str, float | str | None]]:
-    """Extract tool timing data from message channels.
-
-    Returns a dict mapping tool_id to timing info:
-    {
-        "tool_id": {
-            "timing_ms": 123.45,
-            "transport_channel": "post-sse"
-        }
-    }
-
-    Handles backward compatibility with old format where values were just floats.
-    """
-    channels = message.channels
-    if not channels:
-        return {}
-
-    timing_blocks = channels.get(FAST_AGENT_TOOL_TIMING, [])
-    if not timing_blocks:
-        return {}
-
-    timing_text = get_text(timing_blocks[0])
-    if not timing_text:
-        return {}
-
-    try:
-        raw_data = json.loads(timing_text)
-        # Normalize to new format for backward compatibility
-        normalized = {}
-        for tool_id, value in raw_data.items():
-            if isinstance(value, dict):
-                # New format - already has timing_ms and transport_channel
-                normalized[tool_id] = value
-            else:
-                # Old format - value is just a float (timing in ms)
-                normalized[tool_id] = {
-                    "timing_ms": value,
-                    "transport_channel": None
-                }
-        return normalized
-    except (json.JSONDecodeError, TypeError):
-        return {}
-
-
-def _history_row(
-    *,
-    role: str,
-    timeline_role: str,
-    chars: int,
-    preview: str,
-    details: Text | None,
-    non_text: bool,
-    has_tool_request: bool,
-    hide_summary: bool,
-    include_in_timeline: bool,
-    is_error: bool,
-    timing_ms: float | str | None,
-    label: str | None = None,
-    arrow: str | None = None,
-) -> dict[str, Any]:
-    row = {
-        "role": role,
-        "timeline_role": timeline_role,
-        "chars": chars,
-        "preview": preview,
-        "details": details,
-        "non_text": non_text,
-        "has_tool_request": has_tool_request,
-        "hide_summary": hide_summary,
-        "include_in_timeline": include_in_timeline,
-        "is_error": is_error,
-        "timing_ms": timing_ms,
-    }
-    if label is not None:
-        row["label"] = label
-    if arrow is not None:
-        row["arrow"] = arrow
-    return row
-
-
-def _message_role(message: PromptMessageExtended) -> str:
-    return strip_casefold(str(message.role)) if message.role else "assistant"
-
-
-def _message_text_summary(message: PromptMessageExtended) -> _TextSummary:
-    try:
-        text = message.first_text() or ""
-    except Exception:  # pragma: no cover - defensive
-        text = ""
-    normalized = collapse_whitespace(text)
-    chars = len(normalized)
-    return _TextSummary(
-        normalized=normalized,
-        chars=chars,
-        preview=_preview_text(text),
-        non_text=_has_non_text_content(message) or chars == 0,
-    )
-
-
-def _tool_call_names(
-    tool_calls: Mapping[str, "CallToolRequest"] | None,
-    call_name_lookup: dict[str, str],
-) -> list[str]:
-    if not tool_calls:
-        return []
-
-    names: list[str] = []
-    for call_id, call in tool_calls.items():
-        params = call.params
-        name = params.name or call_id
-        call_name_lookup[call_id] = name
-        names.append(name)
-    return names
-
-
-def _tool_result_rows(
-    tool_results: Mapping[str, "CallToolResult"] | None,
-    call_name_lookup: dict[str, str],
-    tool_timings: Mapping[str, Mapping[str, float | str | None]],
-) -> _ToolResultRows:
-    rows: list[dict[str, Any]] = []
-    names: list[str] = []
-    total_chars = 0
-    has_non_text = False
-    has_error = False
-    last_timing_ms: float | str | None = None
-
-    if not tool_results:
-        return _ToolResultRows(rows, names, 0, False, False, None)
-
-    for call_id, result in tool_results.items():
-        tool_name = call_name_lookup.get(call_id, call_id)
-        names.append(tool_name)
-        result_summary = _extract_tool_result_summary(result)
-        total_chars += result_summary.chars
-        has_non_text = has_non_text or result_summary.non_text
-        is_error = result.isError
-        has_error = has_error or is_error
-        tool_timing_info = tool_timings.get(call_id)
-        last_timing_ms = tool_timing_info.get("timing_ms") if tool_timing_info else None
-        rows.append(
-            _history_row(
-                role="tool",
-                timeline_role="tool",
-                chars=result_summary.chars,
-                preview=result_summary.preview,
-                details=_format_tool_detail("result→", [tool_name]),
-                non_text=result_summary.non_text,
-                has_tool_request=False,
-                hide_summary=False,
-                include_in_timeline=False,
-                is_error=is_error,
-                timing_ms=last_timing_ms,
-            )
-        )
-
-    return _ToolResultRows(rows, names, total_chars, has_non_text, has_error, last_timing_ms)
-
-
-def _provider_call_preview(arguments: object) -> str:
-    try:
-        return json.dumps(arguments or {}, ensure_ascii=False, sort_keys=True)
-    except Exception:
-        return "{}"
-
-
-def _provider_tool_rows(message: PromptMessageExtended) -> _ProviderRows:
-    rows: list[dict[str, Any]] = []
-    total_chars = 0
-    has_non_text = False
-    has_error = False
-
-    for event in remote_tool_activities(message):
-        if event.kind == "call":
-            arguments_text = _provider_call_preview(event.arguments)
-            rows.append(
-                _history_row(
-                    role="tool",
-                    timeline_role="tool",
-                    chars=len(collapse_whitespace(arguments_text)),
-                    preview=_preview_text(arguments_text),
-                    details=Text(event.tool_name, style=Colours.TOOL_DETAIL),
-                    non_text=False,
-                    has_tool_request=False,
-                    hide_summary=False,
-                    include_in_timeline=False,
-                    is_error=False,
-                    timing_ms=None,
-                    label=event.type_label,
-                    arrow="◀",
-                )
-            )
-            continue
-
-        if event.result is None:
-            continue
-        result_summary = _extract_tool_result_summary(event.result)
-        total_chars += result_summary.chars
-        has_non_text = has_non_text or result_summary.non_text
-        has_error = has_error or event.is_error
-        rows.append(
-            _history_row(
-                role="tool",
-                timeline_role="tool",
-                chars=result_summary.chars,
-                preview=result_summary.preview,
-                details=Text(event.tool_name, style=Colours.TOOL_DETAIL),
-                non_text=result_summary.non_text,
-                has_tool_request=False,
-                hide_summary=False,
-                include_in_timeline=False,
-                is_error=event.is_error,
-                timing_ms=None,
-                label=event.type_label,
-                arrow="▶",
-            )
-        )
-
-    return _ProviderRows(rows, total_chars, has_non_text, has_error)
-
-
-def _combine_detail_sections(sections: list[Text]) -> Text | None:
-    if not sections:
-        return None
-    if len(sections) == 1:
-        return sections[0]
-
-    details = Text()
-    for index, section in enumerate(sections):
-        if index > 0:
-            details.append(" ")
-        details.append_text(section)
-    return details
-
-
-def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
-    rows: list[dict] = []
-    call_name_lookup: dict[str, str] = {}
-
-    for message in history:
-        role = _message_role(message)
-        text_summary = _message_text_summary(message)
-        timing_ms = _extract_timing_ms(message)
-
-        detail_sections: list[Text] = []
-        row_non_text = text_summary.non_text
-        hide_in_summary = False
-        timeline_role = role
-
-        tool_call_names = _tool_call_names(message.tool_calls, call_name_lookup)
-        has_tool_request = bool(message.tool_calls)
-        if tool_call_names:
-            detail_sections.append(_format_tool_detail("tool→", tool_call_names))
-            row_non_text = row_non_text and text_summary.chars == 0
-
-        preview = text_summary.preview
-        if not text_summary.normalized and message.tool_calls:
-            preview = "(issuing tool request)"
-
-        tool_result_rows = _tool_result_rows(
-            message.tool_results,
-            call_name_lookup,
-            _extract_tool_timings(message),
-        )
-        if message.tool_results:
-            timing_ms = tool_result_rows.timing_ms
-            if role == "user":
-                timeline_role = "tool"
-                hide_in_summary = True
-            if tool_result_rows.names:
-                detail_sections.append(_format_tool_detail("result→", tool_result_rows.names))
-
-        provider_rows = _provider_tool_rows(message)
-        tool_result_total_chars = tool_result_rows.total_chars + provider_rows.total_chars
-        row_chars = (
-            tool_result_total_chars
-            if timeline_role == "tool" and tool_result_total_chars > 0
-            else text_summary.chars
-        )
-
-        rows.extend(provider_rows.rows)
-        rows.append(
-            _history_row(
-                role=role,
-                timeline_role=timeline_role,
-                chars=row_chars,
-                preview=preview,
-                details=_combine_detail_sections(detail_sections),
-                non_text=(
-                    row_non_text
-                    or tool_result_rows.has_non_text
-                    or provider_rows.has_non_text
-                ),
-                has_tool_request=has_tool_request,
-                hide_summary=hide_in_summary,
-                include_in_timeline=True,
-                is_error=tool_result_rows.has_error or provider_rows.has_error,
-                timing_ms=timing_ms,
-            )
-        )
-        rows.extend(tool_result_rows.rows)
-
-    return rows
-
-
-def _aggregate_timeline_entries(rows: Sequence[dict]) -> list[dict]:
+def _aggregate_timeline_entries(
+    rows: Sequence[HistoryDisplayRow],
+) -> list[HistoryTimelineEntry]:
     return [
-        {
-            "role": row.get("timeline_role", row["role"]),
-            "chars": row["chars"],
-            "non_text": row["non_text"],
-            "is_error": row.get("is_error", False),
-        }
+        HistoryTimelineEntry(
+            role=row.timeline_role,
+            chars=row.chars,
+            non_text=row.non_text,
+            is_error=row.is_error,
+        )
         for row in rows
-        if row.get("include_in_timeline", True)
+        if row.include_in_timeline
     ]
 
 
@@ -694,13 +291,16 @@ def _shade_block(chars: int, *, non_text: bool, color: str) -> Text:
     return Text("█", style=f"bold {color}")
 
 
-def _build_history_bar(entries: Sequence[dict], width: int = TIMELINE_WIDTH) -> HistoryChromeBar:
+def _build_history_bar(
+    entries: Sequence[HistoryTimelineEntry],
+    width: int = TIMELINE_WIDTH,
+) -> HistoryChromeBar:
     recent = list(entries[-width:])
     bar = Text(" history |", style="dim")
     for entry in recent:
-        color = _get_role_color(entry["role"], is_error=entry.get("is_error", False))
+        color = _get_role_color(entry.role, is_error=entry.is_error)
         bar.append_text(
-            _shade_block(entry["chars"], non_text=entry.get("non_text", False), color=color)
+            _shade_block(entry.chars, non_text=entry.non_text, color=color)
         )
     remaining = width - len(recent)
     if remaining > 0:
@@ -982,8 +582,10 @@ def _overview_columns(console: Console | None) -> _OverviewColumns:
     )
 
 
-def _overview_summary_rows(rows: Sequence[dict]) -> tuple[list[dict], int]:
-    summary_candidates = [row for row in rows if not row.get("hide_summary")]
+def _overview_summary_rows(
+    rows: Sequence[HistoryDisplayRow],
+) -> tuple[list[HistoryDisplayRow], int]:
+    summary_candidates = [row for row in rows if not row.hide_summary]
     summary_rows = summary_candidates[-SUMMARY_COUNT:]
     start_index = len(summary_candidates) - len(summary_rows) + 1
     return summary_rows, start_index
@@ -1003,33 +605,33 @@ def _render_overview_table_header(columns: _OverviewColumns, printer) -> None:
     printer(header_line)
 
 
-def _overview_role_label(row: Mapping[str, Any]) -> tuple[str, str, str]:
+def _overview_role_label(row: HistoryDisplayRow) -> tuple[str, str, str]:
     role_arrows = {"user": "▶", "assistant": "◀", "tool": "▶"}
     role_labels = {"user": "user", "assistant": "assistant", "tool": "tool result"}
-    role = row["role"]
-    arrow = row.get("arrow", role_arrows.get(role, "▶"))
-    label = row.get("label", role_labels.get(role, role))
-    if role == "assistant" and row.get("has_tool_request"):
+    role = row.role
+    arrow = row.arrow or role_arrows.get(role, "▶")
+    label = row.label or role_labels.get(role, role)
+    if role == "assistant" and row.has_tool_request:
         label = f"{label}*"
     return role, arrow, label
 
 
-def _overview_detail_text(row: Mapping[str, Any]) -> Text | None:
-    details = row.get("details")
+def _overview_detail_text(row: HistoryDisplayRow) -> Text | None:
+    details = row.details
     detail_text = _ensure_text(details) if details else Text("")
     return detail_text if detail_text.cell_len > 0 else None
 
 
 def _format_overview_row(
     *,
-    row: Mapping[str, Any],
+    row: HistoryDisplayRow,
     index: int,
     columns: _OverviewColumns,
 ) -> Text:
     role, arrow, label = _overview_role_label(row)
-    color = _get_role_color(role, is_error=row.get("is_error", False))
-    chars = row["chars"]
-    block = _shade_block(chars, non_text=row.get("non_text", False), color=color)
+    color = _get_role_color(role, is_error=row.is_error)
+    chars = row.chars
+    block = _shade_block(chars, non_text=row.non_text, color=color)
 
     line = Text(" ")
     line.append(f"{index:>2}", style="dim")
@@ -1040,15 +642,15 @@ def _format_overview_row(
     line.append(" ")
     line.append(f"{label:<{ROLE_COLUMN_WIDTH}}", style=color)
     if columns.show_time:
-        line.append(f" {format_duration_ms(row.get('timing_ms')):>7}", style="dim")
+        line.append(f" {format_duration_ms(row.timing_ms):>7}", style="dim")
     if columns.show_chars:
         line.append(f" {format_chars(chars):>7}", style="dim")
     line.append("  ")
 
     summary_text = _compose_summary_text(
-        _ensure_text(row["preview"]),
+        _ensure_text(row.preview),
         _overview_detail_text(row),
-        include_non_text=row.get("non_text", False),
+        include_non_text=row.non_text,
         max_width=max(0, columns.total_width - line.cell_len),
     )
     line.append_text(summary_text)
@@ -1056,7 +658,7 @@ def _format_overview_row(
 
 
 def _render_overview_rows(
-    rows: Sequence[dict],
+    rows: Sequence[HistoryDisplayRow],
     *,
     console: Console | None,
     printer,

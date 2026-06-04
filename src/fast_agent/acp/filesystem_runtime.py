@@ -16,6 +16,7 @@ from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.tool_result_metadata import set_fatal_tool_error
 from fast_agent.tools.filesystem_tool_args import (
     parse_read_text_file_arguments,
     parse_write_text_file_arguments,
@@ -54,8 +55,7 @@ def _error_result(message: str) -> CallToolResult:
 
 def _fatal_error_result(message: str) -> CallToolResult:
     result = _error_result(message)
-    setattr(result, "_fast_agent_fatal_tool_error", message)
-    return result
+    return set_fatal_tool_error(result, message)
 
 
 def _success_result(message: str) -> CallToolResult:

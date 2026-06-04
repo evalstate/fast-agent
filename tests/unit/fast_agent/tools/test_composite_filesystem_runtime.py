@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from mcp.types import CallToolResult, TextContent, Tool
 
+from fast_agent.mcp.tool_result_metadata import fatal_tool_error
 from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
 from fast_agent.types import RequestParams
 
@@ -104,7 +105,7 @@ async def test_composite_runtime_does_not_fallback_for_acp_owned_read_write() ->
     result = await runtime.call_tool("write_text_file", {"path": "x", "content": "y"})
 
     assert result.isError is True
-    assert getattr(result, "_fast_agent_fatal_tool_error") == (
+    assert fatal_tool_error(result) == (
         "Error: unsupported filesystem tool 'write_text_file'"
     )
     assert primary.calls == []

@@ -72,6 +72,7 @@ class _FakeDisplay(ConsoleDisplay):
 class _FakeLLM:
     def __init__(self) -> None:
         self.model_name = "fake-model"
+        self.resolved_model = None
         self.websocket_turn_indicator = None
 
     def add_stream_listener(self, _listener):

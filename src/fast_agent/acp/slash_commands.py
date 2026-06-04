@@ -61,7 +61,7 @@ from fast_agent.config import get_settings
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
-from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
+from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, FastAgentLLMProtocol
 from fast_agent.session.identity import SessionStoreScope, normalize_session_store_scope
 from fast_agent.utils.slash_commands import parse_slash_command_line
 from fast_agent.utils.text import strip_casefold
@@ -411,7 +411,7 @@ class SlashCommandHandler:
 
         return commands
 
-    def _get_current_llm(self) -> object | None:
+    def _get_current_llm(self) -> FastAgentLLMProtocol | None:
         agent = self._get_current_agent()
         if agent is None:
             return None

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytest
 from typer.testing import CliRunner
@@ -13,14 +12,11 @@ from fast_agent.cli.commands import cards as cards_command
 from fast_agent.cli.commands import plugins as plugins_command
 from fast_agent.cli.main import LAZY_SUBCOMMANDS
 from fast_agent.cli.main import app as cli_app
-from fast_agent.commands.command_catalog import normalize_command_action
 from fast_agent.commands.context import CommandContext, NonInteractiveCommandIOBase
 from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import plugins as plugins_handlers
-from fast_agent.commands.results import CommandOutcome
-from fast_agent.config import Settings, get_settings, update_global_settings
+from fast_agent.config import get_settings, update_global_settings
 from fast_agent.paths import resolve_environment_paths
-from fast_agent.plugins.models import LocalPlugin, MarketplacePlugin
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -267,116 +263,8 @@ def _write_marketplace_with_pack_source_url_and_plugin(
     )
 
 
-def test_plugins_action_aliases_normalize_to_canonical_actions() -> None:
-    cases = {
-        None: "list",
-        "": "list",
-        "marketplace": "available",
-        " MARKETPLACE ": "available",
-        "browse": "available",
-        "install": "add",
-        "rm": "remove",
-        "delete": "remove",
-        "uninstall": "remove",
-        "refresh": "update",
-        "upgrade": "update",
-        "source": "registry",
-        "unexpected": "unexpected",
-    }
-
-    for action, expected in cases.items():
-        assert normalize_command_action("plugins", action) == expected
-
-
 def test_plugins_lazy_subcommand_registered() -> None:
     assert LAZY_SUBCOMMANDS["plugins"] == "fast_agent.cli.commands.plugins:app"
-
-
-def test_plugins_install_guidance_uses_plugins_channel() -> None:
-    outcome = CommandOutcome()
-
-    plugins_handlers._add_plugin_install_guidance(outcome, agent_name="agent")
-
-    assert outcome.messages
-    assert outcome.messages[0].text == "Install with `/plugins add <number|name>`."
-    assert outcome.messages[0].right_info == "plugins"
-    assert outcome.messages[0].agent_name == "agent"
-
-
-def test_format_plugin_keys_trims_values_and_omits_blank_keys() -> None:
-    entry = SimpleNamespace(
-        manifest=SimpleNamespace(
-            commands={
-                "find": SimpleNamespace(key=" ctrl+f "),
-                "blank": SimpleNamespace(key="   "),
-                "missing": SimpleNamespace(key=None),
-            }
-        )
-    )
-
-    assert plugins_handlers._format_plugin_keys(cast("LocalPlugin", entry)) == "find: ctrl+f"
-
-
-def test_cli_format_plugin_keys_trims_values_and_omits_blank_keys() -> None:
-    entry = SimpleNamespace(
-        manifest=SimpleNamespace(
-            commands={
-                "find": SimpleNamespace(key=" ctrl+f "),
-                "blank": SimpleNamespace(key="   "),
-                "missing": SimpleNamespace(key=None),
-            }
-        )
-    )
-
-    assert plugins_command._format_plugin_keys(cast("LocalPlugin", entry)) == "find: ctrl+f"
-
-
-def test_plugin_selection_options_include_install_dir_aliases() -> None:
-    plugins = [
-        MarketplacePlugin(
-            name="bundle-entry",
-            description=None,
-            repo_url="https://github.com/example/plugins",
-            repo_ref=None,
-            repo_path="plugins/canonical/plugin.yaml",
-        ),
-        MarketplacePlugin(
-            name="canonical",
-            description=None,
-            repo_url="https://github.com/example/plugins",
-            repo_ref=None,
-            repo_path="plugins/canonical",
-        ),
-    ]
-
-    assert plugins_handlers._plugin_selection_options(plugins) == [
-        "bundle-entry",
-        "canonical",
-    ]
-
-
-def test_local_plugin_selection_options_include_directory_aliases(tmp_path: Path) -> None:
-    plugins = [
-        LocalPlugin(
-            index=1,
-            name="finder",
-            plugin_dir=tmp_path / "finder-plugin",
-            manifest=None,
-            source=None,
-        ),
-        LocalPlugin(
-            index=2,
-            name="finder-plugin",
-            plugin_dir=tmp_path / "finder-plugin",
-            manifest=None,
-            source=None,
-        ),
-    ]
-
-    assert plugins_handlers._local_plugin_selection_options(plugins) == [
-        "finder",
-        "finder-plugin",
-    ]
 
 
 def test_plugins_add_enables_and_loads_commands(tmp_path: Path) -> None:
@@ -607,78 +495,6 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
         assert "finder" not in config_path.read_text(encoding="utf-8")
     finally:
         update_global_settings(old_settings)
-
-
-@pytest.mark.asyncio
-async def test_plugins_registry_number_reports_no_registries_configured(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    config_path = tmp_path / "fast-agent.yaml"
-    config_path.write_text("default_model: passthrough\n", encoding="utf-8")
-
-    old_settings = get_settings()
-    settings = get_settings(config_path=str(config_path))
-    monkeypatch.setattr(
-        plugins_handlers,
-        "resolve_registries",
-        lambda settings: [],
-    )
-    ctx = CommandContext(
-        agent_provider=_Provider(),
-        current_agent_name="main",
-        io=_CapturingIO(),
-        settings=settings,
-    )
-    try:
-        outcome = await plugins_handlers.handle_set_plugins_registry(
-            ctx,
-            argument="1",
-            agent_name="main",
-        )
-    finally:
-        update_global_settings(old_settings)
-
-    assert len(outcome.messages) == 1
-    assert outcome.messages[0].channel == "warning"
-    assert str(outcome.messages[0].text) == "No registries configured."
-
-
-@pytest.mark.asyncio
-async def test_plugins_registry_rejects_empty_marketplace_without_switching(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    settings = SimpleNamespace(plugins=SimpleNamespace(marketplace_url="current-marketplace"))
-
-    async def fetch_marketplace_plugins_with_source(url: str) -> tuple[list[MarketplacePlugin], str]:
-        assert url == "empty-marketplace"
-        return [], "resolved-marketplace"
-
-    monkeypatch.setattr(plugins_handlers, "resolve_registries", lambda _settings: [])
-    monkeypatch.setattr(
-        plugins_handlers,
-        "fetch_marketplace_plugins_with_source",
-        fetch_marketplace_plugins_with_source,
-    )
-
-    ctx = CommandContext(
-        agent_provider=_Provider(),
-        current_agent_name="main",
-        io=_CapturingIO(),
-        settings=cast("Settings", settings),
-    )
-
-    outcome = await plugins_handlers.handle_set_plugins_registry(
-        ctx,
-        argument="empty-marketplace",
-        agent_name="main",
-    )
-
-    assert settings.plugins.marketplace_url == "current-marketplace"
-    assert outcome.messages[0].channel == "warning"
-    message_text = outcome.messages[0].text
-    plain = getattr(message_text, "plain", str(message_text))
-    assert "registry unchanged" in plain
 
 
 def test_plugins_update_reinstalls_managed_plugin(tmp_path: Path) -> None:

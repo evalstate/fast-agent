@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from fast_agent.marketplace import formatting as marketplace_formatting
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
 from fast_agent.skills.marketplace_parsing import normalize_repo_path
 from fast_agent.skills.models import (
     LOCAL_REVISION,
@@ -20,6 +20,8 @@ from fast_agent.skills.models import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.marketplace.source_models import InstalledSourceReadResult
+
 
 def get_skill_source_sidecar_path(skill_dir: Path) -> Path:
     return skill_dir / SKILL_SOURCE_FILENAME
@@ -27,7 +29,7 @@ def get_skill_source_sidecar_path(skill_dir: Path) -> Path:
 
 def compute_skill_content_fingerprint(skill_dir: Path) -> str:
     root = skill_dir.resolve()
-    return marketplace_source_utils.compute_directory_content_fingerprint(
+    return marketplace_provenance_io.compute_directory_content_fingerprint(
         root,
         sidecar_path=get_skill_source_sidecar_path(root),
     )
@@ -35,8 +37,8 @@ def compute_skill_content_fingerprint(skill_dir: Path) -> str:
 
 def read_installed_skill_source(
     skill_dir: Path,
-) -> marketplace_source_utils.InstalledSourceReadResult[InstalledSkillSource]:
-    return marketplace_source_utils.read_installed_source_file(
+) -> InstalledSourceReadResult[InstalledSkillSource]:
+    return marketplace_provenance_io.read_installed_source_file(
         get_skill_source_sidecar_path(skill_dir),
         parse_payload=parse_installed_skill_source_payload,
     )
@@ -53,7 +55,7 @@ def write_installed_skill_source(skill_dir: Path, source: InstalledSkillSource) 
     if source.artifact_type is not None:
         extra_payload["artifact_type"] = source.artifact_type
 
-    marketplace_source_utils.write_installed_source_file(
+    marketplace_provenance_io.write_installed_source_file(
         get_skill_source_sidecar_path(skill_dir),
         cast("Any", source),
         extra_payload=extra_payload or None,
@@ -143,7 +145,7 @@ def parse_installed_skill_source_payload(payload: dict[str, Any]) -> InstalledSk
     if installed_via == "mcp":
         return _parse_mcp_installed_skill_source_payload(payload)
 
-    parsed = marketplace_source_utils.parse_installed_source_fields(
+    parsed = marketplace_provenance_io.parse_installed_source_fields(
         payload,
         expected_schema_version=SKILL_SOURCE_SCHEMA_VERSION,
         normalize_repo_path=normalize_repo_path,

@@ -795,7 +795,7 @@ class AgentCompleter(Completer):
             yield from cached
             return
 
-        choices = self._run_async_completion(self._list_mcp_skill_registry_choices) or []
+        choices = self._list_mcp_skill_registry_choices()
         partial_lower = partial.lower()
         include_numbers = not partial or partial.isdigit()
         include_servers = bool(partial) and not partial.isdigit()
@@ -1536,18 +1536,18 @@ class AgentCompleter(Completer):
         uris = self._server_result_list(result, server_name)
         return [str(uri) for uri in uris]
 
-    async def _list_mcp_skill_registry_choices(self) -> list[tuple[str, str, int]]:
+    def _list_mcp_skill_registry_choices(self) -> list[tuple[str, str, int]]:
         agent = self._current_agent_object()
         if agent is None:
             return []
 
         aggregator = getattr(agent, "aggregator", None)
-        list_registries = getattr(aggregator, "list_mcp_skill_registries", None)
-        if not callable(list_registries):
+        cached_registries = getattr(aggregator, "cached_mcp_skill_registries", None)
+        if not callable(cached_registries):
             return []
 
         try:
-            registries = await list_registries()
+            registries = cached_registries()
         except Exception:
             return []
 

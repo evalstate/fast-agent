@@ -712,11 +712,11 @@ def _cycle_active_llm(
     *,
     agent_name: str,
     agent_provider: "AgentApp | None",
-) -> object | None:
+) -> "FastAgentLLMProtocol | None":
     return resolve_active_llm(agent_provider, agent_name)
 
 
-def _cycle_service_tier(llm: object | None) -> None:
+def _cycle_service_tier(llm: "FastAgentLLMProtocol | None") -> None:
     if llm is None or not resolve_service_tier_supported(llm):
         return
 
@@ -727,7 +727,7 @@ def _cycle_service_tier(llm: object | None) -> None:
     _set_model_setting_if_valid(llm, set_service_tier, next_service_tier)
 
 
-def _cycle_reasoning(llm: object | None) -> None:
+def _cycle_reasoning(llm: "FastAgentLLMProtocol | None") -> None:
     if llm is None:
         return
 
@@ -740,7 +740,7 @@ def _cycle_reasoning(llm: object | None) -> None:
     _set_model_setting_if_valid(llm, set_reasoning_effort, next_setting)
 
 
-def _cycle_verbosity(llm: object | None) -> None:
+def _cycle_verbosity(llm: "FastAgentLLMProtocol | None") -> None:
     if llm is None:
         return
 
@@ -753,13 +753,15 @@ def _cycle_verbosity(llm: object | None) -> None:
     _set_model_setting_if_valid(llm, set_text_verbosity, next_value)
 
 
-def _cycle_binary_model_toggle(llm: object | None, toggle: ModelBinaryToggle) -> None:
+def _cycle_binary_model_toggle(
+    llm: "FastAgentLLMProtocol | None", toggle: ModelBinaryToggle
+) -> None:
     cycle_model_binary_toggle(llm, toggle)
 
 
 def _set_model_setting_if_valid(
-    llm: object,
-    setter: "Callable[[object, ModelSettingT], None]",
+    llm: "FastAgentLLMProtocol",
+    setter: "Callable[[FastAgentLLMProtocol, ModelSettingT], None]",
     value: ModelSettingT,
 ) -> None:
     try:

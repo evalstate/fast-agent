@@ -27,7 +27,7 @@ from urllib.parse import urlparse
 from mcp.types import BlobResourceContents, ServerCapabilities, TextResourceContents
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import git_sources as marketplace_git_sources
 from fast_agent.skills.provenance import (
     build_mcp_installed_skill_source,
     compute_skill_content_fingerprint,
@@ -213,7 +213,7 @@ async def update_mcp_registry_skill(
     ) as temp_dir_str:
         staged_dir = Path(temp_dir_str) / skill_dir.name
         await _write_verified_mcp_skill(aggregator, skill, staged_dir)
-        marketplace_source_utils.atomic_replace_directory(
+        marketplace_git_sources.atomic_replace_directory(
             existing_dir=skill_dir,
             staged_dir=staged_dir,
         )

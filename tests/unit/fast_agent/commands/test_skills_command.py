@@ -9,8 +9,9 @@ from typer.testing import CliRunner
 
 import fast_agent.cli.commands.skills as skills_command
 from fast_agent.cli.main import LAZY_SUBCOMMANDS
-from fast_agent.commands.handlers import skills as skills_handlers
+from fast_agent.commands.handlers.shared import unique_selection_options
 from fast_agent.config import get_settings, update_global_settings
+from fast_agent.skills.marketplace_source import MarketplaceSkillSource
 from fast_agent.skills.models import MarketplaceSkill
 
 
@@ -208,7 +209,9 @@ def test_marketplace_skill_selection_options_include_install_dir_aliases() -> No
         _marketplace_skill("canonical-name", "skills/canonical-name"),
     ]
 
-    assert skills_handlers._marketplace_skill_selection_options(skills) == [
+    source = MarketplaceSkillSource("https://example.com/marketplace.json")
+
+    assert unique_selection_options(source.selection_options(skills)) == [
         "bundle-entry",
         "canonical-name",
     ]

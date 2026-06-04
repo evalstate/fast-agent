@@ -9,7 +9,12 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import fetch as marketplace_fetch
+from fast_agent.marketplace import git_sources as marketplace_git_sources
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
+from fast_agent.marketplace import source_models as marketplace_source_models
+from fast_agent.marketplace import source_urls as marketplace_source_urls
+from fast_agent.marketplace import update_status as marketplace_update_status
 from fast_agent.marketplace.selection import (
     select_one_by_name_or_index,
     select_updates_by_name_or_index,
@@ -39,22 +44,22 @@ if TYPE_CHECKING:
 
 HeadCache = dict[
     tuple[str, str | None],
-    marketplace_source_utils.SourceRevision[PluginUpdateStatus],
+    marketplace_source_models.SourceRevision[PluginUpdateStatus],
 ]
 PathCache = dict[
     tuple[str, str | None, str, str],
-    marketplace_source_utils.SourcePathOid[PluginUpdateStatus],
+    marketplace_source_models.SourcePathOid[PluginUpdateStatus],
 ]
 
 
 async def fetch_marketplace_plugins_with_source(
     url: str,
 ) -> tuple[list[MarketplacePlugin], str]:
-    return await marketplace_source_utils.fetch_marketplace_entries_with_source(
+    return await marketplace_fetch.fetch_marketplace_entries_with_source(
         url,
-        candidate_urls=marketplace_source_utils.candidate_marketplace_urls,
-        normalize_url=marketplace_source_utils.normalize_marketplace_url,
-        load_local_payload=marketplace_source_utils.load_local_marketplace_payload,
+        candidate_urls=marketplace_source_urls.candidate_marketplace_urls,
+        normalize_url=marketplace_source_urls.normalize_marketplace_url,
+        load_local_payload=marketplace_fetch.load_local_marketplace_payload,
         parse_payload=lambda payload, source_url: parse_marketplace_plugins(
             payload,
             source_url=source_url,
@@ -163,7 +168,7 @@ def install_marketplace_plugin_sync(
         )
         write_installed_plugin_source(staged_dir, source)
         if install_dir.exists():
-            marketplace_source_utils.atomic_replace_directory(
+            marketplace_git_sources.atomic_replace_directory(
                 existing_dir=install_dir,
                 staged_dir=staged_dir,
             )
@@ -496,7 +501,7 @@ def _evaluate_managed_plugin_update(
             path_cache,
         ).path_oid
     current_revision = source.installed_commit or source.installed_revision
-    decision = marketplace_source_utils.decide_source_update_status(
+    decision = marketplace_update_status.decide_source_update_status(
         available_path_oid=available_path.path_oid,
         current_path_oid=current_path_oid,
         available_revision=available_revision,
@@ -516,14 +521,14 @@ def _evaluate_managed_plugin_update(
 
 
 def _validate_source_path_exists(source: InstalledPluginSource) -> str | None:
-    local_repo = marketplace_source_utils.resolve_local_repo(source.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(source.repo_url)
     if local_repo is None:
         return None
 
     try:
-        source_dir = marketplace_source_utils.resolve_repo_subdir(
+        source_dir = marketplace_git_sources.resolve_repo_subdir(
             local_repo,
-            marketplace_source_utils.repo_subdir_for_manifest_path(
+            marketplace_provenance_io.repo_subdir_for_manifest_path(
                 source.repo_path,
                 PLUGIN_MANIFEST_FILENAME,
             ),
@@ -542,8 +547,8 @@ def _validate_source_path_exists(source: InstalledPluginSource) -> str | None:
 def _resolve_source_revision(
     source: InstalledPluginSource,
     head_cache: HeadCache,
-) -> marketplace_source_utils.SourceRevision[PluginUpdateStatus]:
-    return marketplace_source_utils.resolve_source_revision(
+) -> marketplace_source_models.SourceRevision[PluginUpdateStatus]:
+    return marketplace_git_sources.resolve_source_revision(
         repo_url=source.repo_url,
         repo_ref=source.repo_ref,
         head_cache=head_cache,
@@ -557,8 +562,8 @@ def _resolve_source_path_oid(
     source: InstalledPluginSource,
     commit: str,
     path_cache: PathCache,
-) -> marketplace_source_utils.SourcePathOid[PluginUpdateStatus]:
-    return marketplace_source_utils.resolve_source_path_oid(
+) -> marketplace_source_models.SourcePathOid[PluginUpdateStatus]:
+    return marketplace_git_sources.resolve_source_path_oid(
         repo_url=source.repo_url,
         repo_ref=source.repo_ref,
         repo_path=source.repo_path,
@@ -575,16 +580,16 @@ def _copy_plugin_from_source(
     *,
     destination_dir: Path,
     pinned_revision: str | None,
-) -> marketplace_source_utils.SourceCopyResult[PluginSourceOrigin]:
-    checkout_ref = marketplace_source_utils.pinned_checkout_ref(
+) -> marketplace_source_models.SourceCopyResult[PluginSourceOrigin]:
+    checkout_ref = marketplace_git_sources.pinned_checkout_ref(
         pinned_revision,
         local_revision=LOCAL_REVISION,
     )
-    local_repo = marketplace_source_utils.resolve_local_repo(plugin.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(plugin.repo_url)
     if local_repo is not None:
         requested_revision = checkout_ref or plugin.repo_ref
         if requested_revision:
-            commit = marketplace_source_utils.resolve_git_commit(local_repo, requested_revision)
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, requested_revision)
             if commit is None:
                 raise FileNotFoundError(f"Plugin source ref not found: {requested_revision}")
             _copy_plugin_source_from_git_commit(
@@ -594,25 +599,25 @@ def _copy_plugin_from_source(
                 destination_dir=destination_dir,
             )
         else:
-            source_dir = marketplace_source_utils.resolve_repo_subdir(
+            source_dir = marketplace_git_sources.resolve_repo_subdir(
                 local_repo,
                 plugin.repo_subdir,
                 label="Plugin",
             )
             _copy_plugin_source(source_dir, destination_dir)
-            if marketplace_source_utils.is_git_source_dirty(local_repo, source_dir):
-                return marketplace_source_utils.SourceCopyResult(
+            if marketplace_git_sources.is_git_source_dirty(local_repo, source_dir):
+                return marketplace_source_models.SourceCopyResult(
                     origin="local",
                     commit=None,
                     path_oid=None,
                 )
-            commit = marketplace_source_utils.resolve_git_commit(local_repo, "HEAD")
-        path_oid = marketplace_source_utils.resolve_git_path_oid_if_commit(
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, "HEAD")
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
             local_repo,
             commit,
             plugin.repo_subdir,
         )
-        return marketplace_source_utils.SourceCopyResult(
+        return marketplace_source_models.SourceCopyResult(
             origin="local",
             commit=commit,
             path_oid=path_oid,
@@ -620,26 +625,26 @@ def _copy_plugin_from_source(
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        marketplace_source_utils.clone_sparse_checkout(
+        marketplace_git_sources.clone_sparse_checkout(
             repo_url=plugin.repo_url,
             repo_ref=plugin.repo_ref,
             repo_subdir=plugin.repo_subdir,
             destination_dir=tmp_path,
             checkout_ref=checkout_ref,
         )
-        source_dir = marketplace_source_utils.resolve_repo_subdir(
+        source_dir = marketplace_git_sources.resolve_repo_subdir(
             tmp_path,
             plugin.repo_subdir,
             label="Plugin",
         )
         _copy_plugin_source(source_dir, destination_dir)
-        commit = marketplace_source_utils.resolve_git_commit(tmp_path, "HEAD")
-        path_oid = marketplace_source_utils.resolve_git_path_oid_if_commit(
+        commit = marketplace_git_sources.resolve_git_commit(tmp_path, "HEAD")
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
             tmp_path,
             commit,
             plugin.repo_subdir,
         )
-        return marketplace_source_utils.SourceCopyResult(
+        return marketplace_source_models.SourceCopyResult(
             origin="remote",
             commit=commit,
             path_oid=path_oid,
@@ -657,7 +662,7 @@ def _copy_plugin_source_from_git_commit(
     repo_subdir: str,
     destination_dir: Path,
 ) -> None:
-    marketplace_source_utils.copy_git_path_from_commit(
+    marketplace_git_sources.copy_git_path_from_commit(
         repo_root=repo_root,
         commit=commit,
         repo_subdir=repo_subdir,

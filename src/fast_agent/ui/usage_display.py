@@ -5,7 +5,7 @@ Consolidates the usage display logic that was duplicated between fastagent.py an
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from rich.console import Console
 from rich.markup import escape as escape_markup
@@ -13,6 +13,9 @@ from rich.markup import escape as escape_markup
 from fast_agent.llm.model_display_name import resolve_llm_display_name
 from fast_agent.ui.context_usage_display import normalize_context_usage_percent
 from fast_agent.utils.numeric import nonnegative_int_or_none
+
+if TYPE_CHECKING:
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +68,7 @@ class _UsageReportAgent(Protocol):
     def usage_accumulator(self) -> _UsageAccumulatorSource | None: ...
 
     @property
-    def llm(self) -> object | None: ...
+    def llm(self) -> "FastAgentLLMProtocol | None": ...
 
 
 def _summary_int(summary: Mapping[str, object], key: str) -> int | None:

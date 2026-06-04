@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.marketplace import formatting as marketplace_formatting
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
 from fast_agent.plugins.models import (
     LOCAL_REVISION,
     PLUGIN_SOURCE_FILENAME,
@@ -18,6 +18,8 @@ from fast_agent.plugins.models import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.marketplace.source_models import InstalledSourceReadResult
+
 
 def get_plugin_source_sidecar_path(plugin_dir: Path) -> Path:
     return plugin_dir / PLUGIN_SOURCE_FILENAME
@@ -25,7 +27,7 @@ def get_plugin_source_sidecar_path(plugin_dir: Path) -> Path:
 
 def compute_plugin_content_fingerprint(plugin_dir: Path) -> str:
     root = plugin_dir.resolve()
-    return marketplace_source_utils.compute_directory_content_fingerprint(
+    return marketplace_provenance_io.compute_directory_content_fingerprint(
         root,
         sidecar_path=get_plugin_source_sidecar_path(root),
         ignore_path=_is_generated_runtime_artifact,
@@ -40,22 +42,22 @@ def _is_generated_runtime_artifact(path: Path) -> bool:
 
 def read_installed_plugin_source(
     plugin_dir: Path,
-) -> marketplace_source_utils.InstalledSourceReadResult[InstalledPluginSource]:
-    return marketplace_source_utils.read_installed_source_file(
+) -> InstalledSourceReadResult[InstalledPluginSource]:
+    return marketplace_provenance_io.read_installed_source_file(
         get_plugin_source_sidecar_path(plugin_dir),
         parse_payload=parse_installed_plugin_source_payload,
     )
 
 
 def write_installed_plugin_source(plugin_dir: Path, source: InstalledPluginSource) -> None:
-    marketplace_source_utils.write_installed_source_file(
+    marketplace_provenance_io.write_installed_source_file(
         get_plugin_source_sidecar_path(plugin_dir),
         source,
     )
 
 
 def parse_installed_plugin_source_payload(payload: dict[str, Any]) -> InstalledPluginSource:
-    parsed = marketplace_source_utils.parse_installed_source_fields(
+    parsed = marketplace_provenance_io.parse_installed_source_fields(
         payload,
         expected_schema_version=PLUGIN_SOURCE_SCHEMA_VERSION,
         normalize_repo_path=normalize_repo_path,
@@ -102,7 +104,7 @@ def build_installed_plugin_source(
 
 
 def normalize_repo_path(path: str) -> str | None:
-    return marketplace_source_utils.normalize_relative_repo_path(path)
+    return marketplace_provenance_io.normalize_relative_repo_path(path)
 
 
 def format_revision_short(revision: str | None) -> str:

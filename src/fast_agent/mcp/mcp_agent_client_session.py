@@ -46,6 +46,10 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from fast_agent.mcp.sampling import resolve_auto_sampling_enabled, sample
+from fast_agent.mcp.tool_result_metadata import (
+    set_url_elicitation_required_payload,
+    url_elicitation_required_payload,
+)
 from fast_agent.mcp.url_elicitation_required import (
     URLElicitationDisplayItem,
     URLElicitationRequiredDisplayPayload,
@@ -457,8 +461,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             server_name=server_name,
             request_method=request_method,
         )
-        exc_meta = cast("Any", exc)
-        exc_meta._fast_agent_url_elicitation_required = payload
+        set_url_elicitation_required_payload(exc, payload)
 
     def queue_url_elicitation_for_active_request(
         self,
@@ -487,8 +490,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         if payload is None:
             return
         with suppress(Exception):
-            result_meta = cast("Any", result)
-            result_meta._fast_agent_url_elicitation_required = payload
+            set_url_elicitation_required_payload(result, payload)
 
     def _consume_pending_url_elicitation_payload(
         self,
@@ -538,18 +540,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             request_method=request_method,
         )
         with suppress(Exception):
-            result_meta = cast("Any", result)
-            result_meta._fast_agent_url_elicitation_required = payload
+            set_url_elicitation_required_payload(result, payload)
 
     @staticmethod
     def get_url_elicitation_required_payload(
         exc: object,
     ) -> URLElicitationRequiredDisplayPayload | None:
         """Return deferred URL elicitation display payload when present."""
-        payload = getattr(exc, "_fast_agent_url_elicitation_required", None)
-        if isinstance(payload, URLElicitationRequiredDisplayPayload):
-            return payload
-        return None
+        return url_elicitation_required_payload(exc)
 
     def _attach_transport_channel(self, request_id, result) -> None:
         if self._transport_metrics is None or request_id is None or result is None:
