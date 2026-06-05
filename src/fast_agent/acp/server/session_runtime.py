@@ -55,6 +55,7 @@ from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerW
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import AgentInstance
@@ -81,10 +82,8 @@ class SessionRuntimeHost(Protocol):
     _dispose_instance_task: Any
     server_name: str
     server_version: str
-    sessions: dict[str, AgentInstance]
+    _live_sessions: ACPLiveSessionRegistry
     _session_lock: asyncio.Lock
-    _prompt_locks: dict[str, asyncio.Lock]
-    _session_state: dict[str, ACPSessionState]
     _connection: Any
     _client_supports_terminal: bool
     _client_supports_fs_read: bool
@@ -577,7 +576,7 @@ class ACPServerSessionRuntime:
         old_instance = session_state.instance
         session_state.instance = instance
         async with self._host._session_lock:
-            self._host.sessions[session_state.session_id] = instance
+            self._host._live_sessions.sessions[session_state.session_id] = instance
         if await_refresh_session_state:
             await self.refresh_session_state(session_state, instance)
         else:
@@ -933,7 +932,8 @@ class ACPServerSessionRuntime:
         cwd: str,
         requested_mcp_servers: dict[str, SessionMCPServerState],
     ) -> _SessionInitialization:
-        session_state = self._host._session_state.get(session_id)
+        live_sessions = self._host._live_sessions
+        session_state = live_sessions.session_state.get(session_id)
         removed_session_mcp_servers: list[tuple[str, str]] = []
         force_reconnect_targets: set[tuple[str, str]] = set()
 
@@ -950,10 +950,10 @@ class ACPServerSessionRuntime:
             instance = session_state.instance
         else:
             instance = await self._host._create_instance_task()
-            self._host.sessions[session_id] = instance
+            live_sessions.sessions[session_id] = instance
             session_state = ACPSessionState(session_id=session_id, instance=instance)
             session_state.session_mcp_servers = requested_mcp_servers
-            self._host._session_state[session_id] = session_state
+            live_sessions.session_state[session_id] = session_state
 
         session_state.session_cwd = cwd
         if session_state.session_store_scope == "workspace":

@@ -8,12 +8,15 @@ import pytest
 
 from fast_agent import AgentHarness, FastAgent, HarnessSession, HarnessSessions
 from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
+    from fast_agent.core.harness_persistence import HarnessSessionPersistence
     from fast_agent.interfaces import AgentProtocol
 
 
@@ -144,11 +147,133 @@ class InstanceFactory:
         await instance.shutdown()
 
 
+class FakePersistence:
+    def __init__(self) -> None:
+        self.created: list[tuple[str, str | None]] = []
+        self.saved: list[tuple[object, str]] = []
+        self.deleted: list[str] = []
+
+    async def create_or_load(
+        self,
+        session_id: str,
+        instance: AgentInstance,
+        default_agent_name: str | None,
+    ) -> object:
+        del instance
+        self.created.append((session_id, default_agent_name))
+        return {"session_id": session_id}
+
+    async def save(
+        self,
+        handle: object,
+        agent: "AgentProtocol",
+        agent_registry: Mapping[str, "AgentProtocol"],
+    ) -> None:
+        del agent_registry
+        self.saved.append((handle, agent.name))
+
+    async def delete(self, session_id: str) -> None:
+        self.deleted.append(session_id)
+
+
 @pytest.fixture
 def sessions_factory() -> tuple[HarnessSessions, InstanceFactory]:
     factory = InstanceFactory()
     sessions = HarnessSessions(create_instance=factory.create, dispose_instance=factory.dispose)
     return sessions, factory
+
+
+@pytest.mark.asyncio
+async def test_harness_sessions_accepts_instance_factory() -> None:
+    factory = InstanceFactory()
+    sessions = HarnessSessions(
+        instance_factory=CallableAgentInstanceFactory(
+            create=factory.create,
+            dispose=factory.dispose,
+        )
+    )
+
+    session = await sessions.create("demo")
+    await session.delete()
+
+    assert factory.instances == [session._record.instance]
+    assert factory.disposed == [session._record.instance]
+
+
+def test_harness_sessions_rejects_ambiguous_factory_configuration() -> None:
+    factory = InstanceFactory()
+
+    with pytest.raises(ValueError, match="either instance_factory or create_instance"):
+        HarnessSessions(
+            instance_factory=CallableAgentInstanceFactory(
+                create=factory.create,
+                dispose=factory.dispose,
+            ),
+            create_instance=factory.create,
+            dispose_instance=factory.dispose,
+        )
+
+
+def test_harness_sessions_requires_complete_factory_configuration() -> None:
+    factory = InstanceFactory()
+
+    with pytest.raises(ValueError, match="create_instance and dispose_instance are required"):
+        HarnessSessions(create_instance=factory.create)
+
+
+@pytest.mark.asyncio
+async def test_harness_sessions_uses_persistence_protocol() -> None:
+    factory = InstanceFactory()
+    persistence = FakePersistence()
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        persistence=persistence,
+    )
+
+    session = await sessions.create("demo", agent_name="support")
+    response = await session.send("hello")
+    await session.delete()
+
+    assert response == "support-0:hello"
+    assert persistence.created == [("demo", "support")]
+    assert persistence.saved == [({"session_id": "demo"}, "support-0")]
+    assert persistence.deleted == ["demo"]
+
+
+def test_harness_sessions_rejects_ambiguous_persistence_configuration() -> None:
+    factory = InstanceFactory()
+    persistence: "HarnessSessionPersistence" = FakePersistence()
+
+    async def create_persistence(
+        session_id: str,
+        instance: AgentInstance,
+        agent_name: str | None,
+    ) -> tuple[Any, Any] | None:
+        del session_id, instance, agent_name
+        return None
+
+    with pytest.raises(ValueError, match="either persistence or create_persisted_session"):
+        HarnessSessions(
+            create_instance=factory.create,
+            dispose_instance=factory.dispose,
+            persistence=persistence,
+            create_persisted_session=create_persistence,
+        )
+
+
+def test_harness_sessions_rejects_delete_persistence_without_create() -> None:
+    factory = InstanceFactory()
+
+    async def delete_persistence(session_id: str) -> None:
+        del session_id
+
+    with pytest.raises(ValueError, match="delete_persisted_session requires"):
+        HarnessSessions(
+            create_instance=factory.create,
+            dispose_instance=factory.dispose,
+            delete_persisted_session=delete_persistence,
+        )
 
 
 @pytest.mark.asyncio

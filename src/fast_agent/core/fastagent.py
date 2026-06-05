@@ -28,13 +28,13 @@ from typing import (
 
 import yaml
 import yaml.parser
-from opentelemetry import trace
 
 from fast_agent import config
 from fast_agent.agents.agent_types import AgentConfig, MCPConnectTarget
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp, AgentCardLoadResult, AgentRefreshResult
 from fast_agent.core.agent_card_paths import is_agent_card_path, is_markdown_agent_card_path
+from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.direct_decorators import DecoratorMixin
@@ -57,6 +57,7 @@ from fast_agent.core.exceptions import (
 from fast_agent.core.instruction_utils import apply_instruction_context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
+from fast_agent.core.run_lifecycle import FastAgentRunLifecycle
 from fast_agent.core.validation import (
     validate_provider_keys_post_creation,
     validate_server_references,
@@ -147,6 +148,12 @@ class RuntimeCallbacks:
     list_attached_mcp_servers: Callable[[str], Awaitable[list[str]]]
     list_configured_detached_mcp_servers: Callable[[str], Awaitable[list[str]]]
     dump_agent_card: Callable[[str], Awaitable[str]]
+
+    def instance_factory(self) -> CallableAgentInstanceFactory:
+        return CallableAgentInstanceFactory(
+            create=self.create_instance,
+            dispose=self.dispose_instance,
+        )
 
 
 @dataclass(frozen=True)
@@ -2653,61 +2660,56 @@ class FastAgent(DecoratorMixin):
         had_error = False
         run_state: ManagedRunState | None = None
         shutdown_timeout: float | None = None
-        await self.app.initialize()
-        settings = self._prepare_run_settings()
+        lifecycle = FastAgentRunLifecycle(self)
+        lifecycle_state = None
+        try:
+            lifecycle_state = await lifecycle.enter()
+            settings = lifecycle_state.settings
+            run_state = await self._initialize_managed_run_state(lifecycle_state.runtime)
+            active_agents = run_state.active_agents
 
-        tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(self.name):
-            try:
-                async with self.app.run():
-                    default_skills = self._load_default_skills_for_run()
-                    self._apply_skills_to_agent_configs(default_skills)
+            callbacks = self._build_runtime_callbacks(run_state, settings)
+            self._configure_wrapper_callbacks(run_state, callbacks, settings)
+            self._configure_streaming_for_run(run_state.active_agents)
+            await self._apply_card_tool_cli_option(
+                run_state,
+                callbacks.refresh_shared_instance,
+            )
+            await self._handle_server_mode(run_state, callbacks, settings)
+            await self._handle_message_mode(run_state, settings)
+            await self._handle_prompt_file_mode(run_state, settings)
 
-                    if settings.quiet_mode:
-                        self._configure_quiet_mode_for_run()
+            yield run_state.wrapper
 
-                    self._validate_run_preconditions()
-                    runtime = self._create_run_runtime(settings)
-                    run_state = await self._initialize_managed_run_state(runtime)
-                    active_agents = run_state.active_agents
+        except PromptExitError as e:
+            # User requested exit - not an error, show usage report
+            shutdown_timeout = _PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS
+            self._handle_error(e)
+            raise SystemExit(0) from e
+        except (
+            ServerConfigError,
+            ProviderKeyError,
+            AgentConfigError,
+            ServerInitializationError,
+            ModelConfigError,
+            CircularDependencyError,
+        ) as e:
+            had_error = True
+            self._handle_error(e)
+            raise SystemExit(1) from e
 
-                    callbacks = self._build_runtime_callbacks(run_state, settings)
-                    self._configure_wrapper_callbacks(run_state, callbacks, settings)
-                    self._configure_streaming_for_run(run_state.active_agents)
-                    await self._apply_card_tool_cli_option(
-                        run_state,
-                        callbacks.refresh_shared_instance,
-                    )
-                    await self._handle_server_mode(run_state, callbacks, settings)
-                    await self._handle_message_mode(run_state, settings)
-                    await self._handle_prompt_file_mode(run_state, settings)
-
-                    yield run_state.wrapper
-
-            except PromptExitError as e:
-                # User requested exit - not an error, show usage report
-                shutdown_timeout = _PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS
-                self._handle_error(e)
-                raise SystemExit(0) from e
-            except (
-                ServerConfigError,
-                ProviderKeyError,
-                AgentConfigError,
-                ServerInitializationError,
-                ModelConfigError,
-                CircularDependencyError,
-            ) as e:
-                had_error = True
-                self._handle_error(e)
-                raise SystemExit(1) from e
-
-            finally:
-                await self._finalize_run(
+        finally:
+            if lifecycle_state is not None:
+                exc_type, exc, traceback = sys.exc_info()
+                await lifecycle.exit(
+                    lifecycle_state,
                     run_state,
                     active_agents,
                     had_error=had_error,
-                    settings=settings,
                     shutdown_timeout=shutdown_timeout,
+                    exc_type=exc_type,
+                    exc=exc,
+                    traceback=traceback,
                 )
 
     async def _apply_instruction_context(

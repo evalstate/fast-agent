@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import sys
 from collections.abc import Awaitable, Callable, Sequence
@@ -13,6 +12,17 @@ from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar, Union
 from mcp.types import PromptMessage
 from pydantic import BaseModel
 
+from fast_agent.core.agent_instance_factory import (
+    AgentInstanceFactory,
+    CallableAgentInstanceFactory,
+)
+from fast_agent.core.harness_persistence import (
+    CallbackHarnessSessionPersistence,
+    FileHarnessSessionPersistence,
+    HarnessSessionPersistence,
+)
+from fast_agent.core.live_session_registry import InMemoryLiveSessionRegistry
+from fast_agent.core.run_lifecycle import FastAgentRunLifecycle, FastAgentRunLifecycleState
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
@@ -40,8 +50,8 @@ class _HarnessSessionRecord:
     session_id: str
     default_agent_name: str | None
     instance: AgentInstance
-    persisted_session: Session | None = None
-    session_manager: SessionManager | None = None
+    session: HarnessSession | None = None
+    persistence_handle: object | None = None
     active_operation: str | None = None
     closed: bool = False
 
@@ -183,10 +193,12 @@ class HarnessSession:
             raise RuntimeError(f"Session '{self.id}' is closed.")
 
     async def _save_persisted_history(self, agent: AgentProtocol) -> None:
-        persisted_session = self._record.persisted_session
-        if persisted_session is None:
+        persistence_handle = self._record.persistence_handle
+        persistence = self._manager._persistence
+        if persistence_handle is None or persistence is None:
             return
-        await persisted_session.save_history(
+        await persistence.save(
+            persistence_handle,
             agent,
             agent_registry=self._record.instance.agents,
         )
@@ -198,8 +210,10 @@ class HarnessSessions:
     def __init__(
         self,
         *,
-        create_instance: Callable[[], Awaitable[AgentInstance]],
-        dispose_instance: Callable[[AgentInstance], Awaitable[None]],
+        instance_factory: AgentInstanceFactory | None = None,
+        create_instance: Callable[[], Awaitable[AgentInstance]] | None = None,
+        dispose_instance: Callable[[AgentInstance], Awaitable[None]] | None = None,
+        persistence: HarnessSessionPersistence | None = None,
         create_persisted_session: Callable[
             [str, AgentInstance, str | None],
             Awaitable[tuple[SessionManager, Session] | None],
@@ -207,21 +221,31 @@ class HarnessSessions:
         | None = None,
         delete_persisted_session: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
-        self._create_instance = create_instance
-        self._dispose_instance = dispose_instance
-        self._create_persisted_session = create_persisted_session
-        self._delete_persisted_session = delete_persisted_session
-        self._lock = asyncio.Lock()
-        self._sessions: dict[str, HarnessSession] = {}
+        instance_factory = _resolve_instance_factory(
+            instance_factory=instance_factory,
+            create_instance=create_instance,
+            dispose_instance=dispose_instance,
+        )
+        self._persistence = _resolve_persistence(
+            persistence=persistence,
+            create_persisted_session=create_persisted_session,
+            delete_persisted_session=delete_persisted_session,
+        )
+        self._registry: InMemoryLiveSessionRegistry[_HarnessSessionRecord, str | None] = (
+            InMemoryLiveSessionRegistry(
+                instance_factory=instance_factory,
+                create_record=self._create_record,
+                record_instance=lambda record: record.instance,
+                close_record=self._close_record,
+            )
+        )
+        self._lock = self._registry.lock
 
     async def get(self, session_id: str | None = None) -> HarnessSession:
         """Return an existing session."""
         normalized_id = _normalize_session_id(session_id)
-        async with self._lock:
-            try:
-                return self._sessions[normalized_id]
-            except KeyError as exc:
-                raise KeyError(f"Session '{normalized_id}' not found") from exc
+        record = await self._registry.get(normalized_id)
+        return _session_from_record(record)
 
     async def create(
         self,
@@ -231,40 +255,11 @@ class HarnessSessions:
     ) -> HarnessSession:
         """Create a new session and its owned ``AgentInstance``."""
         normalized_id = _normalize_session_id(session_id)
-        async with self._lock:
-            if normalized_id in self._sessions:
-                raise ValueError(f"Session '{normalized_id}' already exists")
-
-            instance = await self._create_instance()
-            record: _HarnessSessionRecord | None = None
-            try:
-                record = _HarnessSessionRecord(
-                    session_id=normalized_id,
-                    default_agent_name=agent_name,
-                    instance=instance,
-                )
-                session = HarnessSession(self, record)
-                if agent_name is not None:
-                    session._resolve_agent(agent_name)
-
-                persisted = None
-                if self._create_persisted_session is not None:
-                    persisted = await self._create_persisted_session(
-                        normalized_id,
-                        instance,
-                        agent_name,
-                    )
-                manager, persisted_session = persisted if persisted is not None else (None, None)
-                record.session_manager = manager
-                record.persisted_session = persisted_session
-            except Exception:
-                if record is not None:
-                    record.closed = True
-                await self._dispose_instance(instance)
-                raise
-
-            self._sessions[normalized_id] = session
-            return session
+        record = await self._registry.create(
+            normalized_id,
+            context=agent_name,
+        )
+        return _session_from_record(record)
 
     async def get_or_create(
         self,
@@ -274,48 +269,66 @@ class HarnessSessions:
     ) -> HarnessSession:
         """Return an existing session or create one."""
         normalized_id = _normalize_session_id(session_id)
-        async with self._lock:
-            existing = self._sessions.get(normalized_id)
-        if existing is not None:
-            return existing
-        try:
-            return await self.create(normalized_id, agent_name=agent_name)
-        except ValueError as exc:
-            try:
-                return await self.get(normalized_id)
-            except KeyError:
-                raise exc
+        record = await self._registry.get_or_create(
+            normalized_id,
+            context=agent_name,
+        )
+        return _session_from_record(record)
 
     async def delete(self, session_id: str | None = None) -> None:
         """Delete a session if present; deleting a missing session is a no-op."""
         normalized_id = _normalize_session_id(session_id)
-        async with self._lock:
-            session = self._sessions.get(normalized_id)
-            if session is None:
-                return
-            operation = session._record.active_operation
-            if operation is not None:
-                raise RuntimeError(
-                    f"Session '{normalized_id}' is running {operation}; wait before deleting it."
-                )
-            del self._sessions[normalized_id]
-            session._record.closed = True
-            instance = session._record.instance
-
-        await self._dispose_instance(instance)
-        if self._delete_persisted_session is not None:
-            await self._delete_persisted_session(normalized_id)
+        record = await self._registry.delete(
+            normalized_id,
+            before_delete=self._raise_if_active,
+        )
+        if record is None:
+            return
+        if self._persistence is not None:
+            await self._persistence.delete(normalized_id)
 
     async def _close_all(self) -> None:
-        async with self._lock:
-            sessions = list(self._sessions.values())
-            self._sessions.clear()
-            for session in sessions:
-                session._record.closed = True
+        await self._registry.close_all()
 
-        for session in sessions:
-            with suppress(Exception):
-                await self._dispose_instance(session._record.instance)
+    async def _create_record(
+        self,
+        session_id: str,
+        instance: AgentInstance,
+        default_agent_name: str | None,
+    ) -> _HarnessSessionRecord:
+        record = _HarnessSessionRecord(
+            session_id=session_id,
+            default_agent_name=default_agent_name,
+            instance=instance,
+        )
+        session = HarnessSession(self, record)
+        record.session = session
+        try:
+            if default_agent_name is not None:
+                session._resolve_agent(default_agent_name)
+
+            if self._persistence is not None:
+                record.persistence_handle = await self._persistence.create_or_load(
+                    session_id,
+                    instance,
+                    default_agent_name,
+                )
+            return record
+        except Exception:
+            record.closed = True
+            raise
+
+    @staticmethod
+    def _close_record(record: _HarnessSessionRecord) -> None:
+        record.closed = True
+
+    @staticmethod
+    def _raise_if_active(record: _HarnessSessionRecord) -> None:
+        operation = record.active_operation
+        if operation is not None:
+            raise RuntimeError(
+                f"Session '{record.session_id}' is running {operation}; wait before deleting it."
+            )
 
 
 class AgentHarness:
@@ -327,8 +340,8 @@ class AgentHarness:
         self._sessions: HarnessSessions | None = None
         self._runtime: RunRuntime | None = None
         self._settings: RunSettings | None = None
-        self._app_context: Any | None = None
-        self._span_context: Any | None = None
+        self._lifecycle: FastAgentRunLifecycle | None = None
+        self._lifecycle_state: FastAgentRunLifecycleState | None = None
 
     @property
     def sessions(self) -> HarnessSessions:
@@ -338,35 +351,21 @@ class AgentHarness:
         return self._sessions
 
     async def __aenter__(self) -> AgentHarness:
-        from opentelemetry import trace
-
-        await self._fast_agent.app.initialize()
-        self._settings = self._fast_agent._prepare_run_settings(
-            model_override=self._model,
-            force_headless=True,
-        )
-        self._span_context = trace.get_tracer(__name__).start_as_current_span(
-            self._fast_agent.name
-        )
-        self._span_context.__enter__()
-        self._app_context = self._fast_agent.app.run()
-
+        self._lifecycle = FastAgentRunLifecycle(self._fast_agent)
         try:
-            await self._app_context.__aenter__()
-            default_skills = self._fast_agent._load_default_skills_for_run()
-            self._load_environment_agent_cards()
-            self._fast_agent._apply_skills_to_agent_configs(default_skills)
-
-            if self._settings.quiet_mode:
-                self._fast_agent._configure_quiet_mode_for_run()
-
-            self._fast_agent._validate_run_preconditions()
-            self._runtime = self._fast_agent._create_run_runtime(self._settings)
+            self._lifecycle_state = await self._lifecycle.enter(
+                model_override=self._model,
+                force_headless=True,
+                before_apply_skills=self._load_environment_agent_cards,
+            )
+            self._settings = self._lifecycle_state.settings
+            self._runtime = self._lifecycle_state.runtime
             self._sessions = HarnessSessions(
-                create_instance=self._create_instance,
-                dispose_instance=self._dispose_instance,
-                create_persisted_session=self._create_persisted_session,
-                delete_persisted_session=self._delete_persisted_session,
+                instance_factory=CallableAgentInstanceFactory(
+                    create=self._create_instance,
+                    dispose=self._dispose_instance,
+                ),
+                persistence=self._harness_persistence(),
             )
             return self
         except Exception:
@@ -389,22 +388,19 @@ class AgentHarness:
                     await self._dispose_instance(instance)
             self._runtime = None
 
-        if self._settings is not None:
-            await self._fast_agent._finalize_run(
+        if self._lifecycle is not None and self._lifecycle_state is not None:
+            await self._lifecycle.exit(
+                self._lifecycle_state,
                 None,
                 {},
                 had_error=exc_type is not None,
-                settings=self._settings,
+                exc_type=exc_type,
+                exc=exc,
+                traceback=traceback,
             )
+            self._lifecycle_state = None
+            self._lifecycle = None
             self._settings = None
-
-        if self._app_context is not None:
-            await self._app_context.__aexit__(exc_type, exc, traceback)
-            self._app_context = None
-
-        if self._span_context is not None:
-            self._span_context.__exit__(exc_type, exc, traceback)
-            self._span_context = None
 
     async def session(
         self,
@@ -430,6 +426,12 @@ class AgentHarness:
             return
         self._fast_agent.load_agents(agent_cards_dir)
 
+    def _harness_persistence(self) -> HarnessSessionPersistence | None:
+        settings = self._fast_agent.context.config
+        if settings is None or settings._fast_agent_noenv or not settings.session_history:
+            return None
+        return FileHarnessSessionPersistence(settings.environment_dir)
+
     async def _create_persisted_session(
         self,
         session_id: str,
@@ -440,7 +442,6 @@ class AgentHarness:
         if settings is None or settings._fast_agent_noenv or not settings.session_history:
             return None
 
-        from fast_agent.session import SessionHydrator
         from fast_agent.session.session_manager import SessionManager
 
         manager = SessionManager(
@@ -451,6 +452,9 @@ class AgentHarness:
             metadata={"harness_session_id": session_id},
             metadata_id_key="harness_session_id",
         )
+
+        from fast_agent.session import SessionHydrator
+
         fallback_agent_name = instance.app.resolve_target_agent_name(default_agent_name)
         hydration = await SessionHydrator().hydrate_session(
             session=persisted_session,
@@ -492,6 +496,63 @@ class AgentHarness:
             await instance.shutdown()
             return
         await self._fast_agent._dispose_agent_instance(self._runtime, instance)
+
+
+def _resolve_instance_factory(
+    *,
+    instance_factory: AgentInstanceFactory | None,
+    create_instance: Callable[[], Awaitable[AgentInstance]] | None,
+    dispose_instance: Callable[[AgentInstance], Awaitable[None]] | None,
+) -> AgentInstanceFactory:
+    if instance_factory is not None:
+        if create_instance is not None or dispose_instance is not None:
+            raise ValueError(
+                "Pass either instance_factory or create_instance/dispose_instance, not both"
+            )
+        return instance_factory
+
+    if create_instance is None or dispose_instance is None:
+        raise ValueError("create_instance and dispose_instance are required")
+
+    return CallableAgentInstanceFactory(
+        create=create_instance,
+        dispose=dispose_instance,
+    )
+
+
+def _session_from_record(record: _HarnessSessionRecord) -> HarnessSession:
+    session = record.session
+    if session is None:
+        raise RuntimeError(f"Session '{record.session_id}' is missing its facade")
+    return session
+
+
+def _resolve_persistence(
+    *,
+    persistence: HarnessSessionPersistence | None,
+    create_persisted_session: Callable[
+        [str, AgentInstance, str | None],
+        Awaitable[tuple[SessionManager, Session] | None],
+    ]
+    | None,
+    delete_persisted_session: Callable[[str], Awaitable[None]] | None,
+) -> HarnessSessionPersistence | None:
+    if persistence is not None:
+        if create_persisted_session is not None or delete_persisted_session is not None:
+            raise ValueError(
+                "Pass either persistence or create_persisted_session/delete_persisted_session, not both"
+            )
+        return persistence
+
+    if create_persisted_session is None:
+        if delete_persisted_session is not None:
+            raise ValueError("delete_persisted_session requires create_persisted_session")
+        return None
+
+    return CallbackHarnessSessionPersistence(
+        create_persisted_session=create_persisted_session,
+        delete_persisted_session=delete_persisted_session,
+    )
 
 
 def _normalize_session_id(session_id: str | None) -> str:

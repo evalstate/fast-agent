@@ -11,6 +11,7 @@ from fast_agent.core.logging.logger import get_logger
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.agent_app import AgentCardLoadResult
@@ -28,11 +29,8 @@ class SlashRuntimeHost(Protocol):
     _detach_agent_tools_callback: Any
     _dump_agent_card_callback: Any
     _reload_callback: Any
-    _active_prompts: set[str]
-    _session_tasks: dict[str, asyncio.Task]
+    _live_sessions: ACPLiveSessionRegistry
     _session_lock: asyncio.Lock
-    _session_state: dict[str, ACPSessionState]
-    sessions: dict[str, AgentInstance]
     _create_instance_task: Any
     _dispose_instance_task: Any
     _client_info: dict[str, Any] | None
@@ -354,9 +352,10 @@ class ACPServerSlashRuntime:
     async def reload_agent_cards_for_session(self, session_id: str) -> bool:
         if not self._host._reload_callback:
             return False
-        if session_id in self._host._active_prompts:
+        live_sessions = self._host._live_sessions
+        if session_id in live_sessions.active_prompts:
             current_task = asyncio.current_task()
-            session_task = self._host._session_tasks.get(session_id)
+            session_task = live_sessions.session_tasks.get(session_id)
             if current_task != session_task:
                 raise RuntimeError("Cannot reload while a prompt is active for this session.")
 
@@ -365,7 +364,7 @@ class ACPServerSlashRuntime:
             return False
 
         async with self._host._session_lock:
-            session_state = self._host._session_state.get(session_id)
+            session_state = live_sessions.session_state.get(session_id)
         if not session_state:
             return True
 

@@ -26,6 +26,7 @@ from acp.schema import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
     from fast_agent.session.identity import SessionStoreScope
     from fast_agent.types import PromptMessageExtended
@@ -49,9 +50,7 @@ logger = get_logger(__name__)
 class SessionStoreHost(Protocol):
     _connection: Any
     _session_lock: Any
-    _session_state: dict[str, ACPSessionState]
-    sessions: dict[str, Any]
-    _prompt_locks: dict[str, Any]
+    _live_sessions: ACPLiveSessionRegistry
     _dispose_instance_task: Any
 
     def _resolve_request_cwd(

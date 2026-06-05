@@ -32,6 +32,7 @@ from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.llm.stream_types import StreamChunk
@@ -73,12 +74,8 @@ class PromptTurn:
 
 
 class PromptFlowHost(Protocol):
-    sessions: dict[str, Any]
+    _live_sessions: ACPLiveSessionRegistry
     _session_lock: asyncio.Lock
-    _prompt_locks: dict[str, asyncio.Lock]
-    _active_prompts: set[str]
-    _session_tasks: dict[str, asyncio.Task]
-    _session_state: dict[str, ACPSessionState]
     _connection: Any
     primary_agent_name: str | None
 
@@ -115,10 +112,11 @@ class ACPPromptFlow:
     async def get_prompt_lock(self, session_id: str) -> asyncio.Lock:
         """Get/create the lock used to serialize prompts for a session."""
         async with self._host._session_lock:
-            lock = self._host._prompt_locks.get(session_id)
+            prompt_locks = self._host._live_sessions.prompt_locks
+            lock = prompt_locks.get(session_id)
             if lock is None:
                 lock = asyncio.Lock()
-                self._host._prompt_locks[session_id] = lock
+                prompt_locks[session_id] = lock
             return lock
 
     async def prompt(
@@ -202,16 +200,18 @@ class ACPPromptFlow:
 
     async def _mark_prompt_active(self, session_id: str) -> None:
         async with self._host._session_lock:
-            self._host._active_prompts.add(session_id)
+            live_sessions = self._host._live_sessions
+            live_sessions.active_prompts.add(session_id)
             current_task = asyncio.current_task()
             if current_task:
-                self._host._session_tasks[session_id] = current_task
+                live_sessions.session_tasks[session_id] = current_task
 
     async def _mark_prompt_inactive(self, session_id: str) -> None:
         write_interactive_trace("acp.prompt.finally", session_id=session_id)
         async with self._host._session_lock:
-            self._host._active_prompts.discard(session_id)
-            self._host._session_tasks.pop(session_id, None)
+            live_sessions = self._host._live_sessions
+            live_sessions.active_prompts.discard(session_id)
+            live_sessions.session_tasks.pop(session_id, None)
         logger.debug(
             "Removed session from active prompts",
             name="acp_prompt_complete",
@@ -224,7 +224,7 @@ class ACPPromptFlow:
         session_id: str,
     ) -> PromptTurn | None:
         async with self._host._session_lock:
-            instance = self._host.sessions.get(session_id)
+            instance = self._host._live_sessions.sessions.get(session_id)
 
         if not instance:
             return None
@@ -232,7 +232,7 @@ class ACPPromptFlow:
         processed_prompt = inline_resources_for_slash_command(prompt)
         mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(processed_prompt)
         prompt_message = PromptMessageExtended(role="user", content=mcp_content_blocks)
-        session_state = self._host._session_state.get(session_id)
+        session_state = self._host._live_sessions.session_state.get(session_id)
         current_agent_name = self._resolve_current_agent_name(session_state, instance)
         return PromptTurn(
             instance=instance,

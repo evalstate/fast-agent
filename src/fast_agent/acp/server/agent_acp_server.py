@@ -56,6 +56,7 @@ from acp.schema import (
 
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
 from fast_agent.acp.acp_context import ClientInfo
+from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
 from fast_agent.acp.server.models import ACPSessionState
 from fast_agent.acp.server.prompt_flow import ACPPromptFlow, PromptFlowHost
 from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, SessionRuntimeHost
@@ -66,6 +67,7 @@ from fast_agent.commands.model_capabilities import resolve_model_name, resolve_r
 from fast_agent.config import MCPServerSettings, get_settings
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.core.agent_app import AgentCardLoadResult
+from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
@@ -141,8 +143,12 @@ class AgentACPServer(ACPAgent):
         super().__init__()
 
         self._bootstrap_instance = bootstrap_instance
-        self._create_instance_task = create_instance
-        self._dispose_instance_task = dispose_instance
+        self._instance_factory = CallableAgentInstanceFactory(
+            create=create_instance,
+            dispose=dispose_instance,
+        )
+        self._create_instance_task = self._instance_factory.create_instance
+        self._dispose_instance_task = self._instance_factory.dispose_instance
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
@@ -160,22 +166,23 @@ class AgentACPServer(ACPAgent):
         self.server_version = server_version
 
         # Session management
-        self.sessions: dict[str, AgentInstance] = {}
+        self._live_sessions = ACPLiveSessionRegistry()
+        self.sessions = self._live_sessions.sessions
         self._session_lock = asyncio.Lock()
 
         # Per-session prompt locks to serialize prompt turns.
         # ACP session/update notifications are correlated only by sessionId, so overlapping
         # prompts would interleave updates and become ambiguous.
-        self._prompt_locks: dict[str, asyncio.Lock] = {}
+        self._prompt_locks = self._live_sessions.prompt_locks
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
-        self._active_prompts: set[str] = set()
+        self._active_prompts = self._live_sessions.active_prompts
 
         # Track asyncio tasks per session for proper task-based cancellation
-        self._session_tasks: dict[str, asyncio.Task] = {}
+        self._session_tasks = self._live_sessions.session_tasks
 
         # Aggregated per-session state
-        self._session_state: dict[str, ACPSessionState] = {}
+        self._session_state = self._live_sessions.session_state
 
         # Connection reference (set during run_async)
         self._connection: ACPClient | None = None
@@ -1005,14 +1012,9 @@ class AgentACPServer(ACPAgent):
             for session_id, state in list(self._session_state.items()):
                 await self._cleanup_session_state(session_id, state)
 
-            self._session_state.clear()
-            self._session_tasks.clear()
-            self._active_prompts.clear()
-            self._prompt_locks.clear()
-
             disposed_instances = await self._dispose_session_instances()
             await self._dispose_bootstrap_instance(disposed_instances)
-            self.sessions.clear()
+            self._live_sessions.clear_all()
 
         logger.info("ACP cleanup complete")
 
