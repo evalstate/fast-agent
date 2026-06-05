@@ -492,12 +492,40 @@ Per-call request parameters are passed to the selected agent method.
 
 ## Shell and filesystem tools
 
-The harness does not add first-class `harness.shell()` or `session.shell()`
-methods. Shell and filesystem access remains tool-mediated through configured
-agents.
+Use `harness.shell()` for programmatic shell commands that should not be added
+to a conversation:
 
-If an agent is configured with shell access, a harness call can use that tool
-through the normal model/tool loop:
+```python
+async with fast.harness() as harness:
+    result = await harness.shell("pwd")
+
+    if result.exit_code == 0:
+        print(result.stdout)
+    else:
+        print(result.stderr)
+```
+
+`harness.shell()` returns a structured `ShellExecutionResult` with `stdout`,
+`stderr`, and `exit_code`. It runs through the same local shell execution
+configuration as the model-facing shell tool, but it does not create a harness
+session and does not update agent history.
+
+Use `session.shell()` when you want shell work serialized with a specific
+`HarnessSession`:
+
+```python
+async with fast.harness() as harness:
+    session = await harness.session("repo-review", agent_name="reviewer")
+    result = await session.shell("git diff --stat")
+```
+
+`session.shell()` also returns `ShellExecutionResult` and does not add the
+command or output to chat history. It is still a session operation, so it is
+rejected while the same session is already running `send()`, `generate()`,
+`structured()`, or another `shell()` call.
+
+If an agent is configured with shell access, a harness call can also use that
+tool through the normal model/tool loop:
 
 ```python
 async with fast.harness() as harness:
@@ -509,7 +537,11 @@ async with fast.harness() as harness:
 
 The shell/tool activity belongs to the selected agent in that session's
 `AgentInstance`, so it is part of the normal conversation and tool execution
-flow.
+flow. Use this when the model should decide which commands to run or when the
+tool interaction should be part of the agent turn.
+
+Filesystem access remains tool-mediated through configured agents. A future
+sandbox/session-environment API may expose first-class filesystem operations.
 
 Session IDs are conversation/runtime affinity keys, not security boundaries. A
 session does not automatically create a per-session filesystem sandbox. For
@@ -530,7 +562,7 @@ Current non-goals include:
 - background runs;
 - cancellable call handles;
 - event streams;
-- first-class shell/filesystem helper methods;
+- first-class filesystem helper methods;
 - task or branch sessions;
 - direct HTTP or A2A adapters;
 - sandbox or tenant-isolation policy;

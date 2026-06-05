@@ -8,8 +8,12 @@ import pytest
 
 from fast_agent.core.fastagent import FastAgent, RunRuntime, RunSettings
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle
+from fast_agent.tools.session_environment import ShellExecutionResult
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
 
 
@@ -21,6 +25,19 @@ def _unused_llm_factory(agent: "AgentProtocol", **kwargs: object) -> FastAgentLL
 def _unused_model_factory(model: str | None = None) -> LLMFactoryProtocol:
     del model
     return _unused_llm_factory
+
+
+class _FakeShellExecutor:
+    async def execute_shell(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> ShellExecutionResult:
+        del command, cwd, env, timeout
+        return ShellExecutionResult(stdout="", stderr="", exit_code=0)
 
 
 @pytest.mark.asyncio
@@ -79,6 +96,7 @@ async def test_run_lifecycle_enter_performs_shared_setup_in_order(
             noenv_mode=settings.noenv_mode,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
+            shell_executor=_FakeShellExecutor(),
         )
 
     monkeypatch.setattr(fast.app, "initialize", initialize)

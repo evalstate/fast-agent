@@ -30,6 +30,22 @@ await harness.session(session_id: str | None = None, *, agent_name: str | None =
 Returns an existing session or creates one by delegating to
 `harness.sessions.get_or_create()`.
 
+#### `shell()`
+
+```python
+await harness.shell(
+    command: str,
+    *,
+    cwd: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout: float | None = None
+) -> ShellExecutionResult
+```
+Runs a shell command through the harness shell executor and returns a
+`ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is
+programmatic shell access: it does not create a session and does not add
+the command or output to chat history.
+
 ## HarnessSessions Class
 
 Manager for harness sessions. When `session_history` is enabled, creating a
@@ -105,6 +121,14 @@ await session.structured_schema(
 
 await session.clear(*, agent_name: str | None = None, clear_prompts: bool = False) -> None
 
+await session.shell(
+    command: str,
+    *,
+    cwd: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout: float | None = None
+) -> ShellExecutionResult
+
 await session.delete() -> None
 ```
 Calls resolve their target agent in this order:
@@ -114,6 +138,10 @@ Calls resolve their target agent in this order:
 3. the app default agent.
 
 `clear()` clears only the resolved target agent, not every agent in the session.
+
+`shell()` returns `ShellExecutionResult` with `stdout`, `stderr`, and
+`exit_code`. It does not add the command or output to chat history, but it
+is serialized with other operations on the same `HarnessSession`.
 
 ### Session lifecycle and concurrency
 

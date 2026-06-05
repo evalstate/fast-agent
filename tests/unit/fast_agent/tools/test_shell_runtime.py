@@ -20,6 +20,7 @@ from fast_agent.constants import (
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.session_environment import ShellExecutionResult
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
@@ -102,23 +103,18 @@ class RecordingFastLogger:
         self.error_calls.append((args, kwargs))
 
 
-class _TestShellRuntime(ShellRuntime):
+class _TestLocalShellExecutor(LocalShellExecutor):
     def __init__(
         self,
         *,
         runtime_info: Mapping[str, str | None],
-        working_directory: Path = Path("."),
         **kwargs: Any,
     ) -> None:
         self._test_runtime_info = dict(runtime_info)
-        self._test_working_directory = working_directory
         super().__init__(**kwargs)
 
     def runtime_info(self) -> dict[str, str | None]:
         return self._test_runtime_info
-
-    def working_directory(self) -> Path:
-        return self._test_working_directory
 
 
 @contextmanager
@@ -127,13 +123,23 @@ def _no_progress():
 
 
 def _setup_runtime(
-    monkeypatch: pytest.MonkeyPatch, runtime_info: dict[str, str]
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_info: dict[str, str],
+    **runtime_kwargs: Any,
 ) -> tuple[ShellRuntime, DummyProcess, dict[str, Any]]:
     logger = logging.getLogger("shell-runtime-test")
-    runtime = _TestShellRuntime(
-        activation_reason="test",
+    shell_executor = _TestLocalShellExecutor(
         logger=logger,
         runtime_info=runtime_info,
+        timeout_seconds=runtime_kwargs.get("timeout_seconds", 90),
+        warning_interval_seconds=runtime_kwargs.get("warning_interval_seconds", 30),
+        config=runtime_kwargs.get("config"),
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_executor=shell_executor,
+        **runtime_kwargs,
     )
 
     dummy_process = DummyProcess()
@@ -210,41 +216,38 @@ def test_shell_runtime_reads_typed_shell_settings() -> None:
     assert runtime.prefer_local_shell is True
 
 
-def test_shell_process_plan_exports_runtime_home(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_shell_executor_exports_runtime_home(tmp_path: Path) -> None:
     settings = Settings()
     settings._fast_agent_home = str(tmp_path / ".fast-agent")
-    runtime = ShellRuntime(activation_reason="test", logger=logging.getLogger(__name__), config=settings)
+    executor = LocalShellExecutor(logger=logging.getLogger(__name__), config=settings)
 
-    plan = runtime._build_process_plan(tmp_path)
-
-    assert plan.process_kwargs["env"]["FAST_AGENT_RUNTIME_ENVIRONMENT"] == str(
-        (tmp_path / ".fast-agent").resolve()
+    result = await executor.execute_shell(
+        f"{sys.executable} -c \"import os; print(os.environ['ENVIRONMENT_DIR'])\"",
+        cwd=tmp_path,
     )
-    assert plan.process_kwargs["env"]["ENVIRONMENT_DIR"] == str((tmp_path / ".fast-agent").resolve())
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == str((tmp_path / ".fast-agent").resolve())
 
 
-def test_shell_process_plan_strips_runtime_home_in_noenv(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_shell_executor_strips_runtime_home_in_noenv(tmp_path: Path) -> None:
     settings = Settings()
     settings._fast_agent_home = str(tmp_path / ".fast-agent")
     settings._fast_agent_noenv = True
-    runtime = ShellRuntime(activation_reason="test", logger=logging.getLogger(__name__), config=settings)
+    executor = LocalShellExecutor(logger=logging.getLogger(__name__), config=settings)
 
-    plan = runtime._build_process_plan(tmp_path)
-
-    assert "FAST_AGENT_RUNTIME_ENVIRONMENT" not in plan.process_kwargs["env"]
-    assert "ENVIRONMENT_DIR" not in plan.process_kwargs["env"]
-
-
-def test_shell_process_plan_normalizes_shell_name(tmp_path: Path) -> None:
-    runtime = _TestShellRuntime(
-        activation_reason="test",
-        logger=logging.getLogger(__name__),
-        runtime_info={"name": " PWSH ", "path": "/usr/bin/pwsh"},
+    result = await executor.execute_shell(
+        (
+            f"{sys.executable} -c "
+            "\"import os; print(os.environ.get('ENVIRONMENT_DIR', 'missing'))\""
+        ),
+        cwd=tmp_path,
     )
 
-    plan = runtime._build_process_plan(tmp_path)
-
-    assert plan.shell_name == "pwsh"
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "missing"
 
 
 def _terminate_pid(pid_path: Path) -> None:
@@ -328,6 +331,29 @@ async def test_execute_shell_returns_structured_output(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert result.stdout.splitlines() == [tmp_path.name, "present"]
     assert result.stderr == "problem\n"
+
+
+@pytest.mark.asyncio
+async def test_set_working_directory_updates_execute_shell_cwd(tmp_path: Path) -> None:
+    initial_dir = tmp_path / "initial"
+    updated_dir = tmp_path / "updated"
+    initial_dir.mkdir()
+    updated_dir.mkdir()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        timeout_seconds=10,
+        working_directory=initial_dir,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    runtime.set_working_directory(updated_dir)
+    result = await runtime.execute_shell(
+        f"{sys.executable} -c \"import pathlib; print(pathlib.Path.cwd())\""
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == str(updated_dir)
 
 
 @pytest.mark.asyncio
@@ -545,29 +571,6 @@ async def test_execute_huge_output_exits_cleanly_with_low_byte_limit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_drain_output_tasks_propagates_reader_exceptions() -> None:
-    logger = logging.getLogger("shell-runtime-test")
-    runtime = ShellRuntime(activation_reason="test", logger=logger)
-
-    class ReaderError(Exception):
-        pass
-
-    async def fails() -> None:
-        raise ReaderError("boom")
-
-    async def waits() -> None:
-        await asyncio.sleep(30)
-
-    pending_task = asyncio.create_task(waits())
-    with pytest.raises(ReaderError):
-        await runtime._drain_output_tasks(
-            [asyncio.create_task(fails()), pending_task],
-            timeout_seconds=1,
-        )
-    assert pending_task.cancelled()
-
-
-@pytest.mark.asyncio
 async def test_execute_with_missing_working_directory_returns_actionable_error(
     tmp_path: Path,
 ) -> None:
@@ -616,10 +619,11 @@ async def test_execute_with_file_working_directory_returns_actionable_error(
 async def test_timeout_sends_ctrl_break_for_pwsh(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     runtime, process, captured = _setup_runtime(
-        monkeypatch, {"name": "pwsh", "path": r"C:\Program Files\PowerShell\7\pwsh.exe"}
+        monkeypatch,
+        {"name": "pwsh", "path": r"C:\Program Files\PowerShell\7\pwsh.exe"},
+        timeout_seconds=0,
+        warning_interval_seconds=0,
     )
-    runtime._timeout_seconds = 0
-    runtime._warning_interval_seconds = 0
 
     async def fast_sleep(_):
         return None
@@ -746,12 +750,17 @@ async def test_execute_progress_only_mode_suppresses_live_console_output() -> No
 @pytest.mark.asyncio
 async def test_execute_emits_shell_lifecycle_progress_events(monkeypatch: pytest.MonkeyPatch) -> None:
     logger = RecordingFastLogger()
-    runtime = _TestShellRuntime(
+    runtime = ShellRuntime(
         activation_reason="test",
         logger=logger,
         timeout_seconds=10,
         agent_name="assistant",
-        runtime_info={"name": "bash", "path": "/bin/bash"},
+        shell_executor=_TestLocalShellExecutor(
+            logger=logger,
+            runtime_info={"name": "bash", "path": "/bin/bash"},
+            timeout_seconds=10,
+            warning_interval_seconds=30,
+        ),
     )
 
     process = DummyProcess()

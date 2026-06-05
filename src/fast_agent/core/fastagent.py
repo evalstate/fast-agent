@@ -67,6 +67,7 @@ from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.tools.function_tool_config import function_tool_entrypoint
+from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.python_file_loader import parse_callable_file_spec
 from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
@@ -88,6 +89,7 @@ if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
     from fast_agent.mcp.types import McpAgentProtocol
     from fast_agent.session import Session, SessionHydrationResult
+    from fast_agent.tools.session_environment import ShellExecutor
     from fast_agent.types import PromptMessageExtended
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
@@ -117,6 +119,7 @@ class RunRuntime:
     noenv_mode: bool
     managed_instances: list[AgentInstance]
     instance_lock: asyncio.Lock
+    shell_executor: ShellExecutor
 
 
 @dataclass
@@ -1731,6 +1734,8 @@ class FastAgent(DecoratorMixin):
 
     def _create_run_runtime(self, settings: RunSettings) -> RunRuntime:
         """Create the immutable/shared runtime resources for a run."""
+        active_settings = config.get_settings()
+        shell_settings = active_settings.shell_execution
         return RunRuntime(
             model_factory_func=self._build_model_factory_func(settings.cli_model_override),
             global_prompt_context=self._build_global_prompt_context(
@@ -1741,6 +1746,12 @@ class FastAgent(DecoratorMixin):
             noenv_mode=settings.noenv_mode,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
+            shell_executor=LocalShellExecutor(
+                logger=logger,
+                timeout_seconds=shell_settings.timeout_seconds,
+                warning_interval_seconds=shell_settings.warning_interval_seconds,
+                config=active_settings,
+            ),
         )
 
     async def _instantiate_agent_instance(

@@ -18,8 +18,12 @@ from fast_agent.core.fastagent import (
     RunSettings,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
+from fast_agent.tools.session_environment import ShellExecutionResult
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
 
 
@@ -37,6 +41,19 @@ def _unused_llm_factory(agent: AgentProtocol, **kwargs: object) -> FastAgentLLMP
 def _unused_model_factory(model: str | None = None) -> LLMFactoryProtocol:
     del model
     return _unused_llm_factory
+
+
+class _FakeShellExecutor:
+    async def execute_shell(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> ShellExecutionResult:
+        del command, cwd, env, timeout
+        return ShellExecutionResult(stdout="", stderr="", exit_code=0)
 
 
 def test_is_acp_server_mode_requires_server_flag_and_acp_transport() -> None:
@@ -101,6 +118,7 @@ async def test_runtime_callback_instances_inherit_mcp_runtime_callbacks(
             noenv_mode=False,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
+            shell_executor=_FakeShellExecutor(),
         ),
         primary_instance=AgentInstance(wrapper, {"main": agent}),
         wrapper=wrapper,
@@ -203,6 +221,7 @@ async def test_runtime_mcp_callbacks_bind_to_instance_agents_not_primary_state(
             noenv_mode=False,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
+            shell_executor=_FakeShellExecutor(),
         ),
         primary_instance=AgentInstance(wrapper, {"main": primary_agent}),
         wrapper=wrapper,
@@ -272,6 +291,7 @@ async def test_load_card_tools_rejects_default_agent_without_agent_tool_support(
             noenv_mode=False,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
+            shell_executor=_FakeShellExecutor(),
         ),
         primary_instance=AgentInstance(wrapper, {"main": main_agent}),
         wrapper=wrapper,

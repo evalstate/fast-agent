@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import sys
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar, Union
@@ -26,11 +26,13 @@ from fast_agent.core.run_lifecycle import FastAgentRunLifecycle, FastAgentRunLif
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from types import TracebackType
 
     from fast_agent.core.fastagent import AgentInstance, FastAgent, RunRuntime, RunSettings
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
+    from fast_agent.tools.session_environment import ShellExecutionResult, ShellExecutor
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 HARNESS_SESSION_ID_MAX_LENGTH = 128
@@ -153,6 +155,26 @@ class HarnessSession:
         finally:
             await self._end_operation("clear")
 
+    async def shell(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> ShellExecutionResult:
+        """Run a shell command for this session without adding it to chat history."""
+        await self._begin_session_operation("shell")
+        try:
+            return await self._manager._execute_shell(
+                command,
+                cwd=cwd,
+                env=env,
+                timeout=timeout,
+            )
+        finally:
+            await self._end_operation("shell")
+
     async def delete(self) -> None:
         """Delete this session and dispose its owned instance."""
         await self._manager.delete(self.id)
@@ -162,6 +184,14 @@ class HarnessSession:
         operation: str,
         agent_name: str | None,
     ) -> AgentProtocol:
+        await self._begin_session_operation(operation)
+        try:
+            return self._resolve_agent(agent_name)
+        except Exception:
+            await self._end_operation(operation)
+            raise
+
+    async def _begin_session_operation(self, operation: str) -> None:
         async with self._manager._lock:
             self._raise_if_closed()
             if self._record.active_operation is not None:
@@ -169,9 +199,7 @@ class HarnessSession:
                     f"Session '{self.id}' is already running {self._record.active_operation}; "
                     "start another session for parallel conversation branches."
                 )
-            agent = self._resolve_agent(agent_name)
             self._record.active_operation = operation
-            return agent
 
     async def _end_operation(self, operation: str) -> None:
         async with self._manager._lock:
@@ -220,6 +248,7 @@ class HarnessSessions:
         ]
         | None = None,
         delete_persisted_session: Callable[[str], Awaitable[None]] | None = None,
+        shell_executor: ShellExecutor | None = None,
     ) -> None:
         instance_factory = _resolve_instance_factory(
             instance_factory=instance_factory,
@@ -231,6 +260,7 @@ class HarnessSessions:
             create_persisted_session=create_persisted_session,
             delete_persisted_session=delete_persisted_session,
         )
+        self._shell_executor = shell_executor
         self._registry: InMemoryLiveSessionRegistry[_HarnessSessionRecord, str | None] = (
             InMemoryLiveSessionRegistry(
                 instance_factory=instance_factory,
@@ -287,6 +317,23 @@ class HarnessSessions:
         if self._persistence is not None:
             await self._persistence.delete(normalized_id)
 
+    async def _execute_shell(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None,
+        env: Mapping[str, str] | None,
+        timeout: float | None,
+    ) -> ShellExecutionResult:
+        if self._shell_executor is None:
+            raise RuntimeError("Harness shell executor is not configured.")
+        return await self._shell_executor.execute_shell(
+            command,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+        )
+
     async def _close_all(self) -> None:
         await self._registry.close_all()
 
@@ -342,6 +389,7 @@ class AgentHarness:
         self._settings: RunSettings | None = None
         self._lifecycle: FastAgentRunLifecycle | None = None
         self._lifecycle_state: FastAgentRunLifecycleState | None = None
+        self._shell_executor: ShellExecutor | None = None
 
     @property
     def sessions(self) -> HarnessSessions:
@@ -360,12 +408,14 @@ class AgentHarness:
             )
             self._settings = self._lifecycle_state.settings
             self._runtime = self._lifecycle_state.runtime
+            self._shell_executor = self._runtime.shell_executor
             self._sessions = HarnessSessions(
                 instance_factory=CallableAgentInstanceFactory(
                     create=self._create_instance,
                     dispose=self._dispose_instance,
                 ),
                 persistence=self._harness_persistence(),
+                shell_executor=self._shell_executor,
             )
             return self
         except Exception:
@@ -387,6 +437,7 @@ class AgentHarness:
                 with suppress(Exception):
                     await self._dispose_instance(instance)
             self._runtime = None
+            self._shell_executor = None
 
         if self._lifecycle is not None and self._lifecycle_state is not None:
             await self._lifecycle.exit(
@@ -410,6 +461,24 @@ class AgentHarness:
     ) -> HarnessSession:
         """Return an existing session or create it."""
         return await self.sessions.get_or_create(session_id, agent_name=agent_name)
+
+    async def shell(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> ShellExecutionResult:
+        """Run a shell command and return structured stdout/stderr/exit code."""
+        if self._shell_executor is None:
+            raise RuntimeError("Harness is not running.")
+        return await self._shell_executor.execute_shell(
+            command,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+        )
 
     def _load_environment_agent_cards(self) -> None:
         from fast_agent.core.agent_card_paths import is_agent_card_path

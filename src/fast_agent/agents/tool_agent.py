@@ -1,24 +1,23 @@
-import asyncio
 import json
-import time
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from contextlib import suppress
 from contextvars import ContextVar
-from dataclasses import asdict, dataclass
 from typing import Any
 
 from fastmcp.tools import FunctionTool, ToolResult
-from mcp.types import CallToolResult, ContentBlock, ListToolsResult, TextContent, Tool
+from mcp.types import CallToolResult, ContentBlock, ListToolsResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.tool_call_planning import (
+    PlannedToolCall,
+    execute_planned_tool_call,
+    plan_tool_calls,
+)
+from fast_agent.agents.tool_loop_progress import ToolLoopProgressEmitter
+from fast_agent.agents.tool_result_channels import build_tool_result_message
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
-    FAST_AGENT_ERROR_CHANNEL,
-    FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
-    FAST_AGENT_TOOL_METADATA,
-    FAST_AGENT_TOOL_TIMING,
-    FAST_AGENT_URL_ELICITATION_CHANNEL,
     HUMAN_INPUT_TOOL_NAME,
     should_parallelize_tool_calls,
 )
@@ -31,11 +30,9 @@ from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.mcp.tool_result_metadata import (
-    fatal_tool_error,
     set_url_elicitation_required_payload,
     url_elicitation_required_payload,
 )
-from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams, ToolTimingInfo
@@ -48,58 +45,6 @@ _tool_progress_context: ContextVar[tuple[ToolExecutionHandler, str] | None] = Co
     "tool_progress_context",
     default=None,
 )
-
-
-@dataclass(frozen=True)
-class _PlannedToolCall:
-    correlation_id: str
-    name: str
-    arguments: dict[str, Any]
-
-
-class _ToolLoopProgressEmitter:
-    def __init__(self, handler: ToolExecutionHandler, agent_name: str) -> None:
-        self._handler = handler
-        self._agent_name = agent_name
-        self._tool_call_id: str | None = None
-        self._step = 0
-        self._finished = False
-        self._lock = asyncio.Lock()
-
-    async def _ensure_started(self) -> str | None:
-        if self._tool_call_id:
-            return self._tool_call_id
-        try:
-            self._tool_call_id = await self._handler.on_tool_start(
-                "agent_loop", self._agent_name, None
-            )
-        except Exception:
-            self._tool_call_id = None
-        return self._tool_call_id
-
-    async def step(self, label: str) -> None:
-        async with self._lock:
-            if self._finished:
-                return
-            self._step += 1
-            tool_call_id = await self._ensure_started()
-            if not tool_call_id:
-                return
-            message = f"step {self._step}"
-            if label:
-                message = f"{message} ({label})"
-            with suppress(Exception):
-                await self._handler.on_tool_progress(tool_call_id, float(self._step), None, message)
-
-    async def finish(self, success: bool, error: str | None = None) -> None:
-        async with self._lock:
-            if self._finished:
-                return
-            self._finished = True
-            if not self._tool_call_id:
-                return
-            with suppress(Exception):
-                await self._handler.on_tool_complete(self._tool_call_id, success, None, error)
 
 
 class ToolAgent(LlmAgent, _ToolLoopAgent):
@@ -509,7 +454,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
     def _build_loop_progress_hooks(
         self, handler: ToolExecutionHandler
     ) -> ToolRunnerHooks:
-        emitter = _ToolLoopProgressEmitter(handler, self.name)
+        emitter = ToolLoopProgressEmitter(handler, self.name)
         error_reasons = (
             LlmStopReason.ERROR.value,
             LlmStopReason.CANCELLED.value,
@@ -670,32 +615,27 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         available_tools: Collection[str],
         should_parallel: bool,
         tool_results: dict[str, CallToolResult],
-    ) -> tuple[list[_PlannedToolCall], str | None]:
-        planned_calls: list[_PlannedToolCall] = []
-        for correlation_id, tool_request in tool_call_items:
-            tool_name = tool_request.params.name
-            tool_args = tool_request.params.arguments or {}
-            if tool_name not in available_tools and tool_name not in self._execution_tools:
-                error_message = f"Tool '{tool_name}' is not available"
-                logger.error(error_message)
-                return planned_calls, self._mark_tool_loop_error(
-                    correlation_id=correlation_id,
-                    error_message=error_message,
-                    tool_results=tool_results,
-                    tool_call_id=correlation_id if should_parallel else None,
-                )
-            planned_calls.append(
-                _PlannedToolCall(
-                    correlation_id=correlation_id,
-                    name=tool_name,
-                    arguments=tool_args,
-                )
+    ) -> tuple[list[PlannedToolCall], str | None]:
+        plan = plan_tool_calls(
+            tool_call_items,
+            available_tools=available_tools,
+            execution_tools=self._execution_tools,
+        )
+        unavailable_call = plan.unavailable_call
+        if unavailable_call is not None:
+            error_message = f"Tool '{unavailable_call.name}' is not available"
+            logger.error(error_message)
+            return plan.planned_calls, self._mark_tool_loop_error(
+                correlation_id=unavailable_call.correlation_id,
+                error_message=error_message,
+                tool_results=tool_results,
+                tool_call_id=unavailable_call.correlation_id if should_parallel else None,
             )
-        return planned_calls, None
+        return plan.planned_calls, None
 
     def _show_planned_tool_call(
         self,
-        planned_call: _PlannedToolCall,
+        planned_call: PlannedToolCall,
         *,
         available_tools: list[str],
         tool_metadata: dict[str, dict[str, Any]],
@@ -721,27 +661,37 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
     async def _execute_planned_tool_call(
         self,
-        planned_call: _PlannedToolCall,
+        planned_call: PlannedToolCall,
         *,
         request_params: RequestParams | None,
     ) -> tuple[CallToolResult, float]:
-        start_time = time.perf_counter()
-        result = await self.call_tool(
-            planned_call.name,
-            planned_call.arguments,
+        planned_result = await execute_planned_tool_call(
+            planned_call,
+            execute_tool=self._execute_tool_for_plan,
             request_params=request_params,
         )
-        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
-        return result, duration_ms
+        return planned_result.result, planned_result.duration_ms
+
+    async def _execute_tool_for_plan(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        request_params: RequestParams | None,
+    ) -> CallToolResult:
+        return await self.call_tool(
+            name,
+            arguments,
+            request_params=request_params,
+        )
 
     async def _run_parallel_tool_calls(
         self,
-        planned_calls: list[_PlannedToolCall],
+        planned_calls: list[PlannedToolCall],
         *,
         request_params: RequestParams | None,
     ) -> tuple[dict[str, CallToolResult], dict[str, ToolTimingInfo]]:
         async def run_one(
-            planned_call: _PlannedToolCall,
+            planned_call: PlannedToolCall,
         ) -> tuple[str, CallToolResult, float]:
             result, duration_ms = await self._execute_planned_tool_call(
                 planned_call,
@@ -779,7 +729,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
     async def _run_sequential_tool_calls(
         self,
-        planned_calls: list[_PlannedToolCall],
+        planned_calls: list[PlannedToolCall],
         *,
         request_params: RequestParams | None,
     ) -> tuple[dict[str, CallToolResult], dict[str, ToolTimingInfo]]:
@@ -898,62 +848,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         return error_message
 
-    @staticmethod
-    def _tool_result_channels(
-        *,
-        tool_timings: dict[str, ToolTimingInfo] | None,
-        tool_metadata: dict[str, dict[str, Any]] | None,
-        tool_loop_error: str | None,
-        tool_results: Mapping[str, CallToolResult] | None = None,
-    ) -> tuple[dict[str, Sequence[ContentBlock]] | None, list[ContentBlock]]:
-        channels: dict[str, Sequence[ContentBlock]] = {}
-        content: list[ContentBlock] = []
-        if tool_loop_error:
-            content.append(text_content(tool_loop_error))
-            channels[FAST_AGENT_ERROR_CHANNEL] = [text_content(tool_loop_error)]
-        if tool_results:
-            fatal_errors = [
-                str(error)
-                for result in tool_results.values()
-                if (error := fatal_tool_error(result))
-            ]
-            if fatal_errors:
-                content.extend(text_content(error) for error in fatal_errors)
-                channels[FAST_AGENT_ERROR_CHANNEL] = [
-                    text_content("\n".join(fatal_errors))
-                ]
-        if tool_timings:
-            channels[FAST_AGENT_TOOL_TIMING] = [
-                TextContent(type="text", text=json.dumps(tool_timings))
-            ]
-        if tool_metadata:
-            channels[FAST_AGENT_TOOL_METADATA] = [
-                TextContent(type="text", text=json.dumps(tool_metadata))
-            ]
-        return channels or None, content
-
-    @staticmethod
-    def _deferred_url_elicitation_payloads(
-        tool_results: Mapping[str, CallToolResult],
-    ) -> list[dict[str, object]]:
-        payloads: list[dict[str, object]] = []
-        for result in tool_results.values():
-            payload = url_elicitation_required_payload(result)
-            if isinstance(payload, URLElicitationRequiredDisplayPayload):
-                payloads.append(asdict(payload))
-        return payloads
-
-    @staticmethod
-    def _add_channel(
-        channels: dict[str, Sequence[ContentBlock]] | None,
-        name: str,
-        content: Sequence[ContentBlock],
-    ) -> dict[str, Sequence[ContentBlock]]:
-        if channels is None:
-            channels = {}
-        channels[name] = content
-        return channels
-
     def _finalize_tool_results(
         self,
         tool_results: dict[str, CallToolResult],
@@ -962,34 +856,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tool_metadata: dict[str, dict[str, Any]] | None = None,
         tool_loop_error: str | None = None,
     ) -> PromptMessageExtended:
-        channels, content = self._tool_result_channels(
+        return build_tool_result_message(
+            tool_results,
             tool_timings=tool_timings,
             tool_metadata=tool_metadata,
             tool_loop_error=tool_loop_error,
-            tool_results=tool_results,
-        )
-
-        deferred_url_elicitations = self._deferred_url_elicitation_payloads(tool_results)
-        if deferred_url_elicitations:
-            channels = self._add_channel(
-                channels,
-                FAST_AGENT_URL_ELICITATION_CHANNEL,
-                [TextContent(type="text", text=json.dumps(deferred_url_elicitations))],
-            )
-
-        pending_media = self._consume_pending_media_attachments()
-        if pending_media:
-            channels = self._add_channel(
-                channels,
-                FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
-                pending_media,
-            )
-
-        return PromptMessageExtended(
-            role="user",
-            content=content,
-            tool_results=tool_results,
-            channels=channels,
+            pending_media=self._consume_pending_media_attachments(),
         )
 
     async def list_tools(self) -> ListToolsResult:

@@ -458,7 +458,7 @@ class McpAgent(ABC, ToolAgent):
             # Already enabled, but update working directory if specified
             shell_runtime = self._shell_runtime
             if working_directory is not None and shell_runtime is not None:
-                shell_runtime._working_directory = working_directory
+                shell_runtime.set_working_directory(working_directory)
                 local_runtime = self._local_filesystem_runtime()
                 if local_runtime is not None:
                     local_runtime.set_working_directory(working_directory)

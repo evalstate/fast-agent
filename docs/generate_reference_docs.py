@@ -244,6 +244,14 @@ def generate_harness_reference() -> str:
         "Returns an existing session or creates one by delegating to\n"
         "`harness.sessions.get_or_create()`.\n\n"
     )
+    lines.append("#### `shell()`\n\n")
+    lines.append(_md_code("python", f"await {_format_method_signature('harness.shell', AgentHarness.shell)}"))
+    lines.append(
+        "Runs a shell command through the harness shell executor and returns a\n"
+        "`ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is\n"
+        "programmatic shell access: it does not create a session and does not add\n"
+        "the command or output to chat history.\n\n"
+    )
 
     lines.append("## HarnessSessions Class\n\n")
     lines.append(
@@ -308,6 +316,7 @@ def generate_harness_reference() -> str:
         ("structured", HarnessSession.structured),
         ("structured_schema", HarnessSession.structured_schema),
         ("clear", HarnessSession.clear),
+        ("shell", HarnessSession.shell),
         ("delete", HarnessSession.delete),
     ]
     lines.append(
@@ -324,6 +333,11 @@ def generate_harness_reference() -> str:
     lines.append("2. the session `default_agent_name`;\n")
     lines.append("3. the app default agent.\n\n")
     lines.append("`clear()` clears only the resolved target agent, not every agent in the session.\n\n")
+    lines.append(
+        "`shell()` returns `ShellExecutionResult` with `stdout`, `stderr`, and\n"
+        "`exit_code`. It does not add the command or output to chat history, but it\n"
+        "is serialized with other operations on the same `HarnessSession`.\n\n"
+    )
     lines.append("### Session lifecycle and concurrency\n\n")
     lines.append(
         "- the same session ID returns the same `HarnessSession` object and the same owned\n"

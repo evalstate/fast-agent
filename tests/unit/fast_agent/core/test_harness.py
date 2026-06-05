@@ -10,6 +10,7 @@ from fast_agent import AgentHarness, FastAgent, HarnessSession, HarnessSessions
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.tools.session_environment import ShellExecutionResult
 from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -176,6 +177,22 @@ class FakePersistence:
         self.deleted.append(session_id)
 
 
+class FakeShellExecutor:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Path | str | None, Mapping[str, str] | None, float | None]] = []
+
+    async def execute_shell(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> ShellExecutionResult:
+        self.calls.append((command, cwd, env, timeout))
+        return ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
+
+
 @pytest.fixture
 def sessions_factory() -> tuple[HarnessSessions, InstanceFactory]:
     factory = InstanceFactory()
@@ -239,6 +256,47 @@ async def test_harness_sessions_uses_persistence_protocol() -> None:
     assert persistence.created == [("demo", "support")]
     assert persistence.saved == [({"session_id": "demo"}, "support-0")]
     assert persistence.deleted == ["demo"]
+
+
+@pytest.mark.asyncio
+async def test_harness_session_shell_uses_configured_executor(tmp_path: "Path") -> None:
+    factory = InstanceFactory()
+    shell_executor = FakeShellExecutor()
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        shell_executor=shell_executor,
+    )
+    session = await sessions.create("demo")
+
+    result = await session.shell(
+        "pwd",
+        cwd=tmp_path,
+        env={"FAST_AGENT_TEST": "1"},
+        timeout=2.5,
+    )
+
+    assert result == ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
+    assert shell_executor.calls == [("pwd", tmp_path, {"FAST_AGENT_TEST": "1"}, 2.5)]
+
+
+@pytest.mark.asyncio
+async def test_harness_session_shell_rejects_during_active_operation(
+    sessions_factory: tuple[HarnessSessions, InstanceFactory],
+) -> None:
+    sessions, factory = sessions_factory
+    factory.block_generate = asyncio.Event()
+    factory.release_generate = asyncio.Event()
+    session = await sessions.create("support-123")
+
+    running = asyncio.create_task(session.generate("first"))
+    await factory.block_generate.wait()
+
+    with pytest.raises(RuntimeError, match="already running generate"):
+        await session.shell("pwd")
+
+    factory.release_generate.set()
+    await running
 
 
 def test_harness_sessions_rejects_ambiguous_persistence_configuration() -> None:
