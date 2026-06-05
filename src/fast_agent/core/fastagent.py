@@ -82,6 +82,7 @@ if TYPE_CHECKING:
     from fast_agent.context import Context
     from fast_agent.core.agent_card_loader import LoadedAgentCard
     from fast_agent.core.agent_card_types import AgentCardData
+    from fast_agent.core.harness import AgentHarness
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
     from fast_agent.mcp.types import McpAgentProtocol
@@ -1587,16 +1588,23 @@ class FastAgent(DecoratorMixin):
                 ) from exc
             raise
 
-    def _prepare_run_settings(self) -> RunSettings:
+    def _prepare_run_settings(
+        self,
+        *,
+        model_override: str | None = None,
+        force_headless: bool = False,
+    ) -> RunSettings:
         """Compute the run-mode settings after app initialization."""
         quiet_mode = getattr(self.args, "quiet", False)
-        server_mode = bool(getattr(self.args, "server", False))
-        transport = getattr(self.args, "transport", None)
+        server_mode = False if force_headless else bool(getattr(self.args, "server", False))
+        transport = None if force_headless else getattr(self.args, "transport", None)
         if uses_protocol_stdio(transport) and server_mode:
             quiet_mode = True
             configure_console_stream("stderr")
 
-        cli_model_arg = getattr(self.args, "model", None)
+        cli_model_arg = (
+            model_override if model_override is not None else getattr(self.args, "model", None)
+        )
         cli_model_override = cli_model_arg if isinstance(cli_model_arg, str) else None
         noenv_mode = bool(getattr(self.args, "noenv", False))
 
@@ -2624,6 +2632,16 @@ class FastAgent(DecoratorMixin):
                 "Timed out while shutting down agents after exit request",
                 timeout_seconds=shutdown_timeout,
             )
+
+    def harness(
+        self,
+        *,
+        model: str | None = None,
+    ) -> "AgentHarness":
+        """Create a headless session harness for this fast-agent app."""
+        from fast_agent.core.harness import AgentHarness
+
+        return AgentHarness(self, model=model)
 
     @asynccontextmanager
     async def run(self) -> AsyncIterator["AgentApp"]:

@@ -1,79 +1,39 @@
 ---
 title: Harness API
-description: A design preview for headless, session-oriented fast-agent applications.
+description: Run fast-agent headlessly with typed, session-oriented Python APIs.
 social:
   title: Harness API
   tagline: Run fast-agent headlessly with explicit sessions.
-  description: A design preview for headless, session-oriented fast-agent applications.
+  description: Run fast-agent headlessly with typed, session-oriented Python APIs.
   alt: fast-agent social card — Harness API
 ---
 
 # Harness API
 
-!!! warning "Design preview"
-
-    The Harness API described here is the proposed first implementation slice for
-    a Python-first headless API. It is intended to guide implementation and user
-    expectations before the API lands.
-
-The Harness API is a session-oriented way to run **fast-agent** from Python
-without entering the TUI or starting a transport server.
-
-The intended shape is:
-
-```python
-async with fast.harness(instance_scope="session") as harness:
-    session = await harness.session("support-123")
-    response = await session.generate("Help this customer")
-```
+The Harness API runs **fast-agent** from Python without entering the TUI or
+starting an MCP/ACP transport server.
 
 Use it when you want to embed fast-agent in another Python application, such as
-a web service, batch worker, test harness, CLI automation layer or future direct
-HTTP adapter.
-
-## Why a harness?
-
-The existing Python API is app-oriented:
-
-```python
-async with fast.run() as app:
-    text = await app.send("hello")
-```
-
-That remains unchanged.
-
-The Harness API adds an explicit session container:
+a web service, batch worker, test harness, CLI automation layer, or adapter.
 
 ```python
 async with fast.harness() as harness:
-    session = await harness.session("demo")
-    message = await session.generate("hello")
+    session = await harness.session("support-123", agent_name="support")
+    response = await session.generate("Help this customer")
 ```
 
-The important design point is:
+The harness is session-oriented:
 
-> A fast-agent session is an affinity key for a full `AgentInstance`, not a
-> wrapper around one agent.
+- each harness session owns one stable `AgentInstance` for that session's lifetime;
+- the same session ID returns the same `HarnessSession` object;
+- different session IDs get isolated `AgentInstance` objects;
+- deleting a session disposes its instance;
+- exiting the harness context disposes all remaining session instances.
 
-A fast-agent `AgentInstance` contains the active agent map for the app. That
-means a single session can contain multiple loaded agents, routers, evaluators,
-orchestrators, agents-as-tools, MCP-backed agents and tool-only helper agents.
-
-```python
-review = await harness.session("pr-123", agent_name="reviewer")
-
-# Uses the session default agent: "reviewer".
-review_response = await review.generate("Review this PR")
-
-# Same session, different target agent in the same AgentInstance.
-notes = await review.generate(
-    "Summarize the user-visible changes",
-    agent_name="writer",
-)
-```
-
-This differs from systems where a session wraps one configured agent runtime.
-fast-agent keeps the multi-agent runtime model and adds sessions around it.
+A fast-agent session is an affinity key for a full `AgentInstance`, not a wrapper
+around one agent. The instance contains the active agent map for the app:
+regular agents, routers, evaluators, orchestrators, agents-as-tools,
+MCP-backed agents, and tool-only helper agents.
 
 ## Quick start
 
@@ -92,11 +52,9 @@ fast = FastAgent("Support Bot", parse_cli_args=False)
     model="sonnet",
 )
 async def main() -> None:
-    async with fast.harness(instance_scope="session") as harness:
+    async with fast.harness() as harness:
         session = await harness.session("customer-123", agent_name="support")
-
         response = await session.generate("Help this customer reset their password.")
-
         print(response.last_text())
 
 
@@ -104,46 +62,78 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Use `parse_cli_args=False` when embedding fast-agent in another application that
-owns command-line parsing.
+Use `parse_cli_args=False` when embedding fast-agent in an application that owns
+command-line parsing.
 
 ## Creating a harness
 
-Planned signature:
-
 ```python
-async with fast.harness(
-    instance_scope="session",
-    model="sonnet",
-) as harness:
+async with fast.harness(model="sonnet") as harness:
     ...
 ```
 
-Parameters:
-
 | Parameter | Default | Meaning |
 |---|---:|---|
-| `instance_scope` | `"session"` | Controls how `AgentInstance` objects are shared or recreated. |
 | `model` | `None` | Optional global model override, similar to the CLI `--model` override. |
 
-The harness should use the same initialization path as `fast.run()`:
+The harness uses the same initialization path as `fast.run()`:
 
 - app initialization;
 - config and model loading;
-- AgentCard loading;
+- AgentCard loading from the active environment's `agent-cards/` directory;
 - Agent Skill discovery and prompt injection;
 - MCP server configuration;
 - shell/filesystem runtime setup;
 - global prompt context;
 - provider-key validation.
 
-It should not enter:
+It does not enter:
 
 - TUI mode;
 - CLI `--message` mode;
 - CLI `--prompt-file` mode;
 - MCP server mode;
 - ACP server mode.
+
+If the active environment contains AgentCards, the harness loads them before
+validating that agents exist:
+
+```text
+.fast-agent/
+  agent-cards/
+    support.md
+```
+
+```python
+fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+
+async with fast.harness() as harness:
+    session = await harness.session("customer-123", agent_name="support")
+```
+
+Use `fast.load_agents(path)` when you want to load AgentCards from an additional
+non-environment path.
+
+## Typing and IDE autocomplete
+
+The public API uses concrete, typed classes:
+
+```python
+from fast_agent import AgentHarness, FastAgent, HarnessSession, HarnessSessions
+
+
+async with fast.harness() as harness:
+    typed_harness: AgentHarness = harness
+    sessions: HarnessSessions = harness.sessions
+    session: HarnessSession = await sessions.get_or_create("demo")
+    message = await session.generate("hello")
+```
+
+These classes are exported from `fast_agent` for imports such as:
+
+```python
+from fast_agent import AgentHarness, FastAgent, HarnessSession
+```
 
 ## Sessions
 
@@ -160,18 +150,26 @@ session = await harness.session()
 assert session.id == "default"
 ```
 
-Recommended slice-1 session ID behavior:
+Session ID behavior:
 
 - `None` means `"default"`;
 - strings are stripped;
-- empty strings are rejected;
-- Python accepts any non-empty string;
-- reserved namespaces such as `task:` or `branch:` are deferred until task or
-  branch sessions exist.
+- empty strings raise `ValueError`;
+- use 1-128 character slug-style IDs made from letters, numbers, dashes, and
+  underscores, starting and ending with a letter or number;
+- reserved namespaces such as `task:` or `branch:` are future work.
 
-## Explicit session management
+!!! tip "Session naming"
 
-The harness also exposes a session manager:
+    Treat harness session IDs as stable, human-readable keys. Prefer IDs such
+    as `customer-123`, `ticket_456`, or `repo-review`. When `session_history`
+    is enabled, the ID is also the persisted folder name under
+    `environment_dir/sessions/`, so avoid path-like names, spaces, punctuation,
+    or values that need escaping.
+
+### Explicit session management
+
+The harness exposes a session manager:
 
 ```python
 session = await harness.sessions.get("demo")
@@ -180,8 +178,6 @@ session = await harness.sessions.get_or_create("demo")
 await harness.sessions.delete("demo")
 ```
 
-Recommended behavior:
-
 | Method | Behavior |
 |---|---|
 | `get(name)` | Return an existing session. Raise if missing. |
@@ -189,13 +185,12 @@ Recommended behavior:
 | `get_or_create(name)` | Return an existing session or create it. |
 | `delete(name)` | Delete a session if present; no-op if missing. |
 
-Session map operations should be protected by a harness-level lock so
-concurrent create/get/delete calls cannot corrupt the in-memory session map.
+Session map operations are protected by a harness-level lock.
 
 ## Calling agents from a session
 
-Slice 1 reuses the existing fast-agent protocol methods instead of inventing a
-new result model:
+Harness sessions reuse the existing fast-agent protocol methods and return
+types. There is no new result wrapper.
 
 ```python
 text = await session.send("hello")
@@ -295,25 +290,16 @@ await session.generate(
 )
 ```
 
-Tool-only agents are not selected as the default, but can be targeted
-explicitly if the current `AgentApp` rules allow that target.
+Tool-only agents are not selected as defaults, but explicit targeting is allowed
+when the existing `AgentApp` rules allow that target.
 
-## Instance scopes
+## Session lifecycle
 
-`instance_scope` controls how sessions map to `AgentInstance` objects.
-
-| Scope | Meaning | Conversation continuity | Typical use |
-|---|---|---:|---|
-| `"session"` | Each `session_id` gets a stable `AgentInstance`. | Yes, per session. | Recommended default. |
-| `"shared"` | All sessions use one shared `AgentInstance`. | Yes, globally shared. | Advanced shared-state use. |
-| `"request"` | Each call gets a fresh `AgentInstance`. | No. | Stateless jobs and tests. |
-
-### `instance_scope="session"`
-
-This is the recommended default.
+A session owns one stable `AgentInstance` until it is deleted or the harness
+context exits.
 
 ```python
-async with fast.harness(instance_scope="session") as harness:
+async with fast.harness() as harness:
     a = await harness.session("customer-a")
     b = await harness.session("customer-b")
 
@@ -323,59 +309,64 @@ async with fast.harness(instance_scope="session") as harness:
 
 Behavior:
 
-- each session ID gets one stable `AgentInstance`;
 - the same session ID returns the same session object;
 - different session IDs get different `AgentInstance` objects;
-- deleting a session disposes its instance;
-- histories are isolated between sessions.
+- histories, MCP aggregators, and tool runtime objects are isolated between sessions;
+- when `session_history` is enabled, the harness creates or loads
+  `environment_dir/sessions/<session_id>/`;
+- persisted history for the same session ID is hydrated when a new harness
+  process starts;
+- deleting a session disposes its `AgentInstance`;
+- deleting a session removes its persisted session folder when persistence is enabled;
+- the harness context disposes any remaining session instances on exit.
 
-### `instance_scope="shared"`
-
-All sessions use the same primary `AgentInstance`.
-
-```python
-async with fast.harness(instance_scope="shared") as harness:
-    a = await harness.session("a")
-    b = await harness.session("b")
-```
-
-Behavior:
-
-- session IDs are metadata only;
-- all sessions share agent histories and MCP runtime state;
-- deleting a session does not dispose the shared instance;
-- concurrent calls against the shared instance should be rejected to avoid
-  interleaving mutable shared state.
-
-Use this only when shared state is intentional.
-
-### `instance_scope="request"`
-
-Each call creates and disposes a fresh `AgentInstance`.
+For example:
 
 ```python
-async with fast.harness(instance_scope="request") as harness:
-    session = await harness.session("job-runner")
+fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
 
-    first = await session.send("Remember the number 42.")
-    second = await session.send("What number did I ask you to remember?")
+async with fast.harness() as harness:
+    session = await harness.session("customer-123", agent_name="support")
+    await session.send("Remember this customer prefers email.")
 ```
 
-The second call should not rely on the first call's in-memory history.
+creates:
 
-Use this for stateless classification, batch jobs and tests.
+```text
+.fast-agent/
+  sessions/
+    customer-123/
+      session.json
+      history_support.json
+```
+
+Running the program again with the same `session_id` loads that persisted
+history before the next turn. Set `session_history: false` in config or use
+`noenv=True` to disable persistence.
+
+Delete a session explicitly when you are done with it:
+
+```python
+session = await harness.session("demo")
+await session.delete()
+```
+
+After deletion, the `HarnessSession` object is closed. Get or create the same ID
+again to start a fresh session.
 
 ## Concurrency
 
-Slice 1 should reject concurrent calls on the same `AgentSession`:
+The harness rejects concurrent operations on the same `HarnessSession`.
 
 ```python
+import asyncio
+
 session = await harness.session("customer-123")
 
-first = asyncio.create_task(session.send("first"))
+first = asyncio.create_task(session.generate("first"))
 
 try:
-    await session.send("second")
+    await session.generate("second")
 except RuntimeError as exc:
     print(exc)
 
@@ -383,10 +374,16 @@ await first
 ```
 
 Only one operation may be active for a session at a time. This protects mutable
-message histories, MCP aggregators and tool runtime state while surfacing
+message histories, MCP aggregators, and tool runtime state while surfacing
 accidental misuse immediately.
 
-For true parallel branches, create separate sessions:
+Expected error shape:
+
+```text
+RuntimeError: Session 'customer-123' is already running generate; start another session for parallel conversation branches.
+```
+
+For independent parallel branches, create separate sessions:
 
 ```python
 a = await harness.session("customer-a")
@@ -398,39 +395,13 @@ await asyncio.gather(
 )
 ```
 
-Recommended error shape:
-
-```text
-RuntimeError: Session 'customer-123' is already running send; start another session for parallel conversation branches.
-```
-
-This matches Flue's session-operation model and is simpler to reason about than
-quietly queueing calls.
-
-For `instance_scope="shared"`, different session IDs still point at the same
-underlying `AgentInstance`. Slice 1 should therefore also reject concurrent
-calls against the shared instance, even if they come from different
-`AgentSession` objects.
-
-## Deleting active sessions
-
-Never dispose a session-owned `AgentInstance` while a generation is active.
-
-Recommended slice-1 behavior is Flue-like and explicit:
-
-- if a session has an active operation, `session.delete()` raises `RuntimeError`;
-- `harness.sessions.delete(name)` delegates to the open session and follows the
-  same rule;
-- deleting a missing session is still a no-op.
-
-Example error shape:
+Deleting an active session also raises:
 
 ```text
 RuntimeError: Session 'support-123' is running generate; wait before deleting it.
 ```
 
-Deletion should not wait behind a long-running operation. The caller should wait
-for or cancel the active operation in a future run API, then delete the session.
+Deletion does not wait behind a long-running operation.
 
 ## Clearing history
 
@@ -452,91 +423,15 @@ To also clear applied prompts:
 await session.clear(clear_prompts=True)
 ```
 
-Recommended slice-1 semantics:
+`clear(agent_name=None)` clears only the resolved default target. It does not
+clear every agent in the session.
 
-- `clear(agent_name=None)` clears the resolved default target only;
-- it does not clear every agent in the session;
-- a future API can add `clear_all()` if needed.
+## Skills, MCP, and agents-as-tools
 
-## Shell handling
-
-Slice 1 should not add first-class `harness.shell()` or `session.shell()` methods.
-
-Instead, shell access continues to work the way it does today: through the
-agent's configured tools and runtime setup.
-
-For example, if an agent is configured with shell access, a harness call can use
-that tool through the model/tool loop:
-
-```python
-async with fast.harness(instance_scope="session") as harness:
-    session = await harness.session("repo-review", agent_name="reviewer")
-
-    response = await session.generate(
-        "Inspect the current git diff and summarize risky changes."
-    )
-```
-
-The shell/tool activity belongs to the selected agent in that session's
-`AgentInstance`, so it is part of the normal conversation/tool execution flow.
-
-Recommended slice-1 rules:
-
-- the harness should initialize the same shell/filesystem runtime as `fast.run()`;
-- the harness should not create a separate out-of-band shell API;
-- shell availability should remain controlled by existing config, AgentCards and
-  CLI/programmatic options;
-- tool-mediated shell use is recorded in agent history according to existing
-  agent/tool behavior;
-- `instance_scope="session"` isolates the agent instances, histories and
-  MCP/tool runtime objects created for each session;
-- `instance_scope="shared"` shares those objects across sessions;
-- `instance_scope="request"` creates fresh agent/tool runtime objects per call.
-
-This is not the same thing as a per-session filesystem sandbox. Unless the
-underlying shell/filesystem runtime is configured to create a separate sandbox
-or working tree per session, sessions will normally see the same workspace/cwd.
-Treat session IDs as conversation/runtime affinity keys, not security
-boundaries.
-
-For multi-user applications that execute shell or filesystem tools, prefer one
-of these patterns:
-
-- run untrusted users in separate harnesses with separate environment roots or
-  sandbox backends;
-- add an explicit per-user/per-session working directory policy before exposing
-  shell tools;
-- use `instance_scope="request"` only when statelessness is desired; it creates
-  fresh agent instances, but it does not by itself create a new filesystem.
-
-This deliberately differs from Flue, which exposes both `harness.shell()` and
-`session.shell()`. If fast-agent later adds first-class shell helpers, the useful
-distinction is:
-
-| Future API | Intended behavior |
-|---|---|
-| `harness.shell(...)` | Out-of-band command; not recorded in conversation. |
-| `session.shell(...)` | Session-affine command; recorded as part of that session's conversation/tool trace. |
-
-Those helpers are future work, not slice 1.
-
-## Skill handling
-
-Agent Skills should work under the harness exactly as they work under
-`fast.run()`.
-
-When the harness starts, it should load default skills and apply them to agent
-configs before creating instances:
-
-- installed skills are discovered from the active environment and configured
-  skill directories;
-- agent-specific skill configuration is resolved;
-- skill manifests are added to the system prompt through `{{agentSkills}}`;
-- skills that request shell access should trigger the same shell runtime setup as
-  normal runs;
-- warnings and validation should follow existing fast-agent behavior.
-
-Example:
+Agent Skills work under the harness the same way they work under `fast.run()`.
+When the harness starts, default skills are discovered, agent-specific skill
+configuration is resolved, and skill manifests are injected into prompts through
+`{{agentSkills}}`.
 
 ```python
 fast = FastAgent(
@@ -557,7 +452,7 @@ Available skills:
     model="sonnet",
 )
 async def main() -> None:
-    async with fast.harness(instance_scope="session") as harness:
+    async with fast.harness() as harness:
         session = await harness.session("issue-492", agent_name="dev")
         response = await session.generate(
             "Use the relevant repository skills to investigate this failure."
@@ -565,25 +460,8 @@ async def main() -> None:
         print(response.last_text())
 ```
 
-Skills are not separate session objects. They are capabilities loaded into the
-agents in each `AgentInstance`.
-
-Scope implications:
-
-| Scope | Skill behavior |
-|---|---|
-| `"session"` | Each session-owned `AgentInstance` gets agents initialized with the resolved skill manifests. |
-| `"shared"` | The shared primary instance has the resolved skills; all sessions use it. |
-| `"request"` | Each call creates a fresh instance with the resolved skills. |
-
-Runtime skill management, such as TUI `/skills` commands or Skills over MCP
-installation flows, is outside slice 1. The harness should consume the active
-skill configuration; it should not introduce a new skill-management API.
-
-## MCP and agents-as-tools
-
 Because a session owns a full `AgentInstance`, multi-agent workflows continue to
-work inside the session.
+work inside the session:
 
 ```python
 session = await harness.session("analysis-123", agent_name="manager")
@@ -593,8 +471,8 @@ response = await session.generate(
 )
 ```
 
-The `manager` agent can use configured child agents as tools, MCP servers, and
-workflow dependencies in the same instance.
+The selected agent can use configured child agents as tools, MCP servers, and
+workflow dependencies in the same session-owned instance.
 
 ## Request parameters
 
@@ -612,202 +490,51 @@ response = await session.generate(
 
 Per-call request parameters are passed to the selected agent method.
 
-## Lifecycle
+## Shell and filesystem tools
 
-Always use the harness as an async context manager:
+The harness does not add first-class `harness.shell()` or `session.shell()`
+methods. Shell and filesystem access remains tool-mediated through configured
+agents.
+
+If an agent is configured with shell access, a harness call can use that tool
+through the normal model/tool loop:
 
 ```python
 async with fast.harness() as harness:
-    session = await harness.session("demo")
-    await session.send("hello")
+    session = await harness.session("repo-review", agent_name="reviewer")
+    response = await session.generate(
+        "Inspect the current git diff and summarize risky changes."
+    )
 ```
 
-When the context exits:
+The shell/tool activity belongs to the selected agent in that session's
+`AgentInstance`, so it is part of the normal conversation and tool execution
+flow.
 
-- session-owned instances are disposed;
-- request-scoped temporary instances should already be disposed;
-- the shared primary instance is disposed by the run finalizer;
-- progress display and runtime callbacks are cleaned up;
-- agent shutdown hooks run.
+Session IDs are conversation/runtime affinity keys, not security boundaries. A
+session does not automatically create a per-session filesystem sandbox. For
+multi-user applications that expose shell or filesystem tools, use separate
+harnesses, environment roots, process-level sandboxes, or another explicit
+isolation layer appropriate for your deployment.
 
-Session deletion inside the context:
+## Deployment concerns and future slices
 
-```python
-session = await harness.session("demo")
-await session.delete()
-```
+The Python Harness API does not expose server-style instance scoping. Shared
+runtimes, per-request runtimes, connection affinity, tenant isolation, sandbox
+policy, direct HTTP handlers, and A2A adapters are deployment/adapter concerns
+for later work.
 
-After deletion, the session object should be treated as closed.
+Current non-goals include:
 
-## Relationship to Flue
-
-The Harness API shape is inspired by Flue's harness/session model:
-
-```ts
-const harness = await ctx.init(agent)
-const session = await harness.session("support-123")
-const result = await session.prompt("Help this customer")
-```
-
-The closest mapping is:
-
-| Flue | fast-agent Harness API |
-|---|---|
-| `ctx.init(agent)` | `fast.harness()` |
-| `FlueHarness` | `AgentHarness` |
-| `harness.session(name)` | `await harness.session(session_id)` |
-| `FlueSessions` | `AgentSessions` |
-| `FlueSession` | `AgentSession` |
-| `session.prompt()` | `session.generate()` / `session.send()` |
-| `prompt(..., { result })` | `structured()` / `structured_schema()` |
-| `session.task()` | future branch/task/run API |
-| `CallHandle.abort()` | future cancellable run API |
-| persisted `SessionStore` | future durable session store |
-| direct handler over harness/session | future direct HTTP adapter |
-
-The deliberate divergence:
-
-| Concept | Flue | fast-agent |
-|---|---|---|
-| Session materialization | One configured agent runtime. | One `AgentInstance` with the full active agent map. |
-| Same-session concurrent calls | Reject. | Reject in slice 1. |
-| Persistence | Durable session data and provider affinity key. | In-memory sessions only in slice 1. |
-| Primary prompt method | `prompt()`. | Existing `send()`, `generate()`, `structured()`, `structured_schema()`. |
-
-This lets future direct HTTP, A2A, CLI automation and webhook surfaces become
-thin adapters over the Python harness:
-
-```python
-session = await harness.session(body.session_id, agent_name=body.agent)
-message = await session.generate(body.message)
-return serialize(message)
-```
-
-## Future slices
-
-Slice 1 intentionally avoids:
-
-- durable session persistence;
 - provider-facing affinity keys;
 - background runs;
 - cancellable call handles;
 - event streams;
-- first-class shell/fs helpers;
+- first-class shell/filesystem helper methods;
 - task or branch sessions;
-- direct HTTP;
-- A2A refactor;
+- direct HTTP or A2A adapters;
+- sandbox or tenant-isolation policy;
 - a normalized result object.
 
-Likely future additions:
-
-```python
-result = await session.invoke("hello")
-print(result.text, result.data, result.usage, result.model)
-```
-
-```python
-run = await session.start("Review this PR")
-await run.cancel()
-result = await run.wait()
-```
-
-```python
-child = await session.branch("task-1")
-result = await child.generate("Do focused work", agent_name="reviewer")
-```
-
-## Future Features
-
-### Sandbox integration
-
-Slice 1 should treat sessions as conversation/runtime affinity, not filesystem
-or security isolation. A future sandbox integration can make that boundary
-explicit.
-
-Possible API shape:
-
-```python
-async with fast.harness(
-    instance_scope="session",
-    sandbox="e2b",
-) as harness:
-    session = await harness.session("user-123")
-```
-
-or:
-
-```python
-session = await harness.session(
-    "user-123",
-    sandbox={"provider": "local", "cwd": "/tmp/fast-agent/user-123"},
-)
-```
-
-Open design questions:
-
-- Should sandboxes be configured per harness, per session, or per request?
-- Should `instance_scope="session"` imply a stable sandbox for that session when
-  a sandbox provider is configured?
-- How should MCP server lifecycles attach to sandboxed filesystem and shell
-  runtimes?
-- How should permission prompts and audit logs identify sandbox boundaries?
-- What cleanup policy should apply to sandbox files after session deletion?
-
-This is where direct HTTP and webhook adapters become more appropriate for
-multi-tenant hosting. The adapter should be able to map an authenticated user,
-tenant or request to a sandbox policy before invoking:
-
-```python
-session = await harness.session(session_id, agent_name=agent_name)
-message = await session.generate(body.message)
-```
-
-### Isolated environments
-
-Flue's default harness/session model appears optimized for a relatively
-single-user or trusted-workspace use case: multiple sessions in one harness
-share the harness environment, cwd and sandbox unless the caller creates a
-separate sandbox/environment outside the session API.
-
-fast-agent should be explicit about this too. Session IDs alone should not be
-treated as tenant isolation.
-
-A future isolated-environment feature could let callers choose stronger
-boundaries:
-
-```python
-async with fast.harness(
-    instance_scope="session",
-    environment_scope="session",
-) as harness:
-    session = await harness.session("tenant-a/user-123")
-```
-
-Possible environment scopes:
-
-| Scope | Meaning |
-|---|---|
-| `shared` | All sessions use the same configured environment root and shell/filesystem runtime. |
-| `session` | Each session gets a separate environment root, cwd, auth store and sandbox/runtime attachment. |
-| `request` | Each call gets a disposable environment. |
-
-This would be a larger feature than slice 1 because fast-agent environments
-contain more than conversation state:
-
-- AgentCards and ToolCards;
-- config and secrets;
-- MCP server configuration;
-- skills;
-- shell/filesystem runtime policy;
-- session history;
-- auth and permission records;
-- model overlays;
-- plugin state.
-
-For now, the recommended guidance is:
-
-- use one harness for trusted single-user or trusted-team workflows;
-- use separate harnesses, environment roots or process-level sandboxes for
-  untrusted users;
-- do not expose shell/filesystem tools to multi-tenant API callers without an
-  explicit isolation layer.
+For a single shared in-process application runtime without harness sessions,
+continue to use `fast.run()`.

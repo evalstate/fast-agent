@@ -125,6 +125,16 @@ def _extract_history_agent(filename: str) -> str:
     return pathlib.Path(filename).stem
 
 
+def _normalize_explicit_session_id(session_id: str | None) -> str | None:
+    """Return a stripped, path-safe explicit session id or None."""
+    requested_id = strip_to_none(session_id)
+    if requested_id is None:
+        return None
+    if pathlib.Path(requested_id).name != requested_id:
+        return None
+    return requested_id
+
+
 def _first_user_preview(
     messages: list["PromptMessageExtended"], limit: int = 240
 ) -> str | None:
@@ -648,14 +658,20 @@ class SessionManager:
         logger.info(f"Created new session: {session_id}")
         return session
 
-    def create_session_with_id(self, session_id: str, metadata: dict | None = None) -> Session:
+    def create_session_with_id(
+        self,
+        session_id: str,
+        metadata: dict | None = None,
+        *,
+        metadata_id_key: str | None = "acp_session_id",
+    ) -> Session:
         """Create or load a session using the provided id."""
-        requested_id = strip_to_none(session_id)
+        requested_id = _normalize_explicit_session_id(session_id)
         session_metadata = dict(metadata or {})
-        if requested_id:
-            session_metadata.setdefault("acp_session_id", requested_id)
+        if requested_id and metadata_id_key is not None:
+            session_metadata.setdefault(metadata_id_key, requested_id)
 
-        if not requested_id or pathlib.Path(requested_id).name != requested_id:
+        if requested_id is None:
             logger.warning(
                 "Invalid session id provided; falling back to generated id",
                 data={"session_id": session_id},
@@ -666,8 +682,11 @@ class SessionManager:
         if session_dir.exists():
             session = self.load_session(requested_id)
             if session:
-                if session.info.metadata.get("acp_session_id") != requested_id:
-                    session.info.metadata["acp_session_id"] = requested_id
+                if (
+                    metadata_id_key is not None
+                    and session.info.metadata.get(metadata_id_key) != requested_id
+                ):
+                    session.info.metadata[metadata_id_key] = requested_id
                     session._save_metadata()
                 return session
 
@@ -736,19 +755,26 @@ class SessionManager:
 
     def delete_session(self, name: str) -> bool:
         """Delete a session."""
-        session_dir = self.base_dir / name
+        session_id = _normalize_explicit_session_id(name)
+        if session_id is None:
+            logger.warning(
+                "Invalid session id provided for deletion",
+                data={"session_id": name},
+            )
+            return False
+        session_dir = self.base_dir / session_id
 
         if not session_dir.is_dir():
             return False
 
         try:
             shutil.rmtree(session_dir)
-            logger.info(f"Deleted session: {name}")
-            if self._current_session and self._current_session.info.name == name:
+            logger.info(f"Deleted session: {session_id}")
+            if self._current_session and self._current_session.info.name == session_id:
                 self._current_session = None
             return True
         except Exception as e:
-            logger.error(f"Failed to delete session {name}: {e}")
+            logger.error(f"Failed to delete session {session_id}: {e}")
             return False
 
     async def save_current_session(

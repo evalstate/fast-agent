@@ -56,6 +56,9 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "ToolAgent": ("fast_agent.agents.tool_agent", "ToolAgent"),
     "McpAgent": ("fast_agent.agents.mcp_agent", "McpAgent"),
     "FastAgent": ("fast_agent.core.fastagent", "FastAgent"),
+    "AgentHarness": ("fast_agent.core.harness", "AgentHarness"),
+    "HarnessSessions": ("fast_agent.core.harness", "HarnessSessions"),
+    "HarnessSession": ("fast_agent.core.harness", "HarnessSession"),
     "Prompt": ("fast_agent.mcp.prompt", "Prompt"),
     "PromptExitError": ("fast_agent.core.exceptions", "PromptExitError"),
     "load_prompt": ("fast_agent.mcp.prompts.prompt_load", "load_prompt"),
@@ -77,6 +80,9 @@ def __getattr__(name: str):
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
     # Provide a concrete import path for type checkers/IDEs
     from fast_agent.core.fastagent import FastAgent as FastAgent
+    from fast_agent.core.harness import AgentHarness as AgentHarness
+    from fast_agent.core.harness import HarnessSession as HarnessSession
+    from fast_agent.core.harness import HarnessSessions as HarnessSessions
     from fast_agent.mcp.prompt import Prompt as Prompt
     from fast_agent.types import ConversationSummary as ConversationSummary
     from fast_agent.types import PromptMessageExtended as PromptMessageExtended
@@ -84,6 +90,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid only
 
 __all__ = [
     "AnthropicSettings",
+    "AgentHarness",
+    "HarnessSessions",
+    "HarnessSession",
     "AzureSettings",
     "BedrockSettings",
     "Context",

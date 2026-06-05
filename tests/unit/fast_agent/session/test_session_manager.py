@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -257,6 +258,38 @@ def test_resolve_session_name_strips_user_input(tmp_path) -> None:
     assert manager.resolve_session_name("  ") is None
     assert manager.resolve_session_name(" 1 ") == second.info.name
     assert manager.resolve_session_name(f" {first.info.name} ") == first.info.name
+
+
+def test_delete_session_rejects_path_like_name(tmp_path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=env_dir,
+        respect_env_override=False,
+    )
+    sibling_dir = env_dir / "agent-cards"
+    sibling_dir.mkdir(parents=True)
+    (sibling_dir / "support.md").write_text("---\ntype: agent\n---\n", encoding="utf-8")
+
+    assert manager.delete_session("../agent-cards") is False
+    assert sibling_dir.is_dir()
+    assert (sibling_dir / "support.md").exists()
+
+
+def test_create_and_delete_session_with_id_share_path_like_id_rules(tmp_path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=env_dir,
+        respect_env_override=False,
+    )
+
+    session = manager.create_session_with_id("../agent-cards")
+
+    assert session.info.name != "../agent-cards"
+    assert pathlib.Path(session.info.name).name == session.info.name
+    assert manager.delete_session("../agent-cards") is False
+    assert (env_dir / "sessions" / session.info.name).is_dir()
 
 
 def test_load_session_marks_loaded_session_as_latest(tmp_path) -> None:
