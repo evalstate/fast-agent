@@ -160,17 +160,13 @@ Session ID behavior:
 
 !!! tip "Session naming"
 
-    Treat harness session IDs as stable, human-readable keys. Prefer IDs such
-    as `customer-123`, `ticket_456`, or `repo-review`.
+    Choose short descriptive IDs such as `customer-123`, `ticket_456`, or
+    `repo-review`.
 
     The validation rule is exactly the one above: `^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,126}[A-Za-z0-9])?$`.
-    Names with spaces, slashes, dots, colons, or other punctuation are rejected;
-    this means `task:`-prefixed names are invalid in fast-agent because `:` is
-    not allowed. Flue reserves public session names beginning with `task:` for
-    framework-owned delegated tasks, and stores sessions under keys derived from
-    agent instance, harness name, and session name. fast-agent's Harness API
-    keeps the stricter slug-style ID rule so persisted session folders remain
-    simple when `session_history` is enabled.
+    Names with spaces, slashes, dots, colons, or other punctuation are rejected.
+    The slug-style rule keeps persisted session folders simple when
+    `session_history` is enabled.
 
 ### Explicit session management
 
