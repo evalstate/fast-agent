@@ -22,7 +22,6 @@ nav = [
     "guides/codex.md",
     "guides/hf-dev.md",
     { "Agent Skills" = "guides/skills.md" },
-    { "Harness API" = "guides/harness-api.md" },
     "guides/batch-processing.md",
     "guides/structured-outputs.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
@@ -30,6 +29,7 @@ nav = [
   { "Agents" = [
     { "Defining Agents" = [
       { "Overview" = "agents/defining/index.md" },
+      { "Harness API" = "agents/defining/harness-api.md" },
       { "Python API" = "agents/defining/python_api.md" },
       { "Agent Cards" = "agents/defining/agent_cards.md" },
     ] },

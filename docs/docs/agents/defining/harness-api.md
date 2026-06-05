@@ -155,17 +155,22 @@ Session ID behavior:
 - `None` means `"default"`;
 - strings are stripped;
 - empty strings raise `ValueError`;
-- use 1-128 character slug-style IDs made from letters, numbers, dashes, and
-  underscores, starting and ending with a letter or number;
-- reserved namespaces such as `task:` or `branch:` are future work.
+- valid IDs are 1-128 characters, start and end with a letter or number, and
+  contain only letters, numbers, dashes, or underscores.
 
 !!! tip "Session naming"
 
     Treat harness session IDs as stable, human-readable keys. Prefer IDs such
-    as `customer-123`, `ticket_456`, or `repo-review`. When `session_history`
-    is enabled, the ID is also the persisted folder name under
-    `environment_dir/sessions/`, so avoid path-like names, spaces, punctuation,
-    or values that need escaping.
+    as `customer-123`, `ticket_456`, or `repo-review`.
+
+    The validation rule is exactly the one above: `^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,126}[A-Za-z0-9])?$`.
+    Names with spaces, slashes, dots, colons, or other punctuation are rejected;
+    this means `task:`-prefixed names are invalid in fast-agent because `:` is
+    not allowed. Flue reserves public session names beginning with `task:` for
+    framework-owned delegated tasks, and stores sessions under keys derived from
+    agent instance, harness name, and session name. fast-agent's Harness API
+    keeps the stricter slug-style ID rule so persisted session folders remain
+    simple when `session_history` is enabled.
 
 ### Explicit session management
 
@@ -548,25 +553,3 @@ session does not automatically create a per-session filesystem sandbox. For
 multi-user applications that expose shell or filesystem tools, use separate
 harnesses, environment roots, process-level sandboxes, or another explicit
 isolation layer appropriate for your deployment.
-
-## Deployment concerns and future slices
-
-The Python Harness API does not expose server-style instance scoping. Shared
-runtimes, per-request runtimes, connection affinity, tenant isolation, sandbox
-policy, direct HTTP handlers, and A2A adapters are deployment/adapter concerns
-for later work.
-
-Current non-goals include:
-
-- provider-facing affinity keys;
-- background runs;
-- cancellable call handles;
-- event streams;
-- first-class filesystem helper methods;
-- task or branch sessions;
-- direct HTTP or A2A adapters;
-- sandbox or tenant-isolation policy;
-- a normalized result object.
-
-For a single shared in-process application runtime without harness sessions,
-continue to use `fast.run()`.
