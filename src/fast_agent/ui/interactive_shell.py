@@ -13,12 +13,7 @@ from rich import print as rich_print
 
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
-
-
-@dataclass
-class ShellExecutionResult:
-    return_code: int
-    output: str
+from fast_agent.tools.session_environment import ShellExecutionResult
 
 
 @dataclass(slots=True)
@@ -482,4 +477,4 @@ def run_interactive_shell_command(
     finally:
         _cleanup_interactive_shell(targets, cleanup_state)
 
-    return ShellExecutionResult(return_code=return_code, output=output_capture.output)
+    return ShellExecutionResult(stdout=output_capture.output, stderr="", exit_code=return_code)

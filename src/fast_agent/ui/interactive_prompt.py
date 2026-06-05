@@ -46,6 +46,7 @@ from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
+from fast_agent.tools.session_environment import ShellExecutionResult
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
@@ -65,7 +66,7 @@ from fast_agent.ui.enhanced_prompt import (
     set_last_copyable_output,
 )
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
-from fast_agent.ui.interactive_shell import ShellExecutionResult, run_interactive_shell_command
+from fast_agent.ui.interactive_shell import run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt.input import resolve_shell_working_dir
 from fast_agent.ui.prompt.resource_mentions import (
@@ -979,13 +980,13 @@ class InteractivePrompt:
                 pending.shell_execute_cmd,
                 echo_command=False,
             )
-            emit_prompt_mark(f"D;{result.return_code}")
+            emit_prompt_mark(f"D;{result.exit_code}")
 
-            if result.output.strip():
-                set_last_copyable_output(result.output.rstrip())
+            if result.stdout.strip():
+                set_last_copyable_output(result.stdout.rstrip())
 
-            if result.return_code != 0:
-                display.show_shell_exit_code(result.return_code)
+            if result.exit_code != 0:
+                display.show_shell_exit_code(result.exit_code)
 
             return PendingExecutionResult(result=result, handled=True)
 

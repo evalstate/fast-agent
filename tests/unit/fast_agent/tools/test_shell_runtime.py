@@ -20,6 +20,7 @@ from fast_agent.constants import (
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.tools.session_environment import ShellExecutionResult
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import suppress_interactive_display
@@ -299,6 +300,34 @@ async def test_execute_command_with_exit_code() -> None:
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
     assert "exit code" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_execute_shell_returns_structured_output(tmp_path: Path) -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    script = (
+        "import os, pathlib, sys; "
+        "print(pathlib.Path.cwd().name); "
+        "print(os.environ['FAST_AGENT_TEST_ENV']); "
+        "print('problem', file=sys.stderr)"
+    )
+    result = await runtime.execute_shell(
+        f"{sys.executable} -c {script!r}",
+        cwd=tmp_path,
+        env={"FAST_AGENT_TEST_ENV": "present"},
+    )
+
+    assert isinstance(result, ShellExecutionResult)
+    assert result.exit_code == 0
+    assert result.stdout.splitlines() == [tmp_path.name, "present"]
+    assert result.stderr == "problem\n"
 
 
 @pytest.mark.asyncio

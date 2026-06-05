@@ -31,8 +31,8 @@ def test_run_interactive_shell_command_captures_output() -> None:
 
     result = run_interactive_shell_command(command, show_output=False)
 
-    assert result.return_code == 0
-    assert "hello from shell" in result.output
+    assert result.exit_code == 0
+    assert "hello from shell" in result.stdout
 
 
 def test_run_interactive_shell_command_truncates_captured_output() -> None:
@@ -44,9 +44,9 @@ def test_run_interactive_shell_command_truncates_captured_output() -> None:
         show_output=False,
     )
 
-    assert result.return_code == 0
-    assert len(result.output) == 8
-    assert result.output in {"xxxxxxx\n", "xxxxxx\r\n"}
+    assert result.exit_code == 0
+    assert len(result.stdout) == 8
+    assert result.stdout in {"xxxxxxx\n", "xxxxxx\r\n"}
 
 
 def test_update_alt_screen_state_tracks_enter_and_exit_sequences() -> None:

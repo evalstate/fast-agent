@@ -16,6 +16,8 @@ from mcp.types import CallToolResult, TextContent, Tool
 from rich.text import Text
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from fast_agent.config import Settings
 
 # Import tool progress context for reporting shell execution progress
@@ -32,6 +34,7 @@ from fast_agent.tools.filesystem_tool_args import (
     coerce_required_string_argument,
     coerce_tool_arguments,
 )
+from fast_agent.tools.session_environment import ShellExecutionResult
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -69,9 +72,17 @@ class _ShellProcessPlan:
     process_kwargs: dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class _ShellExecutionOptions:
+    timeout_seconds: float
+    warning_interval_seconds: int
+
+
 @dataclass(slots=True)
 class _ShellOutputState:
     output_segments: list[str] = field(default_factory=list)
+    stdout_segments: list[str] = field(default_factory=list)
+    stderr_segments: list[str] = field(default_factory=list)
     output_tail_bytes: bytearray = field(default_factory=bytearray)
     output_bytes: int = 0
     total_output_bytes: int = 0
@@ -97,6 +108,14 @@ class _ShellDisplayState:
     display_tail_buffer: deque[tuple[int, str, str | None]] = field(
         default_factory=lambda: deque(maxlen=1)
     )
+
+
+@dataclass(slots=True)
+class _ShellExecutionOutcome:
+    result: ShellExecutionResult
+    execution_options: _ShellExecutionOptions
+    output_state: _ShellOutputState
+    display_state: _ShellDisplayState
 
 
 def _coerce_output_byte_limit(output_byte_limit: int | None) -> int:
@@ -277,20 +296,28 @@ class ShellRuntime:
         payload = coerce_tool_arguments(arguments)
         return coerce_required_string_argument(payload.get("command"), "command", strip=True)
 
-    def _build_process_plan(self, configured_working_dir: Path) -> _ShellProcessPlan:
+    def _build_process_plan(
+        self,
+        configured_working_dir: Path,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> _ShellProcessPlan:
         working_dir = self._resolve_working_directory(configured_working_dir)
         runtime_details = self.runtime_info()
         shell_name = strip_casefold(str(runtime_details.get("name") or ""))
         shell_path = runtime_details.get("path")
         is_windows = platform.system() == "Windows"
+        child_env = build_child_environment(
+            active_home=getattr(self._config, "_fast_agent_home", None),
+            noenv=bool(getattr(self._config, "_fast_agent_noenv", False)),
+        )
+        if env is not None:
+            child_env.update(env)
         process_kwargs: dict[str, Any] = {
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
             "cwd": working_dir,
-            "env": build_child_environment(
-                active_home=getattr(self._config, "_fast_agent_home", None),
-                noenv=bool(getattr(self._config, "_fast_agent_noenv", False)),
-            ),
+            "env": child_env,
         }
         if is_windows:
             creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -463,6 +490,10 @@ class ShellRuntime:
     ) -> None:
         output_state.had_stream_output = True
         output_state.output_line_count += 1
+        if is_stderr:
+            output_state.stderr_segments.append(text)
+        else:
+            output_state.stdout_segments.append(text)
         output_text = text if not is_stderr else f"[stderr] {text}"
         self._append_output_text(output_text, output_state)
         self._maybe_print_truncation_notice(
@@ -596,12 +627,15 @@ class ShellRuntime:
         process: asyncio.subprocess.Process,
         *,
         is_windows: bool,
+        execution_options: _ShellExecutionOptions,
         output_state: _ShellOutputState,
         display_state: _ShellDisplayState,
     ) -> None:
         last_warning_time = 0.0
         self._logger.debug(
-            f"Watchdog started: timeout={self._timeout_seconds}s, warning_interval={self._warning_interval_seconds}s"
+            "Watchdog started: "
+            f"timeout={execution_options.timeout_seconds}s, "
+            f"warning_interval={execution_options.warning_interval_seconds}s"
         )
 
         while True:
@@ -611,9 +645,9 @@ class ShellRuntime:
                 return
 
             elapsed = time.monotonic() - output_state.last_output_time
-            remaining = self._timeout_seconds - elapsed
+            remaining = execution_options.timeout_seconds - elapsed
             time_since_warning = elapsed - last_warning_time
-            if time_since_warning >= self._warning_interval_seconds and remaining > 0:
+            if time_since_warning >= execution_options.warning_interval_seconds and remaining > 0:
                 self._logger.debug(f"Watchdog: warning at {int(remaining)}s remaining")
                 if display_state.use_live_shell_display:
                     console.console.print(
@@ -623,7 +657,7 @@ class ShellRuntime:
                 await self._emit_watchdog_progress(elapsed)
                 last_warning_time = elapsed
 
-            if elapsed < self._timeout_seconds:
+            if elapsed < execution_options.timeout_seconds:
                 continue
 
             output_state.timeout_occurred = True
@@ -753,7 +787,8 @@ class ShellRuntime:
     def _build_shell_result(
         self,
         *,
-        return_code: int,
+        shell_result: ShellExecutionResult,
+        execution_options: _ShellExecutionOptions,
         output_state: _ShellOutputState,
     ) -> tuple[CallToolResult, str]:
         combined_output = (
@@ -771,17 +806,19 @@ class ShellRuntime:
             )
 
         if output_state.timeout_occurred:
-            combined_output += f"(timeout after {self._timeout_seconds}s - process terminated)"
+            combined_output += (
+                f"(timeout after {execution_options.timeout_seconds:g}s - process terminated)"
+            )
             return (
                 _text_result(combined_output, is_error=True),
-                f"failed (timeout after {self._timeout_seconds}s)",
+                f"failed (timeout after {execution_options.timeout_seconds:g}s)",
             )
 
-        combined_output += f"process exit code was {return_code}"
-        completion_state = "completed" if return_code == 0 else "failed"
+        combined_output += f"process exit code was {shell_result.exit_code}"
+        completion_state = "completed" if shell_result.exit_code == 0 else "failed"
         return (
-            _text_result(combined_output, is_error=return_code != 0),
-            f"{completion_state} (exit {return_code})",
+            _text_result(combined_output, is_error=shell_result.exit_code != 0),
+            f"{completion_state} (exit {shell_result.exit_code})",
         )
 
     def _flush_live_display_tail(self, display_state: _ShellDisplayState) -> None:
@@ -810,7 +847,7 @@ class ShellRuntime:
         self,
         result: CallToolResult,
         *,
-        return_code: int,
+        shell_result: ShellExecutionResult,
         output_state: _ShellOutputState,
         display_state: _ShellDisplayState,
         tool_use_id: str | None,
@@ -820,7 +857,7 @@ class ShellRuntime:
         self._flush_live_display_tail(display_state)
         if display_state.use_live_shell_display:
             self._display.show_shell_exit_code(
-                return_code,
+                shell_result.exit_code,
                 no_output=not output_state.had_stream_output,
                 output_line_count=output_state.output_line_count if output_state.had_stream_output else None,
                 tool_call_id=tool_use_id if show_tool_call_id else None,
@@ -831,9 +868,96 @@ class ShellRuntime:
             suppress_display = False
         result_meta = cast("Any", result)
         result_meta._suppress_display = suppress_display
-        result_meta.exit_code = return_code
+        result_meta.exit_code = shell_result.exit_code
         result_meta.output_line_count = output_state.output_line_count
         return result
+
+    async def _execute_shell_command(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None,
+        env: Mapping[str, str] | None,
+        timeout: float | None,
+        defer_display_to_tool_result: bool,
+    ) -> _ShellExecutionOutcome:
+        execution_options = _ShellExecutionOptions(
+            timeout_seconds=self._timeout_seconds if timeout is None else timeout,
+            warning_interval_seconds=self._warning_interval_seconds,
+        )
+        configured_working_dir = self.working_directory() if cwd is None else Path(cwd)
+        working_dir_error = self._validate_working_directory(configured_working_dir)
+        if working_dir_error:
+            raise ValueError(working_dir_error)
+
+        plan = self._build_process_plan(configured_working_dir, env=env)
+        process = await self._start_shell_process(command, plan)
+        output_state = _ShellOutputState()
+        display_state = self._build_display_state(
+            defer_display_to_tool_result=defer_display_to_tool_result
+        )
+
+        stdout_task = asyncio.create_task(
+            self._stream_process_output(
+                process.stdout,
+                style=None,
+                output_state=output_state,
+                display_state=display_state,
+            )
+        )
+        stderr_task = asyncio.create_task(
+            self._stream_process_output(
+                process.stderr,
+                style="red",
+                output_state=output_state,
+                display_state=display_state,
+                is_stderr=True,
+            )
+        )
+        watchdog_task = asyncio.create_task(
+            self._watch_process_timeout(
+                process,
+                is_windows=plan.is_windows,
+                execution_options=execution_options,
+                output_state=output_state,
+                display_state=display_state,
+            )
+        )
+
+        exit_code = await self._wait_for_process_exit(process)
+        await self._cancel_task_if_running(watchdog_task)
+        output_state.io_drain_timed_out = await self._drain_output_tasks(
+            [stdout_task, stderr_task],
+            timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
+        )
+        shell_result = ShellExecutionResult(
+            stdout="".join(output_state.stdout_segments),
+            stderr="".join(output_state.stderr_segments),
+            exit_code=exit_code,
+        )
+        return _ShellExecutionOutcome(
+            result=shell_result,
+            execution_options=execution_options,
+            output_state=output_state,
+            display_state=display_state,
+        )
+
+    async def execute_shell(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> ShellExecutionResult:
+        outcome = await self._execute_shell_command(
+            command,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+            defer_display_to_tool_result=True,
+        )
+        return outcome.result
 
     async def execute(
         self,
@@ -852,11 +976,6 @@ class ShellRuntime:
             f"Executing command with idle_timeout={self._timeout_seconds}s, warning_interval={self._warning_interval_seconds}s"
         )
 
-        configured_working_dir = self.working_directory()
-        working_dir_error = self._validate_working_directory(configured_working_dir)
-        if working_dir_error:
-            return self._invalid_execute_result(working_dir_error)
-
         progress_context = progress_display.paused() if display_tools_enabled() else nullcontext()
         with progress_context:
             try:
@@ -866,54 +985,23 @@ class ShellRuntime:
                     tool_event="start",
                 )
 
-                plan = self._build_process_plan(configured_working_dir)
-                process = await self._start_shell_process(command, plan)
-                output_state = _ShellOutputState()
-                display_state = self._build_display_state(
+                outcome = await self._execute_shell_command(
+                    command,
+                    cwd=None,
+                    env=None,
+                    timeout=None,
                     defer_display_to_tool_result=defer_display_to_tool_result
                 )
-
-                stdout_task = asyncio.create_task(
-                    self._stream_process_output(
-                        process.stdout,
-                        style=None,
-                        output_state=output_state,
-                        display_state=display_state,
-                    )
-                )
-                stderr_task = asyncio.create_task(
-                    self._stream_process_output(
-                        process.stderr,
-                        style="red",
-                        output_state=output_state,
-                        display_state=display_state,
-                        is_stderr=True,
-                    )
-                )
-                watchdog_task = asyncio.create_task(
-                    self._watch_process_timeout(
-                        process,
-                        is_windows=plan.is_windows,
-                        output_state=output_state,
-                        display_state=display_state,
-                    )
-                )
-
-                return_code = await self._wait_for_process_exit(process)
-                await self._cancel_task_if_running(watchdog_task)
-                output_state.io_drain_timed_out = await self._drain_output_tasks(
-                    [stdout_task, stderr_task],
-                    timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
-                )
                 result, completion_details = self._build_shell_result(
-                    return_code=return_code,
-                    output_state=output_state,
+                    shell_result=outcome.result,
+                    execution_options=outcome.execution_options,
+                    output_state=outcome.output_state,
                 )
                 result = self._finalize_shell_result_display(
                     result,
-                    return_code=return_code,
-                    output_state=output_state,
-                    display_state=display_state,
+                    shell_result=outcome.result,
+                    output_state=outcome.output_state,
+                    display_state=outcome.display_state,
                     tool_use_id=tool_use_id,
                     show_tool_call_id=show_tool_call_id,
                     defer_display_to_tool_result=defer_display_to_tool_result,
