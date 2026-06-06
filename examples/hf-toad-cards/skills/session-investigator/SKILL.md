@@ -14,7 +14,7 @@ Sessions are stored in `.fast-agent/sessions/<session-id>/`:
 ```
 2601181023-Kob2h3/
 ├── session.json              # Session metadata
-├── history_<agent>.json      # Current agent history  
+├── history_<agent>.json      # Current agent history
 └── history_<agent>_previous.json  # Previous save (rotation backup)
 ```
 
@@ -37,7 +37,7 @@ Session IDs encode creation time: `YYMMDDHHMM-<random>` (e.g., `2601181023` = 20
 }
 ```
 
-### history_<agent>.json
+### history\_<agent>.json
 
 ```json
 {
@@ -81,7 +81,7 @@ Tool calls and results are linked by correlation ID. Valid pattern: assistant wi
 ```bash
 # Check tool call/result pairing
 jq '.messages[-10:] | to_entries | .[] | {
-  index: .key, 
+  index: .key,
   role: .value.role,
   tool_calls: (if .value.tool_calls then (.value.tool_calls | keys) else [] end),
   tool_results: (if .value.tool_results then (.value.tool_results | keys) else [] end)
@@ -92,9 +92,9 @@ jq '.messages[-10:] | to_entries | .[] | {
 
 ```bash
 # Find all calls to a specific tool
-jq '.messages | to_entries | .[] | 
-  select(.value.tool_calls != null) | 
-  select(.value.tool_calls | to_entries | .[0].value.params.name == "agent__ripgrep_search") | 
+jq '.messages | to_entries | .[] |
+  select(.value.tool_calls != null) |
+  select(.value.tool_calls | to_entries | .[0].value.params.name == "agent__ripgrep_search") |
   {index: .key, timing: (.value.channels."fast-agent-timing"[0].text)}' history_dev.json
 ```
 
@@ -104,16 +104,16 @@ jq '.messages | to_entries | .[] |
 
 ```bash
 # Total LLM time and call count
-jq '[.messages[] | select(.role == "assistant") | 
-  select(.channels."fast-agent-timing") | 
-  .channels."fast-agent-timing"[0].text | fromjson | .duration_ms] | 
+jq '[.messages[] | select(.role == "assistant") |
+  select(.channels."fast-agent-timing") |
+  .channels."fast-agent-timing"[0].text | fromjson | .duration_ms] |
   {count: length, total_ms: add, avg_ms: (add/length), max_ms: max, min_ms: min}' history_dev.json
 
 # LLM calls sorted by duration (slowest first)
-jq '[.messages | to_entries | .[] | 
-  select(.value.role == "assistant") | 
+jq '[.messages | to_entries | .[] |
+  select(.value.role == "assistant") |
   select(.value.channels."fast-agent-timing") |
-  {index: .key, duration_ms: (.value.channels."fast-agent-timing"[0].text | fromjson | .duration_ms)}] | 
+  {index: .key, duration_ms: (.value.channels."fast-agent-timing"[0].text | fromjson | .duration_ms)}] |
   sort_by(-.duration_ms) | .[0:10]' history_dev.json
 ```
 
@@ -121,7 +121,7 @@ jq '[.messages | to_entries | .[] |
 
 ```bash
 # All tool timings aggregated
-jq '[.messages[] | select(.channels."fast-agent-tool-timing") | 
+jq '[.messages[] | select(.channels."fast-agent-tool-timing") |
   .channels."fast-agent-tool-timing"[0].text | fromjson | to_entries | .[].value.timing_ms] |
   {count: length, total_ms: add, avg_ms: (add/length), max_ms: max, min_ms: min}' history_dev.json
 
@@ -129,9 +129,9 @@ jq '[.messages[] | select(.channels."fast-agent-tool-timing") |
 jq '[.messages | to_entries | .[] |
   select(.value.tool_calls) |
   (.value.tool_calls | to_entries | .[0]) as $tc |
-  {index: .key, tool: $tc.value.params.name, 
+  {index: .key, tool: $tc.value.params.name,
    llm_ms: (.value.channels."fast-agent-timing"[0].text | fromjson | .duration_ms)}] |
-  group_by(.tool) | 
+  group_by(.tool) |
   map({tool: .[0].tool, count: length, total_llm_ms: (map(.llm_ms) | add)}) |
   sort_by(-.count)' history_dev.json
 ```
@@ -162,7 +162,7 @@ jq '[.messages | to_entries | .[] |
   select(.value.tool_calls) |
   (.value.tool_calls | to_entries | .[0]) as $tc |
   select($tc.value.params.name | startswith("agent__")) |
-  {index: .key, agent: $tc.value.params.name, 
+  {index: .key, agent: $tc.value.params.name,
    llm_ms: (.value.channels."fast-agent-timing"[0].text | fromjson | .duration_ms)}] |
   group_by(.agent) |
   map({agent: .[0].agent, calls: length, total_ms: (map(.llm_ms) | add), avg_ms: ((map(.llm_ms) | add) / length)})' history_dev.json
@@ -184,6 +184,7 @@ jq '.messages[-1] | {role, has_tool_calls: (.tool_calls != null), stop_reason}' 
 **Cause**: Session interrupted mid-tool-loop, then resumed with new user input before tool completed.
 
 **Fix**: Truncate history to last valid tool result:
+
 ```bash
 # Find last user message with tool_results
 jq '.messages | to_entries | map(select(.value.role == "user" and .value.tool_results != null)) | last | .key' history_dev.json
@@ -214,11 +215,11 @@ Compare `start_time`/`end_time` values between main session and sub-agent traces
 
 ## Log File
 
-Check `fastagent.jsonl` for errors during the session timeframe:
+Check `fast-agent-log.jsonl` for errors during the session timeframe:
 
 ```bash
 # Filter by timestamp range
-cat fastagent.jsonl | while read line; do
+cat fast-agent-log.jsonl | while read line; do
   ts=$(echo "$line" | jq -r '.timestamp // empty' 2>/dev/null)
   if [[ "$ts" > "2026-01-18T10:20" && "$ts" < "2026-01-18T10:45" ]]; then
     echo "$line" | jq -c '{timestamp, level, message}'
