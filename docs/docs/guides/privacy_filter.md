@@ -14,7 +14,7 @@ social:
 
 `fast-agent export --privacy-filter` redacts likely private data from exported
 session traces before the JSONL file is written locally or uploaded to a Hugging
-Face dataset. 
+Face dataset.
 
 Use it when you want to share a trace for debugging, evals, or dataset review but
 want a safer default than exporting raw prompts, messages, and tool output.
@@ -51,7 +51,7 @@ fast-agent export latest \
   --download-privacy-filter \
 ```
 
-The default model download [`openai/privacy-filter`](https://huggingface.co/openai/privacy-filter) is about 1.5 GB. Future exports reuse the cached files.
+The default model download [`openai/privacy-filter`](https://huggingface.co/openai/privacy-filter) is about 1 GB. Future exports reuse the cached files.
 
 ## What happens during export
 

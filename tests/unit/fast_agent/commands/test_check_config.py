@@ -60,6 +60,17 @@ def test_check_api_keys_invalid_config():
     assert results["azure"]["config"] == ""
 
 
+def test_check_api_keys_google_vertex_adc():
+    config_summary = {
+        "status": "parsed",
+        "config": {"google": {"vertex_ai": {"enabled": True}}},
+    }
+
+    results = check_api_keys({}, config_summary)
+
+    assert results["google"]["config"] == "Vertex AI ADC"
+
+
 def test_check_api_keys_hint_text():
     azure_cfg = {
         "api_key": API_KEY_HINT_TEXT,

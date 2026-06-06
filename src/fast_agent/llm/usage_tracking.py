@@ -5,24 +5,15 @@ This module provides unified usage tracking across Anthropic, OpenAI, and Google
 including detailed cache metrics and context window management.
 """
 
+from __future__ import annotations
+
 import time
-from typing import Union
+from typing import TYPE_CHECKING
 
-# Proper type imports for each provider
-try:
+if TYPE_CHECKING:
     from anthropic.types.beta import BetaUsage as AnthropicUsage
-except Exception:  # pragma: no cover - optional dependency
-    AnthropicUsage = object  # type: ignore
-
-try:
     from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsage
-except Exception:  # pragma: no cover - optional dependency
-    GoogleUsage = object  # type: ignore
-
-try:
     from openai.types.completion_usage import CompletionUsage as OpenAIUsage
-except Exception:  # pragma: no cover - optional dependency
-    OpenAIUsage = object  # type: ignore
 from pydantic import BaseModel, Field, PrivateAttr, computed_field, field_validator
 
 from fast_agent.core.logging.json_serializer import JsonValue, snapshot_json_value
@@ -384,7 +375,7 @@ class UsageAccumulator(BaseModel):
         """Number of turns accumulated"""
         return len(self.turns)
 
-    def get_cache_summary(self) -> dict[str, Union[int, float, None]]:
+    def get_cache_summary(self) -> dict[str, int | float | None]:
         """Get cache-specific metrics summary"""
         return {
             "cumulative_cache_read_tokens": self.cumulative_cache_read_tokens,
@@ -394,7 +385,7 @@ class UsageAccumulator(BaseModel):
             "cumulative_effective_input_tokens": self.cumulative_effective_input_tokens,
         }
 
-    def get_summary(self) -> dict[str, Union[int, float, str, None]]:
+    def get_summary(self) -> dict[str, int | float | str | None]:
         """Get comprehensive usage statistics"""
         cache_summary = self.get_cache_summary()
         return {

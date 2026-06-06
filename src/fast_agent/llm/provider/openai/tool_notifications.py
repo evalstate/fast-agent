@@ -55,6 +55,7 @@ class OpenAIToolNotificationMixin:
                 "tool_name": tool_name,
                 "tool_use_id": tool_use_id,
                 "tool_event": "stop",
+                "tool_terminal": True,
                 "fallback": True,
             },
         )

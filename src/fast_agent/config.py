@@ -1055,7 +1055,6 @@ class CodexResponsesSettings(ResponsesProviderSettingsBase):
     )
 
 
-
 class DeepSeekSettings(BaseModel):
     """Settings for using DeepSeek models in the fast-agent application."""
 
@@ -1319,9 +1318,6 @@ class TerminalImageSettings(BaseModel):
 
     height: TerminalImageSize = "auto"
     """Image render height: cells, percentage (e.g. '40%'), 'auto', or null."""
-
-    render_tools: bool = False
-    """Deprecated: tool images are rendered in the final assistant pass."""
 
     render_assistant: bool = True
     """Render images in final assistant messages."""
@@ -1896,7 +1892,9 @@ def get_settings(
 
     global _settings
 
-    env_dir_override = Path(env_dir) if env_dir is not None and not isinstance(env_dir, str) else env_dir
+    env_dir_override = (
+        Path(env_dir) if env_dir is not None and not isinstance(env_dir, str) else env_dir
+    )
 
     # If we have a specific config path, always reload settings
     # This ensures each test gets its own config

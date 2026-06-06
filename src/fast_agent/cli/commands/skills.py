@@ -24,7 +24,7 @@ from fast_agent.cli.display import (
     print_update_table,
 )
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
-from fast_agent.skills.command_support import filter_marketplace_skills
+from fast_agent.skills.command_support import SKILLS_ADD_HINT_CLI, filter_marketplace_skills
 from fast_agent.skills.configuration import (
     format_marketplace_display_url,
     get_marketplace_url,
@@ -44,7 +44,7 @@ from fast_agent.skills.scope import (
     order_skill_directories_for_display,
     resolve_skills_management_scope,
 )
-from fast_agent.skills.service import install_skill_sync, remove_skill
+from fast_agent.skills.service import install_skill_from_selector_sync, remove_skill
 from fast_agent.ui.console import console
 
 DEFAULT_CLI_SKILLS_REGISTRY = DEFAULT_MARKETPLACE_URL
@@ -82,7 +82,7 @@ EnvOption = Annotated[
 ]
 
 app = typer.Typer(
-    help="Manage skills (list/available/search/add/remove/update).",
+    help="Manage skills (list/available/search/add/remove/update). Add supports marketplace selectors, GitHub URLs, GitHub paths, and local paths.",
     add_completion=False,
 )
 
@@ -233,7 +233,9 @@ def _print_managed_skill_selection(*, managed_directory: Path) -> None:
         ],
     )
 
-    manifests = SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
+    manifests = (
+        SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
+    )
     if not manifests:
         console.print("[yellow]No local skills found in the managed directory.[/yellow]")
         return
@@ -330,7 +332,7 @@ def skills_available(
         title="Marketplace Skills",
         registry_url=marketplace_url,
     )
-    print_hint(console, "Install with: fast-agent skills add <number|name>")
+    print_hint(console, SKILLS_ADD_HINT_CLI)
 
 
 @app.command("search")
@@ -350,7 +352,7 @@ def skills_search(
         registry_url=marketplace_url,
     )
     if selected_marketplace:
-        print_hint(console, "Install with: fast-agent skills add <number|name>")
+        print_hint(console, SKILLS_ADD_HINT_CLI)
     else:
         print_hint(console, "Browse all skills with: fast-agent skills available")
 
@@ -360,29 +362,32 @@ def skills_add(
     ctx: typer.Context,
     selector: Annotated[
         str | None,
-        typer.Argument(help="Skill name or marketplace index.", show_default=False),
+        typer.Argument(
+            help="Skill name, marketplace index, GitHub SKILL.md URL/path, or local path.",
+            show_default=False,
+        ),
     ] = None,
     registry: RegistryOption = None,
     skills_dir: SkillsDirOption = None,
 ) -> None:
-    """Install a skill from the selected marketplace."""
+    """Install a skill from the marketplace, GitHub URL, or local path."""
     managed_directory = get_manager_directory(
         get_settings_or_exit(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
-    marketplace, marketplace_url = _load_marketplace(ctx, registry=registry)
-
     if not selector:
+        marketplace, marketplace_url = _load_marketplace(ctx, registry=registry)
         _print_marketplace_skills(
             marketplace,
             title="Marketplace Skills",
             registry_url=marketplace_url,
         )
-        print_hint(console, "Install with: fast-agent skills add <number|name>")
+        print_hint(console, SKILLS_ADD_HINT_CLI)
         raise typer.Exit(0)
 
     try:
-        installed = install_skill_sync(
+        marketplace_url = _resolve_registry_input(ctx, registry)
+        installed = install_skill_from_selector_sync(
             marketplace_url,
             selector,
             destination_root=managed_directory,
@@ -420,7 +425,9 @@ def skills_remove(
         get_settings_or_exit(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
-    manifests = SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
+    manifests = (
+        SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
+    )
     if not manifests:
         console.print("[yellow]No local skills to remove.[/yellow]")
         raise typer.Exit(0)
@@ -499,7 +506,9 @@ def skills_update(
             title="Update plan:",
             managed_directory=managed_directory,
         )
-        console.print("[yellow]Multiple skills selected. Re-run with --yes to apply updates.[/yellow]")
+        console.print(
+            "[yellow]Multiple skills selected. Re-run with --yes to apply updates.[/yellow]"
+        )
         raise typer.Exit(1)
 
     applied = apply_skill_updates(selected, force=force)

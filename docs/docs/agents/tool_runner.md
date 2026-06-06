@@ -24,6 +24,13 @@ Available hook points:
 - `after_llm_call`
 - `before_tool_call`
 - `after_tool_call`
+- `after_turn_complete`
+
+`after_llm_call` runs after every assistant response from the model, including
+intermediate responses that request tools. `before_tool_call` and
+`after_tool_call` wrap each tool-execution step. `after_turn_complete` runs once
+at the end of the whole user turn, after any model/tool/model loop has finished,
+and receives the final message for that turn.
 
 ## Minimal example
 
@@ -81,4 +88,4 @@ if __name__ == "__main__":
 ```
 
 The full runnable example lives in the repo at:
-`examples/tool-use-agent-hooks/agent.py`
+`examples/tool-runner-hooks/tool_runner_hooks.py`

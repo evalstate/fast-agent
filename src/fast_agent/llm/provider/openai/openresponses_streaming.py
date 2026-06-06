@@ -173,6 +173,8 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
             "tool_use_id": tool_use_id,
             "tool_event": event_type,
         }
+        if event_type == "stop":
+            data["tool_terminal"] = True
         if fallback:
             data["fallback"] = True
         self.logger.info(message, data=data)

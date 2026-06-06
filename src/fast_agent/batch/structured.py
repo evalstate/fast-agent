@@ -130,7 +130,7 @@ def load_schema_source(options: StructuredBatchOptions) -> LoadedSchemaSource | 
     if options.agent_name is not None and options.agent_card_source is None:
         raise ValueError("--agent requires --agent-card")
     if options.schema_source is not None and options.schema_model is not None:
-        raise ValueError("--schema and --schema-model cannot be used together")
+        raise ValueError("--json-schema and --schema-model cannot be used together")
     if options.hf_dataset_path is not None and options.hf_dataset is None:
         raise ValueError("--hf-dataset-path requires --hf-dataset")
     if options.hf_dataset is not None and options.export_traces_path is None:

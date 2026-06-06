@@ -3,45 +3,45 @@
    instead of using the stock asciinema palettes, so recordings feel native in
    both Zensical light and dark modes. */
 .asciinema-player-theme-fast-agent-light {
-  --term-color-foreground: var(--fg-0, #1c1a16);
-  --term-color-background: var(--s-0, #f6f3eb);
+  --term-color-foreground: #1c1a16;
+  --term-color-background: #f6f3eb;
   --term-color-0: #4a463d;
-  --term-color-1: var(--no, #b84a3c);
-  --term-color-2: var(--ok, #1f7d50);
-  --term-color-3: var(--a-0, #b67500);
-  --term-color-4: var(--info, #2c63b0);
+  --term-color-1: #b84a3c;
+  --term-color-2: #1f7d50;
+  --term-color-3: #b67500;
+  --term-color-4: #2c63b0;
   --term-color-5: #8a5fbf;
   --term-color-6: #179299;
-  --term-color-7: var(--s-1, #ffffff);
-  --term-color-8: var(--fg-2, #756e5e);
-  --term-color-9: var(--no, #b84a3c);
-  --term-color-10: var(--ok, #1f7d50);
-  --term-color-11: var(--a-hi, #d28a00);
-  --term-color-12: var(--info, #2c63b0);
+  --term-color-7: #4a463d;
+  --term-color-8: #756e5e;
+  --term-color-9: #b84a3c;
+  --term-color-10: #1f7d50;
+  --term-color-11: #d28a00;
+  --term-color-12: #2c63b0;
   --term-color-13: #8a5fbf;
   --term-color-14: #179299;
-  --term-color-15: #ffffff;
+  --term-color-15: #1c1a16;
 }
 
 .asciinema-player-theme-fast-agent-dark {
-  --term-color-foreground: var(--fg-0, #f0ece2);
-  --term-color-background: var(--s-0, #0b0c0f);
-  --term-color-0: var(--s-1, #14161b);
-  --term-color-1: var(--no, #f06b5a);
-  --term-color-2: var(--ok, #6ad19c);
-  --term-color-3: var(--a-0, #f5a400);
-  --term-color-4: var(--info, #6aa3f7);
+  --term-color-foreground: #f0ece2;
+  --term-color-background: #0b0c0f;
+  --term-color-0: #14161b;
+  --term-color-1: #f06b5a;
+  --term-color-2: #6ad19c;
+  --term-color-3: #f5a400;
+  --term-color-4: #6aa3f7;
   --term-color-5: #c586f7;
   --term-color-6: #6ad1c8;
-  --term-color-7: var(--fg-1, #b9b3a5);
-  --term-color-8: var(--fg-2, #7d786d);
-  --term-color-9: var(--no, #f06b5a);
-  --term-color-10: var(--ok, #6ad19c);
-  --term-color-11: var(--a-hi, #ffc649);
-  --term-color-12: var(--info, #6aa3f7);
+  --term-color-7: #b9b3a5;
+  --term-color-8: #7d786d;
+  --term-color-9: #f06b5a;
+  --term-color-10: #6ad19c;
+  --term-color-11: #ffc649;
+  --term-color-12: #6aa3f7;
   --term-color-13: #d5a6ff;
   --term-color-14: #8be9df;
-  --term-color-15: var(--fg-0, #f0ece2);
+  --term-color-15: #f0ece2;
 }
 
 .a2a-terminal-demo .ap-wrapper,

@@ -42,6 +42,8 @@ class ProgressEvent(BaseModel):
     server_name: str | None = None
     tool_name: str | None = None
     tool_event: str | None = None
+    tool_state: str | None = None
+    tool_terminal: bool = False
     streaming_tokens: str | None = None  # Special field for streaming token count
     progress: float | None = None  # Current progress value
     total: float | None = None  # Total value for progress calculation

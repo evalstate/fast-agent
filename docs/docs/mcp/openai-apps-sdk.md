@@ -10,7 +10,7 @@ social:
 
 ## Overview
 
-**`fast-agent`** automatically detects [OpenAI Apps SDK (Skybridge)](https://developers.openai.com/apps-sdk) integrations exposed by MCP servers. Detection runs during tool/resource discovery: the aggregator looks for tools that publish an `openai/outputTemplate` `_meta` entry and the corresponding `ui://…` resources with the `text/html+skybridge` MIME type. 
+**`fast-agent`** automatically detects [OpenAI Apps SDK (Skybridge)](https://developers.openai.com/apps-sdk) integrations exposed by MCP servers. Detection runs during tool/resource discovery: the aggregator looks for tools that publish an `openai/outputTemplate` `_meta` entry and the corresponding `ui://…` resources with the `text/html+skybridge` MIME type.
 
 ## What `fast-agent` checks
 

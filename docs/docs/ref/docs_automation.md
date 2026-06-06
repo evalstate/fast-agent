@@ -58,30 +58,59 @@ Use `scripts/docs_assets.py` through the docs wrapper for interactive asciinema 
 uv run scripts/docs.py assets
 uv run scripts/docs.py assets-record tui-shell
 uv run scripts/docs.py cast-build tui-shell
+uv run scripts/docs.py cast-build model-picker
+uv run scripts/docs.py cast-build skills-direct-install
+uv run scripts/docs.py cast-build skills-slash-commands
 ```
 
 The `tui-shell` scenario records `fast-agent` starting with shell access and a visible model
 selection, sends a short prompt, then runs `! git status` from inside the TUI. Recording requires
 `asciinema` and `tmux`; normal docs builds only need the committed `.cast` files and the vendored
 player assets. `cast-build` is an alias for recording a named cast.
+The `model-picker` scenario records `fast-agent go` opening the startup model picker, then navigates
+the provider/model lists with arrow keys.
+The skills scenarios record direct install and update-check flows from a temporary local git
+repository, using either CLI commands or `/skills` slash commands in the TUI.
 
 By default, cast recordings stop by killing the tmux session after the final demonstrated action,
 so the user-facing recording does not show a trailing `/exit`. Set
 `FAST_AGENT_TUI_DEMO_SHOW_EXIT=1` when you explicitly want the exit command included.
 Cast recordings also set `TUI__COMPLETION_MENU_RESERVED_LINES=4` by default to keep the prompt
 area compact; override it when a recording needs to demonstrate completion menus.
+The recording driver sets `FAST_AGENT_HOME` to a temporary directory with a tiny config file so
+project-local config, implicit cards, sessions, and permission-store state from the repository
+`.fast-agent` are not loaded. It runs `fast-agent` from a throwaway demo git repository rather than
+the docs checkout. It also unsets `ENVIRONMENT_DIR`, `FAST_AGENT_RUNTIME_ENVIRONMENT`, and
+`VIRTUAL_ENV` to avoid environment overrides and `uv` active-environment warnings, and sets
+`FAST_AGENT_KEYRING_NOTICE=0` so the one-time OS keyring probe message does not appear in committed
+casts.
 
 The default recording command is:
 
 ```bash
-uv run fast-agent -x --model deepseek
+fast-agent -x --model deepseek
 ```
 
 Override it for local refreshes with:
 
 ```bash
 FAST_AGENT_TUI_DEMO_MODEL=sonnet uv run scripts/docs.py assets-record tui-shell
-FAST_AGENT_TUI_DEMO_COMMAND="uv run fast-agent -x --model deepseek" uv run scripts/docs.py assets-record tui-shell
+FAST_AGENT_TUI_DEMO_COMMAND="fast-agent -x --model deepseek" uv run scripts/docs.py assets-record tui-shell
+```
+
+For image-output experiments, prefer a small halfcell render and a landscape prompt with broad shapes:
+
+```bash
+export FAST_AGENT_KEYRING_NOTICE=0
+export LOGGER__TERMINAL_IMAGES__ENABLED=true
+export LOGGER__TERMINAL_IMAGES__BACKEND=halfcell
+export LOGGER__TERMINAL_IMAGES__WIDTH=96
+export LOGGER__TERMINAL_IMAGES__HEIGHT=24
+fast-agent -x --model codexplan --url 'https://huggingface.co/mcp?bouquet=dynamic_space'
+```
+
+```text
+generate a wide cinematic landscape: a quiet alpine lake at sunrise, dark pine silhouettes, snow-capped mountains, warm orange sky reflected in the water, bold simple shapes, high contrast, no text
 ```
 
 ## Social Cards
@@ -131,17 +160,6 @@ pages can include examples directly from `examples/`:
 
 Prefer direct includes for examples that are meant to stay runnable. This keeps docs and examples
 on one source of truth and makes drift visible in ordinary code review.
-
-## Provider Overviews
-
-Provider prose can live next to provider implementation code:
-
-- `src/fast_agent/llm/provider/anthropic/provider_docs.md`
-- `src/fast_agent/llm/provider/openai/provider_docs.md`
-
-`docs/generate_reference_docs.py` copies those files into `_generated/provider_overview_*.md`.
-The public provider page includes the generated snippets, so feature prose can be reviewed beside
-the implementation it describes.
 
 ## Plugin API Reference
 

@@ -326,6 +326,7 @@ class ResponsesOutputMixin:
                             "tool_name": duplicate_call_names.get(call_id, "tool"),
                             "tool_use_id": call_id,
                             "tool_event": "stop",
+                            "tool_terminal": True,
                         },
                     )
         else:

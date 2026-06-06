@@ -8,11 +8,11 @@ social:
 
 ### Running as an MCP Server
 
-**`fast-agent`** Can deploy any configured agents over MCP, letting external MCP clients connect via STDIO, SSE, or HTTP. 
+**`fast-agent`** Can deploy any configured agents over MCP, letting external MCP clients connect via STDIO or Streamable HTTP.
 
 Additionally, there is a convenient `serve` command enabling rapid, command line deployment of MCP enabled agents in a variety of instancing modes.
 
-This feature also works with [Agent Skills](../agents/skills/), enabling powerful adaptable behaviours.
+This feature also works with [Agent Skills](../guides/skills/), enabling powerful adaptable behaviours.
 
 #### Using the CLI (fast-agent serve)
 
@@ -22,17 +22,23 @@ fast-agent serve [OPTIONS]
 
 Key options:
 
-- `--transport [http|sse|stdio|acp]` (default http). Note: `acp` exposes Agent Client Protocol instead of MCP (see [ACP](../acp/)).
-- `--port / --host` (for HTTP/SSE)
+- `--transport [http|stdio|acp]` (default http). Note: `acp` exposes Agent Client Protocol instead of MCP (see [ACP](../acp/)).
+- `--port / --host` (for HTTP)
 - `--instance-scope [shared|connection|request] `– choose how agent state is isolated
     - `shared` (default) reuses a single agent for all clients
     - `connection` (sessions) Create one Agent per MCP session (separate history per client)
     - `request` (stateless) - create a new Agent for every tool call and disable MCP Sessions
 - `--description` – Customise the MCP tool description (supports {agent} placeholder)
+- `--tool-name-template` – Customise exposed agent tool names (supports {agent} placeholder)
 - `--shell`, `-x` – Enable local shell tool access (bash or pwsh)
+- `--no-shell` – Disable local shell/filesystem tools even when skills or config request them
 - `--noenv`, `--no-env` – Run without implicit environment side effects (no implicit card discovery, no session persistence/resume, and no ACP permission-store writes)
+- `--no-permissions` – Disable ACP tool permission requests
+- `--prefer-local-shell` – In ACP shell mode, use fast-agent's local shell runtime instead of the ACP client's terminal capability
+- `--missing-shell-cwd [ask|create|warn|error]` – Override the shell missing-cwd policy
+- `--reload` / `--watch` – Enable manual or watched AgentCard reloads
 
-Standard CLI flags also apply (e.g. `--config-path`, `--model`, `--servers`, `--stdio`, and global `-q/--quiet`).
+Standard CLI flags also apply (e.g. `--config-path`, `--model`, `--servers`, `--url`, `--auth`, `--client-metadata-url`, `--agent-cards`, `--card-tool`, `--stdio`, `--npx`, `--uvx`, and global `-q/--quiet`).
 This allows **`fast-agent`** to serve any existing MCP Server in "Agent Mode", use custom system prompts and so on.
 
 `--noenv` conflicts with `--env` (they cannot be used together).

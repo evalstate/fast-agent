@@ -685,9 +685,9 @@ async def test_execute_emits_shell_lifecycle_progress_events(monkeypatch: pytest
     assert end_payload["agent_name"] == "assistant"
     assert end_payload["tool_use_id"] == "call-123"
     assert end_payload["tool_call_id"] == "call-123"
-    assert end_payload["progress"] == 1.0
-    assert end_payload["total"] == 1.0
     assert end_payload["details"] == "completed (exit 0)"
+    assert end_payload["tool_state"] == "completed"
+    assert end_payload["tool_terminal"] is True
 
 
 @pytest.mark.asyncio
@@ -721,3 +721,5 @@ async def test_execute_emits_terminal_failed_progress_when_subprocess_start_fail
     assert progress_payloads[0]["tool_event"] == "start"
     assert progress_payloads[1]["progress_action"] == ProgressAction.TOOL_PROGRESS
     assert progress_payloads[1]["details"] == "failed: spawn failed"
+    assert progress_payloads[1]["tool_state"] == "failed"
+    assert progress_payloads[1]["tool_terminal"] is True

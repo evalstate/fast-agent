@@ -9,10 +9,11 @@ import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, Protocol, cast, runtime_checkable
+from typing import Any, Callable, Literal, Protocol, cast, runtime_checkable
 
 import typer
 from pydantic import ValidationError
+from rich.table import Table
 from rich.text import Text
 
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
@@ -38,6 +39,7 @@ from fast_agent.llm.llamacpp_discovery import (
     interrogate_llamacpp_model,
     uniquify_overlay_name,
 )
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
     LoadedModelOverlay,
     build_model_overlay_manifest_from_database,
@@ -52,8 +54,10 @@ from fast_agent.llm.model_reference_diagnostics import (
     ModelReferenceSetupItem,
     collect_model_reference_setup_diagnostics,
 )
+from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
+from fast_agent.ui.console import console
 from fast_agent.ui.llamacpp_model_picker import (
     LlamaCppModelPickerContext,
     run_llamacpp_model_picker_async,
@@ -1557,6 +1561,167 @@ def model_export(
             typer.echo(f"Use: fast-agent go --model {manifest.name}")
 
     asyncio.run(_run_export())
+
+
+def _model_presets_provider_filter(raw_provider: str | None) -> Provider | None:
+    if raw_provider is None:
+        return None
+
+    normalized = raw_provider.strip().lower()
+    aliases = {
+        "codex-responses": "codexresponses",
+        "codex_responses": "codexresponses",
+        "huggingface": "hf",
+        "anthropicvertex": "anthropic-vertex",
+    }
+    provider_name = aliases.get(normalized, normalized)
+    try:
+        return Provider(provider_name)
+    except ValueError as exc:
+        raise typer.BadParameter(f"Unknown provider: {raw_provider}", param_hint="--provider") from exc
+
+
+def _model_presets_key_status(
+    provider: Provider,
+    *,
+    api_keys: dict[str, dict[str, str]],
+) -> tuple[str, str]:
+    provider_name = provider.config_name
+    if provider in {Provider.FAST_AGENT, Provider.GENERIC, Provider.ANTHROPIC_VERTEX}:
+        return ("available", "[green]keyless[/green]")
+
+    provider_status = api_keys.get(provider_name, {})
+    if provider_status.get("env"):
+        return ("available", "[green]env[/green]")
+    if provider_status.get("config"):
+        label = provider_status["config"]
+        return ("available", f"[green]{label}[/green]")
+
+    env_var = ProviderKeyManager.get_env_key_name(provider_name)
+    missing = f"missing {env_var}" if env_var else "missing"
+    return ("missing", f"[red]{missing}[/red]")
+
+
+def _model_preset_rows(
+    *,
+    provider_filter: Provider | None,
+    env_dir: Path | None,
+) -> list[dict[str, Any]]:
+    from fast_agent.cli.commands.check_config import (
+        check_api_keys,
+        find_config_files,
+        get_config_summary,
+        get_secrets_summary,
+    )
+
+    config_files = find_config_files(Path.cwd(), env_dir=env_dir)
+    config_summary = get_config_summary(config_files["config"])
+    secrets_summary = get_secrets_summary(config_files["secrets"])
+    api_keys = check_api_keys(secrets_summary, config_summary)
+    presets = ModelFactory.get_runtime_presets()
+    rows: list[dict[str, Any]] = []
+
+    for alias, model_spec in sorted(presets.items()):
+        try:
+            parsed = ModelFactory.parse_model_spec(alias, presets=presets)
+        except Exception as exc:
+            if provider_filter is not None:
+                continue
+            rows.append(
+                {
+                    "alias": alias,
+                    "provider": None,
+                    "provider_display": "unresolved",
+                    "model": model_spec,
+                    "expanded": model_spec,
+                    "key_status": "error",
+                    "key_status_text": f"[red]{exc}[/red]",
+                }
+            )
+            continue
+
+        if provider_filter is not None and parsed.provider != provider_filter:
+            continue
+
+        key_status, key_status_text = _model_presets_key_status(
+            parsed.provider,
+            api_keys=api_keys,
+        )
+        rows.append(
+            {
+                "alias": alias,
+                "provider": parsed.provider.config_name,
+                "provider_display": parsed.provider.display_name,
+                "model": parsed.model_name,
+                "expanded": model_spec,
+                "key_status": key_status,
+                "key_status_text": key_status_text,
+            }
+        )
+
+    return rows
+
+
+def _render_model_presets(rows: list[dict[str, Any]], *, provider: str | None) -> None:
+    title = "Model presets" if provider is None else f"Model presets ({provider})"
+    console.print(f"\n[bold blue]{title}[/bold blue]\n")
+
+    table = Table(show_header=True, box=None)
+    table.add_column("Preset", style="cyan", header_style="bold bright_white")
+    table.add_column("Provider", style="white", header_style="bold bright_white")
+    table.add_column("Key", header_style="bold bright_white")
+    table.add_column(
+        "Maps To",
+        style="green",
+        header_style="bold bright_white",
+        overflow="fold",
+    )
+
+    for row in rows:
+        table.add_row(
+            row["alias"],
+            row["provider_display"],
+            row["key_status_text"],
+            row["expanded"],
+        )
+
+    console.print(table)
+
+
+@app.command("presets")
+def model_presets(
+    ctx: typer.Context,
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="Only show presets that resolve to this provider.",
+    ),
+    env: str | None = CommonAgentOptions.env_dir(),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """List built-in and runtime model presets with provider/key readiness."""
+    resolved_env_dir = resolve_environment_dir_option(
+        ctx,
+        Path(env) if env is not None else None,
+    )
+    provider_filter = _model_presets_provider_filter(provider)
+    rows = _model_preset_rows(provider_filter=provider_filter, env_dir=resolved_env_dir)
+
+    if json_output:
+        console.print(json.dumps(rows, indent=2, sort_keys=True))
+        return
+
+    if not rows:
+        provider_text = f" for provider '{provider}'" if provider is not None else ""
+        console.print(f"[yellow]No model presets found{provider_text}.[/yellow]")
+        return
+
+    _render_model_presets(rows, provider=provider)
 
 
 @app.command("setup")

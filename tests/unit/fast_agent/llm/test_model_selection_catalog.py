@@ -53,10 +53,8 @@ def _static_current_entries(provider: Provider) -> list:
 
 def test_list_curated_models_for_provider() -> None:
     models = ModelSelectionCatalog.list_curated_models(Provider.ANTHROPIC)
-    assert "claude-haiku-4-5" in models
-    assert "claude-sonnet-4-6" in models
-    assert "claude-opus-4-7" in models
-    assert "claude-opus-4-6" in models
+    expected = [entry.model for entry in _static_current_entries(Provider.ANTHROPIC)]
+    assert models == expected
 
 
 def test_list_curated_aliases_for_provider() -> None:

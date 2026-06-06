@@ -21,43 +21,46 @@ Why use **`fast-agent`**?:
 
 | Feature | Support | Notes |
 |---------|---------|-------|
-| Modes   | ✅ | Each defined Agent appears as a Modes |
+| Modes   | ✅ | Each defined Agent appears as a _Mode_ |
 | Tool / Workflow Progress | ✅ | MCP Tool Progress and Agent Workflow Progress updates |
 | Agent Plan | ✅ | Iterative Planner reports progress using [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan) |
 | Cancellation | ✅  | LLM Streaming Cancellation |
 | Multimodal | ✅ | Support for Images  | 
 | Slash Commands | ✅ | Save, Load, Status and Clear/Clear Last message |
 | File System / Terminal | ✅ | Start with `-x` option to enable access to Client terminal |
-| MCP Servers | ⚠️ | Add via command line switches or configuration file |
-| Sessions | ⚠️ | Use `save` and `load` slash commands. Plan to implement with [Session List](https://agentclientprotocol.com/rfds/session-list) |
-
+| MCP Servers | ✅ | MCP Servers supplied by the Client are attached to the Agent |
+| Sessions | ✅ | Session listing supported  |
 
 ## Getting Started
 
-## Customizing Agents
+### Customizing Agents
 
-See [Customizing Agents](customizing_agents/) for ACP-aware agents, slash commands, and controlling the ACP Mode display name/description.
+See [Customizing Agents](customizing_agents/) for building ACP-aware agents, slash commands, and controlling the ACP Mode display name/description.
 
-### No Install Quick Start:
-To try it out straight away with your Client, set an API Key environment variable and add:
+## No Install Quick Start:
+
+To try it out immediately with your Client: simply set an API Key environment variable and run:
 
 **Hugging Face**
 
+```bash
 export HF_TOKEN=hf_.......
+uvx fast-agent-acp@latest --model kimi
+```
 
-`uvx fast-agent-acp@latest --model <your_model> [e.g. kimi]` 
+**OpenAI**
 
-**Open AI**
-
+```bash
 export OPENAI_API_KEY=......
-
-`uvx fast-agent-acp@latest  --model <your_model> [e.g. gpt-5-mini.low]` 
+uvx fast-agent-acp@latest --model "gpt-5-mini?reasoning=low"
+```
 
 **Anthropic**
 
+```bash
 export ANTHROPIC_API_KEY=......
-
-`uvx fast-agent-acp@latest --model <your_model> e.g. [sonnet]` 
+uvx fast-agent-acp@latest --model sonnet
+```
 
 Tip: Use `uvx fast-agent-acp check` to help diagnose issues.
 
@@ -96,13 +99,17 @@ An example Zed configuration is:
 
 ### Installing 
 
-`uv tool install -U fast-agent-mcp`
+```bash
+uv tool install -U fast-agent-mcp
+```
 
 The ACP Server can then be started with the `fast-agent-acp` command. Custom agents can be started with `uv run <agent.py> --transport acp`.
 
 For example:
 
-`fast-agent-acp -x --model kimi --url https://huggingface.co/mcp --auth ${HF_TOKEN}` 
+```bash
+fast-agent-acp -x --model kimi --url https://huggingface.co/mcp --auth ${HF_TOKEN}
+```
 
 Starts an ACP Agent, with shell access and access to the Hugging Face MCP Server.
 
@@ -153,3 +160,7 @@ Conflicts (fail fast):
 
 - `--noenv` + `--env`
 - `--noenv` + `--resume`
+
+## Structured Outputs
+
+Experimental support for returning [Structured Outputs](../guides/structured-outputs/#acp-agent-client-protocol) is available.

@@ -1149,7 +1149,7 @@ table.fa-table {
   border-left: 3px solid var(--a-0);
   border-radius: var(--r-1);
   box-shadow: none;
-  font-size: 15.5px;
+  font-size: var(--t-body);
   color: var(--fg-1);
 }
 .md-typeset .admonition > .admonition-title,
@@ -1246,7 +1246,12 @@ table.fa-table {
 }
 .md-typeset table:not([class]) tr:last-child td { border-bottom: 0; }
 .md-typeset table:not([class]) tr:hover td { background: var(--s-2); }
-.md-typeset table:not([class]) code { background: var(--s-2); }
+.md-typeset table:not([class]) code {
+  background: var(--s-2);
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: normal;
+}
 
 /* ── SEARCH ─────────────────────────────────────────────────────────── */
 .md-search__form {

@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fast_agent.llm.model_database import ModelDatabase, ResourceSource
-from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, normalize_mime_type
 
@@ -142,6 +141,8 @@ class ModelInfo:
 
     @classmethod
     def from_name(cls, name: str, provider: Provider | None = None) -> "ModelInfo" | None:
+        from fast_agent.llm.model_factory import ModelFactory
+
         canonical_name = ModelFactory.MODEL_PRESETS.get(name, name)
         params = ModelDatabase.get_model_params(canonical_name, provider=provider)
         if not params:

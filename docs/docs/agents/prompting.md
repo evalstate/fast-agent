@@ -76,7 +76,7 @@ The key difference between `send()` and `generate()` is that `generate()` return
 
 - `last_text()`: Gets the last text response - usually the Assistant message without Tool Call/Response information.
 - `first_text()`: Gets the first text content if multiple text blocks exist
-- `all_text()`: Combines all text content in the response - including Tall Call/Response information.
+- `all_text()`: Combines all text content in the response - including Tool Call/Response information.
 - `content`: Direct access to the full list of content parts, including Images and EmbeddedResources
 
 This is particularly useful when working with multimodal responses or tool outputs:

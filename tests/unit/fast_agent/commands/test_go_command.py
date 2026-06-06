@@ -392,12 +392,14 @@ def test_go_pack_reuses_installed_pack_without_registry_lookup(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    from fast_agent.cards import service as card_service
+
     _, marketplace_path = _build_pack_repo(tmp_path)
     env_root = tmp_path / ".fast-agent-demo"
     env_paths = resolve_environment_paths(override=env_root, cwd=tmp_path)
     captured_requests = []
 
-    go_command.card_service.install_pack_sync(
+    card_service.install_pack_sync(
         marketplace_path.as_posix(),
         "alpha",
         environment_paths=env_paths,
@@ -407,7 +409,7 @@ def test_go_pack_reuses_installed_pack_without_registry_lookup(
     async def _fail_install_pack(*_args, **_kwargs):
         raise AssertionError("Marketplace lookup should be skipped for installed packs.")
 
-    monkeypatch.setattr(go_command.card_service, "install_pack", _fail_install_pack)
+    monkeypatch.setattr(card_service, "install_pack", _fail_install_pack)
     monkeypatch.setattr(go_command, "run_request", captured_requests.append)
 
     runner = CliRunner()

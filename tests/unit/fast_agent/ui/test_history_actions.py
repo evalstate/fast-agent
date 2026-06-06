@@ -33,9 +33,6 @@ async def test_display_history_turn_shows_provider_tools_before_assistant(monkey
             del args, kwargs
             events.append("tool_result")
 
-        def show_pending_tool_result_images(self) -> None:
-            pass
-
     monkeypatch.setattr("fast_agent.ui.console_display.ConsoleDisplay", _CaptureDisplay)
 
     turn = [
@@ -91,9 +88,6 @@ async def test_display_history_turn_skips_empty_assistant_for_tool_only_remote_t
             del args, kwargs
             events.append("tool_result")
 
-        def show_pending_tool_result_images(self) -> None:
-            pass
-
     monkeypatch.setattr("fast_agent.ui.console_display.ConsoleDisplay", _CaptureDisplay)
 
     turn = [
@@ -140,9 +134,6 @@ async def test_display_history_turn_passes_stored_tool_metadata(monkeypatch) -> 
 
         def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
             del args, kwargs
-
-        def show_pending_tool_result_images(self) -> None:
-            pass
 
     monkeypatch.setattr("fast_agent.ui.console_display.ConsoleDisplay", _CaptureDisplay)
 

@@ -2,34 +2,38 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
+from __future__ import annotations
+
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
-from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
 from rich.markup import escape
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
-from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.usage_tracking import last_turn_usage
-from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.display_suppression import display_usage_enabled
-from fast_agent.ui.interactive_prompt import InteractivePrompt, PromptLoopResult
 from fast_agent.ui.progress_display import progress_display
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from mcp.types import GetPromptResult, PromptMessage
+
     from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy
+    from fast_agent.command_actions import PluginCommandActionSpec
     from fast_agent.config import MCPServerSettings
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.types import PromptMessageExtended, RequestParams
+    from fast_agent.ui.interactive_prompt import PromptLoopResult
 
 logger = get_logger(__name__)
 
@@ -641,6 +645,8 @@ class AgentApp:
         agent_types = self.visible_agent_types(force_include=agent_name)
 
         # Create the interactive prompt
+        from fast_agent.ui.interactive_prompt import InteractivePrompt
+
         prompt = InteractivePrompt(agent_types=agent_types)
 
         # Helper for pretty formatting the FINAL error

@@ -40,7 +40,7 @@ def _tui_shell_scenario() -> TerminalCastScenario:
     model = os.environ.get("FAST_AGENT_TUI_DEMO_MODEL", "deepseek")
     command = os.environ.get("FAST_AGENT_TUI_DEMO_COMMAND")
     if command is None:
-        command = f"uv run fast-agent -x --model {model}"
+        command = f"fast-agent -x --model {model}"
     return TerminalCastScenario(
         name="tui-shell",
         title="fast-agent TUI shell commands",
@@ -53,13 +53,260 @@ def _tui_shell_scenario() -> TerminalCastScenario:
     )
 
 
+def _model_picker_scenario() -> TerminalCastScenario:
+    command = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_COMMAND", "fast-agent go")
+    return TerminalCastScenario(
+        name="model-picker",
+        title="fast-agent model picker",
+        output=ASSETS / "models" / "model-picker.cast",
+        cols=int(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_COLS", "96")),
+        rows=int(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_ROWS", "21")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_IDLE_TIME_LIMIT", "1.3")),
+        prompt="",
+        shell_command=command,
+    )
+
+
+def _skills_direct_install_scenario() -> TerminalCastScenario:
+    return TerminalCastScenario(
+        name="skills-direct-install",
+        title="fast-agent direct skill install",
+        output=ASSETS / "tui" / "skills-direct-install.cast",
+        cols=int(os.environ.get("FAST_AGENT_SKILLS_DEMO_COLS", "96")),
+        rows=int(os.environ.get("FAST_AGENT_SKILLS_DEMO_ROWS", "20")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_SKILLS_DEMO_IDLE_TIME_LIMIT", "1.3")),
+        prompt="",
+        shell_command="",
+    )
+
+
+def _skills_slash_commands_scenario() -> TerminalCastScenario:
+    command = os.environ.get(
+        "FAST_AGENT_SKILLS_SLASH_DEMO_COMMAND",
+        "fast-agent -x --model passthrough",
+    )
+    return TerminalCastScenario(
+        name="skills-slash-commands",
+        title="fast-agent skills slash commands",
+        output=ASSETS / "tui" / "skills-slash-commands.cast",
+        cols=int(os.environ.get("FAST_AGENT_SKILLS_SLASH_DEMO_COLS", "96")),
+        rows=int(os.environ.get("FAST_AGENT_SKILLS_SLASH_DEMO_ROWS", "24")),
+        idle_time_limit=float(
+            os.environ.get("FAST_AGENT_SKILLS_SLASH_DEMO_IDLE_TIME_LIMIT", "1.3")
+        ),
+        prompt="",
+        shell_command=command,
+    )
+
+
 def _scenarios() -> dict[str, TerminalCastScenario]:
-    scenario = _tui_shell_scenario()
-    return {scenario.name: scenario}
+    scenarios = [
+        _tui_shell_scenario(),
+        _model_picker_scenario(),
+        _skills_direct_install_scenario(),
+        _skills_slash_commands_scenario(),
+    ]
+    return {scenario.name: scenario for scenario in scenarios}
+
+
+def _model_picker_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_STARTUP_WAIT", "5")
+    navigation_wait = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_NAVIGATION_WAIT", "0.55")
+    final_wait = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_FINAL_WAIT", "1.2")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-model-picker.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV FAST_AGENT_MODEL && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep 1
+  type_slow "$SESSION" '{command}' 0.035
+  tmux send-keys -t "$SESSION" Enter
+  sleep {startup_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {navigation_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {navigation_wait}
+  tmux send-keys -t "$SESSION" Right
+  sleep {navigation_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {navigation_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {final_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
 
 
 def _missing_tools(tools: tuple[str, ...]) -> list[str]:
     return [tool for tool in tools if shutil.which(tool) is None]
+
+
+def _skills_direct_install_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_SKILLS_DEMO_STARTUP_WAIT", "0.7")
+    command_wait = os.environ.get("FAST_AGENT_SKILLS_DEMO_COMMAND_WAIT", "1.4")
+    update_wait = os.environ.get("FAST_AGENT_SKILLS_DEMO_UPDATE_WAIT", "0.6")
+    final_wait = os.environ.get("FAST_AGENT_SKILLS_DEMO_FINAL_WAIT", "1.0")
+    typing_delay = os.environ.get("FAST_AGENT_SKILLS_DEMO_TYPING_DELAY", "0.045")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-skills.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && mkdir -p skill-repo/skills/demo-skill && cat > skill-repo/skills/demo-skill/SKILL.md <<'SKILL'
+---
+name: demo-skill
+description: A small local skill installed from a local git repository.
+---
+
+# Demo Skill
+
+Use this skill to demonstrate direct installation from a local repository.
+SKILL
+git -C skill-repo init -q && git -C skill-repo config user.email docs-demo@example.com && git -C skill-repo config user.name 'Docs Demo' && git -C skill-repo add . && git -C skill-repo commit -q -m 'Initial demo skill'
+unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep {startup_wait}
+  type_slow "$SESSION" 'fast-agent skills add ./skill-repo/skills/demo-skill' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {command_wait}
+  type_slow "$SESSION" 'fast-agent skills update' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {command_wait}
+  type_slow "$SESSION" 'cat >> skill-repo/skills/demo-skill/SKILL.md' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep 0.2
+  type_slow "$SESSION" '## Updated' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  type_slow "$SESSION" 'A new section from the local repo.' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  tmux send-keys -t "$SESSION" C-d
+  sleep {update_wait}
+  type_slow "$SESSION" 'git -C skill-repo add . && git -C skill-repo commit -m update' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {update_wait}
+  type_slow "$SESSION" 'fast-agent skills update' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {command_wait}
+  sleep {final_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
+
+
+def _skills_slash_commands_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_SKILLS_SLASH_DEMO_STARTUP_WAIT", "3.5")
+    command_wait = os.environ.get("FAST_AGENT_SKILLS_SLASH_DEMO_COMMAND_WAIT", "1.4")
+    update_wait = os.environ.get("FAST_AGENT_SKILLS_SLASH_DEMO_UPDATE_WAIT", "0.6")
+    final_wait = os.environ.get("FAST_AGENT_SKILLS_SLASH_DEMO_FINAL_WAIT", "1.0")
+    typing_delay = os.environ.get("FAST_AGENT_SKILLS_SLASH_DEMO_TYPING_DELAY", "0.035")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-skills-slash.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && mkdir -p skill-repo/skills/demo-skill && cat > skill-repo/skills/demo-skill/SKILL.md <<'SKILL'
+---
+name: demo-skill
+description: A small local skill installed from the TUI.
+---
+
+# Demo Skill
+
+Use this skill to demonstrate /skills add and /skills update.
+SKILL
+git -C skill-repo init -q && git -C skill-repo config user.email docs-demo@example.com && git -C skill-repo config user.name 'Docs Demo' && git -C skill-repo add . && git -C skill-repo commit -q -m 'Initial demo skill'
+unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep 1
+  type_slow "$SESSION" '{command}' 0.035
+  tmux send-keys -t "$SESSION" Enter
+  sleep {startup_wait}
+  type_slow "$SESSION" '/skills add ./skill-repo/skills/demo-skill' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {command_wait}
+  type_slow "$SESSION" '! cat >> skill-repo/skills/demo-skill/SKILL.md' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep 0.2
+  type_slow "$SESSION" '## Updated' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  type_slow "$SESSION" 'A new section from the local repo.' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  tmux send-keys -t "$SESSION" C-d
+  sleep {update_wait}
+  type_slow "$SESSION" '! git -C skill-repo add . && git -C skill-repo commit -m update' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {update_wait}
+  type_slow "$SESSION" '/skills update' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {command_wait}
+  sleep {final_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
 
 
 def _required_assets() -> list[Path]:
@@ -99,6 +346,13 @@ def build() -> int:
 
 
 def _record_script(scenario: TerminalCastScenario) -> str:
+    if scenario.name == "model-picker":
+        return _model_picker_record_script(scenario)
+    if scenario.name == "skills-direct-install":
+        return _skills_direct_install_record_script(scenario)
+    if scenario.name == "skills-slash-commands":
+        return _skills_slash_commands_record_script(scenario)
+
     typing_delay = os.environ.get("FAST_AGENT_TUI_DEMO_TYPING_DELAY", "0.055")
     shell_delay = os.environ.get("FAST_AGENT_TUI_DEMO_SHELL_TYPING_DELAY", "0.045")
     startup_wait = os.environ.get("FAST_AGENT_TUI_DEMO_STARTUP_WAIT", "8")
@@ -142,7 +396,7 @@ type_slow() {{
 
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
-  "cd '$ROOT' && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-demo.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && git init -q && git config user.email docs@example.invalid && git config user.name 'Docs Demo' && printf '# Demo workspace\\n' > README.md && git add README.md && git commit -qm init && printf '\\nLocal edit\\n' >> README.md && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
 tmux set-option -t "$SESSION" status off >/dev/null
 
 (

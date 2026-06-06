@@ -83,7 +83,7 @@ def run(
     output_path: Path = typer.Option(..., "--output", "-o", help="Output JSONL file"),
     schema_source: str | None = typer.Option(
         None,
-        "--schema",
+        "--json-schema",
         metavar="<path-or-uri>",
         help="Optional JSON Schema file or URI for structured results",
     ),
@@ -232,7 +232,7 @@ def run(
     if agent_name is not None and agent_card_source is None:
         _fail_validation("--agent requires --agent-card")
     if schema_source is not None and schema_model is not None:
-        _fail_validation("--schema and --schema-model cannot be used together")
+        _fail_validation("--json-schema and --schema-model cannot be used together")
     if hf_dataset_path is not None and hf_dataset is None:
         _fail_validation("--hf-dataset-path requires --hf-dataset")
     if hf_dataset is not None and export_traces_path is None:

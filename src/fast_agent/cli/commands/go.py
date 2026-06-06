@@ -9,7 +9,6 @@ from typing import Any, Literal
 
 import typer
 
-from fast_agent.cards import service as card_service
 from fast_agent.cli.command_support import ensure_context_object, get_settings_or_exit
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.runtime.agent_setup import run_agent_request
@@ -419,6 +418,8 @@ def go(
     effective_env_dir = resolved_env_dir
 
     if pack:
+        from fast_agent.cards import service as card_service
+
         if noenv:
             raise typer.BadParameter("Cannot combine --pack with --noenv.", param_hint="--pack")
 

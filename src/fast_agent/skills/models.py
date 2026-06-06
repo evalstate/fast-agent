@@ -96,6 +96,7 @@ class MarketplaceSkill:
     source_url: str | None = None
     bundle_name: str | None = None
     bundle_description: str | None = None
+    install_dir_name_override: str | None = None
 
     @property
     def repo_subdir(self) -> str:
@@ -106,6 +107,8 @@ class MarketplaceSkill:
 
     @property
     def install_dir_name(self) -> str:
+        if self.install_dir_name_override:
+            return self.install_dir_name_override
         path = PurePosixPath(self.repo_path)
         if path.name.lower() == "skill.md":
             return path.parent.name or self.name
