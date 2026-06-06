@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -57,6 +56,7 @@ from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.console import console
+from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1434,7 +1434,7 @@ def _run_llamacpp_noninteractive_command(
             api_key_env=api_key_env,
             secret_ref=secret_ref,
         )
-        result = asyncio.run(
+        result = run_coroutine(
             _run_llamacpp_import(
                 start_path=command_context.start_path,
                 env_dir=command_context.resolved_env_dir,
@@ -1557,9 +1557,8 @@ def model_export(
     The generated overlay pre-populates model_specific, modalities (tokenizes),
     context window, and other parameters so users can customize them locally.
     """
-    import asyncio
 
-    asyncio.run(
+    run_coroutine(
         _run_model_export_command(
             model=model,
             name=name,
@@ -1897,7 +1896,7 @@ def model_setup(
     )
 
     try:
-        asyncio.run(
+        run_coroutine(
             _run_model_setup_command(
                 settings=settings,
                 token=token,
@@ -1926,7 +1925,7 @@ def model_doctor(
     )
 
     try:
-        asyncio.run(
+        run_coroutine(
             _run_model_doctor_command(
                 settings=settings,
             )
@@ -1978,7 +1977,7 @@ def model_llamacpp(
             secret_ref=secret_ref,
         )
 
-        result = asyncio.run(
+        result = run_coroutine(
             _run_llamacpp_import(
                 start_path=command_context.start_path,
                 env_dir=command_context.resolved_env_dir,
@@ -2033,7 +2032,7 @@ def model_llamacpp_list(
             api_key_env=api_key_env,
             secret_ref=secret_ref,
         )
-        catalog = asyncio.run(
+        catalog = run_coroutine(
             discover_llamacpp_models(
                 url=url,
                 api_key=command_context.interrogation_api_key,

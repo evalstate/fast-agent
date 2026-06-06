@@ -1,6 +1,5 @@
 """Command to check FastAgent configuration."""
 
-import asyncio
 import json
 import os
 import platform
@@ -40,6 +39,7 @@ from fast_agent.paths import EnvironmentPaths, default_skill_paths, resolve_envi
 from fast_agent.skills import SkillManifest, SkillRegistry
 from fast_agent.ui.a3_headers import build_a3_section_header
 from fast_agent.ui.console import console
+from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.count_display import plural_label
 from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 from fast_agent.utils.name_normalization import normalize_provider_key
@@ -2362,7 +2362,7 @@ def _run_structured_output_probe(
         "both": ["direct", "tools"],
         "all": ["direct", "pydantic", "tools"],
     }.get(mode, [cast("StructuredProbeMode", mode)])
-    results = asyncio.run(
+    results = run_coroutine(
         run_probe_suite(
             model_names,
             structured_tool_policy=cast("StructuredToolPolicy", structured_tool_policy),

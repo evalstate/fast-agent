@@ -19,7 +19,6 @@ from fast_agent.ui.command_payloads import CommandPayload, InterruptCommand
 from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
 from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
 from fast_agent.ui.terminal_streams import is_tty_stream
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -156,7 +155,7 @@ async def _prompt_async_result(
     prompt_end_state: dict[str, bool],
 ) -> tuple[str | CommandPayload, float | None]:
     try:
-        with _prompt_start_guard("A"), suppress_known_runtime_warnings():
+        with _prompt_start_guard("A"):
             result = await session.prompt_async(
                 lambda: _prompt_text_with_end_mark(resolve_prompt_text, prompt_end_state),
                 default=default_buffer,

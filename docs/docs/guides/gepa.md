@@ -22,6 +22,9 @@ pieces that normally take the longest to build:
 
 - batch and structured runs over repeatable datasets;
 - AgentCards that package prompts, tools, request parameters, and model choices;
+- AgentCard variables for candidate-scoped prompt and policy text;
+- `BatchRunner`, `EvalRun`, and GEPA-compatible adapters for repeatable
+  candidate directories, artifacts, reflection calls, and result contracts;
 - local Python `function_tools` for cheap tool-call simulations;
 - `tool_result_mode: passthrough` for routing evals where the tool call itself
   is the result, so the model does not spend another turn summarizing fake tool
@@ -39,6 +42,56 @@ The core pattern is:
    edits.
 5. Let GEPA propose another candidate and repeat.
 
+!!! tip "Try the GEPA fast-agent skill"
+
+    The `gepa-fast-agent` skill in the fast-agent skills registry distills this
+    guide into a compact implementation checklist. Use it when designing or
+    reviewing GEPA evaluators, scorer ASI, frontier metrics, Trackio monitoring,
+    or batch/artifact optimizer layouts.
+
+    ```bash
+    fast-agent skills add gepa-fast-agent
+    ```
+
+## Pick the evidence shape: rows or artifacts
+
+GEPA only requires an evaluator with one shape: `candidate -> (score,
+side_info)`. Philosophically, batch and artifact evals are the same kind of
+optimization loop. Practically, fast-agent GEPA loops almost always split by the
+evidence they produce.
+
+**Batch-focused evals** run the same worker over many independent rows, then
+score the output JSONL. Use this shape for classification, extraction,
+labeling, routing, grading, and other dataset-style tasks.
+
+```text
+candidate instructions/card variables
+  -> fast-agent batch run over input rows
+  -> results.jsonl + summary/telemetry
+  -> deterministic scorer
+  -> score + ASI
+```
+
+**Artifact-focused evals** ask the task model to create files or other
+inspectable outputs, then run external checks. Use this shape for HTML pages,
+code generation, docs, charts, screenshots, reports, or tool workflows where
+the important result is an artifact rather than one JSON row.
+
+```text
+candidate skill/card/prompt files
+  -> fast-agent go or a project eval runner
+  -> generated artifacts + reports/screenshots/logs
+  -> deterministic checker, optional VLM/manual review hooks
+  -> score + ASI
+```
+
+The evaluator contract is the same in both cases. The operational details are
+different: batch evals usually center on `results.jsonl`; artifact evals usually
+center on generated files, checker reports, screenshots, logs, or test output.
+Keep candidate materialization isolated, write every prompt/result/report to a
+candidate directory, and make the scorer produce compact evidence that the
+reflection model can act on.
+
 ## Start with a batch evaluator
 
 For data labeling, extraction, routing, grading, and classification tasks, use
@@ -48,13 +101,15 @@ For data labeling, extraction, routing, grading, and classification tasks, use
 fast-agent batch run \
   --input eval/input.jsonl \
   --output runs/candidate-001/results.jsonl \
-  --instruction runs/candidate-001/instructions.md \
+  --agent-card .fast-agent/agent-cards/classifier.md \
+  --agent classifier \
+  --var-file policy=runs/candidate-001/policy.md \
   --template eval/template.md \
-  --schema eval/output.schema.json \
+  --json-schema eval/output.schema.json \
   --model "responses.gpt-5.4-mini?service_tier=flex" \
   --parallel 8 \
   --include-input \
-  --telemetry runs/candidate-001/telemetry.jsonl \
+  --telemetry-output runs/candidate-001/telemetry.jsonl \
   --summary-output runs/candidate-001/summary.json
 ```
 
@@ -67,6 +122,10 @@ gold labels, parse failures, or business rules, then write ASI like this:
     "gepa_score": 0.72,
     "exact_match": 0.68,
     "valid_json": 0.96
+  },
+  "raw_metrics": {
+    "latency_seconds": 14.2,
+    "failure_count": 8
   },
   "failures": [
     {
@@ -89,6 +148,14 @@ behavior, excerpts, checker messages, and the candidate artifact path. Avoid
 returning only a score; GEPA needs the reason for the score to make useful
 edits.
 
+All values in `side_info["scores"]` must be **higher is better** because GEPA
+uses those keys for Pareto/frontier tracking. Do not place raw loss, latency,
+cost, timeout seconds, failure counts, token counts, or policy length in
+`scores` unless you first transform them into maximize-style values such as
+`latency_score`, `cost_score`, `policy_length_compliance`, or
+`failure_free_rate`. Keep raw lower-is-better diagnostics elsewhere, for
+example under `raw_metrics`, `details`, or `summary`.
+
 ## Run structured labeling first
 
 GEPA loops often need labels or validation data before optimization starts.
@@ -101,7 +168,7 @@ fast-agent batch run \
   --output labels/strong-model-labels.jsonl \
   --instruction labels/labeler.md \
   --template labels/template.md \
-  --schema labels/label.schema.json \
+  --json-schema labels/label.schema.json \
   --model "responses.gpt-5.5"
 ```
 
@@ -166,139 +233,149 @@ the batch result JSONL, compare the observed tool call to expected alternatives,
 and return ASI that explains wrong routes, missing arguments, over-broad
 descriptions, or tool-local hygiene problems.
 
+## Build artifact evaluators
+
+For artifact tasks, make the evaluator create an isolated candidate directory,
+run fast-agent or a project runner, then score the generated files.
+
+```text
+runs/gepa/candidate-001/
+  candidate.json
+  variables.json
+  prompts/
+  artifacts/
+  reports/
+  logs/
+  score.json
+```
+
+The scorer can combine deterministic checks with optional review hooks:
+
+- parse generated HTML, Markdown, code, CSV, JSON, images, or reports;
+- run linters, unit tests, screenshot checks, render checks, or schema
+  validators;
+- capture stdout/stderr, return code, timeout status, and report paths;
+- add VLM or manual-review findings as ASI when visual quality matters;
+- keep the mutable candidate files separate from fixed fixtures and source
+  data.
+
+Artifact evals often benefit from subprocess isolation. A failed candidate
+should usually produce side-info and artifacts, not corrupt the working tree or
+abort the optimization without evidence.
+
+!!! tip "Monitor long runs with Trackio"
+
+    GEPA runs can be long-lived. If you want a live view of candidate scores,
+    frontier metrics, alerts, or run metadata, initialize
+    [Trackio](https://github.com/huggingface/trackio) in your evaluator script
+    and log after each candidate evaluation. Keep raw lower-is-better values out
+    of `side_info["scores"]`, but log them to Trackio normally for monitoring.
+
 ## Call fast-agent from GEPA
 
-The smallest integration is a GEPA evaluator function that materializes a
-candidate, runs fast-agent, scores the results, and returns `(score, side_info)`.
+For row-oriented evaluators, use the public batch adapter instead of
+hand-rolling candidate directories, subprocess calls, JSONL parsing, summary
+paths, and telemetry paths.
 
 ```python title="gepa-run.py"
 from __future__ import annotations
 
-import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from gepa.optimize_anything import GEPAConfig, EngineConfig, ReflectionConfig, optimize_anything
+from fast_agent.batch import BatchRunResult
+from fast_agent.eval import CandidateRun
+from fast_agent.integrations.gepa import FastAgentBatchEvaluator, FastAgentReflectionLM
 
 
 ROOT = Path(__file__).resolve().parent
 
 
-def evaluate(candidate: dict[str, str]) -> tuple[float, dict[str, Any]]:
-    run_dir = ROOT / "runs" / f"candidate-{len(list((ROOT / 'runs').glob('candidate-*'))) + 1:03d}"
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    instruction_path = run_dir / "instructions.md"
-    instruction_path.write_text(candidate["instructions"], encoding="utf-8")
-    output_path = run_dir / "results.jsonl"
-
-    proc = subprocess.run(
-        [
-            "fast-agent",
-            "batch",
-            "run",
-            "--input",
-            "eval/input.jsonl",
-            "--output",
-            str(output_path),
-            "--instruction",
-            str(instruction_path),
-            "--template",
-            "eval/template.md",
-            "--schema",
-            "eval/output.schema.json",
-            "--model",
-            "responses.gpt-5.4-mini",
-        ],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    score, failures = score_jsonl(output_path)
+def score_candidate(
+    result: BatchRunResult,
+    candidate: dict[str, str],
+    candidate_run: CandidateRun,
+) -> tuple[float, dict[str, Any]]:
+    score, failures = score_rows(result.rows)
     side_info = {
-        "scores": {"gepa_score": score},
-        "candidate_dir": str(run_dir),
-        "stdout_tail": proc.stdout[-2000:],
-        "stderr_tail": proc.stderr[-2000:],
+        "scores": {
+            "gepa_score": score,
+            "valid_output_rate": sum(1 for row in result.rows if row.get("ok")) / max(len(result.rows), 1),
+        },
+        "candidate_dir": str(candidate_run.path),
+        "summary": result.summary,
         "failures": failures[:20],
         "actionable_feedback": summarize_failures(failures),
     }
-    (run_dir / "score.json").write_text(json.dumps(side_info, indent=2), encoding="utf-8")
     return score, side_info
 
 
+evaluator = FastAgentBatchEvaluator(
+    env_dir=".fast-agent",
+    agent_card=".fast-agent/agent-cards/classifier.md",
+    agent="classifier",
+    candidate_variables={"policy": "policy"},
+    input="eval/input.jsonl",
+    template_source="eval/template.md",
+    schema="eval/output.schema.json",
+    model="responses.gpt-5.4-mini",
+    parallel=8,
+    scorer=score_candidate,
+    run_dir=ROOT / "runs",
+    backend="process",
+)
+
+reflection_lm = FastAgentReflectionLM(
+    env_dir=".fast-agent",
+    model="responses.gpt-5.5?reasoning=high",
+    audit_dir=ROOT / "runs" / "reflection",
+)
+
 result = optimize_anything(
-    seed_candidate={"instructions": Path("seed/instructions.md").read_text(encoding="utf-8")},
-    evaluator=evaluate,
-    objective="Improve the instruction so the batch worker returns accurate structured labels.",
+    seed_candidate={"policy": Path("seed/policy.md").read_text(encoding="utf-8")},
+    evaluator=evaluator,
+    objective="Improve the policy so the batch worker returns accurate structured labels.",
     config=GEPAConfig(
         engine=EngineConfig(max_metric_calls=24, cache_evaluation=True),
-        reflection=ReflectionConfig(reflection_lm="openai/gpt-5"),
+        reflection=ReflectionConfig(reflection_lm=reflection_lm),
     ),
 )
 
-Path("runs/best-instructions.md").write_text(result.best_candidate["instructions"], encoding="utf-8")
+Path("runs/best-policy.md").write_text(result.best_candidate["policy"], encoding="utf-8")
 ```
 
-Replace `score_jsonl()` and `summarize_failures()` with your deterministic
+Replace `score_rows()` and `summarize_failures()` with your deterministic
 checker. The checker is the most important part of the loop: it should encode
 the product decision you actually care about and explain failures in language a
 reflection model can act on.
 
-## Use fast-agent for reflection
+For artifact evaluators, use `EvalRun` and `CandidateRun` directly:
 
-If you want GEPA's reflection calls to use the same fast-agent model aliases and
-configuration as the rest of your project, wrap one-shot `fast-agent go` as a
-callable reflection LM.
+```python title="artifact-evaluator.py"
+from fast_agent.eval import EvalRun
 
-```python title="fast_agent_reflection.py"
-from __future__ import annotations
-
-import subprocess
-from pathlib import Path
-from typing import Any
+run = EvalRun("runs/gepa-artifacts")
 
 
-class FastAgentReflectionLM:
-    def __init__(self, model: str, run_dir: Path) -> None:
-        self.model = model
-        self.run_dir = run_dir
-        self.count = 0
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-
-    def __call__(self, prompt: str | list[dict[str, Any]]) -> str:
-        self.count += 1
-        call_dir = self.run_dir / f"call-{self.count:03d}"
-        call_dir.mkdir(parents=True, exist_ok=True)
-        prompt_path = call_dir / "prompt.md"
-        prompt_path.write_text(prompt if isinstance(prompt, str) else repr(prompt), encoding="utf-8")
-
-        proc = subprocess.run(
-            [
-                "fast-agent",
-                "go",
-                "--prompt-file",
-                str(prompt_path),
-                "--model",
-                self.model,
-                "--quiet",
-            ],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        (call_dir / "stdout.txt").write_text(proc.stdout, encoding="utf-8")
-        (call_dir / "stderr.txt").write_text(proc.stderr, encoding="utf-8")
-        if proc.returncode:
-            raise RuntimeError(proc.stderr[-2000:])
-        return proc.stdout
+def evaluate(candidate: dict[str, str]) -> tuple[float, dict[str, Any]]:
+    candidate_run = run.candidate()
+    candidate_run.materialize_candidate(candidate)
+    materialize_skill_tree(candidate, candidate_run.path / "skills")
+    command = candidate_run.run_command(
+        ["uv", "run", "python", "scripts/run_eval.py", "--candidate", str(candidate_run.path)],
+        timeout_seconds=900,
+        log_prefix="eval",
+    )
+    score, side_info = score_reports(candidate_run.path / "reports", command)
+    candidate_run.write_score(score, side_info)
+    return score, side_info
 ```
 
-Pass an instance where GEPA accepts a language-model callable, or use a model
-string when GEPA's built-in provider integration is enough.
+Use the reflection adapter when you want GEPA reflection calls to use the same
+fast-agent model aliases and configuration as the rest of your project. The
+adapter writes prompt, request, response, timing, stdout/stderr, errors, and
+usage when available, under the configured audit directory.
 
 ## Candidate hygiene
 
@@ -314,21 +391,20 @@ you need production-safe outputs:
 - write every candidate, score, ASI payload, stdout, stderr, and result JSONL to
   disk so a winning candidate can be audited before adoption.
 
-## Quick demo pack
+## Card packs
 
-Install the starter pack:
+No GEPA starter card pack is bundled in this repository, but the
+[`gepa-demo`](https://github.com/fast-agent-ai/card-packs/tree/main/packs/gepa-demo)
+pack in the external `fast-agent-ai/card-packs` registry is intended to provide
+a small runnable example. It includes one batch evaluator demo and one artifact
+evaluator demo.
 
-```bash
-fast-agent go --pack gepa-demo
-```
+If you create or ship a GEPA card pack, keep its AgentCards and scripts aligned
+with this guide:
 
-The pack installs a small AgentCard, a toy dataset, a deterministic checker, and
-`scripts/gepa-run.py`. After installation, run:
-
-```bash
-uv run .fast-agent/scripts/gepa-run.py --evaluate-only
-```
-
-That command smoke-tests the seed candidate without requiring a long GEPA run.
-Remove `--evaluate-only` when you are ready to install GEPA and run an
-optimization loop.
+- declare mutable AgentCard text with `variables`;
+- call `fast-agent batch run` with `--var`, `--var-file`, or `--vars-json`;
+- use `--json-schema`, `--telemetry-output`, and `--summary-output`;
+- use `FastAgentBatchEvaluator` or `EvalRun`/`CandidateRun` rather than
+  duplicating candidate directory and subprocess boilerplate;
+- audit every `side_info["scores"]` key as higher-is-better.

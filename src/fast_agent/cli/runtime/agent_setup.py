@@ -33,7 +33,6 @@ from fast_agent.ui.model_picker_common import (
     infer_initial_picker_provider,
     normalize_generic_model_spec,
 )
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 from fast_agent.utils.filename import sanitize_filename_suffix
 from fast_agent.utils.text import strip_casefold, strip_to_none
 from fast_agent.utils.transports import uses_protocol_stdio
@@ -421,11 +420,10 @@ async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> 
     prompt_session = PromptSession()
     while True:
         try:
-            with suppress_known_runtime_warnings():
-                entered = await prompt_session.prompt_async(
-                    "Local model (e.g. llama3.2): ",
-                    default=default_model,
-                )
+            entered = await prompt_session.prompt_async(
+                "Local model (e.g. llama3.2): ",
+                default=default_model,
+            )
         except (EOFError, KeyboardInterrupt):
             typer.echo("Model selection cancelled.", err=True)
             raise typer.Exit(1) from None

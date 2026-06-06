@@ -26,6 +26,7 @@ from fast_agent.skills.models import (
     MarketplaceSkill,
 )
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
+from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
 DIRECT_SOURCE_TIMEOUT_SECONDS = 7.0
@@ -78,9 +79,8 @@ async def resolve_direct_skill_source(value: str) -> DirectSkillSource:
 
 
 def resolve_direct_skill_source_sync(value: str) -> DirectSkillSource:
-    import asyncio
 
-    return asyncio.run(resolve_direct_skill_source(value))
+    return run_coroutine(resolve_direct_skill_source(value))
 
 
 async def _resolve_github_source(url: str) -> DirectSkillSource:

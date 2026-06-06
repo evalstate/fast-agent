@@ -73,6 +73,7 @@ AGENT_CARD_FIELDS = {
     "messages",
     "shell",
     "cwd",
+    "variables",
 }
 
 ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {

@@ -22,6 +22,7 @@ from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.markdown_renderables import build_markdown_renderable
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.streaming import StreamingMessageHandle
+from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
@@ -928,7 +929,7 @@ def streaming(
     metrics_writer = MetricsWriter(metrics_path, metrics_interval) if metrics_path else None
 
     pause = _pause_async if async_mode else _pause_sync
-    asyncio.run(
+    run_coroutine(
         _run_stream(
             sections=sections,
             content=content,

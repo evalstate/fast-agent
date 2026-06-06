@@ -8,7 +8,6 @@ into the normal managed skills directory.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import io
@@ -34,6 +33,7 @@ from fast_agent.skills.provenance import (
     write_installed_skill_source,
 )
 from fast_agent.skills.registry import SkillRegistry
+from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from mcp.types import ReadResourceResult
@@ -424,4 +424,4 @@ def _safe_install_dir_name(name: str) -> str:
 def scan_mcp_skill_registry_sync(
     aggregator: McpSkillRegistryClient, server_name: str
 ) -> McpSkillRegistry | None:
-    return asyncio.run(scan_mcp_skill_registry(aggregator, server_name))
+    return run_coroutine(scan_mcp_skill_registry(aggregator, server_name))

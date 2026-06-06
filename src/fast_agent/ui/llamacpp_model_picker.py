@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from fast_agent.ui.model_picker_common import ModelAvailability
 
 from fast_agent.ui.picker_theme import build_picker_style
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 StyleFragments = list[tuple[str, str]]
 type LlamaCppPickerAction = Literal[
@@ -447,8 +446,7 @@ class _LlamaCppModelPicker:
     async def run_async(self) -> LlamaCppModelPickerResult | None:
         self._ensure_runtime_context_loading()
         try:
-            with suppress_known_runtime_warnings():
-                result = await self.app.run_async()
+            result = await self.app.run_async()
         finally:
             for task in tuple(self._runtime_context_tasks):
                 task.cancel()

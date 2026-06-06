@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from urllib.parse import urlparse
@@ -16,7 +15,7 @@ from fast_agent.batch.structured import (
 )
 from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.shared_options import CommonAgentOptions
-from fast_agent.utils.async_utils import configure_uvloop
+from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.text import strip_to_none
 
 app = typer.Typer(help="Run batch processing jobs.", add_completion=False)
@@ -50,6 +49,52 @@ def _fail_runtime(message: str) -> None:
     raise typer.Exit(1)
 
 
+def _parse_var_entries(entries: list[str] | None) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for entry in entries or []:
+        name, separator, value = entry.partition("=")
+        if not separator or not name:
+            raise typer.BadParameter("--var entries must use name=value")
+        values[name] = value
+    return values
+
+
+def _parse_var_file_entries(entries: list[str] | None) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for entry in entries or []:
+        name, separator, path_text = entry.partition("=")
+        if not separator or not name:
+            raise typer.BadParameter("--var-file entries must use name=path")
+        values[name] = Path(path_text).expanduser().read_text(encoding="utf-8")
+    return values
+
+
+def _load_vars_json(path: Path | None) -> dict[str, str]:
+    if path is None:
+        return {}
+    payload = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise typer.BadParameter("--vars-json must contain a JSON object")
+    values: dict[str, str] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise typer.BadParameter("--vars-json keys and values must be strings")
+        values[key] = value
+    return values
+
+
+def _merge_batch_variables(
+    *,
+    var_entries: list[str] | None,
+    var_file_entries: list[str] | None,
+    vars_json_path: Path | None,
+) -> dict[str, str] | None:
+    values = _load_vars_json(vars_json_path)
+    values.update(_parse_var_file_entries(var_file_entries))
+    values.update(_parse_var_entries(var_entries))
+    return values or None
+
+
 def _validate_local_input_exists(input_path: str) -> None:
     parsed = urlparse(input_path)
     if parsed.scheme:
@@ -62,8 +107,7 @@ def _validate_local_input_exists(input_path: str) -> None:
 
 
 def _run_async(coro):
-    configure_uvloop()
-    return asyncio.run(coro)
+    return run_coroutine(coro)
 
 
 def _validate_batch_run_options(
@@ -235,6 +279,7 @@ def _build_structured_batch_options(
     progress: bool,
     final_summary: bool,
     shell_runtime: bool,
+    variables: dict[str, str] | None,
 ) -> StructuredBatchOptions:
     hf_dataset = strip_to_none(hf_dataset)
     hf_dataset_path = strip_to_none(hf_dataset_path)
@@ -277,6 +322,7 @@ def _build_structured_batch_options(
         shell_runtime=shell_runtime,
         agent_card_source=agent_card_source,
         agent_name=agent_name,
+        variables=variables,
     )
 
 
@@ -438,6 +484,21 @@ def run(
         "--progress/--no-progress",
         help="Print batch progress messages to stderr",
     ),
+    var_entries: list[str] | None = typer.Option(
+        None,
+        "--var",
+        help="AgentCard template variable as name=value. May be repeated.",
+    ),
+    var_file_entries: list[str] | None = typer.Option(
+        None,
+        "--var-file",
+        help="AgentCard template variable loaded from a file as name=path. May be repeated.",
+    ),
+    vars_json_path: Path | None = typer.Option(
+        None,
+        "--vars-json",
+        help="JSON object containing AgentCard template variables.",
+    ),
     final_summary: bool = typer.Option(
         True,
         "--final-summary/--no-final-summary",
@@ -504,6 +565,11 @@ def run(
         progress=progress,
         final_summary=final_summary,
         shell_runtime=shell_runtime,
+        variables=_merge_batch_variables(
+            var_entries=var_entries,
+            var_file_entries=var_file_entries,
+            vars_json_path=vars_json_path,
+        ),
     )
     summary = _run_structured_batch_options(options)
 

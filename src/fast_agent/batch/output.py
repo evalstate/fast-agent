@@ -63,3 +63,25 @@ def ensure_parent(path: Path) -> None:
 def write_jsonl_record(handle: TextIO, record: dict[str, Any]) -> None:
     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     handle.flush()
+
+
+def extract_structured_output(row: dict[str, Any]) -> Any | None:
+    """Return the normalized structured result from a batch output envelope."""
+    result = row.get("result")
+    if isinstance(result, dict) and "parsed" in result:
+        return result["parsed"]
+    return result
+
+
+def extract_text_output(row: dict[str, Any]) -> str:
+    """Return the best text representation from a batch output envelope."""
+    result = row.get("result")
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        for key in ("text", "output", "raw", "raw_text"):
+            value = result.get(key)
+            if isinstance(value, str):
+                return value
+    value = row.get("text")
+    return value if isinstance(value, str) else ""

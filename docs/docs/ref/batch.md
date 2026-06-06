@@ -105,6 +105,9 @@ Appending and de-duplicating result rows into a Hugging Face dataset is not impl
 | `--template PATH_OR_URI`   | Row prompt template file or URI. Defaults to sending the full row JSON.                               |
 | `--json-schema PATH_OR_URI` | JSON Schema file or URI for structured results. Supports local paths, HTTP(S), `file://`, and `hf://`. Mutually exclusive with `--schema-model`. |
 | `--schema-model IMPORT`     | Pydantic `BaseModel` import path for structured results. Mutually exclusive with `--json-schema`.     |
+| `--var NAME=VALUE`          | AgentCard template variable value. May be repeated.                                                   |
+| `--var-file NAME=PATH`      | AgentCard template variable loaded from a file. May be repeated.                                      |
+| `--vars-json PATH`          | JSON object containing AgentCard template variables.                                                  |
 | `--shell`, `-x`            | Enable a local shell runtime and expose the execute tool.                                             |
 
 ### Input selection

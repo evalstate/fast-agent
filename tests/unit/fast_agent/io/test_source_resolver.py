@@ -1,6 +1,5 @@
-import nturl2path
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import pytest
 import requests
@@ -13,6 +12,15 @@ from fast_agent.io.source_resolver import (
     materialized_text_source,
     read_text_source,
 )
+
+
+def _windows_url2pathname(path: str) -> str:
+    decoded = unquote(path)
+    if decoded.startswith("//"):
+        return "\\\\" + decoded[2:].replace("/", "\\")
+    if len(decoded) >= 3 and decoded[0] == "/" and decoded[2] == ":":
+        decoded = decoded[1:]
+    return decoded.replace("/", "\\")
 
 
 def test_read_text_source_supports_file_uri(tmp_path):
@@ -167,7 +175,7 @@ def test_materialized_text_source_removes_remote_temp_file(monkeypatch):
 def test_file_uri_to_path_supports_windows_drive_uri():
     parsed = urlparse("file:///C:/Users/alice/fast-agent.yaml")
 
-    path = file_uri_to_path(parsed, pathname_decoder=nturl2path.url2pathname)
+    path = file_uri_to_path(parsed, pathname_decoder=_windows_url2pathname)
 
     assert str(path) == r"C:\Users\alice\fast-agent.yaml"
 
@@ -175,7 +183,7 @@ def test_file_uri_to_path_supports_windows_drive_uri():
 def test_file_uri_to_path_preserves_unc_host():
     parsed = urlparse("file://server/share/fast-agent.yaml")
 
-    path = file_uri_to_path(parsed, pathname_decoder=nturl2path.url2pathname)
+    path = file_uri_to_path(parsed, pathname_decoder=_windows_url2pathname)
 
     assert str(path) == r"\\server\share\fast-agent.yaml"
 
