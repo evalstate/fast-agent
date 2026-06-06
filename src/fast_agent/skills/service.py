@@ -6,7 +6,6 @@ plain registry sources (local paths or URLs) and managed destination roots.
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -15,6 +14,7 @@ from fast_agent.skills import operations
 from fast_agent.skills.direct_sources import is_direct_skill_source, resolve_direct_skill_source
 from fast_agent.skills.provenance import get_skill_provenance
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
+from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -72,7 +72,7 @@ async def scan_marketplace(source: str) -> MarketplaceScanResult:
 
 
 def scan_marketplace_sync(source: str) -> MarketplaceScanResult:
-    return asyncio.run(scan_marketplace(source))
+    return run_coroutine(scan_marketplace(source))
 
 
 def list_installed_skills(destination_root: Path) -> list[InstalledSkillRecord]:
@@ -143,7 +143,7 @@ def install_skill_sync(
     *,
     destination_root: Path,
 ) -> InstalledSkillRecord:
-    return asyncio.run(
+    return run_coroutine(
         install_skill(
             source,
             selector,
@@ -158,7 +158,7 @@ def install_skill_from_selector_sync(
     *,
     destination_root: Path,
 ) -> InstalledSkillRecord:
-    return asyncio.run(
+    return run_coroutine(
         install_skill_from_selector(
             source,
             selector,
@@ -172,7 +172,7 @@ def install_direct_skill_sync(
     *,
     destination_root: Path,
 ) -> InstalledSkillRecord:
-    return asyncio.run(
+    return run_coroutine(
         install_direct_skill(
             source,
             destination_root=destination_root,

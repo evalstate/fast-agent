@@ -44,6 +44,7 @@ from fast_agent.ui.prompt.attachment_tokens import (
     encode_local_attachment_reference,
 )
 from fast_agent.ui.prompt.resource_mentions import template_argument_names
+from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.text import (
     casefold_text,
@@ -1512,7 +1513,7 @@ class AgentCompleter(Completer):
 
         try:
             awaitable = create_awaitable()
-            return asyncio.run(awaitable)
+            return run_coroutine(awaitable)
         except Exception:
             return None
 

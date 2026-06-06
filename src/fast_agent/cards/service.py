@@ -7,7 +7,6 @@ to CLI or slash-command presentation details.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,6 +19,7 @@ from fast_agent.plugins import operations as plugin_ops
 from fast_agent.plugins.configuration import enable_plugin_in_config, get_marketplace_url
 from fast_agent.plugins.manifest import load_plugin_manifest
 from fast_agent.plugins.models import PLUGIN_MANIFEST_FILENAME
+from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -117,7 +117,7 @@ async def scan_marketplace(source: str) -> MarketplaceScanResult:
 
 
 def scan_marketplace_sync(source: str) -> MarketplaceScanResult:
-    return asyncio.run(scan_marketplace(source))
+    return run_coroutine(scan_marketplace(source))
 
 
 def resolve_registry(source: str | None = None, *, settings: Settings | None = None) -> str:
@@ -328,7 +328,7 @@ def install_pack_sync(
     environment_paths: EnvironmentPaths,
     force: bool,
 ) -> CardPackInstallRecord:
-    return asyncio.run(
+    return run_coroutine(
         install_pack(
             source,
             selector,
@@ -381,7 +381,7 @@ def ensure_pack_available_sync(
     registry: str | None = None,
     force: bool = False,
 ) -> EnsuredCardPack:
-    return asyncio.run(
+    return run_coroutine(
         ensure_pack_available(
             selector=selector,
             environment_paths=environment_paths,

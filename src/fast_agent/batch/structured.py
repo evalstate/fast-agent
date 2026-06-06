@@ -91,6 +91,7 @@ class StructuredBatchOptions:
     progress_every: int | None = None
     progress: bool = True
     progress_label: str | None = None
+    variables: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -450,6 +451,7 @@ def _batch_summary_metadata(
         "instruction": str(options.instruction_source) if options.instruction_source else None,
         "agent_card": options.agent_card_source,
         "agent": None,
+        "variables": sorted(options.variables) if options.variables else [],
         "template": str(options.template_source) if options.template_source else "<default>",
         "shell_runtime": options.shell_runtime,
         "output_mode": "structured" if schema_source is not None else "text",
@@ -778,6 +780,8 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
     )
     if options.model:
         fast.args.model = options.model
+    if options.variables:
+        fast.set_prompt_context(options.variables)
 
     target_agent_name = await _configure_batch_worker(fast, options, instruction)
     if options.agent_card_source is not None:

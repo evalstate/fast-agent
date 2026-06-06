@@ -1460,7 +1460,7 @@ class LoggerSettings(BaseModel):
     progress_display: bool = True
     """Enable or disable the progress display"""
 
-    path: str = "fast-agent.jsonl"
+    path: str = "fast-agent-log.jsonl"
     """Path to log file, if logger 'type' is 'file'."""
 
     batch_size: int = 100

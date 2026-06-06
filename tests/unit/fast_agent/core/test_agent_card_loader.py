@@ -123,6 +123,32 @@ def test_load_agent_card_normalizes_padded_instruction(tmp_path: Path) -> None:
     assert loaded[0].agent_data["config"].instruction == "Be helpful."
 
 
+def test_load_agent_card_accepts_declared_variables_metadata(tmp_path: Path) -> None:
+    card_path = tmp_path / "classifier.md"
+    card_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "name: classifier",
+                "model: passthrough",
+                "variables:",
+                "  policy: ''",
+                "---",
+                "",
+                "Policy:",
+                "{{policy}}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+
+    config = loaded[0].agent_data["config"]
+    assert config.name == "classifier"
+    assert "{{policy}}" in config.instruction
+
+
 def test_load_agent_card_normalizes_markdown_body_markers(tmp_path: Path) -> None:
     card_path = tmp_path / "agent.md"
     card_path.write_text(

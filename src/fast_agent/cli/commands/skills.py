@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Annotated
 
@@ -48,6 +47,7 @@ from fast_agent.skills.scope import (
 )
 from fast_agent.skills.service import install_skill_from_selector_sync, remove_skill
 from fast_agent.ui.console import console
+from fast_agent.utils.async_utils import run_coroutine
 
 DEFAULT_CLI_SKILLS_REGISTRY = DEFAULT_MARKETPLACE_URL
 
@@ -286,7 +286,7 @@ def _load_marketplace(
 ) -> tuple[list[MarketplaceSkill], str]:
     marketplace_input = _resolve_registry_input(ctx, registry)
     try:
-        return asyncio.run(fetch_marketplace_skills_with_source(marketplace_input))
+        return run_coroutine(fetch_marketplace_skills_with_source(marketplace_input))
     except Exception as exc:
         typer.echo(f"Failed to load marketplace: {exc}", err=True)
         raise typer.Exit(1) from exc

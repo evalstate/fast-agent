@@ -34,6 +34,7 @@ from fast_agent.session.snapshot import (
     session_info_from_snapshot,
     snapshot_from_session_info,
 )
+from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
@@ -862,7 +863,7 @@ class SessionManager:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_coroutine(
                 self._hydrate_session_agents_async(
                     agents,
                     name,
@@ -946,7 +947,7 @@ class SessionManager:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_coroutine(
                 self.resume_session_agents_async(
                     agents,
                     name,

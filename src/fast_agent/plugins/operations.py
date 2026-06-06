@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 import tempfile
 import warnings
@@ -38,6 +37,7 @@ from fast_agent.plugins.provenance import (
     read_installed_plugin_source,
     write_installed_plugin_source,
 )
+from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -68,7 +68,7 @@ async def fetch_marketplace_plugins_with_source(
 
 
 def fetch_marketplace_plugins_with_source_sync(url: str) -> tuple[list[MarketplacePlugin], str]:
-    return asyncio.run(fetch_marketplace_plugins_with_source(url))
+    return run_coroutine(fetch_marketplace_plugins_with_source(url))
 
 
 def list_local_plugins(*, destination_root: Path) -> list[LocalPlugin]:

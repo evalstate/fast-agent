@@ -254,9 +254,14 @@ class FastAgent(DecoratorMixin):
         self._environment_dir_override = self._normalize_environment_dir(environment_dir)
         self._skills_directory_override = self._normalize_skill_directories(skills_directory)
         self._default_skill_manifests: list[SkillManifest] = []
+        self._extra_prompt_context: dict[str, str] = {}
         self._server_instance_factory = None
         self._server_instance_dispose = None
         self._server_managed_instances: list[AgentInstance] = []
+
+    def set_prompt_context(self, values: dict[str, str]) -> None:
+        """Set additional run-scoped instruction template variables."""
+        self._extra_prompt_context = dict(values)
 
     def _parse_constructor_cli_args(self, *, ignore_unknown_args: bool) -> None:
         parser = self._constructor_arg_parser()
@@ -1734,6 +1739,7 @@ class FastAgent(DecoratorMixin):
             self._skills_directory_override,
             noenv=noenv_mode,
         )
+        context_variables.update(self._extra_prompt_context)
         return context_variables or None
 
     def _create_run_runtime(self, settings: RunSettings) -> RunRuntime:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,6 +29,7 @@ from fast_agent.commands.session_export_help import (
     SESSION_EXPORT_SHOW_REDACTIONS_HELP,
     SESSION_EXPORT_TARGET_HELP,
 )
+from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from fast_agent.commands.results import CommandMessage
@@ -140,7 +140,7 @@ def export(
             or show_redactions
         ):
             raise typer.BadParameter("Cannot combine --list with export options.")
-        outcome = asyncio.run(
+        outcome = run_coroutine(
             session_handlers.handle_list_sessions(
                 command_context,
                 show_help=False,
@@ -149,7 +149,7 @@ def export(
         _render_outcome(outcome)
         return
 
-    outcome = asyncio.run(
+    outcome = run_coroutine(
         session_export_handlers.handle_session_export(
             command_context,
             target=target,

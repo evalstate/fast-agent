@@ -155,6 +155,39 @@ fast-agent batch run \
 AgentCards are useful when the batch worker needs tools, MCP servers, skills, or
 workflow definitions.
 
+AgentCards can also declare instruction variables for candidate-specific text,
+such as a policy you are optimizing in a GEPA loop:
+
+```markdown title="review-worker.md"
+---
+type: agent
+name: reviewer
+model: "$system.default"
+variables:
+  policy: ""
+---
+
+Classify reviews according to this policy:
+
+{{policy}}
+```
+
+Populate those variables at run time:
+
+```bash
+fast-agent batch run \
+  --input reviews.jsonl \
+  --output review-results.jsonl \
+  --agent-card ./review-worker.md \
+  --agent reviewer \
+  --var-file policy=seed/review-policy.md \
+  --model "responses.gpt-5.5"
+```
+
+Use `--var NAME=VALUE` for short values, `--var-file NAME=PATH` for longer
+prompt/policy files, or `--vars-json PATH` for a JSON object of variable
+values.
+
 ## 3. Customise your Prompt with a template
 
 Templates control the user prompt sent for each row.

@@ -27,7 +27,6 @@ from pydantic import ValidationError as PydanticValidationError
 
 from fast_agent.human_input.form_elements import ValidatedCheckboxList
 from fast_agent.ui.elicitation_style import ELICITATION_STYLE
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 from fast_agent.utils.count_display import format_count
 
 _FORMAT_ERROR_MESSAGES = {
@@ -925,8 +924,7 @@ class ElicitationForm:
     async def run_async(self) -> tuple[str, dict[str, Any] | None]:
         """Run the form and return result."""
         try:
-            with suppress_known_runtime_warnings():
-                await self.app.run_async()
+            await self.app.run_async()
         except Exception as e:
             print(f"Form error: {e}")
             self.action = "cancel"

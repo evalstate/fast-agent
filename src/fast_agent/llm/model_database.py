@@ -573,7 +573,7 @@ class ModelDatabase:
         context_window=1_048_576,
         max_output_tokens=393_216,
         tokenizes=TEXT_ONLY,
-        json_mode="schema",
+        json_mode="object",
         reasoning="reasoning_content",
         reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,

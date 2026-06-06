@@ -37,7 +37,6 @@ from fast_agent.ui.model_picker_common import (
     provider_option_count_label,
 )
 from fast_agent.ui.picker_theme import build_picker_style
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 from fast_agent.utils.text import strip_to_none
 
 StyleFragments = list[tuple[str, str]]
@@ -676,8 +675,7 @@ class _SplitListPicker:
         )
 
     def run(self) -> ModelPickerResult | None:
-        with suppress_known_runtime_warnings():
-            result = self.app.run()
+        result = self.app.run()
         if result is None:
             return None
         if isinstance(result, ModelPickerResult):
@@ -685,8 +683,7 @@ class _SplitListPicker:
         return None
 
     async def run_async(self) -> ModelPickerResult | None:
-        with suppress_known_runtime_warnings():
-            result = await self.app.run_async()
+        result = await self.app.run_async()
         if result is None:
             return None
         if isinstance(result, ModelPickerResult):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
 from typing import Annotated
 
@@ -33,6 +32,7 @@ from fast_agent.marketplace.formatting import (
 )
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.ui.console import console
+from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.count_display import format_count
 
 DEFAULT_CLI_CARD_REGISTRY = "https://github.com/fast-agent-ai/card-packs"
@@ -244,7 +244,7 @@ def cards_add(
         raise typer.Exit(0)
 
     try:
-        result = asyncio.run(
+        result = run_coroutine(
             card_service.install_selected_pack(
                 card_service.select_marketplace_pack(marketplace.packs, selector),
                 environment_paths=env_paths,

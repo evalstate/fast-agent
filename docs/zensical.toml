@@ -23,6 +23,7 @@ nav = [
     "guides/hf-dev.md",
     { "Agent Skills" = "guides/skills.md" },
     "guides/batch-processing.md",
+    { "GEPA Optimization" = "guides/gepa.md" },
     "guides/structured-outputs.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
   ] },
