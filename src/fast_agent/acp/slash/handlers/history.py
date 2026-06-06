@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import shlex
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -12,42 +12,51 @@ from fast_agent.commands.renderers.history_markdown import (
     render_history_overview_markdown,
     render_history_turn_report_markdown,
 )
-from fast_agent.commands.shared_command_intents import parse_current_agent_history_intent
+from fast_agent.commands.shared_command_intents import (
+    HistoryAction,
+    HistoryActionIntent,
+    HistoryTurnAction,
+    HistoryTurnError,
+    parse_current_agent_history_intent,
+)
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
     from fast_agent.acp.slash_commands import SlashCommandHandler
 
+_HistoryIntentHandler = Callable[["SlashCommandHandler", HistoryActionIntent], Awaitable[str]]
+
+
+_HISTORY_USAGE = (
+    "Usage: /history [show|detail <turn>|save|load|clear [last]|rewind <turn>|fix] [args]"
+)
+_HISTORY_WEBCLEAR_USAGE = (
+    "Usage: /history "
+    "[show|detail <turn>|save|load|clear [last]|rewind <turn>|fix|webclear] [args]"
+)
+_TURN_ERROR_MESSAGES: dict[HistoryTurnAction, dict[HistoryTurnError, str]] = {
+    "detail": {
+        "missing": "Turn number required for /history detail.",
+        "invalid": "Turn number must be an integer.",
+    },
+    "rewind": {
+        "missing": "Turn number required for /history rewind.",
+        "invalid": "Turn number must be an integer.",
+    },
+}
+
 
 async def handle_history(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    remainder = (arguments or "").strip()
-    if not remainder:
-        return await render_history_overview(handler)
-
-    try:
-        tokens = shlex.split(remainder)
-    except ValueError:
-        tokens = remainder.split(maxsplit=1)
-
-    if not tokens:
-        return await render_history_overview(handler)
-
-    subcmd = tokens[0].lower()
-    webclear_enabled = history_handlers.web_tools_enabled_for_agent(handler._get_current_agent())
-
-    if subcmd == "webclear":
-        return await _handle_history_webclear_command(
-            handler,
-            webclear_enabled=webclear_enabled,
-        )
-
+    remainder = strip_to_none(arguments) or ""
     intent = parse_current_agent_history_intent(remainder)
-    handled = await _dispatch_shared_history_intent(handler, intent=intent)
-    if handled is not None:
-        return handled
+    action_handler = _HISTORY_ACTION_HANDLERS.get(intent.action)
+    if action_handler is not None:
+        return await action_handler(handler, intent)
 
+    webclear_enabled = history_handlers.web_tools_enabled_for_agent(handler._get_current_agent())
     return _unknown_history_action_response(
-        raw_subcommand=intent.raw_subcommand or subcmd,
+        raw_subcommand=intent.raw_subcommand or "",
         webclear_enabled=webclear_enabled,
     )
 
@@ -55,40 +64,119 @@ async def handle_history(handler: "SlashCommandHandler", arguments: str | None =
 async def _handle_history_webclear_command(
     handler: "SlashCommandHandler",
     *,
-    webclear_enabled: bool,
+    target_agent: str | None,
 ) -> str:
+    agent_name = target_agent or handler.current_agent_name
+    agent = handler.instance.agents.get(agent_name)
+    if target_agent is not None and agent is None:
+        return _missing_agent_response(heading="# history webclear", agent_name=agent_name)
+    webclear_enabled = history_handlers.web_tools_enabled_for_agent(agent)
     if not webclear_enabled:
         return "\n".join(
             [
                 "# history",
                 "",
                 "Unknown /history action: webclear",
-                "Usage: /history [show|detail <turn>|save|load] [args]",
+                _history_usage(webclear_enabled=False),
             ]
         )
-    return await handle_history_webclear(handler)
+    return await handle_history_webclear(handler, target_agent=target_agent)
 
 
-async def _dispatch_shared_history_intent(
+async def _handle_history_overview_intent(
     handler: "SlashCommandHandler",
-    *,
-    intent,
-) -> str | None:
-    if intent.action == "overview":
-        return await render_history_overview(handler)
-    if intent.action == "show":
-        return await handle_show(handler)
-    if intent.action == "detail":
-        return await handle_detail(
-            handler,
-            turn_index=intent.turn_index,
-            turn_error=intent.turn_error,
-        )
-    if intent.action == "save":
-        return await handle_save(handler, intent.argument)
-    if intent.action == "load":
-        return await handle_load(handler, intent.argument)
-    return None
+    intent: HistoryActionIntent,
+) -> str:
+    del intent
+    return await render_history_overview(handler)
+
+
+async def _handle_history_show_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_show(handler, target_agent=intent.argument)
+
+
+async def _handle_history_detail_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_detail(
+        handler,
+        turn_index=intent.turn_index,
+        turn_error=intent.turn_error,
+    )
+
+
+async def _handle_history_save_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_save(handler, intent.argument)
+
+
+async def _handle_history_load_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_load(handler, intent.argument)
+
+
+async def _handle_history_clear_all_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_history_clear_all(handler, target_agent=intent.argument)
+
+
+async def _handle_history_clear_last_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_history_clear_last(handler, target_agent=intent.argument)
+
+
+async def _handle_history_rewind_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_history_rewind(
+        handler,
+        turn_index=intent.turn_index,
+        turn_error=intent.turn_error,
+    )
+
+
+async def _handle_history_fix_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_history_fix(handler, target_agent=intent.argument)
+
+
+async def _handle_history_webclear_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await _handle_history_webclear_command(
+        handler,
+        target_agent=intent.argument,
+    )
+
+
+_HISTORY_ACTION_HANDLERS: dict[HistoryAction, _HistoryIntentHandler] = {
+    "overview": _handle_history_overview_intent,
+    "show": _handle_history_show_intent,
+    "detail": _handle_history_detail_intent,
+    "save": _handle_history_save_intent,
+    "load": _handle_history_load_intent,
+    "clear_all": _handle_history_clear_all_intent,
+    "clear_last": _handle_history_clear_last_intent,
+    "rewind": _handle_history_rewind_intent,
+    "fix": _handle_history_fix_intent,
+    "webclear": _handle_history_webclear_intent,
+}
 
 
 def _unknown_history_action_response(*, raw_subcommand: str, webclear_enabled: bool) -> str:
@@ -97,21 +185,39 @@ def _unknown_history_action_response(*, raw_subcommand: str, webclear_enabled: b
             "# history",
             "",
             f"Unknown /history action: {raw_subcommand}",
-            (
-                "Usage: /history [show|detail <turn>|save|load|webclear] [args]"
-                if webclear_enabled
-                else "Usage: /history [show|detail <turn>|save|load] [args]"
-            ),
+            _history_usage(webclear_enabled=webclear_enabled),
         ]
     )
 
 
+def _history_usage(*, webclear_enabled: bool) -> str:
+    return _HISTORY_WEBCLEAR_USAGE if webclear_enabled else _HISTORY_USAGE
+
+
+def _missing_agent_response(*, heading: str, agent_name: str) -> str:
+    return "\n".join(
+        [
+            heading,
+            "",
+            f"Unable to locate agent '{agent_name}' for this session.",
+        ]
+    )
+
+
+def _turn_error_message(
+    action: HistoryTurnAction,
+    turn_error: HistoryTurnError | None,
+) -> str | None:
+    if turn_error is None:
+        return None
+    return _TURN_ERROR_MESSAGES[action][turn_error]
+
+
 async def render_history_overview(handler: "SlashCommandHandler") -> str:
     heading = "# conversation history"
-    agent, error = handler._get_current_agent_or_error(heading)
+    _, error = handler._get_current_agent_or_error(heading)
     if error:
         return error
-    assert agent is not None
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
@@ -128,12 +234,12 @@ async def render_history_overview(handler: "SlashCommandHandler") -> str:
     )
 
 
-async def handle_show(handler: "SlashCommandHandler") -> str:
+async def handle_show(handler: "SlashCommandHandler", target_agent: str | None = None) -> str:
     heading = "# history show"
-    agent, error = handler._get_current_agent_or_error(heading)
-    if error:
-        return error
-    assert agent is not None
+    agent_name = target_agent or handler.current_agent_name
+    agent = handler.instance.agents.get(agent_name)
+    if agent is None:
+        return _missing_agent_response(heading=heading, agent_name=agent_name)
 
     history = list(agent.message_history)
     report = build_history_turn_report(history)
@@ -144,7 +250,7 @@ async def handle_detail(
     handler: "SlashCommandHandler",
     *,
     turn_index: int | None,
-    turn_error: str | None,
+    turn_error: HistoryTurnError | None,
 ) -> str:
     heading = "# history detail"
 
@@ -155,35 +261,113 @@ async def handle_detail(
     if error:
         return error
 
-    error_message = None
-    if turn_error == "missing":
-        error_message = "Turn number required for /history detail."
-    elif turn_error == "invalid":
-        error_message = "Turn number must be an integer."
-
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
     outcome = await history_handlers.handle_history_review(
         ctx,
         agent_name=handler.current_agent_name,
         turn_index=turn_index,
-        error=error_message,
+        error=_turn_error_message("detail", turn_error),
     )
     return handler._format_outcome_as_markdown(outcome, "history detail", io=io)
 
 
-async def handle_save(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    heading = "# save conversation"
+async def handle_history_clear_all(
+    handler: "SlashCommandHandler",
+    *,
+    target_agent: str | None = None,
+) -> str:
+    heading = "# history clear"
+    agent_name = target_agent or handler.current_agent_name
+    if agent_name not in handler.instance.agents:
+        return _missing_agent_response(heading=heading, agent_name=agent_name)
 
-    agent, error = handler._get_current_agent_or_error(
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await history_handlers.handle_history_clear_all(
+        ctx,
+        agent_name=handler.current_agent_name,
+        target_agent=target_agent,
+    )
+    return handler._format_outcome_as_markdown(outcome, "history clear", io=io)
+
+
+async def handle_history_clear_last(
+    handler: "SlashCommandHandler",
+    *,
+    target_agent: str | None = None,
+) -> str:
+    heading = "# history clear last"
+    agent_name = target_agent or handler.current_agent_name
+    if agent_name not in handler.instance.agents:
+        return _missing_agent_response(heading=heading, agent_name=agent_name)
+
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await history_handlers.handle_history_clear_last(
+        ctx,
+        agent_name=handler.current_agent_name,
+        target_agent=target_agent,
+    )
+    return handler._format_outcome_as_markdown(outcome, "history clear last", io=io)
+
+
+async def handle_history_rewind(
+    handler: "SlashCommandHandler",
+    *,
+    turn_index: int | None,
+    turn_error: HistoryTurnError | None,
+) -> str:
+    heading = "# history rewind"
+    _, error = handler._get_current_agent_or_error(
         heading,
         missing_template=f"Unable to locate agent '{handler.current_agent_name}' for this session.",
     )
     if error:
         return error
-    assert agent is not None
 
-    filename = arguments.strip() if arguments and arguments.strip() else None
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await history_handlers.handle_history_rewind(
+        ctx,
+        agent_name=handler.current_agent_name,
+        turn_index=turn_index,
+        error=_turn_error_message("rewind", turn_error),
+    )
+    return handler._format_outcome_as_markdown(outcome, "history rewind", io=io)
+
+
+async def handle_history_fix(
+    handler: "SlashCommandHandler",
+    *,
+    target_agent: str | None = None,
+) -> str:
+    heading = "# history fix"
+    agent_name = target_agent or handler.current_agent_name
+    if agent_name not in handler.instance.agents:
+        return _missing_agent_response(heading=heading, agent_name=agent_name)
+
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await history_handlers.handle_history_fix(
+        ctx,
+        agent_name=handler.current_agent_name,
+        target_agent=target_agent,
+    )
+    return handler._format_outcome_as_markdown(outcome, "history fix", io=io)
+
+
+async def handle_save(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    heading = "# save conversation"
+
+    _, error = handler._get_current_agent_or_error(
+        heading,
+        missing_template=f"Unable to locate agent '{handler.current_agent_name}' for this session.",
+    )
+    if error:
+        return error
+
+    filename = strip_to_none(arguments)
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
@@ -200,37 +384,6 @@ async def handle_save(handler: "SlashCommandHandler", arguments: str | None = No
 async def handle_load(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
     heading = "# load conversation"
 
-    agent, error = handler._get_current_agent_or_error(
-        heading,
-        missing_template=f"Unable to locate agent '{handler.current_agent_name}' for this session.",
-    )
-    if error:
-        return error
-    assert agent is not None
-
-    filename = arguments.strip() if arguments and arguments.strip() else None
-    error_message = None
-    if not filename:
-        error_message = "Filename required for /history load."
-    else:
-        file_path = Path(filename)
-        if not file_path.exists():
-            error_message = f"File not found: {filename}"
-
-    ctx = handler._build_command_context()
-    io = cast("ACPCommandIO", ctx.io)
-    outcome = await history_handlers.handle_history_load(
-        ctx,
-        agent_name=handler.current_agent_name,
-        filename=filename,
-        error=error_message,
-    )
-    return handler._format_outcome_as_markdown(outcome, "load conversation", io=io)
-
-
-async def handle_history_webclear(handler: "SlashCommandHandler") -> str:
-    heading = "# history webclear"
-
     _, error = handler._get_current_agent_or_error(
         heading,
         missing_template=f"Unable to locate agent '{handler.current_agent_name}' for this session.",
@@ -240,9 +393,44 @@ async def handle_history_webclear(handler: "SlashCommandHandler") -> str:
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
+    filename = strip_to_none(arguments)
+    error_message = None
+    if not filename:
+        error_message = "Filename required for /history load."
+    else:
+        file_path = Path(filename)
+        if not file_path.is_absolute() and ctx.session_cwd is not None:
+            file_path = Path(ctx.session_cwd) / file_path
+        if not file_path.exists():
+            error_message = f"File not found: {filename}"
+        else:
+            filename = str(file_path)
+
+    outcome = await history_handlers.handle_history_load(
+        ctx,
+        agent_name=handler.current_agent_name,
+        filename=filename,
+        error=error_message,
+    )
+    return handler._format_outcome_as_markdown(outcome, "load conversation", io=io)
+
+
+async def handle_history_webclear(
+    handler: "SlashCommandHandler",
+    *,
+    target_agent: str | None = None,
+) -> str:
+    heading = "# history webclear"
+
+    agent_name = target_agent or handler.current_agent_name
+    if agent_name not in handler.instance.agents:
+        return _missing_agent_response(heading=heading, agent_name=agent_name)
+
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
     outcome = await history_handlers.handle_history_webclear(
         ctx,
         agent_name=handler.current_agent_name,
-        target_agent=None,
+        target_agent=target_agent,
     )
     return handler._format_outcome_as_markdown(outcome, "history webclear", io=io)

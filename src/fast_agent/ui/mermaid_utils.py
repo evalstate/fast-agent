@@ -5,9 +5,26 @@ import re
 import zlib
 from dataclasses import dataclass
 
+from fast_agent.utils.text import strip_casefold
+
 # Mermaid chart viewer URL prefix
 MERMAID_VIEWER_URL = "https://www.mermaidchart.com/play#"
 # mermaid.live#pako= also works but the playground has better ux
+
+_DIAGRAM_TYPE_PREFIXES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("graph ", "flowchart "), "Flowchart"),
+    (("sequencediagram",), "Sequence"),
+    (("pie",), "Pie Chart"),
+    (("gantt",), "Gantt Chart"),
+    (("classdiagram",), "Class Diagram"),
+    (("statediagram",), "State Diagram"),
+    (("erdiagram",), "ER Diagram"),
+    (("journey",), "User Journey"),
+    (("gitgraph",), "Git Graph"),
+    (("c4context",), "C4 Context"),
+    (("mindmap",), "Mind Map"),
+    (("timeline",), "Timeline"),
+)
 
 
 @dataclass
@@ -138,32 +155,9 @@ def detect_diagram_type(content: str) -> str:
     Returns:
         Human-readable diagram type name
     """
-    content_lower = content.strip().lower()
+    content_lower = strip_casefold(content)
 
-    # Check for common diagram types
-    if content_lower.startswith(("graph ", "flowchart ")):
-        return "Flowchart"
-    elif content_lower.startswith("sequencediagram"):
-        return "Sequence"
-    elif content_lower.startswith("pie"):
-        return "Pie Chart"
-    elif content_lower.startswith("gantt"):
-        return "Gantt Chart"
-    elif content_lower.startswith("classdiagram"):
-        return "Class Diagram"
-    elif content_lower.startswith("statediagram"):
-        return "State Diagram"
-    elif content_lower.startswith("erdiagram"):
-        return "ER Diagram"
-    elif content_lower.startswith("journey"):
-        return "User Journey"
-    elif content_lower.startswith("gitgraph"):
-        return "Git Graph"
-    elif content_lower.startswith("c4context"):
-        return "C4 Context"
-    elif content_lower.startswith("mindmap"):
-        return "Mind Map"
-    elif content_lower.startswith("timeline"):
-        return "Timeline"
-    else:
-        return "Diagram"
+    for prefixes, diagram_type in _DIAGRAM_TYPE_PREFIXES:
+        if content_lower.startswith(prefixes):
+            return diagram_type
+    return "Diagram"

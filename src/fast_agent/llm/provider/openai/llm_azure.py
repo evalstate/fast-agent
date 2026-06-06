@@ -147,27 +147,26 @@ class AzureOpenAILLM(OpenAILLM):
                     api_version=self.api_version,
                     azure_deployment=self.deployment_name,
                 )
-            else:
-                if self.base_url is None:
-                    raise ProviderKeyError(
-                        "Missing Azure endpoint",
-                        "azure_endpoint (base_url) is None at client creation time.",
-                    )
-                default_headers = self._default_headers()
-                if default_headers:
-                    return AsyncAzureOpenAI(
-                        api_key=self.api_key,
-                        azure_endpoint=self.base_url,
-                        api_version=self.api_version,
-                        azure_deployment=self.deployment_name,
-                        default_headers=default_headers,
-                    )
+            if self.base_url is None:
+                raise ProviderKeyError(
+                    "Missing Azure endpoint",
+                    "azure_endpoint (base_url) is None at client creation time.",
+                )
+            default_headers = self._default_headers()
+            if default_headers:
                 return AsyncAzureOpenAI(
                     api_key=self.api_key,
                     azure_endpoint=self.base_url,
                     api_version=self.api_version,
                     azure_deployment=self.deployment_name,
+                    default_headers=default_headers,
                 )
+            return AsyncAzureOpenAI(
+                api_key=self.api_key,
+                azure_endpoint=self.base_url,
+                api_version=self.api_version,
+                azure_deployment=self.deployment_name,
+            )
         except AuthenticationError as e:
             if self.use_default_cred:
                 raise ProviderKeyError(
@@ -175,9 +174,8 @@ class AzureOpenAILLM(OpenAILLM):
                     "The configured Azure AD credentials were rejected.\n"
                     "Please check your Azure identity setup.",
                 ) from e
-            else:
-                raise ProviderKeyError(
-                    "Invalid Azure OpenAI API key",
-                    "The configured Azure OpenAI API key was rejected.\n"
-                    "Please check that your API key is valid and not expired.",
-                ) from e
+            raise ProviderKeyError(
+                "Invalid Azure OpenAI API key",
+                "The configured Azure OpenAI API key was rejected.\n"
+                "Please check that your API key is valid and not expired.",
+            ) from e

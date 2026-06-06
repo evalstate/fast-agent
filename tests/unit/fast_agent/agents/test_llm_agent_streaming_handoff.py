@@ -15,7 +15,7 @@ from fast_agent.constants import (
 )
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
-from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.console_display import ConsoleDisplay, StreamingPreferences
 
 
 class _FakeStreamHandle:
@@ -58,8 +58,8 @@ class _FakeDisplay(ConsoleDisplay):
     def __init__(self, handle: _FakeStreamHandle) -> None:
         self._handle = handle
 
-    def resolve_streaming_preferences(self) -> tuple[bool, str]:
-        return True, "markdown"
+    def resolve_streaming_preferences(self) -> StreamingPreferences:
+        return StreamingPreferences(enabled=True, mode="markdown")
 
     @contextmanager
     def streaming_assistant_message(self, **_kwargs: object) -> Iterator[_FakeStreamHandle]:
@@ -72,6 +72,7 @@ class _FakeDisplay(ConsoleDisplay):
 class _FakeLLM:
     def __init__(self) -> None:
         self.model_name = "fake-model"
+        self.resolved_model = None
         self.websocket_turn_indicator = None
 
     def add_stream_listener(self, _listener):

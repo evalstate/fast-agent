@@ -170,9 +170,7 @@ def format_step_result_xml(step_result: StepResult) -> str:
     from fast_agent.llm.prompt_utils import format_fastagent_tag
 
     # Format each task result with XML
-    task_results = []
-    for task in step_result.task_results:
-        task_results.append(format_task_result_xml(task))
+    task_results = [format_task_result_xml(task) for task in step_result.task_results]
 
     # Combine task results
     task_results_str = "\n".join(task_results)
@@ -195,24 +193,31 @@ def format_plan_result(plan_result: PlanResult) -> str:
     objective_tag = format_fastagent_tag("objective", plan_result.objective)
 
     # Format step results
-    step_results = []
-    for step in plan_result.step_results:
-        step_results.append(format_step_result_xml(step))
+    step_results = [format_step_result_xml(step) for step in plan_result.step_results]
 
     # Build progress section
+    status = _plan_result_status_text(plan_result)
     if step_results:
         steps_content = "\n".join(step_results)
         progress_content = (
             f"{objective_tag}\n"
             f"<fastagent:steps>\n{steps_content}\n</fastagent:steps>\n"
-            f"<fastagent:status>{plan_result.result if plan_result.is_complete else 'In Progress'}</fastagent:status>\n"
+            f"<fastagent:status>{status}</fastagent:status>\n"
         )
     else:
         # No steps executed yet
         progress_content = (
             f"{objective_tag}\n"
             f"<fastagent:steps>No steps executed yet</fastagent:steps>\n"
-            f"<fastagent:status>Not Started</fastagent:status>\n"
+            f"<fastagent:status>{status}</fastagent:status>\n"
         )
 
     return format_fastagent_tag("progress", progress_content)
+
+
+def _plan_result_status_text(plan_result: PlanResult) -> str:
+    if plan_result.is_complete:
+        return plan_result.result or "Complete"
+    if plan_result.step_results:
+        return "In Progress"
+    return "Not Started"

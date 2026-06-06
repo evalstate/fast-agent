@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.text import Text
 
 from fast_agent.constants import SHELL_NOTICE_PREFIX
+from fast_agent.utils.path_display import format_working_directory
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -28,18 +28,7 @@ def format_shell_notice(
 
     if shell_runtime is not None:
         working_dir = shell_runtime.working_directory()
-        try:
-            working_dir_display = str(working_dir.relative_to(Path.cwd()))
-            if working_dir_display == ".":
-                parts = Path.cwd().parts
-                if len(parts) >= 2:
-                    working_dir_display = "/".join(parts[-2:])
-                elif len(parts) == 1:
-                    working_dir_display = parts[0]
-                else:
-                    working_dir_display = str(Path.cwd())
-        except ValueError:
-            working_dir_display = str(working_dir)
+        working_dir_display = format_working_directory(working_dir)
         shell_display = f"{shell_display} | cwd: {working_dir_display}"
 
     notice = Text.from_markup(SHELL_NOTICE_PREFIX)

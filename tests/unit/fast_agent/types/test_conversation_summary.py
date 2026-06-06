@@ -446,6 +446,26 @@ def test_timing_invalid_json():
     assert summary.average_assistant_response_time_ms == 0.0
 
 
+def test_timing_non_object_json_is_ignored():
+    """Timing payloads must be JSON objects to match summary timing shape."""
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Response")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps([{"duration_ms": 100.0}]))
+                ]
+            },
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    assert summary.total_elapsed_time_ms == 0.0
+    assert summary.assistant_message_timings == []
+
+
 def test_timing_in_model_dump():
     """Test that timing properties are included in model_dump()"""
     timing_data = {"start_time": 100.0, "end_time": 102.5, "duration_ms": 2500.0}

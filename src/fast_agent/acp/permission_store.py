@@ -13,6 +13,7 @@ from pathlib import Path
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_environment_paths
+from fast_agent.utils.markdown import escape_markdown_table_cell
 
 logger = get_logger(__name__)
 
@@ -60,6 +61,59 @@ class PermissionResult:
         return cls(allowed=False, remember=False, is_cancelled=True)
 
 
+@dataclass(frozen=True, slots=True)
+class PermissionEntry:
+    """Stored permission identity for one MCP server/tool pair."""
+
+    server_name: str
+    tool_name: str
+
+    @property
+    def display_key(self) -> str:
+        return f"{self.server_name}/{self.tool_name}"
+
+
+def _unescape_markdown_table_cell(value: str) -> str:
+    result: list[str] = []
+    escaped = False
+    for char in value:
+        if escaped:
+            result.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        result.append(char)
+    if escaped:
+        result.append("\\")
+    return "".join(result)
+
+
+def _split_markdown_table_row(line: str) -> list[str]:
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for char in line.strip()[1:-1]:
+        if escaped:
+            current.append("\\")
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "|":
+            cells.append(_unescape_markdown_table_cell("".join(current).strip()))
+            current = []
+            continue
+        current.append(char)
+    if escaped:
+        current.append("\\")
+    cells.append(_unescape_markdown_table_cell("".join(current).strip()))
+    return cells
+
+
 class PermissionStore:
     """
     Persistent storage for tool execution permissions.
@@ -82,7 +136,7 @@ class PermissionStore:
         override = DEFAULT_ENVIRONMENT_DIR if cwd is not None else None
         env_paths = resolve_environment_paths(cwd=self._cwd, override=override)
         self._file_path = env_paths.permissions_file
-        self._cache: dict[str, PermissionDecision] = {}
+        self._cache: dict[PermissionEntry, PermissionDecision] = {}
         self._loaded = False
         self._lock = asyncio.Lock()
 
@@ -91,9 +145,9 @@ class PermissionStore:
         """Get the path to the permissions file."""
         return self._file_path
 
-    def _get_permission_key(self, server_name: str, tool_name: str) -> str:
+    def _get_permission_key(self, server_name: str, tool_name: str) -> PermissionEntry:
         """Get a unique key for a server/tool combination."""
-        return f"{server_name}/{tool_name}"
+        return PermissionEntry(server_name, tool_name)
 
     async def _ensure_loaded(self) -> None:
         """Ensure permissions are loaded from disk (lazy loading)."""
@@ -122,24 +176,26 @@ class PermissionStore:
 
         in_table = False
         for line_number, line in enumerate(content.splitlines(), start=1):
-            line = line.strip()
+            stripped_line = line.strip()
 
             # Skip empty lines and header
-            if not line:
+            if not stripped_line:
                 continue
-            if line.startswith("# "):
+            if stripped_line.startswith("# "):
                 continue
-            if line.startswith("|--") or line.startswith("| --"):
+            if stripped_line.startswith(("|--", "| --")):
                 in_table = True
                 continue
-            if line.startswith("| Server"):
+            if stripped_line.startswith("| Server"):
                 continue
 
             # Parse table rows
-            if in_table and line.startswith("|") and line.endswith("|"):
-                parts = [p.strip() for p in line.split("|")[1:-1]]
+            if in_table and stripped_line.startswith("|") and stripped_line.endswith("|"):
+                parts = _split_markdown_table_row(stripped_line)
                 if len(parts) >= 3:
                     server_name, tool_name, permission = parts[0], parts[1], parts[2]
+                    if not server_name or not tool_name:
+                        continue
                     key = self._get_permission_key(server_name, tool_name)
                     try:
                         self._cache[key] = PermissionDecision(permission)
@@ -153,10 +209,14 @@ class PermissionStore:
                             tool_name=tool_name,
                         )
 
+    async def _delete_file(self) -> None:
+        if self._file_path.exists():
+            await asyncio.to_thread(self._file_path.unlink)
+
     async def _save_to_file(self) -> None:
         """Save permissions to the markdown file."""
         if not self._cache:
-            # Don't create file if no permissions to save
+            await self._delete_file()
             return
 
         # Ensure directory exists
@@ -173,8 +233,9 @@ class PermissionStore:
             "|--------|------|------------|",
         ]
 
-        for key, decision in sorted(self._cache.items()):
-            server_name, tool_name = key.split("/", 1)
+        for key, decision in sorted(self._cache.items(), key=lambda item: item[0].display_key):
+            server_name = escape_markdown_table_cell(key.server_name)
+            tool_name = escape_markdown_table_cell(key.tool_name)
             lines.append(f"| {server_name} | {tool_name} | {decision.value} |")
 
         lines.append("")  # Trailing newline
@@ -255,21 +316,20 @@ class PermissionStore:
         """Clear all stored permissions."""
         async with self._lock:
             self._cache.clear()
-            if self._file_path.exists():
-                try:
-                    await asyncio.to_thread(self._file_path.unlink)
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to delete permissions file: {e}",
-                        name="permission_store_delete_error",
-                    )
+            try:
+                await self._delete_file()
+            except Exception as e:
+                logger.warning(
+                    f"Failed to delete permissions file: {e}",
+                    name="permission_store_delete_error",
+                )
 
-    async def list_all(self) -> dict[str, PermissionDecision]:
+    async def list_all(self) -> dict[PermissionEntry, PermissionDecision]:
         """
         Get all stored permissions.
 
         Returns:
-            Dictionary of permission key -> decision
+            Dictionary of permission entry -> decision
         """
         async with self._lock:
             await self._ensure_loaded()

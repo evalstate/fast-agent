@@ -669,7 +669,7 @@ logger:
   type: "file"  # "none", "console", "file", or "http"
   level: "warning"  # "debug", "info", "warning", or "error"
   progress_display: true  # Enable/disable progress display
-  path: "fastagent.jsonl"  # Path to log file (for "file" type)
+  path: "fast-agent.jsonl"  # Path to log file (for "file" type)
   batch_size: 100  # Events to accumulate before processing
   flush_interval: 2.0  # Flush interval in seconds
   max_queue_size: 2048  # Maximum queue size for events
@@ -764,7 +764,7 @@ mcp:
 logger:
   type: "file"
   level: "info"
-  path: "logs/fastagent.jsonl"
+  path: "logs/fast-agent.jsonl"
 ```
 
 ## Environment Variables

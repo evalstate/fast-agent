@@ -27,6 +27,26 @@ def test_read_text_file_tool_call_shows_summary_with_offset() -> None:
     assert "target_file.py" in rendered
 
 
+def test_read_text_file_tool_call_ignores_boolean_line_and_limit() -> None:
+    display = ConsoleDisplay()
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            tool_name="read_text_file",
+            tool_args={
+                "path": "/tmp/example.py",
+                "line": True,
+                "limit": True,
+            },
+            name="dev",
+        )
+
+    rendered = capture.get()
+    assert "The assistant is reading a file from" in rendered
+    assert "offset True" not in rendered
+    assert "1 line" not in rendered
+
+
 def test_read_text_file_result_truncates_with_head_and_more_lines_note() -> None:
     display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
     output_lines = [f"line-{i}" for i in range(1, 8)]
@@ -116,10 +136,10 @@ def test_read_text_file_truncation_skips_leading_blank_lines() -> None:
     tool_display = ToolDisplay(ConsoleDisplay())
     text = "\n\n   \nline-1\nline-2\nline-3\nline-4\nline-5\nline-6"
 
-    limited, omitted = tool_display._limit_read_text_output_text(text, line_limit=4)
+    limited = tool_display._limit_read_text_output_text(text, line_limit=4)
 
-    assert limited.splitlines() == ["line-1", "line-2", "line-3", "line-4"]
-    assert omitted == 5
+    assert limited.text.splitlines() == ["line-1", "line-2", "line-3", "line-4"]
+    assert limited.omitted_line_count == 5
 
 
 def test_read_text_file_markdown_wrap_uses_language_from_path() -> None:
@@ -128,7 +148,7 @@ def test_read_text_file_markdown_wrap_uses_language_from_path() -> None:
 
     wrapped = tool_display._format_read_text_file_content_as_markdown(
         content,
-        path_value="/tmp/example.py",
+        path_value="/tmp/example.PY",
     )
 
     assert wrapped is not None

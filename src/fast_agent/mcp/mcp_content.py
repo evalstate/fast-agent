@@ -7,7 +7,7 @@ EmbeddedResource, and other MCP content types with minimal boilerplate.
 
 import base64
 from pathlib import Path
-from typing import Any, Literal, Union
+from typing import Any, Protocol, Union, runtime_checkable
 
 from mcp.types import (
     Annotations,
@@ -23,6 +23,7 @@ from mcp.types import (
 )
 from pydantic import AnyUrl
 
+from fast_agent.mcp.message_roles import MessageRole
 from fast_agent.mcp.mime_utils import (
     guess_mime_type,
     is_binary_content,
@@ -31,9 +32,15 @@ from fast_agent.mcp.mime_utils import (
 from fast_agent.types import PromptMessageExtended
 
 
+@runtime_checkable
+class _EmbeddedResourceLike(Protocol):
+    type: str
+    resource: object
+
+
 def MCPText(
     text: str,
-    role: Literal["user", "assistant"] = "user",
+    role: MessageRole = "user",
     annotations: Annotations | None = None,
 ) -> dict:
     """
@@ -57,7 +64,7 @@ def MCPImage(
     path: str | Path | None = None,
     data: bytes | None = None,
     mime_type: str | None = None,
-    role: Literal["user", "assistant"] = "user",
+    role: MessageRole = "user",
     annotations: Annotations | None = None,
 ) -> dict:
     """
@@ -83,7 +90,7 @@ def MCPImage(
         path = Path(path)
         if not mime_type:
             mime_type = guess_mime_type(str(path))
-        with open(path, "rb") as f:
+        with path.open("rb") as f:
             data = f.read()
 
     if not mime_type:
@@ -105,7 +112,7 @@ def MCPImage(
 def MCPFile(
     path: Union[str, Path],
     mime_type: str | None = None,
-    role: Literal["user", "assistant"] = "user",
+    role: MessageRole = "user",
     annotations: Annotations | None = None,
 ) -> dict:
     """
@@ -161,12 +168,13 @@ def MCPPrompt(
         Path,
         bytes,
         ContentBlock,
+        _EmbeddedResourceLike,
         ResourceContents,
         ReadResourceResult,
         PromptMessage,
         PromptMessageExtended,
     ],
-    role: Literal["user", "assistant"] = "user",
+    role: MessageRole = "user",
 ) -> list[dict]:
     """
     Create one or more prompt messages with various content types.
@@ -190,70 +198,106 @@ def MCPPrompt(
     Returns:
         List of messages that can be used in a prompt
     """
-    result = []
-
+    result: list[dict] = []
     for item in content_items:
-        if isinstance(item, dict) and "role" in item and "content" in item:
-            # Already a fully formed message
-            result.append(item)
-        elif isinstance(item, PromptMessage):
-            # Use the prompt message role/content directly
-            result.append({"role": item.role, "content": item.content})
-        elif isinstance(item, PromptMessageExtended):
-            # Expand multipart messages into standard PromptMessages
-            for msg in item.from_multipart():
-                result.append({"role": msg.role, "content": msg.content})
-        elif isinstance(item, ContentBlock):
-            # Already a content block, wrap in a message
-            result.append({"role": role, "content": item})
-        elif isinstance(item, str):
-            # Simple text content
-            result.append(MCPText(item, role=role))
-        elif isinstance(item, Path):
-            # File path - determine the content type based on mime type
-            path_str = str(item)
-            mime_type = guess_mime_type(path_str)
-
-            if is_image_mime_type(mime_type):
-                # Image files (except SVG which is handled as text)
-                result.append(MCPImage(path=item, role=role))
-            else:
-                # All other file types (text documents, PDFs, SVGs, etc.)
-                result.append(MCPFile(path=item, role=role))
-        elif isinstance(item, bytes):
-            # Raw binary data, assume image
-            result.append(MCPImage(data=item, role=role))
-        elif hasattr(item, "type") and item.type == "resource" and hasattr(item, "resource"):
-            # Looks like an EmbeddedResource but may not be the exact class
-            resource = item.resource
-            if isinstance(resource, (TextResourceContents, BlobResourceContents)):
-                result.append(
-                    {"role": role, "content": EmbeddedResource(type="resource", resource=resource)}
-                )
-            else:
-                result.append(MCPText(str(item), role=role))
-        elif isinstance(item, (TextResourceContents, BlobResourceContents)):
-            # It's a concrete ResourceContents, wrap it in an EmbeddedResource
-            result.append(
-                {"role": role, "content": EmbeddedResource(type="resource", resource=item)}
-            )
-        elif isinstance(item, ResourceContents):
-            # Fallback for unknown resource content shapes
-            result.append(MCPText(str(item), role=role))
-        elif isinstance(item, ReadResourceResult):
-            # It's a ReadResourceResult, convert each resource content
-            for resource_content in item.contents:
-                result.append(
-                    {
-                        "role": role,
-                        "content": EmbeddedResource(type="resource", resource=resource_content),
-                    }
-                )
-        else:
-            # Try to convert to string
-            result.append(MCPText(str(item), role=role))
-
+        result.extend(_prompt_messages_for_item(item, role=role))
     return result
+
+
+def _prompt_messages_for_item(
+    item: object,
+    *,
+    role: MessageRole,
+) -> list[dict]:
+    messages = _prompt_messages_from_message_like(item, role=role)
+    if messages is not None:
+        return messages
+    messages = _prompt_messages_from_file_like(item, role=role)
+    if messages is not None:
+        return messages
+    messages = _prompt_messages_from_resource_like(item, role=role)
+    if messages is not None:
+        return messages
+    return [MCPText(str(item), role=role)]
+
+
+def _prompt_messages_from_message_like(
+    item: object,
+    *,
+    role: MessageRole,
+) -> list[dict] | None:
+    if isinstance(item, dict) and "role" in item and "content" in item:
+        return [item]
+    if isinstance(item, PromptMessage):
+        return [{"role": item.role, "content": item.content}]
+    if isinstance(item, PromptMessageExtended):
+        return [{"role": msg.role, "content": msg.content} for msg in item.from_multipart()]
+    if isinstance(item, ContentBlock):
+        return [{"role": role, "content": item}]
+    if isinstance(item, str):
+        return [MCPText(item, role=role)]
+    return None
+
+
+def _prompt_messages_from_file_like(
+    item: object,
+    *,
+    role: MessageRole,
+) -> list[dict] | None:
+    if isinstance(item, Path):
+        return [_prompt_message_from_path(item, role=role)]
+    if isinstance(item, bytes):
+        return [MCPImage(data=item, role=role)]
+    return None
+
+
+def _prompt_message_from_path(
+    path: Path,
+    *,
+    role: MessageRole,
+) -> dict:
+    mime_type = guess_mime_type(str(path))
+    if is_image_mime_type(mime_type):
+        return MCPImage(path=path, role=role)
+    return MCPFile(path=path, role=role)
+
+
+def _embedded_resource_message(
+    resource: TextResourceContents | BlobResourceContents,
+    *,
+    role: MessageRole,
+) -> dict:
+    return {"role": role, "content": EmbeddedResource(type="resource", resource=resource)}
+
+
+def _prompt_messages_from_resource_like(
+    item: object,
+    *,
+    role: MessageRole,
+) -> list[dict] | None:
+    if isinstance(item, _EmbeddedResourceLike) and item.type == "resource":
+        return [_prompt_message_from_embedded_resource_like(item, role=role)]
+    if isinstance(item, (TextResourceContents, BlobResourceContents)):
+        return [_embedded_resource_message(item, role=role)]
+    if isinstance(item, ResourceContents):
+        return [MCPText(str(item), role=role)]
+    if isinstance(item, ReadResourceResult):
+        return [
+            _embedded_resource_message(resource_content, role=role)
+            for resource_content in item.contents
+        ]
+    return None
+
+
+def _prompt_message_from_embedded_resource_like(
+    item: _EmbeddedResourceLike,
+    *,
+    role: MessageRole,
+) -> dict:
+    resource = item.resource
+    if isinstance(resource, (TextResourceContents, BlobResourceContents)):
+        return _embedded_resource_message(resource, role=role)
+    return MCPText(str(item), role=role)
 
 
 def User(
@@ -290,7 +334,7 @@ def Assistant(
     return MCPPrompt(*content_items, role="assistant")
 
 
-def create_message(content: Any, role: Literal["user", "assistant"] = "user") -> dict:
+def create_message(content: Any, role: MessageRole = "user") -> dict:
     """
     Create a single prompt message from content of various types.
 

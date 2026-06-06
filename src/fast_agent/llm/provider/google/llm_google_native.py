@@ -2,7 +2,8 @@ import json
 import logging
 import secrets
 from collections.abc import Mapping
-from dataclasses import dataclass
+from contextlib import suppress
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 from google import genai
@@ -35,10 +36,12 @@ from fast_agent.llm.reasoning_effort import (
     parse_reasoning_setting,
 )
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.text import strip_casefold
 
 # Suppress noisy internal warnings and AFC logs from the Google GenAI SDK
 logging.getLogger("google_genai").setLevel(logging.ERROR)
@@ -46,6 +49,42 @@ logging.getLogger("google_genai").setLevel(logging.ERROR)
 # Define default model and potentially other Google-specific defaults
 DEFAULT_GOOGLE_MODEL = "gemini3"
 _GOOGLE_VERTEX_PARTNER_MODEL_PREFIXES = ("claude",)
+_GOOGLE_FINISH_REASON_MAP: dict[str, LlmStopReason] = {
+    "STOP": LlmStopReason.END_TURN,
+    "MAX_TOKENS": LlmStopReason.MAX_TOKENS,
+    "LENGTH": LlmStopReason.MAX_TOKENS,
+    "PROHIBITED_CONTENT": LlmStopReason.SAFETY,
+    "SAFETY": LlmStopReason.SAFETY,
+    "RECITATION": LlmStopReason.SAFETY,
+    "BLOCKLIST": LlmStopReason.SAFETY,
+    "SPII": LlmStopReason.SAFETY,
+    "IMAGE_SAFETY": LlmStopReason.SAFETY,
+    "IMAGE_PROHIBITED_CONTENT": LlmStopReason.SAFETY,
+    "IMAGE_RECITATION": LlmStopReason.SAFETY,
+    "MALFORMED_FUNCTION_CALL": LlmStopReason.ERROR,
+    "UNEXPECTED_TOOL_CALL": LlmStopReason.ERROR,
+    "TOO_MANY_TOOL_CALLS": LlmStopReason.ERROR,
+    "NO_IMAGE": LlmStopReason.ERROR,
+    "IMAGE_OTHER": LlmStopReason.ERROR,
+}
+
+
+def _google_thinking_effort_config(effort: str) -> tuple[int | None, str | None]:
+    if effort == "none":
+        return 0, None
+    if effort == "auto":
+        return -1, None
+
+    level_map: dict[str, str] = {
+        "minimal": "MINIMAL",
+        "low": "LOW",
+        "medium": "MEDIUM",
+        "high": "HIGH",
+    }
+    level = level_map.get(effort)
+    if level is not None:
+        return None, level
+    return -1, None
 
 
 # Define Google-specific parameter exclusions if necessary
@@ -88,6 +127,19 @@ class _GoogleToolBuffer:
     buffer: str = ""
     provider_call_id: str | None = None
     thought_signature: bytes | None = None
+
+
+@dataclass(slots=True)
+class _GoogleStreamState:
+    model: str
+    timeline: list["GoogleTimelineEntry"] = field(default_factory=list)
+    tracker: ToolCallTracker = field(default_factory=ToolCallTracker)
+    tool_buffers: dict[str, _GoogleToolBuffer] = field(default_factory=dict)
+    active_tool_index: int | None = None
+    tool_counter: int = 0
+    estimated_tokens: int = 0
+    usage_metadata: types.GenerateContentResponseUsageMetadata | None = None
+    last_chunk: types.GenerateContentResponse | None = None
 
 
 GoogleTimelineEntry = (
@@ -139,7 +191,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
     def _init_reasoning(self, kwargs: dict) -> None:
         """Wire up reasoning/thinking from kwargs or config."""
-        raw_setting = kwargs.get("reasoning_effort", None)
+        raw_setting = kwargs.get("reasoning_effort")
         model_name = self.default_request_params.model or DEFAULT_GOOGLE_MODEL
 
         if raw_setting is None:
@@ -194,28 +246,21 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         setting = self.reasoning_effort
         if setting is None:
             return (None, None)
-        if setting.kind == "toggle":
-            return (-1 if setting.value else 0, None)
-        if setting.kind == "budget" and isinstance(setting.value, int):
-            return (max(0, setting.value), None)
-        if setting.kind == "effort":
-            effort = str(setting.value).lower()
-            if effort in ("none",):
-                return (0, None)
-            if effort in ("auto",):
-                return (-1, None)
-            # Map to SDK ThinkingLevel names
-            level_map: dict[str, str] = {
-                "minimal": "MINIMAL",
-                "low": "LOW",
-                "medium": "MEDIUM",
-                "high": "HIGH",
-            }
-            level = level_map.get(effort)
-            if level:
-                return (None, level)
-            return (-1, None)
-        return (None, None)
+
+        thinking_budget: int | None
+        thinking_level: str | None
+        match setting.kind:
+            case "toggle":
+                thinking_budget, thinking_level = (-1 if setting.value else 0), None
+            case "budget" if isinstance(setting.value, int):
+                thinking_budget, thinking_level = max(0, setting.value), None
+            case "effort":
+                thinking_budget, thinking_level = _google_thinking_effort_config(
+                    strip_casefold(str(setting.value))
+                )
+            case _:
+                thinking_budget, thinking_level = None, None
+        return thinking_budget, thinking_level
 
     def _vertex_cfg(self) -> tuple[bool, str | None, str | None]:
         """(enabled, project_id, location) for Vertex config; supports dict/mapping or object."""
@@ -254,7 +299,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if not (enabled and project_id and location):
             return model
 
-        normalized = model.strip().lower()
+        normalized = strip_casefold(model)
         if normalized.startswith(_GOOGLE_VERTEX_PARTNER_MODEL_PREFIXES):
             return model
 
@@ -472,42 +517,56 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
         final_parts: list[types.Part] = []
         for entry in timeline:
-            if isinstance(entry, _GoogleTextTimelineEntry):
-                final_parts.append(types.Part.from_text(text=entry.text))
+            part = self._google_timeline_part(entry, tool_buffers)
+            if part is None:
                 continue
-            if isinstance(entry, _GoogleReasoningTimelineEntry):
-                final_parts.append(
-                    types.Part(
-                        text=entry.text,
-                        thought=True,
-                        thought_signature=entry.thought_signature,
-                    )
-                )
-                continue
-            if isinstance(entry, _GoogleSignatureTimelineEntry):
-                final_parts.append(types.Part(text="", thought_signature=entry.thought_signature))
-                continue
-
-            tool_buffer = tool_buffers.get(entry.tool_use_id)
-            if tool_buffer is None:
-                continue
-            try:
-                args_obj = json.loads(tool_buffer.buffer) if tool_buffer.buffer else {}
-            except json.JSONDecodeError:
-                args_obj = {"__raw": tool_buffer.buffer}
-            final_parts.append(
-                types.Part(
-                    function_call=types.FunctionCall(
-                        id=tool_buffer.provider_call_id or tool_buffer.tool_use_id,
-                        name=str(tool_buffer.name or "tool"),
-                        args=args_obj,
-                    ),
-                    thought_signature=tool_buffer.thought_signature,
-                )
-            )
+            final_parts.append(part)
 
         final_content = types.Content(role="model", parts=final_parts)
+        final_response = self._google_response_with_content(last_chunk, final_content)
 
+        if usage_metadata:
+            final_response.usage_metadata = usage_metadata
+
+        return final_response
+
+    def _google_timeline_part(
+        self,
+        entry: GoogleTimelineEntry,
+        tool_buffers: dict[str, _GoogleToolBuffer],
+    ) -> types.Part | None:
+        if isinstance(entry, _GoogleTextTimelineEntry):
+            return types.Part.from_text(text=entry.text)
+        if isinstance(entry, _GoogleReasoningTimelineEntry):
+            return types.Part(
+                text=entry.text,
+                thought=True,
+                thought_signature=entry.thought_signature,
+            )
+        if isinstance(entry, _GoogleSignatureTimelineEntry):
+            return types.Part(text="", thought_signature=entry.thought_signature)
+
+        tool_buffer = tool_buffers.get(entry.tool_use_id)
+        if tool_buffer is None:
+            return None
+        try:
+            args_obj = json.loads(tool_buffer.buffer) if tool_buffer.buffer else {}
+        except json.JSONDecodeError:
+            args_obj = {"__raw": tool_buffer.buffer}
+        return types.Part(
+            function_call=types.FunctionCall(
+                id=tool_buffer.provider_call_id or tool_buffer.tool_use_id,
+                name=str(tool_buffer.name or "tool"),
+                args=args_obj,
+            ),
+            thought_signature=tool_buffer.thought_signature,
+        )
+
+    @staticmethod
+    def _google_response_with_content(
+        last_chunk: types.GenerateContentResponse | None,
+        final_content: types.Content,
+    ) -> types.GenerateContentResponse:
         if last_chunk is not None:
             final_response = last_chunk.model_copy(deep=True)
             candidates = final_response.candidates or []
@@ -521,10 +580,430 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 candidates=[types.Candidate(content=final_content)]
             )
 
-        if usage_metadata:
-            final_response.usage_metadata = usage_metadata
-
         return final_response
+
+    def _record_google_stream_chunk(
+        self,
+        state: _GoogleStreamState,
+        chunk: types.GenerateContentResponse,
+        *,
+        capture_base,
+    ) -> types.Candidate | None:
+        save_stream_chunk(capture_base, chunk)
+        state.last_chunk = chunk
+        if getattr(chunk, "usage_metadata", None):
+            state.usage_metadata = chunk.usage_metadata
+
+        candidates = chunk.candidates
+        if not candidates:
+            return None
+        return candidates[0]
+
+    def _handle_google_stream_part(
+        self,
+        state: _GoogleStreamState,
+        part: types.Part,
+    ) -> None:
+        self._handle_google_text_part(state, part)
+        self._handle_google_function_call_part(state, part)
+        self._handle_google_signature_part(state, part)
+
+    def _handle_google_text_part(
+        self,
+        state: _GoogleStreamState,
+        part: types.Part,
+    ) -> None:
+        text = getattr(part, "text", None) or ""
+        if not text:
+            return
+
+        if getattr(part, "thought", False):
+            self._notify_stream_listeners(StreamChunk(text=text, is_reasoning=True))
+            self._append_google_reasoning_timeline(
+                state.timeline,
+                text,
+                part.thought_signature,
+            )
+            return
+
+        self._append_google_text_timeline(state.timeline, text)
+        state.estimated_tokens = self._emit_stream_text_delta(
+            text=text,
+            model=state.model,
+            estimated_tokens=state.estimated_tokens,
+        )
+
+    def _handle_google_function_call_part(
+        self,
+        state: _GoogleStreamState,
+        part: types.Part,
+    ) -> None:
+        function_call = getattr(part, "function_call", None)
+        if function_call is None:
+            return
+
+        if state.active_tool_index is None:
+            state.active_tool_index = state.tool_counter
+            state.tool_counter += 1
+            self._start_google_tool_stream(
+                tracker=state.tracker,
+                tool_buffers=state.tool_buffers,
+                timeline=state.timeline,
+                tool_index=state.active_tool_index,
+                tool_name=getattr(function_call, "name", None) or "tool",
+                provider_call_id=getattr(function_call, "id", None),
+                thought_signature=part.thought_signature,
+            )
+
+        self._update_google_tool_buffer(state, function_call, part)
+
+    def _update_google_tool_buffer(
+        self,
+        state: _GoogleStreamState,
+        function_call: Any,
+        part: types.Part,
+    ) -> None:
+        active_tool_index = state.active_tool_index
+        if active_tool_index is None:
+            return
+
+        tool_state = state.tracker.resolve_open(index=active_tool_index)
+        if tool_state is None:
+            return
+
+        thought_signature = part.thought_signature
+        tool_buffer = state.tool_buffers.get(tool_state.tool_use_id)
+        if tool_buffer is None:
+            tool_buffer = _GoogleToolBuffer(
+                tool_use_id=tool_state.tool_use_id,
+                name=tool_state.name,
+                thought_signature=thought_signature,
+            )
+            state.tool_buffers[tool_state.tool_use_id] = tool_buffer
+        if thought_signature is not None:
+            tool_buffer.thought_signature = thought_signature
+
+        serialized_args = self._serialize_google_tool_args(
+            getattr(function_call, "args", None) or {}
+        )
+        delta = self._google_tool_buffer_delta(tool_buffer.buffer, serialized_args)
+        tool_buffer.buffer = serialized_args
+        if delta:
+            self._notify_google_tool_delta(tool_buffer, active_tool_index, delta)
+
+    @staticmethod
+    def _google_tool_buffer_delta(previous: str, current: str) -> str:
+        if current.startswith(previous):
+            return current.removeprefix(previous)
+        return current
+
+    def _notify_google_tool_delta(
+        self,
+        tool_buffer: _GoogleToolBuffer,
+        tool_index: int,
+        delta: str,
+    ) -> None:
+        self._notify_tool_stream_listeners(
+            "delta",
+            {
+                "tool_name": tool_buffer.name,
+                "tool_use_id": tool_buffer.tool_use_id,
+                "index": tool_index,
+                "chunk": delta,
+            },
+        )
+
+    @staticmethod
+    def _handle_google_signature_part(
+        state: _GoogleStreamState,
+        part: types.Part,
+    ) -> None:
+        thought_signature = part.thought_signature
+        if (
+            thought_signature is not None
+            and not getattr(part, "function_call", None)
+            and not getattr(part, "text", None)
+        ):
+            state.timeline.append(
+                _GoogleSignatureTimelineEntry(
+                    thought_signature=thought_signature,
+                )
+            )
+
+    def _close_google_tool_if_finished(
+        self,
+        state: _GoogleStreamState,
+        candidate: types.Candidate,
+    ) -> None:
+        finish_reason = getattr(candidate, "finish_reason", None)
+        if not finish_reason or state.active_tool_index is None:
+            return
+
+        finish_value = str(finish_reason).split(".")[-1].upper()
+        if finish_value not in {"FUNCTION_CALL", "STOP"}:
+            return
+
+        self._close_google_tool_stream(
+            tracker=state.tracker,
+            tool_index=state.active_tool_index,
+        )
+        state.active_tool_index = None
+
+    def _close_google_active_tool(self, state: _GoogleStreamState) -> None:
+        if state.active_tool_index is None:
+            return
+        self._close_google_tool_stream(
+            tracker=state.tracker,
+            tool_index=state.active_tool_index,
+        )
+        state.active_tool_index = None
+
+    @staticmethod
+    def _raise_if_google_tools_incomplete(tracker: ToolCallTracker) -> None:
+        incomplete_tools = tracker.incomplete()
+        if incomplete_tools:
+            raise RuntimeError(
+                format_incomplete_tool_call_error(
+                    [f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools]
+                )
+            )
+
+    def _google_structured_response_options(
+        self,
+        request_params: RequestParams,
+        response_mime_type: str | None,
+        response_schema: object | None,
+    ) -> tuple[str | None, object | None]:
+        if request_params.structured_schema and response_schema is None:
+            return (
+                response_mime_type or "application/json",
+                self._converter._clean_schema_for_google(request_params.structured_schema),
+            )
+        return response_mime_type, response_schema
+
+    def _google_suppress_tools(
+        self,
+        request_params: RequestParams,
+        tools: list[McpTool] | None,
+        suppress_tools: bool | None,
+    ) -> bool:
+        if suppress_tools is not None:
+            return suppress_tools
+        return (
+            self._has_structured_intent(request_params)
+            and bool(tools)
+            and self._resolve_structured_tool_policy(request_params) == "no_tools"
+        )
+
+    def _google_available_tools(
+        self,
+        tools: list[McpTool] | None,
+        *,
+        suppress_tools: bool,
+    ) -> types.ToolListUnion:
+        available_tools: types.ToolListUnion = []
+        if tools and not suppress_tools:
+            available_tools.extend(self._converter.convert_to_google_tools(tools))
+        if self.web_search_enabled:
+            available_tools.append(types.Tool(google_search=types.GoogleSearch()))
+        return available_tools
+
+    def _google_generate_content_config(
+        self,
+        request_params: RequestParams,
+        *,
+        tools: list[McpTool] | None,
+        available_tools: types.ToolListUnion,
+        response_mime_type: str | None,
+        response_schema: object | None,
+        suppress_tools: bool,
+    ) -> types.GenerateContentConfig:
+        thinking_budget, thinking_level = self._resolve_thinking_config()
+        generate_content_config = self._converter.convert_request_params_to_google_config(
+            request_params,
+            thinking_budget=thinking_budget,
+            thinking_level=thinking_level,
+        )
+        if response_mime_type:
+            generate_content_config.response_mime_type = response_mime_type
+        if response_schema is not None:
+            generate_content_config.response_schema = response_schema
+        if available_tools:
+            generate_content_config.tools = available_tools
+            if tools and not suppress_tools:
+                generate_content_config.tool_config = types.ToolConfig(
+                    function_calling_config=types.FunctionCallingConfig(
+                        mode=types.FunctionCallingConfigMode.AUTO,
+                    ),
+                    include_server_side_tool_invocations=bool(self.web_search_enabled),
+                )
+        return generate_content_config
+
+    async def _call_google_generate_content(
+        self,
+        *,
+        client: genai.Client,
+        model_name: str,
+        conversation_history: list[types.Content],
+        generate_content_config: types.GenerateContentConfig,
+        response_mime_type: str | None,
+        response_schema: object | None,
+    ) -> types.GenerateContentResponse:
+        async with client.aio:
+            api_response = None
+            streaming_supported = response_schema is None and response_mime_type is None
+            if streaming_supported:
+                api_response = await self._stream_generate_content(
+                    model=model_name,
+                    contents=conversation_history,
+                    config=generate_content_config,
+                    client=client,
+                )
+            if api_response is None:
+                api_response = await client.aio.models.generate_content(
+                    model=model_name,
+                    contents=cast("types.ContentListUnion", conversation_history),
+                    config=generate_content_config,
+                )
+            return api_response
+
+    def _track_google_usage(
+        self,
+        api_response: types.GenerateContentResponse,
+        model_name: str,
+    ) -> None:
+        usage_metadata = getattr(api_response, "usage_metadata", None)
+        if not usage_metadata:
+            return
+        try:
+            turn_usage = TurnUsage.from_google(usage_metadata, model_name)
+            self._finalize_turn_usage(turn_usage)
+        except Exception as e:
+            self.logger.warning(f"Failed to track usage: {e}")
+
+    def _google_model_response_parts(
+        self,
+        candidate: types.Candidate,
+        api_response: types.GenerateContentResponse,
+        *,
+        response_mime_type: str | None,
+        response_schema: object | None,
+    ) -> list[ContentBlock | CallToolRequestParams]:
+        candidate_content = candidate.content
+        if candidate_content is None:
+            model_response_content_parts: list[ContentBlock | CallToolRequestParams] = []
+        else:
+            model_response_content_parts = self._converter.convert_from_google_content(
+                candidate_content
+            )
+
+        model_response_content_parts = self._apply_google_grounding_citations(
+            model_response_content_parts,
+            getattr(candidate, "grounding_metadata", None),
+        )
+        if not model_response_content_parts and (response_schema or response_mime_type):
+            structured_text = self._extract_structured_response_text(api_response)
+            if structured_text:
+                model_response_content_parts.append(TextContent(type="text", text=structured_text))
+        return model_response_content_parts
+
+    def _apply_google_grounding_citations(
+        self,
+        parts: list[ContentBlock | CallToolRequestParams],
+        grounding_metadata: Any,
+    ) -> list[ContentBlock | CallToolRequestParams]:
+        if not grounding_metadata:
+            return parts
+
+        text_parts = [part for part in parts if isinstance(part, TextContent)]
+        if not text_parts:
+            return parts
+
+        cited_text = self._apply_citations("".join(part.text for part in text_parts), grounding_metadata)
+        new_parts: list[ContentBlock | CallToolRequestParams] = []
+        replaced = False
+        for part in parts:
+            if isinstance(part, TextContent):
+                if not replaced:
+                    new_parts.append(TextContent(type="text", text=cited_text))
+                    replaced = True
+                continue
+            new_parts.append(part)
+        return new_parts
+
+    @staticmethod
+    def _provider_google_tool_calls(
+        candidate_content: types.Content | None,
+    ) -> list[tuple[str, str, dict[str, Any]]]:
+        provider_tool_calls: list[tuple[str, str, dict[str, Any]]] = []
+        if candidate_content is None or candidate_content.parts is None:
+            return provider_tool_calls
+
+        for content_part in candidate_content.parts:
+            function_call = content_part.function_call
+            if function_call is None:
+                continue
+            tool_name = function_call.name or "unknown_function"
+            tool_args = function_call.args or {}
+            tool_call_id = function_call.id or secrets.token_hex(3)[:5]
+            if function_call.id is None:
+                function_call.id = tool_call_id
+            provider_tool_calls.append((tool_call_id, tool_name, dict(tool_args)))
+        return provider_tool_calls
+
+    @staticmethod
+    def _google_response_text_and_tool_params(
+        parts: list[ContentBlock | CallToolRequestParams],
+        provider_tool_calls: list[tuple[str, str, dict[str, Any]]],
+    ) -> tuple[list[ContentBlock], list[CallToolRequestParams]]:
+        responses: list[ContentBlock] = []
+        tool_calls_to_execute: list[CallToolRequestParams] = []
+        for part in parts:
+            if isinstance(part, TextContent):
+                responses.append(part)
+            elif isinstance(part, CallToolRequestParams) and not provider_tool_calls:
+                tool_calls_to_execute.append(part)
+
+        if provider_tool_calls:
+            tool_calls_to_execute = [
+                CallToolRequestParams(name=name, arguments=args)
+                for _, name, args in provider_tool_calls
+            ]
+        return responses, tool_calls_to_execute
+
+    def _google_tool_call_requests(
+        self,
+        tool_calls_to_execute: list[CallToolRequestParams],
+        provider_tool_calls: list[tuple[str, str, dict[str, Any]]],
+    ) -> dict[str, CallToolRequest] | None:
+        if not tool_calls_to_execute:
+            return None
+
+        tool_calls: dict[str, CallToolRequest] = {}
+        for index, tool_call_params in enumerate(tool_calls_to_execute):
+            tool_call_request = CallToolRequest(method="tools/call", params=tool_call_params)
+            tool_call_id = (
+                provider_tool_calls[index][0] if provider_tool_calls else secrets.token_hex(3)[:5]
+            )
+            tool_calls[tool_call_id] = tool_call_request
+        self.logger.debug("Tool call results processed.")
+        return tool_calls
+
+    @staticmethod
+    def _google_assistant_with_reasoning(
+        responses: list[ContentBlock],
+        *,
+        stop_reason: LlmStopReason,
+        tool_calls: dict[str, CallToolRequest] | None,
+        candidate_content: types.Content | None,
+    ) -> PromptMessageExtended:
+        assistant = Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
+        reasoning_blocks = GoogleNativeLLM._extract_reasoning_blocks(candidate_content)
+        if reasoning_blocks:
+            channels = dict(assistant.channels or {})
+            channels[REASONING] = reasoning_blocks
+            assistant.channels = channels
+        return assistant
 
     async def _consume_google_stream(
         self,
@@ -534,152 +1013,40 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         capture_base=None,
     ) -> types.GenerateContentResponse | None:
         """Consume the async streaming iterator and aggregate the final response."""
-        estimated_tokens = 0
-        timeline: list[GoogleTimelineEntry] = []
-        tracker = ToolCallTracker()
-        tool_buffers: dict[str, _GoogleToolBuffer] = {}
-        active_tool_index: int | None = None
-        tool_counter = 0
-        usage_metadata: types.GenerateContentResponseUsageMetadata | None = None
-        last_chunk: types.GenerateContentResponse | None = None
+        state = _GoogleStreamState(model=model)
 
         try:
             # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
             async for chunk in response_stream:
-                save_stream_chunk(capture_base, chunk)
-                last_chunk = chunk
-                if getattr(chunk, "usage_metadata", None):
-                    usage_metadata = chunk.usage_metadata
-
-                if not getattr(chunk, "candidates", None):
+                candidate = self._record_google_stream_chunk(
+                    state,
+                    chunk,
+                    capture_base=capture_base,
+                )
+                if candidate is None:
                     continue
-
-                candidate = chunk.candidates[0]
                 content = getattr(candidate, "content", None)
                 if content is None or not getattr(content, "parts", None):
                     continue
 
                 for part in content.parts:
-                    if getattr(part, "text", None):
-                        text = part.text or ""
-                        if text:
-                            if getattr(part, "thought", False):
-                                self._notify_stream_listeners(
-                                    StreamChunk(text=text, is_reasoning=True)
-                                )
-                                self._append_google_reasoning_timeline(
-                                    timeline,
-                                    text,
-                                    cast("bytes | None", part.thought_signature),
-                                )
-                            else:
-                                self._append_google_text_timeline(timeline, text)
-                                estimated_tokens = self._emit_stream_text_delta(
-                                    text=text,
-                                    model=model,
-                                    estimated_tokens=estimated_tokens,
-                                )
+                    self._handle_google_stream_part(state, part)
 
-                    if getattr(part, "function_call", None):
-                        function_call = part.function_call
-                        name = getattr(function_call, "name", None) or "tool"
-                        args = getattr(function_call, "args", None) or {}
-                        provider_call_id = getattr(function_call, "id", None)
-                        thought_signature = cast("bytes | None", part.thought_signature)
-
-                        if active_tool_index is None:
-                            active_tool_index = tool_counter
-                            tool_counter += 1
-                            self._start_google_tool_stream(
-                                tracker=tracker,
-                                tool_buffers=tool_buffers,
-                                timeline=timeline,
-                                tool_index=active_tool_index,
-                                tool_name=name,
-                                provider_call_id=provider_call_id,
-                                thought_signature=thought_signature,
-                            )
-                        state = tracker.resolve_open(index=active_tool_index)
-                        if state is None:
-                            continue
-                        tool_buffer = tool_buffers.get(state.tool_use_id)
-                        if tool_buffer is None:
-                            tool_buffer = _GoogleToolBuffer(
-                                tool_use_id=state.tool_use_id,
-                                name=state.name,
-                                thought_signature=thought_signature,
-                            )
-                            tool_buffers[state.tool_use_id] = tool_buffer
-                        if thought_signature is not None:
-                            tool_buffer.thought_signature = thought_signature
-
-                        serialized_args = self._serialize_google_tool_args(args)
-                        previous = tool_buffer.buffer
-                        delta = (
-                            serialized_args[len(previous) :]
-                            if serialized_args.startswith(previous)
-                            else serialized_args
-                        )
-                        tool_buffer.buffer = serialized_args
-
-                        if delta:
-                            self._notify_tool_stream_listeners(
-                                "delta",
-                                {
-                                    "tool_name": tool_buffer.name,
-                                    "tool_use_id": tool_buffer.tool_use_id,
-                                    "index": active_tool_index,
-                                    "chunk": delta,
-                                },
-                            )
-
-                    thought_signature = cast("bytes | None", part.thought_signature)
-                    if (
-                        thought_signature is not None
-                        and not getattr(part, "function_call", None)
-                        and not getattr(part, "text", None)
-                    ):
-                        timeline.append(
-                            _GoogleSignatureTimelineEntry(
-                                thought_signature=thought_signature,
-                            )
-                        )
-
-                finish_reason = getattr(candidate, "finish_reason", None)
-                if finish_reason:
-                    finish_value = str(finish_reason).split(".")[-1].upper()
-                    if finish_value in {"FUNCTION_CALL", "STOP"} and active_tool_index is not None:
-                        self._close_google_tool_stream(
-                            tracker=tracker,
-                            tool_index=active_tool_index,
-                        )
-                        active_tool_index = None
+                self._close_google_tool_if_finished(state, candidate)
         finally:
             stream_close = getattr(response_stream, "aclose", None)
             if callable(stream_close):
-                try:
+                with suppress(Exception):
                     await stream_close()
-                except Exception:
-                    pass
 
-        if active_tool_index is not None:
-            self._close_google_tool_stream(
-                tracker=tracker,
-                tool_index=active_tool_index,
-            )
-
-        incomplete_tools = tracker.incomplete()
-        if incomplete_tools:
-            raise RuntimeError(
-                "Streaming completed but tool call(s) never finished: "
-                + ", ".join(f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools)
-            )
+        self._close_google_active_tool(state)
+        self._raise_if_google_tools_incomplete(state.tracker)
 
         return self._build_google_final_response(
-            last_chunk=last_chunk,
-            usage_metadata=usage_metadata,
-            timeline=timeline,
-            tool_buffers=tool_buffers,
+            last_chunk=state.last_chunk,
+            usage_metadata=state.usage_metadata,
+            timeline=state.timeline,
+            tool_buffers=state.tool_buffers,
         )
 
     async def _google_completion(
@@ -696,12 +1063,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         Process a query using Google's generate_content API and available tools.
         """
         request_params = self.get_request_params(request_params=request_params)
-        responses: list[ContentBlock] = []
-        if request_params.structured_schema and response_schema is None:
-            response_mime_type = response_mime_type or "application/json"
-            response_schema = self._converter._clean_schema_for_google(
-                request_params.structured_schema
-            )
+        response_mime_type, response_schema = self._google_structured_response_options(
+            request_params,
+            response_mime_type,
+            response_schema,
+        )
 
         # Caller supplies the full set of messages to send (history + turn)
         conversation_history: list[types.Content] = list(message or [])
@@ -709,198 +1075,73 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         self.logger.debug(f"Google completion requested with messages: {conversation_history}")
         self._log_chat_progress(self.chat_turn(), model=request_params.model)
 
-        if suppress_tools is None:
-            suppress_tools = (
-                self._has_structured_intent(request_params)
-                and bool(tools)
-                and self._resolve_structured_tool_policy(request_params) == "no_tools"
-            )
-        available_tools: types.ToolListUnion = []
-        if tools and not suppress_tools:
-            available_tools.extend(self._converter.convert_to_google_tools(tools))
-
-        if self.web_search_enabled:
-            available_tools.append(
-                types.Tool(
-                    google_search=types.GoogleSearch()
-                )
-            )
-
-        # 2. Prepare generate_content arguments
-        thinking_budget, thinking_level = self._resolve_thinking_config()
-        generate_content_config = self._converter.convert_request_params_to_google_config(
+        suppress_tools = self._google_suppress_tools(request_params, tools, suppress_tools)
+        available_tools = self._google_available_tools(tools, suppress_tools=suppress_tools)
+        generate_content_config = self._google_generate_content_config(
             request_params,
-            thinking_budget=thinking_budget,
-            thinking_level=thinking_level,
+            tools=tools,
+            available_tools=available_tools,
+            response_mime_type=response_mime_type,
+            response_schema=response_schema,
+            suppress_tools=suppress_tools,
         )
 
-        # Apply structured output and tool calling. Google native supports combining
-        # response_schema with tools, but no_tools/defer final turns suppress tools.
-        if response_schema or response_mime_type:
-            if response_mime_type:
-                generate_content_config.response_mime_type = response_mime_type
-            if response_schema is not None:
-                generate_content_config.response_schema = response_schema
-        if available_tools:
-            generate_content_config.tools = available_tools
-            if tools and not suppress_tools:
-                generate_content_config.tool_config = types.ToolConfig(
-                    function_calling_config=types.FunctionCallingConfig(
-                        mode=types.FunctionCallingConfigMode.AUTO,
-                    ),
-                    include_server_side_tool_invocations=bool(self.web_search_enabled),
-                )
-
-        # 3. Call the google.genai API
         client = self._initialize_google_client()
         model_name = self._resolve_model_name(request_params.model or DEFAULT_GOOGLE_MODEL)
         try:
-            async with client.aio:
-                # Use the async client
-                api_response = None
-                streaming_supported = response_schema is None and response_mime_type is None
-                if streaming_supported:
-                    api_response = await self._stream_generate_content(
-                        model=model_name,
-                        contents=conversation_history,
-                        config=generate_content_config,
-                        client=client,
-                    )
-                if api_response is None:
-                    api_response = await client.aio.models.generate_content(
-                        model=model_name,
-                        contents=cast("types.ContentListUnion", conversation_history),
-                        config=generate_content_config,
-                    )
-                self.logger.debug("Google generate_content response:", data=api_response)
-
-                # Track usage if response is valid and has usage data
-                if (
-                    hasattr(api_response, "usage_metadata")
-                    and api_response.usage_metadata
-                    and not isinstance(api_response, BaseException)
-                ):
-                    try:
-                        turn_usage = TurnUsage.from_google(api_response.usage_metadata, model_name)
-                        self._finalize_turn_usage(turn_usage)
-
-                    except Exception as e:
-                        self.logger.warning(f"Failed to track usage: {e}")
-
+            api_response = await self._call_google_generate_content(
+                client=client,
+                model_name=model_name,
+                conversation_history=conversation_history,
+                generate_content_config=generate_content_config,
+                response_mime_type=response_mime_type,
+                response_schema=response_schema,
+            )
+            self.logger.debug("Google generate_content response:", data=api_response)
+            self._track_google_usage(api_response, model_name)
         except errors.APIError as e:
             # Handle specific Google API errors
             self.logger.error(f"Google API Error: {e.code} - {e.message}")
             raise ProviderKeyError(f"Google API Error: {e.code}", e.message or "") from e
         except Exception as e:
             self.logger.error(f"Error during Google generate_content call: {e}")
-            raise e
+            raise
 
-        # 4. Process the API response
         if not api_response.candidates:
-            # No response from the model, we're done
             self.logger.debug("No candidates returned.")
             return Prompt.assistant(stop_reason=LlmStopReason.END_TURN)
 
-        candidate = api_response.candidates[0]  # Process the first candidate
-
-        # Convert the model's response content to fast-agent types
-        # Handle case where candidate.content might be None
+        candidate = api_response.candidates[0]
         candidate_content = candidate.content
-        if candidate_content is None:
-            model_response_content_parts: list[ContentBlock | CallToolRequestParams] = []
-        else:
-            model_response_content_parts = self._converter.convert_from_google_content(
-                candidate_content
-            )
-
-        # Check if we have grounding metadata and text parts to format citations
-        grounding_metadata = getattr(candidate, "grounding_metadata", None)
-        if grounding_metadata:
-            text_parts = [p for p in model_response_content_parts if isinstance(p, TextContent)]
-            if text_parts:
-                combined_text = "".join(p.text for p in text_parts)
-                cited_text = self._apply_citations(combined_text, grounding_metadata)
-
-                new_parts = []
-                replaced = False
-                for p in model_response_content_parts:
-                    if isinstance(p, TextContent):
-                        if not replaced:
-                            new_parts.append(TextContent(type="text", text=cited_text))
-                            replaced = True
-                    else:
-                        new_parts.append(p)
-                model_response_content_parts = new_parts
-        provider_tool_calls: list[tuple[str, str, dict[str, Any]]] = []
-        if candidate_content is not None and candidate_content.parts is not None:
-            for content_part in candidate_content.parts:
-                function_call = content_part.function_call
-                if function_call is None:
-                    continue
-                tool_name = function_call.name or "unknown_function"
-                tool_args = function_call.args or {}
-                tool_call_id = function_call.id or secrets.token_hex(3)[:5]
-                if function_call.id is None:
-                    function_call.id = tool_call_id
-                provider_tool_calls.append((tool_call_id, tool_name, dict(tool_args)))
-        stop_reason = LlmStopReason.END_TURN
-        tool_calls: dict[str, CallToolRequest] | None = None
-        # Add model's response to the working conversation history for this turn
+        model_response_content_parts = self._google_model_response_parts(
+            candidate,
+            api_response,
+            response_mime_type=response_mime_type,
+            response_schema=response_schema,
+        )
+        provider_tool_calls = self._provider_google_tool_calls(candidate_content)
         if candidate_content is not None:
             conversation_history.append(candidate_content)
 
-        # Extract and process text content and tool calls
-        assistant_message_parts = []
-        tool_calls_to_execute = []
-
-        for part in model_response_content_parts:
-            if isinstance(part, TextContent):
-                responses.append(part)  # Add text content to the final responses to be returned
-                assistant_message_parts.append(
-                    part
-                )  # Collect text for potential assistant message display
-            elif isinstance(part, CallToolRequestParams) and not provider_tool_calls:
-                tool_calls_to_execute.append(part)  # Collect tool calls to execute
-
-        if provider_tool_calls:
-            tool_calls_to_execute = [
-                CallToolRequestParams(name=name, arguments=args)
-                for _, name, args in provider_tool_calls
-            ]
-
-        if not responses and (response_schema or response_mime_type):
-            structured_text = self._extract_structured_response_text(api_response)
-            if structured_text:
-                responses.append(TextContent(type="text", text=structured_text))
-
+        responses, tool_calls_to_execute = self._google_response_text_and_tool_params(
+            model_response_content_parts,
+            provider_tool_calls,
+        )
+        tool_calls = self._google_tool_call_requests(tool_calls_to_execute, provider_tool_calls)
         if tool_calls_to_execute:
             stop_reason = LlmStopReason.TOOL_USE
-            tool_calls = {}
-            for index, tool_call_params in enumerate(tool_calls_to_execute):
-                # Convert to CallToolRequest and execute
-                tool_call_request = CallToolRequest(method="tools/call", params=tool_call_params)
-                if provider_tool_calls:
-                    tool_call_id = provider_tool_calls[index][0]
-                else:
-                    tool_call_id = secrets.token_hex(3)[:5]
-                tool_calls[tool_call_id] = tool_call_request
-
-            self.logger.debug("Tool call results processed.")
         else:
             stop_reason = self._map_finish_reason(getattr(candidate, "finish_reason", None))
 
-        # Update diagnostic snapshot (never read again)
-        # This provides a snapshot of what was sent to the provider for debugging
         self.history.set(conversation_history)
 
         self._log_chat_finished(model=model_name)  # Use resolved model name
-        assistant = Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
-        reasoning_blocks = self._extract_reasoning_blocks(candidate_content)
-        if reasoning_blocks:
-            channels = dict(assistant.channels or {})
-            channels[REASONING] = reasoning_blocks
-            assistant.channels = channels
-        return assistant
+        return self._google_assistant_with_reasoning(
+            responses,
+            stop_reason=stop_reason,
+            tool_calls=tool_calls,
+            candidate_content=candidate_content,
+        )
 
     #        return responses  # Return the accumulated responses (fast-agent content types)
 
@@ -909,10 +1150,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if content is None or content.parts is None:
             return []
 
-        reasoning_segments: list[str] = []
-        for part in content.parts:
-            if getattr(part, "thought", False) and part.text:
-                reasoning_segments.append(part.text)
+        reasoning_segments = [
+            part.text for part in content.parts if getattr(part, "thought", False) and part.text
+        ]
 
         reasoning_text = "".join(reasoning_segments).strip()
         if not reasoning_text:
@@ -973,60 +1213,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             # No generation required; the provided assistant message is the output
             return last_message
 
-        # Build the provider-native message list for this turn from the last user message
-        # This must handle tool results as function responses before any additional user content.
-        turn_messages: list[types.Content] = []
-
-        # 1) Convert tool results (if any) to google function responses
-        if last_message.tool_results:
-            # Map correlation IDs back to tool names using the last assistant tool_calls
-            # found in our high-level message history
-            id_to_name: dict[str, str] = {}
-            for prev in reversed(multipart_messages):
-                if prev.role == "assistant" and prev.tool_calls:
-                    for call_id, call in prev.tool_calls.items():
-                        try:
-                            id_to_name[call_id] = call.params.name
-                        except Exception:
-                            pass
-                    break
-
-            tool_results_pairs: list[GoogleToolResult] = []
-            for call_id, result in last_message.tool_results.items():
-                tool_name = id_to_name.get(call_id, "tool")
-                tool_results_pairs.append((tool_name, call_id, result))
-
-            if tool_results_pairs:
-                turn_messages.extend(
-                    self._converter.convert_function_results_to_google(tool_results_pairs)
-                )
-
-        # 2) Convert any direct user content in the last message
-        if last_message.content:
-            user_contents = self._converter.convert_to_google_content([last_message])
-            # convert_to_google_content returns a list; preserve order after tool responses
-            turn_messages.extend(user_contents)
-
-        # If we somehow have no provider-native parts, ensure we send an empty user content
-        if not turn_messages:
-            turn_messages.append(types.Content(role="user", parts=[types.Part.from_text(text="")]))
-
-        conversation_history: list[types.Content] = []
-        provider_history = self.history.get()
-        if request_params.use_history and provider_history and len(multipart_messages) > 1:
-            conversation_history.extend(provider_history)
-            # Convert and append any new user/tool messages that came after the last assistant turn
-            last_assistant_index = -1
-            for idx, msg in enumerate(multipart_messages):
-                if msg.role == "assistant":
-                    last_assistant_index = idx
-            
-            new_messages = multipart_messages[last_assistant_index + 1 : -1]
-            if new_messages:
-                conversation_history.extend(self._convert_to_provider_format(new_messages))
-        elif request_params.use_history and len(multipart_messages) > 1:
-            conversation_history.extend(self._convert_to_provider_format(multipart_messages[:-1]))
-        conversation_history.extend(turn_messages)
+        conversation_history = self._google_conversation_history(multipart_messages, request_params)
 
         return await self._google_completion(
             conversation_history,
@@ -1036,6 +1223,79 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 multipart_messages, request_params, tools
             ),
         )
+
+    def _google_conversation_history(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+    ) -> list[types.Content]:
+        conversation_history: list[types.Content] = []
+        provider_history = self.history.get()
+        if request_params.use_history and provider_history and len(multipart_messages) > 1:
+            conversation_history.extend(provider_history)
+            conversation_history.extend(self._new_messages_since_last_assistant(multipart_messages))
+        elif request_params.use_history and len(multipart_messages) > 1:
+            conversation_history.extend(self._convert_to_provider_format(multipart_messages[:-1]))
+        conversation_history.extend(self._google_turn_messages(multipart_messages))
+        return conversation_history
+
+    def _new_messages_since_last_assistant(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+    ) -> list[types.Content]:
+        last_assistant_index = -1
+        for idx, message in enumerate(multipart_messages):
+            if message.role == "assistant":
+                last_assistant_index = idx
+
+        new_messages = multipart_messages[last_assistant_index + 1 : -1]
+        if not new_messages:
+            return []
+        return self._convert_to_provider_format(new_messages)
+
+    def _google_turn_messages(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+    ) -> list[types.Content]:
+        last_message = multipart_messages[-1]
+        turn_messages = self._google_tool_result_messages(multipart_messages, last_message)
+        if last_message.content:
+            turn_messages.extend(self._converter.convert_to_google_content([last_message]))
+        if not turn_messages:
+            turn_messages.append(types.Content(role="user", parts=[types.Part.from_text(text="")]))
+        return turn_messages
+
+    def _google_tool_result_messages(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        last_message: PromptMessageExtended,
+    ) -> list[types.Content]:
+        if not last_message.tool_results:
+            return []
+
+        id_to_name = self._last_assistant_tool_names(multipart_messages)
+        tool_results_pairs: list[GoogleToolResult] = [
+            (id_to_name.get(call_id, "tool"), call_id, result)
+            for call_id, result in last_message.tool_results.items()
+        ]
+        if not tool_results_pairs:
+            return []
+        return self._converter.convert_function_results_to_google(tool_results_pairs)
+
+    @staticmethod
+    def _last_assistant_tool_names(
+        multipart_messages: list[PromptMessageExtended],
+    ) -> dict[str, str]:
+        for message in reversed(multipart_messages):
+            if message.role != "assistant" or not message.tool_calls:
+                continue
+
+            id_to_name: dict[str, str] = {}
+            for call_id, call in message.tool_calls.items():
+                with suppress(Exception):
+                    id_to_name[call_id] = call.params.name
+            return id_to_name
+        return {}
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
@@ -1055,10 +1315,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         for msg in messages:
             if msg.role == "assistant" and msg.tool_calls:
                 for call_id, call in msg.tool_calls.items():
-                    try:
+                    with suppress(Exception):
                         id_to_name[call_id] = call.params.name
-                    except Exception:
-                        pass
 
         converted: list[types.Content] = []
         for msg in messages:
@@ -1095,31 +1353,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         # Extract last token after any dots or enum prefixes
         key = reason.split(".")[-1].upper()
 
-        if key in {"STOP"}:
-            return LlmStopReason.END_TURN
-        if key in {"MAX_TOKENS", "LENGTH"}:
-            return LlmStopReason.MAX_TOKENS
-        if key in {
-            "PROHIBITED_CONTENT",
-            "SAFETY",
-            "RECITATION",
-            "BLOCKLIST",
-            "SPII",
-            "IMAGE_SAFETY",
-            "IMAGE_PROHIBITED_CONTENT",
-            "IMAGE_RECITATION",
-        }:
-            return LlmStopReason.SAFETY
-        if key in {
-            "MALFORMED_FUNCTION_CALL",
-            "UNEXPECTED_TOOL_CALL",
-            "TOO_MANY_TOOL_CALLS",
-            "NO_IMAGE",
-            "IMAGE_OTHER",
-        }:
-            return LlmStopReason.ERROR
         # Some SDKs include OTHER, LANGUAGE, GROUNDING, UNSPECIFIED, etc.
-        return LlmStopReason.ERROR
+        return _GOOGLE_FINISH_REASON_MAP.get(key, LlmStopReason.ERROR)
 
     async def _apply_prompt_provider_specific_structured(
         self,
@@ -1213,43 +1448,56 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             return text
 
         try:
-            # Sort supports by end_index in descending order to avoid shifting issues when inserting.
-            # Support segment indices can use either end_index (SDK object attribute) or endIndex (JSON/dict key).
-            def get_end_index(support_item: Any) -> int:
-                segment = getattr(support_item, "segment", None)
-                if segment is None:
-                    return 0
-                val = getattr(segment, "end_index", None)
-                if val is None:
-                    val = getattr(segment, "endIndex", None)
-                return int(val) if val is not None else 0
-
-            sorted_supports = sorted(supports, key=get_end_index, reverse=True)
-
-            for support in sorted_supports:
-                end_index = get_end_index(support)
+            for support in self._citation_supports_by_descending_end(supports):
+                end_index = self._citation_end_index(support)
                 if not end_index:
                     continue
 
-                indices = getattr(support, "grounding_chunk_indices", None)
-                if not indices:
-                    indices = getattr(support, "groundingChunkIndices", None)
-
-                if indices:
-                    citation_links = []
-                    for i in indices:
-                        if i < len(chunks):
-                            chunk = chunks[i]
-                            web = getattr(chunk, "web", None)
-                            uri = getattr(web, "uri", None) if web else None
-                            if uri:
-                                citation_links.append(f"[{i + 1}]({uri})")
-
-                    if citation_links:
-                        # Append a space before citations for clean display
-                        citation_string = " " + ", ".join(citation_links)
-                        text = text[:end_index] + citation_string + text[end_index:]
+                citation_string = self._citation_string(support, chunks)
+                if citation_string:
+                    text = text[:end_index] + citation_string + text[end_index:]
         except Exception as e:
             self.logger.warning(f"Failed to process Google Search grounding metadata citations: {e}")
 
         return text
+
+    def _citation_supports_by_descending_end(self, supports: Any) -> list[Any]:
+        return sorted(supports, key=self._citation_end_index, reverse=True)
+
+    @staticmethod
+    def _citation_end_index(support_item: Any) -> int:
+        segment = getattr(support_item, "segment", None)
+        if segment is None:
+            return 0
+        value = getattr(segment, "end_index", None)
+        if value is None:
+            value = getattr(segment, "endIndex", None)
+        return int(value) if value is not None else 0
+
+    def _citation_string(self, support: Any, chunks: Any) -> str | None:
+        citation_links = [
+            link
+            for index in self._citation_chunk_indices(support)
+            if (link := self._citation_link(index, chunks)) is not None
+        ]
+        if not citation_links:
+            return None
+        return " " + ", ".join(citation_links)
+
+    @staticmethod
+    def _citation_chunk_indices(support: Any) -> list[int]:
+        indices = getattr(support, "grounding_chunk_indices", None)
+        if not indices:
+            indices = getattr(support, "groundingChunkIndices", None)
+        return list(indices or [])
+
+    @staticmethod
+    def _citation_link(index: int, chunks: Any) -> str | None:
+        if index >= len(chunks):
+            return None
+        chunk = chunks[index]
+        web = getattr(chunk, "web", None)
+        uri = getattr(web, "uri", None) if web else None
+        if not uri:
+            return None
+        return f"[{index + 1}]({uri})"

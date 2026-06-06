@@ -9,6 +9,7 @@ from fast_agent.privacy.privacy_filter_onnx import (
     OpenAIPrivacyFilterOnnxSanitizer,
     _load_viterbi_transition_biases,
     _merge_spans,
+    _privacy_filter_device,
     _provider_status_message,
     _replace_spans,
     _resolve_onnx_execution_providers,
@@ -179,6 +180,10 @@ def test_resolve_onnx_execution_providers_prefers_cuda_for_auto() -> None:
         ("CUDAExecutionProvider", {"device_id": "2"}),
         "CPUExecutionProvider",
     ]
+
+
+def test_privacy_filter_device_normalizes_supported_values() -> None:
+    assert _privacy_filter_device("  CUDA  ") == "cuda"
 
 
 def test_resolve_onnx_execution_providers_allows_cpu_override() -> None:

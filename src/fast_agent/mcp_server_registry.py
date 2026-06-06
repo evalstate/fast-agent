@@ -7,9 +7,10 @@ supports dynamic registration of initialization hooks, and provides methods for
 server initialization.
 """
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING
 
 from mcp import ClientSession
 
@@ -36,7 +37,7 @@ class ServerRegistry:
         registry (dict[str, MCPServerSettings]): Loaded server configurations.
     """
 
-    registry: dict[str, MCPServerSettings] = {}
+    registry: dict[str, MCPServerSettings]
 
     def __init__(
         self,
@@ -51,8 +52,7 @@ class ServerRegistry:
         """
         self._init_results: dict[str, "InitializeResult"] = {}
         self._config = config
-        if config is not None and config.mcp is not None:
-            self.registry = config.mcp.servers or {}
+        self.registry = config.mcp.servers if config is not None and config.mcp is not None else {}
 
     ## TODO-- leaving this here to support more file formats to add servers
     def load_registry_from_file(
@@ -71,11 +71,7 @@ class ServerRegistry:
 
         settings = get_settings(config_path)
 
-        if (
-            settings.mcp is not None
-            and hasattr(settings.mcp, "servers")
-            and settings.mcp.servers is not None
-        ):
+        if settings.mcp is not None:
             return settings.mcp.servers
 
         return servers
@@ -95,7 +91,7 @@ class ServerRegistry:
         if server_config is None:
             logger.warning(f"Server '{server_name}' not found in registry.")
             return None
-        elif server_config.name is None:
+        if server_config.name is None:
             server_config.name = server_name
         return server_config
 

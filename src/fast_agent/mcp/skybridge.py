@@ -1,6 +1,7 @@
 
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AnyUrl, BaseModel, Field
 
@@ -9,6 +10,10 @@ MCP_APP_MIME_TYPE = "text/html;profile=mcp-app"
 
 OPENAI_OUTPUT_TEMPLATE_KEY = "openai/outputTemplate"
 MCP_APP_RESOURCE_URI_KEY = "ui/resourceUri"
+type AppVisibility = Literal["model", "app"]
+DEFAULT_APP_VISIBILITY: tuple[AppVisibility, ...] = ("model", "app")
+APP_ONLY_VISIBILITY: frozenset[AppVisibility] = frozenset(("app",))
+_VALID_APP_VISIBILITY = frozenset(DEFAULT_APP_VISIBILITY)
 
 
 class AppIntegrationKind(StrEnum):
@@ -35,12 +40,18 @@ class AppToolMetadata(BaseModel):
 
     resource_uri: AnyUrl
     kind: AppIntegrationKind
-    visibility: list[str] = Field(default_factory=list)
+    visibility: list[AppVisibility] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
     @property
     def is_app_only(self) -> bool:
-        return set(self.visibility) == {"app"}
+        return set(self.visibility) == APP_ONLY_VISIBILITY
+
+
+@dataclass(frozen=True, slots=True)
+class VisibilityMetadata:
+    values: list[AppVisibility]
+    warnings: list[str]
 
 
 def _ui_meta(meta: dict[str, Any]) -> dict[str, Any]:
@@ -50,24 +61,42 @@ def _ui_meta(meta: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _visibility(meta: dict[str, Any]) -> tuple[list[str], list[str]]:
+def _app_visibility_value(value: str) -> AppVisibility | None:
+    if value == "model":
+        return "model"
+    if value == "app":
+        return "app"
+    return None
+
+
+def _visibility(meta: dict[str, Any]) -> VisibilityMetadata:
     ui = _ui_meta(meta)
     raw_visibility = ui.get("visibility")
     if raw_visibility is None:
-        return ["model", "app"], []
+        return VisibilityMetadata(values=list(DEFAULT_APP_VISIBILITY), warnings=[])
     if not isinstance(raw_visibility, list) or not all(
         isinstance(value, str) for value in raw_visibility
     ):
-        return ["model", "app"], ["invalid _meta.ui.visibility; expected list[str]"]
+        return VisibilityMetadata(
+            values=list(DEFAULT_APP_VISIBILITY),
+            warnings=["invalid _meta.ui.visibility; expected list[str]"],
+        )
 
-    visibility = [value for value in raw_visibility if value in {"model", "app"}]
-    invalid = sorted(set(raw_visibility) - {"model", "app"})
+    visibility = [
+        visibility_value
+        for value in raw_visibility
+        if (visibility_value := _app_visibility_value(value)) is not None
+    ]
+    invalid = sorted(set(raw_visibility) - _VALID_APP_VISIBILITY)
     warnings = (
         [f"invalid _meta.ui.visibility values ignored: {', '.join(invalid)}"]
         if invalid
         else []
     )
-    return visibility or ["model", "app"], warnings
+    return VisibilityMetadata(
+        values=visibility or list(DEFAULT_APP_VISIBILITY),
+        warnings=warnings,
+    )
 
 
 def extract_app_tool_metadata(
@@ -97,13 +126,13 @@ def extract_app_tool_metadata(
             f"Tool '{namespaced_tool_name}' resource URI '{resource_value}' is invalid: {exc}"
         ) from exc
 
-    visibility, visibility_warnings = _visibility(meta)
-    warnings.extend(visibility_warnings)
+    visibility = _visibility(meta)
+    warnings.extend(visibility.warnings)
 
     return AppToolMetadata(
         resource_uri=resource_uri,
         kind=kind,
-        visibility=visibility,
+        visibility=visibility.values,
         warnings=warnings,
     )
 
@@ -132,7 +161,7 @@ class SkybridgeToolConfig(BaseModel):
     template_uri: AnyUrl | None = None
     resource_uri: AnyUrl | None = None
     kind: AppIntegrationKind = AppIntegrationKind.SKYBRIDGE
-    visibility: list[str] = Field(default_factory=list)
+    visibility: list[AppVisibility] = Field(default_factory=list)
     is_valid: bool = False
     warning: str | None = None
 
@@ -142,7 +171,7 @@ class SkybridgeToolConfig(BaseModel):
 
     @property
     def is_app_only(self) -> bool:
-        return set(self.visibility) == {"app"}
+        return set(self.visibility) == APP_ONLY_VISIBILITY
 
 
 class SkybridgeServerConfig(BaseModel):

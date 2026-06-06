@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from acp.schema import (
     AvailableCommandsUpdate,
@@ -30,8 +30,11 @@ from acp.schema import (
 )
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.session.identity import SessionStoreScope, normalize_session_store_scope
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from acp import AgentSideConnection
 
     from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
@@ -120,11 +123,12 @@ class ACPContext:
         session_id: str,
         *,
         session_cwd: str | None = None,
-        session_store_scope: Literal["workspace", "app"] = "workspace",
+        session_store_scope: SessionStoreScope = "workspace",
         session_store_cwd: str | None = None,
         client_capabilities: ClientCapabilities | None = None,
         client_info: ClientInfo | None = None,
         protocol_version: int | None = None,
+        set_current_mode_callback: "Callable[[str], None] | None" = None,
     ) -> None:
         """
         Initialize the ACP context.
@@ -138,15 +142,17 @@ class ACPContext:
             client_capabilities: Client capabilities from initialization
             client_info: Client information from initialization
             protocol_version: ACP protocol version
+            set_current_mode_callback: Callback that syncs server-owned session state
         """
         self._connection = connection
         self._session_id = session_id
         self._session_cwd = session_cwd
-        self._session_store_scope = session_store_scope
+        self._session_store_scope = normalize_session_store_scope(session_store_scope)
         self._session_store_cwd = session_store_cwd
         self._client_capabilities = client_capabilities or ClientCapabilities()
         self._client_info = client_info or ClientInfo()
         self._protocol_version = protocol_version
+        self._set_current_mode_callback = set_current_mode_callback
 
         # Mode management
         self._current_mode: str = "default"
@@ -192,7 +198,7 @@ class ACPContext:
         return self._session_cwd
 
     @property
-    def session_store_scope(self) -> Literal["workspace", "app"]:
+    def session_store_scope(self) -> SessionStoreScope:
         """Get the backing session store scope for persistence operations."""
         return self._session_store_scope
 
@@ -313,11 +319,10 @@ class ACPContext:
 
                 # Keep server-side slash command routing and command lists consistent with
                 # agent-initiated mode switches.
-                if self._slash_handler:
-                    try:
-                        self._slash_handler.set_current_agent(mode_id)
-                    except Exception:
-                        pass
+                if self._set_current_mode_callback:
+                    self._set_current_mode_callback(mode_id)
+                elif self._slash_handler:
+                    self._slash_handler.set_current_agent(mode_id)
                 await self.send_available_commands_update()
 
                 logger.info(
@@ -365,11 +370,11 @@ class ACPContext:
 
     def set_session_store(
         self,
-        scope: Literal["workspace", "app"],
+        scope: SessionStoreScope,
         cwd: str | None = None,
     ) -> None:
         """Set the backing session store for persistence operations."""
-        self._session_store_scope = scope
+        self._session_store_scope = normalize_session_store_scope(scope)
         self._session_store_cwd = cwd
 
     # =========================================================================

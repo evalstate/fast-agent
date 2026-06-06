@@ -13,7 +13,7 @@ OpenAI Codex users can use their subscription with **`fast-agent`**, using their
 
 Chat Completions models are also available via **Microsoft Azure**, and supported Anthropic models are available on **Google Vertex**.
 
-Local models with [**llama.cpp**](https://llama.app/) are directly supported, with automatic configuration and connection with the Responses API.
+Local models with [**llama.cpp**](providers/llamacpp.md) are directly supported, with automatic configuration and connection with the Responses API.
 
 ## Selecting a Model
 

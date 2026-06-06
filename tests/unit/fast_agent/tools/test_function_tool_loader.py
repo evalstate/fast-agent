@@ -1,13 +1,19 @@
 import asyncio
 import time
+from typing import Any, cast
 
 import pytest
 from fastmcp.tools import FunctionTool, ToolResult
 
 from fast_agent.agents.agent_types import ScopedFunctionToolConfig
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.tools.function_tool_config import FunctionToolSpec
-from fast_agent.tools.function_tool_loader import build_default_function_tool, load_function_tools
+from fast_agent.tools.function_tool_loader import (
+    build_default_function_tool,
+    load_function_from_spec,
+    load_function_tools,
+)
 
 
 @pytest.mark.asyncio
@@ -71,6 +77,24 @@ async def test_loader_uses_scoped_function_tool_metadata() -> None:
 
 
 @pytest.mark.asyncio
+async def test_loader_uses_legacy_callable_tool_metadata() -> None:
+    def shout(value: str) -> str:
+        return value.upper()
+
+    metadata_func = cast("Any", shout)
+    metadata_func._fast_tool_name = "legacy_name"
+    metadata_func._fast_tool_description = "Legacy description"
+
+    tool = load_function_tools([shout])[0]
+
+    result = await tool.run({"value": "hello"})
+
+    assert tool.name == "legacy_name"
+    assert tool.description == "Legacy description"
+    assert get_text(result.content[0]) == "HELLO"
+
+
+@pytest.mark.asyncio
 async def test_async_function_tool_still_runs_inline() -> None:
     async def async_add(a: int, b: int) -> int:
         await asyncio.sleep(0)
@@ -124,3 +148,13 @@ def test_loader_applies_metadata_for_structured_function_tool_spec(tmp_path) -> 
         "code_arg": "code",
         "language": "python",
     }
+
+
+def test_function_loader_reports_none_attribute_as_not_callable(tmp_path) -> None:
+    module_path = tmp_path / "tools.py"
+    module_path.write_text("run_query = None\n", encoding="utf-8")
+
+    with pytest.raises(AgentConfigError) as exc_info:
+        load_function_from_spec("tools.py:run_query", tmp_path)
+
+    assert "not callable" in str(exc_info.value)

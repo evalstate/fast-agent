@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from fast_agent.marketplace import formatting as marketplace_formatting
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
 from fast_agent.skills.marketplace_parsing import normalize_repo_path
 from fast_agent.skills.models import (
     LOCAL_REVISION,
@@ -23,114 +20,68 @@ from fast_agent.skills.models import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.marketplace.source_models import InstalledSourceReadResult
+
 
 def get_skill_source_sidecar_path(skill_dir: Path) -> Path:
     return skill_dir / SKILL_SOURCE_FILENAME
 
 
 def compute_skill_content_fingerprint(skill_dir: Path) -> str:
-    digest = hashlib.sha256()
     root = skill_dir.resolve()
-    sidecar_path = get_skill_source_sidecar_path(root)
-
-    for path in sorted(root.rglob("*")):
-        if path == sidecar_path:
-            continue
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-
-    return f"sha256:{digest.hexdigest()}"
+    return marketplace_provenance_io.compute_directory_content_fingerprint(
+        root,
+        sidecar_path=get_skill_source_sidecar_path(root),
+    )
 
 
-def read_installed_skill_source(skill_dir: Path) -> tuple[InstalledSkillSource | None, str | None]:
-    sidecar_path = get_skill_source_sidecar_path(skill_dir)
-    if not sidecar_path.exists():
-        return None, None
-    try:
-        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        return None, f"invalid json: {exc}"
-
-    if not isinstance(payload, dict):
-        return None, "metadata root must be an object"
-
-    try:
-        source = parse_installed_skill_source_payload(payload)
-    except ValueError as exc:
-        return None, str(exc)
-    return source, None
+def read_installed_skill_source(
+    skill_dir: Path,
+) -> InstalledSourceReadResult[InstalledSkillSource]:
+    return marketplace_provenance_io.read_installed_source_file(
+        get_skill_source_sidecar_path(skill_dir),
+        parse_payload=parse_installed_skill_source_payload,
+    )
 
 
 def write_installed_skill_source(skill_dir: Path, source: InstalledSkillSource) -> None:
-    sidecar_path = get_skill_source_sidecar_path(skill_dir)
-    payload = {
-        "schema_version": source.schema_version,
-        "installed_via": source.installed_via,
-        "source_origin": source.source_origin,
-        "repo_url": source.repo_url,
-        "repo_ref": source.repo_ref,
-        "repo_path": source.repo_path,
-        "source_url": source.source_url,
-        "installed_commit": source.installed_commit,
-        "installed_path_oid": source.installed_path_oid,
-        "installed_revision": source.installed_revision,
-        "installed_at": source.installed_at,
-        "content_fingerprint": source.content_fingerprint,
-    }
+    extra_payload: dict[str, str] = {}
     if source.mcp_server_name is not None:
-        payload["mcp_server_name"] = source.mcp_server_name
+        extra_payload["mcp_server_name"] = source.mcp_server_name
     if source.mcp_server_version is not None:
-        payload["mcp_server_version"] = source.mcp_server_version
+        extra_payload["mcp_server_version"] = source.mcp_server_version
     if source.artifact_digest is not None:
-        payload["artifact_digest"] = source.artifact_digest
+        extra_payload["artifact_digest"] = source.artifact_digest
     if source.artifact_type is not None:
-        payload["artifact_type"] = source.artifact_type
-    sidecar_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-        encoding="utf-8",
+        extra_payload["artifact_type"] = source.artifact_type
+
+    marketplace_provenance_io.write_installed_source_file(
+        get_skill_source_sidecar_path(skill_dir),
+        cast("Any", source),
+        extra_payload=extra_payload or None,
     )
 
 
 def get_skill_provenance(skill_dir: Path) -> SkillProvenance:
-    source, error = read_installed_skill_source(skill_dir)
-    if source is None:
-        if error is None:
+    read_result = read_installed_skill_source(skill_dir)
+    if read_result.source is None:
+        if read_result.error is None:
             return SkillProvenance(
                 status="unmanaged",
                 summary="unmanaged (no sidecar)",
             )
         return SkillProvenance(
             status="invalid_metadata",
-            summary=f"invalid metadata ({error})",
-            error=error,
+            summary=f"invalid metadata ({read_result.error})",
+            error=read_result.error,
         )
 
-    ref_label = f"@{source.repo_ref}" if source.repo_ref else ""
-    if source.source_origin == "mcp":
-        version = f"@{source.mcp_server_version}" if source.mcp_server_version else ""
-        summary = (
-            "managed (mcp)"
-            f" • {source.mcp_server_name or source.repo_url}{version}"
-            f" • {source.repo_path}"
-        )
-    elif source.source_origin == "remote":
-        summary = (
-            "managed (marketplace)"
-            f" • {source.repo_url}{ref_label}"
-            f" • {source.repo_path}"
-        )
-    else:
-        summary = (
-            "managed (local source)"
-            f" • {source.repo_url}{ref_label}"
-            f" • {source.repo_path}"
-        )
-    return SkillProvenance(status="managed", summary=summary, source=source)
+    source = read_result.source
+    return SkillProvenance(
+        status="managed",
+        summary=_source_summary(source),
+        source=source,
+    )
 
 
 def format_skill_provenance(skill_dir: Path) -> str:
@@ -153,6 +104,11 @@ def format_skill_provenance_details(skill_dir: Path) -> tuple[str, str | None]:
         return provenance.summary, None
 
     source = provenance.source
+    provenance_value = f"{_source_location(source)} ({source.repo_path})"
+    installed_value = marketplace_formatting.format_installed_revision_display(
+        source.installed_at,
+        source.installed_revision,
+    )
     if source.source_origin == "mcp":
         version = f"@{source.mcp_server_version}" if source.mcp_server_version else ""
         integrity = " • integrity: sha256" if source.artifact_digest else ""
@@ -160,19 +116,28 @@ def format_skill_provenance_details(skill_dir: Path) -> tuple[str, str | None]:
             f"mcp-server {source.mcp_server_name or source.repo_url}{version} "
             f"({source.repo_path}){integrity}"
         )
-        installed_value = (
-            f"{format_installed_at_display(source.installed_at)} "
-            f"revision: {format_revision_short(source.installed_revision)}"
+        installed_value = marketplace_formatting.format_installed_revision_display(
+            source.installed_at,
+            source.installed_revision,
         )
-        return provenance_value, installed_value
-
-    ref_label = f"@{source.repo_ref}" if source.repo_ref else ""
-    provenance_value = f"{source.repo_url}{ref_label} ({source.repo_path})"
-    installed_value = (
-        f"{format_installed_at_display(source.installed_at)} "
-        f"revision: {format_revision_short(source.installed_revision)}"
-    )
     return provenance_value, installed_value
+
+
+def _source_location(source: InstalledSkillSource) -> str:
+    if source.source_origin == "mcp":
+        version = f"@{source.mcp_server_version}" if source.mcp_server_version else ""
+        return f"mcp-server {source.mcp_server_name or source.repo_url}{version}"
+    return marketplace_formatting.format_source_location(source.repo_url, source.repo_ref)
+
+
+def _source_summary(source: InstalledSkillSource) -> str:
+    if source.source_origin == "mcp":
+        source_label = "mcp"
+    elif source.source_origin == "remote":
+        source_label = "marketplace"
+    else:
+        source_label = "local source"
+    return f"managed ({source_label}) • {_source_location(source)} • {source.repo_path}"
 
 
 def parse_installed_skill_source_payload(payload: dict[str, Any]) -> InstalledSkillSource:
@@ -180,7 +145,7 @@ def parse_installed_skill_source_payload(payload: dict[str, Any]) -> InstalledSk
     if installed_via == "mcp":
         return _parse_mcp_installed_skill_source_payload(payload)
 
-    parsed = marketplace_source_utils.parse_installed_source_fields(
+    parsed = marketplace_provenance_io.parse_installed_source_fields(
         payload,
         expected_schema_version=SKILL_SOURCE_SCHEMA_VERSION,
         normalize_repo_path=normalize_repo_path,
@@ -277,6 +242,7 @@ def build_installed_skill_source(
     source_origin: SkillSourceOrigin,
     installed_commit: str | None,
     installed_path_oid: str | None,
+    repo_path: str | None = None,
     fingerprint: str,
 ) -> InstalledSkillSource:
     installed_revision = installed_commit or LOCAL_REVISION
@@ -286,12 +252,12 @@ def build_installed_skill_source(
         source_origin=source_origin,
         repo_url=skill.repo_url,
         repo_ref=skill.repo_ref,
-        repo_path=skill.repo_path,
+        repo_path=repo_path or skill.repo_subdir,
         source_url=skill.source_url,
         installed_commit=installed_commit,
         installed_path_oid=installed_path_oid,
         installed_revision=installed_revision,
-        installed_at=_iso_utc_now(),
+        installed_at=marketplace_formatting.iso_utc_now(),
         content_fingerprint=fingerprint,
     )
 
@@ -316,14 +282,10 @@ def build_mcp_installed_skill_source(
         installed_commit=None,
         installed_path_oid=None,
         installed_revision=artifact_digest,
-        installed_at=_iso_utc_now(),
+        installed_at=marketplace_formatting.iso_utc_now(),
         content_fingerprint=fingerprint,
         mcp_server_name=server_name,
         mcp_server_version=server_version,
         artifact_digest=artifact_digest,
         artifact_type=artifact_type,
     )
-
-
-def _iso_utc_now() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")

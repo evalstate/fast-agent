@@ -4,12 +4,11 @@ These decorators provide type-safe function signatures and IDE support
 for creating agents in the DirectFastAgent framework.
 """
 
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Literal,
     ParamSpec,
     Protocol,
@@ -216,13 +215,157 @@ def _resolve_instruction(instruction: str | Path | AnyUrl) -> str:
     return _apply_templates(text)
 
 
+def _custom_agent_class_name(custom_cls: Any) -> str:
+    if isinstance(custom_cls, type):
+        return custom_cls.__name__
+    return repr(custom_cls)
+
+
+def _validate_custom_function_tools(
+    agent_type: AgentType,
+    name: str,
+    extra_kwargs: dict[str, Any],
+) -> None:
+    if agent_type != AgentType.CUSTOM:
+        return
+
+    custom_cls = extra_kwargs.get("agent_class") or extra_kwargs.get("cls")
+    explicit_function_tools = extra_kwargs.get("function_tools")
+    if explicit_function_tools and not custom_class_supports_function_tools(custom_cls):
+        raise AgentConfigError(
+            "Custom agent does not accept function tools",
+            f"Custom agent '{name}' cannot use function_tools because "
+            f"{_custom_agent_class_name(custom_cls)!r} does not accept tools=.",
+        )
+
+
+def _agent_config_from_decorator(
+    *,
+    name: str,
+    instruction: str,
+    servers: list[str] | None,
+    tools: dict[str, list[str]] | None,
+    resources: dict[str, list[str]] | None,
+    prompts: dict[str, list[str]] | None,
+    skills: SkillConfig,
+    model: str | None,
+    use_history: bool,
+    human_input: bool,
+    default: bool,
+    request_params: RequestParams | None,
+    extra_kwargs: dict[str, Any],
+) -> AgentConfig:
+    config = AgentConfig(
+        name=name,
+        instruction=instruction,
+        servers=list(servers or []),
+        tools=tools or {},
+        resources=resources or {},
+        prompts=prompts or {},
+        skills=skills,
+        model=model,
+        use_history=use_history,
+        human_input=human_input,
+        default=default,
+        elicitation_handler=extra_kwargs.get("elicitation_handler"),
+        api_key=extra_kwargs.get("api_key"),
+        function_tools=extra_kwargs.get("function_tools"),
+    )
+    if request_params:
+        config.default_request_params = request_params
+    return config
+
+
+def _agent_data_from_decorator(
+    config: AgentConfig,
+    agent_type: AgentType,
+    func: Callable[..., Any],
+    extra_kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "config": config,
+        "type": agent_type.value,
+        "func": func,
+        **extra_kwargs,
+    }
+
+
+def _store_decorator_metadata(
+    func: Callable[..., Any],
+    agent_type: AgentType,
+    config: AgentConfig,
+    extra_kwargs: dict[str, Any],
+) -> Any:
+    decorated_func = cast("Any", func)
+    decorated_func._agent_type = agent_type
+    decorated_func._agent_config = config
+    for key, value in extra_kwargs.items():
+        setattr(decorated_func, f"_{key}", value)
+    return decorated_func
+
+
+def _scoped_agent_tool(config: AgentConfig, name: str | None, description: str | None):
+    def _register(f: Callable[..., Any]) -> Callable[..., Any]:
+        if config.function_tools is None:
+            config.function_tools = []
+        if name is not None or description is not None:
+            config.function_tools.append(
+                ScopedFunctionToolConfig(
+                    function=f,
+                    name=name,
+                    description=description,
+                )
+            )
+        else:
+            config.function_tools.append(f)
+        return f
+
+    return _register
+
+
+def _attach_agent_tool_decorator_if_supported(
+    func: Callable[P, Coroutine[Any, Any, R]],
+    agent_type: AgentType,
+    config: AgentConfig,
+    extra_kwargs: dict[str, Any],
+) -> Callable[P, Coroutine[Any, Any, R]]:
+    if not decorator_supports_scoped_function_tools(
+        agent_type,
+        custom_cls=extra_kwargs.get("agent_class") or extra_kwargs.get("cls"),
+    ):
+        return func
+
+    @overload
+    def _agent_tool(fn: Callable[ToolP, ToolR], /) -> Callable[ToolP, ToolR]: ...
+
+    @overload
+    def _agent_tool(
+        *, name: str | None = None, description: str | None = None
+    ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
+
+    def _agent_tool(
+        fn: Callable[..., Any] | None = None,
+        /,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Callable[..., Any] | Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a tool scoped to this agent."""
+        register = _scoped_agent_tool(config, name, description)
+        if fn is not None:
+            return register(fn)
+        return register
+
+    return _attach_scoped_tool_decorator(func, _agent_tool)
+
+
 def _decorator_impl(
     self,
     agent_type: AgentType,
     name: str,
     instruction: str,
     *,
-    servers: list[str] = [],
+    servers: list[str] | None = None,
     model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -251,113 +394,31 @@ def _decorator_impl(
     """
 
     def decorator(func: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
-        if agent_type == AgentType.CUSTOM:
-            custom_cls = extra_kwargs.get("agent_class") or extra_kwargs.get("cls")
-            explicit_function_tools = extra_kwargs.get("function_tools")
-            if (
-                explicit_function_tools
-                and not custom_class_supports_function_tools(custom_cls)
-            ):
-                raise AgentConfigError(
-                    "Custom agent does not accept function tools",
-                    f"Custom agent '{name}' cannot use function_tools because "
-                    f"{getattr(custom_cls, '__name__', custom_cls)!r} does not accept tools=.",
-                )
-
-        # Create agent configuration
-        config = AgentConfig(
+        _validate_custom_function_tools(agent_type, name, extra_kwargs)
+        config = _agent_config_from_decorator(
             name=name,
             instruction=instruction,
             servers=servers,
-            tools=tools or {},
-            resources=resources or {},
-            prompts=prompts or {},
+            tools=tools,
+            resources=resources,
+            prompts=prompts,
             skills=skills,
             model=model,
             use_history=use_history,
             human_input=human_input,
             default=default,
-            elicitation_handler=extra_kwargs.get("elicitation_handler"),
-            api_key=extra_kwargs.get("api_key"),
-            function_tools=extra_kwargs.get("function_tools"),
+            request_params=request_params,
+            extra_kwargs=extra_kwargs,
         )
 
-        # Update request params if provided
-        if request_params:
-            config.default_request_params = request_params
-
-        # Store metadata in the registry
-        agent_data = {
-            "config": config,
-            "type": agent_type.value,
-            "func": func,
-        }
-
-        # Add extra parameters specific to this agent type
-        for key, value in extra_kwargs.items():
-            agent_data[key] = value
-
-        # Store the configuration in the FastAgent instance
-        self.agents[name] = agent_data
-
-        # Store type information on the function for IDE support
-        setattr(func, "_agent_type", agent_type)
-        setattr(func, "_agent_config", config)
-        for key, value in extra_kwargs.items():
-            setattr(func, f"_{key}", value)
-
-        @overload
-        def _agent_tool(fn: Callable[ToolP, ToolR], /) -> Callable[ToolP, ToolR]: ...
-
-        @overload
-        def _agent_tool(
-            *, name: str | None = None, description: str | None = None
-        ) -> Callable[[Callable[ToolP, ToolR]], Callable[ToolP, ToolR]]: ...
-
-        def _agent_tool(
-            fn: Callable[..., Any] | None = None,
-            /,
-            *,
-            name: str | None = None,
-            description: str | None = None,
-        ) -> Callable[..., Any] | Callable[[Callable[..., Any]], Callable[..., Any]]:
-            """Register a tool scoped to this agent.
-
-            Supports bare and parameterized usage::
-
-                @my_agent.tool
-                def helper() -> str: ...
-
-                @my_agent.tool(name="add", description="Add two numbers")
-                def add(a: int, b: int) -> int: ...
-            """
-
-            def _register(f: Callable[..., Any]) -> Callable[..., Any]:
-                if config.function_tools is None:
-                    config.function_tools = []
-                if name is not None or description is not None:
-                    config.function_tools.append(
-                        ScopedFunctionToolConfig(
-                            function=f,
-                            name=name,
-                            description=description,
-                        )
-                    )
-                else:
-                    config.function_tools.append(f)
-                return f
-
-            if fn is not None:
-                return _register(fn)
-            return _register
-
-        if decorator_supports_scoped_function_tools(
+        self.agents[name] = _agent_data_from_decorator(config, agent_type, func, extra_kwargs)
+        _store_decorator_metadata(func, agent_type, config, extra_kwargs)
+        return _attach_agent_tool_decorator_if_supported(
+            func,
             agent_type,
-            custom_cls=extra_kwargs.get("agent_class") or extra_kwargs.get("cls"),
-        ):
-            return _attach_scoped_tool_decorator(func, _agent_tool)
-
-        return func
+            config,
+            extra_kwargs,
+        )
 
     return decorator
 
@@ -428,7 +489,7 @@ class DecoratorMixin:
         *,
         instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
         agents: list[str] | None = None,
-        servers: list[str] = [],
+        servers: list[str] | None = None,
         tools: dict[str, list[str]] | None = None,
         resources: dict[str, list[str]] | None = None,
         prompts: dict[str, list[str]] | None = None,
@@ -521,7 +582,7 @@ class DecoratorMixin:
         *,
         instruction: str | Path | AnyUrl = SMART_AGENT_INSTRUCTION,
         agents: list[str] | None = None,
-        servers: list[str] = [],
+        servers: list[str] | None = None,
         tools: dict[str, list[str]] | None = None,
         resources: dict[str, list[str]] | None = None,
         prompts: dict[str, list[str]] | None = None,
@@ -593,7 +654,7 @@ class DecoratorMixin:
         *,
         instruction: str | Path | AnyUrl = "You are a helpful agent.",
         agents: list[str] | None = None,
-        servers: list[str] = [],
+        servers: list[str] | None = None,
         tools: dict[str, list[str]] | None = None,
         resources: dict[str, list[str]] | None = None,
         prompts: dict[str, list[str]] | None = None,
@@ -779,7 +840,7 @@ class DecoratorMixin:
         *,
         agents: list[str],
         instruction: str | Path | AnyUrl | None = None,
-        servers: list[str] = [],
+        servers: list[str] | None = None,
         tools: dict[str, list[str]] | None = None,
         resources: dict[str, list[str]] | None = None,
         prompts: dict[str, list[str]] | None = None,

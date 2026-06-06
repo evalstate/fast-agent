@@ -76,6 +76,36 @@ def test_parse_mentions_renders_rfc6570_path_expression_values() -> None:
     )
 
 
+def test_parse_mentions_renders_rfc6570_query_expression_values() -> None:
+    parsed = parse_mentions("Inspect ^demo:https://example.com/search{?q,empty}{q=a/b,empty=}")
+
+    assert len(parsed.mentions) == 1
+    assert parsed.mentions[0].resource_uri == "https://example.com/search?q=a%2Fb&empty="
+
+
+def test_parse_mentions_preserves_commas_inside_template_values() -> None:
+    parsed = parse_mentions("Inspect ^demo:https://example.com/search{?q}{q=a,b}")
+
+    assert len(parsed.mentions) == 1
+    assert parsed.mentions[0].resource_uri == "https://example.com/search?q=a%2Cb"
+
+
+def test_parse_mentions_preserves_commas_before_next_template_arg() -> None:
+    parsed = parse_mentions(
+        "Inspect ^demo:https://example.com/search{?q,empty}{q=a,b,empty=}"
+    )
+
+    assert len(parsed.mentions) == 1
+    assert parsed.mentions[0].resource_uri == "https://example.com/search?q=a%2Cb&empty="
+
+
+def test_parse_mentions_renders_rfc6570_fragment_expression_values() -> None:
+    parsed = parse_mentions("Inspect ^demo:https://example.com/doc{#section}{section=a/b?c=d}")
+
+    assert len(parsed.mentions) == 1
+    assert parsed.mentions[0].resource_uri == "https://example.com/doc#a/b?c=d"
+
+
 def test_parse_mentions_records_template_warning_on_missing_args() -> None:
     parsed = parse_mentions("Inspect ^demo:file:///repo/{branch}")
 
@@ -205,3 +235,14 @@ async def test_resolve_mentions_raises_on_resource_errors() -> None:
 
     with pytest.raises(ResourceMentionError):
         await resolve_mentions(_FailingAgent(), parsed)
+
+
+@pytest.mark.asyncio
+async def test_resolve_mentions_rejects_non_callable_resource_attribute() -> None:
+    class _NotResourceAgent:
+        get_resource = {"not": "callable"}
+
+    parsed = parse_mentions("Read ^demo:file:///tmp/notes.txt")
+
+    with pytest.raises(ResourceMentionError, match="does not support MCP resources"):
+        await resolve_mentions(_NotResourceAgent(), parsed)

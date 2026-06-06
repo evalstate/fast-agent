@@ -14,6 +14,7 @@ from rich.text import Text
 
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
+from fast_agent.utils.text import strip_casefold
 
 _FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")
 _FENCE_INFO_LINE_RE = re.compile(
@@ -35,6 +36,34 @@ class FencedCodeBlock:
     language: str
     code: str
     complete: bool
+
+
+@dataclass(frozen=True)
+class _FenceStart:
+    delimiter: str
+    info: str
+
+    @property
+    def char(self) -> str:
+        return self.delimiter[0]
+
+    @property
+    def length(self) -> int:
+        return len(self.delimiter)
+
+
+@dataclass(frozen=True)
+class _FenceState:
+    char: str = "`"
+    length: int = 3
+
+    @classmethod
+    def from_start(cls, start: _FenceStart) -> _FenceState:
+        return cls(char=start.char, length=start.length)
+
+    @property
+    def closing_fence(self) -> str:
+        return self.char * self.length
 
 
 @dataclass(frozen=True)
@@ -78,7 +107,7 @@ def _has_lexer(language: str) -> bool:
 
 
 def _normalize_code_language(language: str) -> str:
-    normalized = language.strip().lower()
+    normalized = strip_casefold(language)
     if not normalized:
         return "text"
 
@@ -91,7 +120,70 @@ def _normalize_code_language(language: str) -> str:
 
 
 def _is_apply_patch_language(language: str) -> bool:
-    return language.strip().lower() in _APPLY_PATCH_LANGUAGES
+    return strip_casefold(language) in _APPLY_PATCH_LANGUAGES
+
+
+def _line_indent_width(line: str) -> tuple[str, int]:
+    stripped = line.lstrip(" ")
+    return stripped, len(line) - len(stripped)
+
+
+def _top_level_fence_start(line: str) -> _FenceStart | None:
+    stripped, indent = _line_indent_width(line)
+    if indent > 3:
+        return None
+
+    opening = _FENCE_OPEN_LINE_RE.match(line)
+    if opening is None:
+        return None
+
+    delimiter = opening.group("delim")
+    info = opening.group("info")
+    if delimiter[0] == "`" and "`" in info:
+        return None
+    return _FenceStart(delimiter=delimiter, info=info)
+
+
+def _is_closing_fence_line(line: str, fence: _FenceState) -> bool:
+    stripped, indent = _line_indent_width(line)
+    if indent > 3 or not stripped or stripped[0] != fence.char:
+        return False
+
+    marker_len = 0
+    while marker_len < len(stripped) and stripped[marker_len] == fence.char:
+        marker_len += 1
+    return marker_len >= fence.length and stripped[marker_len:].strip() == ""
+
+
+def _split_line_ending(raw_line: str) -> tuple[str, str]:
+    line = raw_line.rstrip("\r\n")
+    return line, raw_line[len(line) :]
+
+
+def _trim_blank_line_bounds(lines: list[str]) -> tuple[int, int] | None:
+    start_index = 0
+    while start_index < len(lines) and not lines[start_index].strip():
+        start_index += 1
+    if start_index >= len(lines):
+        return None
+
+    end_index = len(lines) - 1
+    while end_index >= start_index and not lines[end_index].strip():
+        end_index -= 1
+    return start_index, end_index
+
+
+def _find_closing_fence_index(
+    lines: list[str],
+    *,
+    start_index: int,
+    end_index: int,
+    fence: _FenceState,
+) -> int | None:
+    for index in range(start_index + 1, end_index + 1):
+        if _is_closing_fence_line(lines[index], fence):
+            return index
+    return None
 
 
 def _rewrite_fence_languages(text: str) -> str:
@@ -100,54 +192,36 @@ def _rewrite_fence_languages(text: str) -> str:
 
     rewritten_lines: list[str] = []
     in_fence = False
-    fence_char = "`"
-    fence_len = 3
+    fence = _FenceState()
 
     for raw_line in text.splitlines(keepends=True):
-        line = raw_line.rstrip("\r\n")
-        newline = raw_line[len(line) :]
-        stripped = line.lstrip(" ")
-        if len(line) - len(stripped) > 3:
-            rewritten_lines.append(raw_line)
-            continue
+        line, newline = _split_line_ending(raw_line)
 
         if not in_fence:
-            opening = _FENCE_OPEN_LINE_RE.match(line)
-            if opening is None:
+            start = _top_level_fence_start(line)
+            if start is None:
                 rewritten_lines.append(raw_line)
                 continue
 
-            delimiter = opening.group("delim")
-            info = opening.group("info")
-            if delimiter[0] == "`" and "`" in info:
-                rewritten_lines.append(raw_line)
-                continue
-
+            output_line = raw_line
             info_match = _FENCE_INFO_LINE_RE.match(line)
             if info_match is not None:
                 language = info_match.group("lang")
                 rewritten = _normalize_code_language(language)
                 if rewritten != language:
-                    raw_line = (
+                    output_line = (
                         f"{info_match.group('indent')}{info_match.group('delim')}"
                         f"{info_match.group('spacing')}{rewritten}"
                         f"{info_match.group('rest')}{newline}"
                     )
 
-            rewritten_lines.append(raw_line)
+            rewritten_lines.append(output_line)
             in_fence = True
-            fence_char = delimiter[0]
-            fence_len = len(delimiter)
+            fence = _FenceState.from_start(start)
             continue
 
         rewritten_lines.append(raw_line)
-        if not stripped or stripped[0] != fence_char:
-            continue
-
-        marker_len = 0
-        while marker_len < len(stripped) and stripped[marker_len] == fence_char:
-            marker_len += 1
-        if marker_len >= fence_len and stripped[marker_len:].strip() == "":
+        if _is_closing_fence_line(line, fence):
             in_fence = False
 
     return "".join(rewritten_lines)
@@ -158,48 +232,24 @@ def extract_single_fenced_code_block(text: str) -> FencedCodeBlock | None:
         return None
 
     lines = text.splitlines()
-    if not lines:
+    bounds = _trim_blank_line_bounds(lines)
+    if bounds is None:
+        return None
+    start_index, end_index = bounds
+
+    start = _top_level_fence_start(lines[start_index])
+    if start is None:
         return None
 
-    start_index = 0
-    while start_index < len(lines) and not lines[start_index].strip():
-        start_index += 1
-    if start_index >= len(lines):
-        return None
+    fence = _FenceState.from_start(start)
+    language = start.info.strip().split(" ", 1)[0] or "text"
 
-    end_index = len(lines) - 1
-    while end_index >= start_index and not lines[end_index].strip():
-        end_index -= 1
-
-    opening = _FENCE_OPEN_LINE_RE.match(lines[start_index])
-    if opening is None:
-        return None
-
-    delimiter = opening.group("delim")
-    info = opening.group("info")
-    if delimiter[0] == "`" and "`" in info:
-        return None
-
-    fence_char = delimiter[0]
-    fence_len = len(delimiter)
-    language = info.strip().split(" ", 1)[0] or "text"
-
-    closing_index: int | None = None
-    for index in range(start_index + 1, end_index + 1):
-        line = lines[index]
-        stripped = line.lstrip(" ")
-        if len(line) - len(stripped) > 3:
-            continue
-        if not stripped or stripped[0] != fence_char:
-            continue
-
-        marker_len = 0
-        while marker_len < len(stripped) and stripped[marker_len] == fence_char:
-            marker_len += 1
-        if marker_len >= fence_len and stripped[marker_len:].strip() == "":
-            closing_index = index
-            break
-
+    closing_index = _find_closing_fence_index(
+        lines,
+        start_index=start_index,
+        end_index=end_index,
+        fence=fence,
+    )
     if closing_index is None:
         return FencedCodeBlock(
             language=language,
@@ -222,45 +272,27 @@ def close_incomplete_code_blocks(text: str) -> str:
         return text
 
     in_fence = False
-    fence_char = "`"
-    fence_len = 3
+    fence = _FenceState()
 
     for line in text.splitlines():
-        stripped = line.lstrip(" ")
-        if len(line) - len(stripped) > 3:
-            continue
-
         if not in_fence:
-            opening = _FENCE_OPEN_LINE_RE.match(line)
-            if opening is None:
-                continue
-
-            delimiter = opening.group("delim")
-            info = opening.group("info")
-            if delimiter[0] == "`" and "`" in info:
+            start = _top_level_fence_start(line)
+            if start is None:
                 continue
 
             in_fence = True
-            fence_char = delimiter[0]
-            fence_len = len(delimiter)
+            fence = _FenceState.from_start(start)
             continue
 
-        if not stripped or stripped[0] != fence_char:
-            continue
-
-        marker_len = 0
-        while marker_len < len(stripped) and stripped[marker_len] == fence_char:
-            marker_len += 1
-        if marker_len >= fence_len and stripped[marker_len:].strip() == "":
+        if _is_closing_fence_line(line, fence):
             in_fence = False
 
     if not in_fence:
         return text
 
-    closing_fence = fence_char * fence_len
     if text.endswith("\n"):
-        return f"{text}{closing_fence}\n"
-    return f"{text}\n{closing_fence}\n"
+        return f"{text}{fence.closing_fence}\n"
+    return f"{text}\n{fence.closing_fence}\n"
 
 
 @lru_cache(maxsize=1)
@@ -456,6 +488,55 @@ def _render_code_chunk(
     )
 
 
+def _append_cursor_to_last_chunk(
+    chunks: tuple[_RenderableChunk, ...],
+    cursor_suffix: str,
+) -> list[_RenderableChunk]:
+    render_chunks = list(chunks)
+    if not cursor_suffix:
+        return render_chunks
+
+    last = render_chunks[-1]
+    render_chunks[-1] = _RenderableChunk(
+        kind=last.kind,
+        text=last.text + cursor_suffix,
+        language=last.language,
+        reference_definitions=last.reference_definitions,
+    )
+    return render_chunks
+
+
+def _render_chunks(
+    chunks: tuple[_RenderableChunk, ...],
+    *,
+    cursor_suffix: str,
+    code_theme: str,
+    escape_xml: bool,
+    code_word_wrap: bool,
+    pad_code_blocks: bool,
+):
+    renderables = [
+        _render_markdown_chunk(
+            chunk.text,
+            code_theme=code_theme,
+            escape_xml=escape_xml,
+            reference_definitions=chunk.reference_definitions,
+        )
+        if chunk.kind == "markdown"
+        else _render_code_chunk(
+            chunk.text,
+            language=chunk.language,
+            code_theme=code_theme,
+            code_word_wrap=code_word_wrap,
+            pad_code_blocks=pad_code_blocks,
+        )
+        for chunk in _append_cursor_to_last_chunk(chunks, cursor_suffix)
+    ]
+    if len(renderables) == 1:
+        return renderables[0]
+    return Group(*renderables)
+
+
 def build_markdown_renderable(
     text: str,
     *,
@@ -489,36 +570,14 @@ def build_markdown_renderable(
 
         chunks = _build_renderable_chunks(text)
         if chunks:
-            render_chunks = list(chunks)
-            if cursor_suffix:
-                last = render_chunks[-1]
-                render_chunks[-1] = _RenderableChunk(
-                    kind=last.kind,
-                    text=last.text + cursor_suffix,
-                    language=last.language,
-                    reference_definitions=last.reference_definitions,
-                )
-
-            renderables = [
-                _render_markdown_chunk(
-                    chunk.text,
-                    code_theme=code_theme,
-                    escape_xml=escape_xml,
-                    reference_definitions=chunk.reference_definitions,
-                )
-                if chunk.kind == "markdown"
-                else _render_code_chunk(
-                    chunk.text,
-                    language=chunk.language,
-                    code_theme=code_theme,
-                    code_word_wrap=code_word_wrap,
-                    pad_code_blocks=pad_code_blocks,
-                )
-                for chunk in render_chunks
-            ]
-            if len(renderables) == 1:
-                return renderables[0]
-            return Group(*renderables)
+            return _render_chunks(
+                chunks,
+                cursor_suffix=cursor_suffix,
+                code_theme=code_theme,
+                escape_xml=escape_xml,
+                code_word_wrap=code_word_wrap,
+                pad_code_blocks=pad_code_blocks,
+            )
 
     prepared = prepare_markdown_content(text, escape_xml)
     prepared = _rewrite_fence_languages(prepared)

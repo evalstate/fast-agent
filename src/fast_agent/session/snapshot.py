@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import warnings
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
@@ -36,6 +37,12 @@ _LEGACY_METADATA_KEYS = frozenset(
         "title",
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedJsonValue:
+    keep: bool
+    value: JsonValue
 
 
 class SessionMetadataSnapshot(BaseModel):
@@ -336,7 +343,23 @@ def session_info_from_snapshot(snapshot: SessionSnapshot) -> "SessionInfo":
     """Project a typed snapshot into the existing SessionInfo compatibility view."""
     from fast_agent.session.session_manager import SessionInfo
 
+    history_files, history_map = _history_files_from_snapshot(snapshot)
     metadata: dict[str, JsonValue] = dict(snapshot.metadata.extras)
+    metadata.update(_metadata_fields_from_snapshot(snapshot))
+    if history_map:
+        metadata["last_history_by_agent"] = history_map
+
+    return SessionInfo(
+        name=snapshot.session_id,
+        created_at=snapshot.created_at,
+        last_activity=snapshot.last_activity,
+        history_files=history_files,
+        metadata=metadata,
+    )
+
+
+def _metadata_fields_from_snapshot(snapshot: SessionSnapshot) -> dict[str, JsonValue]:
+    metadata: dict[str, JsonValue] = {}
     if snapshot.metadata.title is not None:
         metadata["title"] = snapshot.metadata.title
     if snapshot.metadata.label is not None:
@@ -353,7 +376,12 @@ def session_info_from_snapshot(snapshot: SessionSnapshot) -> "SessionInfo":
         metadata["forked_from"] = snapshot.continuation.lineage.forked_from
     if snapshot.continuation.lineage.acp_session_id is not None:
         metadata["acp_session_id"] = snapshot.continuation.lineage.acp_session_id
+    return metadata
 
+
+def _history_files_from_snapshot(
+    snapshot: SessionSnapshot,
+) -> tuple[list[str], dict[str, JsonValue]]:
     history_files: list[str] = []
     history_map: dict[str, JsonValue] = {}
     for agent_name, agent_snapshot in snapshot.continuation.agents.items():
@@ -364,16 +392,7 @@ def session_info_from_snapshot(snapshot: SessionSnapshot) -> "SessionInfo":
         if history_file not in history_files:
             history_files.append(history_file)
 
-    if history_map:
-        metadata["last_history_by_agent"] = history_map
-
-    return SessionInfo(
-        name=snapshot.session_id,
-        created_at=snapshot.created_at,
-        last_activity=snapshot.last_activity,
-        history_files=history_files,
-        metadata=metadata,
-    )
+    return history_files, history_map
 
 
 def clone_session_snapshot_for_fork(
@@ -457,9 +476,9 @@ def _legacy_metadata_extras(
     for key, value in metadata.items():
         if key in _LEGACY_METADATA_KEYS:
             continue
-        keep, normalized = _normalize_json_value(value, session_id, f"metadata.{key}")
-        if keep:
-            extras[key] = normalized
+        normalized = _normalize_json_value(value, session_id, f"metadata.{key}")
+        if normalized.keep:
+            extras[key] = normalized.value
     return extras
 
 
@@ -554,9 +573,9 @@ def _session_info_metadata_extras(
     for key, value in metadata.items():
         if key in _LEGACY_METADATA_KEYS:
             continue
-        keep, normalized = _normalize_json_value(value, session_id, f"metadata.{key}")
-        if keep:
-            extras[key] = normalized
+        normalized = _normalize_json_value(value, session_id, f"metadata.{key}")
+        if normalized.keep:
+            extras[key] = normalized.value
     return extras
 
 
@@ -582,10 +601,8 @@ def _agents_from_session_info(info: "SessionInfo") -> dict[str, SessionAgentSnap
 def _history_agent_name(filename: str) -> str:
     path = Path(filename)
     stem = path.stem
-    if stem.startswith("history_"):
-        stem = stem[len("history_") :]
-    if stem.endswith("_previous"):
-        stem = stem[: -len("_previous")]
+    stem = stem.removeprefix("history_")
+    stem = stem.removesuffix("_previous")
     return stem or "agent"
 
 
@@ -868,7 +885,7 @@ def _load_existing_session_snapshot(session: "Session") -> SessionSnapshot | Non
     if not metadata_file.exists():
         return None
     try:
-        with open(metadata_file, encoding="utf-8") as handle:
+        with metadata_file.open(encoding="utf-8") as handle:
             return load_session_snapshot(json.load(handle))
     except Exception:
         return None
@@ -878,34 +895,34 @@ def _normalize_json_value(
     value: object,
     session_id: str,
     field_name: str,
-) -> tuple[bool, JsonValue]:
+) -> _NormalizedJsonValue:
     if value is None or isinstance(value, bool | int | float | str):
-        return True, value
+        return _NormalizedJsonValue(keep=True, value=value)
     if isinstance(value, list):
         normalized_list: list[JsonValue] = []
         for index, item in enumerate(value):
-            keep, normalized_item = _normalize_json_value(
+            normalized_item = _normalize_json_value(
                 item, session_id, f"{field_name}[{index}]"
             )
-            if not keep:
-                return False, None
-            normalized_list.append(normalized_item)
-        return True, normalized_list
+            if not normalized_item.keep:
+                return _NormalizedJsonValue(keep=False, value=None)
+            normalized_list.append(normalized_item.value)
+        return _NormalizedJsonValue(keep=True, value=normalized_list)
     mapping = _as_object_mapping(value)
     if mapping is not None:
         normalized_dict: dict[str, JsonValue] = {}
         for key, item in mapping.items():
-            keep, normalized_item = _normalize_json_value(item, session_id, f"{field_name}.{key}")
-            if not keep:
-                return False, None
-            normalized_dict[key] = normalized_item
-        return True, normalized_dict
+            normalized_item = _normalize_json_value(item, session_id, f"{field_name}.{key}")
+            if not normalized_item.keep:
+                return _NormalizedJsonValue(keep=False, value=None)
+            normalized_dict[key] = normalized_item.value
+        return _NormalizedJsonValue(keep=True, value=normalized_dict)
 
     _warn_legacy_issue(
         session_id,
         f"{field_name} is not JSON-compatible and will be dropped from session extras",
     )
-    return False, None
+    return _NormalizedJsonValue(keep=False, value=None)
 
 
 def _as_object_mapping(value: object) -> dict[str, object] | None:

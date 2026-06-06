@@ -14,6 +14,13 @@ if TYPE_CHECKING:
 type SessionStoreScope = Literal["workspace", "app"]
 
 
+def normalize_session_store_scope(raw_scope: object) -> SessionStoreScope:
+    """Return a supported session store scope, defaulting invalid values to workspace."""
+    if raw_scope == "app":
+        return "app"
+    return "workspace"
+
+
 @dataclass(slots=True)
 class SessionSaveContext:
     """Runtime inputs that determine where and how a save should land."""

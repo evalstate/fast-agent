@@ -3,19 +3,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
-import json
-import os
 import shutil
 import subprocess
 import tempfile
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
@@ -24,13 +22,33 @@ from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import parse_model_reference_token
 from fast_agent.home import CONFIG_FILENAMES, PREFERRED_CONFIG_FILENAME, find_config_in_directory
+from fast_agent.marketplace import fetch as marketplace_fetch
 from fast_agent.marketplace import formatting as marketplace_formatting
+from fast_agent.marketplace import git_sources as marketplace_git_sources
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
 from fast_agent.marketplace import registry_urls as marketplace_registry_urls
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import source_models as marketplace_source_models
+from fast_agent.marketplace import source_urls as marketplace_source_urls
+from fast_agent.marketplace import update_status as marketplace_update_status
+from fast_agent.marketplace.models import MarketplaceEntryFieldsModel
+from fast_agent.marketplace.selection import (
+    select_one_by_name_or_index,
+    select_updates_by_name_or_index,
+)
+from fast_agent.marketplace.update_status import (
+    CommonMarketplaceUpdateStatus,
+    clean_update_status_detail,
+    is_update_applicable,
+)
 from fast_agent.paths import EnvironmentPaths, resolve_environment_paths
+from fast_agent.utils.action_normalization import normalize_action_token
+from fast_agent.utils.count_display import plural_label
+from fast_agent.utils.text import strip_str_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
+
+    from pydantic import ValidationInfo
 
 logger = get_logger(__name__)
 
@@ -47,22 +65,14 @@ DEFAULT_CARD_REGISTRY_URL = (
 
 CARD_PACK_SOURCE_FILENAME = ".card-pack-source.json"
 CARD_PACK_SOURCE_SCHEMA_VERSION = 1
+CARD_PACK_MANIFEST_FILENAME = "card-pack.yaml"
 LOCAL_REVISION = "local"
 
 CardPackSourceOrigin = Literal["remote", "local"]
 CardPackKind = Literal["card", "bundle"]
-CardPackUpdateStatus = Literal[
-    "up_to_date",
-    "update_available",
-    "updated",
-    "unmanaged",
-    "invalid_metadata",
+_CARD_PACK_KINDS: tuple[CardPackKind, ...] = ("card", "bundle")
+CardPackUpdateStatus = CommonMarketplaceUpdateStatus | Literal[
     "invalid_local_pack",
-    "unknown_revision",
-    "source_unreachable",
-    "source_ref_missing",
-    "source_path_missing",
-    "skipped_dirty",
     "ownership_conflict",
 ]
 
@@ -77,6 +87,37 @@ CardPackPublishStatus = Literal[
     "missing_managed_files",
     "publish_failed",
 ]
+CARD_PACK_PUBLISH_SUCCESS_STATUSES: frozenset[CardPackPublishStatus] = frozenset(
+    {"published", "committed", "no_changes"}
+)
+CARD_PACK_PUBLISH_FAILURE_STATUSES: frozenset[CardPackPublishStatus] = frozenset(
+    {"publish_failed"}
+)
+CARD_PACK_PUBLISH_STATUS_LABELS: dict[CardPackPublishStatus, str] = {
+    "published": "published",
+    "committed": "committed locally",
+    "no_changes": "no changes",
+    "unmanaged": "unmanaged",
+    "invalid_metadata": "invalid metadata",
+    "source_unreachable": "source unavailable",
+    "source_path_missing": "source path missing",
+    "missing_managed_files": "missing managed files",
+    "publish_failed": "publish failed",
+}
+CARD_PACK_PUBLISH_WARNING_STATUSES: frozenset[CardPackPublishStatus] = frozenset(
+    status
+    for status in CARD_PACK_PUBLISH_STATUS_LABELS
+    if status not in CARD_PACK_PUBLISH_SUCCESS_STATUSES and status != "unmanaged"
+)
+CARD_PACK_PUBLISH_STATUS_STYLES: dict[CardPackPublishStatus, str | None] = {
+    **{status: "green" for status in CARD_PACK_PUBLISH_SUCCESS_STATUSES},
+    **{status: "yellow" for status in CARD_PACK_PUBLISH_WARNING_STATUSES},
+}
+
+CardPackHeadResolution = marketplace_source_models.SourceRevision[CardPackUpdateStatus]
+CardPackPathResolution = marketplace_source_models.SourcePathOid[CardPackUpdateStatus]
+CardPackHeadCache = dict[tuple[str, str | None], CardPackHeadResolution]
+CardPackPathCache = dict[tuple[str, str | None, str, str], CardPackPathResolution]
 
 
 class OwnershipConflictError(ValueError):
@@ -127,6 +168,29 @@ class CardPackPublishResult:
     retained_temp_dir: Path | None = None
 
 
+def format_card_pack_publish_status(result: CardPackPublishResult) -> tuple[str, str | None]:
+    status_text = CARD_PACK_PUBLISH_STATUS_LABELS[result.status]
+    detail = clean_update_status_detail(result.detail)
+    if detail:
+        status_text = f"{status_text}: {detail}"
+
+    return status_text, CARD_PACK_PUBLISH_STATUS_STYLES.get(result.status)
+
+
+def is_card_pack_publish_success(status: CardPackPublishStatus) -> bool:
+    return status in CARD_PACK_PUBLISH_SUCCESS_STATUSES
+
+
+def is_card_pack_publish_failure(status: CardPackPublishStatus) -> bool:
+    return status in CARD_PACK_PUBLISH_FAILURE_STATUSES
+
+
+@dataclass(frozen=True)
+class _PublishWorkspace:
+    repo_root: Path
+    retained_temp_dir: Path | None
+
+
 @dataclass(frozen=True)
 class CardPackManifest:
     schema_version: int
@@ -166,6 +230,13 @@ class MarketplaceCardPack:
     repo_path: str
     source_url: str | None = None
     bundle_name: str | None = None
+
+    @property
+    def repo_subdir(self) -> str:
+        return marketplace_provenance_io.repo_subdir_for_manifest_path(
+            self.repo_path,
+            CARD_PACK_MANIFEST_FILENAME,
+        )
 
 
 @dataclass(frozen=True)
@@ -216,56 +287,86 @@ class _CardPackManifestModel(BaseModel):
         return normalized_tokens
 
 
-class MarketplaceEntryModel(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    kind: str | None = None
-    repo_url: str | None = Field(default=None, alias="repo")
-    repo_ref: str | None = None
-    repo_path: str | None = None
-    source_url: str | None = None
-    bundle_name: str | None = None
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
-
+class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
     @model_validator(mode="before")
     @classmethod
-    def _normalize_entry(cls, data: Any, info: Any) -> Any:
+    def _normalize_entry(cls, data: Any, info: "ValidationInfo") -> Any:
         if not isinstance(data, dict):
             return data
 
-        context = getattr(info, "context", None) or {}
+        context = info.context or {}
         default_repo_url = context.get("repo_url")
         default_repo_ref = context.get("repo_ref")
         default_source_url = context.get("source_url")
 
-        repo_url = _first_str(data, "repo", "repository", "git", "repo_url")
-        repo_ref = _first_str(data, "ref", "branch", "tag", "revision", "commit")
-        repo_path = _first_str(data, "path", "repo_path", "directory", "dir", "location")
-        source_url = _first_str(data, "source_url", "url")
+        repo_url = marketplace_source_urls.first_nonempty_str(
+            data,
+            "repo",
+            "repository",
+            "git",
+            "repo_url",
+        )
+        repo_ref = marketplace_source_urls.first_nonempty_str(
+            data,
+            "ref",
+            "branch",
+            "tag",
+            "revision",
+            "commit",
+        )
+        repo_path = marketplace_source_urls.first_nonempty_str(
+            data,
+            "path",
+            "repo_path",
+            "directory",
+            "dir",
+            "location",
+        )
+        explicit_source_url = marketplace_source_urls.explicit_entry_source_url(
+            data,
+            "url",
+            "source_url",
+            default_source_url=default_source_url,
+        )
 
-        parsed = _parse_github_url(repo_url) if repo_url else None
+        parsed = marketplace_source_urls.parse_github_url(repo_url) if repo_url else None
         if parsed and not repo_path:
-            repo_url, repo_ref, repo_path = parsed
+            repo_url = parsed.repo_url
+            repo_ref = parsed.repo_ref
+            repo_path = parsed.repo_path
         elif parsed:
-            repo_url = parsed[0]
-            repo_ref = repo_ref or parsed[1]
+            repo_url = parsed.repo_url
+            repo_ref = repo_ref or parsed.repo_ref
 
-        source_parsed = _parse_github_url(source_url) if source_url else None
+        source_parsed = (
+            marketplace_source_urls.parse_github_url(explicit_source_url)
+            if explicit_source_url
+            else None
+        )
         if source_parsed and (not repo_url or not repo_path):
-            repo_url, repo_ref, repo_path = source_parsed
+            repo_url = source_parsed.repo_url
+            repo_ref = source_parsed.repo_ref
+            repo_path = source_parsed.repo_path
+        elif (
+            explicit_source_url
+            and marketplace_source_urls.is_git_source_url(explicit_source_url)
+            and (not repo_url or repo_url == default_repo_url)
+        ):
+            repo_url = explicit_source_url
+        elif explicit_source_url and repo_path and not repo_url:
+            repo_url = explicit_source_url
 
-        name = _first_str(data, "name", "id", "slug", "title")
-        description = _first_str(data, "description", "summary")
-        kind = _first_str(data, "kind", "type")
-        bundle_name = _first_str(data, "bundle_name")
+        name = marketplace_source_urls.first_nonempty_str(data, "name", "id", "slug", "title")
+        description = marketplace_source_urls.first_nonempty_str(data, "description", "summary")
+        kind = marketplace_source_urls.first_nonempty_str(data, "kind", "type")
+        bundle_name = marketplace_source_urls.first_nonempty_str(data, "bundle_name")
 
         repo_url = repo_url or default_repo_url
         repo_ref = repo_ref or default_repo_ref
-        source_url = source_url or default_source_url
+        source_url = explicit_source_url or default_source_url
 
         if not name and repo_path:
-            name = PurePosixPath(repo_path).name or repo_path
+            name = _card_pack_name_from_repo_path(repo_path)
 
         return {
             "name": name,
@@ -286,8 +387,8 @@ class MarketplacePayloadModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_payload(cls, data: Any, info: Any) -> Any:
-        return marketplace_source_utils.normalize_marketplace_payload(
+    def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
+        return marketplace_fetch.normalize_marketplace_payload(
             data,
             info,
             extract_entries=_extract_marketplace_entries,
@@ -302,26 +403,19 @@ def get_manager_directory(settings: Settings | None = None, *, cwd: Path | None 
 
 def get_marketplace_url(settings: Settings | None = None) -> str:
     resolved_settings = settings or get_settings()
-    cards_settings = getattr(resolved_settings, "cards", None)
-    url = None
-    if cards_settings is not None:
-        url = getattr(cards_settings, "marketplace_url", None)
-        if not url:
-            urls = getattr(cards_settings, "marketplace_urls", None)
-            if urls:
-                url = urls[0]
-    return _normalize_marketplace_url(url or DEFAULT_CARD_REGISTRY_URL)
+    cards_settings = resolved_settings.cards
+    url = cards_settings.marketplace_url
+    if not url and cards_settings.marketplace_urls:
+        url = cards_settings.marketplace_urls[0]
+    return marketplace_source_urls.normalize_marketplace_url(url or DEFAULT_CARD_REGISTRY_URL)
 
 
 def resolve_card_registries(settings: Settings | None = None) -> list[str]:
     resolved_settings = settings or get_settings()
-    cards_settings = getattr(resolved_settings, "cards", None)
-    configured = getattr(cards_settings, "marketplace_urls", None) if cards_settings else None
-    active = getattr(cards_settings, "marketplace_url", None) if cards_settings else None
     return marketplace_registry_urls.resolve_registry_urls(
-        configured,
+        resolved_settings.cards.marketplace_urls,
         default_urls=DEFAULT_CARD_REGISTRIES,
-        active_url=active,
+        active_url=resolved_settings.cards.marketplace_url,
     )
 
 
@@ -367,43 +461,17 @@ def list_local_card_packs(*, environment_paths: EnvironmentPaths) -> list[LocalC
 def select_card_pack_by_name_or_index(
     entries: Iterable[MarketplaceCardPack], selector: str
 ) -> MarketplaceCardPack | None:
-    selector_clean = selector.strip()
-    if not selector_clean:
-        return None
-
-    entries_list = list(entries)
-    if selector_clean.isdigit():
-        index = int(selector_clean)
-        if 1 <= index <= len(entries_list):
-            return entries_list[index - 1]
-        return None
-
-    selector_lower = selector_clean.lower()
-    for entry in entries_list:
-        if entry.name.lower() == selector_lower:
-            return entry
-    return None
+    return select_one_by_name_or_index(entries, selector, names=lambda entry: (entry.name,))
 
 
 def select_installed_card_pack_by_name_or_index(
     entries: Iterable[LocalCardPack], selector: str
 ) -> LocalCardPack | None:
-    selector_clean = selector.strip()
-    if not selector_clean:
-        return None
-
-    entries_list = list(entries)
-    if selector_clean.isdigit():
-        index = int(selector_clean)
-        if 1 <= index <= len(entries_list):
-            return entries_list[index - 1]
-        return None
-
-    selector_lower = selector_clean.lower()
-    for entry in entries_list:
-        if entry.name.lower() == selector_lower or entry.pack_dir.name.lower() == selector_lower:
-            return entry
-    return None
+    return select_one_by_name_or_index(
+        entries,
+        selector,
+        names=lambda entry: (entry.name, entry.pack_dir.name),
+    )
 
 
 def get_card_pack_source_sidecar_path(pack_dir: Path) -> Path:
@@ -448,55 +516,29 @@ def compute_card_pack_content_fingerprint(
 def read_installed_card_pack_source(
     pack_dir: Path,
 ) -> tuple[InstalledCardPackSource | None, str | None]:
-    sidecar_path = get_card_pack_source_sidecar_path(pack_dir)
-    if not sidecar_path.exists():
-        return None, None
-
-    try:
-        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        return None, f"invalid json: {exc}"
-
-    if not isinstance(payload, dict):
-        return None, "metadata root must be an object"
-
-    try:
-        source = _parse_installed_card_pack_source(payload)
-    except ValueError as exc:
-        return None, str(exc)
-
-    return source, None
+    read_result = marketplace_provenance_io.read_installed_source_file(
+        get_card_pack_source_sidecar_path(pack_dir),
+        parse_payload=_parse_installed_card_pack_source,
+    )
+    return read_result.source, read_result.error
 
 
 def write_installed_card_pack_source(pack_dir: Path, source: InstalledCardPackSource) -> None:
-    sidecar_path = get_card_pack_source_sidecar_path(pack_dir)
-    payload = {
-        "schema_version": source.schema_version,
-        "installed_via": source.installed_via,
-        "source_origin": source.source_origin,
-        "name": source.name,
-        "kind": source.kind,
-        "repo_url": source.repo_url,
-        "repo_ref": source.repo_ref,
-        "repo_path": source.repo_path,
-        "source_url": source.source_url,
-        "installed_commit": source.installed_commit,
-        "installed_path_oid": source.installed_path_oid,
-        "installed_revision": source.installed_revision,
-        "installed_at": source.installed_at,
-        "content_fingerprint": source.content_fingerprint,
-        "installed_files": list(source.installed_files),
-    }
-    sidecar_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-        encoding="utf-8",
+    marketplace_provenance_io.write_installed_source_file(
+        get_card_pack_source_sidecar_path(pack_dir),
+        source,
+        extra_payload={
+            "name": source.name,
+            "kind": source.kind,
+            "installed_files": list(source.installed_files),
+        },
     )
 
 
 def load_card_pack_manifest(pack_root: Path) -> CardPackManifest:
-    manifest_path = pack_root / "card-pack.yaml"
+    manifest_path = pack_root / CARD_PACK_MANIFEST_FILENAME
     if not manifest_path.exists() or not manifest_path.is_file():
-        raise FileNotFoundError(f"card-pack.yaml not found in {pack_root}")
+        raise FileNotFoundError(f"{CARD_PACK_MANIFEST_FILENAME} not found in {pack_root}")
 
     raw_text = manifest_path.read_text(encoding="utf-8")
     data = yaml.safe_load(raw_text)
@@ -533,9 +575,9 @@ def _validate_plugin_refs(value: Any) -> list[str]:
         raise ValueError("card pack plugins.required/recommended must be lists")
     refs: list[str] = []
     for item in value:
-        if not isinstance(item, str) or not item.strip():
+        cleaned = strip_str_to_none(item)
+        if cleaned is None:
             raise ValueError("card pack plugin references must be non-empty strings")
-        cleaned = item.strip()
         if cleaned not in refs:
             refs.append(cleaned)
     return refs
@@ -549,11 +591,11 @@ async def fetch_marketplace_card_packs(url: str) -> list[MarketplaceCardPack]:
 async def fetch_marketplace_card_packs_with_source(
     url: str,
 ) -> tuple[list[MarketplaceCardPack], str]:
-    return await marketplace_source_utils.fetch_marketplace_entries_with_source(
+    return await marketplace_fetch.fetch_marketplace_entries_with_source(
         url,
-        candidate_urls=_candidate_marketplace_urls,
-        normalize_url=_normalize_marketplace_url,
-        load_local_payload=_load_local_marketplace_payload,
+        candidate_urls=candidate_marketplace_urls,
+        normalize_url=marketplace_source_urls.normalize_marketplace_url,
+        load_local_payload=marketplace_fetch.load_local_marketplace_payload,
         parse_payload=lambda payload, source_url: _parse_marketplace_payload(
             payload,
             source_url=source_url,
@@ -628,11 +670,8 @@ def check_card_pack_updates(
 
     owners = _collect_installed_file_owners(destination_root)
     updates: list[CardPackUpdateInfo] = []
-    head_cache: dict[tuple[str, str | None], tuple[str | None, CardPackUpdateStatus | None, str | None]] = {}
-    path_cache: dict[
-        tuple[str, str | None, str, str],
-        tuple[str | None, CardPackUpdateStatus | None, str | None],
-    ] = {}
+    head_cache: CardPackHeadCache = {}
+    path_cache: CardPackPathCache = {}
 
     index = 0
     for pack_dir in sorted(destination_root.iterdir()):
@@ -655,24 +694,11 @@ def select_card_pack_updates(
     updates: Sequence[CardPackUpdateInfo],
     selector: str,
 ) -> list[CardPackUpdateInfo]:
-    selector_clean = selector.strip()
-    if not selector_clean:
-        return []
-
-    if selector_clean.lower() == "all":
-        return list(updates)
-
-    if selector_clean.isdigit():
-        index = int(selector_clean)
-        if 1 <= index <= len(updates):
-            return [updates[index - 1]]
-        return []
-
-    selector_lower = selector_clean.lower()
-    for update in updates:
-        if update.name.lower() == selector_lower or update.pack_dir.name.lower() == selector_lower:
-            return [update]
-    return []
+    return select_updates_by_name_or_index(
+        updates,
+        selector,
+        names=lambda update: (update.name, update.pack_dir.name),
+    )
 
 
 def apply_card_pack_updates(
@@ -683,11 +709,8 @@ def apply_card_pack_updates(
 ) -> list[CardPackUpdateInfo]:
     destination_root = environment_paths.card_packs.resolve()
     owners = _collect_installed_file_owners(destination_root)
-    head_cache: dict[tuple[str, str | None], tuple[str | None, CardPackUpdateStatus | None, str | None]] = {}
-    path_cache: dict[
-        tuple[str, str | None, str, str],
-        tuple[str | None, CardPackUpdateStatus | None, str | None],
-    ] = {}
+    head_cache: CardPackHeadCache = {}
+    path_cache: CardPackPathCache = {}
 
     results: list[CardPackUpdateInfo] = []
 
@@ -700,17 +723,7 @@ def apply_card_pack_updates(
             path_cache=path_cache,
         )
 
-        if refreshed.status in {
-            "up_to_date",
-            "unmanaged",
-            "invalid_metadata",
-            "invalid_local_pack",
-            "unknown_revision",
-            "source_unreachable",
-            "source_ref_missing",
-            "source_path_missing",
-            "ownership_conflict",
-        }:
+        if not is_update_applicable(refreshed.status):
             results.append(refreshed)
             continue
 
@@ -794,7 +807,7 @@ def apply_card_pack_updates(
                 )
             )
             continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             results.append(
                 CardPackUpdateInfo(
                     index=refreshed.index,
@@ -840,288 +853,458 @@ def publish_local_card_pack(
 ) -> CardPackPublishResult:
     source, error = read_installed_card_pack_source(pack_dir)
     if source is None:
-        if error is None:
-            return CardPackPublishResult(
-                pack_name=pack_dir.name,
-                pack_dir=pack_dir,
-                status="unmanaged",
-                detail="no sidecar metadata",
-            )
-        return CardPackPublishResult(
+        result = CardPackPublishResult(
             pack_name=pack_dir.name,
             pack_dir=pack_dir,
-            status="invalid_metadata",
-            detail=error,
+            status="unmanaged" if error is None else "invalid_metadata",
+            detail="no sidecar metadata" if error is None else error,
         )
+    else:
+        with contextlib.ExitStack() as stack:
+            result = _publish_managed_local_card_pack(
+                source,
+                pack_dir=pack_dir,
+                environment_paths=environment_paths,
+                push=push,
+                commit_message=commit_message,
+                temp_dir=temp_dir,
+                keep_temp=keep_temp,
+                stack=stack,
+            )
+    return result
 
-    local_repo = _resolve_local_repo(source.repo_url)
-    retained_temp_dir: Path | None = None
 
-    with contextlib.ExitStack() as stack:
-        repo_root: Path
-        if local_repo is not None:
-            repo_root = local_repo
+def _publish_managed_local_card_pack(
+    source: InstalledCardPackSource,
+    *,
+    pack_dir: Path,
+    environment_paths: EnvironmentPaths,
+    push: bool,
+    commit_message: str | None,
+    temp_dir: Path | None,
+    keep_temp: bool,
+    stack: contextlib.ExitStack,
+) -> CardPackPublishResult:
+    workspace = _prepare_publish_workspace(
+        source,
+        pack_dir=pack_dir,
+        temp_dir=temp_dir,
+        keep_temp=keep_temp,
+        stack=stack,
+    )
+    if isinstance(workspace, CardPackPublishResult):
+        result = workspace
+    else:
+        destination = _resolve_publish_destination(source, pack_dir, workspace)
+        if isinstance(destination, CardPackPublishResult):
+            result = destination
         else:
-            temp_parent = temp_dir.expanduser().resolve() if temp_dir is not None else None
-            if temp_parent is not None:
-                temp_parent.mkdir(parents=True, exist_ok=True)
-
-            if keep_temp:
-                repo_root = Path(
-                    tempfile.mkdtemp(
-                        dir=str(temp_parent) if temp_parent is not None else None,
-                        prefix=f".{source.name}.publish-",
-                    )
-                )
-                retained_temp_dir = repo_root
+            sync_result = _sync_publish_content(
+                source,
+                pack_dir=pack_dir,
+                environment_paths=environment_paths,
+                destination_pack_dir=destination,
+                workspace=workspace,
+            )
+            if sync_result is not None:
+                result = sync_result
             else:
-                repo_root = Path(
-                    stack.enter_context(
-                        tempfile.TemporaryDirectory(
-                            dir=str(temp_parent) if temp_parent is not None else None,
-                            prefix=f".{source.name}.publish-",
-                        )
-                    )
-                )
-
-            clone_error = _clone_publish_repository(source=source, destination_dir=repo_root)
-            if clone_error is not None:
-                return CardPackPublishResult(
-                    pack_name=source.name,
+                result = _finish_staged_publish(
+                    source,
                     pack_dir=pack_dir,
-                    status="source_unreachable",
-                    detail=clone_error,
-                    repo_root=repo_root,
-                    repo_path=source.repo_path,
-                    retained_temp_dir=retained_temp_dir,
-                )
-
-        try:
-            destination_pack_dir = _resolve_repo_subdir(repo_root, source.repo_path)
-        except ValueError as exc:
-            return CardPackPublishResult(
-                pack_name=source.name,
-                pack_dir=pack_dir,
-                status="source_path_missing",
-                detail=str(exc),
-                repo_root=repo_root,
-                repo_path=source.repo_path,
-                retained_temp_dir=retained_temp_dir,
-            )
-
-        try:
-            manifest = load_card_pack_manifest(pack_dir)
-            plan = _build_install_copy_plan(pack_dir, manifest, env_root=environment_paths.root)
-            missing_files = _sync_pack_from_environment(
-                copy_plan=plan,
-                env_root=environment_paths.root,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return CardPackPublishResult(
-                pack_name=source.name,
-                pack_dir=pack_dir,
-                status="publish_failed",
-                detail=str(exc),
-                repo_root=repo_root,
-                repo_path=source.repo_path,
-                retained_temp_dir=retained_temp_dir,
-            )
-
-        if missing_files:
-            preview = ", ".join(missing_files[:3])
-            if len(missing_files) > 3:
-                preview = f"{preview}, ..."
-            return CardPackPublishResult(
-                pack_name=source.name,
-                pack_dir=pack_dir,
-                status="missing_managed_files",
-                detail=f"missing installed file(s) in environment: {preview}",
-                repo_root=repo_root,
-                repo_path=source.repo_path,
-                retained_temp_dir=retained_temp_dir,
-            )
-
-        try:
-            _sync_directory_contents(
-                source_root=pack_dir,
-                target_root=destination_pack_dir,
-                ignore_names={CARD_PACK_SOURCE_FILENAME, ".publish"},
-            )
-        except Exception as exc:  # noqa: BLE001
-            return CardPackPublishResult(
-                pack_name=source.name,
-                pack_dir=pack_dir,
-                status="publish_failed",
-                detail=str(exc),
-                repo_root=repo_root,
-                repo_path=source.repo_path,
-                retained_temp_dir=retained_temp_dir,
-            )
-
-        _ensure_git_identity(repo_root)
-
-        add_result = subprocess.run(
-            ["git", "-C", str(repo_root), "add", "--all", "--", source.repo_path],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if add_result.returncode != 0:
-            detail = add_result.stderr.strip() or add_result.stdout.strip() or "git add failed"
-            return CardPackPublishResult(
-                pack_name=source.name,
-                pack_dir=pack_dir,
-                status="publish_failed",
-                detail=detail,
-                repo_root=repo_root,
-                repo_path=source.repo_path,
-                retained_temp_dir=retained_temp_dir,
-            )
-
-        status_result = subprocess.run(
-            ["git", "-C", str(repo_root), "status", "--porcelain", "--", source.repo_path],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if status_result.returncode != 0:
-            detail = status_result.stderr.strip() or status_result.stdout.strip() or "git status failed"
-            return CardPackPublishResult(
-                pack_name=source.name,
-                pack_dir=pack_dir,
-                status="publish_failed",
-                detail=detail,
-                repo_root=repo_root,
-                repo_path=source.repo_path,
-                retained_temp_dir=retained_temp_dir,
-            )
-
-        if not status_result.stdout.strip():
-            current_commit = _resolve_git_commit(repo_root, "HEAD")
-            if current_commit:
-                try:
-                    _refresh_published_sidecar(
-                        pack_dir=pack_dir,
-                        source=source,
-                        environment_paths=environment_paths,
-                        repo_root=repo_root,
-                        commit=current_commit,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    return CardPackPublishResult(
-                        pack_name=source.name,
-                        pack_dir=pack_dir,
-                        status="publish_failed",
-                        detail=f"published content but failed to update metadata: {exc}",
-                        repo_root=repo_root,
-                        repo_path=source.repo_path,
-                        commit=current_commit,
-                        retained_temp_dir=retained_temp_dir,
-                    )
-            return CardPackPublishResult(
-                pack_name=source.name,
-                pack_dir=pack_dir,
-                status="no_changes",
-                detail="source repository already matches local pack",
-                repo_root=repo_root,
-                repo_path=source.repo_path,
-                commit=current_commit,
-                retained_temp_dir=retained_temp_dir,
-            )
-
-        message = commit_message or f"Update card pack {source.name}"
-        commit_result = subprocess.run(
-            ["git", "-C", str(repo_root), "commit", "-m", message],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if commit_result.returncode != 0:
-            detail = commit_result.stderr.strip() or commit_result.stdout.strip() or "git commit failed"
-            return CardPackPublishResult(
-                pack_name=source.name,
-                pack_dir=pack_dir,
-                status="publish_failed",
-                detail=detail,
-                repo_root=repo_root,
-                repo_path=source.repo_path,
-                retained_temp_dir=retained_temp_dir,
-            )
-
-        commit = _resolve_git_commit(repo_root, "HEAD")
-        if commit:
-            try:
-                _refresh_published_sidecar(
-                    pack_dir=pack_dir,
-                    source=source,
                     environment_paths=environment_paths,
-                    repo_root=repo_root,
-                    commit=commit,
+                    workspace=workspace,
+                    push=push,
+                    commit_message=commit_message,
                 )
-            except Exception as exc:  # noqa: BLE001
-                return CardPackPublishResult(
-                    pack_name=source.name,
-                    pack_dir=pack_dir,
-                    status="publish_failed",
-                    detail=f"committed but failed to update metadata: {exc}",
-                    repo_root=repo_root,
-                    repo_path=source.repo_path,
-                    commit=commit,
-                    retained_temp_dir=retained_temp_dir,
-                )
+    return result
 
-        if not push:
-            return CardPackPublishResult(
-                pack_name=source.name,
+
+def _finish_staged_publish(
+    source: InstalledCardPackSource,
+    *,
+    pack_dir: Path,
+    environment_paths: EnvironmentPaths,
+    workspace: _PublishWorkspace,
+    push: bool,
+    commit_message: str | None,
+) -> CardPackPublishResult:
+    status = _stage_publish_changes(source, pack_dir, workspace)
+    if isinstance(status, CardPackPublishResult):
+        result = status
+    elif not status:
+        result = _finish_publish_without_changes(
+            source,
+            pack_dir=pack_dir,
+            environment_paths=environment_paths,
+            workspace=workspace,
+        )
+    else:
+        commit = _commit_publish_changes(
+            source,
+            pack_dir=pack_dir,
+            environment_paths=environment_paths,
+            workspace=workspace,
+            commit_message=commit_message,
+        )
+        if isinstance(commit, CardPackPublishResult):
+            result = commit
+        elif not push:
+            result = _publish_result(
+                source,
                 pack_dir=pack_dir,
+                workspace=workspace,
                 status="committed",
                 detail="changes committed locally; push skipped (--no-push)",
-                repo_root=repo_root,
-                repo_path=source.repo_path,
                 commit=commit,
-                retained_temp_dir=retained_temp_dir,
             )
-
-        push_result = subprocess.run(
-            ["git", "-C", str(repo_root), "push"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if push_result.returncode == 0:
-            return CardPackPublishResult(
-                pack_name=source.name,
+        else:
+            result = _push_published_card_pack(
+                source,
                 pack_dir=pack_dir,
-                status="published",
-                detail="changes pushed to remote",
-                repo_root=repo_root,
-                repo_path=source.repo_path,
+                workspace=workspace,
                 commit=commit,
-                retained_temp_dir=retained_temp_dir,
             )
+    return result
 
-        push_error = push_result.stderr.strip() or push_result.stdout.strip() or "git push failed"
-        patch_path = _write_publish_patch(
-            repo_root=repo_root,
-            pack_dir=pack_dir,
-            commit=commit,
+
+def _publish_result(
+    source: InstalledCardPackSource,
+    *,
+    pack_dir: Path,
+    workspace: _PublishWorkspace,
+    status: CardPackPublishStatus,
+    detail: str | None,
+    commit: str | None = None,
+    patch_path: Path | None = None,
+) -> CardPackPublishResult:
+    return CardPackPublishResult(
+        pack_name=source.name,
+        pack_dir=pack_dir,
+        status=status,
+        detail=detail,
+        repo_root=workspace.repo_root,
+        repo_path=source.repo_path,
+        commit=commit,
+        patch_path=patch_path,
+        retained_temp_dir=workspace.retained_temp_dir,
+    )
+
+
+def _prepare_publish_workspace(
+    source: InstalledCardPackSource,
+    *,
+    pack_dir: Path,
+    temp_dir: Path | None,
+    keep_temp: bool,
+    stack: contextlib.ExitStack,
+) -> _PublishWorkspace | CardPackPublishResult:
+    local_repo = marketplace_git_sources.resolve_local_repo(source.repo_url)
+    if local_repo is not None:
+        return _PublishWorkspace(repo_root=local_repo, retained_temp_dir=None)
+
+    temp_parent = temp_dir.expanduser().resolve() if temp_dir is not None else None
+    if temp_parent is not None:
+        temp_parent.mkdir(parents=True, exist_ok=True)
+
+    retained_temp_dir: Path | None = None
+    if keep_temp:
+        repo_root = Path(
+            tempfile.mkdtemp(
+                dir=str(temp_parent) if temp_parent is not None else None,
+                prefix=f".{source.name}.publish-",
+            )
+        )
+        retained_temp_dir = repo_root
+    else:
+        repo_root = Path(
+            stack.enter_context(
+                tempfile.TemporaryDirectory(
+                    dir=str(temp_parent) if temp_parent is not None else None,
+                    prefix=f".{source.name}.publish-",
+                )
+            )
         )
 
-        detail = "push failed"
-        if push_error:
-            detail = f"push failed: {push_error}"
+    workspace = _PublishWorkspace(repo_root=repo_root, retained_temp_dir=retained_temp_dir)
+    clone_error = _clone_publish_repository(source=source, destination_dir=repo_root)
+    if clone_error is None:
+        return workspace
+    return _publish_result(
+        source,
+        pack_dir=pack_dir,
+        workspace=workspace,
+        status="source_unreachable",
+        detail=clone_error,
+    )
 
-        return CardPackPublishResult(
-            pack_name=source.name,
+
+def _resolve_publish_destination(
+    source: InstalledCardPackSource,
+    pack_dir: Path,
+    workspace: _PublishWorkspace,
+) -> Path | CardPackPublishResult:
+    try:
+        return marketplace_git_sources.resolve_repo_subdir(
+            workspace.repo_root,
+            source.repo_path,
+            label="Card pack",
+        )
+    except ValueError as exc:
+        return _publish_result(
+            source,
             pack_dir=pack_dir,
+            workspace=workspace,
+            status="source_path_missing",
+            detail=str(exc),
+        )
+
+
+def _sync_publish_content(
+    source: InstalledCardPackSource,
+    *,
+    pack_dir: Path,
+    environment_paths: EnvironmentPaths,
+    destination_pack_dir: Path,
+    workspace: _PublishWorkspace,
+) -> CardPackPublishResult | None:
+    try:
+        manifest = load_card_pack_manifest(pack_dir)
+        plan = _build_install_copy_plan(pack_dir, manifest, env_root=environment_paths.root)
+        missing_files = _sync_pack_from_environment(
+            copy_plan=plan,
+            env_root=environment_paths.root,
+        )
+    except Exception as exc:
+        return _publish_result(
+            source,
+            pack_dir=pack_dir,
+            workspace=workspace,
             status="publish_failed",
-            detail=detail,
-            repo_root=repo_root,
-            repo_path=source.repo_path,
-            commit=commit,
-            patch_path=patch_path,
-            retained_temp_dir=retained_temp_dir,
+            detail=str(exc),
         )
+
+    if missing_files:
+        return _publish_result(
+            source,
+            pack_dir=pack_dir,
+            workspace=workspace,
+            status="missing_managed_files",
+            detail=_format_missing_installed_files_detail(missing_files),
+        )
+
+    try:
+        _sync_directory_contents(
+            source_root=pack_dir,
+            target_root=destination_pack_dir,
+            ignore_names={CARD_PACK_SOURCE_FILENAME, ".publish"},
+        )
+    except Exception as exc:
+        return _publish_result(
+            source,
+            pack_dir=pack_dir,
+            workspace=workspace,
+            status="publish_failed",
+            detail=str(exc),
+        )
+    return None
+
+
+def _stage_publish_changes(
+    source: InstalledCardPackSource,
+    pack_dir: Path,
+    workspace: _PublishWorkspace,
+) -> str | CardPackPublishResult:
+    _ensure_git_identity(workspace.repo_root)
+
+    add_result = subprocess.run(
+        ["git", "-C", str(workspace.repo_root), "add", "--all", "--", source.repo_path],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if add_result.returncode != 0:
+        return _publish_result(
+            source,
+            pack_dir=pack_dir,
+            workspace=workspace,
+            status="publish_failed",
+            detail=marketplace_git_sources.subprocess_failure_detail(
+                add_result,
+                "git add failed",
+            ),
+        )
+
+    status_result = subprocess.run(
+        ["git", "-C", str(workspace.repo_root), "status", "--porcelain", "--", source.repo_path],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if status_result.returncode != 0:
+        return _publish_result(
+            source,
+            pack_dir=pack_dir,
+            workspace=workspace,
+            status="publish_failed",
+            detail=marketplace_git_sources.subprocess_failure_detail(
+                status_result,
+                "git status failed",
+            ),
+        )
+    return status_result.stdout.strip()
+
+
+def _finish_publish_without_changes(
+    source: InstalledCardPackSource,
+    *,
+    pack_dir: Path,
+    environment_paths: EnvironmentPaths,
+    workspace: _PublishWorkspace,
+) -> CardPackPublishResult:
+    current_commit = marketplace_git_sources.resolve_git_commit(workspace.repo_root, "HEAD")
+    if current_commit:
+        metadata_error = _refresh_publish_sidecar_safely(
+            pack_dir=pack_dir,
+            source=source,
+            environment_paths=environment_paths,
+            repo_root=workspace.repo_root,
+            commit=current_commit,
+            detail_prefix="published content but failed to update metadata",
+        )
+        if metadata_error is not None:
+            return _publish_result(
+                source,
+                pack_dir=pack_dir,
+                workspace=workspace,
+                status="publish_failed",
+                detail=metadata_error,
+                commit=current_commit,
+            )
+    return _publish_result(
+        source,
+        pack_dir=pack_dir,
+        workspace=workspace,
+        status="no_changes",
+        detail="source repository already matches local pack",
+        commit=current_commit,
+    )
+
+
+def _commit_publish_changes(
+    source: InstalledCardPackSource,
+    *,
+    pack_dir: Path,
+    environment_paths: EnvironmentPaths,
+    workspace: _PublishWorkspace,
+    commit_message: str | None,
+) -> str | CardPackPublishResult | None:
+    message = commit_message or f"Update card pack {source.name}"
+    commit_result = subprocess.run(
+        ["git", "-C", str(workspace.repo_root), "commit", "-m", message],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if commit_result.returncode != 0:
+        return _publish_result(
+            source,
+            pack_dir=pack_dir,
+            workspace=workspace,
+            status="publish_failed",
+            detail=marketplace_git_sources.subprocess_failure_detail(
+                commit_result,
+                "git commit failed",
+            ),
+        )
+
+    commit = marketplace_git_sources.resolve_git_commit(workspace.repo_root, "HEAD")
+    if not commit:
+        return commit
+
+    metadata_error = _refresh_publish_sidecar_safely(
+        pack_dir=pack_dir,
+        source=source,
+        environment_paths=environment_paths,
+        repo_root=workspace.repo_root,
+        commit=commit,
+        detail_prefix="committed but failed to update metadata",
+    )
+    if metadata_error is None:
+        return commit
+    return _publish_result(
+        source,
+        pack_dir=pack_dir,
+        workspace=workspace,
+        status="publish_failed",
+        detail=metadata_error,
+        commit=commit,
+    )
+
+
+def _push_published_card_pack(
+    source: InstalledCardPackSource,
+    *,
+    pack_dir: Path,
+    workspace: _PublishWorkspace,
+    commit: str | None,
+) -> CardPackPublishResult:
+    push_result = subprocess.run(
+        ["git", "-C", str(workspace.repo_root), "push"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if push_result.returncode == 0:
+        return _publish_result(
+            source,
+            pack_dir=pack_dir,
+            workspace=workspace,
+            status="published",
+            detail="changes pushed to remote",
+            commit=commit,
+        )
+
+    push_error = marketplace_git_sources.subprocess_failure_detail(
+        push_result,
+        "git push failed",
+    )
+    patch_path = _write_publish_patch(
+        repo_root=workspace.repo_root,
+        pack_dir=pack_dir,
+        commit=commit,
+    )
+    return _publish_result(
+        source,
+        pack_dir=pack_dir,
+        workspace=workspace,
+        status="publish_failed",
+        detail=f"push failed: {push_error}" if push_error else "push failed",
+        commit=commit,
+        patch_path=patch_path,
+    )
+
+
+def _refresh_publish_sidecar_safely(
+    *,
+    pack_dir: Path,
+    source: InstalledCardPackSource,
+    environment_paths: EnvironmentPaths,
+    repo_root: Path,
+    commit: str,
+    detail_prefix: str,
+) -> str | None:
+    try:
+        _refresh_published_sidecar(
+            pack_dir=pack_dir,
+            source=source,
+            environment_paths=environment_paths,
+            repo_root=repo_root,
+            commit=commit,
+        )
+    except Exception as exc:
+        return f"{detail_prefix}: {exc}"
+    return None
 
 
 def format_revision_short(revision: str | None) -> str:
@@ -1163,7 +1346,7 @@ def _install_marketplace_card_pack_sync(
     ) as temp_dir_str:
         temp_dir = Path(temp_dir_str)
         staged_pack_dir = temp_dir / pack.name
-        source_origin, installed_commit, installed_path_oid = _copy_pack_from_marketplace_source(
+        copied_source = _copy_pack_from_marketplace_source(
             pack,
             destination_dir=staged_pack_dir,
             pinned_revision=pinned_revision,
@@ -1215,18 +1398,21 @@ def _install_marketplace_card_pack_sync(
         )
         source = _build_installed_card_pack_source(
             pack=pack,
-            source_origin=source_origin,
-            installed_commit=installed_commit,
-            installed_path_oid=installed_path_oid,
+            source_origin=copied_source.origin,
+            installed_commit=copied_source.commit,
+            installed_path_oid=copied_source.path_oid,
             fingerprint=fingerprint,
             installed_files=installed_files,
         )
         write_installed_card_pack_source(staged_pack_dir, source)
 
         if install_root.exists():
-            _atomic_replace_directory(existing_dir=install_root, staged_dir=staged_pack_dir)
+            marketplace_git_sources.atomic_replace_directory(
+                existing_dir=install_root,
+                staged_dir=staged_pack_dir,
+            )
         else:
-            os.replace(staged_pack_dir, install_root)
+            staged_pack_dir.replace(install_root)
 
     return CardPackInstallResult(
         pack_dir=install_root,
@@ -1240,61 +1426,109 @@ def _copy_pack_from_marketplace_source(
     *,
     destination_dir: Path,
     pinned_revision: str | None,
-) -> tuple[CardPackSourceOrigin, str | None, str | None]:
-    local_repo = _resolve_local_repo(pack.repo_url)
+) -> marketplace_source_models.SourceCopyResult[CardPackSourceOrigin]:
+    checkout_ref = marketplace_git_sources.pinned_checkout_ref(
+        pinned_revision,
+        local_revision=LOCAL_REVISION,
+    )
+    local_repo = marketplace_git_sources.resolve_local_repo(pack.repo_url)
     if local_repo is not None:
-        source_dir = _resolve_repo_subdir(local_repo, pack.repo_path)
-        if not source_dir.exists() or not source_dir.is_dir():
-            raise FileNotFoundError(f"Card pack path not found in repository: {pack.repo_path}")
-        if not (source_dir / "card-pack.yaml").exists():
-            raise FileNotFoundError(
-                f"card-pack.yaml not found in repository path: {pack.repo_path}"
+        requested_revision = checkout_ref or pack.repo_ref
+        if requested_revision:
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, requested_revision)
+            if commit is None:
+                raise FileNotFoundError(f"Card pack source ref not found: {requested_revision}")
+            _copy_pack_source_from_git_commit(
+                repo_root=local_repo,
+                commit=commit,
+                repo_path=pack.repo_subdir,
+                destination_dir=destination_dir,
             )
-        shutil.copytree(source_dir, destination_dir)
+        else:
+            source_dir = marketplace_git_sources.resolve_repo_subdir(
+                local_repo,
+                pack.repo_subdir,
+                label="Card pack",
+            )
+            _validate_pack_source_dir(source_dir, pack.repo_subdir)
+            shutil.copytree(source_dir, destination_dir)
+            if marketplace_git_sources.is_git_source_dirty(local_repo, source_dir):
+                return marketplace_source_models.SourceCopyResult(
+                    origin="local",
+                    commit=None,
+                    path_oid=None,
+                )
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, "HEAD")
 
-        revision = pinned_revision if pinned_revision and pinned_revision != LOCAL_REVISION else None
-        commit = _resolve_git_commit(local_repo, revision or pack.repo_ref or "HEAD")
-        path_oid = None
-        if commit is not None:
-            path_oid = _resolve_git_path_oid(local_repo, commit, pack.repo_path)
-        return "local", commit, path_oid
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
+            local_repo,
+            commit,
+            pack.repo_subdir,
+            resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
+        )
+        return marketplace_source_models.SourceCopyResult(
+            origin="local",
+            commit=commit,
+            path_oid=path_oid,
+        )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
-        clone_args = [
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            "--filter=blob:none",
-            "--sparse",
-        ]
-        if pack.repo_ref:
-            clone_args.extend(["--branch", pack.repo_ref])
-        clone_args.extend([pack.repo_url, str(tmp_path)])
+        marketplace_git_sources.clone_sparse_checkout(
+            repo_url=pack.repo_url,
+            repo_ref=pack.repo_ref,
+            repo_subdir=pack.repo_subdir,
+            destination_dir=tmp_path,
+            checkout_ref=checkout_ref,
+        )
 
-        _run_git(clone_args)
-        _run_git(["git", "-C", str(tmp_path), "sparse-checkout", "set", pack.repo_path])
-        if pinned_revision and pinned_revision != LOCAL_REVISION:
-            _run_git(["git", "-C", str(tmp_path), "checkout", pinned_revision])
-        else:
-            _run_git(["git", "-C", str(tmp_path), "checkout"])
-
-        source_dir = _resolve_repo_subdir(tmp_path, pack.repo_path)
-        if not source_dir.exists() or not source_dir.is_dir():
-            raise FileNotFoundError(f"Card pack path not found in repository: {pack.repo_path}")
-        if not (source_dir / "card-pack.yaml").exists():
-            raise FileNotFoundError(
-                f"card-pack.yaml not found in repository path: {pack.repo_path}"
-            )
+        source_dir = marketplace_git_sources.resolve_repo_subdir(
+            tmp_path,
+            pack.repo_subdir,
+            label="Card pack",
+        )
+        _validate_pack_source_dir(source_dir, pack.repo_subdir)
 
         shutil.copytree(source_dir, destination_dir)
 
-        commit = _resolve_git_commit(tmp_path, "HEAD")
-        path_oid = None
-        if commit is not None:
-            path_oid = _resolve_git_path_oid(tmp_path, commit, pack.repo_path)
-        return "remote", commit, path_oid
+        commit = marketplace_git_sources.resolve_git_commit(tmp_path, "HEAD")
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
+            tmp_path,
+            commit,
+            pack.repo_subdir,
+            resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
+        )
+        return marketplace_source_models.SourceCopyResult(
+            origin="remote",
+            commit=commit,
+            path_oid=path_oid,
+        )
+
+
+def _validate_pack_source_dir(source_dir: Path, repo_path: str) -> None:
+    if not source_dir.exists() or not source_dir.is_dir():
+        raise FileNotFoundError(f"Card pack path not found in repository: {repo_path}")
+    if not (source_dir / CARD_PACK_MANIFEST_FILENAME).is_file():
+        raise FileNotFoundError(
+            f"{CARD_PACK_MANIFEST_FILENAME} not found in repository path: {repo_path}"
+        )
+
+
+def _copy_pack_source_from_git_commit(
+    *,
+    repo_root: Path,
+    commit: str,
+    repo_path: str,
+    destination_dir: Path,
+) -> None:
+    marketplace_git_sources.copy_git_path_from_commit(
+        repo_root=repo_root,
+        commit=commit,
+        repo_subdir=repo_path,
+        destination_dir=destination_dir,
+        missing_message=f"Card pack source path not found at revision {commit}: {repo_path}",
+    )
+    _validate_pack_source_dir(destination_dir, repo_path)
 
 
 def _build_install_copy_plan(
@@ -1444,15 +1678,32 @@ def _extract_installable_last_used_model(
     *,
     require_last_used_only: bool,
 ) -> str | None:
+    payload = _load_yaml_mapping(config_path)
+    last_used_model = _system_last_used_model_reference(payload)
+    if payload is None or last_used_model is None:
+        return None
+
+    if require_last_used_only and not _is_last_used_only_config(payload):
+        return None
+
+    return last_used_model
+
+
+def _load_yaml_mapping(config_path: Path) -> dict[str, Any] | None:
     try:
-        with open(config_path, "r", encoding="utf-8") as handle:
+        with config_path.open("r", encoding="utf-8") as handle:
             payload = yaml.safe_load(handle)
     except (OSError, yaml.YAMLError):
         return None
 
     if not isinstance(payload, dict):
         return None
+    return payload
 
+
+def _system_last_used_model_reference(payload: dict[str, Any] | None) -> str | None:
+    if payload is None:
+        return None
     model_references = payload.get("model_references")
     if not isinstance(model_references, dict):
         return None
@@ -1468,10 +1719,6 @@ def _extract_installable_last_used_model(
     last_used_model = raw_last_used.strip()
     if not last_used_model:
         return None
-
-    if require_last_used_only and not _is_last_used_only_config(payload):
-        return None
-
     return last_used_model
 
 
@@ -1497,12 +1744,11 @@ def _prune_empty_config_nodes(value: Any) -> Any:
         return normalized_mapping
 
     if isinstance(value, list):
-        normalized_list = [
+        return [
             normalized_child
             for child in value
             if (normalized_child := _prune_empty_config_nodes(child)) not in ({}, [], None)
         ]
-        return normalized_list
 
     return value
 
@@ -1519,7 +1765,7 @@ def _write_merged_last_used_config(
 
 
 def _load_round_trip_mapping(path: Path) -> CommentedMap:
-    with open(path, "r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8") as handle:
         payload = _ROUND_TRIP_YAML.load(handle)
 
     if payload is None:
@@ -1546,7 +1792,7 @@ def _set_last_used_model_reference(document: CommentedMap, last_used_model: str)
 
 
 def _write_round_trip_mapping(document: CommentedMap, path: Path) -> None:
-    with open(path, "w", encoding="utf-8") as handle:
+    with path.open("w", encoding="utf-8") as handle:
         _ROUND_TRIP_YAML.dump(document, handle)
 
 
@@ -1591,6 +1837,14 @@ def _sync_pack_from_environment(
         _atomic_copy_file(env_file, item.source)
 
     return missing
+
+
+def _format_missing_installed_files_detail(missing_files: Sequence[str]) -> str:
+    preview = ", ".join(missing_files[:3])
+    if len(missing_files) > 3:
+        preview = f"{preview}, ..."
+    file_label = plural_label(len(missing_files), "file")
+    return f"missing installed {file_label} in environment: {preview}"
 
 
 def _sync_directory_contents(
@@ -1645,7 +1899,7 @@ def _atomic_copy_file(source: Path, target: Path) -> None:
 
     try:
         shutil.copy2(source, temp_path)
-        os.replace(temp_path, target)
+        temp_path.replace(target)
     finally:
         if temp_path.exists():
             temp_path.unlink(missing_ok=True)
@@ -1672,20 +1926,8 @@ def _revoke_overwritten_ownership(
             continue
 
         retained = tuple(path for path in source.installed_files if path not in overwritten)
-        updated = InstalledCardPackSource(
-            schema_version=source.schema_version,
-            installed_via=source.installed_via,
-            source_origin=source.source_origin,
-            name=source.name,
-            kind=source.kind,
-            repo_url=source.repo_url,
-            repo_ref=source.repo_ref,
-            repo_path=source.repo_path,
-            source_url=source.source_url,
-            installed_commit=source.installed_commit,
-            installed_path_oid=source.installed_path_oid,
-            installed_revision=source.installed_revision,
-            installed_at=source.installed_at,
+        updated = replace(
+            source,
             content_fingerprint=compute_card_pack_content_fingerprint(
                 environment_paths.root,
                 retained,
@@ -1700,144 +1942,255 @@ def _evaluate_card_pack_update(
     pack_dir: Path,
     index: int,
     owners: dict[str, set[str]],
-    head_cache: dict[tuple[str, str | None], tuple[str | None, CardPackUpdateStatus | None, str | None]],
-    path_cache: dict[
-        tuple[str, str | None, str, str],
-        tuple[str | None, CardPackUpdateStatus | None, str | None],
-    ],
+    head_cache: CardPackHeadCache,
+    path_cache: CardPackPathCache,
 ) -> CardPackUpdateInfo:
     source, error = read_installed_card_pack_source(pack_dir)
     if source is None:
-        if error is None:
-            return CardPackUpdateInfo(
-                index=index,
-                name=pack_dir.name,
-                pack_dir=pack_dir,
-                status="unmanaged",
-                detail="no sidecar metadata",
-            )
-        return CardPackUpdateInfo(
+        result = CardPackUpdateInfo(
             index=index,
             name=pack_dir.name,
             pack_dir=pack_dir,
-            status="invalid_metadata",
-            detail=error,
+            status="unmanaged" if error is None else "invalid_metadata",
+            detail="no sidecar metadata" if error is None else error,
         )
-
-    if not (pack_dir / "card-pack.yaml").exists():
-        return CardPackUpdateInfo(
+    else:
+        result = _evaluate_managed_card_pack_update(
+            source,
             index=index,
-            name=source.name,
+            pack_dir=pack_dir,
+            owners=owners,
+            head_cache=head_cache,
+            path_cache=path_cache,
+        )
+    return result
+
+
+def _evaluate_managed_card_pack_update(
+    source: InstalledCardPackSource,
+    *,
+    index: int,
+    pack_dir: Path,
+    owners: dict[str, set[str]],
+    head_cache: CardPackHeadCache,
+    path_cache: CardPackPathCache,
+) -> CardPackUpdateInfo:
+    preflight_update = _managed_card_pack_update_preflight(
+        source,
+        index=index,
+        pack_dir=pack_dir,
+        owners=owners,
+    )
+    if preflight_update is not None:
+        result = preflight_update
+    else:
+        revision = _resolve_available_card_pack_revision(
+            source,
+            index=index,
+            pack_dir=pack_dir,
+            head_cache=head_cache,
+        )
+        if isinstance(revision, CardPackUpdateInfo):
+            result = revision
+        else:
+            result = _evaluate_card_pack_path_update(
+                source,
+                index=index,
+                pack_dir=pack_dir,
+                available_revision=revision,
+                path_cache=path_cache,
+            )
+    return result
+
+
+def _managed_card_pack_update_preflight(
+    source: InstalledCardPackSource,
+    *,
+    index: int,
+    pack_dir: Path,
+    owners: dict[str, set[str]],
+) -> CardPackUpdateInfo | None:
+    if not (pack_dir / CARD_PACK_MANIFEST_FILENAME).is_file():
+        return _managed_card_pack_update(
+            source,
+            index=index,
             pack_dir=pack_dir,
             status="invalid_local_pack",
-            detail="card-pack.yaml not found",
-            managed_source=source,
+            detail=f"{CARD_PACK_MANIFEST_FILENAME} not found",
         )
 
-    conflicting_paths = [
-        path
-        for path in source.installed_files
-        if len(owners.get(path, set()) - {source.name}) > 0
-    ]
-    if conflicting_paths:
-        preview = ", ".join(conflicting_paths[:3])
-        if len(conflicting_paths) > 3:
-            preview = f"{preview}, ..."
-        return CardPackUpdateInfo(
-            index=index,
-            name=source.name,
-            pack_dir=pack_dir,
-            status="ownership_conflict",
-            detail=f"ownership overlaps detected: {preview}",
-            current_revision=source.installed_revision,
-            managed_source=source,
-        )
-
-    source_path_error = _validate_source_path_exists(source)
-    if source_path_error is not None:
-        return CardPackUpdateInfo(
-            index=index,
-            name=source.name,
-            pack_dir=pack_dir,
-            status="source_path_missing",
-            detail=source_path_error,
-            current_revision=source.installed_revision,
-            managed_source=source,
-        )
+    invalid_update = _preflight_card_pack_update(
+        source,
+        index=index,
+        pack_dir=pack_dir,
+        owners=owners,
+    )
+    if invalid_update is not None:
+        return invalid_update
 
     if source.installed_commit is None and source.installed_revision == LOCAL_REVISION:
-        return CardPackUpdateInfo(
+        return _managed_card_pack_update(
+            source,
             index=index,
-            name=source.name,
             pack_dir=pack_dir,
             status="unknown_revision",
             detail="source is local non-git; compare unavailable",
-            current_revision=source.installed_revision,
             available_revision=source.installed_revision,
-            managed_source=source,
         )
+    return None
 
-    available_revision, resolve_status, resolve_error = _resolve_source_revision(
+
+def _resolve_available_card_pack_revision(
+    source: InstalledCardPackSource,
+    *,
+    index: int,
+    pack_dir: Path,
+    head_cache: CardPackHeadCache,
+) -> str | CardPackUpdateInfo:
+    resolved_revision = _resolve_source_revision(
         source,
         head_cache,
     )
-    if resolve_status is not None:
-        return CardPackUpdateInfo(
+    if resolved_revision.status is not None:
+        return _managed_card_pack_update(
+            source,
             index=index,
-            name=source.name,
             pack_dir=pack_dir,
-            status=resolve_status,
-            detail=resolve_error,
-            current_revision=source.installed_revision,
-            managed_source=source,
+            status=resolved_revision.status,
+            detail=resolved_revision.detail,
         )
 
-    assert available_revision is not None
-    available_path_oid, path_status, path_error = _resolve_source_path_oid(
+    available_revision = resolved_revision.revision
+    if available_revision is None:
+        return _managed_card_pack_update(
+            source,
+            index=index,
+            pack_dir=pack_dir,
+            status="source_unreachable",
+            detail="unable to resolve source revision",
+        )
+    return available_revision
+
+
+def _evaluate_card_pack_path_update(
+    source: InstalledCardPackSource,
+    *,
+    index: int,
+    pack_dir: Path,
+    available_revision: str,
+    path_cache: CardPackPathCache,
+) -> CardPackUpdateInfo:
+    available_path = _resolve_source_path_oid(
         source,
         available_revision,
         path_cache,
     )
-    if path_status is not None:
-        return CardPackUpdateInfo(
+    if available_path.status is not None:
+        return _managed_card_pack_update(
+            source,
             index=index,
-            name=source.name,
             pack_dir=pack_dir,
-            status=path_status,
-            detail=path_error,
-            current_revision=source.installed_revision,
-            managed_source=source,
+            status=available_path.status,
+            detail=available_path.detail,
         )
 
     current_path_oid = source.installed_path_oid
     if current_path_oid is None and source.installed_commit is not None:
-        current_path_oid, _, _ = _resolve_source_path_oid(
+        current_path_oid = _resolve_source_path_oid(
             source,
             source.installed_commit,
             path_cache,
-        )
+        ).path_oid
 
     current_revision = source.installed_commit or source.installed_revision
-    status: CardPackUpdateStatus = "up_to_date"
-    detail = "already up to date"
-    if available_path_oid and current_path_oid:
-        if available_path_oid != current_path_oid:
-            status = "update_available"
-            detail = "card pack content changed"
-    elif available_revision != current_revision:
-        status = "update_available"
-        detail = "new revision available"
+    decision = marketplace_update_status.decide_source_update_status(
+        available_path_oid=available_path.path_oid,
+        current_path_oid=current_path_oid,
+        available_revision=available_revision,
+        current_revision=current_revision,
+        content_changed_detail="card pack content changed",
+    )
 
+    return CardPackUpdateInfo(
+        index=index,
+        name=source.name,
+        pack_dir=pack_dir,
+        status=decision.status,
+        detail=decision.detail,
+        current_revision=current_revision,
+        available_revision=available_revision,
+        managed_source=source,
+    )
+
+
+def _managed_card_pack_update(
+    source: InstalledCardPackSource,
+    *,
+    index: int,
+    pack_dir: Path,
+    status: CardPackUpdateStatus,
+    detail: str | None,
+    current_revision: str | None = None,
+    available_revision: str | None = None,
+) -> CardPackUpdateInfo:
     return CardPackUpdateInfo(
         index=index,
         name=source.name,
         pack_dir=pack_dir,
         status=status,
         detail=detail,
-        current_revision=current_revision,
+        current_revision=current_revision or source.installed_revision,
         available_revision=available_revision,
         managed_source=source,
     )
+
+
+def _preflight_card_pack_update(
+    source: InstalledCardPackSource,
+    *,
+    index: int,
+    pack_dir: Path,
+    owners: dict[str, set[str]],
+) -> CardPackUpdateInfo | None:
+    conflicting_paths = _conflicting_installed_paths(source, owners)
+    if conflicting_paths:
+        return _managed_card_pack_update(
+            source,
+            index=index,
+            pack_dir=pack_dir,
+            status="ownership_conflict",
+            detail=f"ownership overlaps detected: {_preview_paths(conflicting_paths)}",
+        )
+
+    source_path_error = _validate_source_path_exists(source)
+    if source_path_error is not None:
+        return _managed_card_pack_update(
+            source,
+            index=index,
+            pack_dir=pack_dir,
+            status="source_path_missing",
+            detail=source_path_error,
+        )
+
+    return None
+
+
+def _conflicting_installed_paths(
+    source: InstalledCardPackSource,
+    owners: dict[str, set[str]],
+) -> list[str]:
+    return [
+        path
+        for path in source.installed_files
+        if owners.get(path, set()) - {source.name}
+    ]
+
+
+def _preview_paths(paths: Sequence[str]) -> str:
+    preview = ", ".join(paths[:3])
+    if len(paths) > 3:
+        return f"{preview}, ..."
+    return preview
 
 
 def _collect_installed_file_owners(destination_root: Path) -> dict[str, set[str]]:
@@ -1863,18 +2216,19 @@ def _collect_installed_file_owners(destination_root: Path) -> dict[str, set[str]
 
 
 def _parse_installed_card_pack_source(payload: dict[str, Any]) -> InstalledCardPackSource:
-    parsed = marketplace_source_utils.parse_installed_source_fields(
+    parsed = marketplace_provenance_io.parse_installed_source_fields(
         payload,
         expected_schema_version=CARD_PACK_SOURCE_SCHEMA_VERSION,
         normalize_repo_path=_normalize_repo_path,
     )
 
-    name = payload.get("name")
-    if not isinstance(name, str) or not name.strip():
+    name_value = strip_str_to_none(payload.get("name"))
+    if name_value is None:
         raise ValueError("name is required")
 
     kind_raw = payload.get("kind")
-    if kind_raw not in {"card", "bundle"}:
+    kind = _normalize_card_pack_kind(kind_raw)
+    if kind is None:
         raise ValueError("kind must be 'card' or 'bundle'")
 
     installed_files_raw = payload.get("installed_files")
@@ -1894,8 +2248,8 @@ def _parse_installed_card_pack_source(payload: dict[str, Any]) -> InstalledCardP
         schema_version=CARD_PACK_SOURCE_SCHEMA_VERSION,
         installed_via="marketplace",
         source_origin=parsed.source_origin,
-        name=name.strip(),
-        kind=kind_raw,
+        name=name_value,
+        kind=kind,
         repo_url=parsed.repo_url,
         repo_ref=parsed.repo_ref,
         repo_path=parsed.repo_path,
@@ -1927,12 +2281,12 @@ def _build_installed_card_pack_source(
         kind=pack.kind,
         repo_url=pack.repo_url,
         repo_ref=pack.repo_ref,
-        repo_path=pack.repo_path,
+        repo_path=pack.repo_subdir,
         source_url=pack.source_url,
         installed_commit=installed_commit,
         installed_path_oid=installed_path_oid,
         installed_revision=installed_revision,
-        installed_at=datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        installed_at=marketplace_formatting.iso_utc_now(),
         content_fingerprint=fingerprint,
         installed_files=tuple(sorted(installed_files)),
     )
@@ -1946,143 +2300,85 @@ def _refresh_published_sidecar(
     repo_root: Path,
     commit: str,
 ) -> None:
-    installed_path_oid = _resolve_git_path_oid(repo_root, commit, source.repo_path)
+    installed_path_oid = marketplace_git_sources.resolve_git_path_oid(
+        repo_root,
+        commit,
+        source.repo_path,
+    )
     fingerprint = compute_card_pack_content_fingerprint(
         environment_paths.root,
         source.installed_files,
     )
-    updated = InstalledCardPackSource(
-        schema_version=source.schema_version,
-        installed_via=source.installed_via,
-        source_origin=source.source_origin,
-        name=source.name,
-        kind=source.kind,
-        repo_url=source.repo_url,
-        repo_ref=source.repo_ref,
-        repo_path=source.repo_path,
-        source_url=source.source_url,
+    updated = replace(
+        source,
         installed_commit=commit,
         installed_path_oid=installed_path_oid,
         installed_revision=commit,
-        installed_at=datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        installed_at=marketplace_formatting.iso_utc_now(),
         content_fingerprint=fingerprint,
-        installed_files=source.installed_files,
     )
     write_installed_card_pack_source(pack_dir, updated)
 
 
 def _validate_source_path_exists(source: InstalledCardPackSource) -> str | None:
-    local_repo = _resolve_local_repo(source.repo_url)
+    local_repo = marketplace_git_sources.resolve_local_repo(source.repo_url)
     if local_repo is None:
         return None
 
     try:
-        source_dir = _resolve_repo_subdir(local_repo, source.repo_path)
+        source_dir = marketplace_git_sources.resolve_repo_subdir(
+            local_repo,
+            source.repo_path,
+            label="Card pack",
+        )
     except ValueError as exc:
         return str(exc)
 
-    if not source_dir.exists() or not source_dir.is_dir():
-        return f"Card pack path not found in repository: {source.repo_path}"
-
-    if not (source_dir / "card-pack.yaml").exists():
-        return f"card-pack.yaml not found in repository path: {source.repo_path}"
+    try:
+        _validate_pack_source_dir(source_dir, source.repo_path)
+    except FileNotFoundError as exc:
+        return str(exc)
 
     return None
 
 
 def _resolve_source_revision(
     source: InstalledCardPackSource,
-    head_cache: dict[tuple[str, str | None], tuple[str | None, CardPackUpdateStatus | None, str | None]],
-) -> tuple[str | None, CardPackUpdateStatus | None, str | None]:
-    cache_key = (source.repo_url, source.repo_ref)
-    cached = head_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    local_repo = _resolve_local_repo(source.repo_url)
-    if local_repo is not None:
-        if source.repo_ref:
-            revision = _resolve_git_commit(local_repo, source.repo_ref)
-            if revision is None:
-                resolved = (None, "source_ref_missing", f"ref not found: {source.repo_ref}")
-                head_cache[cache_key] = resolved
-                return resolved
-        else:
-            revision = _resolve_git_commit(local_repo, "HEAD")
-
-        if revision is None:
-            resolved = (LOCAL_REVISION, None, None)
-            head_cache[cache_key] = resolved
-            return resolved
-
-        resolved = (revision, None, None)
-        head_cache[cache_key] = resolved
-        return resolved
-
-    ls_remote_args = ["git", "ls-remote", source.repo_url]
-    ls_remote_args.append(source.repo_ref or "HEAD")
-    result = subprocess.run(ls_remote_args, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        error = result.stderr.strip() or result.stdout.strip() or "unable to reach source"
-        resolved = (None, "source_unreachable", error)
-        head_cache[cache_key] = resolved
-        return resolved
-
-    output = result.stdout.strip()
-    if not output:
-        if source.repo_ref:
-            resolved = (None, "source_ref_missing", f"ref not found: {source.repo_ref}")
-        else:
-            resolved = (None, "source_unreachable", "unable to resolve source HEAD")
-        head_cache[cache_key] = resolved
-        return resolved
-
-    commit = _parse_ls_remote_commit(output)
-    if commit is None:
-        resolved = (None, "source_unreachable", "unable to resolve source revision")
-        head_cache[cache_key] = resolved
-        return resolved
-
-    resolved = (commit, None, None)
-    head_cache[cache_key] = resolved
-    return resolved
+    head_cache: CardPackHeadCache,
+) -> CardPackHeadResolution:
+    return marketplace_git_sources.resolve_source_revision(
+        repo_url=source.repo_url,
+        repo_ref=source.repo_ref,
+        head_cache=head_cache,
+        local_revision=LOCAL_REVISION,
+        source_ref_missing_status="source_ref_missing",
+        source_unreachable_status="source_unreachable",
+        resolve_local_repo_fn=marketplace_git_sources.resolve_local_repo,
+        resolve_git_commit_fn=marketplace_git_sources.resolve_git_commit,
+    )
 
 
 def _resolve_source_path_oid(
     source: InstalledCardPackSource,
     commit: str,
-    path_cache: dict[
-        tuple[str, str | None, str, str],
-        tuple[str | None, CardPackUpdateStatus | None, str | None],
-    ],
-) -> tuple[str | None, CardPackUpdateStatus | None, str | None]:
-    resolved = marketplace_source_utils.resolve_source_path_oid(
+    path_cache: CardPackPathCache,
+) -> CardPackPathResolution:
+    return marketplace_git_sources.resolve_source_path_oid(
         repo_url=source.repo_url,
         repo_ref=source.repo_ref,
         repo_path=source.repo_path,
         commit=commit,
         path_cache=path_cache,
-        resolve_local_repo_fn=_resolve_local_repo,
-        resolve_git_path_oid_fn=_resolve_git_path_oid,
+        source_ref_missing_status="source_ref_missing",
+        source_unreachable_status="source_unreachable",
+        source_path_missing_status="source_path_missing",
+        resolve_local_repo_fn=marketplace_git_sources.resolve_local_repo,
+        resolve_git_path_oid_fn=marketplace_git_sources.resolve_git_path_oid,
     )
-    path_oid, status, detail = resolved
-    return path_oid, cast("CardPackUpdateStatus | None", status), detail
-
-
-def _parse_ls_remote_commit(output: str) -> str | None:
-    return marketplace_source_utils.parse_ls_remote_commit(output)
-
-
-def _normalize_marketplace_url(url: str) -> str:
-    return marketplace_source_utils.normalize_marketplace_url(url)
 
 
 def candidate_marketplace_urls(url: str) -> list[str]:
-    return _candidate_marketplace_urls(url)
-
-
-def _candidate_marketplace_urls(url: str) -> list[str]:
-    return marketplace_source_utils.candidate_marketplace_urls(url)
+    return marketplace_source_urls.candidate_marketplace_urls(url)
 
 
 def _parse_marketplace_payload(
@@ -2090,40 +2386,20 @@ def _parse_marketplace_payload(
     *,
     source_url: str | None = None,
 ) -> list[MarketplaceCardPack]:
-    repo_url = None
-    repo_ref = None
-    if source_url:
-        parsed = marketplace_source_utils.parse_github_url(source_url)
-        if parsed:
-            repo_url, repo_ref, _ = parsed
-        else:
-            local_repo = marketplace_source_utils.derive_local_repo_root(source_url)
-            if local_repo:
-                repo_url = local_repo
+    source_context = marketplace_fetch.marketplace_source_context(source_url)
 
     try:
         model = MarketplacePayloadModel.model_validate(
             payload,
-            context={
-                "source_url": source_url,
-                "repo_url": repo_url,
-                "repo_ref": repo_ref,
-            },
+            context=source_context.as_validation_context(),
         )
-    except Exception as exc:  # noqa: BLE001
+    except ValidationError as exc:
         logger.warning("Failed to parse card marketplace payload", data={"error": str(exc)})
         return []
 
     entries: list[MarketplaceCardPack] = []
     for entry in model.entries:
-        try:
-            parsed_entry = _card_pack_from_entry_model(entry)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to parse card marketplace entry",
-                data={"error": str(exc), "entry": _safe_json(entry.model_dump())},
-            )
-            continue
+        parsed_entry = _card_pack_from_entry_model(entry)
         if parsed_entry is not None:
             entries.append(parsed_entry)
     return entries
@@ -2137,11 +2413,10 @@ def _card_pack_from_entry_model(model: MarketplaceEntryModel) -> MarketplaceCard
     if not repo_path:
         return None
 
-    kind_raw = (model.kind or "card").strip().lower()
-    kind: CardPackKind = "bundle" if kind_raw == "bundle" else "card"
+    kind = _normalize_card_pack_kind(model.kind) or "card"
 
     return MarketplaceCardPack(
-        name=model.name or PurePosixPath(repo_path).name,
+        name=model.name or _card_pack_name_from_repo_path(repo_path),
         description=model.description,
         kind=kind,
         repo_url=model.repo_url,
@@ -2152,20 +2427,30 @@ def _card_pack_from_entry_model(model: MarketplaceEntryModel) -> MarketplaceCard
     )
 
 
+def _card_pack_name_from_repo_path(repo_path: str) -> str:
+    return marketplace_provenance_io.repo_name_for_manifest_path(
+        repo_path,
+        CARD_PACK_MANIFEST_FILENAME,
+    )
+
+
+def _normalize_card_pack_kind(value: object) -> CardPackKind | None:
+    if not isinstance(value, str):
+        return None
+    normalized = normalize_action_token(value)
+    if normalized == "card":
+        return "card"
+    if normalized == "bundle":
+        return "bundle"
+    return None
+
+
 def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
-    if isinstance(payload, list):
-        return [entry for entry in payload if isinstance(entry, dict)]
-
-    if isinstance(payload, dict):
-        for key in ("card_packs", "cards", "entries", "items", "marketplace", "plugins"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [entry for entry in value if isinstance(entry, dict)]
-
-        if all(isinstance(value, dict) for value in payload.values()):
-            return [value for value in payload.values() if isinstance(value, dict)]
-
-    raise ValueError("Unsupported marketplace payload format.")
+    return marketplace_fetch.extract_dict_entries(
+        payload,
+        ("card_packs", "cards", "entries", "items", "marketplace", "plugins"),
+        allow_mapping_values=True,
+    )
 
 
 def _resolve_pack_source_path(pack_root: Path, relative_path: str) -> Path:
@@ -2201,74 +2486,7 @@ def _validate_manifest_install_path(value: str) -> str:
 
 
 def _normalize_repo_path(path: str) -> str | None:
-    if not path:
-        return None
-    raw = path.strip()
-    if not raw:
-        return None
-    raw = raw.replace("\\", "/")
-    posix_path = PurePosixPath(raw)
-    if posix_path.is_absolute():
-        return None
-    if ".." in posix_path.parts:
-        return None
-    normalized = str(posix_path).lstrip("/")
-    if normalized in {"", "."}:
-        return None
-    return normalized
-
-
-def _first_str(entry: dict[str, Any], *keys: str) -> str | None:
-    for key in keys:
-        value = entry.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def _safe_json(value: Any) -> str:
-    try:
-        return json.dumps(value, ensure_ascii=True)
-    except TypeError:
-        return str(value)
-
-
-def _load_local_marketplace_payload(url: str) -> Any | None:
-    return marketplace_source_utils.load_local_marketplace_payload(url)
-
-
-def _read_json_file(path: Path) -> Any:
-    return marketplace_source_utils.read_json_file(path)
-
-
-def _resolve_local_repo(repo_url: str) -> Path | None:
-    return marketplace_source_utils.resolve_local_repo(repo_url)
-
-
-def _derive_local_repo_root(source_url: str) -> str | None:
-    return marketplace_source_utils.derive_local_repo_root(source_url)
-
-
-def _resolve_repo_subdir(repo_root: Path, repo_subdir: str) -> Path:
-    repo_root = repo_root.resolve()
-    source_dir = (repo_root / Path(repo_subdir)).resolve()
-    try:
-        source_dir.relative_to(repo_root)
-    except ValueError as exc:
-        raise ValueError("Card pack path escapes repository root.") from exc
-    return source_dir
-
-
-def _resolve_git_commit(repo_root: Path, revision: str | None) -> str | None:
-    return marketplace_source_utils.resolve_git_commit(repo_root, revision)
-
-
-def _resolve_git_path_oid(repo_root: Path, commit: str, repo_path: str) -> str | None:
-    return marketplace_source_utils.resolve_git_path_oid(repo_root, commit, repo_path)
-
-
-def _run_git(args: list[str]) -> None:
-    marketplace_source_utils.run_git(args)
+    return marketplace_provenance_io.normalize_relative_repo_path(path)
 
 
 def _clone_publish_repository(*, source: InstalledCardPackSource, destination_dir: Path) -> str | None:
@@ -2286,7 +2504,10 @@ def _clone_publish_repository(*, source: InstalledCardPackSource, destination_di
 
     clone_result = subprocess.run(clone_args, capture_output=True, text=True, check=False)
     if clone_result.returncode != 0:
-        return clone_result.stderr.strip() or clone_result.stdout.strip() or "git clone failed"
+        return marketplace_git_sources.subprocess_failure_detail(
+            clone_result,
+            "git clone failed",
+        )
 
     sparse_result = subprocess.run(
         ["git", "-C", str(destination_dir), "sparse-checkout", "set", source.repo_path],
@@ -2295,10 +2516,9 @@ def _clone_publish_repository(*, source: InstalledCardPackSource, destination_di
         check=False,
     )
     if sparse_result.returncode != 0:
-        return (
-            sparse_result.stderr.strip()
-            or sparse_result.stdout.strip()
-            or "git sparse-checkout failed"
+        return marketplace_git_sources.subprocess_failure_detail(
+            sparse_result,
+            "git sparse-checkout failed",
         )
 
     checkout_target = source.repo_ref or "HEAD"
@@ -2309,7 +2529,10 @@ def _clone_publish_repository(*, source: InstalledCardPackSource, destination_di
         check=False,
     )
     if checkout_result.returncode != 0:
-        return checkout_result.stderr.strip() or checkout_result.stdout.strip() or "git checkout failed"
+        return marketplace_git_sources.subprocess_failure_detail(
+            checkout_result,
+            "git checkout failed",
+        )
 
     return None
 
@@ -2365,14 +2588,6 @@ def _write_publish_patch(*, repo_root: Path, pack_dir: Path, commit: str | None)
     patch_path = publish_dir / f"{timestamp}-{commit_short}.patch"
     patch_path.write_text(patch_result.stdout, encoding="utf-8")
     return patch_path
-
-
-def _parse_github_url(url: str | None) -> tuple[str, str | None, str] | None:
-    return marketplace_source_utils.parse_github_url(url)
-
-
-def _atomic_replace_directory(*, existing_dir: Path, staged_dir: Path) -> None:
-    marketplace_source_utils.atomic_replace_directory(existing_dir=existing_dir, staged_dir=staged_dir)
 
 
 def _prune_empty_parents(path: Path, *, stop_at: Path) -> None:

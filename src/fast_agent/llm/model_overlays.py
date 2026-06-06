@@ -13,41 +13,54 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 import fast_agent.config as config_module
 from fast_agent.config import load_yaml_mapping
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.home import resolve_fast_agent_home
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
+from fast_agent.paths import resolve_settings_start_path
+from fast_agent.utils.action_normalization import normalize_action_token, on_off_label
+from fast_agent.utils.text import starts_with_casefold, strip_casefold, strip_to_none
 
 logger = get_logger(__name__)
+
+_SLASH_PROVIDER_PREFIXES: dict[str, Provider] = {
+    provider.config_name: provider for provider in Provider if provider is not Provider.OPENAI
+}
+_SLASH_PROVIDER_PREFIXES["huggingface"] = Provider.HUGGINGFACE
+_MODEL_OVERLAY_SUFFIXES = {".yaml", ".yml"}
 
 
 def _normalize_reasoning_value(value: str | bool | int | None) -> str | None:
     if value is None:
         return None
     if isinstance(value, bool):
-        return "on" if value else "off"
+        return on_off_label(value)
     if isinstance(value, int):
         return str(value)
-    normalized = value.strip()
-    return normalized or None
+    return strip_to_none(value)
 
 
 def _normalize_toggle_value(value: bool | None) -> str | None:
     if value is None:
         return None
-    return "on" if value else "off"
+    return on_off_label(value)
+
+
+def _reject_bool_numeric_overlay_value(value: object) -> object:
+    if isinstance(value, bool):
+        raise ValueError("Numeric model overlay values must not be boolean values.")
+    return value
 
 
 def _prefixed_model_spec(provider: Provider, model_name: str) -> str:
-    if model_name.startswith(f"{provider.value}.") or model_name.startswith(f"{provider.value}/"):
+    if model_name.startswith((f"{provider.value}.", f"{provider.value}/")):
         return model_name
     return f"{provider.value}.{model_name}"
 
 
 def _overlay_model_key(provider: Provider, model_name: str) -> str:
-    normalized = model_name.strip().lower()
+    normalized = strip_casefold(model_name)
     if provider == Provider.HUGGINGFACE and ":" in normalized:
         return normalized.rsplit(":", 1)[0]
     return normalized
@@ -107,33 +120,43 @@ class ModelOverlayDefaults(BaseModel):
         validation_alias=AliasChoices("max_tokens", "maxTokens"),
     )
 
+    @field_validator(
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "presence_penalty",
+        "repetition_penalty",
+        "max_tokens",
+        mode="before",
+    )
+    @classmethod
+    def _reject_bool_numeric_values(cls, value: object) -> object:
+        return _reject_bool_numeric_overlay_value(value)
+
     def to_query_pairs(self) -> list[tuple[str, str]]:
         pairs: list[tuple[str, str]] = []
         reasoning = _normalize_reasoning_value(self.reasoning)
         if reasoning is not None:
             pairs.append(("reasoning", reasoning))
-        if self.temperature is not None:
-            pairs.append(("temperature", str(self.temperature)))
-        if self.top_p is not None:
-            pairs.append(("top_p", str(self.top_p)))
-        if self.top_k is not None:
-            pairs.append(("top_k", str(self.top_k)))
-        if self.min_p is not None:
-            pairs.append(("min_p", str(self.min_p)))
-        if self.presence_penalty is not None:
-            pairs.append(("presence_penalty", str(self.presence_penalty)))
-        if self.repetition_penalty is not None:
-            pairs.append(("repetition_penalty", str(self.repetition_penalty)))
-        if self.transport is not None:
-            pairs.append(("transport", self.transport))
-        if self.service_tier is not None:
-            pairs.append(("service_tier", self.service_tier))
-        web_search = _normalize_toggle_value(self.web_search)
-        if web_search is not None:
-            pairs.append(("web_search", web_search))
-        web_fetch = _normalize_toggle_value(self.web_fetch)
-        if web_fetch is not None:
-            pairs.append(("web_fetch", web_fetch))
+
+        scalar_values: tuple[tuple[str, object | None], ...] = (
+            ("temperature", self.temperature),
+            ("top_p", self.top_p),
+            ("top_k", self.top_k),
+            ("min_p", self.min_p),
+            ("presence_penalty", self.presence_penalty),
+            ("repetition_penalty", self.repetition_penalty),
+            ("transport", self.transport),
+            ("service_tier", self.service_tier),
+        )
+        pairs.extend((name, str(value)) for name, value in scalar_values if value is not None)
+
+        toggle_values = (
+            ("web_search", _normalize_toggle_value(self.web_search)),
+            ("web_fetch", _normalize_toggle_value(self.web_fetch)),
+        )
+        pairs.extend((name, value) for name, value in toggle_values if value is not None)
         return pairs
 
 
@@ -153,10 +176,20 @@ class ModelOverlayMetadata(BaseModel):
     default_temperature: float | None = None
     fast: bool | None = None
 
+    @field_validator(
+        "context_window",
+        "max_output_tokens",
+        "default_temperature",
+        mode="before",
+    )
+    @classmethod
+    def _reject_bool_numeric_values(cls, value: object) -> object:
+        return _reject_bool_numeric_overlay_value(value)
+
     @field_validator("json_mode", mode="before")
     @classmethod
     def _normalize_json_mode(cls, value: object) -> object:
-        if isinstance(value, str) and value.strip().lower() == "none":
+        if isinstance(value, str) and strip_casefold(value) == "none":
             return None
         return value
 
@@ -223,16 +256,11 @@ class LoadedModelOverlay:
 
     @property
     def display_label(self) -> str:
-        label = self.manifest.picker.label
-        return label if label is not None and label.strip() else self.name
+        return strip_to_none(self.manifest.picker.label) or self.name
 
     @property
     def description(self) -> str | None:
-        description = self.manifest.picker.description
-        if description is None:
-            return None
-        normalized = description.strip()
-        return normalized or None
+        return strip_to_none(self.manifest.picker.description)
 
     @property
     def current(self) -> bool:
@@ -307,6 +335,35 @@ class LoadedModelOverlay:
 
     def build_model_parameters(self) -> ModelParameters | None:
         existing = _existing_model_params(self.provider, self.model_name)
+        context_window, max_output_tokens = self._resolved_model_limits(existing)
+
+        if context_window is None or max_output_tokens is None:
+            return None
+
+        if existing is not None:
+            return existing.model_copy(
+                update=self._existing_model_update_payload(
+                    context_window=context_window,
+                    max_output_tokens=max_output_tokens,
+                )
+            )
+
+        return ModelParameters(
+            context_window=context_window,
+            max_output_tokens=max_output_tokens,
+            tokenizes=self.manifest.metadata.tokenizes or list(ModelDatabase.TEXT_ONLY),
+            json_mode=self._new_model_json_mode(),
+            structured_tool_policy=self.manifest.metadata.structured_tool_policy,
+            model_specific=self.manifest.metadata.model_specific,
+            default_provider=self.provider,
+            default_temperature=self._default_temperature(),
+            fast=bool(self.manifest.metadata.fast),
+        )
+
+    def _resolved_model_limits(
+        self,
+        existing: ModelParameters | None,
+    ) -> tuple[int | None, int | None]:
         context_window = self.manifest.metadata.context_window
         if context_window is None and existing is not None:
             context_window = existing.context_window
@@ -317,50 +374,43 @@ class LoadedModelOverlay:
         if max_output_tokens is None and existing is not None:
             max_output_tokens = existing.max_output_tokens
 
-        if context_window is None or max_output_tokens is None:
-            return None
+        return context_window, max_output_tokens
 
-        default_temperature = self.manifest.defaults.temperature
-        if default_temperature is None:
-            default_temperature = self.manifest.metadata.default_temperature
+    def _default_temperature(self) -> float | None:
+        if self.manifest.defaults.temperature is not None:
+            return self.manifest.defaults.temperature
+        return self.manifest.metadata.default_temperature
 
-        if existing is not None:
-            update_payload: dict[str, object] = {
-                "context_window": context_window,
-                "max_output_tokens": max_output_tokens,
-                "default_provider": self.provider,
-            }
-            if self.manifest.metadata.tokenizes is not None:
-                update_payload["tokenizes"] = self.manifest.metadata.tokenizes
-            if "json_mode" in self.manifest.metadata.model_fields_set:
-                update_payload["json_mode"] = self.manifest.metadata.json_mode
-            if self.manifest.metadata.structured_tool_policy is not None:
-                update_payload["structured_tool_policy"] = (
-                    self.manifest.metadata.structured_tool_policy
-                )
-            if self.manifest.metadata.model_specific is not None:
-                update_payload["model_specific"] = self.manifest.metadata.model_specific
-            if default_temperature is not None:
-                update_payload["default_temperature"] = default_temperature
-            if self.manifest.metadata.fast is not None:
-                update_payload["fast"] = self.manifest.metadata.fast
-            return existing.model_copy(update=update_payload)
+    def _existing_model_update_payload(
+        self,
+        *,
+        context_window: int,
+        max_output_tokens: int,
+    ) -> dict[str, object]:
+        metadata = self.manifest.metadata
+        update_payload: dict[str, object] = {
+            "context_window": context_window,
+            "max_output_tokens": max_output_tokens,
+            "default_provider": self.provider,
+        }
+        if metadata.tokenizes is not None:
+            update_payload["tokenizes"] = metadata.tokenizes
+        if "json_mode" in metadata.model_fields_set:
+            update_payload["json_mode"] = metadata.json_mode
+        if metadata.structured_tool_policy is not None:
+            update_payload["structured_tool_policy"] = metadata.structured_tool_policy
+        if metadata.model_specific is not None:
+            update_payload["model_specific"] = metadata.model_specific
+        if self._default_temperature() is not None:
+            update_payload["default_temperature"] = self._default_temperature()
+        if metadata.fast is not None:
+            update_payload["fast"] = metadata.fast
+        return update_payload
 
-        tokenizes = self.manifest.metadata.tokenizes or list(ModelDatabase.TEXT_ONLY)
-        json_mode: str | None = "schema"
+    def _new_model_json_mode(self) -> str | None:
         if "json_mode" in self.manifest.metadata.model_fields_set:
-            json_mode = self.manifest.metadata.json_mode
-        return ModelParameters(
-            context_window=context_window,
-            max_output_tokens=max_output_tokens,
-            tokenizes=tokenizes,
-            json_mode=json_mode,
-            structured_tool_policy=self.manifest.metadata.structured_tool_policy,
-            model_specific=self.manifest.metadata.model_specific,
-            default_provider=self.provider,
-            default_temperature=default_temperature,
-            fast=bool(self.manifest.metadata.fast),
-        )
+            return self.manifest.metadata.json_mode
+        return "schema"
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,6 +515,10 @@ def _load_overlay_file(
     )
 
 
+def _is_model_overlay_file(path: Path) -> bool:
+    return path.is_file() and strip_casefold(path.suffix) in _MODEL_OVERLAY_SUFFIXES
+
+
 def resolve_model_overlay_paths(
     *,
     start_path: Path | None = None,
@@ -524,18 +578,22 @@ def _split_provider_prefix(model_name: str) -> tuple[Provider | None, str]:
     # like "openrouter.moonshotai/kimi-k2" do not look like bare HF repo IDs.
     if "." in raw:
         head, tail = raw.split(".", 1)
-        if head.lower() == "huggingface":
-            return Provider.HUGGINGFACE, tail
-        try:
-            return Provider(head.lower()), tail
-        except ValueError:
-            pass
+        provider = Provider.HUGGINGFACE if normalize_action_token(head) == "huggingface" else None
+        if provider is None:
+            try:
+                provider = Provider(normalize_action_token(head))
+            except ValueError:
+                provider = None
+        if provider is not None:
+            return provider, tail
 
-    # HF-style namespaced models contain a slash in the model part.
-    # The namespace may collide with a provider name, so a remaining slash here
-    # is treated as part of the model ID rather than a provider separator.
+    # Slash-prefixed providers are opt-in because bare HF repos may start with
+    # provider-looking namespaces such as "openai/...".
     if "/" in raw:
-        return None, raw
+        head, tail = raw.split("/", 1)
+        provider = _SLASH_PROVIDER_PREFIXES.get(normalize_action_token(head))
+        if provider is not None:
+            return provider, tail
 
     return None, raw
 
@@ -559,7 +617,9 @@ def build_model_overlay_manifest_from_database(
     prefix_provider, bare_model = _split_provider_prefix(model_name)
 
     lookup_name = model_name if prefix_provider is not None else bare_model
-    if prefix_provider == Provider.HUGGINGFACE and model_name.lower().startswith("huggingface."):
+    if prefix_provider == Provider.HUGGINGFACE and starts_with_casefold(
+        model_name, "huggingface."
+    ):
         lookup_name = f"{Provider.HUGGINGFACE.value}.{bare_model}"
     effective_provider = provider or prefix_provider
     if effective_provider is None and "/" in bare_model:
@@ -672,17 +732,20 @@ def _settings_environment_override(
     raw_config_file = getattr(settings, "_config_file", None)
     config_file = raw_config_file if isinstance(raw_config_file, str) and raw_config_file.strip() else None
     environment_dir = getattr(settings, "environment_dir", None)
+    if environment_dir is None and (
+        os.getenv("ENVIRONMENT_DIR")
+        or os.getenv("FAST_AGENT_HOME")
+        or os.getenv("FAST_AGENT_RUNTIME_ENVIRONMENT")
+    ):
+        return None
     if environment_dir is None and not (start_path is None and config_file is not None):
         return None
 
-    base_path = (start_path or Path.cwd()).resolve()
-    if start_path is None and config_file is not None:
-        config_parent = Path(config_file).expanduser().resolve().parent
-        base_path = (
-            config_parent.parent
-            if config_parent.name == DEFAULT_ENVIRONMENT_DIR
-            else config_parent
-        )
+    base_path = (
+        Path(start_path).resolve()
+        if start_path is not None
+        else resolve_settings_start_path(settings)
+    )
 
     return base_path, environment_dir
 
@@ -700,7 +763,7 @@ def load_model_overlay_registry(
     loaded: dict[str, LoadedModelOverlay] = {}
     if paths.overlays_dir.exists():
         for path in sorted(paths.overlays_dir.iterdir()):
-            if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+            if not _is_model_overlay_file(path):
                 continue
             overlay = _load_overlay_file(path, secret_entries=secret_entries)
             if overlay is None:

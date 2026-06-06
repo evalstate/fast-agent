@@ -6,10 +6,38 @@ import pytest
 
 import fast_agent.config as config_module
 from fast_agent.config import Settings
-from fast_agent.paths import default_skill_paths, resolve_environment_dir, resolve_environment_paths
+from fast_agent.paths import (
+    default_skill_paths,
+    resolve_environment_dir,
+    resolve_environment_paths,
+    resolve_mcp_ui_output_dir,
+    resolve_settings_start_path,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_resolve_settings_start_path_uses_project_config_parent(tmp_path: Path) -> None:
+    settings = Settings()
+    settings._config_file = str(tmp_path / "project" / "fast-agent.yaml")
+
+    assert resolve_settings_start_path(settings) == (tmp_path / "project").resolve()
+
+
+def test_resolve_settings_start_path_uses_env_config_parent_project(tmp_path: Path) -> None:
+    settings = Settings()
+    settings._config_file = str(tmp_path / "project" / ".fast-agent" / "fast-agent.yaml")
+
+    assert resolve_settings_start_path(settings) == (tmp_path / "project").resolve()
+
+
+def test_resolve_settings_start_path_uses_absolute_environment_dir_parent(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(environment_dir=str(tmp_path / "project" / ".fast-agent"))
+
+    assert resolve_settings_start_path(settings) == (tmp_path / "project").resolve()
 
 
 def test_resolve_environment_dir_uses_fast_agent_home(
@@ -129,3 +157,9 @@ def test_default_skill_paths_skip_home_when_noenv(
         (tmp_path / ".agents" / "skills").resolve(),
         (tmp_path / ".claude" / "skills").resolve(),
     ]
+
+
+def test_resolve_mcp_ui_output_dir_uses_typed_settings_field(tmp_path: Path) -> None:
+    settings = Settings(mcp_ui_output_dir="custom-ui")
+
+    assert resolve_mcp_ui_output_dir(settings, cwd=tmp_path) == (tmp_path / "custom-ui").resolve()

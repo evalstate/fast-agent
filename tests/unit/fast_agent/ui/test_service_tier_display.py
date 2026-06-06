@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, cast
+
 from fast_agent.ui.reasoning_effort_display import AUTO_COLOR
 from fast_agent.ui.service_tier_display import (
     SERVICE_TIER_DISABLED_COLOR,
@@ -7,6 +9,13 @@ from fast_agent.ui.service_tier_display import (
     cycle_service_tier,
     render_service_tier_indicator,
 )
+
+if TYPE_CHECKING:
+    from fast_agent.commands.model_capabilities import ServiceTierValue
+
+
+def test_cycle_service_tier_uses_first_allowed_tier_when_current_tier_is_unavailable() -> None:
+    assert cycle_service_tier("flex", allowed_tiers=("fast",)) == "fast"
 
 
 def test_render_service_tier_indicator_hidden_when_unsupported() -> None:
@@ -44,3 +53,22 @@ def test_cycle_service_tier_rotates_through_all_states() -> None:
 def test_cycle_service_tier_omits_flex_when_not_supported() -> None:
     assert cycle_service_tier(None, allowed_tiers=("fast",)) == "fast"
     assert cycle_service_tier("fast", allowed_tiers=("fast",)) is None
+
+
+def test_cycle_service_tier_deduplicates_allowed_tiers() -> None:
+    assert cycle_service_tier(None, allowed_tiers=("fast", "fast", "flex")) == "fast"
+    assert cycle_service_tier("fast", allowed_tiers=("fast", "fast", "flex")) == "flex"
+
+
+def test_cycle_service_tier_ignores_unsupported_allowed_tiers() -> None:
+    allowed_tiers = ("unsupported", "flex", "fast")
+
+    assert cycle_service_tier(
+        None,
+        allowed_tiers=cast("tuple[ServiceTierValue, ...]", allowed_tiers),
+    ) == "flex"
+
+
+def test_cycle_service_tier_returns_none_when_allowed_tiers_is_empty() -> None:
+    assert cycle_service_tier(None, allowed_tiers=()) is None
+    assert cycle_service_tier("fast", allowed_tiers=()) is None

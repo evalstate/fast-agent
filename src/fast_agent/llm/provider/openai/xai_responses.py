@@ -11,6 +11,11 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     ResponsesWsRequestPlanner,
     StatelessResponsesWsPlanner,
 )
+from fast_agent.llm.provider.openai.tool_event_helpers import (
+    first_nonempty_string,
+    item_type_is_responses_function_tool_call,
+    responses_item_tool_use_id,
+)
 from fast_agent.llm.provider.openai.web_tools import (
     ResolvedOpenAIWebSearch,
     build_xai_web_search_tool,
@@ -95,9 +100,9 @@ class XAIResponsesLLM(ResponsesLLM):
         item_type: str | None,
         tool_name: str,
     ) -> "ToolActivityFamily":
-        if item_type in {"function_call", "custom_tool_call"} and self._is_provider_managed_function_call(
-            tool_name
-        ):
+        if item_type_is_responses_function_tool_call(
+            item_type
+        ) and self._is_provider_managed_function_call(tool_name):
             return "remote_tool"
         return super()._tool_family_for_responses_item(item_type=item_type, tool_name=tool_name)
 
@@ -111,7 +116,7 @@ class XAIResponsesLLM(ResponsesLLM):
 
         for output_item in getattr(response, "output", []) or []:
             item_type = getattr(output_item, "type", None)
-            if item_type not in {"function_call", "custom_tool_call"}:
+            if not item_type_is_responses_function_tool_call(item_type):
                 continue
             name = getattr(output_item, "name", None)
             if not isinstance(name, str) or not self._is_provider_managed_function_call(name):
@@ -122,14 +127,17 @@ class XAIResponsesLLM(ResponsesLLM):
                 "provider_tool_type": "x_search_call",
                 "name": name,
             }
-            tool_use_id = getattr(output_item, "call_id", None) or getattr(output_item, "id", None)
-            if isinstance(tool_use_id, str) and tool_use_id:
+            tool_use_id = responses_item_tool_use_id(output_item)
+            if tool_use_id is not None:
                 payload["id"] = tool_use_id
             status = getattr(output_item, "status", None)
             if isinstance(status, str) and status:
                 payload["status"] = status
-            raw_input = getattr(output_item, "input", None) or getattr(output_item, "arguments", None)
-            if isinstance(raw_input, str) and raw_input:
+            raw_input = first_nonempty_string(
+                getattr(output_item, "input", None),
+                getattr(output_item, "arguments", None),
+            )
+            if raw_input is not None:
                 payload["arguments"] = raw_input
                 try:
                     parsed_input = json.loads(raw_input)

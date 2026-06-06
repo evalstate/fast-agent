@@ -7,11 +7,14 @@ import time
 from typing import TYPE_CHECKING
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
 from fast_agent.utils.async_utils import run_sync
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.numeric import positive_int_or_none
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -36,6 +39,11 @@ class OpenRouterTopProvider(BaseModel):
     context_length: int | None = None
     max_completion_tokens: int | None = None
 
+    @field_validator("context_length", "max_completion_tokens", mode="before")
+    @classmethod
+    def _ignore_bool_limits(cls, value: object) -> object:
+        return None if isinstance(value, bool) else value
+
 
 class OpenRouterModel(BaseModel):
     """OpenRouter model entry from /models/user."""
@@ -46,6 +54,11 @@ class OpenRouterModel(BaseModel):
     architecture: OpenRouterArchitecture = Field(default_factory=OpenRouterArchitecture)
     top_provider: OpenRouterTopProvider | None = None
     supported_parameters: list[str] = Field(default_factory=list)
+
+    @field_validator("context_length", mode="before")
+    @classmethod
+    def _ignore_bool_context_length(cls, value: object) -> object:
+        return None if isinstance(value, bool) else value
 
 
 class OpenRouterModelLookupResult(BaseModel):
@@ -67,6 +80,10 @@ def _normalize_base_url(base_url: str | None) -> str:
     return url.rstrip("/")
 
 
+def _model_id_text(model_id: str | None) -> str | None:
+    return strip_to_none(model_id)
+
+
 def _cache_key(api_key: str, base_url: str) -> str:
     digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
     return f"{base_url}::{digest}"
@@ -75,6 +92,46 @@ def _cache_key(api_key: str, base_url: str) -> str:
 def clear_openrouter_model_cache() -> None:
     """Clear in-memory OpenRouter model discovery cache."""
     _OPENROUTER_MODEL_CACHE.clear()
+
+
+async def _fetch_openrouter_models(
+    *,
+    api_key: str,
+    base_url: str,
+    timeout: float,
+) -> OpenRouterModelLookupResult:
+    url = f"{base_url}/models/user"
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(url, headers=headers)
+
+        if response.status_code in {401, 403}:
+            return OpenRouterModelLookupResult(
+                models=[],
+                error="OpenRouter API key rejected while listing available models",
+            )
+
+        response.raise_for_status()
+        payload = response.json()
+        entries = payload.get("data", []) if isinstance(payload, dict) else []
+        return OpenRouterModelLookupResult(
+            models=[OpenRouterModel.model_validate(entry) for entry in entries]
+        )
+
+    except httpx.TimeoutException:
+        return OpenRouterModelLookupResult(models=[], error="Timeout listing OpenRouter models")
+    except httpx.HTTPStatusError as exc:
+        return OpenRouterModelLookupResult(
+            models=[],
+            error=f"HTTP error {exc.response.status_code} listing OpenRouter models",
+        )
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        return OpenRouterModelLookupResult(
+            models=[],
+            error=f"Error listing OpenRouter models: {exc}",
+        )
 
 
 async def lookup_openrouter_models(
@@ -100,43 +157,17 @@ async def lookup_openrouter_models(
             if expires_at > now:
                 return cached_result
 
-    url = f"{resolved_base_url}/models/user"
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(url, headers=headers)
-
-        if response.status_code in {401, 403}:
-            return OpenRouterModelLookupResult(
-                models=[],
-                error="OpenRouter API key rejected while listing available models",
-            )
-
-        response.raise_for_status()
-        payload = response.json()
-        entries = payload.get("data", []) if isinstance(payload, dict) else []
-        models = [OpenRouterModel.model_validate(entry) for entry in entries]
-
-        result = OpenRouterModelLookupResult(models=models)
+    result = await _fetch_openrouter_models(
+        api_key=api_key,
+        base_url=resolved_base_url,
+        timeout=timeout,
+    )
+    if result.error is None:
         _OPENROUTER_MODEL_CACHE[cache_key] = (
             now + OPENROUTER_DISCOVERY_CACHE_TTL_SECONDS,
             result,
         )
-        return result
-
-    except httpx.TimeoutException:
-        return OpenRouterModelLookupResult(models=[], error="Timeout listing OpenRouter models")
-    except httpx.HTTPStatusError as exc:
-        return OpenRouterModelLookupResult(
-            models=[],
-            error=f"HTTP error {exc.response.status_code} listing OpenRouter models",
-        )
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        return OpenRouterModelLookupResult(
-            models=[],
-            error=f"Error listing OpenRouter models: {exc}",
-        )
+    return result
 
 
 def lookup_openrouter_models_sync(
@@ -160,7 +191,7 @@ def lookup_openrouter_models_sync(
 
 
 def _map_modalities_to_tokenizes(input_modalities: list[str]) -> list[str]:
-    normalized = {mode.strip().lower() for mode in input_modalities if mode}
+    normalized = {strip_casefold(mode) for mode in input_modalities if mode}
     tokenizes: list[str] = []
 
     if "text" in normalized:
@@ -175,15 +206,11 @@ def _map_modalities_to_tokenizes(input_modalities: list[str]) -> list[str]:
     if not tokenizes:
         tokenizes.append("text/plain")
 
-    deduped: list[str] = []
-    for mime in tokenizes:
-        if mime not in deduped:
-            deduped.append(mime)
-    return deduped
+    return unique_preserve_order(tokenizes)
 
 
 def _resolve_json_mode(supported_parameters: list[str]) -> str | None:
-    supported = {param.strip().lower() for param in supported_parameters if param}
+    supported = {strip_casefold(param) for param in supported_parameters if param}
     if "structured_outputs" in supported:
         return "schema"
     if "response_format" in supported:
@@ -193,11 +220,13 @@ def _resolve_json_mode(supported_parameters: list[str]) -> str | None:
 
 def _to_model_parameters(model: OpenRouterModel) -> ModelParameters:
     top_provider = model.top_provider or OpenRouterTopProvider()
-    context_window = top_provider.context_length or model.context_length or 128000
+    context_window = (
+        positive_int_or_none(top_provider.context_length)
+        or positive_int_or_none(model.context_length)
+        or 128000
+    )
 
-    max_output_tokens = top_provider.max_completion_tokens
-    if max_output_tokens is None or max_output_tokens <= 0:
-        max_output_tokens = 16384
+    max_output_tokens = positive_int_or_none(top_provider.max_completion_tokens) or 16384
 
     return ModelParameters(
         context_window=context_window,
@@ -212,8 +241,8 @@ def register_runtime_openrouter_models(result: OpenRouterModelLookupResult) -> i
     """Register runtime metadata for discovered OpenRouter models."""
     count = 0
     for model in result.models:
-        model_id = (model.id or "").strip()
-        if not model_id:
+        model_id = _model_id_text(model.id)
+        if model_id is None:
             continue
 
         normalized = ModelDatabase.normalize_model_name(f"openrouter.{model_id}")
@@ -271,18 +300,11 @@ def list_openrouter_model_specs_sync(
     if not result.has_models:
         return []
 
-    seen: set[str] = set()
-    specs: list[str] = []
-    for entry in result.models:
-        model_id = (entry.id or "").strip()
-        if not model_id:
-            continue
-        spec = f"openrouter.{model_id}"
-        if spec in seen:
-            continue
-        seen.add(spec)
-        specs.append(spec)
-    return specs
+    return unique_preserve_order(
+        f"openrouter.{model_id}"
+        for entry in result.models
+        if (model_id := _model_id_text(entry.id)) is not None
+    )
 
 
 __all__ = [

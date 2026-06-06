@@ -8,6 +8,11 @@ _ALLOWED_KEYS = {"entrypoint", "variant", "code_arg", "language"}
 _ALLOWED_VARIANTS = {"code"}
 
 
+def _normalize_entrypoint(value: str) -> str | None:
+    entrypoint = value.strip()
+    return entrypoint or None
+
+
 @dataclass(frozen=True, slots=True)
 class FunctionToolSpec:
     entrypoint: str
@@ -28,7 +33,10 @@ class FunctionToolSpec:
 
 def parse_function_tool_card_entry(raw: object, *, field_path: str) -> str | FunctionToolSpec:
     if isinstance(raw, str):
-        return raw
+        entrypoint = _normalize_entrypoint(raw)
+        if entrypoint is None:
+            raise ValueError(f"'{field_path}' entries must be non-empty strings")
+        return entrypoint
     if not is_str_object_dict(raw):
         raise ValueError(f"'{field_path}' entries must be strings or objects")
 
@@ -38,7 +46,7 @@ def parse_function_tool_card_entry(raw: object, *, field_path: str) -> str | Fun
         raise ValueError(f"'{field_path}' entries contain unsupported keys: {extras}")
 
     entrypoint = raw.get("entrypoint")
-    if not isinstance(entrypoint, str) or not entrypoint.strip():
+    if not isinstance(entrypoint, str) or (entrypoint := _normalize_entrypoint(entrypoint)) is None:
         raise ValueError(f"'{field_path}.entrypoint' must be a non-empty string")
 
     variant = raw.get("variant")
@@ -70,21 +78,24 @@ def parse_function_tool_card_entry(raw: object, *, field_path: str) -> str | Fun
 
 def function_tool_entrypoint(spec: object) -> str | None:
     if isinstance(spec, str):
-        return spec
+        return _normalize_entrypoint(spec)
     if isinstance(spec, FunctionToolSpec):
-        return spec.entrypoint
+        return _normalize_entrypoint(spec.entrypoint)
     if is_str_object_dict(spec):
         entrypoint = spec.get("entrypoint")
         if isinstance(entrypoint, str):
-            return entrypoint
+            return _normalize_entrypoint(entrypoint)
     return None
 
 
 def serialize_function_tool_entry(spec: object) -> str | dict[str, str] | None:
     if isinstance(spec, str):
-        return spec
+        return _normalize_entrypoint(spec)
     if isinstance(spec, FunctionToolSpec):
-        payload: dict[str, str] = {"entrypoint": spec.entrypoint}
+        entrypoint = _normalize_entrypoint(spec.entrypoint)
+        if entrypoint is None:
+            return None
+        payload: dict[str, str] = {"entrypoint": entrypoint}
         if spec.variant:
             payload["variant"] = spec.variant
         if spec.code_arg:
@@ -93,13 +104,21 @@ def serialize_function_tool_entry(spec: object) -> str | dict[str, str] | None:
             payload["language"] = spec.language
         return payload
     if is_str_object_dict(spec):
-        return {key: str(value) for key, value in spec.items() if isinstance(value, str)}
+        entrypoint = function_tool_entrypoint(spec)
+        if entrypoint is None:
+            return None
+        return {
+            key: (entrypoint if key == "entrypoint" else value)
+            for key, value in spec.items()
+            if isinstance(value, str)
+        }
     return None
 
 
 def serialize_function_tools(value: object) -> list[str | dict[str, str]] | None:
     if isinstance(value, str):
-        return [value]
+        entrypoint = serialize_function_tool_entry(value)
+        return [entrypoint] if isinstance(entrypoint, str) else None
     if not isinstance(value, list):
         return None
 

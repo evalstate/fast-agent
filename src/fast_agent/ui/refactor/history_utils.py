@@ -10,8 +10,8 @@ from fast_agent.commands.history_summaries import (
 from fast_agent.ui.history_actions import display_history_turn as _display_history_turn
 
 __all__ = [
-    "_group_turns_for_history_actions",
     "_collect_user_turns",
-    "_trim_history_for_rewind",
     "_display_history_turn",
+    "_group_turns_for_history_actions",
+    "_trim_history_for_rewind",
 ]

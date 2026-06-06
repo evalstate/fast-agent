@@ -2,15 +2,28 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
-from urllib.parse import urlsplit, urlunsplit
+from json import JSONDecodeError
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from rich.text import Text
 
 from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
+from fast_agent.utils.markdown import escape_markdown_text
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from fast_agent.types import PromptMessageExtended
+
+
+type JsonObject = dict[str, object]
+
+
+@runtime_checkable
+class _TextPayloadBlock(Protocol):
+    text: str
 
 
 @dataclass(frozen=True)
@@ -20,11 +33,18 @@ class CitationSource:
     url: str | None
     source: str | None
 
+    @property
+    def display_title(self) -> str:
+        return self.title or self.source or f"Source {self.index}"
+
+
+_WEB_TOOL_BADGE_ORDER = ("web_search", "web_fetch")
+
 
 def _iter_channel_payloads(
     channels: Mapping[str, Sequence[object]] | None,
     channel_name: str,
-) -> list[dict[str, Any]]:
+) -> list[JsonObject]:
     if not channels:
         return []
 
@@ -32,22 +52,40 @@ def _iter_channel_payloads(
     if not channel_blocks:
         return []
 
-    payloads: list[dict[str, Any]] = []
+    payloads: list[JsonObject] = []
     for block in channel_blocks:
-        text = getattr(block, "text", None)
+        if not isinstance(block, _TextPayloadBlock):
+            continue
+        text = block.text
         if not isinstance(text, str) or not text:
             continue
         try:
             decoded = json.loads(text)
-        except Exception:
+        except JSONDecodeError:
             continue
 
-        if isinstance(decoded, dict):
-            payloads.append(decoded)
+        payload = _json_object(decoded)
+        if payload is not None:
+            payloads.append(payload)
         elif isinstance(decoded, list):
-            payloads.extend(item for item in decoded if isinstance(item, dict))
+            payloads.extend(
+                item_payload
+                for item in decoded
+                if (item_payload := _json_object(item)) is not None
+            )
 
     return payloads
+
+
+def _json_object(value: object) -> JsonObject | None:
+    if not isinstance(value, dict):
+        return None
+    return {key: item for key, item in value.items() if isinstance(key, str)}
+
+
+def _string_field(payload: JsonObject, key: str) -> str | None:
+    value = payload.get(key)
+    return value if isinstance(value, str) else None
 
 
 def _normalize_url(url: str | None) -> str | None:
@@ -59,19 +97,57 @@ def _normalize_url(url: str | None) -> str | None:
 
     try:
         split = urlsplit(normalized)
-    except Exception:
+    except ValueError:
         return normalized
 
     if not split.scheme or not split.netloc:
         return normalized
 
-    scheme = split.scheme.lower()
-    netloc = split.netloc.lower()
+    scheme = strip_casefold(split.scheme)
+    netloc = _normalize_netloc(split, scheme)
     path = split.path or "/"
     if path != "/" and path.endswith("/"):
         path = path.rstrip("/")
 
     return urlunsplit((scheme, netloc, path, split.query, ""))
+
+
+def _normalize_netloc(split: SplitResult, scheme: str) -> str:
+    netloc = strip_casefold(split.netloc)
+    default_port = {"http": 80, "https": 443}.get(scheme)
+    if default_port is None:
+        return netloc
+    try:
+        port = split.port
+    except ValueError:
+        return netloc
+    if port == default_port:
+        return netloc.rsplit(f":{default_port}", 1)[0]
+    return netloc
+
+
+def _escape_markdown_link_destination(url: str) -> str:
+    return url.replace("\\", "\\\\").replace("(", r"\(").replace(")", r"\)")
+
+
+def _metadata_key_part(value: str | None) -> str:
+    return strip_casefold(value) if value is not None else ""
+
+
+def _citation_source_key(
+    *,
+    title: str | None,
+    source: str | None,
+    normalized_url: str | None,
+) -> tuple[str, str] | tuple[str, str, str] | None:
+    if normalized_url:
+        return ("url", normalized_url)
+
+    title_key = _metadata_key_part(title)
+    source_key = _metadata_key_part(source)
+    if not title_key and not source_key:
+        return None
+    return ("meta", title_key, source_key)
 
 
 def collect_citation_sources(message: "PromptMessageExtended") -> list[CitationSource]:
@@ -83,21 +159,19 @@ def collect_citation_sources(message: "PromptMessageExtended") -> list[CitationS
     sources: list[CitationSource] = []
 
     for payload in payloads:
-        title = payload.get("title") if isinstance(payload.get("title"), str) else None
-        source = payload.get("source") if isinstance(payload.get("source"), str) else None
+        title = _string_field(payload, "title")
+        source = _string_field(payload, "source")
 
-        raw_url = payload.get("url") if isinstance(payload.get("url"), str) else None
+        raw_url = _string_field(payload, "url")
         normalized_url = _normalize_url(raw_url)
 
-        if normalized_url:
-            key: tuple[str, str] | tuple[str, str, str] = ("url", normalized_url)
-        else:
-            title_key = (title or "").strip().lower()
-            source_key = (source or "").strip().lower()
-            if not title_key and not source_key:
-                continue
-            key = ("meta", title_key, source_key)
-
+        key = _citation_source_key(
+            title=title,
+            source=source,
+            normalized_url=normalized_url,
+        )
+        if key is None:
+            continue
         if key in seen:
             continue
         seen.add(key)
@@ -120,11 +194,12 @@ def render_sources_footer(message: "PromptMessageExtended") -> str | None:
 
     lines: list[str] = ["", "Sources", ""]
     for source in sources:
-        title = source.title or source.source or f"Source {source.index}"
+        display_title = escape_markdown_text(source.display_title)
         if source.url:
-            lines.append(f"- [{source.index}] [{title}]({source.url})")
+            destination = _escape_markdown_link_destination(source.url)
+            lines.append(f"- [{source.index}] [{display_title}]({destination})")
         else:
-            lines.append(f"- [{source.index}] {title}")
+            lines.append(f"- [{source.index}] {display_title}")
     return "\n".join(lines)
 
 
@@ -139,10 +214,9 @@ def _render_sources_text(
 
     rendered = Text("\n" * leading_breaks + "Sources\n")
     for source in sources:
-        title = source.title or source.source or f"Source {source.index}"
         rendered.append(" ")
         rendered.append(f"[{source.index}]", style="bright_green")
-        rendered.append(f" {title}", style="bright_white")
+        rendered.append(f" {source.display_title}", style="bright_white")
         if source.url:
             rendered.append(" — ", style="bright_white")
             rendered.append(source.url, style="bright_blue underline")
@@ -166,17 +240,12 @@ def web_tool_badges(message: "PromptMessageExtended") -> list[str]:
     if not payloads:
         return []
 
-    counts: dict[str, int] = {"web_search": 0, "web_fetch": 0}
+    counts = dict.fromkeys(_WEB_TOOL_BADGE_ORDER, 0)
     for payload in payloads:
-        tool_type = payload.get("type")
+        tool_type = _string_field(payload, "type")
         if tool_type == "server_tool_use":
-            name = payload.get("name")
+            name = _string_field(payload, "name")
             if name in counts:
                 counts[name] += 1
 
-    badges: list[str] = []
-    if counts["web_search"]:
-        badges.append(f"web_search x{counts['web_search']}")
-    if counts["web_fetch"]:
-        badges.append(f"web_fetch x{counts['web_fetch']}")
-    return badges
+    return [f"{name} x{counts[name]}" for name in _WEB_TOOL_BADGE_ORDER if counts[name]]

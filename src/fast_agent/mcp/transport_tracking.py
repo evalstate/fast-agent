@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 from threading import Lock
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from mcp.types import (
     JSONRPCError,
@@ -16,8 +17,39 @@ from mcp.types import (
 )
 from pydantic import BaseModel, ConfigDict
 
+from fast_agent.utils.text import strip_casefold
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 ChannelName = Literal["post-json", "post-sse", "get", "resumption", "stdio"]
 EventType = Literal["message", "connect", "disconnect", "keepalive", "error"]
+PostChannelName = Literal["post-json", "post-sse"]
+PostMode = Literal["json", "sse"]
+POST_CHANNEL_MODE_BY_NAME: dict[PostChannelName, PostMode] = {
+    "post-json": "json",
+    "post-sse": "sse",
+}
+POST_CHANNEL_NAME_BY_MODE: dict[PostMode, PostChannelName] = {
+    mode: channel for channel, mode in POST_CHANNEL_MODE_BY_NAME.items()
+}
+POST_CHANNEL_NAMES: tuple[PostChannelName, ...] = tuple(POST_CHANNEL_MODE_BY_NAME)
+TRACKED_CHANNEL_NAMES: tuple[ChannelName, ...] = (
+    *POST_CHANNEL_NAMES,
+    "get",
+    "resumption",
+    "stdio",
+)
+
+
+class ActivityState(StrEnum):
+    ERROR = "error"
+    DISABLED = "disabled"
+    REQUEST = "request"
+    RESPONSE = "response"
+    NOTIFICATION = "notification"
+    PING = "ping"
+    NONE = "none"
 
 
 @dataclass(slots=True)
@@ -33,13 +65,33 @@ class ChannelEvent:
 
 
 @dataclass
-class ModeStats:
-    messages: int = 0
+class MessageCounts:
     request: int = 0
     notification: int = 0
     response: int = 0
+
+    def increment(self, classification: ActivityState) -> None:
+        if classification is ActivityState.REQUEST:
+            self.request += 1
+        elif classification is ActivityState.NOTIFICATION:
+            self.notification += 1
+        elif classification is ActivityState.RESPONSE:
+            self.response += 1
+
+
+@dataclass
+class ModeStats:
+    messages: int = 0
+    counts: MessageCounts = field(default_factory=MessageCounts)
     last_summary: str | None = None
     last_at: datetime | None = None
+    last_error: str | None = None
+    last_event: str | None = None
+    last_event_at: datetime | None = None
+
+    @property
+    def has_activity(self) -> bool:
+        return bool(self.messages or self.last_error)
 
 
 def _summarise_message(message: JSONRPCMessage) -> str:
@@ -56,6 +108,15 @@ def _summarise_message(message: JSONRPCMessage) -> str:
         code = getattr(root.error, "code", None)
         return f"error {code}" if code is not None else "error"
     return "message"
+
+
+def _summarise_classified_message(
+    classification: ActivityState,
+    message: JSONRPCMessage,
+) -> str:
+    if classification is ActivityState.PING:
+        return "ping"
+    return _summarise_message(message)
 
 
 class ChannelSnapshot(BaseModel):
@@ -111,18 +172,41 @@ class TransportChannelMetrics:
     ) -> None:
         self._lock = Lock()
 
+        self._init_post_metrics()
+        self._init_get_metrics()
+        self._init_resumption_metrics()
+        self._init_stdio_metrics()
+        self._channel_event_handlers: dict[
+            ChannelName,
+            Callable[[ChannelEvent, datetime], None],
+        ] = {
+            "post-json": self._handle_post_event,
+            "post-sse": self._handle_post_event,
+            "get": self._handle_get_event,
+            "resumption": self._handle_resumption_event,
+            "stdio": self._handle_stdio_event,
+        }
+
+        self._response_channel_by_id: dict[RequestId, ChannelName] = {}
+        self._ping_request_ids: set[RequestId] = set()
+
+        self._init_history(bucket_seconds, bucket_count)
+
+    def _init_post_metrics(self) -> None:
         self._post_modes: set[str] = set()
         self._post_count = 0
-        self._post_request_count = 0
-        self._post_response_count = 0
-        self._post_notification_count = 0
+        self._post_counts = MessageCounts()
         self._post_last_summary: str | None = None
         self._post_last_at: datetime | None = None
-        self._post_mode_stats: dict[str, ModeStats] = {
+        self._post_last_error: str | None = None
+        self._post_last_event: str | None = None
+        self._post_last_event_at: datetime | None = None
+        self._post_mode_stats: dict[PostMode, ModeStats] = {
             "json": ModeStats(),
             "sse": ModeStats(),
         }
 
+    def _init_get_metrics(self) -> None:
         self._get_connected = False
         self._get_had_connection = False
         self._get_connect_at: datetime | None = None
@@ -134,19 +218,20 @@ class TransportChannelMetrics:
         self._get_last_error: str | None = None
         self._get_last_status_code: int | None = None
         self._get_message_count = 0
-        self._get_request_count = 0
-        self._get_response_count = 0
-        self._get_notification_count = 0
+        self._get_counts = MessageCounts()
         self._get_ping_count = 0
         self._get_last_ping_at: datetime | None = None
 
+    def _init_resumption_metrics(self) -> None:
         self._resumption_count = 0
         self._resumption_last_summary: str | None = None
         self._resumption_last_at: datetime | None = None
-        self._resumption_request_count = 0
-        self._resumption_response_count = 0
-        self._resumption_notification_count = 0
+        self._resumption_last_error: str | None = None
+        self._resumption_last_event: str | None = None
+        self._resumption_last_event_at: datetime | None = None
+        self._resumption_counts = MessageCounts()
 
+    def _init_stdio_metrics(self) -> None:
         self._stdio_connected = False
         self._stdio_had_connection = False
         self._stdio_connect_at: datetime | None = None
@@ -157,13 +242,9 @@ class TransportChannelMetrics:
         self._stdio_last_event: str | None = None
         self._stdio_last_event_at: datetime | None = None
         self._stdio_last_error: str | None = None
-        self._stdio_request_count = 0
-        self._stdio_response_count = 0
-        self._stdio_notification_count = 0
+        self._stdio_counts = MessageCounts()
 
-        self._response_channel_by_id: dict[RequestId, ChannelName] = {}
-        self._ping_request_ids: set[RequestId] = set()
-
+    def _init_history(self, bucket_seconds: int | None, bucket_count: int | None) -> None:
         try:
             seconds = 30 if bucket_seconds is None else int(bucket_seconds)
         except (TypeError, ValueError):
@@ -181,33 +262,23 @@ class TransportChannelMetrics:
         self._history_bucket_seconds = seconds
         self._history_bucket_count = count
         self._history_priority = {
-            "error": 5,
-            "disabled": 4,
-            "request": 4,
-            "response": 3,
-            "notification": 2,
-            "ping": 2,
-            "none": 1,
+            ActivityState.ERROR: 5,
+            ActivityState.DISABLED: 4,
+            ActivityState.REQUEST: 4,
+            ActivityState.RESPONSE: 3,
+            ActivityState.NOTIFICATION: 2,
+            ActivityState.PING: 2,
+            ActivityState.NONE: 1,
         }
-        self._history: dict[str, deque[tuple[int, str]]] = {
-            "post-json": deque(maxlen=self._history_bucket_count),
-            "post-sse": deque(maxlen=self._history_bucket_count),
-            "get": deque(maxlen=self._history_bucket_count),
-            "resumption": deque(maxlen=self._history_bucket_count),
-            "stdio": deque(maxlen=self._history_bucket_count),
+        self._history: dict[ChannelName, deque[tuple[int, ActivityState]]] = {
+            channel: deque(maxlen=self._history_bucket_count)
+            for channel in TRACKED_CHANNEL_NAMES
         }
 
     def record_event(self, event: ChannelEvent) -> None:
         now = datetime.now(timezone.utc)
         with self._lock:
-            if event.channel in ("post-json", "post-sse"):
-                self._handle_post_event(event, now)
-            elif event.channel == "get":
-                self._handle_get_event(event, now)
-            elif event.channel == "resumption":
-                self._handle_resumption_event(event, now)
-            elif event.channel == "stdio":
-                self._handle_stdio_event(event, now)
+            self._channel_event_handlers[event.channel](event, now)
 
     def register_ping_request(self, request_id: RequestId) -> None:
         with self._lock:
@@ -218,7 +289,7 @@ class TransportChannelMetrics:
             self._ping_request_ids.discard(request_id)
 
     def _handle_post_event(self, event: ChannelEvent, now: datetime) -> None:
-        mode = "json" if event.channel == "post-json" else "sse"
+        mode = POST_CHANNEL_MODE_BY_NAME[cast("PostChannelName", event.channel)]
         if event.event_type == "message" and event.message is not None:
             self._post_modes.add(mode)
             self._post_count += 1
@@ -226,19 +297,31 @@ class TransportChannelMetrics:
             mode_stats = self._post_mode_stats[mode]
             mode_stats.messages += 1
 
-            classification = self._tally_message_counts("post", event.message, now, sub_mode=mode)
+            classification = self._tally_message_counts(
+                "post",
+                event.message,
+                now,
+                sub_mode=mode,
+            )
 
-            summary = "ping" if classification == "ping" else _summarise_message(event.message)
+            summary = _summarise_classified_message(classification, event.message)
             mode_stats.last_summary = summary
             mode_stats.last_at = now
             self._post_last_summary = summary
             self._post_last_at = now
 
             self._record_response_channel(event)
-            if classification != "ping":
+            if classification is not ActivityState.PING:
                 self._record_history(event.channel, classification, now)
         elif event.event_type == "error":
-            self._record_history(event.channel, "error", now)
+            self._post_last_error = event.detail
+            self._post_last_event = "error"
+            self._post_last_event_at = now
+            mode_stats = self._post_mode_stats[mode]
+            mode_stats.last_error = event.detail
+            mode_stats.last_event = "error"
+            mode_stats.last_event_at = now
+            self._record_history(event.channel, ActivityState.ERROR, now)
 
     def _handle_get_event(self, event: ChannelEvent, now: datetime) -> None:
         if event.event_type == "connect":
@@ -258,14 +341,14 @@ class TransportChannelMetrics:
             self._register_ping(now)
             self._get_last_event = event.raw_event or "keepalive"
             self._get_last_event_at = now
-            self._record_history("get", "ping", now)
+            self._record_history("get", ActivityState.PING, now)
         elif event.event_type == "message" and event.message is not None:
             self._get_message_count += 1
             classification = self._tally_message_counts("get", event.message, now)
-            summary = "ping" if classification == "ping" else _summarise_message(event.message)
+            summary = _summarise_classified_message(classification, event.message)
             self._get_last_summary = summary
             self._get_last_at = now
-            self._get_last_event = "ping" if classification == "ping" else "message"
+            self._get_last_event = "ping" if classification is ActivityState.PING else "message"
             self._get_last_event_at = now
 
             self._record_response_channel(event)
@@ -276,21 +359,28 @@ class TransportChannelMetrics:
             self._get_last_event = "error"
             self._get_last_event_at = now
             # Record 405 as "disabled" in timeline, not "error"
-            timeline_state = "disabled" if event.status_code == 405 else "error"
+            timeline_state = (
+                ActivityState.DISABLED
+                if event.status_code == 405
+                else ActivityState.ERROR
+            )
             self._record_history("get", timeline_state, now)
 
     def _handle_resumption_event(self, event: ChannelEvent, now: datetime) -> None:
         if event.event_type == "message" and event.message is not None:
             self._resumption_count += 1
             classification = self._tally_message_counts("resumption", event.message, now)
-            summary = "ping" if classification == "ping" else _summarise_message(event.message)
+            summary = _summarise_classified_message(classification, event.message)
             self._resumption_last_summary = summary
             self._resumption_last_at = now
 
             self._record_response_channel(event)
             self._record_history("resumption", classification, now)
         elif event.event_type == "error":
-            self._record_history("resumption", "error", now)
+            self._resumption_last_error = event.detail
+            self._resumption_last_event = "error"
+            self._resumption_last_event_at = now
+            self._record_history("resumption", ActivityState.ERROR, now)
 
     def _handle_stdio_event(self, event: ChannelEvent, now: datetime) -> None:
         if event.event_type == "connect":
@@ -312,12 +402,12 @@ class TransportChannelMetrics:
             if event.message is not None:
                 # Real message event with JSON-RPC content
                 classification = self._tally_message_counts("stdio", event.message, now)
-                summary = "ping" if classification == "ping" else _summarise_message(event.message)
+                summary = _summarise_classified_message(classification, event.message)
                 self._record_response_channel(event)
             else:
                 # Synthetic event from MCP operation activity
-                classification = "request"  # MCP operations are always requests from client perspective
-                self._stdio_request_count += 1
+                classification = ActivityState.REQUEST
+                self._stdio_counts.increment(classification)
                 summary = event.detail or "request"
 
             self._stdio_last_summary = summary
@@ -329,15 +419,15 @@ class TransportChannelMetrics:
             self._stdio_last_error = event.detail
             self._stdio_last_event = "error"
             self._stdio_last_event_at = now
-            self._record_history("stdio", "error", now)
+            self._record_history("stdio", ActivityState.ERROR, now)
 
     def _record_response_channel(self, event: ChannelEvent) -> None:
         if event.message is None:
             return
         root = event.message.root
         request_id: RequestId | None = None
-        if isinstance(root, (JSONRPCResponse, JSONRPCError, JSONRPCRequest)):
-            request_id = getattr(root, "id", None)
+        if isinstance(root, (JSONRPCResponse, JSONRPCError)):
+            request_id = root.id
         if request_id is None:
             return
         self._response_channel_by_id[request_id] = event.channel
@@ -354,97 +444,123 @@ class TransportChannelMetrics:
         message: JSONRPCMessage,
         timestamp: datetime,
         *,
-        sub_mode: str | None = None,
-    ) -> str:
+        sub_mode: PostMode | None = None,
+    ) -> ActivityState:
         classification = self._classify_message(message)
         root = message.root
-        request_id: RequestId | None = None
-        if isinstance(root, (JSONRPCRequest, JSONRPCResponse, JSONRPCError)):
-            request_id = getattr(root, "id", None)
-
-        if classification == "ping" and request_id is not None and isinstance(root, JSONRPCRequest):
-            self._ping_request_ids.add(request_id)
-        elif (
-            classification == "response"
-            and request_id is not None
-            and request_id in self._ping_request_ids
-        ):
-            self._ping_request_ids.discard(request_id)
-            classification = "ping"
-
-        if channel_key == "post":
-            if classification == "request":
-                self._post_request_count += 1
-            elif classification == "notification":
-                self._post_notification_count += 1
-            elif classification == "response":
-                self._post_response_count += 1
-
-            if sub_mode:
-                stats = self._post_mode_stats[sub_mode]
-                if classification in {"request", "notification", "response"}:
-                    setattr(stats, classification, getattr(stats, classification) + 1)
-        elif channel_key == "get":
-            if classification == "ping":
-                self._register_ping(timestamp)
-            elif classification == "request":
-                self._get_request_count += 1
-            elif classification == "notification":
-                self._get_notification_count += 1
-            elif classification == "response":
-                self._get_response_count += 1
-        elif channel_key == "resumption":
-            if classification == "request":
-                self._resumption_request_count += 1
-            elif classification == "notification":
-                self._resumption_notification_count += 1
-            elif classification == "response":
-                self._resumption_response_count += 1
-        elif channel_key == "stdio":
-            if classification == "request":
-                self._stdio_request_count += 1
-            elif classification == "notification":
-                self._stdio_notification_count += 1
-            elif classification == "response":
-                self._stdio_response_count += 1
-
+        request_id = self._message_request_id(root)
+        classification = self._classify_ping_exchange(classification, root, request_id)
+        self._tally_classification(channel_key, classification, timestamp, sub_mode=sub_mode)
         return classification
+
+    @staticmethod
+    def _message_request_id(
+        root: JSONRPCRequest | JSONRPCResponse | JSONRPCError | JSONRPCNotification,
+    ) -> RequestId | None:
+        if isinstance(root, (JSONRPCRequest, JSONRPCResponse, JSONRPCError)):
+            return root.id
+        return None
+
+    def _classify_ping_exchange(
+        self,
+        classification: ActivityState,
+        root: JSONRPCRequest | JSONRPCResponse | JSONRPCError | JSONRPCNotification,
+        request_id: RequestId | None,
+    ) -> ActivityState:
+        if request_id is None:
+            return classification
+        if classification is ActivityState.PING and isinstance(root, JSONRPCRequest):
+            self._ping_request_ids.add(request_id)
+            return classification
+        if classification is ActivityState.RESPONSE and request_id in self._ping_request_ids:
+            self._ping_request_ids.discard(request_id)
+            return ActivityState.PING
+        return classification
+
+    def _tally_classification(
+        self,
+        channel_key: str,
+        classification: ActivityState,
+        timestamp: datetime,
+        *,
+        sub_mode: PostMode | None = None,
+    ) -> None:
+        if channel_key == "post":
+            self._tally_post_classification(classification, sub_mode)
+        elif channel_key == "get":
+            self._tally_get_classification(classification, timestamp)
+        elif channel_key == "resumption":
+            self._tally_resumption_classification(classification)
+        elif channel_key == "stdio":
+            self._tally_stdio_classification(classification)
+
+    def _tally_post_classification(
+        self,
+        classification: ActivityState,
+        sub_mode: PostMode | None,
+    ) -> None:
+        self._post_counts.increment(classification)
+
+        if sub_mode:
+            self._post_mode_stats[sub_mode].counts.increment(classification)
+
+    def _tally_get_classification(
+        self,
+        classification: ActivityState,
+        timestamp: datetime,
+    ) -> None:
+        if classification is ActivityState.PING:
+            self._register_ping(timestamp)
+        else:
+            self._get_counts.increment(classification)
+
+    def _tally_resumption_classification(self, classification: ActivityState) -> None:
+        self._resumption_counts.increment(classification)
+
+    def _tally_stdio_classification(self, classification: ActivityState) -> None:
+        self._stdio_counts.increment(classification)
 
     def _register_ping(self, timestamp: datetime) -> None:
         self._get_ping_count += 1
         self._get_last_ping_at = timestamp
 
-    def _classify_message(self, message: JSONRPCMessage | None) -> str:
+    def _classify_message(self, message: JSONRPCMessage | None) -> ActivityState:
         if message is None:
-            return "none"
+            return ActivityState.NONE
         root = message.root
         method = getattr(root, "method", "")
-        method_lower = method.lower() if isinstance(method, str) else ""
+        normalized_method = strip_casefold(method) if isinstance(method, str) else ""
 
         if isinstance(root, JSONRPCRequest):
-            if self._is_ping_method(method_lower):
-                return "ping"
-            return "request"
+            return self._classify_method_message(normalized_method, ActivityState.REQUEST)
         if isinstance(root, JSONRPCNotification):
-            if self._is_ping_method(method_lower):
-                return "ping"
-            return "notification"
+            return self._classify_method_message(normalized_method, ActivityState.NOTIFICATION)
         if isinstance(root, (JSONRPCResponse, JSONRPCError)):
-            return "response"
-        return "none"
+            return ActivityState.RESPONSE
+        return ActivityState.NONE
+
+    def _classify_method_message(
+        self,
+        method_lower: str,
+        fallback: ActivityState,
+    ) -> ActivityState:
+        if self._is_ping_method(method_lower):
+            return ActivityState.PING
+        return fallback
 
     @staticmethod
     def _is_ping_method(method: str) -> bool:
         if not method:
             return False
-        return (
-            method == "ping"
-            or method.endswith("/ping")
-            or method.endswith(".ping")
-        )
+        return method == "ping" or method.endswith(("/ping", ".ping"))
 
-    def _record_history(self, channel: str, state: str, timestamp: datetime) -> None:
-        if state in {"none", ""}:
+    def _record_history(
+        self,
+        channel: ChannelName,
+        state: ActivityState,
+        timestamp: datetime,
+    ) -> None:
+        if state is ActivityState.NONE:
             return
         history = self._history.get(channel)
         if history is None:
@@ -462,197 +578,227 @@ class TransportChannelMetrics:
 
         history.append((bucket, state))
 
-    def _build_activity_buckets(self, key: str, now: datetime) -> list[str]:
+    def _build_activity_buckets(self, key: ChannelName, now: datetime) -> list[str]:
         history = self._history.get(key)
         if not history:
             return ["none"] * self._history_bucket_count
 
-        history_map = {bucket: state for bucket, state in history}
+        history_map = dict(history)
         current_bucket = int(now.timestamp() // self._history_bucket_seconds)
         buckets: list[str] = []
         for offset in range(self._history_bucket_count - 1, -1, -1):
             bucket_index = current_bucket - offset
-            buckets.append(history_map.get(bucket_index, "none"))
+            buckets.append(history_map.get(bucket_index, ActivityState.NONE).value)
         return buckets
 
-    def _merge_activity_buckets(self, keys: list[str], now: datetime) -> list[str] | None:
+    def _merge_activity_buckets(
+        self,
+        keys: tuple[ChannelName, ...],
+        now: datetime,
+    ) -> list[str] | None:
         sequences = [self._build_activity_buckets(key, now) for key in keys if key in self._history]
         if not sequences:
             return None
 
         merged: list[str] = []
         for idx in range(self._history_bucket_count):
-            best_state = "none"
+            best_state = ActivityState.NONE
             best_priority = 0
             for seq in sequences:
-                state = seq[idx]
+                state = ActivityState(seq[idx])
                 priority = self._history_priority.get(state, 0)
                 if priority > best_priority:
                     best_state = state
                     best_priority = priority
-            merged.append(best_state)
+            merged.append(best_state.value)
 
         if all(state == "none" for state in merged):
             return None
         return merged
 
-    def _build_post_mode_snapshot(self, mode: str, now: datetime) -> ChannelSnapshot | None:
+    def _build_post_mode_snapshot(self, mode: PostMode, now: datetime) -> ChannelSnapshot | None:
         stats = self._post_mode_stats[mode]
-        if stats.messages == 0:
+        if not stats.has_activity:
             return None
         return ChannelSnapshot(
             message_count=stats.messages,
             mode=mode,
-            request_count=stats.request,
-            response_count=stats.response,
-            notification_count=stats.notification,
+            state="error" if stats.last_error else None,
+            request_count=stats.counts.request,
+            response_count=stats.counts.response,
+            notification_count=stats.counts.notification,
             last_message_summary=stats.last_summary,
             last_message_at=stats.last_at,
-            activity_buckets=self._build_activity_buckets(f"post-{mode}", now),
+            last_error=stats.last_error,
+            last_event=stats.last_event,
+            last_event_at=stats.last_event_at,
+            activity_buckets=self._build_activity_buckets(POST_CHANNEL_NAME_BY_MODE[mode], now),
             activity_bucket_seconds=self._history_bucket_seconds,
             activity_bucket_count=self._history_bucket_count,
         )
 
     def snapshot(self) -> TransportSnapshot:
         with self._lock:
-            if (
-                not self._post_count
-                and not self._get_message_count
-                and not self._get_ping_count
-                and not self._resumption_count
-                and not self._stdio_count
-                and not self._get_connected
-                and not self._stdio_connected
-            ):
+            if not self._has_snapshot_activity():
                 return TransportSnapshot()
 
             now = datetime.now(timezone.utc)
-
-            post_mode_counts = {
-                mode: stats.messages
-                for mode, stats in self._post_mode_stats.items()
-                if stats.messages
-            }
-            post_snapshot = None
-            if self._post_count:
-                if len(self._post_modes) == 0:
-                    mode = None
-                elif len(self._post_modes) == 1:
-                    mode = next(iter(self._post_modes))
-                else:
-                    mode = "mixed"
-                post_snapshot = ChannelSnapshot(
-                    message_count=self._post_count,
-                    mode=mode,
-                    mode_counts=post_mode_counts or None,
-                    last_message_summary=self._post_last_summary,
-                    last_message_at=self._post_last_at,
-                    request_count=self._post_request_count,
-                    response_count=self._post_response_count,
-                    notification_count=self._post_notification_count,
-                    activity_buckets=self._merge_activity_buckets(["post-json", "post-sse"], now),
-                    activity_bucket_seconds=self._history_bucket_seconds,
-                    activity_bucket_count=self._history_bucket_count,
-                )
-
-            post_json_snapshot = self._build_post_mode_snapshot("json", now)
-            post_sse_snapshot = self._build_post_mode_snapshot("sse", now)
-
-            get_snapshot = None
-            if (
-                self._get_message_count
-                or self._get_ping_count
-                or self._get_connected
-                or self._get_disconnect_at
-                or self._get_last_error
-            ):
-                if self._get_connected:
-                    state = "open"
-                elif self._get_last_error is not None:
-                    state = "disabled" if self._get_last_status_code == 405 else "error"
-                elif self._get_had_connection:
-                    state = "off"
-                else:
-                    state = "idle"
-
-                get_snapshot = ChannelSnapshot(
-                    connected=self._get_connected,
-                    state=state,
-                    connect_at=self._get_connect_at,
-                    disconnect_at=self._get_disconnect_at,
-                    message_count=self._get_message_count,
-                    last_message_summary=self._get_last_summary,
-                    last_message_at=self._get_last_at,
-                    ping_count=self._get_ping_count,
-                    ping_last_at=self._get_last_ping_at,
-                    last_error=self._get_last_error,
-                    last_event=self._get_last_event,
-                    last_event_at=self._get_last_event_at,
-                    last_status_code=self._get_last_status_code,
-                    request_count=self._get_request_count,
-                    response_count=self._get_response_count,
-                    notification_count=self._get_notification_count,
-                    activity_buckets=self._build_activity_buckets("get", now),
-                    activity_bucket_seconds=self._history_bucket_seconds,
-                    activity_bucket_count=self._history_bucket_count,
-                )
-
-            resumption_snapshot = None
-            if self._resumption_count:
-                resumption_snapshot = ChannelSnapshot(
-                    message_count=self._resumption_count,
-                    last_message_summary=self._resumption_last_summary,
-                    last_message_at=self._resumption_last_at,
-                    request_count=self._resumption_request_count,
-                    response_count=self._resumption_response_count,
-                    notification_count=self._resumption_notification_count,
-                    activity_buckets=self._build_activity_buckets("resumption", now),
-                    activity_bucket_seconds=self._history_bucket_seconds,
-                    activity_bucket_count=self._history_bucket_count,
-                )
-
-            stdio_snapshot = None
-            if (
-                self._stdio_count
-                or self._stdio_connected
-                or self._stdio_disconnect_at
-                or self._stdio_last_error
-            ):
-                if self._stdio_connected:
-                    state = "open"
-                elif self._stdio_last_error is not None:
-                    state = "error"
-                elif self._stdio_had_connection:
-                    state = "off"
-                else:
-                    state = "idle"
-
-                stdio_snapshot = ChannelSnapshot(
-                    connected=self._stdio_connected,
-                    state=state,
-                    connect_at=self._stdio_connect_at,
-                    disconnect_at=self._stdio_disconnect_at,
-                    message_count=self._stdio_count,
-                    last_message_summary=self._stdio_last_summary,
-                    last_message_at=self._stdio_last_at,
-                    last_error=self._stdio_last_error,
-                    last_event=self._stdio_last_event,
-                    last_event_at=self._stdio_last_event_at,
-                    request_count=self._stdio_request_count,
-                    response_count=self._stdio_response_count,
-                    notification_count=self._stdio_notification_count,
-                    activity_buckets=self._build_activity_buckets("stdio", now),
-                    activity_bucket_seconds=self._history_bucket_seconds,
-                    activity_bucket_count=self._history_bucket_count,
-                )
-
             return TransportSnapshot(
-                post=post_snapshot,
-                post_json=post_json_snapshot,
-                post_sse=post_sse_snapshot,
-                get=get_snapshot,
-                resumption=resumption_snapshot,
-                stdio=stdio_snapshot,
+                post=self._build_post_snapshot(now),
+                post_json=self._build_post_mode_snapshot("json", now),
+                post_sse=self._build_post_mode_snapshot("sse", now),
+                get=self._build_get_snapshot(now),
+                resumption=self._build_resumption_snapshot(now),
+                stdio=self._build_stdio_snapshot(now),
                 activity_bucket_seconds=self._history_bucket_seconds,
                 activity_bucket_count=self._history_bucket_count,
             )
+
+    def _has_snapshot_activity(self) -> bool:
+        return bool(
+            self._has_post_snapshot_activity()
+            or self._has_get_snapshot_activity()
+            or self._has_resumption_snapshot_activity()
+            or self._has_stdio_snapshot_activity()
+        )
+
+    def _has_post_snapshot_activity(self) -> bool:
+        return bool(self._post_count or self._post_last_error)
+
+    def _build_post_snapshot(self, now: datetime) -> ChannelSnapshot | None:
+        if not self._has_post_snapshot_activity():
+            return None
+
+        post_mode_counts: dict[str, int] = {
+            mode: stats.messages
+            for mode, stats in self._post_mode_stats.items()
+            if stats.messages
+        }
+        return ChannelSnapshot(
+            message_count=self._post_count,
+            mode=self._post_mode(),
+            state="error" if self._post_last_error else None,
+            mode_counts=post_mode_counts or None,
+            last_message_summary=self._post_last_summary,
+            last_message_at=self._post_last_at,
+            last_error=self._post_last_error,
+            last_event=self._post_last_event,
+            last_event_at=self._post_last_event_at,
+            request_count=self._post_counts.request,
+            response_count=self._post_counts.response,
+            notification_count=self._post_counts.notification,
+            activity_buckets=self._merge_activity_buckets(POST_CHANNEL_NAMES, now),
+            activity_bucket_seconds=self._history_bucket_seconds,
+            activity_bucket_count=self._history_bucket_count,
+        )
+
+    def _post_mode(self) -> str | None:
+        if not self._post_modes:
+            return None
+        if len(self._post_modes) == 1:
+            return next(iter(self._post_modes))
+        return "mixed"
+
+    def _build_get_snapshot(self, now: datetime) -> ChannelSnapshot | None:
+        if not self._has_get_snapshot_activity():
+            return None
+        return ChannelSnapshot(
+            connected=self._get_connected,
+            state=self._get_state(),
+            connect_at=self._get_connect_at,
+            disconnect_at=self._get_disconnect_at,
+            message_count=self._get_message_count,
+            last_message_summary=self._get_last_summary,
+            last_message_at=self._get_last_at,
+            ping_count=self._get_ping_count,
+            ping_last_at=self._get_last_ping_at,
+            last_error=self._get_last_error,
+            last_event=self._get_last_event,
+            last_event_at=self._get_last_event_at,
+            last_status_code=self._get_last_status_code,
+            request_count=self._get_counts.request,
+            response_count=self._get_counts.response,
+            notification_count=self._get_counts.notification,
+            activity_buckets=self._build_activity_buckets("get", now),
+            activity_bucket_seconds=self._history_bucket_seconds,
+            activity_bucket_count=self._history_bucket_count,
+        )
+
+    def _has_get_snapshot_activity(self) -> bool:
+        return bool(
+            self._get_message_count
+            or self._get_ping_count
+            or self._get_connected
+            or self._get_disconnect_at
+            or self._get_last_error
+        )
+
+    def _get_state(self) -> str:
+        if self._get_connected:
+            return "open"
+        if self._get_last_error is not None:
+            return "disabled" if self._get_last_status_code == 405 else "error"
+        if self._get_had_connection:
+            return "off"
+        return "idle"
+
+    def _build_resumption_snapshot(self, now: datetime) -> ChannelSnapshot | None:
+        if not self._has_resumption_snapshot_activity():
+            return None
+        return ChannelSnapshot(
+            message_count=self._resumption_count,
+            state="error" if self._resumption_last_error else None,
+            last_message_summary=self._resumption_last_summary,
+            last_message_at=self._resumption_last_at,
+            last_error=self._resumption_last_error,
+            last_event=self._resumption_last_event,
+            last_event_at=self._resumption_last_event_at,
+            request_count=self._resumption_counts.request,
+            response_count=self._resumption_counts.response,
+            notification_count=self._resumption_counts.notification,
+            activity_buckets=self._build_activity_buckets("resumption", now),
+            activity_bucket_seconds=self._history_bucket_seconds,
+            activity_bucket_count=self._history_bucket_count,
+        )
+
+    def _has_resumption_snapshot_activity(self) -> bool:
+        return bool(self._resumption_count or self._resumption_last_error)
+
+    def _build_stdio_snapshot(self, now: datetime) -> ChannelSnapshot | None:
+        if not self._has_stdio_snapshot_activity():
+            return None
+        return ChannelSnapshot(
+            connected=self._stdio_connected,
+            state=self._stdio_state(),
+            connect_at=self._stdio_connect_at,
+            disconnect_at=self._stdio_disconnect_at,
+            message_count=self._stdio_count,
+            last_message_summary=self._stdio_last_summary,
+            last_message_at=self._stdio_last_at,
+            last_error=self._stdio_last_error,
+            last_event=self._stdio_last_event,
+            last_event_at=self._stdio_last_event_at,
+            request_count=self._stdio_counts.request,
+            response_count=self._stdio_counts.response,
+            notification_count=self._stdio_counts.notification,
+            activity_buckets=self._build_activity_buckets("stdio", now),
+            activity_bucket_seconds=self._history_bucket_seconds,
+            activity_bucket_count=self._history_bucket_count,
+        )
+
+    def _has_stdio_snapshot_activity(self) -> bool:
+        return bool(
+            self._stdio_count
+            or self._stdio_connected
+            or self._stdio_disconnect_at
+            or self._stdio_last_error
+        )
+
+    def _stdio_state(self) -> str:
+        if self._stdio_connected:
+            return "open"
+        if self._stdio_last_error is not None:
+            return "error"
+        if self._stdio_had_connection:
+            return "off"
+        return "idle"

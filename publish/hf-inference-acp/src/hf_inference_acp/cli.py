@@ -521,7 +521,11 @@ def run_acp(
 
     instruction_override = None
     if instruction:
-        instruction_override, _ = resolve_instruction_option(instruction, model, "serve")
+        instruction_override = resolve_instruction_option(
+            instruction,
+            model,
+            "serve",
+        ).instruction
 
     server_list = servers.split(",") if servers else None
 

@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from fast_agent.utils.numeric import finite_number_or_none
+
 
 def _stats(values: list[float]) -> dict[str, float | int]:
     if not values:
@@ -37,14 +39,14 @@ class BatchSummary:
     def add_timing(self, timing: dict[str, Any] | None) -> None:
         if not timing:
             return
-        duration = timing.get("duration_ms")
-        if isinstance(duration, int | float):
+        duration = finite_number_or_none(timing.get("duration_ms"))
+        if duration is not None:
             self.timing_duration_ms.append(float(duration))
-        ttft = timing.get("ttft_ms")
-        if isinstance(ttft, int | float):
+        ttft = finite_number_or_none(timing.get("ttft_ms"))
+        if ttft is not None:
             self.timing_ttft_ms.append(float(ttft))
-        time_to_response = timing.get("time_to_response_ms")
-        if isinstance(time_to_response, int | float):
+        time_to_response = finite_number_or_none(timing.get("time_to_response_ms"))
+        if time_to_response is not None:
             self.timing_time_to_response_ms.append(float(time_to_response))
 
     def to_dict(self, completed_at: str) -> dict[str, Any]:
@@ -64,4 +66,3 @@ class BatchSummary:
                 "time_to_response": _stats(self.timing_time_to_response_ms),
             },
         }
-

@@ -290,10 +290,7 @@ def test_resolve_llamacpp_picker_import_defaults_ignores_openresponses_settings(
             ),
         )
 
-        defaults = model_command._resolve_llamacpp_picker_import_defaults(
-            start_path=workspace,
-            env_dir=None,
-        )
+        defaults = model_command._resolve_llamacpp_picker_import_defaults()
     finally:
         if previous_base_url is None:
             os.environ.pop("OPENRESPONSES_BASE_URL", None)
@@ -307,6 +304,39 @@ def test_resolve_llamacpp_picker_import_defaults_ignores_openresponses_settings(
     assert defaults.url == model_command.DEFAULT_LLAMA_CPP_URL
     assert defaults.auth == "none"
     assert defaults.interrogation_api_key is None
+
+
+def test_normalize_llamacpp_auth_trims_env_and_secret_ref_values() -> None:
+    assert (
+        model_command._normalize_llamacpp_auth(
+            auth=" ENV ",
+            api_key_env="  LLAMA_CPP_TOKEN  ",
+            secret_ref=None,
+        )
+        == "env"
+    )
+    assert (
+        model_command._normalize_llamacpp_auth(
+            auth=" SECRET_REF ",
+            api_key_env=None,
+            secret_ref="  local-secret  ",
+        )
+        == "secret_ref"
+    )
+
+
+def test_resolve_llamacpp_persisted_auth_trims_new_auth_values() -> None:
+    persisted = model_command._resolve_llamacpp_persisted_auth(
+        auth="env",
+        api_key_env="  LLAMA_CPP_TOKEN  ",
+        secret_ref="  local-secret  ",
+        reused_overlay=None,
+        preserve_existing_auth=False,
+    )
+
+    assert persisted.auth == "env"
+    assert persisted.api_key_env == "LLAMA_CPP_TOKEN"
+    assert persisted.secret_ref == "local-secret"
 
 
 def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) -> None:
@@ -569,7 +599,7 @@ def test_model_llamacpp_list_command_has_human_readable_output(tmp_path: Path) -
         server.close()
 
     assert result.exit_code == 0, result.stdout
-    assert "Discovered 2 llama.cpp model(s):" in result.stdout
+    assert "Discovered 2 llama.cpp models:" in result.stdout
     assert "unsloth/Qwen3.5-9B-GGUF (ctx 262144)" in result.stdout
 
 

@@ -5,7 +5,11 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from mcp.types import (
+    Annotations,
+    AudioContent,
     BlobResourceContents,
+    CallToolRequest,
+    CallToolRequestParams,
     CallToolResult,
     EmbeddedResource,
     ImageContent,
@@ -63,6 +67,49 @@ def file_part(message: Mapping[str, object], index: int = 0) -> dict[str, object
     return cast("dict[str, object]", file_obj)
 
 
+@pytest.mark.parametrize(
+    ("header_value", "expected_content_type"),
+    [
+        (" application/pdf; charset=utf-8", "application/pdf"),
+        ("   ", None),
+    ],
+)
+@pytest.mark.asyncio
+async def test_download_remote_file_normalizes_content_type(
+    monkeypatch: pytest.MonkeyPatch,
+    header_value: str,
+    expected_content_type: str | None,
+) -> None:
+    class _Response:
+        headers = {"content-type": header_value}
+        content = b"remote data"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _Client:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+        async def __aenter__(self) -> "_Client":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+        async def get(self, file_url: str) -> _Response:
+            assert file_url == "https://example.com/file"
+            return _Response()
+
+    monkeypatch.setattr(llm_openai.httpx, "AsyncClient", _Client)
+    llm = llm_openai.OpenAILLM(Provider.OPENAI, model="gpt-4.1")
+
+    data, content_type = await llm._download_remote_file("https://example.com/file")
+
+    assert data == b"remote data"
+    assert content_type == expected_content_type
+
+
 class TestOpenAIUserConverter(unittest.TestCase):
     """Test cases for conversion from user role MCP message types to OpenAI API."""
 
@@ -90,7 +137,10 @@ class TestOpenAIUserConverter(unittest.TestCase):
         """Test conversion of ImageContent to OpenAI image block."""
         # Create an image content message
         image_content = ImageContent(
-            type="image", data=self.sample_image_base64, mimeType="image/jpeg"
+            type="image",
+            data=self.sample_image_base64,
+            mimeType="image/jpeg",
+            annotations=Annotations(audience=["user"], priority=0.5),
         )
         multipart = PromptMessageExtended(role="user", content=[image_content])
 
@@ -107,6 +157,7 @@ class TestOpenAIUserConverter(unittest.TestCase):
             image_url_part(openai_msg)["url"],
             f"data:image/jpeg;base64,{self.sample_image_base64}",
         )
+        self.assertNotIn("detail", image_url_part(openai_msg))
 
     def test_embedded_resource_text_conversion(self):
         """Test conversion of text-based EmbeddedResource to OpenAI text content with fastagent:file tags."""
@@ -277,6 +328,19 @@ class TestOpenAIUserConverter(unittest.TestCase):
         self.assertEqual(content_parts(openai_msg)[1]["type"], "image_url")
         self.assertEqual(content_parts(openai_msg)[2]["type"], "text")
         self.assertEqual(text_part(openai_msg, 2), "Second text")
+
+    def test_audio_content_conversion_gets_explicit_text_fallback(self):
+        audio_content = AudioContent(type="audio", data="ZmFrZV9hdWRpbw==", mimeType="audio/wav")
+        multipart = PromptMessageExtended(role="user", content=[audio_content])
+
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
+        self.assertEqual(openai_msg["role"], "user")
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertEqual(text_part(openai_msg), "[Unsupported audio content: audio/wav]")
 
     def test_svg_resource_conversion(self):
         """Test handling of SVG resources - should convert to text with fastagent:file tags for OpenAI."""
@@ -449,6 +513,85 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         # Assertions - should have empty content
         self.assertEqual(openai_msg["role"], "assistant")
         self.assertEqual(openai_msg["content"], "")
+
+    def test_assistant_multimodal_content_is_converted_to_text(self):
+        """Assistant messages must not emit user-only image/file content arrays."""
+        image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
+        multipart = PromptMessageExtended(
+            role="assistant",
+            content=[
+                TextContent(type="text", text="Assistant summary"),
+                ImageContent(type="image", data=image_base64, mimeType="image/jpeg"),
+            ],
+        )
+
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
+        self.assertEqual(openai_msg["role"], "assistant")
+        self.assertEqual(openai_msg["content"], "Assistant summary")
+        self.assertEqual(content_parts(openai_msg), [])
+
+    def test_assistant_image_only_content_gets_text_fallback(self):
+        image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
+        multipart = PromptMessageExtended(
+            role="assistant",
+            content=[ImageContent(type="image", data=image_base64, mimeType="image/jpeg")],
+        )
+
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
+        self.assertEqual(openai_msg["role"], "assistant")
+        self.assertEqual(openai_msg["content"], "[Complex content converted to text]")
+        self.assertEqual(content_parts(openai_msg), [])
+
+    def test_assistant_audio_content_gets_text_fallback(self):
+        multipart = PromptMessageExtended(
+            role="assistant",
+            content=[AudioContent(type="audio", data="ZmFrZV9hdWRpbw==", mimeType="audio/wav")],
+        )
+
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
+        self.assertEqual(openai_msg["role"], "assistant")
+        self.assertEqual(openai_msg["content"], "[Unsupported audio content: audio/wav]")
+        self.assertEqual(content_parts(openai_msg), [])
+
+    def test_assistant_tool_calls_preserve_text_content(self):
+        """Assistant messages can carry text alongside OpenAI tool calls."""
+        tool_call = CallToolRequest(
+            method="tools/call",
+            params=CallToolRequestParams(
+                name="lookup",
+                arguments={"query": "weather"},
+            ),
+        )
+        multipart = PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="I will check that.")],
+            tool_calls={"call_1": tool_call},
+        )
+
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
+        self.assertEqual(openai_msg["role"], "assistant")
+        self.assertEqual(openai_msg["content"], "I will check that.")
+        tool_calls = cast("Mapping[str, object]", openai_msg).get("tool_calls")
+        self.assertIsInstance(tool_calls, list)
+        tool_call = cast("list[Mapping[str, object]]", tool_calls)[0]
+        function = tool_call["function"]
+        self.assertIsInstance(function, dict)
+        function = cast("dict[str, object]", function)
+        self.assertEqual(tool_call["id"], "call_1")
+        self.assertEqual(function["name"], "lookup")
+        self.assertEqual(function["arguments"], '{"query": "weather"}')
 
 
 class TestOpenAIToolConverter(unittest.TestCase):

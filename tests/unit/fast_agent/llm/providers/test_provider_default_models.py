@@ -130,6 +130,21 @@ def test_openrouter_provider_default_model_used_when_model_missing() -> None:
         ModelDatabase.clear_runtime_model_params(provider=Provider.OPENROUTER)
 
 
+def test_openrouter_provider_base_url_prefers_config_over_env() -> None:
+    original_env = os.environ.get("OPENROUTER_BASE_URL")
+    os.environ["OPENROUTER_BASE_URL"] = "https://env-openrouter.example/v1"
+    try:
+        settings = Settings(openrouter=OpenRouterSettings(base_url="https://config.example/v1"))
+        llm = OpenRouterLLM(context=Context(config=settings), model="openai/gpt-4.1-mini")
+
+        assert llm._base_url() == "https://config.example/v1"
+    finally:
+        if original_env is None:
+            os.environ.pop("OPENROUTER_BASE_URL", None)
+        else:
+            os.environ["OPENROUTER_BASE_URL"] = original_env
+
+
 def test_huggingface_provider_default_model_used_with_provider_suffix() -> None:
     settings = Settings(
         hf=HuggingFaceSettings(
@@ -214,6 +229,19 @@ def test_deepseek_v4_request_maps_reasoning_and_can_disable_thinking() -> None:
     )
     assert "reasoning_effort" not in off_request
     assert off_request["extra_body"] == {"thinking": {"type": "disabled"}}
+
+    none_llm = DeepSeekLLM(
+        context=Context(config=Settings()),
+        model="deepseek-v4-pro",
+        reasoning_effort="none",
+    )
+    none_request = none_llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        none_llm.default_request_params,
+    )
+    assert "reasoning_effort" not in none_request
+    assert none_request["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 def test_azure_uses_azure_deployment_when_default_model_unset() -> None:

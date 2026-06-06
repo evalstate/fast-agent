@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import os
 import secrets
 import sys
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from fast_agent.utils.env import env_flag
+
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
 
 @dataclass(frozen=True)
@@ -36,8 +39,7 @@ def format_keyring_access_notice(*, purpose: str | None = None) -> str:
 
 
 def _keyring_access_notice_enabled() -> bool:
-    suppress_notice = os.getenv("FAST_AGENT_KEYRING_NOTICE", "1").strip().lower()
-    return suppress_notice not in {"0", "false", "no", "off"}
+    return env_flag("FAST_AGENT_KEYRING_NOTICE", default=True)
 
 
 def emit_keyring_access_notice(
@@ -58,10 +60,7 @@ def emit_keyring_access_notice(
         message = format_keyring_access_notice(purpose=purpose)
 
         if emitter is None:
-            try:
-                if not sys.stderr.isatty():
-                    return False
-            except Exception:
+            if not _stderr_is_tty():
                 return False
 
             def _stderr_emitter(text: str) -> None:
@@ -70,13 +69,18 @@ def emit_keyring_access_notice(
 
             emitter = _stderr_emitter
 
-        try:
+        with suppress(Exception):
             emitter(message)
-        except Exception:
-            return False
+            _KEYRING_ACCESS_NOTICE_SHOWN = True
+            return True
 
-        _KEYRING_ACCESS_NOTICE_SHOWN = True
-        return True
+        return False
+
+
+def _stderr_is_tty() -> bool:
+    with suppress(Exception):
+        return sys.stderr.isatty()
+    return False
 
 
 def maybe_print_keyring_access_notice(*, purpose: str | None = None) -> None:
@@ -91,30 +95,45 @@ def _probe_keyring_write(service: str) -> bool:
 
         probe_key = f"probe:{secrets.token_urlsafe(8)}"
         keyring.set_password(service, probe_key, "probe")
-        try:
+        # If deletion fails but set succeeded, still treat the backend as writable.
+        with suppress(Exception):
             keyring.delete_password(service, probe_key)
-        except Exception:
-            # If deletion fails but set succeeded, still treat as writable.
-            pass
         return True
     except Exception:
         return False
 
 
-def get_keyring_status() -> KeyringStatus:
-    try:
-        maybe_print_keyring_access_notice(purpose="checking keyring backend")
+def _is_fail_keyring_backend(backend: object) -> bool:
+    with suppress(Exception):
+        from keyring.backends.fail import Keyring as FailKeyring
+
+        return isinstance(backend, FailKeyring)
+    return False
+
+
+def _keyring_backend_name(backend: object) -> str:
+    name = getattr(backend, "name", None)
+    return name if isinstance(name, str) else backend.__class__.__name__
+
+
+def _load_keyring_module() -> ModuleType | None:
+    with suppress(Exception):
         import keyring
 
-        backend = keyring.get_keyring()
-        name = getattr(backend, "name", backend.__class__.__name__)
-        available = True
-        try:
-            from keyring.backends.fail import Keyring as FailKeyring
+        return keyring
+    return None
 
-            available = not isinstance(backend, FailKeyring)
-        except Exception:
-            available = True
+
+def get_keyring_status() -> KeyringStatus:
+    maybe_print_keyring_access_notice(purpose="checking keyring backend")
+    keyring = _load_keyring_module()
+    if keyring is None:
+        return KeyringStatus(name="unavailable", available=False, writable=False)
+
+    try:
+        backend = keyring.get_keyring()
+        name = _keyring_backend_name(backend)
+        available = not _is_fail_keyring_backend(backend)
         writable = _probe_keyring_write("fast-agent-keyring-probe") if available else False
         return KeyringStatus(name=name, available=available, writable=writable)
     except Exception:

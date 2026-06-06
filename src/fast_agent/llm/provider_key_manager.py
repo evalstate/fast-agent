@@ -4,12 +4,14 @@ Centralizes API key handling logic to make provider implementations more generic
 """
 
 import os
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, NoReturn, Protocol, cast, runtime_checkable
 
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
+from fast_agent.utils.text import strip_casefold
 
 PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     # default behaviour in _get_env_key_name is to capitalize the
@@ -32,6 +34,22 @@ API_KEY_HINT_TEXT = "<your-api-key-here>"
 API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex"})
 
 
+@runtime_checkable
+class _ConfigGetter(Protocol):
+    def get(self, key: str, default: object = None) -> object: ...
+
+
+def _get_config_value(config: object, key: str) -> object | None:
+    if isinstance(config, BaseModel):
+        config = config.model_dump()
+    if isinstance(config, Mapping):
+        values = cast("Mapping[object, object]", config)
+        return values.get(key)
+    if isinstance(config, _ConfigGetter):
+        return config.get(key)
+    return None
+
+
 class ProviderKeyManager:
     """
     Manages API keys for different providers centrally.
@@ -48,27 +66,28 @@ class ProviderKeyManager:
 
     @staticmethod
     def get_env_key_name(provider_name: str) -> str | None:
-        if provider_name.lower() in API_KEYLESS_PROVIDERS:
+        normalized_provider = strip_casefold(provider_name)
+        if normalized_provider in API_KEYLESS_PROVIDERS:
             return None
-        return PROVIDER_ENVIRONMENT_MAP.get(provider_name, f"{provider_name.upper()}_API_KEY")
+        return PROVIDER_ENVIRONMENT_MAP.get(
+            normalized_provider,
+            f"{normalized_provider.upper()}_API_KEY",
+        )
 
     @staticmethod
-    def get_config_file_key(provider_name: str, config: Any) -> str | None:
-        api_key = None
-        if isinstance(config, BaseModel):
-            config = config.model_dump()
-        provider_name = provider_name.lower()
+    def get_config_file_key(provider_name: str, config: object) -> str | None:
+        provider_name = strip_casefold(provider_name)
         provider_keys = ProviderKeyManager._get_provider_config_keys(provider_name)
         for key in provider_keys:
-            provider_settings = config.get(key)
+            provider_settings = _get_config_value(config, key)
             if not provider_settings:
                 continue
-            api_key = provider_settings.get("api_key", API_KEY_HINT_TEXT)
+            api_key = _get_config_value(provider_settings, "api_key") or API_KEY_HINT_TEXT
             if api_key == API_KEY_HINT_TEXT:
-                api_key = None
-            break
+                return None
+            return api_key if isinstance(api_key, str) else None
 
-        return api_key
+        return None
 
     @staticmethod
     def _get_provider_config_keys(provider_name: str) -> list[str]:
@@ -78,6 +97,86 @@ class ProviderKeyManager:
             if alias not in keys:
                 keys.append(alias)
         return keys
+
+    @staticmethod
+    def _uses_no_api_key(provider_name: str, config: Any) -> bool:
+        if provider_name == "fast-agent" or provider_name in API_KEYLESS_PROVIDERS:
+            return True
+        if provider_name != "google":
+            return False
+        return ProviderKeyManager._google_vertex_enabled(config)
+
+    @staticmethod
+    def _google_vertex_enabled(config: Any) -> bool:
+        try:
+            cfg = config.model_dump() if isinstance(config, BaseModel) else config
+            return isinstance(cfg, dict) and bool(
+                (cfg.get("google") or {}).get("vertex_ai", {}).get("enabled")
+            )
+        except Exception:
+            return False
+
+    @staticmethod
+    def _request_scoped_api_key(provider_name: str) -> str | None:
+        if provider_name not in {"hf", "huggingface"}:
+            return None
+
+        # Check for request-scoped token first (token passthrough from MCP server)
+        # This allows clients to pass their own HF token via Authorization header.
+        from fast_agent.mcp.auth.context import request_bearer_token
+
+        return request_bearer_token.get()
+
+    @staticmethod
+    def _configured_or_environment_key(provider_name: str, config: Any) -> str | None:
+        return ProviderKeyManager.get_config_file_key(
+            provider_name, config
+        ) or ProviderKeyManager.get_env_var(provider_name)
+
+    @staticmethod
+    def _provider_specific_fallback_key(provider_name: str) -> str | None:
+        if provider_name == "codexresponses":
+            # Codex OAuth tokens stored in keyring (if no env/config key supplied).
+            from fast_agent.llm.provider.openai.codex_oauth import get_codex_access_token
+
+            return get_codex_access_token()
+
+        if provider_name in {"hf", "huggingface"}:
+            # HuggingFace also supports tokens managed by huggingface_hub
+            # (e.g. `hf auth login`) when env/config keys are absent.
+            return get_huggingface_hub_token()
+
+        if provider_name == "generic":
+            return "ollama"
+
+        return None
+
+    @staticmethod
+    def _raise_missing_api_key(provider_name: str) -> NoReturn:
+        from fast_agent.llm.provider_types import Provider
+
+        if provider_name == "codexresponses":
+            raise ProviderKeyError(
+                "Codex OAuth token not configured",
+                "Run `fast-agent auth codex-login` to authenticate, or set the CODEX_API_KEY environment variable.",
+            )
+
+        try:
+            provider_enum = Provider(provider_name)
+        except ValueError as exc:
+            raise ProviderKeyError(
+                f"Invalid provider: {provider_name}",
+                f"'{provider_name}' is not a valid provider name.",
+            ) from exc
+
+        display_name = provider_enum.display_name
+        env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
+        env_hint = f" or set the {env_key_name} environment variable." if env_key_name else "."
+        raise ProviderKeyError(
+            f"{display_name} API key not configured",
+            f"The {display_name} API key is required but not set.\n"
+            f"Add it to your configuration file under {provider_name}.api_key{env_hint}",
+        )
 
     @staticmethod
     def get_api_key(
@@ -97,84 +196,17 @@ class ProviderKeyManager:
         Raises:
             ProviderKeyError: If the API key is not found or is invalid
         """
+        provider_name = strip_casefold(provider_name)
 
-        from fast_agent.llm.provider_types import Provider
-
-        provider_name = provider_name.lower()
-
-        # Fast-agent provider doesn't need external API keys
-        if provider_name == "fast-agent":
+        if ProviderKeyManager._uses_no_api_key(provider_name, config):
             return ""
 
-        # Check for request-scoped token first (token passthrough from MCP server)
-        # This allows clients to pass their own HF token via Authorization header
-        if provider_name in {"hf", "huggingface"}:
-            from fast_agent.mcp.auth.context import request_bearer_token
-
-            ctx_token = request_bearer_token.get()
-            if ctx_token:
-                return ctx_token
-
-        # Google Vertex AI uses ADC/IAM and does not require an API key.
-        if provider_name == "google":
-            try:
-                cfg = config.model_dump() if isinstance(config, BaseModel) else config
-                if isinstance(cfg, dict) and bool(
-                    (cfg.get("google") or {}).get("vertex_ai", {}).get("enabled")
-                ):
-                    return ""
-            except Exception:
-                pass
-
-        if provider_name == "anthropic-vertex":
-            return ""
-
-        api_key = ProviderKeyManager.get_config_file_key(provider_name, config)
+        api_key = (
+            ProviderKeyManager._request_scoped_api_key(provider_name)
+            or ProviderKeyManager._configured_or_environment_key(provider_name, config)
+            or ProviderKeyManager._provider_specific_fallback_key(provider_name)
+        )
         if not api_key:
-            api_key = ProviderKeyManager.get_env_var(provider_name)
-
-        # Codex OAuth tokens stored in keyring (if no env/config key supplied)
-        if not api_key and provider_name == "codexresponses":
-            from fast_agent.llm.provider.openai.codex_oauth import get_codex_access_token
-
-            api_key = get_codex_access_token()
-
-        # HuggingFace: also support tokens managed by huggingface_hub (e.g. `hf auth login`)
-        # even when HF_TOKEN isn't explicitly set in the environment or config.
-        if not api_key and provider_name in {"hf", "huggingface"}:
-            api_key = get_huggingface_hub_token()
-
-        if not api_key and provider_name == "generic":
-            api_key = "ollama"  # Default for generic provider
-
-        if not api_key and provider_name == "codexresponses":
-            raise ProviderKeyError(
-                "Codex OAuth token not configured",
-                "Run `fast-agent auth codex-login` to authenticate, or set the CODEX_API_KEY environment variable.",
-            )
-
-        if not api_key:
-            # Get proper display name for error message
-            try:
-                provider_enum = Provider(provider_name)
-                display_name = provider_enum.display_name
-            except ValueError:
-                # Invalid provider name
-                raise ProviderKeyError(
-                    f"Invalid provider: {provider_name}",
-                    f"'{provider_name}' is not a valid provider name.",
-                )
-
-            env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
-            env_hint = (
-                f" or set the {env_key_name} environment variable."
-                if env_key_name
-                else "."
-            )
-            raise ProviderKeyError(
-                f"{display_name} API key not configured",
-                f"The {display_name} API key is required but not set.\n"
-                f"Add it to your configuration file under {provider_name}.api_key{env_hint}",
-            )
+            ProviderKeyManager._raise_missing_api_key(provider_name)
 
         return api_key

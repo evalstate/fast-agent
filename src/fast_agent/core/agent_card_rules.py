@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal, cast
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.utils.action_normalization import normalize_action_token
 
 CardType = Literal[
     "agent",
@@ -186,7 +187,7 @@ def normalize_card_type(raw_type: str | None) -> CardType | None:
     if raw_type is None:
         return "agent"
 
-    type_key = raw_type.strip().lower() or "agent"
+    type_key = normalize_action_token(raw_type) or "agent"
     normalized = "MAKER" if type_key == "maker" else type_key
     if normalized not in ALLOWED_FIELDS_BY_TYPE:
         return None

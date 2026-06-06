@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -30,6 +31,7 @@ from fast_agent.core.keyring_utils import (
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.oauth_client import add_identity_to_index, remove_identity_from_index
 from fast_agent.ui import console
+from fast_agent.utils.numeric import positive_int_or_none
 
 logger = get_logger(__name__)
 
@@ -81,7 +83,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self._result = result
         super().__init__(*args, **kwargs)
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server signature
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if (parsed.path.rstrip("/") or CODEX_REDIRECT_PATH) != CODEX_REDIRECT_PATH:
             self.send_response(404)
@@ -162,10 +164,8 @@ class _CallbackServer:
 
     def close(self) -> None:
         if self._server:
-            try:
+            with suppress(Exception):
                 self._server.server_close()
-            except Exception:
-                pass
 
 
 def _base64url_decode(value: str) -> bytes:
@@ -183,9 +183,9 @@ def _pkce_challenge(verifier: str) -> str:
 
 
 def _tokens_from_response(payload: dict[str, Any]) -> CodexOAuthTokens:
-    expires_in = payload.get("expires_in")
+    expires_in = positive_int_or_none(payload.get("expires_in"))
     expires_at = None
-    if isinstance(expires_in, int) and expires_in > 0:
+    if expires_in is not None:
         expires_at = time.time() + expires_in
     return CodexOAuthTokens(
         access_token=payload["access_token"],
@@ -255,8 +255,8 @@ def _load_chunked_payload(keyring_module: _KeyringProtocol) -> str | None:
         payload = json.loads(meta)
     except Exception:
         return None
-    parts = payload.get("parts") if isinstance(payload, dict) else None
-    if not isinstance(parts, int) or parts <= 0:
+    parts = positive_int_or_none(payload.get("parts")) if isinstance(payload, dict) else None
+    if parts is None:
         return None
     chunks: list[str] = []
     for index in range(parts):
@@ -288,10 +288,10 @@ def _delete_chunked_payload(keyring_module: _KeyringProtocol) -> None:
         try:
             payload = json.loads(meta)
             if isinstance(payload, dict):
-                parts = payload.get("parts")
+                parts = positive_int_or_none(payload.get("parts"))
         except Exception:
             parts = None
-    if isinstance(parts, int) and parts > 0:
+    if parts is not None:
         for index in range(parts):
             _safe_delete(keyring_module, _chunk_key(index))
     else:
@@ -308,9 +308,7 @@ def _keyring_payload_present() -> bool:
         keyring_module = cast("_KeyringProtocol", keyring)
         if keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY) is not None:
             return True
-        if keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY) is not None:
-            return True
-        return False
+        return keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY) is not None
     except Exception:
         return False
 
@@ -451,10 +449,8 @@ def _save_codex_cli_tokens(tokens: CodexOAuthTokens) -> None:
 
     auth_path.parent.mkdir(parents=True, exist_ok=True)
     auth_path.write_text(json.dumps(payload, indent=2) + "\n")
-    try:
+    with suppress(Exception):
         auth_path.chmod(0o600)
-    except Exception:
-        pass
 
 
 def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | None]:

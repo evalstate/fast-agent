@@ -66,6 +66,16 @@ class SessionHydrationResult:
     active_agent: str | None = None
 
 
+@dataclass(slots=True)
+class _HydrationState:
+    loaded_agents: dict[str, Path] = field(default_factory=dict)
+    restored_prompts: dict[str, str] = field(default_factory=dict)
+    skipped_agents: list[str] = field(default_factory=list)
+    missing_history_files: list[str] = field(default_factory=list)
+    warnings: list[SessionHydrationWarning] = field(default_factory=list)
+    usage_notices: list[str] = field(default_factory=list)
+
+
 @runtime_checkable
 class _McpAttachCapable(Protocol):
     async def attach_mcp_server(
@@ -120,111 +130,157 @@ class SessionHydrator:
             fallback_agent_name=fallback_agent_name,
         )
         effective_policy = policy or SessionHydrationPolicy()
-
-        loaded_agents: dict[str, Path] = {}
-        restored_prompts: dict[str, str] = {}
-        skipped_agents: list[str] = []
-        missing_history_files: list[str] = []
-        usage_notices: list[str] = []
+        state = _HydrationState(warnings=warnings)
 
         for agent_name, agent_snapshot in agent_snapshots.items():
-            agent = agents.get(agent_name)
-            if agent is None:
-                skipped_agents.append(agent_name)
-                warnings.append(
-                    SessionHydrationWarning(
-                        code='missing-agent',
-                        message=f"Persisted agent {agent_name!r} is not available in this runtime",
-                        agent_name=agent_name,
-                    )
-                )
-                continue
-
-            if effective_policy.restore_runtime_state:
-                await self._restore_runtime_state(
-                    agent=agent,
-                    agent_name=agent_name,
-                    agent_snapshot=agent_snapshot,
-                    agents=agents,
-                    warnings=warnings,
-                )
-
-            history_file = agent_snapshot.history_file
-            if effective_policy.restore_transcript and history_file is not None:
-                history_path = session.directory / history_file
-                if history_path.exists():
-                    try:
-                        load_transcript_into_agent(agent, history_path)
-                        if effective_policy.restore_usage and agent.usage_accumulator is not None:
-                            agent.usage_accumulator.reset()
-                        notice = (
-                            rehydrate_usage_from_history(agent, history_path)
-                            if effective_policy.restore_usage
-                            else None
-                        )
-                    except Exception as exc:
-                        warnings.append(
-                            SessionHydrationWarning(
-                                code='history-load-failed',
-                                message=(
-                                    f"Failed to restore history for agent {agent_name!r}: {exc}"
-                                ),
-                                agent_name=agent_name,
-                                ref=history_file,
-                            )
-                        )
-                    else:
-                        loaded_agents[agent_name] = history_path
-                        if notice:
-                            usage_notices.append(notice)
-                else:
-                    missing_history_files.append(history_file)
-                    warnings.append(
-                        SessionHydrationWarning(
-                            code='missing-history-file',
-                            message=(
-                                f"Persisted history file {history_file!r} is missing for agent"
-                                f" {agent_name!r}"
-                            ),
-                            agent_name=agent_name,
-                            ref=history_file,
-                        )
-                    )
-
-            if effective_policy.restore_prompt:
-                resolved_prompt = agent_snapshot.resolved_prompt
-                if resolved_prompt is not None:
-                    try:
-                        agent.set_instruction(resolved_prompt)
-                    except Exception as exc:
-                        warnings.append(
-                            SessionHydrationWarning(
-                                code='prompt-restore-failed',
-                                message=f"Failed to restore prompt for agent {agent_name!r}: {exc}",
-                                agent_name=agent_name,
-                            )
-                        )
-                    else:
-                        restored_prompts[agent_name] = agent.instruction
+            await self._hydrate_agent(
+                session=session,
+                agent_name=agent_name,
+                agent_snapshot=agent_snapshot,
+                agents=agents,
+                policy=effective_policy,
+                state=state,
+            )
 
         active_agent = self._resolve_active_agent(
             snapshot=snapshot,
             agents=agents,
-            loaded_agents=loaded_agents,
+            loaded_agents=state.loaded_agents,
             fallback_agent_name=fallback_agent_name,
-            warnings=warnings,
+            warnings=state.warnings,
         )
         return SessionHydrationResult(
             session=session,
             snapshot=snapshot,
-            loaded_agents=loaded_agents,
-            restored_prompts=restored_prompts,
-            skipped_agents=skipped_agents,
-            missing_history_files=missing_history_files,
-            warnings=warnings,
-            usage_notices=usage_notices,
+            loaded_agents=state.loaded_agents,
+            restored_prompts=state.restored_prompts,
+            skipped_agents=state.skipped_agents,
+            missing_history_files=state.missing_history_files,
+            warnings=state.warnings,
+            usage_notices=state.usage_notices,
             active_agent=active_agent,
         )
+
+    async def _hydrate_agent(
+        self,
+        *,
+        session: Session,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        agents: Mapping[str, AgentProtocol],
+        policy: SessionHydrationPolicy,
+        state: _HydrationState,
+    ) -> None:
+        agent = agents.get(agent_name)
+        if agent is None:
+            self._record_missing_agent(agent_name, state)
+            return
+
+        if policy.restore_runtime_state:
+            await self._restore_runtime_state(
+                agent=agent,
+                agent_name=agent_name,
+                agent_snapshot=agent_snapshot,
+                agents=agents,
+                warnings=state.warnings,
+            )
+        if policy.restore_transcript:
+            self._restore_agent_transcript(session, agent_name, agent, agent_snapshot, policy, state)
+        if policy.restore_prompt:
+            self._restore_agent_prompt(agent_name, agent, agent_snapshot, state)
+
+    @staticmethod
+    def _record_missing_agent(agent_name: str, state: _HydrationState) -> None:
+        state.skipped_agents.append(agent_name)
+        state.warnings.append(
+            SessionHydrationWarning(
+                code='missing-agent',
+                message=f"Persisted agent {agent_name!r} is not available in this runtime",
+                agent_name=agent_name,
+            )
+        )
+
+    def _restore_agent_transcript(
+        self,
+        session: Session,
+        agent_name: str,
+        agent: AgentProtocol,
+        agent_snapshot: SessionAgentSnapshot,
+        policy: SessionHydrationPolicy,
+        state: _HydrationState,
+    ) -> None:
+        history_file = agent_snapshot.history_file
+        if history_file is None:
+            return
+
+        history_path = session.directory / history_file
+        if not history_path.exists():
+            state.missing_history_files.append(history_file)
+            state.warnings.append(
+                SessionHydrationWarning(
+                    code='missing-history-file',
+                    message=(
+                        f"Persisted history file {history_file!r} is missing for agent"
+                        f" {agent_name!r}"
+                    ),
+                    agent_name=agent_name,
+                    ref=history_file,
+                )
+            )
+            return
+
+        try:
+            notice = self._load_agent_transcript(agent, history_path, policy)
+        except Exception as exc:
+            state.warnings.append(
+                SessionHydrationWarning(
+                    code='history-load-failed',
+                    message=f"Failed to restore history for agent {agent_name!r}: {exc}",
+                    agent_name=agent_name,
+                    ref=history_file,
+                )
+            )
+            return
+
+        state.loaded_agents[agent_name] = history_path
+        if notice:
+            state.usage_notices.append(notice)
+
+    @staticmethod
+    def _load_agent_transcript(
+        agent: AgentProtocol,
+        history_path: Path,
+        policy: SessionHydrationPolicy,
+    ) -> str | None:
+        load_transcript_into_agent(agent, history_path)
+        if policy.restore_usage and agent.usage_accumulator is not None:
+            agent.usage_accumulator.reset()
+        if policy.restore_usage:
+            return rehydrate_usage_from_history(agent, history_path)
+        return None
+
+    @staticmethod
+    def _restore_agent_prompt(
+        agent_name: str,
+        agent: AgentProtocol,
+        agent_snapshot: SessionAgentSnapshot,
+        state: _HydrationState,
+    ) -> None:
+        resolved_prompt = agent_snapshot.resolved_prompt
+        if resolved_prompt is None:
+            return
+        try:
+            agent.set_instruction(resolved_prompt)
+        except Exception as exc:
+            state.warnings.append(
+                SessionHydrationWarning(
+                    code='prompt-restore-failed',
+                    message=f"Failed to restore prompt for agent {agent_name!r}: {exc}",
+                    agent_name=agent_name,
+                )
+            )
+        else:
+            state.restored_prompts[agent_name] = agent.instruction
 
     async def _restore_runtime_state(
         self,
@@ -235,65 +291,107 @@ class SessionHydrator:
         agents: Mapping[str, AgentProtocol],
         warnings: list[SessionHydrationWarning],
     ) -> None:
+        await self._restore_agent_model(
+            agent=agent,
+            agent_name=agent_name,
+            agent_snapshot=agent_snapshot,
+            warnings=warnings,
+        )
+        self._restore_agent_request_settings(agent, agent_name, agent_snapshot, warnings)
+        await self._restore_mcp_attachments(agent, agent_name, agent_snapshot, warnings)
+        self._restore_agent_tool_attachments(agent, agent_name, agent_snapshot, agents, warnings)
+
+    async def _restore_agent_model(
+        self,
+        *,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
         model_spec = self._resolve_model_spec(
             agent=agent,
             agent_name=agent_name,
             agent_snapshot=agent_snapshot,
             warnings=warnings,
         )
-        if model_spec is not None:
-            try:
-                model_result = agent.set_model(model_spec)
-                if inspect.isawaitable(model_result):
-                    await model_result
-            except Exception as exc:
-                warnings.append(
-                    SessionHydrationWarning(
-                        code='model-restore-failed',
-                        message=f"Failed to restore model for agent {agent_name!r}: {exc}",
-                        agent_name=agent_name,
-                        ref=model_spec,
-                    )
+        if model_spec is None:
+            return
+        try:
+            model_result = agent.set_model(model_spec)
+            if inspect.isawaitable(model_result):
+                await model_result
+        except Exception as exc:
+            warnings.append(
+                SessionHydrationWarning(
+                    code='model-restore-failed',
+                    message=f"Failed to restore model for agent {agent_name!r}: {exc}",
+                    agent_name=agent_name,
+                    ref=model_spec,
                 )
+            )
 
+    def _restore_agent_request_settings(
+        self,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
         request_settings = agent_snapshot.request_settings
-        if request_settings is not None:
+        if request_settings is None:
+            return
+        try:
+            self._apply_request_settings(agent, request_settings)
+        except Exception as exc:
+            warnings.append(
+                SessionHydrationWarning(
+                    code='request-settings-restore-failed',
+                    message=f"Failed to restore request settings for agent {agent_name!r}: {exc}",
+                    agent_name=agent_name,
+                )
+            )
+
+    async def _restore_mcp_attachments(
+        self,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
+        server_names = self._persisted_attached_mcp_servers(agent_snapshot.attachment_refs)
+        if not server_names or not isinstance(agent, _McpAttachCapable):
+            return
+
+        attached = set(agent.list_attached_mcp_servers())
+        for server_name in server_names:
+            if server_name in attached:
+                continue
             try:
-                self._apply_request_settings(agent, request_settings)
+                await agent.attach_mcp_server(server_name=server_name)
             except Exception as exc:
                 warnings.append(
                     SessionHydrationWarning(
-                        code='request-settings-restore-failed',
+                        code='attachment-restore-failed',
                         message=(
-                            f"Failed to restore request settings for agent {agent_name!r}: {exc}"
+                            f"Failed to restore MCP attachment {server_name!r} for agent"
+                            f" {agent_name!r}: {exc}"
                         ),
                         agent_name=agent_name,
+                        ref=server_name,
                     )
                 )
+            else:
+                attached.add(server_name)
 
-        server_names = self._persisted_attached_mcp_servers(agent_snapshot.attachment_refs)
-        if server_names and isinstance(agent, _McpAttachCapable):
-            attached = set(agent.list_attached_mcp_servers())
-            for server_name in server_names:
-                if server_name in attached:
-                    continue
-                try:
-                    await agent.attach_mcp_server(server_name=server_name)
-                except Exception as exc:
-                    warnings.append(
-                        SessionHydrationWarning(
-                            code='attachment-restore-failed',
-                            message=(
-                                f"Failed to restore MCP attachment {server_name!r} for agent"
-                                f" {agent_name!r}: {exc}"
-                            ),
-                            agent_name=agent_name,
-                            ref=server_name,
-                        )
-                    )
-                else:
-                    attached.add(server_name)
-
+    def _restore_agent_tool_attachments(
+        self,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        agents: Mapping[str, AgentProtocol],
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
         tool_names = self._persisted_attached_agent_tools(agent_snapshot.attachment_refs)
         if not tool_names or not isinstance(agent, _AgentToolAttachCapable):
             return
@@ -515,9 +613,9 @@ class SessionHydrator:
         session: Session,
         warnings: list[SessionHydrationWarning],
     ) -> SessionSnapshot:
-        snapshot_path = session.directory / 'session.json'
+        snapshot_path = session.directory / "session.json"
         try:
-            with open(snapshot_path, encoding='utf-8') as handle:
+            with snapshot_path.open(encoding="utf-8") as handle:
                 return load_session_snapshot(json.load(handle))
         except Exception as exc:
             warnings.append(

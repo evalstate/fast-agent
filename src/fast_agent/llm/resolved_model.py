@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 
 ModelResolutionSource = Literal["overlay", "preset", "direct"]
+_ANTHROPIC_WEB_SEARCH_PROVIDERS = frozenset({Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX})
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,71 +161,30 @@ class ResolvedModelSpec:
         effective_request_params = request_params
         config = self.model_config
 
-        sampling_overrides: dict[str, float | int] = {}
-        if config.temperature is not None:
-            sampling_overrides["temperature"] = config.temperature
-        if config.top_p is not None:
-            sampling_overrides["top_p"] = config.top_p
-        if config.top_k is not None:
-            sampling_overrides["top_k"] = config.top_k
-        if config.min_p is not None:
-            sampling_overrides["min_p"] = config.min_p
-        if config.presence_penalty is not None:
-            sampling_overrides["presence_penalty"] = config.presence_penalty
-        if config.repetition_penalty is not None:
-            sampling_overrides["repetition_penalty"] = config.repetition_penalty
+        sampling_updates = {
+            field_name: value
+            for field_name, value in {
+                "temperature": config.temperature,
+                "top_p": config.top_p,
+                "top_k": config.top_k,
+                "min_p": config.min_p,
+                "presence_penalty": config.presence_penalty,
+                "repetition_penalty": config.repetition_penalty,
+            }.items()
+            if value is not None
+        }
+        if sampling_updates:
+            target = effective_request_params or RequestParams()
+            effective_request_params = target.model_copy(update=sampling_updates)
 
-        if sampling_overrides:
-            if effective_request_params is None:
-                effective_request_params = RequestParams().model_copy(update=sampling_overrides)
-            else:
-                effective_request_params = effective_request_params.model_copy(
-                    update=sampling_overrides
-                )
-
-        if config.service_tier is not None:
-            has_explicit_service_tier = (
-                effective_request_params is not None
-                and "service_tier" in effective_request_params.model_fields_set
-            )
-            if not has_explicit_service_tier:
-                if effective_request_params is None:
-                    effective_request_params = RequestParams(service_tier=config.service_tier)
-                else:
-                    effective_request_params = effective_request_params.model_copy(
-                        update={"service_tier": config.service_tier}
-                    )
-
-        if config.structured_tool_policy is not None:
-            has_explicit_structured_tool_policy = (
-                effective_request_params is not None
-                and "structured_tool_policy" in effective_request_params.model_fields_set
-            )
-            if not has_explicit_structured_tool_policy:
-                if effective_request_params is None:
-                    effective_request_params = RequestParams(
-                        structured_tool_policy=config.structured_tool_policy
-                    )
-                else:
-                    effective_request_params = effective_request_params.model_copy(
-                        update={"structured_tool_policy": config.structured_tool_policy}
-                    )
-
-        default_max_tokens = self.default_max_tokens
-        if default_max_tokens is not None:
-            has_explicit_max_tokens = (
-                effective_request_params is not None
-                and "maxTokens" in effective_request_params.model_fields_set
-            )
-            if not has_explicit_max_tokens:
-                if effective_request_params is None:
-                    effective_request_params = RequestParams(maxTokens=default_max_tokens)
-                else:
-                    effective_request_params = effective_request_params.model_copy(
-                        update={"maxTokens": default_max_tokens}
-                    )
-
-        return effective_request_params
+        return _apply_unset_request_defaults(
+            effective_request_params,
+            {
+                "service_tier": config.service_tier,
+                "structured_tool_policy": config.structured_tool_policy,
+                "maxTokens": self.default_max_tokens,
+            },
+        )
 
     def build_llm_kwargs(self) -> dict[str, object]:
         """Build constructor kwargs implied by the resolved model selection."""
@@ -242,7 +202,7 @@ class ResolvedModelSpec:
         if config.transport:
             kwargs["transport"] = config.transport
         if config.web_search is not None and self.provider in {
-            Provider.ANTHROPIC,
+            *_ANTHROPIC_WEB_SEARCH_PROVIDERS,
             Provider.RESPONSES,
             Provider.OPENRESPONSES,
             Provider.CODEX_RESPONSES,
@@ -319,6 +279,30 @@ class ResolvedModelSpec:
             json_mode=model_params.json_mode,
             reasoning=model_params.reasoning,
         )
+
+
+def _apply_unset_request_defaults(
+    request_params: RequestParams | None,
+    defaults: dict[str, object | None],
+) -> RequestParams | None:
+    updates = _unset_request_defaults(request_params, defaults)
+    if not updates:
+        return request_params
+
+    target = request_params if request_params is not None else RequestParams()
+    return target.model_copy(update=updates)
+
+
+def _unset_request_defaults(
+    request_params: RequestParams | None,
+    defaults: dict[str, object | None],
+) -> dict[str, object]:
+    explicit_fields = request_params.model_fields_set if request_params is not None else frozenset()
+    return {
+        field_name: value
+        for field_name, value in defaults.items()
+        if value is not None and field_name not in explicit_fields
+    }
 
 
 def resolve_base_model_params(

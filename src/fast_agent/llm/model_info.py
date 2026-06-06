@@ -10,7 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from fast_agent.llm.model_database import ModelDatabase, ResourceSource
+from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_mime_support import (
+    ResourceSource,
+    tokenizes_support_mime,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, normalize_mime_type
 
@@ -32,53 +36,18 @@ class ModelInfo:
     json_mode: str | None
     reasoning: str | None
 
-    def _supports_provider_document_mime(
-        self,
-        normalized: str | None,
-        *,
-        resource_source: ResourceSource | None = None,
-    ) -> bool | None:
-        if not normalized or normalized not in DOCUMENT_MIME_TYPES:
-            return None
-
-        if (
-            resource_source == "link"
-            and self.provider in {Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX}
-            and normalized != "application/pdf"
-        ):
-            return False
-
-        if self.provider in {
-            Provider.OPENAI,
-            Provider.AZURE,
-            Provider.ALIYUN,
-            Provider.GOOGLE_OAI,
-        }:
-            return normalized == "application/pdf"
-
-        return None
-
     def supports_mime(
         self,
         mime_type: str,
         *,
         resource_source: ResourceSource | None = None,
     ) -> bool:
-        tokenizes = [mime.lower() for mime in (self.tokenizes or [])]
-        mt = (mime_type or "").strip().lower()
-        if mt.endswith("/*") and "/" in mt:
-            prefix = mt.split("/", 1)[0] + "/"
-            if any(supported.startswith(prefix) for supported in tokenizes):
-                return True
-
-        normalized = normalize_mime_type(mime_type)
-        provider_override = self._supports_provider_document_mime(
-            normalized,
+        if tokenizes_support_mime(
+            self.tokenizes or [],
+            mime_type,
+            provider=self.provider,
             resource_source=resource_source,
-        )
-        if provider_override is not None:
-            return provider_override
-        if normalized and normalized.lower() in tokenizes:
+        ):
             return True
 
         return ModelDatabase.supports_mime(
@@ -104,7 +73,9 @@ class ModelInfo:
         return self.supports_mime("text/plain")
 
     def _supports_document_indicator(self) -> bool:
-        tokenizes = {mime.lower() for mime in (self.tokenizes or [])}
+        tokenizes = {
+            normalized for mime in (self.tokenizes or []) if (normalized := normalize_mime_type(mime))
+        }
         return any(mime in tokenizes for mime in DOCUMENT_MIME_TYPES)
 
     @property

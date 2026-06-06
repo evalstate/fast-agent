@@ -10,19 +10,23 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import httpx
 
 from fast_agent.io.path_uri import file_uri_to_path
-from fast_agent.marketplace.source_utils import parse_github_url
-from fast_agent.skills.models import MarketplaceSkill
+from fast_agent.marketplace.source_urls import (
+    github_raw_file_url,
+    is_git_source_url,
+    parse_github_url,
+)
+from fast_agent.skills.models import (
+    SKILL_MANIFEST_FILENAME,
+    SKILL_MANIFEST_FILENAME_LOWER,
+    MarketplaceSkill,
+)
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
-
-if TYPE_CHECKING:
-    from urllib.parse import ParseResult
-
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 DIRECT_SOURCE_TIMEOUT_SECONDS = 7.0
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
@@ -38,15 +42,17 @@ class DirectSkillSourceError(ValueError):
 
 
 def is_direct_skill_source(value: str) -> bool:
-    cleaned = value.strip()
-    if not cleaned:
+    cleaned = strip_to_none(value)
+    if cleaned is None:
         return False
 
     parsed = urlparse(cleaned)
-    if _is_github_skill_url(parsed):
+    if _is_github_skill_url(cleaned):
         return True
     if parsed.scheme == "file":
         return True
+    if is_git_source_url(cleaned):
+        return False
     if parsed.scheme in {"http", "https"}:
         return False
 
@@ -54,15 +60,17 @@ def is_direct_skill_source(value: str) -> bool:
 
 
 async def resolve_direct_skill_source(value: str) -> DirectSkillSource:
-    cleaned = value.strip()
-    if not cleaned:
+    cleaned = strip_to_none(value)
+    if cleaned is None:
         raise DirectSkillSourceError("Direct skill source is empty.")
 
     parsed = urlparse(cleaned)
-    if _is_github_skill_url(parsed):
+    if _is_github_skill_url(cleaned):
         return await _resolve_github_source(cleaned)
     if parsed.scheme == "file":
         return _resolve_local_source(file_uri_to_path(parsed), source_url=cleaned)
+    if is_git_source_url(cleaned):
+        raise DirectSkillSourceError("Only GitHub skill URLs are supported for direct installs.")
     if parsed.scheme in {"http", "https"}:
         raise DirectSkillSourceError("Only GitHub skill URLs are supported for direct installs.")
 
@@ -80,9 +88,8 @@ async def _resolve_github_source(url: str) -> DirectSkillSource:
     if parsed_source is None:
         raise DirectSkillSourceError("Unsupported GitHub skill URL.")
 
-    repo_url, repo_ref, repo_path = parsed_source
-    skill_md_path = _skill_manifest_repo_path(repo_path)
-    raw_url = _github_raw_url(repo_url, repo_ref, skill_md_path)
+    skill_md_path = _skill_manifest_repo_path(parsed_source.repo_path)
+    raw_url = _github_raw_url(parsed_source.repo_url, parsed_source.repo_ref, skill_md_path)
 
     # Deliberately peek only at SKILL.md before cloning: this gives direct installs an
     # early, cheap manifest/name validation boundary before copying arbitrary repo
@@ -109,8 +116,8 @@ async def _resolve_github_source(url: str) -> DirectSkillSource:
         skill=MarketplaceSkill(
             name=manifest.name,
             description=manifest.description,
-            repo_url=repo_url,
-            repo_ref=repo_ref,
+            repo_url=parsed_source.repo_url,
+            repo_ref=parsed_source.repo_ref,
             repo_path=install_repo_path,
             source_url=url,
             install_dir_name_override=manifest.name,
@@ -123,13 +130,13 @@ def _resolve_local_source(path: Path, *, source_url: str) -> DirectSkillSource:
     if not source_path.exists():
         raise DirectSkillSourceError(f"Direct skill source not found: {source_path}")
 
-    manifest_path = source_path / "SKILL.md" if source_path.is_dir() else source_path
-    if manifest_path.name.lower() != "skill.md" or not manifest_path.is_file():
+    manifest_path = source_path / SKILL_MANIFEST_FILENAME if source_path.is_dir() else source_path
+    if strip_casefold(manifest_path.name) != SKILL_MANIFEST_FILENAME_LOWER or not manifest_path.is_file():
         raise DirectSkillSourceError("Direct skill source must be a SKILL.md file or directory.")
 
     try:
         manifest_text = manifest_path.read_text(encoding="utf-8")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise DirectSkillSourceError(f"Failed to read SKILL.md from direct source: {exc}") from exc
 
     manifest = _parse_manifest(manifest_text, display_path=manifest_path)
@@ -137,7 +144,12 @@ def _resolve_local_source(path: Path, *, source_url: str) -> DirectSkillSource:
 
     source_dir = manifest_path.parent
     repo_root = _find_git_root(source_dir) or source_dir
-    repo_path = source_dir.resolve().relative_to(repo_root.resolve()).as_posix()
+    try:
+        repo_path = source_dir.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError as exc:
+        raise DirectSkillSourceError(
+            "Direct skill source must be inside its detected git root."
+        ) from exc
     repo_url = repo_root.as_posix()
 
     return DirectSkillSource(
@@ -170,23 +182,37 @@ def _validate_manifest_name(name: str) -> None:
         )
 
 
-def _is_github_skill_url(parsed: "ParseResult") -> bool:
-    if parsed.netloc in {"github.com", "www.github.com"}:
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 5 and parts[2] in {"blob", "tree"}:
-            path = "/".join(parts[4:])
-            return _looks_like_skill_path(path)
-    if parsed.netloc == "raw.githubusercontent.com":
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 4:
-            path = "/".join(parts[3:])
-            return _looks_like_skill_path(path)
-    return False
+def _is_github_skill_url(url: str) -> bool:
+    parsed_source = parse_github_url(url)
+    if parsed_source is None:
+        return False
+
+    is_file = _github_source_points_to_file(url)
+    if is_file is None:
+        return False
+    return _looks_like_skill_path(parsed_source.repo_path, is_file=is_file)
 
 
-def _looks_like_skill_path(path: str) -> bool:
+def _github_source_points_to_file(url: str) -> bool | None:
+    parsed = urlparse(url)
+    parts = parsed.path.strip("/").split("/")
+    host = strip_casefold(parsed.netloc)
+    if host == "raw.githubusercontent.com":
+        return len(parts) >= 4
+    if host in {"github.com", "www.github.com"} and len(parts) >= 5:
+        match parts[2]:
+            case "blob":
+                return True
+            case "tree":
+                return False
+    return None
+
+
+def _looks_like_skill_path(path: str, *, is_file: bool) -> bool:
     posix_path = PurePosixPath(path)
-    return posix_path.name.lower() == "skill.md" or bool(path.strip("/"))
+    if is_file:
+        return strip_casefold(posix_path.name) == SKILL_MANIFEST_FILENAME_LOWER
+    return bool(path.strip("/"))
 
 
 def _is_path_like(value: str) -> bool:
@@ -199,19 +225,20 @@ def _is_path_like(value: str) -> bool:
 
 def _skill_manifest_repo_path(repo_path: str) -> str:
     path = PurePosixPath(repo_path)
-    if path.name.lower() == "skill.md":
+    if strip_casefold(path.name) == SKILL_MANIFEST_FILENAME_LOWER:
         return str(path)
-    return str(path / "SKILL.md")
+    return str(path / SKILL_MANIFEST_FILENAME)
 
 
 def _github_raw_url(repo_url: str, repo_ref: str | None, repo_path: str) -> str:
-    parsed = urlparse(repo_url)
-    parts = parsed.path.strip("/").split("/")
-    if parsed.netloc not in {"github.com", "www.github.com"} or len(parts) != 2:
+    raw_url = github_raw_file_url(
+        repo_url=repo_url,
+        repo_ref=repo_ref,
+        repo_path=repo_path,
+    )
+    if raw_url is None:
         raise DirectSkillSourceError("Unsupported GitHub repository URL.")
-    org, repo = parts
-    ref = repo_ref or "main"
-    return f"https://raw.githubusercontent.com/{org}/{repo}/{ref}/{repo_path}"
+    return raw_url
 
 
 def _find_git_root(path: Path) -> Path | None:

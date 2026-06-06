@@ -71,6 +71,7 @@ def test_get_text(
     assert get_text(text_resource) == "text_resource"
     assert get_text(image_content) is None
     assert get_text(blob_resource) is None
+    assert get_text(object()) is None
 
 
 def test_get_image_data(text_content, image_content, text_embedded_resource, blob_resource):
@@ -78,6 +79,7 @@ def test_get_image_data(text_content, image_content, text_embedded_resource, blo
     assert get_image_data(blob_resource) == "base64blobdata"
     assert get_image_data(text_content) is None
     assert get_image_data(text_embedded_resource) is None
+    assert get_image_data(object()) is None
 
 
 def test_get_resource_uri(text_content, image_content, text_embedded_resource, blob_resource):
@@ -85,6 +87,7 @@ def test_get_resource_uri(text_content, image_content, text_embedded_resource, b
     assert get_resource_uri(blob_resource) == "file:///example.png"
     assert get_resource_uri(text_content) is None
     assert get_resource_uri(image_content) is None
+    assert get_resource_uri(object()) is None
 
 
 def test_is_text_content(text_content, image_content, text_embedded_resource, text_resource):

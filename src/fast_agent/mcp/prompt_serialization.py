@@ -17,17 +17,23 @@ and PromptMessageExtended objects. It includes functionality for:
 """
 
 import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import cast
 
 from mcp.types import (
+    AudioContent,
     EmbeddedResource,
     GetPromptResult,
     ImageContent,
     PromptMessage,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
 
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.mcp.message_roles import MessageRole
 from fast_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,
     RESOURCE_DELIMITER,
@@ -35,6 +41,7 @@ from fast_agent.mcp.prompts.prompt_constants import (
 )
 from fast_agent.mcp.resource_utils import to_any_url
 from fast_agent.types import PromptMessageExtended
+from fast_agent.utils.text import strip_casefold
 
 # -------------------------------------------------------------------------
 # Serialization Helpers
@@ -189,7 +196,7 @@ def save_json(messages: list[PromptMessageExtended], file_path: str) -> None:
     """
     json_str = to_json(messages)
 
-    with open(file_path, "w", encoding="utf-8") as f:
+    with Path(file_path).open("w", encoding="utf-8") as f:
         f.write(json_str)
 
 
@@ -205,7 +212,7 @@ def load_json(file_path: str) -> list[PromptMessageExtended]:
     Returns:
         List of PromptMessageExtended objects
     """
-    with open(file_path, "r", encoding="utf-8") as f:
+    with Path(file_path).open("r", encoding="utf-8") as f:
         json_str = f.read()
 
     try:
@@ -228,12 +235,10 @@ def save_messages(messages: list[PromptMessageExtended], file_path: str) -> None
         messages: List of PromptMessageExtended objects
         file_path: Path to save the file
     """
-    path_str = str(file_path).lower()
-
-    if path_str.endswith(".json"):
+    if strip_casefold(Path(file_path).suffix) == ".json":
         save_json(messages, file_path)
-    else:
-        save_delimited(messages, file_path)
+        return
+    save_delimited(messages, file_path)
 
 
 def load_messages(file_path: str) -> list[PromptMessageExtended]:
@@ -248,17 +253,75 @@ def load_messages(file_path: str) -> list[PromptMessageExtended]:
     Returns:
         List of PromptMessageExtended objects
     """
-    path_str = str(file_path).lower()
-
-    if path_str.endswith(".json"):
+    if strip_casefold(Path(file_path).suffix) == ".json":
         return load_json(file_path)
-    else:
-        return load_delimited(file_path)
+    return load_delimited(file_path)
 
 
 # -------------------------------------------------------------------------
 # Delimited Text Format Functions
 # -------------------------------------------------------------------------
+
+
+DelimitedContent = EmbeddedResource | ImageContent
+DelimitedRole = MessageRole
+
+
+@dataclass
+class _DelimitedParseState:
+    current_role: DelimitedRole | None = None
+    text_contents: list[TextContent] = field(default_factory=list)
+    resource_contents: list[DelimitedContent] = field(default_factory=list)
+    collecting_json: bool = False
+    json_lines: list[str] = field(default_factory=list)
+    collecting_text: bool = False
+    text_lines: list[str] = field(default_factory=list)
+
+    def reset_for_role(self, role: DelimitedRole) -> None:
+        self.current_role = role
+        self.text_contents.clear()
+        self.resource_contents.clear()
+        self.collecting_json = False
+        self.json_lines.clear()
+        self.collecting_text = False
+        self.text_lines.clear()
+
+    def flush_text(self) -> None:
+        if self.collecting_text and self.text_lines:
+            self.text_contents.append(
+                TextContent(type="text", text="\n".join(self.text_lines))
+            )
+        self.collecting_text = False
+        self.text_lines.clear()
+
+    def start_json(self) -> None:
+        self.flush_text()
+        self.collecting_json = True
+        self.json_lines.clear()
+
+    def append_text_line(self, line: str) -> None:
+        if not self.collecting_text:
+            self.collecting_text = True
+            self.text_lines.clear()
+        self.text_lines.append(line)
+
+    def append_message(self, messages: list[PromptMessageExtended]) -> None:
+        if self.current_role is None:
+            return
+        self.flush_text()
+        filtered_text = [tc for tc in self.text_contents if tc.text.strip() != ""]
+        combined_content = [*filtered_text, *self.resource_contents]
+        if not combined_content:
+            return
+        messages.append(
+            PromptMessageExtended(
+                role=self.current_role,
+                content=cast(
+                    "list[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]",
+                    combined_content,
+                ),
+            )
+        )
 
 
 def multipart_messages_to_delimited_format(
@@ -298,13 +361,9 @@ def multipart_messages_to_delimited_format(
         # Process content parts based on combine_text preference
         if combine_text:
             # Collect text content parts
-            text_contents = []
-
-            # First, add all text content
-            for content in message.content:
-                if isinstance(content, TextContent):
-                    # Collect text content to combine
-                    text_contents.append(content.text)
+            text_contents = [
+                content.text for content in message.content if isinstance(content, TextContent)
+            ]
 
             # Add combined text content if any exists
             if text_contents:
@@ -372,160 +431,86 @@ def delimited_format_to_extended_messages(
         ]
 
     lines = content.split("\n")
-    messages = []
-
-    current_role = None
-    text_contents = []  # List of TextContent
-    resource_contents = []  # List of EmbeddedResource or ImageContent
-    collecting_json = False
-    json_lines = []
-    collecting_text = False
-    text_lines = []
-
-    # Check if this is a legacy format (pre-JSON serialization)
+    messages: list[PromptMessageExtended] = []
+    state = _DelimitedParseState()
     legacy_format = resource_delimiter in content and '"type":' not in content
 
-    # Add a condition to ensure we process the first user message properly
-    # This is the key fix: We need to process the first line correctly
     if lines and lines[0].strip() == user_delimiter:
-        current_role = "user"
-        collecting_text = True
+        state.reset_for_role("user")
+        state.collecting_text = True
 
-    # Process each line
-    for line in lines[1:] if lines else []:  # Skip the first line if already processed above
+    remaining_lines = lines[1:] if lines else []
+    for line in remaining_lines:
         line_stripped = line.strip()
 
-        # Handle role delimiters
-        if line_stripped == user_delimiter or line_stripped == assistant_delimiter:
-            # Save previous message if it exists
-            if current_role is not None and (text_contents or resource_contents or text_lines):
-                # If we were collecting text, add it to the text contents
-                if collecting_text and text_lines:
-                    text_contents.append(TextContent(type="text", text="\n".join(text_lines)))
-                    text_lines = []
-
-                # Create content list with text parts first, then resource parts
-                combined_content = []
-
-                # Filter out any empty text content items
-                filtered_text_contents = [tc for tc in text_contents if tc.text.strip() != ""]
-
-                combined_content.extend(filtered_text_contents)
-                combined_content.extend(resource_contents)
-
-                messages.append(
-                    PromptMessageExtended(
-                        role=current_role,
-                        content=combined_content,
-                    )
-                )
-
-            # Start a new message
-            current_role = "user" if line_stripped == user_delimiter else "assistant"
-            text_contents = []
-            resource_contents = []
-            collecting_json = False
-            json_lines = []
-            collecting_text = False
-            text_lines = []
-
-        # Handle resource delimiter
+        if line_stripped in (user_delimiter, assistant_delimiter):
+            state.append_message(messages)
+            role = "user" if line_stripped == user_delimiter else "assistant"
+            state.reset_for_role(role)
         elif line_stripped == resource_delimiter:
-            # If we were collecting text, add it to text contents
-            if collecting_text and text_lines:
-                text_contents.append(TextContent(type="text", text="\n".join(text_lines)))
-                text_lines = []
+            state.start_json()
+        elif state.current_role is not None:
+            _consume_delimited_content_line(state, line, legacy_format=legacy_format)
 
-            # Switch to collecting JSON or legacy format
-            collecting_text = False
-            collecting_json = True
-            json_lines = []
-
-        # Process content based on context
-        elif current_role is not None:
-            if collecting_json:
-                # Collect JSON data
-                json_lines.append(line)
-
-                # For legacy format or files where resources are just plain text
-                if legacy_format and line_stripped and not line_stripped.startswith("{"):
-                    # This is probably a legacy resource reference like a filename
-                    resource_uri = line_stripped
-                    if not resource_uri.startswith("resource://"):
-                        resource_uri = f"resource://fast-agent/{resource_uri}"
-
-                    # Create a simple resource with just the URI
-                    # For legacy format, we don't have the actual content, just the reference
-                    resource = EmbeddedResource(
-                        type="resource",
-                        resource=TextResourceContents(
-                            uri=to_any_url(resource_uri),
-                            mimeType="text/plain",
-                            text="",  # Legacy format doesn't include content
-                        ),
-                    )
-                    resource_contents.append(resource)
-                    collecting_json = False
-                    json_lines = []
-                    continue
-
-                # Try to parse the JSON to see if we have a complete object
-                try:
-                    json_text = "\n".join(json_lines)
-                    json_data = json.loads(json_text)
-
-                    # Successfully parsed JSON
-                    content_type = json_data.get("type")
-
-                    if content_type == "resource":
-                        # Create resource object using model_validate
-                        resource = EmbeddedResource.model_validate(json_data)
-                        resource_contents.append(resource)  # Add to resource contents
-                    elif content_type == "image":
-                        # Create image object using model_validate
-                        image = ImageContent.model_validate(json_data)
-                        resource_contents.append(image)  # Add to resource contents
-
-                    # Reset JSON collection
-                    collecting_json = False
-                    json_lines = []
-
-                except json.JSONDecodeError:
-                    # Not a complete JSON object yet, keep collecting
-                    pass
-            else:
-                # Regular text content
-                if not collecting_text:
-                    collecting_text = True
-                    text_lines = []
-
-                text_lines.append(line)
-
-    # Handle any remaining content
-    if current_role is not None:
-        # Add any remaining text
-        if collecting_text and text_lines:
-            text_contents.append(TextContent(type="text", text="\n".join(text_lines)))
-
-        # Add the final message if it has content
-        if text_contents or resource_contents:
-            # Create content list with text parts first, then resource parts
-            combined_content = []
-
-            # Filter out any empty text content items
-            filtered_text_contents = [tc for tc in text_contents if tc.text.strip() != ""]
-
-            combined_content.extend(filtered_text_contents)
-            combined_content.extend(resource_contents)
-
-            messages.append(
-                PromptMessageExtended(
-                    role=current_role,
-                    content=combined_content,
-                )
-            )
-
+    state.append_message(messages)
     return messages
+
+
+def _consume_delimited_content_line(
+    state: _DelimitedParseState,
+    line: str,
+    *,
+    legacy_format: bool,
+) -> None:
+    if not state.collecting_json:
+        state.append_text_line(line)
+        return
+
+    line_stripped = line.strip()
+    state.json_lines.append(line)
+    legacy_resource = _legacy_resource_from_line(line_stripped) if legacy_format else None
+    if legacy_resource is not None:
+        state.resource_contents.append(legacy_resource)
+        state.collecting_json = False
+        state.json_lines.clear()
+        return
+
+    parsed_content = _content_from_json_lines(state.json_lines)
+    if parsed_content is None:
+        return
+    state.resource_contents.append(parsed_content)
+    state.collecting_json = False
+    state.json_lines.clear()
+
+
+def _legacy_resource_from_line(line_stripped: str) -> EmbeddedResource | None:
+    if not line_stripped or line_stripped.startswith("{"):
+        return None
+    resource_uri = line_stripped
+    if not resource_uri.startswith("resource://"):
+        resource_uri = f"resource://fast-agent/{resource_uri}"
+    return EmbeddedResource(
+        type="resource",
+        resource=TextResourceContents(
+            uri=to_any_url(resource_uri),
+            mimeType="text/plain",
+            text="",
+        ),
+    )
+
+
+def _content_from_json_lines(json_lines: list[str]) -> DelimitedContent | None:
+    try:
+        json_data = json.loads("\n".join(json_lines))
+    except json.JSONDecodeError:
+        return None
+
+    content_type = json_data.get("type")
+    if content_type == "resource":
+        return EmbeddedResource.model_validate(json_data)
+    if content_type == "image":
+        return ImageContent.model_validate(json_data)
+    return None
 
 
 def save_delimited(
@@ -555,7 +540,7 @@ def save_delimited(
         combine_text=combine_text,
     )
 
-    with open(file_path, "w", encoding="utf-8") as f:
+    with Path(file_path).open("w", encoding="utf-8") as f:
         f.write("\n".join(delimited_content))
 
 
@@ -577,7 +562,7 @@ def load_delimited(
     Returns:
         List of PromptMessageExtended objects
     """
-    with open(file_path, "r", encoding="utf-8") as f:
+    with Path(file_path).open("r", encoding="utf-8") as f:
         content = f.read()
 
     return delimited_format_to_extended_messages(

@@ -26,6 +26,14 @@ def _image(block: object) -> ImageContent:
 class TestPromptMessageExtended:
     """Tests for the PromptMessageExtended class."""
 
+    def test_default_content_is_per_instance(self):
+        first = PromptMessageExtended(role="user")
+        second = PromptMessageExtended(role="user")
+
+        first.content.append(TextContent(type="text", text="hello"))
+
+        assert second.content == []
+
     def test_from_prompt_messages_with_single_role(self):
         """Test converting a sequence of PromptMessages with the same role."""
         # Create test messages

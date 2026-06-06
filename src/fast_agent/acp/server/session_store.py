@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Mapping, Protocol, Sequence, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
 
 from acp.exceptions import RequestError
 from acp.helpers import update_agent_message, update_user_message
@@ -23,17 +24,25 @@ from acp.schema import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
+    from fast_agent.session.identity import SessionStoreScope
     from fast_agent.types import PromptMessageExtended
 
 from fast_agent.acp.content_conversion import convert_mcp_content_to_acp
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.message_roles import is_message_role
 from fast_agent.session import (
     Session,
+    SessionHydrationResult,
     SessionHydrator,
     extract_session_title,
     get_session_history_window,
 )
+from fast_agent.utils.numeric import nonnegative_int_or_none
+from fast_agent.utils.text import strip_str_to_none
 
 logger = get_logger(__name__)
 
@@ -41,9 +50,7 @@ logger = get_logger(__name__)
 class SessionStoreHost(Protocol):
     _connection: Any
     _session_lock: Any
-    _session_state: dict[str, ACPSessionState]
-    sessions: dict[str, Any]
-    _prompt_locks: dict[str, Any]
+    _live_sessions: ACPLiveSessionRegistry
     _dispose_instance_task: Any
 
     def _resolve_request_cwd(
@@ -82,17 +89,16 @@ class ACPServerSessionStore:
         if not isinstance(metadata, Mapping):
             return None
         cwd = cast("Mapping[str, object]", metadata).get("cwd")
-        if isinstance(cwd, str) and cwd.strip():
-            return cwd
-        return None
+        return strip_str_to_none(cwd)
 
     @staticmethod
     def legacy_session_cwd(manager: Any) -> str:
         workspace_dir = getattr(manager, "workspace_dir", None)
         if isinstance(workspace_dir, Path):
             return str(workspace_dir.resolve())
-        if isinstance(workspace_dir, str) and workspace_dir.strip():
-            return str(Path(workspace_dir).expanduser().resolve())
+        normalized_workspace_dir = strip_str_to_none(workspace_dir)
+        if normalized_workspace_dir is not None:
+            return str(Path(normalized_workspace_dir).expanduser().resolve())
         return str(Path(manager.base_dir).resolve().parent.parent)
 
     def session_manager_entries(self, cwd: str | None) -> list[tuple[Any, str]]:
@@ -140,6 +146,34 @@ class ACPServerSessionStore:
             fallback_agent_name=fallback_agent_name,
         )
         result = await hydration if inspect.isawaitable(hydration) else hydration
+        self._log_hydration_result(session_state, result)
+        self._restore_resolved_instructions(session_state, result)
+        current_agent = result.active_agent
+        self._set_active_agent(session_state, current_agent)
+        next_modes = self._session_modes_with_current_agent(
+            session_state,
+            session_modes,
+            current_agent,
+        )
+
+        if send_history_updates:
+            await self.send_session_history_updates(
+                session_state,
+                session,
+                current_agent,
+            )
+
+        logger.info(
+            "ACP session hydrated",
+            name="acp_session_hydrated",
+            session_id=session_state.session_id,
+            loaded_agents=sorted(result.loaded_agents.keys()),
+        )
+        return next_modes
+
+    def _log_hydration_result(
+        self, session_state: ACPSessionState, result: SessionHydrationResult
+    ) -> None:
         for warning in result.warnings:
             logger.warning(
                 warning.message,
@@ -156,42 +190,42 @@ class ACPServerSessionStore:
                 session_id=session_state.session_id,
             )
 
+    def _restore_resolved_instructions(
+        self, session_state: ACPSessionState, result: SessionHydrationResult
+    ) -> None:
         for agent_name, resolved_prompt in result.restored_prompts.items():
             session_state.resolved_instructions[agent_name] = resolved_prompt
         if session_state.acp_context:
             session_state.acp_context.set_resolved_instructions(session_state.resolved_instructions)
 
-        current_agent = result.active_agent
-        if current_agent:
-            session_state.current_agent_name = current_agent
-            if session_state.slash_handler:
-                session_state.slash_handler.set_current_agent(current_agent)
-            if session_state.acp_context:
-                session_state.acp_context.set_current_mode(current_agent)
+    @staticmethod
+    def _set_active_agent(session_state: ACPSessionState, current_agent: str | None) -> None:
+        if not current_agent:
+            return
+        session_state.current_agent_name = current_agent
+        if session_state.slash_handler:
+            session_state.slash_handler.set_current_agent(current_agent)
+        if session_state.acp_context:
+            session_state.acp_context.set_current_mode(current_agent)
 
-        next_modes = session_modes
-        if current_agent and session_modes is not None and current_agent != session_modes.current_mode_id:
-            next_modes = SessionModeState(
-                available_modes=session_modes.available_modes,
-                current_mode_id=current_agent,
-            )
-            if session_state.acp_context:
-                session_state.acp_context.set_available_modes(next_modes.available_modes)
-                session_state.acp_context.set_current_mode(current_agent)
+    @staticmethod
+    def _session_modes_with_current_agent(
+        session_state: ACPSessionState,
+        session_modes: SessionModeState | None,
+        current_agent: str | None,
+    ) -> SessionModeState | None:
+        if not current_agent or session_modes is None:
+            return session_modes
+        if current_agent == session_modes.current_mode_id:
+            return session_modes
 
-        if send_history_updates:
-            await self.send_session_history_updates(
-                session_state,
-                session,
-                current_agent,
-            )
-
-        logger.info(
-            "ACP session hydrated",
-            name="acp_session_hydrated",
-            session_id=session_state.session_id,
-            loaded_agents=sorted(result.loaded_agents.keys()),
+        next_modes = SessionModeState(
+            available_modes=session_modes.available_modes,
+            current_mode_id=current_agent,
         )
+        if session_state.acp_context:
+            session_state.acp_context.set_available_modes(next_modes.available_modes)
+            session_state.acp_context.set_current_mode(current_agent)
         return next_modes
 
     async def hydrate_session_state_from_persisted_session(
@@ -213,14 +247,15 @@ class ACPServerSessionStore:
         history: Sequence[PromptMessageExtended],
     ) -> list[UserMessageChunk | AgentMessageChunk]:
         updates: list[UserMessageChunk | AgentMessageChunk] = []
+        update_builders = {
+            "user": update_user_message,
+            "assistant": update_agent_message,
+        }
         for message in history:
             role_value = str(message.role)
-            if role_value == "user":
-                update_builder = update_user_message
-            elif role_value == "assistant":
-                update_builder = update_agent_message
-            else:
+            if not is_message_role(role_value):
                 continue
+            update_builder = update_builders[role_value]
 
             for content in message.content:
                 acp_block = convert_mcp_content_to_acp(content)
@@ -359,7 +394,14 @@ class ACPServerSessionStore:
             request_name="session/load",
             required=True,
         )
-        assert request_cwd is not None
+        if request_cwd is None:
+            raise RequestError.invalid_params(
+                {
+                    "cwd": cwd,
+                    "request": "session/load",
+                    "reason": "cwd is required and must be an absolute path",
+                }
+            )
         logger.info(
             "ACP load session request",
             name="acp_load_session",
@@ -369,7 +411,7 @@ class ACPServerSessionStore:
         )
         persisted_session = None
         persisted_manager = None
-        manager_store_scope: Literal["workspace", "app"] = "workspace"
+        manager_store_scope: SessionStoreScope = "workspace"
         manager_store_cwd: str | None = request_cwd
         for index, (candidate_manager, _legacy_cwd) in enumerate(
             self.session_manager_entries(request_cwd)
@@ -394,10 +436,8 @@ class ACPServerSessionStore:
             manager_store_scope = "workspace" if index == 0 else "app"
             manager_store_cwd = request_cwd if manager_store_scope == "workspace" else None
             break
-        if not persisted_session:
+        if persisted_session is None or persisted_manager is None:
             self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
-        assert persisted_session is not None
-        assert persisted_manager is not None
         loaded_session = persisted_manager.load_session(session_id)
         if loaded_session is None:
             self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
@@ -447,13 +487,21 @@ class ACPServerSessionStore:
             request_name="session/resume",
             required=True,
         )
-        assert request_cwd is not None
+        if request_cwd is None:
+            raise RequestError.invalid_params(
+                {
+                    "cwd": cwd,
+                    "request": "session/resume",
+                    "reason": "cwd is required and must be an absolute path",
+                }
+            )
         response = await self.load_session(
             cwd=request_cwd,
             mcp_servers=mcp_servers or [],
             session_id=session_id,
         )
-        assert response is not None
+        if response is None:
+            self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
         return ResumeSessionResponse(modes=response.modes, models=response.models)
 
     @staticmethod
@@ -487,17 +535,18 @@ class ACPServerSessionStore:
 
         offset = payload.get("offset") if isinstance(payload, dict) else None
         version = payload.get("version") if isinstance(payload, dict) else None
-        if not isinstance(offset, int) or offset < 0 or version != 1:
+        parsed_offset = nonnegative_int_or_none(offset)
+        if parsed_offset is None or version != 1:
             raise RequestError.invalid_params(
                 {
                     "cursor": cursor,
                     "reason": "Invalid session list cursor",
                 }
             )
-        return offset
+        return parsed_offset
 
     @staticmethod
-    def _raise_session_not_found(*, session_id: str, request_cwd: str) -> None:
+    def _raise_session_not_found(*, session_id: str, request_cwd: str) -> NoReturn:
         logger.error(
             "Session not found for load_session",
             name="acp_load_session_not_found",

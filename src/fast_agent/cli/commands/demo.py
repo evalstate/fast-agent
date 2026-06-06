@@ -299,10 +299,10 @@ def _build_mixed(lines: int) -> str:
 def _build_large_codeblock(scale: int) -> str:
     code_lines = max(40, 40 * scale)
     content = ["### Large Code Block", "```python"]
-    for idx in range(code_lines):
-        content.append(
-            f"line_{idx:03d} = ({idx} * {idx})  # synthetic workload for scrolling"
-        )
+    content.extend(
+        f"line_{idx:03d} = ({idx} * {idx})  # synthetic workload for scrolling"
+        for idx in range(code_lines)
+    )
     content.extend(["```", ""])
     return "\n".join(content)
 
@@ -337,10 +337,10 @@ def _build_fence_focus(scale: int) -> str:
         "#### Case 3 — longer block for repeated repaint pressure",
         "```python",
     ]
-    for idx in range(growth_lines):
-        content.append(
-            f"sample_{idx:02d} = ('visible marker {idx:02d}', {idx} * {idx})"
-        )
+    content.extend(
+        f"sample_{idx:02d} = ('visible marker {idx:02d}', {idx} * {idx})"
+        for idx in range(growth_lines)
+    )
     content.extend(
         [
             "```",
@@ -403,8 +403,7 @@ def _build_code_growth(scale: int) -> str:
     for idx in range(steps):
         content.append(f"#### Block {idx + 1} ({size} lines)")
         content.append("```python")
-        for line in range(size):
-            content.append(f"row_{line:02d} = {line} + {idx}")
+        content.extend(f"row_{line:02d} = {line} + {idx}" for line in range(size))
         content.extend(["```", ""])
         size *= 2
     return "\n".join(content)
@@ -440,10 +439,10 @@ def _build_viewport_bounce(scale: int) -> str:
             ]
         )
         line_count = 14 + (idx % 4) * 3
-        for line in range(line_count):
-            content.append(
-                f"window_{idx:02d}_{line:02d} = 'segment boundary pressure test {idx}-{line}'"
-            )
+        content.extend(
+            f"window_{idx:02d}_{line:02d} = 'segment boundary pressure test {idx}-{line}'"
+            for line in range(line_count)
+        )
         content.extend(
             [
                 "```",
@@ -479,10 +478,10 @@ def _build_small_tables(scale: int) -> str:
 def _build_large_table(scale: int) -> str:
     rows = max(24, 18 * scale)
     content = ["### Large Table", "| Column A | Column B | Column C |", "| --- | --- | --- |"]
-    for idx in range(rows):
-        content.append(
-            f"| row {idx:02d} | some longer value to wrap {idx} | z{idx * 3} |"
-        )
+    content.extend(
+        f"| row {idx:02d} | some longer value to wrap {idx} | z{idx * 3} |"
+        for idx in range(rows)
+    )
     content.append("")
     return "\n".join(content)
 
@@ -833,7 +832,7 @@ def markdown(
             render_fences_with_syntax=display.render_fences_with_syntax,
             code_word_wrap=display.code_word_wrap,
         ),
-        markup=getattr(settings.logger, "enable_markup", True),
+        markup=settings.logger.enable_markup,
     )
 
 
@@ -849,7 +848,7 @@ def streaming(
         None,
         "--scenario",
         "-s",
-        help="Scenario(s) to stream; repeatable.",
+        help="One or more scenarios to stream; repeatable.",
         show_default="mixed",
     ),
     cycle: bool = typer.Option(

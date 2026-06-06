@@ -8,6 +8,7 @@ import yaml
 
 from fast_agent.cli.commands import model as model_command
 from fast_agent.config import Settings
+from fast_agent.llm.provider_types import Provider
 
 
 class _StubIO:
@@ -101,6 +102,60 @@ def test_build_reference_setup_argument_defaults_to_env_target() -> None:
     )
 
     assert argument == "set --target env"
+
+
+def test_build_reference_setup_argument_trims_token() -> None:
+    argument = model_command._build_reference_setup_argument(
+        token="  $system.fast  ",
+        target="project",
+        dry_run=True,
+    )
+
+    assert argument == "set '$system.fast' --target project --dry-run"
+
+
+def test_normalize_write_target_normalizes_case_and_padding() -> None:
+    assert model_command._normalize_write_target(" ENV ") == "env"
+    assert model_command._normalize_write_target("Project") == "project"
+
+
+def test_resolve_model_export_provider_normalizes_case_and_padding() -> None:
+    assert model_command._resolve_model_export_provider(" OPENAI ") is Provider.OPENAI
+    assert model_command._resolve_model_export_provider(None) is None
+
+
+def test_normalize_interactive_reference_token_returns_none_for_blank() -> None:
+    assert model_command._normalize_interactive_reference_token("   ") is None
+
+
+def test_normalize_interactive_reference_token_adds_missing_dollar_prefix() -> None:
+    assert model_command._normalize_interactive_reference_token(" system.fast ") == "$system.fast"
+
+
+def test_bootstrap_settings_start_path_normalizes_env_dir(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+
+    assert model_command._bootstrap_settings_start_path(f"  {env_dir}  ") == tmp_path
+    assert model_command._bootstrap_settings_start_path("   ") == Path.cwd()
+
+
+def test_merge_setup_items_dedupes_repeated_extra_tokens() -> None:
+    def item(token: str) -> model_command.ModelReferenceSetupItem:
+        return model_command.ModelReferenceSetupItem(
+            token=token,
+            priority="required",
+            status="missing",
+            current_value=None,
+            summary=f"Set {token}",
+            references=("test",),
+        )
+
+    merged = model_command._merge_setup_items(
+        (item("$system.default"),),
+        (item("$system.fast"), item("$system.fast"), item("$system.default")),
+    )
+
+    assert [entry.token for entry in merged] == ["$system.default", "$system.fast"]
 
 
 @pytest.mark.asyncio

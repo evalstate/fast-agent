@@ -1,4 +1,5 @@
 import base64
+from types import SimpleNamespace
 
 from mcp.types import ImageContent, TextContent
 
@@ -15,6 +16,7 @@ from fast_agent.ui.terminal_images import (
     render_assistant_images,
     render_tool_result_images,
 )
+from fast_agent.ui.terminal_images import renderer as terminal_image_renderer
 
 _PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ"
@@ -128,6 +130,17 @@ def test_render_assistant_images_returns_none_for_none_backend() -> None:
     renderable = render_assistant_images(config, [_image_content()])
 
     assert renderable is None
+
+
+def test_textual_image_backend_missing_class_disables_rendering(monkeypatch) -> None:
+    class DummyImage:
+        pass
+
+    module = SimpleNamespace(Image=DummyImage)
+    monkeypatch.setattr(terminal_image_renderer, "import_module", lambda name: module)
+
+    assert terminal_image_renderer._resolve_textual_image_class("auto") is DummyImage
+    assert terminal_image_renderer._resolve_textual_image_class("kitty") is None
 
 
 def test_render_content_blocks_summarizes_images_without_base64_payload() -> None:

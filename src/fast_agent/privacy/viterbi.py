@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from fast_agent.utils.text import strip_casefold
+
 IMPOSSIBLE = -1_000_000_000.0
 VITERBI_TRANSITION_BIAS_KEYS = (
     "transition_bias_background_stay",
@@ -14,7 +16,7 @@ VITERBI_TRANSITION_BIAS_KEYS = (
     "transition_bias_end_to_background",
     "transition_bias_end_to_start",
 )
-ZERO_TRANSITION_BIASES = {key: 0.0 for key in VITERBI_TRANSITION_BIAS_KEYS}
+ZERO_TRANSITION_BIASES = dict.fromkeys(VITERBI_TRANSITION_BIAS_KEYS, 0.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,7 +249,4 @@ def _split_label(label: str) -> tuple[str, str | None]:
 
 
 def _normalize_kind(kind: str) -> str:
-    normalized = kind.strip().lower().replace("-", "_")
-    if normalized.startswith("private_") or normalized == "secret":
-        return normalized
-    return normalized
+    return strip_casefold(kind).replace("-", "_")

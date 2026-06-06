@@ -168,6 +168,15 @@ def test_format_toolbar_agent_identity_includes_smart_badge() -> None:
     assert "agent[S]" in identity
 
 
+def test_format_toolbar_agent_identity_escapes_prompt_toolkit_html() -> None:
+    identity = _format_toolbar_agent_identity("research<draft&1>", "bad'color", None)
+
+    assert identity == (
+        "<style fg='bad&#x27;color' bg='ansiblack'> "
+        "research&lt;draft&amp;1&gt; </style>"
+    )
+
+
 def test_format_toolbar_agent_identity_omits_badge_for_basic_agent() -> None:
     identity = _format_toolbar_agent_identity("agent", "ansiblue", _StubAgent(AgentType.BASIC))
 

@@ -12,6 +12,7 @@ from fast_agent.llm.llamacpp_discovery import (
     LlamaCppDiscoveredModel,
     LlamaCppModelListing,
     build_llamacpp_overlay_manifest,
+    default_overlay_name_for_model,
     discover_llamacpp_models,
     interrogate_llamacpp_model,
     normalize_llamacpp_url,
@@ -28,6 +29,12 @@ def test_normalize_llamacpp_url_accepts_root_and_v1_urls() -> None:
     assert v1.server_url == "http://localhost:8080"
     assert v1.request_base_url == "http://localhost:8080/v1"
     assert v1.models_urls()[0] == "http://localhost:8080/v1/models"
+
+
+def test_default_overlay_name_for_model_normalizes_model_leaf() -> None:
+    assert default_overlay_name_for_model(" owner/ Qwen 3.5:Q4_K_M ") == (
+        "llamacpp-qwen-3-5-q4-k-m"
+    )
 
 
 def test_build_llamacpp_overlay_manifest_omits_sampling_defaults_by_default() -> None:

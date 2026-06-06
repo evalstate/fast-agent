@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import os
+from contextlib import suppress
 from importlib.resources import files
 from pathlib import Path
 from typing import IO, Literal
@@ -18,13 +19,9 @@ from typing import IO, Literal
 from rich.console import Console
 from rich.theme import Theme
 
+from fast_agent.utils.env import is_truthy_env_value
+
 _DEFAULT_THEME_RELATIVE_PATH = Path("examples") / "markdown" / "fast-agent-theme.ini"
-
-
-def _env_truthy(value: str | None) -> bool:
-    if value is None:
-        return False
-    return value.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _load_default_theme() -> Theme:
@@ -51,10 +48,6 @@ def _load_default_theme() -> Theme:
 _DEFAULT_THEME = _load_default_theme()
 
 
-def _create_console(stderr: bool) -> Console:
-    return Console(stderr=stderr, color_system="auto", theme=_DEFAULT_THEME)
-
-
 # When uvloop registers a reader, it makes the file description non-blocking
 # and doesn't restore it. If stdin/stdout/stderr share the same TTY, writes
 # can raise BlockingIOError. Use a dedicated blocking TTY stream when needed.
@@ -78,10 +71,8 @@ def _open_blocking_tty(stream: IO[str]) -> IO[str] | None:
         tty_fd = os.open(tty_path, os.O_WRONLY | os.O_NOCTTY)
     except OSError:
         return None
-    try:
+    with suppress(Exception):
         os.set_blocking(tty_fd, True)
-    except Exception:
-        pass
     return os.fdopen(tty_fd, "w", buffering=1, encoding="utf-8", errors="replace")
 
 
@@ -146,10 +137,10 @@ def configure_console_theme(
 
 
 # Allow forcing stderr via env (useful for ACP/stdio wrappers that import fast_agent early)
-_default_stderr = _env_truthy(os.environ.get("FAST_AGENT_FORCE_STDERR"))
+_default_stderr = is_truthy_env_value(os.environ.get("FAST_AGENT_FORCE_STDERR"))
 
 # Main console for general output (stdout by default, can be toggled at runtime)
-console = _create_console(stderr=_default_stderr)
+console = Console(stderr=_default_stderr, color_system="auto", theme=_DEFAULT_THEME)
 
 
 def configure_console_stream(stream: Literal["stdout", "stderr"]) -> None:

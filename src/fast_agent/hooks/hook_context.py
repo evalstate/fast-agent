@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Mapping, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol

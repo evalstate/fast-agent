@@ -183,9 +183,7 @@ async def test_execute_streaming_yields_as_tasks_complete() -> None:
         await asyncio.sleep(delay)
         return value
 
-    results: list[int | BaseException] = []
-    async for result in executor.execute_streaming(later(1, 0.02), later(2, 0)):
-        results.append(result)
+    results = [result async for result in executor.execute_streaming(later(1, 0.02), later(2, 0))]
 
     assert results == [2, 1]
 

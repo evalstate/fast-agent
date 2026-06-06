@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
+from fast_agent.acp import ACPCommand
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import (
@@ -27,6 +29,7 @@ from fast_agent.constants import (
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
 )
+from fast_agent.core.agent_app import AgentCardLoadResult
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import save_json
@@ -40,6 +43,7 @@ from fast_agent.session import (
     reset_session_manager,
 )
 from fast_agent.session import session_manager as session_manager_module
+from fast_agent.utils.markdown import escape_markdown_text
 
 if TYPE_CHECKING:
     from acp.schema import StopReason
@@ -94,6 +98,49 @@ class StubAgent:
         self.message_history = list(messages)
 
 
+class ACPAwareStubAgent(StubAgent):
+    @property
+    def acp(self) -> None:
+        return None
+
+    @property
+    def is_acp_mode(self) -> bool:
+        return True
+
+    @property
+    def acp_commands(self) -> dict[str, ACPCommand]:
+        async def handle(_arguments: str) -> str:
+            return "custom status"
+
+        return {
+            "status": ACPCommand(
+                description="Custom status command",
+                handler=handle,
+            ),
+            "inspect": ACPCommand(
+                description="Custom inspect command",
+                handler=handle,
+            ),
+        }
+
+    def acp_mode_info(self) -> None:
+        return None
+
+
+class CaseSensitiveACPAwareStubAgent(ACPAwareStubAgent):
+    @property
+    def acp_commands(self) -> dict[str, ACPCommand]:
+        async def handle(_arguments: str) -> str:
+            return "custom uppercase status"
+
+        commands = super().acp_commands
+        commands["Status"] = ACPCommand(
+            description="Custom uppercase status command",
+            handler=handle,
+        )
+        return commands
+
+
 class _StubAppProvider(StaticAgentProvider):
     def __init__(self, agents: dict[str, object]) -> None:
         super().__init__(agents)
@@ -143,6 +190,10 @@ async def test_slash_command_parsing() -> None:
     assert cmd == "status"
     assert args == ""
 
+    cmd, args = handler.parse_command("/Status arg1")
+    assert cmd == "Status"
+    assert args == "arg1"
+
     cmd, args = handler.parse_command("/status arg1 arg2")
     assert cmd == "status"
     assert args == "arg1 arg2"
@@ -150,6 +201,27 @@ async def test_slash_command_parsing() -> None:
     cmd, args = handler.parse_command("  /status  ")
     assert cmd == "status"
     assert args == ""
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_execution_normalizes_command_name() -> None:
+    handler = _handler(StubAgentInstance())
+
+    response = await handler.execute_command("Status", "")
+
+    assert "# fast-agent ACP status" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_exact_case_agent_command_wins_before_lowercase_builtin() -> None:
+    stub_agent = CaseSensitiveACPAwareStubAgent()
+    handler = _handler(StubAgentInstance(agents={"test-agent": stub_agent}))
+
+    response = await handler.execute_command("Status", "")
+
+    assert response == "custom uppercase status"
 
 
 @pytest.mark.integration
@@ -171,6 +243,19 @@ async def test_slash_command_available_commands() -> None:
     # Check status command structure
     status_cmd = next(cmd for cmd in commands if cmd.name == "status")
     assert status_cmd.description  # Should have a non-empty description
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_available_commands_hide_shadowed_agent_acp_commands() -> None:
+    stub_agent = ACPAwareStubAgent()
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+    handler = _handler(instance)
+
+    commands = handler.get_available_commands()
+
+    assert [command.name for command in commands].count("status") == 1
+    assert "inspect" in {command.name for command in commands}
 
 
 @pytest.mark.integration
@@ -217,6 +302,17 @@ async def test_slash_command_unknown_command() -> None:
 
     # Should get an error message
     assert "Unknown command" in response or "not yet implemented" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_session_reports_invalid_quoting() -> None:
+    handler = _handler(StubAgentInstance())
+
+    response = await handler.execute_command("session", 'title "unterminated')
+
+    assert "Invalid /session arguments" in response
+    assert "No closing quotation" in response
 
 
 @pytest.mark.integration
@@ -384,7 +480,7 @@ async def test_slash_command_model_web_fetch_unsupported() -> None:
 
     response = await handler.execute_command("model", "web_fetch on")
 
-    assert "Current model does not support web_fetch configuration." in response
+    assert escape_markdown_text("Current model does not support web_fetch configuration.") in response
 
 
 @pytest.mark.integration
@@ -503,7 +599,7 @@ async def test_slash_command_history_save_conversation() -> None:
 
     assert "save conversation" in response.lower()
     assert "History saved to" in response
-    assert "24_01_01_12_00-conversation.json" in response
+    assert escape_markdown_text("24_01_01_12_00-conversation.json") in response
     assert exporter.calls == [(stub_agent, None)]
 
     response_with_filename = await handler.execute_command("history", "save custom.md")
@@ -569,6 +665,36 @@ async def test_slash_command_clear_last_entry() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_slash_command_history_clear_last_entry() -> None:
+    messages = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")]),
+        PromptMessageExtended(role="assistant", content=[TextContent(type="text", text="hello")]),
+    ]
+    stub_agent = StubAgent(message_history=messages.copy())
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+    handler = _handler(instance)
+
+    response = await handler.execute_command("history", "clear last")
+
+    assert stub_agent.popped is True
+    assert len(stub_agent.message_history) == 1
+    assert "history clear last" in response.lower()
+    assert "removed last" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_history_rewind_reports_missing_turn() -> None:
+    handler = _handler(StubAgentInstance(agents={"test-agent": StubAgent()}))
+
+    response = await handler.execute_command("history", "rewind")
+
+    assert "history rewind" in response.lower()
+    assert "turn number required" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_slash_command_clear_last_when_empty() -> None:
     """Test /clear last when no messages exist."""
     stub_agent = StubAgent(message_history=[])
@@ -579,6 +705,23 @@ async def test_slash_command_clear_last_when_empty() -> None:
 
     assert "clear last" in response.lower()
     assert "no messages" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_clear_unknown_argument_does_not_clear() -> None:
+    messages = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")]),
+    ]
+    stub_agent = StubAgent(message_history=messages.copy())
+    handler = _handler(StubAgentInstance(agents={"test-agent": stub_agent}))
+
+    response = await handler.execute_command("clear", "lats")
+
+    assert response == "Usage: /clear [last]"
+    assert stub_agent.cleared is False
+    assert stub_agent.popped is False
+    assert stub_agent.message_history == messages
 
 
 @pytest.mark.integration
@@ -621,7 +764,7 @@ async def test_slash_command_history_load() -> None:
 
         assert "load conversation" in response.lower()
         assert "loaded 2 messages" in response.lower()
-        assert temp_path in response
+        assert escape_markdown_text(temp_path) in response
         assert len(stub_agent.message_history) == 2
         assert stub_agent.cleared is True  # History should be cleared before loading
     finally:
@@ -715,8 +858,45 @@ async def test_slash_command_history_webclear() -> None:
     response = await handler.execute_command("history", "webclear")
 
     assert "history webclear" in response.lower()
-    assert "removed 3 web metadata block(s)" in response.lower()
+    assert "removed 3 web metadata blocks" in response.lower()
     assert stub_agent.message_history[0].channels is None
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_history_webclear_targets_agent() -> None:
+    class _LlmStub:
+        web_tools_enabled = (True, False)
+        web_search_enabled = True
+        web_fetch_enabled = False
+        web_search_supported = True
+        web_fetch_supported = False
+        service_tier_supported = False
+        available_service_tiers: tuple[str, ...] = ()
+        text_verbosity_spec = None
+
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="done")],
+            channels={
+                ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                    TextContent(type="text", text='{"type":"server_tool_use"}')
+                ],
+            },
+        )
+    ]
+    main_agent = StubAgent(message_history=[])
+    target_agent = StubAgent(name="analyst", message_history=messages)
+    target_agent.llm = _LlmStub()
+    instance = StubAgentInstance(agents={"test-agent": main_agent, "analyst": target_agent})
+    handler = _handler(instance)
+
+    response = await handler.execute_command("history", "webclear analyst")
+
+    assert "history webclear" in response.lower()
+    assert "removed 1 web metadata block" in response.lower()
+    assert target_agent.message_history[0].channels is None
 
 
 @pytest.mark.integration
@@ -730,7 +910,9 @@ async def test_slash_command_history_webclear_hidden_when_disabled() -> None:
     response = await handler.execute_command("history", "webclear")
 
     assert "unknown /history action: webclear" in response.lower()
-    assert "usage: /history [show|detail <turn>|save|load]" in response.lower()
+    assert "clear [last]" in response
+    assert "rewind <turn>" in response
+    assert "fix" in response
 
 
 @pytest.mark.integration
@@ -831,6 +1013,48 @@ async def test_slash_command_history_show_turn_summary() -> None:
     assert "final answer" in response
     assert "1.1s" in response
     assert "250ms" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_history_show_targets_named_agent() -> None:
+    current_agent = StubAgent(
+        message_history=[
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="current question")],
+            )
+        ],
+        name="current",
+    )
+    analyst_agent = StubAgent(
+        message_history=[
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="analyst question")],
+            )
+        ],
+        name="analyst",
+    )
+    instance = StubAgentInstance(agents={"current": current_agent, "analyst": analyst_agent})
+    handler = _handler(instance, agent_name="current")
+
+    response = await handler.execute_command("history", "show analyst")
+
+    assert "history show" in response.lower()
+    assert "analyst question" in response
+    assert "current question" not in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_history_show_reports_missing_named_agent() -> None:
+    handler = _handler(StubAgentInstance(agents={"test-agent": StubAgent()}))
+
+    response = await handler.execute_command("history", "show missing")
+
+    assert "history show" in response.lower()
+    assert "Unable to locate agent 'missing'" in response
 
 
 @pytest.mark.integration
@@ -1034,13 +1258,59 @@ async def test_slash_command_card_loads_and_attaches() -> None:
         new_instance = StubAgentInstance(
             agents={"test-agent": stub_agent, "alpha": StubAgent(name="alpha")}
         )
-        return new_instance, ["alpha"], ["alpha"]
+        return new_instance, AgentCardLoadResult(
+            loaded_names=["alpha"],
+            attached_names=["alpha"],
+        )
 
-    handler = _handler(instance, card_loader=_card_loader)
+    async def _attach_agent(parent_agent: str, child_agents: list[str]):
+        del parent_agent
+        return instance, child_agents
+
+    handler = _handler(
+        instance,
+        card_loader=_card_loader,
+        attach_agent_callback=_attach_agent,
+    )
     response = await handler.execute_command("card", "card.yml --tool")
 
-    assert "Loaded AgentCard(s): alpha" in response
-    assert "Attached agent tool(s): alpha" in response
+    assert "Loaded AgentCard: alpha" in response
+    assert "Attached agent tool: alpha" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_card_rejects_unexpected_arguments() -> None:
+    handler = _handler(StubAgentInstance(agents={"test-agent": StubAgent()}))
+
+    response = await handler.execute_command("card", "card.yml extra")
+
+    assert response == "Unexpected arguments: extra"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_card_rm_alias_detaches_tools() -> None:
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    async def _card_loader(filename: str, parent_agent: str | None = None):
+        del filename, parent_agent
+        return instance, AgentCardLoadResult(loaded_names=["alpha"])
+
+    async def _detach_agent(parent_agent: str, child_agents: list[str]):
+        assert parent_agent == "test-agent"
+        return instance, child_agents
+
+    handler = _handler(
+        instance,
+        card_loader=_card_loader,
+        detach_agent_callback=_detach_agent,
+    )
+
+    response = await handler.execute_command("card", "card.yml --tool --rm")
+
+    assert "Detached agent tool: alpha" in response
 
 
 @pytest.mark.integration
@@ -1064,10 +1334,13 @@ async def test_slash_command_agent_attach_and_detach() -> None:
     )
 
     response = await handler.execute_command("agent", "alpha --tool")
-    assert "Attached agent tool(s): alpha" in response
+    assert "Attached agent tool: alpha" in response
 
     response = await handler.execute_command("agent", "alpha --tool remove")
-    assert "Detached agent tool(s): alpha" in response
+    assert "Detached agent tool: alpha" in response
+
+    response = await handler.execute_command("agent", "alpha --tool --rm")
+    assert "Detached agent tool: alpha" in response
 
 
 @pytest.mark.integration
@@ -1106,3 +1379,62 @@ async def test_slash_command_reload_agent_cards() -> None:
     handler = _handler(instance, reload_callback=_reload_no_change)
     response = await handler.execute_command("reload", "")
     assert "No AgentCard changes detected" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_plugin_command_applies_acp_switch_and_refresh_side_effects(tmp_path: Path) -> None:
+    command_file = tmp_path / "commands.py"
+    command_file.write_text(
+        "\n".join(
+            [
+                "from fast_agent.command_actions import PluginCommandActionResult",
+                "",
+                "async def run(ctx):",
+                "    return PluginCommandActionResult(",
+                "        message='switched',",
+                "        switch_agent='other-agent',",
+                "        refresh_agents=True,",
+                "    )",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    agent = StubAgent(name="test-agent")
+    agent.config.commands = {
+        "JumpNow": PluginCommandActionSpec(
+            name="JumpNow",
+            description="Jump to another agent",
+            handler=f"{command_file}:run",
+        )
+    }
+    other_agent = StubAgent(name="other-agent")
+    switched: list[str] = []
+
+    class _AcpContext:
+        def __init__(self) -> None:
+            self.refresh_count = 0
+            self.session_cwd = None
+            self.session_store_scope = "workspace"
+            self.session_store_cwd = None
+
+        async def send_available_commands_update(self) -> None:
+            self.refresh_count += 1
+
+    acp_context = _AcpContext()
+    handler = _handler(
+        StubAgentInstance(agents={"test-agent": agent, "other-agent": other_agent}),
+        set_current_mode_callback=switched.append,
+    )
+    handler.set_acp_context(cast("Any", acp_context))
+
+    commands_response = await handler.execute_command("commands", "JumpNow")
+    assert "No discovery metadata for `JumpNow` yet." in commands_response
+    assert "Unknown command family" not in commands_response
+
+    response = await handler.execute_command("JumpNow", "")
+
+    assert "switched" in response
+    assert handler.current_agent_name == "other-agent"
+    assert switched == ["other-agent"]
+    assert acp_context.refresh_count == 1

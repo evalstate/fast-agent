@@ -123,9 +123,7 @@ class ToolCallTracker:
     ) -> bool:
         if tool_use_id is not None and tool_use_id in self._completed_by_id:
             return True
-        if index is not None and index in self._completed_by_index:
-            return True
-        return False
+        return index is not None and index in self._completed_by_index
 
     def incomplete(self) -> list[ToolCallState]:
         return list(self._open_by_id.values())

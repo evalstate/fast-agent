@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fast_agent.acp.acp_context import ACPContext
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from fast_agent.acp.tool_progress import ACPToolProgressManager
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.session.identity import SessionStoreScope
 
 
 @dataclass
@@ -28,7 +29,7 @@ class ACPSessionState:
     session_id: str
     instance: AgentInstance
     session_cwd: str | None = None
-    session_store_scope: Literal["workspace", "app"] = "workspace"
+    session_store_scope: SessionStoreScope = "workspace"
     session_store_cwd: str | None = None
     current_agent_name: str | None = None
     progress_manager: ACPToolProgressManager | None = None

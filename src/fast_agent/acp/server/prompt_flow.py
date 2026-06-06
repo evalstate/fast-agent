@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Final, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
 from acp.exceptions import RequestError
 from acp.helpers import ContentBlock as ACPContentBlock
@@ -30,6 +30,9 @@ from fast_agent.types import LlmStopReason, PromptMessageExtended
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.llm.stream_types import StreamChunk
@@ -39,6 +42,13 @@ logger = get_logger(__name__)
 HUGGINGFACE_META_KEY: Final[str] = "co.huggingface"
 STRUCTURED_OUTPUT_KEY: Final[str] = "structuredOutput"
 STRUCTURED_OUTPUT_MODE_BEST_EFFORT: Final[str] = "bestEffort"
+def _is_fatal_tool_error_text(response_text: str) -> bool:
+    return (
+        "unsupported ACP filesystem tool" in response_text
+        or "unsupported filesystem tool" in response_text
+        or response_text.startswith("Tool '")
+        and " is not available" in response_text
+    )
 
 
 @dataclass(frozen=True)
@@ -52,13 +62,20 @@ class StreamState:
     assistant_text_seen: bool = False
 
 
+@dataclass(slots=True)
+class PromptTurn:
+    instance: Any
+    session_state: ACPSessionState | None
+    prompt_message: PromptMessageExtended
+    mcp_content_blocks: list[Any]
+    current_agent_name: str | None
+    slash_handler: Any
+    prompt_text: str
+
+
 class PromptFlowHost(Protocol):
-    sessions: dict[str, Any]
+    _live_sessions: ACPLiveSessionRegistry
     _session_lock: asyncio.Lock
-    _prompt_locks: dict[str, asyncio.Lock]
-    _active_prompts: set[str]
-    _session_tasks: dict[str, asyncio.Task]
-    _session_state: dict[str, ACPSessionState]
     _connection: Any
     primary_agent_name: str | None
 
@@ -95,10 +112,11 @@ class ACPPromptFlow:
     async def get_prompt_lock(self, session_id: str) -> asyncio.Lock:
         """Get/create the lock used to serialize prompts for a session."""
         async with self._host._session_lock:
-            lock = self._host._prompt_locks.get(session_id)
+            prompt_locks = self._host._live_sessions.prompt_locks
+            lock = prompt_locks.get(session_id)
             if lock is None:
                 lock = asyncio.Lock()
-                self._host._prompt_locks[session_id] = lock
+                prompt_locks[session_id] = lock
             return lock
 
     async def prompt(
@@ -138,18 +156,11 @@ class ACPPromptFlow:
             structured_output=structured_output is not None,
         )
         write_interactive_trace("acp.prompt.start", session_id=session_id)
-
-        async with self._host._session_lock:
-            self._host._active_prompts.add(session_id)
-            current_task = asyncio.current_task()
-            if current_task:
-                self._host._session_tasks[session_id] = current_task
+        await self._mark_prompt_active(session_id)
 
         try:
-            async with self._host._session_lock:
-                instance = self._host.sessions.get(session_id)
-
-            if not instance:
+            turn = await self._prepare_prompt_turn(prompt, session_id)
+            if turn is None:
                 logger.error(
                     "ACP prompt error: session not found",
                     name="acp_prompt_error",
@@ -157,170 +168,20 @@ class ACPPromptFlow:
                 )
                 return PromptResponse(stop_reason=REFUSAL)
 
-            processed_prompt = inline_resources_for_slash_command(prompt)
-            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(processed_prompt)
-            prompt_message = PromptMessageExtended(
-                role="user",
-                content=mcp_content_blocks,
-            )
-
-            session_state = self._host._session_state.get(session_id)
-            acp_context = session_state.acp_context if session_state else None
-            current_agent_name = None
-            if acp_context is not None:
-                current_agent_name = acp_context.current_mode
-            if not current_agent_name and session_state:
-                current_agent_name = session_state.current_agent_name
-            if not current_agent_name:
-                current_agent_name = self._host._resolve_primary_agent_name(instance)
-
-            slash_handler = session_state.slash_handler if session_state else None
-            is_single_text_block = len(mcp_content_blocks) == 1 and is_text_content(
-                mcp_content_blocks[0]
-            )
-            prompt_text = prompt_message.all_text() or ""
-            if (
-                slash_handler
-                and is_single_text_block
-                and slash_handler.is_slash_command(prompt_text)
-            ):
-                if structured_output is not None:
-                    raise RequestError.invalid_params(
-                        {
-                            "extension": f"{HUGGINGFACE_META_KEY}.{STRUCTURED_OUTPUT_KEY}",
-                            "reason": "structured output is not supported for slash commands",
-                        }
-                    )
-                return await self._handle_slash_command(
-                    slash_handler=slash_handler,
-                    session_id=session_id,
-                    current_agent_name=current_agent_name,
-                    prompt_text=prompt_text,
-                    message_id=message_id,
-                )
-
-            logger.info(
-                "Sending prompt to fast-agent",
-                name="acp_prompt_send",
+            slash_response = await self._maybe_handle_slash_command(
+                turn=turn,
                 session_id=session_id,
-                agent=current_agent_name,
-                content_blocks=len(mcp_content_blocks),
+                structured_output=structured_output,
+                message_id=message_id,
             )
+            if slash_response is not None:
+                return slash_response
 
-            acp_stop_reason: StopReason = END_TURN
-            status_line_meta: dict[str, Any] | None = None
-            active_agent: AgentProtocol | object | None = None
-            try:
-                if current_agent_name:
-                    agent = instance.agents[current_agent_name]
-                    active_agent = agent
-                    stream_context = await self._prepare_streaming_context(
-                        agent=agent,
-                        session_id=session_id,
-                    )
-
-                    try:
-                        session_request_params = await self._host._build_session_request_params(
-                            agent, session_state
-                        )
-                        turn_start_index = None
-                        if isinstance(agent, AgentProtocol) and agent.usage_accumulator is not None:
-                            turn_start_index = len(agent.usage_accumulator.turns)
-
-                        with_status_hooks = await self._run_with_status_hooks(
-                            agent=agent,
-                            session_id=session_id,
-                            turn_start_index=turn_start_index,
-                            prompt_message=prompt_message,
-                            session_request_params=session_request_params,
-                            structured_output=structured_output,
-                        )
-                        result = with_status_hooks["result"]
-                        response_text = result.last_text() or ""
-                        status_line_meta = self._host._build_status_line_meta(
-                            agent, turn_start_index
-                        )
-
-                        if (
-                            structured_output is not None
-                            and not response_text
-                            and not stream_context["stream_state"].assistant_text_seen
-                        ):
-                            acp_stop_reason = REFUSAL
-                        else:
-                            if not response_text and structured_output is None:
-                                response_text = "No content generated"
-                            try:
-                                acp_stop_reason = map_llm_stop_reason_to_acp(result.stop_reason)
-                            except Exception as e:
-                                logger.error(
-                                    f"Error mapping stop reason: {e}",
-                                    name="acp_stop_reason_error",
-                                    exc_info=True,
-                                )
-                                acp_stop_reason = END_TURN
-
-                        logger.info(
-                            "Received complete response from fast-agent",
-                            name="acp_prompt_response",
-                            session_id=session_id,
-                            response_length=len(response_text),
-                            llm_stop_reason=str(result.stop_reason) if result.stop_reason else None,
-                            acp_stop_reason=acp_stop_reason,
-                        )
-
-                        await self._finalize_prompt_delivery(
-                            session_id=session_id,
-                            response_text=response_text,
-                            streaming_tasks=stream_context["streaming_tasks"],
-                            assistant_text_streamed=stream_context[
-                                "stream_state"
-                            ].assistant_text_seen,
-                            status_line_meta=status_line_meta,
-                        )
-                    except Exception as send_error:
-                        await self._cleanup_stream_listener_after_error(
-                            session_id=session_id,
-                            stream_listener=stream_context["stream_listener"],
-                            remove_listener=stream_context["remove_listener"],
-                        )
-                        raise send_error
-                    finally:
-                        await self._cleanup_stream_listener(
-                            session_id=session_id,
-                            stream_listener=stream_context["stream_listener"],
-                            remove_listener=stream_context["remove_listener"],
-                        )
-                else:
-                    logger.error("No primary agent available")
-            except ProviderKeyError as e:
-                logger.info(
-                    "ACP prompt requires provider authentication",
-                    name="acp_prompt_auth_required",
-                    session_id=session_id,
-                    agent=current_agent_name,
-                    error=e.message,
-                )
-                raise RequestError.auth_required(
-                    self._host._build_auth_required_data(e, agent=active_agent)
-                ) from e
-            except Exception as e:
-                logger.error(
-                    f"Error processing prompt: {e}",
-                    name="acp_prompt_error",
-                    exc_info=True,
-                )
-                import sys
-                import traceback
-
-                print(f"ERROR processing prompt: {e}", file=sys.stderr)
-                traceback.print_exc(file=sys.stderr)
-                raise
-
-            return PromptResponse(
-                stop_reason=acp_stop_reason,
-                field_meta=status_line_meta,
-                user_message_id=message_id,
+            return await self._handle_agent_prompt(
+                turn=turn,
+                session_id=session_id,
+                structured_output=structured_output,
+                message_id=message_id,
             )
         except asyncio.CancelledError:
             clear_current_task_cancellation_requests(session_id=session_id)
@@ -335,15 +196,254 @@ class ACPPromptFlow:
                 user_message_id=message_id,
             )
         finally:
-            write_interactive_trace("acp.prompt.finally", session_id=session_id)
-            async with self._host._session_lock:
-                self._host._active_prompts.discard(session_id)
-                self._host._session_tasks.pop(session_id, None)
-            logger.debug(
-                "Removed session from active prompts",
-                name="acp_prompt_complete",
-                session_id=session_id,
+            await self._mark_prompt_inactive(session_id)
+
+    async def _mark_prompt_active(self, session_id: str) -> None:
+        async with self._host._session_lock:
+            live_sessions = self._host._live_sessions
+            live_sessions.active_prompts.add(session_id)
+            current_task = asyncio.current_task()
+            if current_task:
+                live_sessions.session_tasks[session_id] = current_task
+
+    async def _mark_prompt_inactive(self, session_id: str) -> None:
+        write_interactive_trace("acp.prompt.finally", session_id=session_id)
+        async with self._host._session_lock:
+            live_sessions = self._host._live_sessions
+            live_sessions.active_prompts.discard(session_id)
+            live_sessions.session_tasks.pop(session_id, None)
+        logger.debug(
+            "Removed session from active prompts",
+            name="acp_prompt_complete",
+            session_id=session_id,
+        )
+
+    async def _prepare_prompt_turn(
+        self,
+        prompt: list[ACPContentBlock],
+        session_id: str,
+    ) -> PromptTurn | None:
+        async with self._host._session_lock:
+            instance = self._host._live_sessions.sessions.get(session_id)
+
+        if not instance:
+            return None
+
+        processed_prompt = inline_resources_for_slash_command(prompt)
+        mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(processed_prompt)
+        prompt_message = PromptMessageExtended(role="user", content=mcp_content_blocks)
+        session_state = self._host._live_sessions.session_state.get(session_id)
+        current_agent_name = self._resolve_current_agent_name(session_state, instance)
+        return PromptTurn(
+            instance=instance,
+            session_state=session_state,
+            prompt_message=prompt_message,
+            mcp_content_blocks=mcp_content_blocks,
+            current_agent_name=current_agent_name,
+            slash_handler=session_state.slash_handler if session_state else None,
+            prompt_text=prompt_message.all_text() or "",
+        )
+
+    def _resolve_current_agent_name(
+        self, session_state: ACPSessionState | None, instance: AgentInstance
+    ) -> str | None:
+        acp_context = session_state.acp_context if session_state else None
+        if acp_context is not None and acp_context.current_mode:
+            return acp_context.current_mode
+        if session_state and session_state.current_agent_name:
+            return session_state.current_agent_name
+        return self._host._resolve_primary_agent_name(instance)
+
+    async def _maybe_handle_slash_command(
+        self,
+        *,
+        turn: PromptTurn,
+        session_id: str,
+        structured_output: StructuredOutputRequest | None,
+        message_id: str | None,
+    ) -> PromptResponse | None:
+        is_single_text_block = len(turn.mcp_content_blocks) == 1 and is_text_content(
+            turn.mcp_content_blocks[0]
+        )
+        if (
+            not turn.slash_handler
+            or not is_single_text_block
+            or not turn.slash_handler.is_slash_command(turn.prompt_text)
+        ):
+            return None
+        if structured_output is not None:
+            raise RequestError.invalid_params(
+                {
+                    "extension": f"{HUGGINGFACE_META_KEY}.{STRUCTURED_OUTPUT_KEY}",
+                    "reason": "structured output is not supported for slash commands",
+                }
             )
+        return await self._handle_slash_command(
+            slash_handler=turn.slash_handler,
+            session_id=session_id,
+            current_agent_name=turn.current_agent_name,
+            prompt_text=turn.prompt_text,
+            message_id=message_id,
+        )
+
+    async def _handle_agent_prompt(
+        self,
+        *,
+        turn: PromptTurn,
+        session_id: str,
+        structured_output: StructuredOutputRequest | None,
+        message_id: str | None,
+    ) -> PromptResponse:
+        logger.info(
+            "Sending prompt to fast-agent",
+            name="acp_prompt_send",
+            session_id=session_id,
+            agent=turn.current_agent_name,
+            content_blocks=len(turn.mcp_content_blocks),
+        )
+
+        acp_stop_reason: StopReason = END_TURN
+        status_line_meta: dict[str, Any] | None = None
+        active_agent: AgentProtocol | object | None = None
+        try:
+            if turn.current_agent_name:
+                agent = turn.instance.agents[turn.current_agent_name]
+                active_agent = agent
+                acp_stop_reason, status_line_meta = await self._send_prompt_to_agent(
+                    agent=agent,
+                    session_id=session_id,
+                    session_state=turn.session_state,
+                    prompt_message=turn.prompt_message,
+                    structured_output=structured_output,
+                )
+            else:
+                logger.error("No primary agent available")
+        except ProviderKeyError as e:
+            logger.info(
+                "ACP prompt requires provider authentication",
+                name="acp_prompt_auth_required",
+                session_id=session_id,
+                agent=turn.current_agent_name,
+                error=e.message,
+            )
+            raise RequestError.auth_required(
+                self._host._build_auth_required_data(e, agent=active_agent)
+            ) from e
+        except Exception as e:
+            logger.error(
+                f"Error processing prompt: {e}",
+                name="acp_prompt_error",
+                exc_info=True,
+            )
+            import sys
+            import traceback
+
+            print(f"ERROR processing prompt: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            raise
+
+        return PromptResponse(
+            stop_reason=acp_stop_reason,
+            field_meta=status_line_meta,
+            user_message_id=message_id,
+        )
+
+    async def _send_prompt_to_agent(
+        self,
+        *,
+        agent: Any,
+        session_id: str,
+        session_state: ACPSessionState | None,
+        prompt_message: PromptMessageExtended,
+        structured_output: StructuredOutputRequest | None,
+    ) -> tuple[StopReason, dict[str, Any] | None]:
+        stream_context = await self._prepare_streaming_context(
+            agent=agent,
+            session_id=session_id,
+        )
+        try:
+            session_request_params = await self._host._build_session_request_params(
+                agent, session_state
+            )
+            turn_start_index = self._turn_start_index(agent)
+            with_status_hooks = await self._run_with_status_hooks(
+                agent=agent,
+                session_id=session_id,
+                turn_start_index=turn_start_index,
+                prompt_message=prompt_message,
+                session_request_params=session_request_params,
+                structured_output=structured_output,
+            )
+            result = with_status_hooks["result"]
+            response_text = result.last_text() or ""
+            status_line_meta = self._host._build_status_line_meta(agent, turn_start_index)
+            acp_stop_reason = self._resolve_acp_stop_reason(
+                result_stop_reason=result.stop_reason,
+                response_text=response_text,
+                structured_output=structured_output,
+                assistant_text_seen=stream_context["stream_state"].assistant_text_seen,
+            )
+            if not response_text and structured_output is None:
+                response_text = "No content generated"
+
+            logger.info(
+                "Received complete response from fast-agent",
+                name="acp_prompt_response",
+                session_id=session_id,
+                response_length=len(response_text),
+                llm_stop_reason=str(result.stop_reason) if result.stop_reason else None,
+                acp_stop_reason=acp_stop_reason,
+            )
+
+            await self._finalize_prompt_delivery(
+                session_id=session_id,
+                response_text=response_text,
+                streaming_tasks=stream_context["streaming_tasks"],
+                assistant_text_streamed=stream_context["stream_state"].assistant_text_seen,
+                status_line_meta=status_line_meta,
+            )
+            return acp_stop_reason, status_line_meta
+        except Exception:
+            await self._cleanup_stream_listener_after_error(
+                session_id=session_id,
+                stream_listener=stream_context["stream_listener"],
+                remove_listener=stream_context["remove_listener"],
+            )
+            raise
+        finally:
+            await self._cleanup_stream_listener(
+                session_id=session_id,
+                stream_listener=stream_context["stream_listener"],
+                remove_listener=stream_context["remove_listener"],
+            )
+
+    @staticmethod
+    def _turn_start_index(agent: Any) -> int | None:
+        if isinstance(agent, AgentProtocol) and agent.usage_accumulator is not None:
+            return len(agent.usage_accumulator.turns)
+        return None
+
+    @staticmethod
+    def _resolve_acp_stop_reason(
+        *,
+        result_stop_reason: Any,
+        response_text: str,
+        structured_output: StructuredOutputRequest | None,
+        assistant_text_seen: bool,
+    ) -> StopReason:
+        if structured_output is not None and not response_text and not assistant_text_seen:
+            return REFUSAL
+        if _is_fatal_tool_error_text(response_text):
+            return REFUSAL
+        try:
+            return map_llm_stop_reason_to_acp(result_stop_reason)
+        except Exception as e:
+            logger.error(
+                f"Error mapping stop reason: {e}",
+                name="acp_stop_reason_error",
+                exc_info=True,
+            )
+            return END_TURN
 
     def _parse_structured_output_request(
         self,

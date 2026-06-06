@@ -214,12 +214,9 @@ def apply_replacements(
 
 def print_summary(affected: AffectedPaths, out: TextIO) -> None:
     out.write("Success. Updated the following files:\n")
-    for path in affected.added:
-        out.write(f"A {path}\n")
-    for path in affected.modified:
-        out.write(f"M {path}\n")
-    for path in affected.deleted:
-        out.write(f"D {path}\n")
+    out.writelines(f"A {path}\n" for path in affected.added)
+    out.writelines(f"M {path}\n" for path in affected.modified)
+    out.writelines(f"D {path}\n" for path in affected.deleted)
 
 
 def _resolve_target_path(path: Path, base_directory: Path | None) -> Path:

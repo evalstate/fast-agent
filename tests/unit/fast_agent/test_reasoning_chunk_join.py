@@ -22,6 +22,22 @@ def test_normalize_reasoning_delta_inserts_space_after_sentence_break() -> None:
     assert emitted == "approach. Specifying session retrieval format Selecting session retrieval method"
 
 
+def test_normalize_reasoning_delta_inserts_space_before_single_word_sentence_start() -> None:
+    assert join_reasoning_segments(["done.", "Next"]) == "done. Next"
+
+
+def test_normalize_reasoning_delta_inserts_space_before_markdown_after_sentence_break() -> None:
+    assert join_reasoning_segments(["done.", "`next` step"]) == "done. `next` step"
+
+
+def test_normalize_reasoning_delta_inserts_space_before_markdown_list_after_sentence_break() -> None:
+    assert join_reasoning_segments(["done.", "- next step"]) == "done. - next step"
+
+
+def test_normalize_reasoning_delta_inserts_space_before_markdown_heading_after_sentence_break() -> None:
+    assert join_reasoning_segments(["done.", "# Next step"]) == "done. # Next step"
+
+
 def test_normalize_reasoning_delta_preserves_contractions() -> None:
     last_char = None
     emitted = ""

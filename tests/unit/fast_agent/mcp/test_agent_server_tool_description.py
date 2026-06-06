@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -34,6 +35,12 @@ class _DummyAgent:
 
     async def shutdown(self) -> None:
         return None
+
+
+class _DescribedAgent(_DummyAgent):
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = AgentConfig("worker", description="Config description")
 
 
 class _SessionWithExitStack(Protocol):
@@ -107,6 +114,27 @@ def test_tool_description_defaults_when_not_provided():
 
     assert "writer_history" in _prompt_names(server)
     assert _tool(server, "writer").description == "Custom text"
+
+
+def test_tool_description_uses_agent_config_description_when_available():
+    async def create_instance() -> AgentInstance:
+        agent = cast("AgentProtocol", _DescribedAgent())
+        app = AgentApp({"worker": agent})
+        return AgentInstance(app=app, agents={"worker": agent})
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    primary_instance = asyncio.run(create_instance())
+
+    server = AgentMCPServer(
+        primary_instance=primary_instance,
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        instance_scope="shared",
+    )
+
+    assert _tool(server, "worker").description == "Config description"
 
 
 def test_tool_name_template_overrides_default():

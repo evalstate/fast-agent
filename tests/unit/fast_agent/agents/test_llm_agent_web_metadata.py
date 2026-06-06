@@ -14,6 +14,7 @@ from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -189,6 +190,24 @@ def _web_channels() -> dict[str, list[TextContent]]:
             )
         ],
     }
+
+
+@pytest.mark.unit
+def test_url_elicitation_issue_summary_uses_singular_hidden_issue_label(capsys) -> None:
+    agent = LlmAgent(AgentConfig("url-debug"))
+    agent.display = _CaptureDisplay()
+    payload = URLElicitationRequiredDisplayPayload(
+        server_name="docs",
+        request_method="tools/call",
+        elicitations=[],
+        issues=["first", "second", "third", "fourth"],
+    )
+
+    agent._display_single_url_elicitation_payload(payload, agent_name="url-debug")
+
+    output = capsys.readouterr().out
+    assert "... and 1 more issue" in output
+    assert "issue(s)" not in output
 
 
 @pytest.mark.unit

@@ -9,7 +9,7 @@ social:
 ---
 
 
-# Code with HF Inference Providers and llama.cpp
+# Code with HF Inference Providers
 
 Use the latest open weight models via Hugging Face Inference Providers:
 
@@ -51,17 +51,9 @@ This installs the `fast-agent` executable.
 
 ## llama.cpp
 
-To use models hosted locally with [`llama.cpp`](https://llama-cpp.com/), start `llama-server` with your chosen model and then run:
-
-```bash
-fast-agent model llamacpp
-```
-
-This reads the correct model parameters (e.g. context window size) from the `llama.cpp` server, and configures the `fast-agent` model settings correctly.
-
-![llamacpp](2026-03-21-llamacpp.png)
-
-Create a [model overlay](../models/model_overlays.md) file for future use, or start immediately with "Start now".
+`fast-agent` has support for [llama.cpp](https://llama.app). Read the 
+[llama.cpp provider guide](../models/providers/llamacpp.md) to get
+started.
 
 ## Export agent traces to Hugging Face datasets
 

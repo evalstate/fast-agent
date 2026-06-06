@@ -8,7 +8,7 @@ or a maximum number of refinements is attempted.
 """
 
 from enum import Enum
-from typing import Any, List, Optional, Tuple, Type
+from typing import Any
 
 from mcp import Tool
 from opentelemetry import trace
@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.workflow.request_params import child_request_params
+from fast_agent.agents.workflow.structured_prompts import structured_reparse_prompt
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -49,7 +51,7 @@ class EvaluationResult(BaseModel):
     rating: QualityRating = Field(description="Quality rating of the response")
     feedback: str = Field(description="Specific feedback and suggestions for improvement")
     needs_improvement: bool = Field(description="Whether the output needs further improvement")
-    focus_areas: List[str] = Field(
+    focus_areas: list[str] = Field(
         default_factory=list, description="Specific areas to focus on in next iteration"
     )
 
@@ -75,8 +77,8 @@ class EvaluatorOptimizerAgent(LlmAgent):
         evaluator_agent: AgentProtocol,
         min_rating: QualityRating = QualityRating.GOOD,
         max_refinements: int = 3,
-		refinement_instruction: str | None = None,
-        context: Optional[Any] = None,
+        refinement_instruction: str | None = None,
+        context: Any | None = None,
         **kwargs,
     ) -> None:
         """
@@ -108,9 +110,9 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Generate a response through evaluation-guided refinement.
@@ -123,10 +125,10 @@ class EvaluatorOptimizerAgent(LlmAgent):
             The optimized response after evaluation and refinement
         """
         tracer = trace.get_tracer(__name__)
+        forward_params = child_request_params(request_params)
         with tracer.start_as_current_span(f"EvaluatorOptimizer: '{self._name}' generate"):
             # Initialize tracking variables
-            refinement_count = 0
-            best_response = None
+            refinements_made = 0
             best_rating = QualityRating.POOR
             self.refinement_history = []
 
@@ -139,13 +141,14 @@ class EvaluatorOptimizerAgent(LlmAgent):
                 server_name=self.name,
                 arguments={"agent": self.generator_agent.name, "iteration": 0},
             ) as step:
-                response = await self.generator_agent.generate(messages, request_params)
+                response = await self.generator_agent.generate(messages, forward_params)
                 best_response = response
                 await step.finish(True, text=f"{self.generator_agent.name} generated initial response")
 
             # Refinement loop
-            while refinement_count < self.max_refinements:
-                logger.debug(f"Evaluating response (iteration {refinement_count + 1})")
+            while True:
+                evaluation_iteration = refinements_made + 1
+                logger.debug(f"Evaluating response (iteration {evaluation_iteration})")
 
                 # Evaluate current response
                 async with self.workflow_telemetry.start_step(
@@ -153,18 +156,20 @@ class EvaluatorOptimizerAgent(LlmAgent):
                     server_name=self.name,
                     arguments={
                         "agent": self.evaluator_agent.name,
-                        "iteration": refinement_count + 1,
+                        "iteration": evaluation_iteration,
                         "max_refinements": self.max_refinements,
                     },
                 ) as step:
                     eval_prompt = self._build_eval_prompt(
-                        request=request, response=response.last_text() or "", iteration=refinement_count
+                        request=request,
+                        response=response.last_text() or "",
+                        iteration=refinements_made,
                     )
 
                     # Create evaluation message and get structured evaluation result
                     eval_message = Prompt.user(eval_prompt)
                     evaluation_result, _ = await self.evaluator_agent.structured(
-                        [eval_message], EvaluationResult, request_params
+                        [eval_message], EvaluationResult, forward_params
                     )
 
                     # If structured parsing failed, use default evaluation
@@ -179,13 +184,13 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
                     await step.finish(
                         True,
-                        text=f"Evaluation {refinement_count + 1}/{self.max_refinements}: {evaluation_result.rating.value}",
+                        text=f"Evaluation {evaluation_iteration}: {evaluation_result.rating.value}",
                     )
 
                 # Track iteration
                 self.refinement_history.append(
                     {
-                        "attempt": refinement_count + 1,
+                        "attempt": evaluation_iteration,
                         "response": response.all_text(),
                         "evaluation": evaluation_result.model_dump(),
                     }
@@ -213,39 +218,47 @@ class EvaluatorOptimizerAgent(LlmAgent):
                     logger.debug(f"Acceptable quality reached ({evaluation_result.rating})")
                     break
 
+                if refinements_made >= self.max_refinements:
+                    logger.debug("Maximum refinements reached, stopping refinement")
+                    break
+
                 # Generate refined response
                 async with self.workflow_telemetry.start_step(
                     "evaluator_optimizer.refine",
                     server_name=self.name,
                     arguments={
                         "agent": self.generator_agent.name,
-                        "iteration": refinement_count + 1,
+                        "iteration": refinements_made + 1,
                         "previous_rating": evaluation_result.rating.value,
                     },
                 ) as step:
                     refinement_prompt = self._build_refinement_prompt(
+                        request=request,
+                        response=response.all_text(),
                         feedback=evaluation_result,
-                        iteration=refinement_count,
+                        iteration=refinements_made,
                     )
 
                     # Create refinement message and get refined response
                     refinement_message = Prompt.user(refinement_prompt)
-                    response = await self.generator_agent.generate([refinement_message], request_params)
+                    response = await self.generator_agent.generate(
+                        [refinement_message], forward_params
+                    )
                     await step.finish(
                         True,
-                        text=f"{self.generator_agent.name} refined response (iteration {refinement_count + 1})",
+                        text=f"{self.generator_agent.name} refined response (iteration {refinements_made + 1})",
                     )
 
-                refinement_count += 1
+                refinements_made += 1
 
             return best_response
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
-        model: Type[ModelT],
+        messages: list[PromptMessageExtended],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Generate an optimized response and parse it into a structured format.
 
@@ -261,11 +274,18 @@ class EvaluatorOptimizerAgent(LlmAgent):
         response = await self.generate_impl(messages, request_params)
 
         # Delegate structured parsing to the generator agent
-        structured_prompt = Prompt.user(response.all_text())
-        return await self.generator_agent.structured([structured_prompt], model, request_params)
+        forward_params = child_request_params(request_params)
+        structured_prompt = structured_reparse_prompt(
+            response.all_text(),
+            source="evaluator-optimizer",
+        )
+        return await self.generator_agent.structured([structured_prompt], model, forward_params)
 
     async def initialize(self) -> None:
         """Initialize the agent and its generator and evaluator agents."""
+        if self.initialized:
+            return
+
         await super().initialize()
 
         # Initialize generator and evaluator agents if not already initialized
@@ -285,12 +305,12 @@ class EvaluatorOptimizerAgent(LlmAgent):
         try:
             await self.generator_agent.shutdown()
         except Exception as e:
-            logger.warning(f"Error shutting down generator agent: {str(e)}")
+            logger.warning(f"Error shutting down generator agent: {e!s}")
 
         try:
             await self.evaluator_agent.shutdown()
         except Exception as e:
-            logger.warning(f"Error shutting down evaluator agent: {str(e)}")
+            logger.warning(f"Error shutting down evaluator agent: {e!s}")
 
     def _build_eval_prompt(self, request: str, response: str, iteration: int) -> str:
         """
@@ -326,6 +346,8 @@ Evaluate the response for iteration {iteration + 1} and provide feedback on its 
 
     def _build_refinement_prompt(
         self,
+        request: str,
+        response: str,
         feedback: EvaluationResult,
         iteration: int,
     ) -> str:
@@ -358,6 +380,12 @@ Your goal is to address all feedback points while maintaining accuracy and relev
 ```
 
 <fastagent:feedback>
+    <request>
+{request}
+    </request>
+    <previous-response>
+{response}
+    </previous-response>
     <rating>{feedback.rating.name}</rating>
     <details>{feedback.feedback}</details>
     <focus-areas>

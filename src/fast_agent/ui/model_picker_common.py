@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeGuard
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fast_agent.config import get_settings
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, FAST_AGENT_RUNTIME_ENVIRONMENT
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
@@ -15,14 +17,24 @@ from fast_agent.llm.provider.anthropic.vertex_config import (
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
+from fast_agent.utils.action_normalization import on_off_label
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.text import strip_str_to_none
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 ModelSource = Literal["curated", "all"]
 ProviderActivationAction = Literal["codex-login"]
+ModelAvailability = Literal["active", "attention", "inactive"]
+MODEL_AVAILABILITIES: tuple[ModelAvailability, ...] = ("active", "attention", "inactive")
 KEEP_VALUE = "__keep__"
 DEFAULT_VALUE = "__default__"
+
+
+def is_model_availability(value: object) -> TypeGuard[ModelAvailability]:
+    return value in MODEL_AVAILABILITIES
 
 PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.RESPONSES,
@@ -55,6 +67,9 @@ CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
 ANTHROPIC_VERTEX_PROVIDER_KEY = "anthropic-vertex"
 LLAMACPP_PROVIDER_KEY = "llamacpp"
 LLAMACPP_IMPORT_SENTINEL = "llamacpp.__import__"
+PROVIDER_PREFIX_DELIMITERS = ("/", ".")
+ProviderActiveCheck = Callable[[dict[str, Any]], bool]
+ModelSpecTransform = Callable[[str], str]
 
 
 @dataclass(frozen=True)
@@ -71,14 +86,16 @@ class ProviderOption:
     def option_key(self) -> str:
         if self.key is not None:
             return self.key
-        assert self.provider is not None
+        if self.provider is None:
+            raise ValueError("Provider option requires key when provider is unset")
         return self.provider.config_name
 
     @property
     def option_display_name(self) -> str:
         if self.display_name is not None:
             return self.display_name
-        assert self.provider is not None
+        if self.provider is None:
+            raise ValueError("Provider option requires display_name when provider is unset")
         return self.provider.display_name
 
 
@@ -90,6 +107,9 @@ class ModelOption:
     fast: bool = False
     curated: bool = False
     activation_action: ProviderActivationAction | None = None
+
+
+SyntheticProviderOptionFactory = Callable[[Provider], list[ModelOption] | None]
 
 
 @dataclass(frozen=True)
@@ -125,35 +145,45 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
     if ProviderKeyManager.get_env_var(provider.config_name):
         return True
 
-    if provider == Provider.GOOGLE:
-        google_cfg = config_payload.get("google")
-        if isinstance(google_cfg, dict):
-            vertex_cfg = google_cfg.get("vertex_ai")
-            if isinstance(vertex_cfg, dict) and bool(vertex_cfg.get("enabled")):
-                return True
+    if active_check := _PROVIDER_ACTIVE_CHECKS.get(provider):
+        return active_check(config_payload)
 
-    if provider == Provider.AZURE:
-        azure_cfg = config_payload.get("azure")
-        if isinstance(azure_cfg, dict):
-            use_default = bool(azure_cfg.get("use_default_azure_credential"))
-            base_url = azure_cfg.get("base_url")
-            if use_default and isinstance(base_url, str) and bool(base_url.strip()):
-                return True
+    return provider in {Provider.FAST_AGENT, Provider.GENERIC}
 
-    if provider == Provider.CODEX_RESPONSES:
-        try:
-            from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
 
-            status = get_codex_token_status()
-            if bool(status.get("present")):
-                return True
-        except Exception:
-            pass
+def _google_vertex_is_active(config_payload: dict[str, Any]) -> bool:
+    google_cfg = config_payload.get("google")
+    if not isinstance(google_cfg, dict):
+        return False
+    vertex_cfg = google_cfg.get("vertex_ai")
+    return isinstance(vertex_cfg, dict) and bool(vertex_cfg.get("enabled"))
 
-    if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
-        return True
 
-    return False
+def _azure_default_credential_is_active(config_payload: dict[str, Any]) -> bool:
+    azure_cfg = config_payload.get("azure")
+    if not isinstance(azure_cfg, dict):
+        return False
+    use_default = bool(azure_cfg.get("use_default_azure_credential"))
+    base_url = azure_cfg.get("base_url")
+    normalized_base_url = strip_str_to_none(base_url)
+    return use_default and normalized_base_url is not None
+
+
+def _codex_oauth_is_active(_config_payload: dict[str, Any]) -> bool:
+    try:
+        from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
+
+        status = get_codex_token_status()
+        return bool(status.get("present"))
+    except Exception:
+        return False
+
+
+_PROVIDER_ACTIVE_CHECKS: dict[Provider, ProviderActiveCheck] = {
+    Provider.GOOGLE: _google_vertex_is_active,
+    Provider.AZURE: _azure_default_credential_is_active,
+    Provider.CODEX_RESPONSES: _codex_oauth_is_active,
+}
 
 
 def _catalog_options_from_entries(
@@ -161,31 +191,18 @@ def _catalog_options_from_entries(
     *,
     provider: Provider,
     source: ModelSource,
-    spec_transform: Any = None,
+    spec_transform: ModelSpecTransform | None = None,
     filter_current: bool = True,
 ) -> list[ModelOption]:
-    transform = spec_transform or (lambda value: value)
+    transform = spec_transform or _identity_model_spec
 
     entry_options: list[ModelOption] = []
     for entry in entries:
         spec = transform(entry.model)
-        tags: list[str] = []
-        if entry.local:
-            tags.append("local")
-        if entry.fast:
-            tags.append("fast")
-        if not entry.current:
-            tags.append("legacy")
-
-        suffix = f" ({', '.join(tags)})" if tags else ""
-        entry_label = entry.display_label or entry.alias
-        label = f"{entry_label:<19} → {spec}{suffix}"
-        if entry.description:
-            label = f"{label} — {entry.description}"
         entry_options.append(
             ModelOption(
                 spec=spec,
-                label=label,
+                label=format_catalog_model_entry_label(entry, spec=spec),
                 preset_token=entry.alias,
                 fast=entry.fast,
                 curated=entry.current,
@@ -195,7 +212,9 @@ def _catalog_options_from_entries(
     if source == "curated":
         if not filter_current:
             return entry_options
-        return [option for entry, option in zip(entries, entry_options) if entry.current]
+        return [
+            option for entry, option in zip(entries, entry_options, strict=True) if entry.current
+        ]
 
     seen_identities: set[tuple[Provider, str]] = set()
     options: list[ModelOption] = list(entry_options)
@@ -216,28 +235,72 @@ def _catalog_options_from_entries(
     return options
 
 
+def _identity_model_spec(model_spec: str) -> str:
+    return model_spec
+
+
+def catalog_model_entry_tags(entry: CatalogModelEntry) -> tuple[str, ...]:
+    tags: list[str] = []
+    if entry.local:
+        tags.append("local")
+    if entry.fast:
+        tags.append("fast")
+    if not entry.current:
+        tags.append("legacy")
+    return tuple(tags)
+
+
+def format_catalog_model_entry_label(entry: CatalogModelEntry, *, spec: str | None = None) -> str:
+    resolved_spec = spec or entry.model
+    tags = catalog_model_entry_tags(entry)
+    suffix = f" ({', '.join(tags)})" if tags else ""
+    label = f"{(entry.display_label or entry.alias):<19} → {resolved_spec}{suffix}"
+    if entry.description:
+        label = f"{label} — {entry.description}"
+    return label
+
+
+def _generic_provider_model_options(_provider: Provider) -> list[ModelOption]:
+    return [
+        ModelOption(
+            spec=GENERIC_CUSTOM_MODEL_SENTINEL,
+            label="Enter local model string (e.g. llama3.2)",
+        )
+    ]
+
+
+def _refer_to_docs_provider_model_options(provider: Provider) -> list[ModelOption]:
+    return [
+        ModelOption(
+            spec=f"{provider.config_name}.refer-to-docs",
+            label="Refer to docs (provider-specific setup)",
+        )
+    ]
+
+
+_SYNTHETIC_PROVIDER_OPTION_FACTORIES: dict[Provider, SyntheticProviderOptionFactory] = {
+    Provider.GENERIC: _generic_provider_model_options,
+    **{provider: _refer_to_docs_provider_model_options for provider in REFER_TO_DOCS_PROVIDERS},
+}
+
+
+def _synthetic_provider_model_options(provider: Provider) -> list[ModelOption] | None:
+    factory = _SYNTHETIC_PROVIDER_OPTION_FACTORIES.get(provider)
+    if factory is None:
+        return None
+    return factory(provider)
+
+
 def model_options_for_option(
-    snapshot: ModelPickerSnapshot,
     option: ProviderOption,
     *,
     source: ModelSource,
 ) -> list[ModelOption]:
     provider = option.provider
-    if provider == Provider.GENERIC:
-        return [
-            ModelOption(
-                spec=GENERIC_CUSTOM_MODEL_SENTINEL,
-                label="Enter local model string (e.g. llama3.2)",
-            )
-        ]
-
-    if provider in REFER_TO_DOCS_PROVIDERS:
-        return [
-            ModelOption(
-                spec=f"{provider.config_name}.refer-to-docs",
-                label="Refer to docs (provider-specific setup)",
-            )
-        ]
+    if provider is not None:
+        synthetic_options = _synthetic_provider_model_options(provider)
+        if synthetic_options is not None:
+            return synthetic_options
 
     if option.option_key == LLAMACPP_PROVIDER_KEY:
         return [
@@ -255,7 +318,8 @@ def model_options_for_option(
             filter_current=False,
         )
 
-    assert provider is not None
+    if provider is None:
+        raise ValueError(f"Provider option '{option.option_key}' has no model provider")
     return _catalog_options_from_entries(
         option.curated_entries,
         provider=provider,
@@ -296,10 +360,7 @@ def build_snapshot(
         )
         for overlay in overlay_registry.overlays
     )
-    if overlay_entries:
-        overlay_group_active = True
-    else:
-        overlay_group_active = False
+    overlay_group_active = bool(overlay_entries)
     providers.append(
         ProviderOption(
             provider=None,
@@ -359,58 +420,133 @@ def _load_overlay_registry_for_snapshot(
     config_payload: dict[str, Any],
     start_path: Path | None,
 ):
+    env_dir = config_payload.get("environment_dir")
+    normalized_env_dir = _normalized_overlay_env_dir(env_dir)
+    candidate_starts = _overlay_candidate_starts(
+        config_path=config_path,
+        env_dir=env_dir,
+        normalized_env_dir=normalized_env_dir,
+        start_path=start_path,
+    )
+
+    if normalized_env_dir is None and (config_path is not None or start_path is not None):
+        normalized_env_dir = DEFAULT_ENVIRONMENT_DIR
+
+    return _first_overlay_registry_with_entries(
+        _dedupe_paths(candidate_starts),
+        env_dir=normalized_env_dir,
+    )
+
+
+def _normalized_overlay_env_dir(env_dir: object) -> str | Path | None:
     from pathlib import Path as _Path
 
-    env_dir = config_payload.get("environment_dir")
-    normalized_env_dir = env_dir if isinstance(env_dir, (str, _Path)) else None
+    if isinstance(env_dir, (str, _Path)):
+        return env_dir
+    return os.getenv(FAST_AGENT_RUNTIME_ENVIRONMENT) or os.getenv("ENVIRONMENT_DIR")
 
-    candidate_starts: list[_Path] = []
+
+def _overlay_candidate_starts(
+    *,
+    config_path: str | Path | None,
+    env_dir: object,
+    normalized_env_dir: str | Path | None,
+    start_path: Path | None,
+) -> list[Path]:
+    from pathlib import Path as _Path
+
     if config_path is not None:
-        config_file = _Path(config_path).expanduser().resolve()
-        candidate_starts.append(config_file.parent)
+        return _config_overlay_candidate_starts(
+            config_path=config_path,
+            env_dir=env_dir,
+            normalized_env_dir=normalized_env_dir,
+        )
 
-        relative_env_dir: _Path | None = None
-        if normalized_env_dir is None:
-            relative_env_dir = _Path(DEFAULT_ENVIRONMENT_DIR)
-        else:
-            env_path = _Path(normalized_env_dir).expanduser()
-            if not env_path.is_absolute():
-                relative_env_dir = env_path
+    if start_path is not None:
+        return [_Path(start_path).expanduser().resolve()]
+    return [_Path.cwd().resolve()]
 
-        if relative_env_dir is not None and relative_env_dir.parts:
-            env_parts = relative_env_dir.parts
-            parent_parts = config_file.parent.parts
-            if len(env_parts) <= len(parent_parts) and parent_parts[-len(env_parts) :] == env_parts:
-                project_root = config_file.parent
-                for _ in env_parts:
-                    project_root = project_root.parent
-                if project_root != config_file.parent:
-                    candidate_starts.append(project_root)
 
-    if config_path is None and start_path is not None:
-        candidate_starts.append(_Path(start_path).expanduser().resolve())
+def _config_overlay_candidate_starts(
+    *,
+    config_path: str | Path,
+    env_dir: object,
+    normalized_env_dir: str | Path | None,
+) -> list[Path]:
+    from pathlib import Path as _Path
 
-    if config_path is None and start_path is None:
-        candidate_starts.append(_Path.cwd().resolve())
+    config_file = _Path(config_path).expanduser().resolve()
+    candidate_starts: list[Path] = [config_file.parent]
+    relative_env_dir = _relative_overlay_env_dir(
+        env_dir=env_dir,
+        normalized_env_dir=normalized_env_dir,
+    )
+    project_root = _project_root_for_env_config(config_file.parent, relative_env_dir)
+    if project_root is not None:
+        candidate_starts.append(project_root)
+    return candidate_starts
 
-    seen: set[_Path] = set()
-    ordered_starts: list[_Path] = []
-    for candidate in candidate_starts:
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        ordered_starts.append(candidate)
+
+def _relative_overlay_env_dir(
+    *,
+    env_dir: object,
+    normalized_env_dir: str | Path | None,
+) -> Path | None:
+    from pathlib import Path as _Path
+
+    if env_dir is None:
+        return _Path(DEFAULT_ENVIRONMENT_DIR)
+    if normalized_env_dir is None:
+        raise ValueError("environment_dir must be a string or path")
+
+    env_path = _Path(normalized_env_dir).expanduser()
+    if env_path.is_absolute():
+        return None
+    return env_path
+
+
+def _project_root_for_env_config(config_dir: Path, relative_env_dir: Path | None) -> Path | None:
+    if relative_env_dir is None or not relative_env_dir.parts:
+        return None
+
+    env_parts = relative_env_dir.parts
+    parent_parts = config_dir.parts
+    if len(env_parts) > len(parent_parts) or parent_parts[-len(env_parts) :] != env_parts:
+        return None
+
+    project_root = config_dir
+    for _ in env_parts:
+        project_root = project_root.parent
+    if project_root == config_dir:
+        return None
+    return project_root
+
+
+def _dedupe_paths(candidate_starts: list[Path]) -> list[Path]:
+    return unique_preserve_order(candidate_starts)
+
+
+def _first_overlay_registry_with_entries(
+    ordered_starts: list[Path],
+    *,
+    env_dir: str | Path | None,
+):
+    from pathlib import Path as _Path
 
     fallback_registry = None
-    for start_path in ordered_starts:
-        registry = load_model_overlay_registry(start_path=start_path, env_dir=normalized_env_dir)
+    for overlay_start_path in ordered_starts:
+        registry = load_model_overlay_registry(
+            start_path=overlay_start_path,
+            env_dir=env_dir,
+        )
         if fallback_registry is None:
             fallback_registry = registry
         if registry.overlays:
             return registry
 
-    assert fallback_registry is not None
-    return fallback_registry
+    if fallback_registry is not None:
+        return fallback_registry
+    return load_model_overlay_registry(start_path=_Path.cwd().resolve(), env_dir=env_dir)
 
 
 def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> ProviderOption:
@@ -420,22 +556,29 @@ def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> Provider
     raise ValueError(f"Unknown provider: {provider_name}")
 
 
-def build_provider_label(option: ProviderOption) -> str:
+def provider_option_status_label(option: ProviderOption) -> str:
     if option.option_key == LLAMACPP_PROVIDER_KEY:
-        status = "active"
-        count_text = "import flow"
-        return f"{option.option_display_name:<16} [{status}] · {count_text}"
+        return "active"
+    if option.active:
+        return "active"
+    if option.disabled_reason:
+        return "disabled"
+    return "inactive"
 
-    status = "active" if option.active else "disabled" if option.disabled_reason else "inactive"
+
+def provider_option_count_label(option: ProviderOption) -> str:
+    if option.option_key == LLAMACPP_PROVIDER_KEY:
+        return "import flow"
+
     curated_count = len(option.curated_entries)
     if option.overlay_group:
-        entry_text = "overlay" if curated_count == 1 else "overlays"
-        count_text = f"{curated_count} {entry_text}"
-    else:
-        count_text = f"{curated_count} curated model"
-        if curated_count != 1:
-            count_text += "s"
-    return f"{option.option_display_name:<16} [{status}] · {count_text}"
+        return format_count(curated_count, "overlay")
+    return format_count(curated_count, "curated model")
+
+
+def build_provider_label(option: ProviderOption) -> str:
+    count_text = provider_option_count_label(option)
+    return f"{option.option_display_name:<16} [{provider_option_status_label(option)}] · {count_text}"
 
 
 def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:
@@ -444,15 +587,10 @@ def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:
 
 def has_explicit_provider_prefix(model_spec: str) -> bool:
     provider_names = {provider.config_name for provider in Provider}
-
-    slash_prefix, _, slash_rest = model_spec.partition("/")
-    if slash_prefix and slash_rest and slash_prefix in provider_names:
-        return True
-
-    dot_prefix, _, dot_rest = model_spec.partition(".")
-    if dot_prefix and dot_rest and dot_prefix in provider_names:
-        return True
-
+    for delimiter in PROVIDER_PREFIX_DELIMITERS:
+        prefix, separator, rest = model_spec.partition(delimiter)
+        if prefix and separator and rest and prefix in provider_names:
+            return True
     return False
 
 
@@ -530,21 +668,9 @@ def model_options_for_provider(
     *,
     source: ModelSource,
 ) -> list[ModelOption]:
-    if provider == Provider.GENERIC:
-        return [
-            ModelOption(
-                spec=GENERIC_CUSTOM_MODEL_SENTINEL,
-                label="Enter local model string (e.g. llama3.2)",
-            )
-        ]
-
-    if provider in REFER_TO_DOCS_PROVIDERS:
-        return [
-            ModelOption(
-                spec=f"{provider.config_name}.refer-to-docs",
-                label="Refer to docs (provider-specific setup)",
-            )
-        ]
+    synthetic_options = _synthetic_provider_model_options(provider)
+    if synthetic_options is not None:
+        return synthetic_options
 
     provider_option = find_provider(snapshot, provider.config_name)
     activation_action = provider_activation_action(snapshot, provider)
@@ -632,23 +758,20 @@ def apply_option_overrides(
     """
 
     result = model_spec
-
-    if reasoning_value is not None:
-        target = None if reasoning_value == DEFAULT_VALUE else reasoning_value
-        result = _update_query_param(result, key="reasoning", value=target)
-
-    if web_search_value is not None:
-        target = None if web_search_value == DEFAULT_VALUE else web_search_value
-        result = _update_query_param(result, key="web_search", value=target)
-
-    if context_value is not None:
-        target = None if context_value == DEFAULT_VALUE else context_value
-        result = _update_query_param(result, key="context", value=target)
-
+    overrides = {
+        "reasoning": reasoning_value,
+        "web_search": web_search_value,
+        "context": context_value,
+    }
+    for key, selected_value in overrides.items():
+        if selected_value is None:
+            continue
+        target = None if selected_value == DEFAULT_VALUE else selected_value
+        result = _update_query_param(result, key=key, value=target)
     return result
 
 
 def web_search_display(value: bool | None) -> str:
     if value is None:
         return "default"
-    return "on" if value else "off"
+    return on_off_label(value)

@@ -38,6 +38,8 @@ class TestClient(Client):
     def __init__(self) -> None:
         self.permission_outcomes: list[RequestPermissionResponse] = []
         self.files: dict[str, str] = {}
+        self.file_reads: list[str] = []
+        self.file_writes: list[tuple[str, str]] = []
         self.notifications: list[dict[str, Any]] = []  # Store as dicts for flexibility
         self.ext_calls: list[tuple[str, dict[str, Any]]] = []
         self.ext_notes: list[tuple[str, dict[str, Any]]] = []
@@ -47,6 +49,8 @@ class TestClient(Client):
     def reset(self) -> None:
         self.permission_outcomes.clear()
         self.files.clear()
+        self.file_reads.clear()
+        self.file_writes.clear()
         self.notifications.clear()
         self.ext_calls.clear()
         self.ext_notes.clear()
@@ -85,6 +89,7 @@ class TestClient(Client):
         **kwargs: Any,
     ) -> WriteTextFileResponse | None:
         self.files[str(path)] = content
+        self.file_writes.append((str(path), content))
         return WriteTextFileResponse()
 
     async def read_text_file(
@@ -95,6 +100,7 @@ class TestClient(Client):
         line: int | None = None,
         **kwargs: Any,
     ) -> ReadTextFileResponse:
+        self.file_reads.append(str(path))
         content = self.files.get(str(path), "default content")
         return ReadTextFileResponse(content=content)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.count_display import format_count
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -17,8 +18,7 @@ def _pending_tool_call_summary(message: PromptMessageExtended) -> str | None:
 
     tool_names = [call.params.name for call in tool_calls.values() if call.params.name]
     if not tool_names:
-        count = len(tool_calls)
-        return "Pending tool call" if count == 1 else f"Pending tool calls ({count})"
+        return f"Pending {format_count(len(tool_calls), 'tool call')}"
 
     if len(tool_names) == 1:
         return f"Pending tool call: {tool_names[0]}"

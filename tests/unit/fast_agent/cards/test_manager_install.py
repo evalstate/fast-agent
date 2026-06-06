@@ -55,19 +55,24 @@ def _write_pack(repo, *, pack_subdir: str, pack_name: str, files: list[str]) -> 
         f"  tool_cards: ['tool-cards/{pack_name}-tool.md']",
         "  files:",
     ]
-    for entry in files:
-        manifest_lines.append(f"    - '{entry}'")
+    manifest_lines.extend(f"    - '{entry}'" for entry in files)
 
     (pack_root / "card-pack.yaml").write_text("\n".join(manifest_lines) + "\n", encoding="utf-8")
 
 
-def _pack(repo, *, name: str, path: str) -> manager.MarketplaceCardPack:
+def _pack(
+    repo,
+    *,
+    name: str,
+    path: str,
+    repo_ref: str | None = None,
+) -> manager.MarketplaceCardPack:
     return manager.MarketplaceCardPack(
         name=name,
         description="test pack",
         kind="bundle",
         repo_url=str(repo),
-        repo_ref=None,
+        repo_ref=repo_ref,
         repo_path=path,
         source_url=None,
     )
@@ -106,6 +111,85 @@ def test_install_copies_expected_files_and_writes_sidecar(tmp_path) -> None:
     assert source.kind == "bundle"
 
 
+@pytest.mark.parametrize("install_mode", ["repo_ref", "pinned_revision"])
+def test_install_local_card_pack_ref_copies_committed_content(
+    tmp_path,
+    install_mode: str,
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_pack(repo, pack_subdir="packs/alpha", pack_name="alpha", files=["shared/helper.txt"])
+    first_commit = _commit_all(repo, "initial")
+
+    (repo / "packs" / "alpha" / "agent-cards" / "alpha.md").write_text(
+        "---\nname: alpha\nmodel: passthrough\n---\n\nworking tree change\n",
+        encoding="utf-8",
+    )
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    pack = _pack(repo, name="alpha", path="packs/alpha")
+    pinned_revision = None
+    if install_mode == "repo_ref":
+        pack = _pack(repo, name="alpha", path="packs/alpha", repo_ref=first_commit)
+    else:
+        pinned_revision = first_commit
+
+    result = manager._install_marketplace_card_pack_sync(
+        pack,
+        env_paths,
+        False,
+        False,
+        pinned_revision,
+    )
+
+    installed_card = (env_paths.agent_cards / "alpha.md").read_text(encoding="utf-8")
+    assert "hello" in installed_card
+    assert "working tree change" not in installed_card
+    assert result.source.installed_commit == first_commit
+
+
+def test_install_dirty_local_card_pack_records_local_revision(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_pack(repo, pack_subdir="packs/alpha", pack_name="alpha", files=["shared/helper.txt"])
+    _commit_all(repo, "initial")
+
+    (repo / "packs" / "alpha" / "agent-cards" / "alpha.md").write_text(
+        "---\nname: alpha\nmodel: passthrough\n---\n\ndirty content\n",
+        encoding="utf-8",
+    )
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    result = manager._install_marketplace_card_pack_sync(
+        _pack(repo, name="alpha", path="packs/alpha"),
+        env_paths,
+        False,
+        False,
+        None,
+    )
+
+    installed_card = (env_paths.agent_cards / "alpha.md").read_text(encoding="utf-8")
+    assert "dirty content" in installed_card
+    assert result.source.installed_revision == manager.LOCAL_REVISION
+    assert result.source.installed_commit is None
+    assert result.source.installed_path_oid is None
+
+
+def test_format_missing_installed_files_detail_uses_singular_label() -> None:
+    assert manager._format_missing_installed_files_detail(["agent-cards/alpha.md"]) == (
+        "missing installed file in environment: agent-cards/alpha.md"
+    )
+
+
+def test_format_missing_installed_files_detail_uses_plural_label_and_preview_limit() -> None:
+    assert manager._format_missing_installed_files_detail([
+        "one.md",
+        "two.md",
+        "three.md",
+        "four.md",
+    ]) == "missing installed files in environment: one.md, two.md, three.md, ..."
+
+
 def test_install_rejects_manifest_path_traversal(tmp_path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -121,6 +205,14 @@ def test_install_rejects_manifest_path_traversal(tmp_path) -> None:
             False,
             None,
         )
+
+
+def test_validate_pack_source_dir_rejects_manifest_directory(tmp_path) -> None:
+    source_dir = tmp_path / "pack"
+    (source_dir / "card-pack.yaml").mkdir(parents=True)
+
+    with pytest.raises(FileNotFoundError, match="card-pack.yaml not found"):
+        manager._validate_pack_source_dir(source_dir, "packs/alpha")
 
 
 def test_install_detects_ownership_conflicts(tmp_path) -> None:

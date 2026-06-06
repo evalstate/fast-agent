@@ -103,6 +103,27 @@ def test_convert_log_event_keeps_mcp_web_tool_progress_events() -> None:
     assert progress_event.server_name == "my_tools"
 
 
+def test_convert_log_event_mcp_resource_read_uses_resource_action_and_details() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.mcp.mcp_aggregator",
+        message="Requesting resource",
+        data={
+            "data": {
+                "progress_action": ProgressAction.READING_RESOURCE,
+                "agent_name": "assistant",
+                "server_name": "docs",
+                "details": "file://README.md",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is not None
+    assert progress_event.action == ProgressAction.READING_RESOURCE
+    assert progress_event.details == "docs - file://README.md"
+
+
 def test_convert_log_event_skips_loaded_progress_events() -> None:
     event = Event(
         type="info",
@@ -142,6 +163,70 @@ def test_convert_log_event_llm_tool_context_uses_server_and_tool_when_available(
     progress_event = convert_log_event(event)
     assert progress_event is not None
     assert progress_event.details == "gpt-5 • search (start)"
+
+
+def test_convert_log_event_ignores_non_string_tool_context_fields() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.llm.provider.openai.llm_openai",
+        message="Model started streaming tool call",
+        data={
+            "data": {
+                "progress_action": ProgressAction.CALLING_TOOL,
+                "agent_name": "assistant",
+                "model": "gpt-5",
+                "tool_name": 123,
+                "server_name": " research ",
+                "tool_use_id": "use-42",
+                "tool_event": object(),
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is not None
+    assert progress_event.details == "gpt-5 • research"
+
+
+def test_convert_log_event_llm_tool_context_omits_blank_model_prefix() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.llm.provider.openai.llm_openai",
+        message="Model started streaming tool call",
+        data={
+            "data": {
+                "progress_action": ProgressAction.CALLING_TOOL,
+                "agent_name": "assistant",
+                "model": " ",
+                "tool_name": "search",
+                "tool_use_id": "use-42",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is not None
+    assert progress_event.details == "search"
+
+
+def test_convert_log_event_llm_chat_turn_omits_blank_model_prefix() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.llm.provider.openai.llm_openai",
+        message="Model turn",
+        data={
+            "data": {
+                "progress_action": ProgressAction.READY,
+                "agent_name": "assistant",
+                "model": "",
+                "chat_turn": 3,
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is not None
+    assert progress_event.details == "turn 3"
 
 
 def test_convert_log_event_generic_tool_progress_includes_context_and_details() -> None:
@@ -187,3 +272,19 @@ def test_convert_log_event_fatal_error_uses_server_name_as_target_when_agent_mis
     assert progress_event is not None
     assert progress_event.target == "127-0-0-1"
     assert progress_event.details == "Connection refused"
+
+
+def test_convert_log_event_ignores_invalid_progress_action() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.custom.runtime",
+        message="Invalid progress action",
+        data={
+            "data": {
+                "progress_action": "not-a-progress-action",
+                "agent_name": "assistant",
+            }
+        },
+    )
+
+    assert convert_log_event(event) is None

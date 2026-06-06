@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.table import Table
 from rich.text import Text
 
+from fast_agent.marketplace.update_status import MarketplaceUpdateStatus, format_update_status_text
 from fast_agent.ui.a3_headers import build_a3_section_header
+from fast_agent.utils.path_display import format_relative_path
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from pathlib import Path
 
     from rich.console import Console
 
@@ -27,7 +29,21 @@ def print_section_header(console: Console, title: str, *, color: str = "blue") -
 
 def print_hint(console: Console, message: str) -> None:
     """Render a low-emphasis CLI hint line."""
-    console.print(f"[dim]  {message}[/dim]")
+    console.print(Text(f"  {message}", style="dim"))
+
+
+def print_warning(console: Console, message: str) -> None:
+    """Render a warning line with the CLI's standard warning style."""
+    console.print(Text(message, style="yellow"))
+
+
+def indexed_table(*columns: tuple[str, str]) -> Table:
+    """Create a standard CLI table with the leading one-based index column."""
+    table = Table(show_header=True, box=None)
+    table.add_column("#", justify="right", style="dim", header_style="bold bright_white")
+    for name, style in columns:
+        table.add_column(name, style=style, header_style="bold bright_white")
+    return table
 
 
 def print_detail_line(
@@ -74,11 +90,7 @@ def print_detail_section(
 
 def format_display_path(path: Path, *, cwd: Path | None = None) -> str:
     """Format a path relative to the current working directory when possible."""
-    base = cwd or Path.cwd()
-    try:
-        return str(path.relative_to(base))
-    except ValueError:
-        return str(path)
+    return format_relative_path(path, cwd=cwd)
 
 
 @dataclass(frozen=True)
@@ -88,7 +100,7 @@ class UpdateDisplayRow:
     source_path: Path
     current_revision: str | None
     available_revision: str | None
-    status: str
+    status: MarketplaceUpdateStatus
     detail: str | None = None
 
 
@@ -113,9 +125,7 @@ def print_update_table(
             available = format_revision_short(row.available_revision)
             revision_display = f"{current} -> {available}"
 
-        status = row.status.replace("_", " ")
-        if row.detail:
-            status = f"{status}: {row.detail}"
+        status = format_update_status_text(row.status, detail=row.detail)
 
         table.add_row(
             str(row.index),

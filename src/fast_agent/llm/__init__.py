@@ -19,11 +19,11 @@ from .hf_inference_lookup import (
 from .request_params import RequestParams
 
 __all__ = [
-    "RequestParams",
-    "lookup_inference_providers",
-    "lookup_inference_providers_sync",
     "InferenceProvider",
     "InferenceProviderLookupResult",
     "InferenceProviderStatus",
+    "RequestParams",
     "format_inference_lookup_message",
+    "lookup_inference_providers",
+    "lookup_inference_providers_sync",
 ]

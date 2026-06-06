@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from fast_agent.llm.provider.openai.openresponses_streaming import OpenResponsesStreamingMixin
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider.openai.responses_events import is_responses_terminal_event
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
@@ -41,11 +42,7 @@ class _OpenResponsesRawStream:
 
     async def _iterate(self):
         async for event in self._raw_stream:
-            if getattr(event, "type", None) in {
-                "response.completed",
-                "response.incomplete",
-                "response.done",
-            }:
+            if is_responses_terminal_event(getattr(event, "type", None)):
                 self._final_response = getattr(event, "response", None) or self._final_response
             yield event
 

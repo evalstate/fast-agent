@@ -905,3 +905,33 @@ def test_batch_run_hf_dataset_requires_export_traces(tmp_path):
 
     assert result.exit_code != 0
     assert "--hf-dataset requires --export-traces" in result.output
+
+
+def test_batch_run_treats_blank_hf_dataset_as_missing_for_dataset_path(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(tmp_path / "rows.jsonl"),
+            "--output",
+            str(tmp_path / "out.jsonl"),
+            "--export-traces",
+            str(tmp_path / "traces"),
+            "--hf-dataset",
+            "   ",
+            "--hf-dataset-path",
+            "runs/",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--hf-dataset-path requires --hf-dataset" in result.output

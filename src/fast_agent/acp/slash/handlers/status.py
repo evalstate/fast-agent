@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as get_version
 from typing import TYPE_CHECKING
 
@@ -18,23 +20,43 @@ from fast_agent.commands.status_summaries import (
     build_system_prompt_summary,
 )
 from fast_agent.paths import resolve_environment_paths
+from fast_agent.utils.action_normalization import normalize_action_token
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from fast_agent.acp.slash_commands import SlashCommandHandler
 
 
+type _StatusSubcommandHandler = Callable[["SlashCommandHandler"], Awaitable[str]]
+
+
+async def _handle_status_system_subcommand(handler: "SlashCommandHandler") -> str:
+    return await handle_status_system(handler)
+
+
+async def _handle_status_auth_subcommand(handler: "SlashCommandHandler") -> str:
+    return handle_status_auth(handler)
+
+
+async def _handle_status_authreset_subcommand(handler: "SlashCommandHandler") -> str:
+    return handle_status_authreset(handler)
+
+
+_STATUS_SUBCOMMAND_HANDLERS: dict[str, _StatusSubcommandHandler] = {
+    "system": _handle_status_system_subcommand,
+    "auth": _handle_status_auth_subcommand,
+    "authreset": _handle_status_authreset_subcommand,
+}
+
+
 async def handle_status(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    normalized = (arguments or "").strip().lower()
-    if normalized == "system":
-        return await handle_status_system(handler)
-    if normalized == "auth":
-        return handle_status_auth(handler)
-    if normalized == "authreset":
-        return handle_status_authreset(handler)
+    normalized = normalize_action_token(arguments)
+    if subcommand_handler := _STATUS_SUBCOMMAND_HANDLERS.get(normalized):
+        return await subcommand_handler(handler)
 
     try:
         fa_version = get_version("fast-agent-mcp")
-    except Exception:
+    except PackageNotFoundError:
         fa_version = "unknown"
 
     agent = handler._get_current_agent()
@@ -96,7 +118,7 @@ def handle_status_auth(handler: "SlashCommandHandler") -> str:
 
     try:
         content = auths_path.read_text(encoding="utf-8")
-        message = content.strip() if content.strip() else "No permissions set"
+        message = strip_to_none(content) or "No permissions set"
         summary = build_permissions_summary(
             heading=heading,
             message=message,

@@ -14,7 +14,10 @@ from fast_agent.llm.provider.anthropic.beta_types import (
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
 )
-from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+from fast_agent.llm.provider.anthropic.llm_anthropic import (
+    AnthropicLLM,
+    _is_beta_text_block_validation_error,
+)
 
 REPO_ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "tests" / "support").is_dir()
@@ -217,6 +220,37 @@ async def test_anthropic_server_tool_start_stop_without_delta() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_anthropic_incomplete_tool_call_uses_shared_error_message() -> None:
+    harness = _AnthropicReplayHarness()
+    stream = _SyntheticAnthropicStream(
+        [
+            RawContentBlockStartEvent.model_validate(
+                {
+                    "type": "content_block_start",
+                    "index": 2,
+                    "content_block": {
+                        "type": "mcp_tool_use",
+                        "id": "mcptoolu_1",
+                        "name": "hf_hub_query",
+                        "server_name": "huggingface_mcp",
+                        "input": {},
+                    },
+                }
+            ),
+        ],
+        final_message=_anthropic_message(),
+    )
+
+    with pytest.raises(RuntimeError, match="tool call never finished"):
+        await harness._process_stream(
+            cast("Any", stream),
+            model="claude-sonnet-4-6",
+            capture_filename=None,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
     harness = _AnthropicReplayHarness()
     stream = _SyntheticAnthropicStream(
@@ -299,6 +333,20 @@ async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
             },
         },
     ]
+
+
+@pytest.mark.unit
+def test_beta_text_block_validation_error_detection_is_case_insensitive() -> None:
+    error = ValueError("BETATEXTBLOCK input should be a valid string for TEXT")
+
+    assert _is_beta_text_block_validation_error(error) is True
+
+
+@pytest.mark.unit
+def test_beta_text_block_validation_error_detection_rejects_other_errors() -> None:
+    error = ValueError("BetaTextBlock input should be a valid object for text")
+
+    assert _is_beta_text_block_validation_error(error) is False
 
 
 @pytest.mark.unit

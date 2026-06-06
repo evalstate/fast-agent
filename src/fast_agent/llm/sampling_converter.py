@@ -167,12 +167,12 @@ class SamplingConverter:
         Returns:
             List of content blocks suitable for CreateMessageResult
         """
-        content_blocks: list[SamplingMessageContentBlock] = []
-
         # Add text and other standard content
-        for item in response.content:
-            if isinstance(item, (TextContent, ImageContent, AudioContent)):
-                content_blocks.append(item)
+        content_blocks: list[SamplingMessageContentBlock] = [
+            item
+            for item in response.content
+            if isinstance(item, (TextContent, ImageContent, AudioContent))
+        ]
 
         # Convert tool_calls to ToolUseContent
         if response.tool_calls:

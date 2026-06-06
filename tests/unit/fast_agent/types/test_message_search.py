@@ -2,6 +2,7 @@
 
 import re
 
+import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.types import (
@@ -500,3 +501,44 @@ def test_search_messages_no_matches():
 
     results = search_messages(messages, "goodbye", scope="user")
     assert results == []
+
+
+def test_search_messages_rejects_unknown_scope():
+    """Unknown scopes should fail instead of silently returning no matches."""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="Hello world")],
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="unknown"):
+        search_messages(messages, "Hello", scope="unknown")  # ty: ignore[invalid-argument-type]
+
+
+def test_find_matches_rejects_unknown_scope():
+    """Match extraction should use the same scope validation as search."""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="Hello world")],
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="unknown"):
+        find_matches(messages, "Hello", scope="unknown")  # ty: ignore[invalid-argument-type]
+
+
+def test_extract_helpers_reject_unknown_scope():
+    """Convenience extraction should use the same scope validation."""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="Hello world")],
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="unknown"):
+        extract_first(messages, "Hello", scope="unknown")  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="unknown"):
+        extract_last(messages, "Hello", scope="unknown")  # ty: ignore[invalid-argument-type]

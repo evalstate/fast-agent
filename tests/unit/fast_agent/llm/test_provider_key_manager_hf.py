@@ -5,6 +5,7 @@ Environment variables are volatile and may be temporarily modified during test e
 """
 
 import os
+from types import SimpleNamespace
 
 from fast_agent.config import HuggingFaceSettings, Settings
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
@@ -36,6 +37,11 @@ def test_huggingface_env_var_name():
     assert ProviderKeyManager.get_env_key_name("hf") == "HF_TOKEN"
 
 
+def test_provider_env_var_name_normalizes_provider_name():
+    assert ProviderKeyManager.get_env_key_name(" HF ") == "HF_TOKEN"
+    assert ProviderKeyManager.get_env_key_name(" ANTHROPIC-VERTEX ") is None
+
+
 def test_get_api_key_from_env():
     """Test getting HuggingFace API key from environment variable."""
     original = _set_hf_token("hf_env_token_12345")
@@ -53,6 +59,16 @@ def test_get_api_key_from_config():
     try:
         config = Settings(hf=HuggingFaceSettings(api_key="hf_config_token"))
         api_key = ProviderKeyManager.get_api_key("hf", config)
+        assert api_key == "hf_config_token"
+    finally:
+        _restore_hf_token(original)
+
+
+def test_get_api_key_normalizes_provider_name():
+    original = _set_hf_token(None)
+    try:
+        config = Settings(hf=HuggingFaceSettings(api_key="hf_config_token"))
+        api_key = ProviderKeyManager.get_api_key(" HF ", config)
         assert api_key == "hf_config_token"
     finally:
         _restore_hf_token(original)
@@ -94,6 +110,11 @@ def test_get_config_file_key_no_provider():
     config = {"other_provider": {"api_key": "other_key"}}
     key = ProviderKeyManager.get_config_file_key("hf", config)
     assert key is None
+
+
+def test_get_config_file_key_ignores_missing_or_non_mapping_config():
+    assert ProviderKeyManager.get_config_file_key("hf", None) is None
+    assert ProviderKeyManager.get_config_file_key("hf", SimpleNamespace()) is None
 
 
 def test_get_config_file_key_hint_text():

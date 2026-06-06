@@ -6,6 +6,8 @@ capabilities when available (e.g., in Zed editor). This provides better integrat
 security compared to direct file system access.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any
 
 from acp.helpers import tool_diff_content
@@ -14,11 +16,23 @@ from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.tool_result_metadata import set_fatal_tool_error
+from fast_agent.tools.filesystem_tool_args import (
+    parse_read_text_file_arguments,
+    parse_write_text_file_arguments,
+)
 from fast_agent.tools.filesystem_tool_definitions import (
+    READ_TEXT_FILE_TOOL_NAME,
+    WRITE_TEXT_FILE_TOOL_NAME,
     build_read_text_file_tool,
     build_write_text_file_tool,
 )
-from fast_agent.tools.tool_sources import set_tool_source
+from fast_agent.tools.filesystem_tool_specs import (
+    FilesystemToolSpec,
+    enabled_tool_spec,
+    enabled_tool_specs,
+)
+from fast_agent.tools.tool_sources import ACP_FILESYSTEM_TOOL_SOURCE, set_tool_source
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
@@ -28,6 +42,31 @@ if TYPE_CHECKING:
     from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler
 
 logger = get_logger(__name__)
+
+_PERMISSION_ACTION_LOG_LABELS = {
+    "reading": "read",
+    "writing": "write",
+}
+
+
+def _error_result(message: str) -> CallToolResult:
+    return CallToolResult(content=[text_content(message)], isError=True)
+
+
+def _fatal_error_result(message: str) -> CallToolResult:
+    result = _error_result(message)
+    return set_fatal_tool_error(result, message)
+
+
+def _success_result(message: str) -> CallToolResult:
+    return CallToolResult(content=[text_content(message)], isError=False)
+
+
+def _write_display_arguments(path: str, content: str) -> dict[str, Any]:
+    return {
+        "path": path,
+        "content_length": len(content),
+    }
 
 
 class ACPFilesystemRuntime:
@@ -72,8 +111,24 @@ class ACPFilesystemRuntime:
         self._tool_handler = tool_handler
         self._permission_handler = permission_handler
 
-        self._read_tool = set_tool_source(build_read_text_file_tool(), "acp_filesystem")
-        self._write_tool = set_tool_source(build_write_text_file_tool(), "acp_filesystem")
+        self._read_tool = set_tool_source(build_read_text_file_tool(), ACP_FILESYSTEM_TOOL_SOURCE)
+        self._write_tool = set_tool_source(
+            build_write_text_file_tool(), ACP_FILESYSTEM_TOOL_SOURCE
+        )
+        self._tool_specs: tuple[FilesystemToolSpec, ...] = (
+            FilesystemToolSpec(
+                name=READ_TEXT_FILE_TOOL_NAME,
+                enabled=lambda: self._enable_read,
+                tool=lambda: self._read_tool,
+                handler=self.read_text_file,
+            ),
+            FilesystemToolSpec(
+                name=WRITE_TEXT_FILE_TOOL_NAME,
+                enabled=lambda: self._enable_write,
+                tool=lambda: self._write_tool,
+                handler=self.write_text_file,
+            ),
+        )
 
         self.logger.info(
             "ACPFilesystemRuntime initialized",
@@ -94,12 +149,13 @@ class ACPFilesystemRuntime:
     @property
     def tools(self) -> list[Tool]:
         """Get all enabled filesystem tools."""
-        tools = []
-        if self._enable_read:
-            tools.append(self._read_tool)
-        if self._enable_write:
-            tools.append(self._write_tool)
-        return tools
+        return [spec.tool() for spec in self._enabled_tool_specs()]
+
+    def _enabled_tool_specs(self) -> tuple[FilesystemToolSpec, ...]:
+        return enabled_tool_specs(self._tool_specs)
+
+    def _enabled_tool_spec(self, tool_name: str) -> FilesystemToolSpec | None:
+        return enabled_tool_spec(self._tool_specs, tool_name)
 
     async def call_tool(
         self,
@@ -112,18 +168,14 @@ class ACPFilesystemRuntime:
         del request_params
 
         payload = arguments if arguments is not None else {}
-        if name == "read_text_file" and self._enable_read:
-            return await self.read_text_file(payload, tool_use_id)
-        if name == "write_text_file" and self._enable_write:
-            return await self.write_text_file(payload, tool_use_id)
+        spec = self._enabled_tool_spec(name)
+        if spec is not None:
+            return await spec.handler(payload, tool_use_id)
 
-        return CallToolResult(
-            content=[text_content(f"Error: unsupported ACP filesystem tool '{name}'.")],
-            isError=True,
-        )
+        return _fatal_error_result(f"Error: unsupported ACP filesystem tool '{name}'.")
 
     async def read_text_file(
-        self, arguments: dict[str, Any], tool_use_id: str | None = None
+        self, arguments: dict[str, Any] | None, tool_use_id: str | None = None
     ) -> CallToolResult:
         """
         Read a text file using ACP filesystem support.
@@ -135,98 +187,58 @@ class ACPFilesystemRuntime:
         Returns:
             CallToolResult with file contents
         """
-        # Validate arguments
-        if not isinstance(arguments, dict):
-            return CallToolResult(
-                content=[text_content("Error: arguments must be a dict")],
-                isError=True,
-            )
-
-        path = arguments.get("path")
-        if not path or not isinstance(path, str):
-            return CallToolResult(
-                content=[text_content("Error: 'path' argument is required and must be a string")],
-                isError=True,
-            )
+        try:
+            parsed = parse_read_text_file_arguments(arguments)
+        except ValueError as exc:
+            return _error_result(str(exc))
 
         self.logger.info(
             "Reading file via ACP filesystem",
             session_id=self.session_id,
-            path=path,
+            path=parsed.path,
         )
 
-        # Check permission before execution
-        if self._permission_handler:
-            try:
-                permission_result = await self._permission_handler.check_permission(
-                    tool_name="read_text_file",
-                    server_name="acp_filesystem",
-                    arguments=arguments,
-                    tool_use_id=tool_use_id,
-                )
-                if not permission_result.allowed:
-                    error_msg = permission_result.error_message or (
-                        f"Permission denied for reading file: {path}"
-                    )
-                    self.logger.info(
-                        "File read denied by permission handler",
-                        data={
-                            "path": path,
-                            "cancelled": permission_result.is_cancelled,
-                        },
-                    )
-                    return CallToolResult(
-                        content=[text_content(error_msg)],
-                        isError=True,
-                    )
-            except Exception as e:
-                self.logger.error(f"Error checking file read permission: {e}", exc_info=True)
-                # Fail-safe: deny on permission check error
-                return CallToolResult(
-                    content=[text_content(f"Permission check failed: {e}")],
-                    isError=True,
-                )
+        tool_call_id = (
+            await self._ensure_tool_call(READ_TEXT_FILE_TOOL_NAME, parsed.payload, tool_use_id)
+            if tool_use_id
+            else None
+        )
 
-        # Notify tool handler that execution is starting
-        tool_call_id = None
-        if self._tool_handler:
-            try:
-                tool_call_id = await self._tool_handler.on_tool_start(
-                    "read_text_file", "acp_filesystem", arguments, tool_use_id
-                )
-            except Exception as e:
-                self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
+        denied_result = await self._permission_denied_result(
+            tool_name=READ_TEXT_FILE_TOOL_NAME,
+            action="reading",
+            path=parsed.path,
+            arguments=parsed.payload,
+            tool_use_id=tool_use_id,
+            tool_call_id=tool_call_id,
+        )
+        if denied_result is not None:
+            return denied_result
+
+        if tool_call_id is None:
+            tool_call_id = await self._ensure_tool_call(
+                READ_TEXT_FILE_TOOL_NAME, parsed.payload, tool_use_id
+            )
 
         try:
             # Send request using the proper ACP method with flattened parameters
             response: ReadTextFileResponse = await self.connection.read_text_file(
-                path=path,
+                path=parsed.path,
                 session_id=self.session_id,
-                line=arguments.get("line"),
-                limit=arguments.get("limit"),
+                line=parsed.line,
+                limit=parsed.limit,
             )
             content = response.content
 
             self.logger.info(
                 "File read completed",
                 session_id=self.session_id,
-                path=path,
+                path=parsed.path,
                 content_length=len(content),
             )
 
-            result = CallToolResult(
-                content=[text_content(content)],
-                isError=False,
-            )
-
-            # Notify tool handler of completion
-            if self._tool_handler and tool_call_id:
-                try:
-                    await self._tool_handler.on_tool_complete(
-                        tool_call_id, True, result.content, None
-                    )
-                except Exception as e:
-                    self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+            result = _success_result(content)
+            await self._notify_tool_complete(tool_call_id, True, result.content, None)
 
             return result
 
@@ -234,26 +246,16 @@ class ACPFilesystemRuntime:
             self.logger.error(
                 f"Error reading file: {e}",
                 session_id=self.session_id,
-                path=path,
+                path=parsed.path,
                 exc_info=True,
             )
 
-            # Notify tool handler of error
-            if self._tool_handler and tool_call_id:
-                try:
-                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
-                except Exception as handler_error:
-                    self.logger.error(
-                        f"Error in tool complete handler: {handler_error}", exc_info=True
-                    )
+            await self._notify_tool_complete(tool_call_id, False, None, str(e))
 
-            return CallToolResult(
-                content=[text_content(f"Error reading file: {e}")],
-                isError=True,
-            )
+            return _error_result(f"Error reading file: {e}")
 
     async def write_text_file(
-        self, arguments: dict[str, Any], tool_use_id: str | None = None
+        self, arguments: dict[str, Any] | None, tool_use_id: str | None = None
     ) -> CallToolResult:
         """
         Write a text file using ACP filesystem support.
@@ -265,144 +267,81 @@ class ACPFilesystemRuntime:
         Returns:
             CallToolResult indicating success or failure
         """
-        # Validate arguments
-        if not isinstance(arguments, dict):
-            return CallToolResult(
-                content=[text_content("Error: arguments must be a dict")],
-                isError=True,
-            )
-
-        path = arguments.get("path")
-        if not path or not isinstance(path, str):
-            return CallToolResult(
-                content=[text_content("Error: 'path' argument is required and must be a string")],
-                isError=True,
-            )
-
-        content = arguments.get("content")
-        if content is None or not isinstance(content, str):
-            return CallToolResult(
-                content=[
-                    text_content("Error: 'content' argument is required and must be a string")
-                ],
-                isError=True,
-            )
+        try:
+            parsed = parse_write_text_file_arguments(arguments)
+        except ValueError as exc:
+            return _error_result(str(exc))
 
         self.logger.info(
             "Writing file via ACP filesystem",
             session_id=self.session_id,
-            path=path,
-            content_length=len(content),
+            path=parsed.path,
+            content_length=len(parsed.content),
         )
 
-        # Read existing file content for diff display (if file exists)
-        old_text: str | None = None
-        try:
-            response = await self.connection.read_text_file(
-                path=path,
-                session_id=self.session_id,
+        display_arguments = _write_display_arguments(parsed.path, parsed.content)
+        tool_call_id = (
+            await self._ensure_tool_call(
+                WRITE_TEXT_FILE_TOOL_NAME,
+                display_arguments,
+                tool_use_id,
             )
-            old_text = response.content
-        except Exception:
-            # File doesn't exist or can't be read - that's fine, old_text stays None
-            pass
+            if tool_use_id
+            else None
+        )
 
-        # Send diff content update before permission check (so permission screen shows diff)
-        # Use ensure_tool_call_exists to handle both streaming and non-streaming cases
-        if tool_use_id and self._tool_handler:
-            try:
-                tool_call_id = await self._tool_handler.ensure_tool_call_exists(
-                    tool_use_id=tool_use_id,
-                    tool_name="write_text_file",
-                    server_name="acp_filesystem",
-                    arguments=arguments,
-                )
-                diff_content = tool_diff_content(
-                    path=path,
-                    new_text=content,
-                    old_text=old_text,
-                )
-                await self.connection.session_update(
-                    session_id=self.session_id,
-                    update=ToolCallProgress(
-                        session_update="tool_call_update",
-                        tool_call_id=tool_call_id,
-                        content=[diff_content],
-                    ),
-                )
-            except Exception as e:
-                self.logger.error(f"Error sending pre-permission diff update: {e}", exc_info=True)
+        await self._send_write_diff_update(
+            tool_call_id=tool_call_id,
+            path=parsed.path,
+            content=parsed.content,
+            old_text=None,
+        )
 
-        # Check permission before execution
-        if self._permission_handler:
-            try:
-                permission_result = await self._permission_handler.check_permission(
-                    tool_name="write_text_file",
-                    server_name="acp_filesystem",
-                    arguments=arguments,
-                    tool_use_id=tool_use_id,
-                )
-                if not permission_result.allowed:
-                    error_msg = permission_result.error_message or (
-                        f"Permission denied for writing file: {path}"
-                    )
-                    self.logger.info(
-                        "File write denied by permission handler",
-                        data={
-                            "path": path,
-                            "cancelled": permission_result.is_cancelled,
-                        },
-                    )
-                    return CallToolResult(
-                        content=[text_content(error_msg)],
-                        isError=True,
-                    )
-            except Exception as e:
-                self.logger.error(f"Error checking file write permission: {e}", exc_info=True)
-                # Fail-safe: deny on permission check error
-                return CallToolResult(
-                    content=[text_content(f"Permission check failed: {e}")],
-                    isError=True,
-                )
+        denied_result = await self._permission_denied_result(
+            tool_name=WRITE_TEXT_FILE_TOOL_NAME,
+            action="writing",
+            path=parsed.path,
+            arguments=display_arguments,
+            tool_use_id=tool_use_id,
+            tool_call_id=tool_call_id,
+        )
+        if denied_result is not None:
+            return denied_result
 
-        # Notify tool handler that execution is starting
-        tool_call_id = None
-        if self._tool_handler:
-            try:
-                tool_call_id = await self._tool_handler.on_tool_start(
-                    "write_text_file", "acp_filesystem", arguments, tool_use_id
-                )
-            except Exception as e:
-                self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
+        if tool_call_id is None:
+            tool_call_id = await self._ensure_tool_call(
+                WRITE_TEXT_FILE_TOOL_NAME, display_arguments, tool_use_id
+            )
+
+        old_text = await self._read_existing_text(parsed.path)
+
+        await self._send_write_diff_update(
+            tool_call_id=tool_call_id,
+            path=parsed.path,
+            content=parsed.content,
+            old_text=old_text,
+        )
 
         try:
             # Send request using the proper ACP method with flattened parameters
             await self.connection.write_text_file(
-                content=content,
-                path=path,
+                content=parsed.content,
+                path=parsed.path,
                 session_id=self.session_id,
             )
 
             self.logger.info(
                 "File write completed",
                 session_id=self.session_id,
-                path=path,
+                path=parsed.path,
             )
 
-            result = CallToolResult(
-                content=[text_content(f"Successfully wrote {len(content)} characters to {path}")],
-                isError=False,
+            result = _success_result(
+                f"Successfully wrote {len(parsed.content)} characters to {parsed.path}"
             )
 
-            # Notify tool handler of completion
-            # Pass None for content to preserve the diff content we already sent
-            if self._tool_handler and tool_call_id:
-                try:
-                    await self._tool_handler.on_tool_complete(
-                        tool_call_id, True, None, None
-                    )
-                except Exception as e:
-                    self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+            # Pass None for content to preserve the diff content we already sent.
+            await self._notify_tool_complete(tool_call_id, True, None, None)
 
             return result
 
@@ -410,23 +349,13 @@ class ACPFilesystemRuntime:
             self.logger.error(
                 f"Error writing file: {e}",
                 session_id=self.session_id,
-                path=path,
+                path=parsed.path,
                 exc_info=True,
             )
 
-            # Notify tool handler of error
-            if self._tool_handler and tool_call_id:
-                try:
-                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
-                except Exception as handler_error:
-                    self.logger.error(
-                        f"Error in tool complete handler: {handler_error}", exc_info=True
-                    )
+            await self._notify_tool_complete(tool_call_id, False, None, str(e))
 
-            return CallToolResult(
-                content=[text_content(f"Error writing file: {e}")],
-                isError=True,
-            )
+            return _error_result(f"Error writing file: {e}")
 
     def metadata(self) -> dict[str, Any]:
         """
@@ -435,15 +364,179 @@ class ACPFilesystemRuntime:
         Returns:
             Dict with runtime information
         """
-        enabled_tools = []
-        if self._enable_read:
-            enabled_tools.append("read_text_file")
-        if self._enable_write:
-            enabled_tools.append("write_text_file")
-
         return {
-            "type": "acp_filesystem",
+            "type": ACP_FILESYSTEM_TOOL_SOURCE,
             "session_id": self.session_id,
             "activation_reason": self.activation_reason,
-            "tools": enabled_tools,
+            "tools": [spec.name for spec in self._enabled_tool_specs()],
         }
+
+    async def _permission_error(
+        self,
+        *,
+        tool_name: str,
+        action: str,
+        path: str,
+        arguments: dict[str, Any],
+        tool_use_id: str | None,
+    ) -> str | None:
+        if self._permission_handler is None:
+            return None
+
+        try:
+            permission_result = await self._permission_handler.check_permission(
+                tool_name=tool_name,
+                server_name=ACP_FILESYSTEM_TOOL_SOURCE,
+                arguments=arguments,
+                tool_use_id=tool_use_id,
+            )
+        except Exception as e:
+            self.logger.error(f"Error checking file {action} permission: {e}", exc_info=True)
+            return f"Permission check failed: {e}"
+
+        if permission_result.allowed:
+            return None
+
+        self.logger.info(
+            f"File {_PERMISSION_ACTION_LOG_LABELS.get(action, action)} denied by permission handler",
+            data={
+                "path": path,
+                "cancelled": permission_result.is_cancelled,
+            },
+        )
+        return permission_result.error_message or f"Permission denied for {action} file: {path}"
+
+    async def _permission_denied_result(
+        self,
+        *,
+        tool_name: str,
+        action: str,
+        path: str,
+        arguments: dict[str, Any],
+        tool_use_id: str | None,
+        tool_call_id: str | None,
+    ) -> CallToolResult | None:
+        permission_error = await self._permission_error(
+            tool_name=tool_name,
+            action=action,
+            path=path,
+            arguments=arguments,
+            tool_use_id=tool_use_id,
+        )
+        if permission_error is None:
+            return None
+        await self._notify_permission_denied(
+            tool_name=tool_name,
+            arguments=arguments,
+            tool_use_id=tool_use_id,
+            tool_call_id=tool_call_id,
+            error_msg=permission_error,
+        )
+        return _error_result(permission_error)
+
+    async def _ensure_tool_call(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        tool_use_id: str | None,
+    ) -> str | None:
+        if self._tool_handler is None:
+            return None
+        try:
+            if tool_use_id:
+                return await self._tool_handler.ensure_tool_call_exists(
+                    tool_use_id=tool_use_id,
+                    tool_name=tool_name,
+                    server_name=ACP_FILESYSTEM_TOOL_SOURCE,
+                    arguments=arguments,
+                )
+            return await self._tool_handler.on_tool_start(
+                tool_name, ACP_FILESYSTEM_TOOL_SOURCE, arguments, tool_use_id
+            )
+        except Exception as e:
+            self.logger.error(f"Error ensuring tool call for {tool_name}: {e}", exc_info=True)
+            return None
+
+    async def _notify_tool_complete(
+        self,
+        tool_call_id: str | None,
+        success: bool,
+        content: list[Any] | None,
+        error: str | None,
+    ) -> None:
+        if self._tool_handler is None or not tool_call_id:
+            return
+        try:
+            await self._tool_handler.on_tool_complete(tool_call_id, success, content, error)
+        except Exception as e:
+            self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+
+    async def _read_existing_text(self, path: str) -> str | None:
+        if not self._enable_read:
+            return None
+        try:
+            response = await self.connection.read_text_file(
+                path=path,
+                session_id=self.session_id,
+            )
+        except Exception:
+            return None
+        return response.content
+
+    async def _send_write_diff_update(
+        self,
+        *,
+        tool_call_id: str | None,
+        path: str,
+        content: str,
+        old_text: str | None,
+    ) -> None:
+        if not tool_call_id:
+            return
+        try:
+            diff_content = tool_diff_content(
+                path=path,
+                new_text=content,
+                old_text=old_text,
+            )
+            await self.connection.session_update(
+                session_id=self.session_id,
+                update=ToolCallProgress(
+                    session_update="tool_call_update",
+                    tool_call_id=tool_call_id,
+                    content=[diff_content],
+                ),
+            )
+        except Exception as e:
+            self.logger.error(f"Error sending write diff update: {e}", exc_info=True)
+
+    async def _notify_permission_denied(
+        self,
+        *,
+        tool_name: str,
+        arguments: dict[str, Any],
+        tool_use_id: str | None,
+        tool_call_id: str | None,
+        error_msg: str,
+    ) -> None:
+        if not tool_use_id or self._tool_handler is None:
+            return
+        try:
+            if tool_call_id is None:
+                await self._tool_handler.ensure_tool_call_exists(
+                    tool_use_id=tool_use_id,
+                    tool_name=tool_name,
+                    server_name=ACP_FILESYSTEM_TOOL_SOURCE,
+                    arguments=arguments,
+                )
+            await self._tool_handler.on_tool_permission_denied(
+                tool_name,
+                ACP_FILESYSTEM_TOOL_SOURCE,
+                tool_use_id,
+                error_msg,
+            )
+        except Exception as e:
+            self.logger.error(
+                f"Error notifying file permission denial for {tool_name}: {e}",
+                exc_info=True,
+            )

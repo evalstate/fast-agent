@@ -7,6 +7,8 @@ Testing notes:
   users in a fixed order.
 """
 
+from typing import TYPE_CHECKING, cast
+
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.ui.model_shortcuts import (
@@ -15,6 +17,9 @@ from fast_agent.ui.model_shortcuts import (
     cycle_reasoning_setting,
     cycle_text_verbosity,
 )
+
+if TYPE_CHECKING:
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 
 def test_cycle_reasoning_setting_uses_available_values_order() -> None:
@@ -76,7 +81,7 @@ class _ShortcutStub:
 
 
 def test_build_model_shortcut_hints_only_lists_supported_controls() -> None:
-    hints = build_model_shortcut_hints(_ShortcutStub())
+    hints = build_model_shortcut_hints(cast("FastAgentLLMProtocol", _ShortcutStub()))
 
     assert hints == [
         ModelShortcutHint("Shift+Tab", "Service tier", "standard, fast, flex"),
@@ -85,11 +90,16 @@ def test_build_model_shortcut_hints_only_lists_supported_controls() -> None:
         ModelShortcutHint("F8", "Web search", "on, off"),
     ]
 
+
+def test_build_model_shortcut_hints_returns_empty_without_llm() -> None:
+    assert build_model_shortcut_hints(None) == []
+
+
 def test_build_model_shortcut_hints_codexresponses_omit_flex() -> None:
     class _CodexShortcutStub(_ShortcutStub):
         available_service_tiers = ("fast",)
 
-    hints = build_model_shortcut_hints(_CodexShortcutStub())
+    hints = build_model_shortcut_hints(cast("FastAgentLLMProtocol", _CodexShortcutStub()))
 
     assert hints == [
         ModelShortcutHint("Shift+Tab", "Service tier", "standard, fast"),
@@ -109,7 +119,9 @@ def test_build_model_shortcut_hints_include_adaptive_for_auto_reasoning() -> Non
             default=ReasoningEffortSetting(kind="effort", value="auto"),
         )
 
-    hints = build_model_shortcut_hints(_AutoReasoningShortcutStub())
+    hints = build_model_shortcut_hints(
+        cast("FastAgentLLMProtocol", _AutoReasoningShortcutStub())
+    )
 
     assert ModelShortcutHint("F6", "Reasoning", "low, medium, high, off, adaptive") in hints
 
@@ -122,6 +134,19 @@ def test_build_model_shortcut_hints_omit_off_when_none_exists() -> None:
             default=ReasoningEffortSetting(kind="effort", value="none"),
         )
 
-    hints = build_model_shortcut_hints(_NoneReasoningShortcutStub())
+    hints = build_model_shortcut_hints(
+        cast("FastAgentLLMProtocol", _NoneReasoningShortcutStub())
+    )
 
     assert ModelShortcutHint("F6", "Reasoning", "none, low, medium, high, xhigh") in hints
+
+
+def test_build_model_shortcut_hints_deduplicates_verbosity_values() -> None:
+    class _DuplicateVerbosityShortcutStub(_ShortcutStub):
+        text_verbosity_spec = TextVerbositySpec(allowed=("low", "low", "high"), default="low")
+
+    hints = build_model_shortcut_hints(
+        cast("FastAgentLLMProtocol", _DuplicateVerbosityShortcutStub())
+    )
+
+    assert ModelShortcutHint("F7", "Verbosity", "low, high") in hints

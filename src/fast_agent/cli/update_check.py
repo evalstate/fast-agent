@@ -14,6 +14,7 @@ from urllib.request import urlopen
 
 from fast_agent.core.exceptions import FastAgentError
 from fast_agent.paths import resolve_environment_dir
+from fast_agent.utils.text import strip_str_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -25,6 +26,11 @@ DEFAULT_UPDATE_COMMAND = "uv tool install -U fast-agent-mcp"
 DEFAULT_TIMEOUT_SECONDS = 1.5
 DEFAULT_INTERVAL_SECONDS = 24 * 3600
 UPDATE_CHECK_MARKER_FILENAME = ".check_for_update_done"
+_PRERELEASE_OR_DEV_PATTERN = re.compile(
+    r"(?:(?<=\d)(?:a|b|rc|dev|alpha|beta|pre|preview)\d*"
+    r"|[._-](?:a|b|rc|dev|alpha|beta|pre|preview)\d*)",
+    re.IGNORECASE,
+)
 
 
 def get_installed_version(package_name: str = PACKAGE_NAME) -> str | None:
@@ -37,8 +43,7 @@ def get_installed_version(package_name: str = PACKAGE_NAME) -> str | None:
 
 def is_prerelease_or_dev(version: str) -> bool:
     """Return True for dev or prerelease versions that should skip checks."""
-    normalized = version.lower()
-    return ("dev" in normalized) or ("rc" in normalized)
+    return _PRERELEASE_OR_DEV_PATTERN.search(version) is not None
 
 
 def _resolve_environment_root(
@@ -117,15 +122,14 @@ def _fetch_latest_version_from_pypi(
     info = payload.get("info")
     if not isinstance(info, dict):
         raise ValueError("PyPI response is missing package info")
-    version = info.get("version")
-    if not isinstance(version, str) or not version.strip():
+    version = strip_str_to_none(info.get("version"))
+    if version is None:
         raise ValueError("PyPI response is missing package version")
     return version
 
 
 def format_update_notice(
     *,
-    current_version: str,
     latest_version: str,
     update_command: str = DEFAULT_UPDATE_COMMAND,
 ) -> str:
@@ -167,13 +171,12 @@ def _check_for_update_notice(
         return None
 
     marker_path = resolve_update_check_marker_path(environment_dir)
-    if marker_path is not None:
-        if not should_check_now(
-            marker_path,
-            now=now,
-            interval_seconds=interval_seconds,
-        ):
-            return None
+    if marker_path is not None and not should_check_now(
+        marker_path,
+        now=now,
+        interval_seconds=interval_seconds,
+    ):
+        return None
 
     latest_version = _resolve_latest_version(
         package_name=package_name,
@@ -188,7 +191,6 @@ def _check_for_update_notice(
         return None
 
     return format_update_notice(
-        current_version=installed_version,
         latest_version=latest_version,
     )
 

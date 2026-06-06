@@ -1,8 +1,9 @@
 import unittest
 
+from mcp.types import TextResourceContents
 from pydantic import AnyUrl
 
-from fast_agent.mcp.resource_utils import normalize_uri
+from fast_agent.mcp.resource_utils import normalize_uri, parse_resource_marker
 
 
 class TestUriNormalization(unittest.TestCase):
@@ -81,3 +82,39 @@ class TestUriNormalization(unittest.TestCase):
         for uri, expected in test_cases:
             result = extract_title_from_uri(AnyUrl(uri))
             self.assertEqual(result, expected if expected else uri)
+
+
+def test_parse_resource_marker_extracts_text_resource() -> None:
+    resource = parse_resource_marker(
+        "[Resource: resource://demo/report.json, MIME: application/json]\n"
+        '{"ok": true}'
+    )
+
+    assert resource is not None
+    assert isinstance(resource.resource, TextResourceContents)
+    assert str(resource.resource.uri) == "resource://demo/report.json"
+    assert resource.resource.mimeType == "application/json"
+    assert resource.resource.text == '{"ok": true}'
+
+
+def test_parse_resource_marker_rejects_text_plain_marker() -> None:
+    assert parse_resource_marker(
+        "[Resource: resource://demo/report.txt, MIME: text/plain]\ntext"
+    ) is None
+
+
+def test_parse_resource_marker_rejects_normalized_text_plain_marker() -> None:
+    assert parse_resource_marker(
+        "[Resource: resource://demo/report.txt, MIME: TEXT/PLAIN]\ntext"
+    ) is None
+    assert parse_resource_marker("[Resource: resource://demo/report.txt, MIME: txt]\ntext") is None
+
+
+def test_parse_resource_marker_rejects_binary_marker() -> None:
+    assert parse_resource_marker(
+        "[Binary Resource: resource://demo/image.png, MIME: image/png]\nabc"
+    ) is None
+
+
+def test_parse_resource_marker_rejects_malformed_header() -> None:
+    assert parse_resource_marker("[Resource: resource://demo/report.json]\n{}") is None

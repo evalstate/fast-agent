@@ -12,6 +12,7 @@ from fast_agent.core.instruction_refresh import (
     resolve_instruction_skill_manifests,
 )
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -135,7 +136,7 @@ async def apply_instruction_context(
         resolved_context = build_agent_instruction_context(agent, context_vars)
         aggregator = None
         skill_manifests = None
-        skill_read_tool_name = "read_skill"
+        skill_read_tool_name = READ_SKILL_TOOL_NAME
         if isinstance(agent, McpInstructionCapable):
             configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
             agent.set_instruction_context(dict(resolved_context))

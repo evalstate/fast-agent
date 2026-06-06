@@ -173,7 +173,7 @@ def show_hook_message(
         display = _resolve_display(agent)
         for line in rendered_lines:
             display.show_status_message(line)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("Failed to render hook message", data={"error": str(exc)})
 
 

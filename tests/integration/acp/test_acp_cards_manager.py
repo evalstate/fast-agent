@@ -14,6 +14,7 @@ import pytest
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.config import get_settings
+from fast_agent.utils.markdown import escape_markdown_text
 
 
 @dataclass
@@ -177,12 +178,12 @@ async def test_cards_registry_numbered_selection(tmp_path: Path) -> None:
         handler = _handler(instance, "test-agent")
 
         registry_list = await handler.execute_command("cards", "registry")
-        assert "[ 1]" in registry_list
-        assert "[ 2]" in registry_list
+        assert "\\[ 1\\]" in registry_list
+        assert "\\[ 2\\]" in registry_list
 
         set_response = await handler.execute_command("cards", "registry 2")
-        assert "Registry set to" in set_response
-        assert get_settings().cards.marketplace_url == marketplace2.as_posix()
+        assert "No card packs found in the registry; registry unchanged." in set_response
+        assert escape_markdown_text(marketplace2.as_posix()) in set_response
 
         invalid = await handler.execute_command("cards", "registry 99")
         assert "Invalid registry number" in invalid

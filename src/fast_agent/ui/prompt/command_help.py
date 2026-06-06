@@ -2,6 +2,29 @@
 
 from __future__ import annotations
 
+from fast_agent.commands.command_catalog import CommandSpec, get_command_spec
+from fast_agent.commands.session_export_help import SESSION_EXPORT_USAGE
+
+CATALOG_HELP_COMMANDS = ("skills", "cards", "plugins", "model", "models", "check")
+
+
+def _catalog_help_lines(command_names: tuple[str, ...]) -> list[str]:
+    lines: list[str] = []
+    for command_name in command_names:
+        spec = get_command_spec(command_name)
+        if spec is None:
+            raise ValueError(f"unknown command catalog entry: {command_name}")
+        lines.extend(_command_help_lines(spec))
+    return lines
+
+
+def _command_help_lines(spec: CommandSpec) -> list[str]:
+    lines = [f"  /{spec.command:<13} - {spec.summary}"]
+    for action in spec.actions:
+        usage = action.usage or f"/{spec.command} {action.action}"
+        lines.append(f"  {usage:<42} - {action.help}")
+    return lines
+
 
 def render_help_lines(*, show_webclear_help: bool) -> list[str]:
     lines = [
@@ -11,65 +34,32 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         "  /prompt <name> - Load a Prompt File or use MCP Prompt",
         "  /attach [path|url ...|clear] - Stage or clear file/^file: or URL/^url: attachments",
         "  /usage         - Show current usage statistics",
-        "  /skills        - List local skills for the manager directory",
-        "  /skills available - Browse marketplace skills before installing",
-        "  /skills search <query> - Search marketplace skills by name/description",
-        "  /skills add [<number|name|github-url|path>] - Install a skill (empty = pick from list)",
-        "  /skills remove [<number|name>] - Remove a managed skill (empty = pick from list)",
-        "  /skills update [<number|name|all>] [--force] [--yes] - Check/apply updates",
-        "  /skills help   - Show skills command usage",
-        "  /cards         - List installed card packs",
-        "  /cards add [<number|name>] - Install a card pack (empty = pick from list)",
-        "  /cards remove [<number|name>] - Remove an installed card pack (empty = pick from list)",
-        "  /cards readme [<number|name>] - Show an installed card pack README",
-        "  /cards update [<number|name|all>] [--force] [--yes] - Check/apply updates",
-        "  /cards publish - Commit/push local card pack changes back to source (supports --no-push/--temp-dir/--keep-temp)",
-        "  /plugins      - List installed command plugins",
-        "  /plugins available - Browse marketplace plugins before installing",
-        "  /plugins add [<number|name>] - Install and enable a plugin",
-        "  /plugins remove [<number|name>] - Remove an installed plugin",
-        "  /plugins update [<number|name|all>] [--force] [--yes] - Check/apply updates",
-        "  /plugins help - Show plugins command usage",
-        "  /model reasoning <value> - Set reasoning effort (adaptive/off/low/medium/high/xhigh/max or budgets like 0/1024/16000/32000)",
-        "  /model task_budget <value> - Set Anthropic task budget (off/20k/64k/128k/256k, if supported)",
-        "  /model verbosity <value> - Set text verbosity (low/medium/high)",
-        "  /model fast <value> - Set service tier (on/off/status; flex when supported)",
-        "  /model web_search <value> - Set web search (on/off/default, if supported)",
-        "  /model x_search <value> - Set X Search (on/off/default, if supported)",
-        "  /model web_fetch <value> - Set web fetch (on/off/default, if supported)",
-        "  /model switch [<name>] - Switch model (starts new session)",
-        "  /model doctor - Inspect model onboarding readiness",
-        "  /model references - List resolved model references",
-        "  /model references set [<token> [<model-spec>]] [--target env|project] [--dry-run]",
-        "  /model references unset [<token>] [--target env|project] [--dry-run]",
-        "  /model catalog <provider> [--all] - Show curated/all models for a provider",
-        "  /history [agent_name] - Show chat history overview (quote names that match subcommands)",
-        "  /history show [agent_name] - Show per-turn timing summaries",
-        "  /history clear all [agent_name] - Clear conversation history (keeps templates)",
-        "  /history clear last [agent_name] - Remove the most recent message from history",
-        "  /markdown      - Show last assistant message without markdown formatting",
-        "  /mcpstatus     - Show MCP server status summary for the active agent",
-        "  /mcp list      - List attached runtime MCP servers",
-        "  /mcp connect <target> - Connect MCP server at runtime",
-        "      [dim]flags: --name --auth <token-value> --timeout --oauth/--no-oauth --reconnect[/dim]",
-        "      [dim]example: /mcp connect \"C:\\Program Files\\Tool\\tool.exe\" --flag[/dim]",
-        "  /mcp disconnect <name> - Disconnect attached MCP server",
-        "  /mcp reconnect <name> - Reconnect attached MCP server",
-        "  /mcp session [server] - List sessions (all connected servers by default; active marker ▶)",
-        "  /mcp session list [server] - List sessions for one server/mcp name, or all connected when omitted",
-        "  /mcp session jar [server] - Show grouped local session store entries",
-        "  /mcp session new [server] [--title <title>] - Create a new MCP session",
-        "  /mcp session use <server> <session_id> - Set active session metadata",
-        "  /mcp session clear [server|--all] - Clear one session entry or the full store",
-        "  /connect <target> - Alias for /mcp connect",
-        "  /history save [filename] - Save current chat history to a file",
-        "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]",
-        "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]",
-        "  /history load <filename> - Load chat history from a file",
-        "  /history rewind <turn> - Rewind to a prior user turn",
-        "  /history detail <turn> - Show a prior user turn in full",
-        "  /history fix [agent_name] - Remove the last pending tool call",
     ]
+    lines.extend(_catalog_help_lines(CATALOG_HELP_COMMANDS))
+    lines.extend(
+        [
+            "  /history [agent_name] - Show chat history overview (quote names that match subcommands)",
+            "  /history show [agent_name] - Show per-turn timing summaries",
+            "  /history clear all [agent_name] - Clear conversation history (keeps templates)",
+            "  /history clear last [agent_name] - Remove the most recent message from history",
+            "  /markdown      - Show last assistant message without markdown formatting",
+            "  /mcpstatus     - Show MCP server status summary for the active agent",
+            "  /mcp list      - List attached runtime MCP servers",
+            "  /mcp connect <target> - Connect MCP server at runtime",
+            "      [dim]flags: --name --auth <token-value> --timeout --oauth/--no-oauth --reconnect[/dim]",
+            "      [dim]example: /mcp connect \"C:\\Program Files\\Tool\\tool.exe\" --flag[/dim]",
+            "  /mcp disconnect <name> - Disconnect attached MCP server",
+            "  /mcp reconnect <name> - Reconnect attached MCP server",
+            "  /connect <target> - Alias for /mcp connect",
+            "  /history save [filename] - Save current chat history to a file",
+            "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]",
+            "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]",
+            "  /history load <filename> - Load chat history from a file",
+            "  /history rewind <turn> - Rewind to a prior user turn",
+            "  /history detail <turn> - Show a prior user turn in full",
+            "  /history fix [agent_name] - Remove the last pending tool call",
+        ]
+    )
     if show_webclear_help:
         lines.append(
             "  /history webclear [agent_name] - Strip web tool/citation metadata from history"
@@ -84,9 +74,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /session fork [title] - Fork the current session",
             "  /session delete <id|number|all> - Delete a session or all sessions",
             "  /session pin [on|off|id|number] - Pin or unpin a session",
-            "  /session export [latest|id|path] [--agent name] [--output path] "
-            "[--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] "
-            "[--privacy-filter-variant q4|q4f16|q8|fp16] - Export a session trace",
+            f"  {SESSION_EXPORT_USAGE} - Export a session trace",
             "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)",
             "  /agent <name> --tool [remove] - Attach/remove an agent as a tool",
             "  /agent [name] --dump - Print an AgentCard to screen",

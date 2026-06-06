@@ -27,7 +27,7 @@ from urllib.parse import urlparse
 from mcp.types import BlobResourceContents, ServerCapabilities, TextResourceContents
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import git_sources as marketplace_git_sources
 from fast_agent.skills.provenance import (
     build_mcp_installed_skill_source,
     compute_skill_content_fingerprint,
@@ -139,10 +139,11 @@ async def scan_mcp_skill_registry(
         if not isinstance(url, str) or not url.strip():
             logger.warning("MCP skill entry missing url", data={"server": server_name})
             continue
-        if url.lower().startswith("file://"):
+        source_url = url.strip()
+        if source_url.lower().startswith("file://"):
             logger.warning(
                 "Rejecting file:// MCP skill URL",
-                data={"server": server_name, "url": url},
+                data={"server": server_name, "url": source_url},
             )
             continue
         if not isinstance(digest, str) or not _is_valid_sha256_digest(digest):
@@ -156,7 +157,7 @@ async def scan_mcp_skill_registry(
             McpRegistrySkill(
                 name=name.strip(),
                 description=description.strip() if isinstance(description, str) else None,
-                source_url=_resolve_entry_url(url.strip()),
+                source_url=_resolve_entry_url(source_url),
                 server_name=server_name,
                 digest=digest.strip(),
                 artifact_type=artifact_type,
@@ -213,7 +214,7 @@ async def update_mcp_registry_skill(
     ) as temp_dir_str:
         staged_dir = Path(temp_dir_str) / skill_dir.name
         await _write_verified_mcp_skill(aggregator, skill, staged_dir)
-        marketplace_source_utils.atomic_replace_directory(
+        marketplace_git_sources.atomic_replace_directory(
             existing_dir=skill_dir,
             staged_dir=staged_dir,
         )

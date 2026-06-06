@@ -14,10 +14,11 @@ import socket
 import sys
 import threading
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from urllib.parse import parse_qs, urlparse, urlunparse
 
 from mcp.client.auth import OAuthClientProvider as _BaseOAuthClientProvider
@@ -44,10 +45,13 @@ from mcp.shared.auth import (
     OAuthToken,
 )
 from pydantic import AnyUrl
+from rich.text import Text
 
 from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
+from fast_agent.utils.text import strip_to_none
+from fast_agent.utils.transports import uses_mcp_remote_transport
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -90,6 +94,27 @@ class OAuthCallbackTimeoutError(TimeoutError):
 
 class OAuthFlowCancelledError(RuntimeError):
     """Raised when an in-flight OAuth flow is cancelled by the caller."""
+
+
+@dataclass(frozen=True, slots=True)
+class _OAuthCallbackContext:
+    event_handler: OAuthEventHandler | None
+    server_name: str
+    emit_console_output: bool
+    abort_event: threading.Event | None
+    selected_redirect_port: int
+    redirect_path: str
+    allow_paste_fallback: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _OAuthProviderSettings:
+    enabled: bool
+    redirect_port: int
+    redirect_path: str
+    scope: str | None
+    persist_mode: str
+    client_metadata_url: str | None
 
 
 async def _emit_oauth_event(
@@ -146,7 +171,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self._expected_path = expected_path.rstrip("/") or "/callback"
         super().__init__(*args, **kwargs)
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server signature
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
 
         # Only accept the configured callback path
@@ -201,7 +226,7 @@ class _CallbackServer:
     """
 
     # Fallback ports to try if preferred port is unavailable
-    FALLBACK_PORTS = [3030, 3031, 3032, 8080, 0]  # 0 = ephemeral port
+    FALLBACK_PORTS: ClassVar[list[int]] = [3030, 3031, 3032, 8080, 0]  # 0 = ephemeral port
 
     def __init__(
         self,
@@ -236,8 +261,7 @@ class _CallbackServer:
         """Try to bind to the given port. Returns server if successful, None otherwise."""
         try:
             # Use 127.0.0.1 (loopback IP) for RFC 8252 compliance
-            server = HTTPServer(("127.0.0.1", port), self._make_handler())
-            return server
+            return HTTPServer(("127.0.0.1", port), self._make_handler())
         except OSError as e:
             # EADDRINUSE (98 on Linux, 48 on macOS) or similar
             logger.debug(f"Port {port} unavailable: {e}")
@@ -449,6 +473,160 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
         super().__init__(*args, **kwargs)
         self._discovery_server_url = discovery_server_url
 
+    def _prm_discovery_urls_from_response(self, response: httpx.Response) -> list[str]:
+        return _build_prm_discovery_urls(
+            www_auth_resource_metadata_url=extract_resource_metadata_from_www_auth(response),
+            server_url=self.context.server_url,
+            discovery_server_url=self._discovery_server_url,
+        )
+
+    async def _store_client_info(self, client_information: OAuthClientInformationFull) -> None:
+        self.context.client_info = client_information
+        await self.context.storage.set_client_info(client_information)
+
+    async def _handle_prm_discovery_response(
+        self,
+        discovery_response: httpx.Response,
+        *,
+        url: str,
+    ) -> bool:
+        prm = await handle_protected_resource_response(discovery_response)
+        if not prm:
+            logger.debug(f"Protected resource metadata discovery failed: {url}")
+            return False
+
+        await self._validate_resource_match(prm)
+        self.context.protected_resource_metadata = prm
+        self.context.auth_server_url = str(prm.authorization_servers[0])
+        return True
+
+    async def _handle_asm_discovery_response(
+        self,
+        oauth_metadata_response: httpx.Response,
+        *,
+        url: str,
+    ) -> Literal["stop", "found", "continue"]:
+        ok, asm = await handle_auth_metadata_response(oauth_metadata_response)
+        if not ok:
+            return "stop"
+        if asm:
+            self.context.oauth_metadata = asm
+            return "found"
+        logger.debug(f"OAuth metadata discovery failed: {url}")
+        return "continue"
+
+    def _update_client_metadata_scope(self, response: httpx.Response) -> None:
+        self.context.client_metadata.scope = get_client_metadata_scopes(
+            extract_scope_from_www_auth(response),
+            self.context.protected_resource_metadata,
+            self.context.oauth_metadata,
+        )
+
+    async def _client_registration_request_if_needed(self) -> httpx.Request | None:
+        if self.context.client_info:
+            return None
+
+        client_metadata_url = self.context.client_metadata_url
+        if should_use_client_metadata_url(
+            self.context.oauth_metadata,
+            client_metadata_url,
+        ) and client_metadata_url is not None:
+            logger.debug(f"Using URL-based client ID (CIMD): {client_metadata_url}")
+            await self._store_client_info(
+                create_client_info_from_metadata_url(
+                    client_metadata_url,
+                    redirect_uris=self.context.client_metadata.redirect_uris,
+                )
+            )
+            return None
+
+        return create_client_registration_request(
+            self.context.oauth_metadata,
+            self.context.client_metadata,
+            self.context.get_authorization_base_url(self.context.server_url),
+        )
+
+    async def _refresh_request_if_needed(self) -> httpx.Request | None:
+        if self.context.is_token_valid() or not self.context.can_refresh_token():
+            return None
+        return await self._refresh_token()  # pragma: no cover
+
+    async def _handle_refresh_attempt(self, refresh_response: httpx.Response) -> None:
+        if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
+            self._initialized = False
+
+    @staticmethod
+    def _requires_scope_step_up(response: httpx.Response) -> bool:
+        return (
+            response.status_code == 403
+            and extract_field_from_www_auth(response, "error") == "insufficient_scope"
+        )
+
+    async def _unauthorized_auth_flow(
+        self,
+        request: httpx.Request,
+        response: httpx.Response,
+    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        try:
+            for url in self._prm_discovery_urls_from_response(response):
+                discovery_request = create_oauth_metadata_request(url)
+                discovery_response = yield discovery_request
+
+                if await self._handle_prm_discovery_response(
+                    discovery_response,
+                    url=url,
+                ):
+                    break
+
+            asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+                self.context.auth_server_url,
+                self._discovery_server_url,
+            )
+
+            for url in asm_discovery_urls:  # pragma: no cover
+                oauth_metadata_request = create_oauth_metadata_request(url)
+                oauth_metadata_response = yield oauth_metadata_request
+
+                result = await self._handle_asm_discovery_response(
+                    oauth_metadata_response,
+                    url=url,
+                )
+                if result in {"stop", "found"}:
+                    break
+
+            self._update_client_metadata_scope(response)
+            registration_request = await self._client_registration_request_if_needed()
+            if registration_request is not None:
+                registration_response = yield registration_request
+                client_information = await handle_registration_response(registration_response)
+                await self._store_client_info(client_information)
+
+            token_response = yield await self._perform_authorization()
+            await self._handle_token_response(token_response)
+        except Exception:  # pragma: no cover
+            logger.exception("OAuth flow error")
+            raise
+
+        self._add_auth_header(request)
+        yield request
+
+    async def _scope_step_up_auth_flow(
+        self,
+        request: httpx.Request,
+        response: httpx.Response,
+    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        try:
+            self._update_client_metadata_scope(response)
+
+            token_response = yield await self._perform_authorization()
+            await self._handle_token_response(token_response)
+
+            self._add_auth_header(request)
+            yield request
+        except Exception:  # pragma: no cover
+            logger.exception("OAuth step-up error")
+            raise
+
     async def async_auth_flow(
         self,
         request: httpx.Request,
@@ -460,12 +638,10 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
 
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
 
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
-                refresh_request = await self._refresh_token()  # pragma: no cover
+            refresh_request = await self._refresh_request_if_needed()
+            if refresh_request is not None:
                 refresh_response = yield refresh_request  # pragma: no cover
-
-                if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
-                    self._initialized = False
+                await self._handle_refresh_attempt(refresh_response)
 
             if self.context.is_token_valid():
                 self._add_auth_header(request)
@@ -473,97 +649,24 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
             response = yield request
 
             if response.status_code == 401:
+                followup_flow = self._unauthorized_auth_flow(request, response)
+            elif self._requires_scope_step_up(response):
+                followup_flow = self._scope_step_up_auth_flow(request, response)
+            else:
+                followup_flow = None
+
+            if followup_flow is not None:
                 try:
-                    www_auth_resource_metadata_url = extract_resource_metadata_from_www_auth(response)
-                    prm_discovery_urls = _build_prm_discovery_urls(
-                        www_auth_resource_metadata_url=www_auth_resource_metadata_url,
-                        server_url=self.context.server_url,
-                        discovery_server_url=self._discovery_server_url,
-                    )
+                    next_request = await anext(followup_flow)
+                except StopAsyncIteration:
+                    return
 
-                    for url in prm_discovery_urls:
-                        discovery_request = create_oauth_metadata_request(url)
-                        discovery_response = yield discovery_request
-
-                        prm = await handle_protected_resource_response(discovery_response)
-                        if prm:
-                            await self._validate_resource_match(prm)
-                            self.context.protected_resource_metadata = prm
-                            self.context.auth_server_url = str(prm.authorization_servers[0])
-                            break
-                        logger.debug(f"Protected resource metadata discovery failed: {url}")
-
-                    asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
-                        self.context.auth_server_url,
-                        self._discovery_server_url,
-                    )
-
-                    for url in asm_discovery_urls:  # pragma: no cover
-                        oauth_metadata_request = create_oauth_metadata_request(url)
-                        oauth_metadata_response = yield oauth_metadata_request
-
-                        ok, asm = await handle_auth_metadata_response(oauth_metadata_response)
-                        if not ok:
-                            break
-                        if ok and asm:
-                            self.context.oauth_metadata = asm
-                            break
-                        logger.debug(f"OAuth metadata discovery failed: {url}")
-
-                    self.context.client_metadata.scope = get_client_metadata_scopes(
-                        extract_scope_from_www_auth(response),
-                        self.context.protected_resource_metadata,
-                        self.context.oauth_metadata,
-                    )
-
-                    if not self.context.client_info:
-                        client_metadata_url = self.context.client_metadata_url
-                        if should_use_client_metadata_url(
-                            self.context.oauth_metadata, client_metadata_url
-                        ) and client_metadata_url is not None:
-                            logger.debug(f"Using URL-based client ID (CIMD): {client_metadata_url}")
-                            client_information = create_client_info_from_metadata_url(
-                                client_metadata_url,
-                                redirect_uris=self.context.client_metadata.redirect_uris,
-                            )
-                            self.context.client_info = client_information
-                            await self.context.storage.set_client_info(client_information)
-                        else:
-                            registration_request = create_client_registration_request(
-                                self.context.oauth_metadata,
-                                self.context.client_metadata,
-                                self.context.get_authorization_base_url(self.context.server_url),
-                            )
-                            registration_response = yield registration_request
-                            client_information = await handle_registration_response(registration_response)
-                            self.context.client_info = client_information
-                            await self.context.storage.set_client_info(client_information)
-
-                    token_response = yield await self._perform_authorization()
-                    await self._handle_token_response(token_response)
-                except Exception:  # pragma: no cover
-                    logger.exception("OAuth flow error")
-                    raise
-
-                self._add_auth_header(request)
-                yield request
-            elif response.status_code == 403:
-                error = extract_field_from_www_auth(response, "error")
-
-                if error == "insufficient_scope":  # pragma: no branch
+                while True:
+                    followup_response = yield next_request
                     try:
-                        self.context.client_metadata.scope = get_client_metadata_scopes(
-                            extract_scope_from_www_auth(response), self.context.protected_resource_metadata
-                        )
-
-                        token_response = yield await self._perform_authorization()
-                        await self._handle_token_response(token_response)
-
-                        self._add_auth_header(request)
-                        yield request
-                    except Exception:  # pragma: no cover
-                        logger.exception("OAuth step-up error")
-                        raise
+                        next_request = await followup_flow.asend(followup_response)
+                    except StopAsyncIteration:
+                        break
 
 
 OAuthClientProvider = _ProtectedResourceDiscoveryOAuthClientProvider
@@ -610,8 +713,10 @@ async def _print_authorization_link(auth_url: str, warn_if_no_keyring: bool = Fa
                 if not status.available
                 else f"Keyring backend '{status.name}' not writable"
             )
+            warning = Text("Warning:", style="yellow")
+            warning.append(f" {backend_note} — tokens will not be persisted.")
             _safe_console_print(
-                f"[yellow]Warning:[/yellow] {backend_note} — tokens will not be persisted.",
+                warning,
                 fallback=f"Warning: {backend_note} — tokens will not be persisted.",
             )
     logger.info("OAuth authorization URL emitted to console")
@@ -631,10 +736,8 @@ def _safe_stderr_write(text: str) -> None:
     except Exception:
         return
 
-    try:
+    with suppress(Exception):
         os.set_blocking(fd, True)
-    except Exception:
-        pass
 
     try:
         with os.fdopen(fd, "w", buffering=1, encoding="utf-8", errors="replace") as tty:
@@ -646,7 +749,7 @@ def _safe_stderr_write(text: str) -> None:
 
 
 def _safe_console_print(
-    message: str,
+    message: object,
     *,
     markup: bool = True,
     fallback: str | None = None,
@@ -661,7 +764,7 @@ def _safe_console_print(
         except Exception:
             break
 
-    _safe_stderr_write(fallback if fallback is not None else message)
+    _safe_stderr_write(fallback if fallback is not None else str(message))
 
 
 def _read_callback_url_with_abort(
@@ -687,6 +790,189 @@ def _read_callback_url_with_abort(
         if line == "":
             raise RuntimeError("No callback URL received (stdin closed)")
         return line
+
+
+async def _emit_oauth_error(
+    context: _OAuthCallbackContext,
+    message: str,
+    *,
+    is_timeout: bool = False,
+) -> None:
+    await _emit_oauth_event(
+        context.event_handler,
+        OAuthEvent(
+            event_type="oauth_error",
+            server_name=context.server_name,
+            message=message,
+            is_timeout=is_timeout,
+        ),
+    )
+
+
+async def _emit_oauth_callback_received(context: _OAuthCallbackContext) -> None:
+    await _emit_oauth_event(
+        context.event_handler,
+        OAuthEvent(
+            event_type="callback_received",
+            server_name=context.server_name,
+            message="OAuth callback received. Completing token exchange…",
+        ),
+    )
+
+
+async def _emit_oauth_wait_start(
+    context: _OAuthCallbackContext,
+    wait_start_message: str,
+) -> None:
+    await _emit_oauth_event(
+        context.event_handler,
+        OAuthEvent(
+            event_type="wait_start",
+            server_name=context.server_name,
+            message=wait_start_message,
+        ),
+    )
+    if context.emit_console_output:
+        _safe_console_print(wait_start_message, markup=False)
+        _safe_console_print(
+            "[dim]Press Ctrl+C to cancel and return to prompt.[/dim]",
+            fallback="Press Ctrl+C to cancel and return to prompt.",
+        )
+
+
+async def _emit_oauth_wait_end(context: _OAuthCallbackContext) -> None:
+    await _emit_oauth_event(
+        context.event_handler,
+        OAuthEvent(
+            event_type="wait_end",
+            server_name=context.server_name,
+            message="OAuth callback wait ended.",
+        ),
+    )
+
+
+def _callback_server_uri(server: _CallbackServer, context: _OAuthCallbackContext) -> str:
+    try:
+        return server.get_redirect_uri()
+    except Exception:
+        return f"http://127.0.0.1:{context.selected_redirect_port}{context.redirect_path}"
+
+
+async def _capture_local_oauth_callback(
+    context: _OAuthCallbackContext,
+) -> tuple[str, str | None]:
+    # MCP python-sdk currently uses the first redirect URI from client metadata
+    # for both authorization and token exchange. Bind only the selected primary
+    # redirect port so the callback listener matches that fixed redirect URI.
+    server = _CallbackServer(
+        port=context.selected_redirect_port,
+        path=context.redirect_path,
+        fallback_ports=[],
+    )
+    server.start()
+
+    try:
+        callback_uri = _callback_server_uri(server, context)
+        await _emit_oauth_wait_start(
+            context,
+            f"Waiting for OAuth callback at {callback_uri} (startup timer paused)…",
+        )
+
+        try:
+            code, state = await asyncio.to_thread(
+                server.wait,
+                timeout_seconds=300,
+                abort_event=context.abort_event,
+            )
+            await _emit_oauth_callback_received(context)
+            return code, state
+        except OAuthFlowCancelledError as exc:
+            await _emit_oauth_error(context, "OAuth authorization cancelled.")
+            raise OAuthFlowCancelledError("OAuth authorization cancelled") from exc
+        except TimeoutError as exc:
+            timeout_message = "OAuth authorization was not completed in time."
+            await _emit_oauth_error(context, timeout_message, is_timeout=True)
+            raise OAuthCallbackTimeoutError(timeout_message) from exc
+        finally:
+            await _emit_oauth_wait_end(context)
+    finally:
+        server.stop()
+
+
+def _extract_oauth_callback_params(callback_url: str) -> tuple[str, str | None]:
+    params = parse_qs(urlparse(callback_url).query)
+    code = params.get("code", [None])[0]
+    if not code:
+        raise RuntimeError("Callback URL missing authorization code")
+    return code, params.get("state", [None])[0]
+
+
+async def _capture_pasted_oauth_callback(
+    context: _OAuthCallbackContext,
+) -> tuple[str, str | None]:
+    await _emit_oauth_wait_start(
+        context,
+        "Waiting for pasted OAuth callback URL (startup timer paused)…",
+    )
+
+    if context.abort_event is not None and context.abort_event.is_set():
+        raise OAuthFlowCancelledError("OAuth authorization cancelled")
+
+    try:
+        if context.emit_console_output:
+            _safe_stderr_write("Paste the full callback URL after authorization:")
+        callback_url = (
+            await asyncio.to_thread(
+                _read_callback_url_with_abort,
+                "Callback URL:",
+                context.abort_event,
+            )
+        ).strip()
+    except OAuthFlowCancelledError:
+        await _emit_oauth_error(context, "OAuth authorization cancelled.")
+        raise
+    except Exception as exc:
+        message = f"Failed to read callback URL from user: {exc}"
+        await _emit_oauth_error(context, message)
+        raise RuntimeError(message) from exc
+    finally:
+        await _emit_oauth_wait_end(context)
+
+    try:
+        code, state = _extract_oauth_callback_params(callback_url)
+    except RuntimeError as exc:
+        await _emit_oauth_error(context, str(exc))
+        raise RuntimeError(str(exc)) from None
+
+    await _emit_oauth_callback_received(context)
+    return code, state
+
+
+async def _handle_oauth_callback(
+    context: _OAuthCallbackContext,
+) -> tuple[str, str | None]:
+    try:
+        return await _capture_local_oauth_callback(context)
+    except (OAuthCallbackTimeoutError, OAuthFlowCancelledError):
+        raise
+    except Exception as exc:
+        if context.abort_event is not None and context.abort_event.is_set():
+            raise OAuthFlowCancelledError("OAuth authorization cancelled") from exc
+
+        if not context.allow_paste_fallback:
+            message = (
+                "OAuth local callback server unavailable and paste fallback is disabled "
+                "for this connection mode."
+            )
+            await _emit_oauth_error(context, message)
+            raise RuntimeError(message) from exc
+
+        logger.info(f"OAuth local callback server unavailable, fallback to paste flow: {exc}")
+        await _emit_oauth_error(
+            context,
+            f"OAuth local callback server unavailable, using paste URL fallback: {exc}",
+        )
+        return await _capture_pasted_oauth_callback(context)
 
 
 class KeyringTokenStorage(TokenStorage):
@@ -768,7 +1054,7 @@ def _read_index(service: str) -> set[str]:
             return set()
         data = json.loads(raw)
         if isinstance(data, list):
-            return set([str(x) for x in data])
+            return {str(x) for x in data}
         return set()
     except Exception:
         return set()
@@ -781,7 +1067,7 @@ def _write_index(service: str, identities: set[str]) -> None:
         maybe_print_keyring_access_notice(purpose="updating MCP OAuth token index")
         import keyring
 
-        payload = json.dumps(sorted(list(identities)))
+        payload = json.dumps(sorted(identities))
         keyring.set_password(service, _index_username(), payload)
     except Exception:
         pass
@@ -840,7 +1126,7 @@ def clear_keyring_token(identity: str, service: str = "fast-agent-mcp") -> bool:
             pass
         try:
             keyring.delete_password(service, cli_key)
-            removed = True or removed
+            removed = True
         except Exception:
             pass
         if removed:
@@ -848,6 +1134,108 @@ def clear_keyring_token(identity: str, service: str = "fast-agent-mcp") -> bool:
     except Exception:
         return False
     return removed
+
+
+def _default_client_metadata_url() -> str | None:
+    # Use a default CIMD URL so OAuth can avoid dynamic client registration
+    # on providers that don't expose registration endpoints.
+    env_client_metadata_url = os.environ.get("FAST_AGENT_OAUTH_CLIENT_METADATA_URL")
+    if env_client_metadata_url is None:
+        return DEFAULT_CLIENT_METADATA_URL
+    return strip_to_none(env_client_metadata_url)
+
+
+def _configured_oauth_scope(scope: str | list[str] | None) -> str | None:
+    if isinstance(scope, list):
+        return " ".join(scope)
+    return scope
+
+
+def _oauth_provider_settings(server_config: MCPServerSettings) -> _OAuthProviderSettings:
+    auth_config = server_config.auth
+    client_metadata_url = _default_client_metadata_url()
+    if auth_config is None:
+        return _OAuthProviderSettings(
+            enabled=True,
+            redirect_port=3030,
+            redirect_path="/callback",
+            scope=None,
+            persist_mode="keyring",
+            client_metadata_url=client_metadata_url,
+        )
+
+    if auth_config.client_metadata_url is not None:
+        client_metadata_url = auth_config.client_metadata_url
+
+    return _OAuthProviderSettings(
+        enabled=auth_config.oauth,
+        redirect_port=auth_config.redirect_port,
+        redirect_path=auth_config.redirect_path,
+        scope=_configured_oauth_scope(auth_config.scope),
+        persist_mode=auth_config.persist,
+        client_metadata_url=client_metadata_url,
+    )
+
+
+def _select_oauth_redirect_port(redirect_port: int) -> int:
+    try:
+        return _select_preferred_redirect_port(redirect_port)
+    except OSError:
+        # Defer bind failures to callback handling where we can provide richer
+        # OAuth diagnostics for the active connection mode.
+        return redirect_port
+
+
+def _oauth_redirect_uris(
+    *,
+    selected_redirect_port: int,
+    configured_redirect_port: int,
+    redirect_path: str,
+) -> list[AnyUrl]:
+    # Use 127.0.0.1 (loopback IP) for RFC 8252 compliance. Per RFC 8252
+    # Section 7.3, authorization servers MUST allow any port for loopback IP
+    # redirect URIs. Register fallback ports for servers that do not fully
+    # implement RFC 8252 dynamic port matching.
+    ports_for_registration = [selected_redirect_port]
+    if configured_redirect_port not in ports_for_registration:
+        ports_for_registration.append(configured_redirect_port)
+    for port in _CallbackServer.FALLBACK_PORTS:
+        if port != 0 and port not in ports_for_registration:
+            ports_for_registration.append(port)
+    return [
+        AnyUrl(f"http://127.0.0.1:{port}{redirect_path}") for port in ports_for_registration
+    ]
+
+
+def _oauth_client_metadata(
+    settings: _OAuthProviderSettings,
+    *,
+    selected_redirect_port: int,
+) -> OAuthClientMetadata:
+    metadata_kwargs: dict[str, Any] = {
+        "client_name": "fast-agent",
+        "redirect_uris": _oauth_redirect_uris(
+            selected_redirect_port=selected_redirect_port,
+            configured_redirect_port=settings.redirect_port,
+            redirect_path=settings.redirect_path,
+        ),
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+    }
+    if settings.scope:
+        metadata_kwargs["scope"] = settings.scope
+    return OAuthClientMetadata.model_validate(metadata_kwargs)
+
+
+def _oauth_token_storage(
+    server_config: MCPServerSettings,
+    settings: _OAuthProviderSettings,
+) -> TokenStorage:
+    if settings.persist_mode == "keyring":
+        identity = compute_server_identity(server_config)
+        # Update index on write via storage methods; creation here doesn't modify index yet.
+        return KeyringTokenStorage(service_name="fast-agent-mcp", server_identity=identity)
+    return InMemoryTokenStorage()
 
 
 def build_oauth_provider(
@@ -863,43 +1251,11 @@ def build_oauth_provider(
 
     Returns None for unsupported transports, or when disabled via config.
     """
-    # Only for SSE/HTTP transports
-    if server_config.transport not in ("sse", "http"):
+    if not uses_mcp_remote_transport(server_config.transport):
         return None
 
-    # Determine if OAuth should be enabled. Default to True if no auth block provided
-    enable_oauth = True
-    redirect_port = 3030
-    redirect_path = "/callback"
-    scope_value: str | None = None
-    persist_mode: str = "keyring"
-    # Use a default CIMD URL so OAuth can avoid dynamic client registration
-    # on providers that don't expose registration endpoints.
-    env_client_metadata_url = os.environ.get("FAST_AGENT_OAUTH_CLIENT_METADATA_URL")
-    if env_client_metadata_url is None:
-        client_metadata_url: str | None = DEFAULT_CLIENT_METADATA_URL
-    else:
-        stripped_client_metadata_url = env_client_metadata_url.strip()
-        client_metadata_url = stripped_client_metadata_url or None
-
-    if server_config.auth is not None:
-        try:
-            enable_oauth = getattr(server_config.auth, "oauth", True)
-            redirect_port = getattr(server_config.auth, "redirect_port", 3030)
-            redirect_path = getattr(server_config.auth, "redirect_path", "/callback")
-            scope_field = getattr(server_config.auth, "scope", None)
-            persist_mode = getattr(server_config.auth, "persist", "keyring")
-            configured_client_metadata_url = getattr(server_config.auth, "client_metadata_url", None)
-            if configured_client_metadata_url is not None:
-                client_metadata_url = configured_client_metadata_url
-            if isinstance(scope_field, list):
-                scope_value = " ".join(scope_field)
-            elif isinstance(scope_field, str):
-                scope_value = scope_field
-        except Exception:
-            logger.debug("Malformed auth configuration; using defaults.")
-
-    if not enable_oauth:
+    settings = _oauth_provider_settings(server_config)
+    if not settings.enabled:
         return None
 
     oauth_server_url = _normalize_oauth_server_url(server_config.url)
@@ -908,40 +1264,11 @@ def build_oauth_provider(
         return None
 
     server_name = server_config.name or "default"
-
-    try:
-        selected_redirect_port = _select_preferred_redirect_port(redirect_port)
-    except OSError:
-        # Defer bind failures to callback handling where we can provide richer
-        # OAuth diagnostics for the active connection mode.
-        selected_redirect_port = redirect_port
-
-    # Construct client metadata with minimal defaults.
-    # Use 127.0.0.1 (loopback IP) for RFC 8252 compliance. Per RFC 8252 Section 7.3,
-    # authorization servers MUST allow any port for loopback IP redirect URIs.
-    # We register multiple redirect URIs to support port fallback for servers that
-    # don't fully implement RFC 8252's dynamic port matching.
-    redirect_uris: list[AnyUrl] = []
-    # Build list of ports: preferred first, then fallbacks
-    ports_for_registration = [selected_redirect_port]
-    if redirect_port not in ports_for_registration:
-        ports_for_registration.append(redirect_port)
-    for p in _CallbackServer.FALLBACK_PORTS:
-        if p != 0 and p not in ports_for_registration:  # Skip ephemeral port (0)
-            ports_for_registration.append(p)
-    for port in ports_for_registration:
-        redirect_uris.append(AnyUrl(f"http://127.0.0.1:{port}{redirect_path}"))
-
-    metadata_kwargs: dict[str, Any] = {
-        "client_name": "fast-agent",
-        "redirect_uris": redirect_uris,
-        "grant_types": ["authorization_code", "refresh_token"],
-        "response_types": ["code"],
-    }
-    if scope_value:
-        metadata_kwargs["scope"] = scope_value
-
-    client_metadata = OAuthClientMetadata.model_validate(metadata_kwargs)
+    selected_redirect_port = _select_oauth_redirect_port(settings.redirect_port)
+    client_metadata = _oauth_client_metadata(
+        settings,
+        selected_redirect_port=selected_redirect_port,
+    )
 
     # Local callback server handler
     async def _redirect_handler(authorization_url: str) -> None:
@@ -959,218 +1286,25 @@ def build_oauth_provider(
             # Warn if persisting to keyring but no backend is available
             await _print_authorization_link(
                 authorization_url,
-                warn_if_no_keyring=(persist_mode == "keyring"),
+                warn_if_no_keyring=(settings.persist_mode == "keyring"),
             )
 
     async def _callback_handler() -> tuple[str, str | None]:
-        # Try local HTTP capture first
-        try:
-            # MCP python-sdk currently uses the first redirect URI from client metadata
-            # for both authorization and token exchange. To keep callback handling aligned
-            # with that fixed redirect URI, bind only the selected primary redirect port here.
-            # If a race makes it unavailable, we fail into the existing fallback/error paths.
-            server = _CallbackServer(
-                port=selected_redirect_port,
-                path=redirect_path,
-                fallback_ports=[],
+        return await _handle_oauth_callback(
+            _OAuthCallbackContext(
+                event_handler=event_handler,
+                server_name=server_name,
+                emit_console_output=emit_console_output,
+                abort_event=abort_event,
+                selected_redirect_port=selected_redirect_port,
+                redirect_path=settings.redirect_path,
+                allow_paste_fallback=allow_paste_fallback,
             )
-            server.start()
-
-            try:
-                callback_uri = server.get_redirect_uri()
-            except Exception:
-                callback_uri = f"http://127.0.0.1:{selected_redirect_port}{redirect_path}"
-            wait_start_message = (
-                "Waiting for OAuth callback "
-                f"at {callback_uri} (startup timer paused)…"
-            )
-            await _emit_oauth_event(
-                event_handler,
-                OAuthEvent(
-                    event_type="wait_start",
-                    server_name=server_name,
-                    message=wait_start_message,
-                ),
-            )
-            if emit_console_output:
-                _safe_console_print(wait_start_message, markup=False)
-                _safe_console_print(
-                    "[dim]Press Ctrl+C to cancel and return to prompt.[/dim]",
-                    fallback="Press Ctrl+C to cancel and return to prompt.",
-                )
-
-            try:
-                code, state = await asyncio.to_thread(
-                    server.wait,
-                    timeout_seconds=300,
-                    abort_event=abort_event,
-                )
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="callback_received",
-                        server_name=server_name,
-                        message="OAuth callback received. Completing token exchange…",
-                    ),
-                )
-                return code, state
-            except OAuthFlowCancelledError as exc:
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="oauth_error",
-                        server_name=server_name,
-                        message="OAuth authorization cancelled.",
-                    ),
-                )
-                raise OAuthFlowCancelledError("OAuth authorization cancelled") from exc
-            except TimeoutError as exc:
-                timeout_message = "OAuth authorization was not completed in time."
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="oauth_error",
-                        server_name=server_name,
-                        message=timeout_message,
-                        is_timeout=True,
-                    ),
-                )
-                raise OAuthCallbackTimeoutError(timeout_message) from exc
-            finally:
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="wait_end",
-                        server_name=server_name,
-                        message="OAuth callback wait ended.",
-                    ),
-                )
-                server.stop()
-        except (OAuthCallbackTimeoutError, OAuthFlowCancelledError):
-            raise
-        except Exception as e:
-            if abort_event is not None and abort_event.is_set():
-                raise OAuthFlowCancelledError("OAuth authorization cancelled") from e
-
-            if not allow_paste_fallback:
-                message = (
-                    "OAuth local callback server unavailable and paste fallback is disabled "
-                    "for this connection mode."
-                )
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="oauth_error",
-                        server_name=server_name,
-                        message=message,
-                    ),
-                )
-                raise RuntimeError(message) from e
-
-            # Fallback to paste-URL flow
-            logger.info(f"OAuth local callback server unavailable, fallback to paste flow: {e}")
-            await _emit_oauth_event(
-                event_handler,
-                OAuthEvent(
-                    event_type="oauth_error",
-                    server_name=server_name,
-                    message=f"OAuth local callback server unavailable, using paste URL fallback: {e}",
-                ),
-            )
-            wait_start_message = "Waiting for pasted OAuth callback URL (startup timer paused)…"
-            await _emit_oauth_event(
-                event_handler,
-                OAuthEvent(
-                    event_type="wait_start",
-                    server_name=server_name,
-                    message=wait_start_message,
-                ),
-            )
-            if emit_console_output:
-                _safe_console_print(wait_start_message, markup=False)
-                _safe_console_print(
-                    "[dim]Press Ctrl+C to cancel and return to prompt.[/dim]",
-                    fallback="Press Ctrl+C to cancel and return to prompt.",
-                )
-
-            if abort_event is not None and abort_event.is_set():
-                raise OAuthFlowCancelledError("OAuth authorization cancelled")
-
-            try:
-                if emit_console_output:
-                    _safe_stderr_write("Paste the full callback URL after authorization:")
-                callback_url = (
-                    await asyncio.to_thread(
-                        _read_callback_url_with_abort,
-                        "Callback URL:",
-                        abort_event,
-                    )
-                ).strip()
-            except OAuthFlowCancelledError:
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="oauth_error",
-                        server_name=server_name,
-                        message="OAuth authorization cancelled.",
-                    ),
-                )
-                raise
-            except Exception as ee:
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="oauth_error",
-                        server_name=server_name,
-                        message=f"Failed to read callback URL from user: {ee}",
-                    ),
-                )
-                raise RuntimeError(f"Failed to read callback URL from user: {ee}")
-            finally:
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="wait_end",
-                        server_name=server_name,
-                        message="OAuth callback wait ended.",
-                    ),
-                )
-
-            params = parse_qs(urlparse(callback_url).query)
-            code = params.get("code", [None])[0]
-            state = params.get("state", [None])[0]
-            if not code:
-                await _emit_oauth_event(
-                    event_handler,
-                    OAuthEvent(
-                        event_type="oauth_error",
-                        server_name=server_name,
-                        message="Callback URL missing authorization code",
-                    ),
-                )
-                raise RuntimeError("Callback URL missing authorization code")
-            await _emit_oauth_event(
-                event_handler,
-                OAuthEvent(
-                    event_type="callback_received",
-                    server_name=server_name,
-                    message="OAuth callback received. Completing token exchange…",
-                ),
-            )
-            return code, state
-
-    # Choose storage
-    storage: TokenStorage
-    if persist_mode == "keyring":
-        identity = compute_server_identity(server_config)
-        # Update index on write via storage methods; creation here doesn't modify index yet.
-        storage = KeyringTokenStorage(service_name="fast-agent-mcp", server_identity=identity)
-    else:
-        storage = InMemoryTokenStorage()
+        )
 
     discovery_server_url = _derive_base_server_url(server_config.url) or oauth_server_url
 
-    provider = OAuthClientProvider(
+    return OAuthClientProvider(
         # Keep the concrete MCP endpoint URL for validation and OAuth resource
         # selection, but scope path-based PRM discovery to the parent protected
         # resource URL so `/api/mcp` can still discover metadata published at `/api`.
@@ -1179,10 +1313,8 @@ def build_oauth_provider(
         server_url=oauth_server_url,
         discovery_server_url=discovery_server_url,
         client_metadata=client_metadata,
-        storage=storage,
+        storage=_oauth_token_storage(server_config, settings),
         redirect_handler=_redirect_handler,
         callback_handler=_callback_handler,
-        client_metadata_url=client_metadata_url,
+        client_metadata_url=settings.client_metadata_url,
     )
-
-    return provider

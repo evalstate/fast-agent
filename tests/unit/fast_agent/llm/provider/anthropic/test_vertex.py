@@ -36,8 +36,8 @@ def test_vertex_cfg_accepts_model_object() -> None:
         "vertex_ai",
         types.SimpleNamespace(
             enabled=True,
-            project_id="proj",
-            location="global",
+            project_id="  proj  ",
+            location="  global  ",
             base_url="https://vertex.example",
         ),
     )

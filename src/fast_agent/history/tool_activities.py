@@ -342,7 +342,7 @@ def _decode_channel_payloads(blocks: Sequence[Any] | None) -> list[dict[str, Any
 
 def _is_mcp_payload(payload: Mapping[str, Any]) -> bool:
     block_type = payload.get("type")
-    return block_type == "mcp_tool_use" or block_type == "mcp_tool_result"
+    return block_type in ("mcp_tool_use", "mcp_tool_result")
 
 
 def _is_remote_activity_payload(payload: Mapping[str, Any]) -> bool:
@@ -373,8 +373,7 @@ def _result_from_payload(payload: Mapping[str, Any]) -> CallToolResult:
     raw_content = payload.get("content")
     content: list[ContentBlock] = []
     if isinstance(raw_content, Sequence) and not isinstance(raw_content, (str, bytes)):
-        for item in raw_content:
-            content.append(_content_from_payload(item))
+        content.extend(_content_from_payload(item) for item in raw_content)
 
     raw_is_error = payload.get("is_error")
     if not isinstance(raw_is_error, bool):

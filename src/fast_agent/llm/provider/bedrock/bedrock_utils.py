@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any, Collection, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 # Lightweight, runtime-only loader for AWS Bedrock models.
 # - Fetches once per process via boto3 (region from session; env override supported)
@@ -77,7 +80,7 @@ def _ensure_loaded(region: str | None = None) -> dict[str, ModelSummary]:
             f"Failed to list Bedrock foundation models in region '{resolved_region}'. "
             f"Ensure AWS credentials (SSO) and permissions (bedrock:ListFoundationModels) are configured. "
             f"Original error: {exc}"
-        )
+        ) from exc
 
     cache = {s.get("modelId", ""): s for s in summaries if s.get("modelId")}
     _MODELS_CACHE_BY_REGION[resolved_region] = cache
@@ -209,8 +212,8 @@ def list_providers(region: str | None = None) -> list[str]:
 
 
 __all__ = [
-    "Modality",
     "Lifecycle",
+    "Modality",
     "ModelSummary",
     "all_bedrock_models",
     "all_model_summaries",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from rich.style import Style
 
@@ -105,3 +106,14 @@ def test_configless_console_display_preserves_existing_shared_theme() -> None:
         assert console.console.get_style("markdown.block_quote") == Style.parse("bright_blue")
     finally:
         console.configure_console_theme(None)
+
+
+def test_console_display_normalizes_partial_logger_config() -> None:
+    config = SimpleNamespace(logger=SimpleNamespace(show_chat=False))
+
+    display = ConsoleDisplay(config=config)
+
+    assert display.logger_settings.show_chat is False
+    assert display.logger_settings.code_word_wrap is True
+    assert display.logger_settings.render_fences_with_syntax is True
+    assert config.logger is display.logger_settings

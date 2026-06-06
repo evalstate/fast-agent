@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterable, AsyncIterator, Sequence
-from typing import TYPE_CHECKING, Any, Callable, Protocol, Self, TypeVar
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Protocol, Self, TypeVar
 
 if TYPE_CHECKING:
     from fast_agent.core.logging.logger import Logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 
 _StreamEventT = TypeVar("_StreamEventT")
 
@@ -131,10 +132,7 @@ def validate_incomplete_tool_entries(
         },
     )
     if response_status != "incomplete":
-        raise RuntimeError(
-            "Streaming completed but tool call(s) never finished: "
-            f"{', '.join(incomplete_tools)}"
-        )
+        raise RuntimeError(format_incomplete_tool_call_error(incomplete_tools))
 
 
 async def fetch_and_finalize_stream_response(

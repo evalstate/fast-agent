@@ -1,19 +1,29 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final
+from dataclasses import dataclass
+from typing import Any, Final
 
 from mcp.types import Tool
 
-from fast_agent.tools.apply_patch_tool import normalize_tool_name
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from fast_agent.tools.filesystem_tool_args import (
+    coerce_required_string_argument,
+    coerce_tool_arguments,
+)
+from fast_agent.utils.tool_names import matches_tool_name
 
 EDIT_FILE_TOOL_NAME: Final = "edit_file"
 EDIT_FILE_TOOL_DESCRIPTION: Final = (
     "Edit a text file by replacing an exact string match with new text. "
     "Returns a structured result with match details and a unified diff."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class EditFileInput:
+    path: str
+    old_string: str
+    new_string: str
+    replace_all: bool
 
 
 def build_edit_file_tool() -> Tool:
@@ -52,30 +62,34 @@ def build_edit_file_tool() -> Tool:
 
 
 def is_edit_file_tool_name(tool_name: str | None) -> bool:
-    normalized = normalize_tool_name(tool_name)
-    return normalized == EDIT_FILE_TOOL_NAME or normalized.endswith("__edit_file")
+    return matches_tool_name(tool_name, EDIT_FILE_TOOL_NAME)
 
 
-def extract_edit_file_input(arguments: Mapping[str, Any] | None) -> tuple[str, str, str, bool] | None:
-    if arguments is None:
+def extract_edit_file_input(arguments: dict[str, Any] | None) -> EditFileInput | None:
+    try:
+        payload = coerce_tool_arguments(arguments)
+        path = coerce_required_string_argument(payload.get("path"), "path", strip=True)
+        old_string = coerce_required_string_argument(
+            payload.get("old_string"),
+            "old_string",
+            allow_empty=True,
+        )
+        new_string = coerce_required_string_argument(
+            payload.get("new_string"),
+            "new_string",
+            allow_empty=True,
+        )
+    except ValueError:
         return None
 
-    path = arguments.get("path")
-    old_string = arguments.get("old_string")
-    new_string = arguments.get("new_string")
-    replace_all = arguments.get("replace_all", False)
+    replace_all = payload.get("replace_all", False)
 
-    if not isinstance(path, str):
-        return None
-    if not isinstance(old_string, str):
-        return None
-    if not isinstance(new_string, str):
-        return None
     if not isinstance(replace_all, bool):
         return None
 
-    stripped_path = path.strip()
-    if not stripped_path:
-        return None
-
-    return stripped_path, old_string, new_string, replace_all
+    return EditFileInput(
+        path=path,
+        old_string=old_string,
+        new_string=new_string,
+        replace_all=replace_all,
+    )

@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import shlex
 import sys
-from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
@@ -21,8 +20,8 @@ from fast_agent.agents.workflow.agents_as_tools_agent import (
 )
 from fast_agent.commands.command_catalog import (
     command_action_names,
-    command_alias_map,
     get_command_spec,
+    normalize_command_action,
     suggest_command_name,
 )
 from fast_agent.commands.command_discovery import (
@@ -48,11 +47,14 @@ from fast_agent.commands.handlers import session_export as session_export_handle
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
-from fast_agent.commands.handlers.shared import clear_agent_histories
+from fast_agent.commands.mcp_command_intents import (
+    parse_mcp_server_name_tokens,
+)
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.commands.session_export_help import render_session_export_help_markdown
 from fast_agent.commands.shared_command_intents import (
+    SessionCommandIntent,
     parse_session_command_intent,
     should_default_export_agent,
 )
@@ -82,9 +84,17 @@ from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.mcp.ui_mixin import McpUIMixin
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.tools.function_tool_loader import build_default_function_tool
-from fast_agent.utils.slash_commands import split_subcommand_and_remainder
+from fast_agent.utils.action_normalization import is_help_flag, normalize_action_token
+from fast_agent.utils.commandline import split_commandline
+from fast_agent.utils.slash_commands import (
+    parse_slash_command_line,
+    split_subcommand_and_remainder,
+)
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from fastmcp.tools import FunctionTool
 
     from fast_agent.agents.llm_agent import LlmAgent
@@ -93,10 +103,63 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_card_types import AgentCardData
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.mcp.ui_modes import McpUIMode
 
 logger = get_logger(__name__)
 
 _INTERNAL_RESOURCE_SERVER = "internal"
+
+class SmartSlashOutcomeHandler(Protocol):
+    async def __call__(
+        self,
+        ctx: CommandContext,
+        *,
+        agent_name: str,
+    ) -> CommandOutcome: ...
+
+
+class SmartMcpServerHandler(Protocol):
+    async def __call__(
+        self,
+        ctx: CommandContext,
+        *,
+        manager: "_SmartToolMcpManager",
+        agent_name: str,
+        server_name: str,
+    ) -> CommandOutcome: ...
+
+
+class SmartSessionRoute(Protocol):
+    async def __call__(
+        self,
+        context: CommandContext,
+        intent: SessionCommandIntent,
+        agent_name: str,
+    ) -> CommandOutcome: ...
+
+
+_SMART_SLASH_OUTCOME_HANDLERS: dict[str, SmartSlashOutcomeHandler] = {
+    "tools": tools_handlers.handle_list_tools,
+    "prompts": prompt_handlers.handle_list_prompts,
+    "usage": display_handlers.handle_show_usage,
+    "system": display_handlers.handle_show_system,
+    "markdown": display_handlers.handle_show_markdown,
+    "mcpstatus": display_handlers.handle_show_mcp_status,
+    "status": display_handlers.handle_show_mcp_status,
+}
+
+_SMART_SESSION_HEADINGS: dict[str, str] = {
+    "help": "session",
+    "error": "session",
+    "unknown": "session",
+    "list": "session.list",
+    "new": "session.new",
+    "resume": "session.resume",
+    "title": "session.title",
+    "fork": "session.fork",
+    "delete": "session.delete",
+    "pin": "session.pin",
+}
 
 
 @dataclass(frozen=True)
@@ -203,6 +266,56 @@ class _SmartToolCommandIO(NonInteractiveCommandIOBase):
         self.messages.append(message)
 
 
+@dataclass(frozen=True, slots=True)
+class _OutcomeMessages:
+    errors: list[str]
+    warnings: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class _SlashCommandText:
+    command_name: str
+    arguments: str
+
+
+@dataclass(frozen=True, slots=True)
+class _FamilyCommandAction:
+    action: str
+    argument: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SmartCommandContext:
+    context: CommandContext
+    io: _SmartToolCommandIO
+
+
+@dataclass(frozen=True, slots=True)
+class _SmartMcpCommandContext:
+    context: CommandContext
+    io: _SmartToolCommandIO
+    runtime_manager: "_SmartToolMcpManager"
+    agent_name: str
+
+
+class _SmartCommandAgent(Protocol):
+    name: str
+    context: "Context | None"
+
+    @property
+    def agent_registry(self) -> "Mapping[str, AgentProtocol] | None": ...
+
+    def get_agent(self, name: str) -> "AgentProtocol | None": ...
+
+
+class SmartMcpRoute(Protocol):
+    async def __call__(
+        self,
+        mcp_context: _SmartMcpCommandContext,
+        tokens: list[str],
+    ) -> str: ...
+
+
 def _resolve_default_agent_name(
     agents: Mapping[str, AgentProtocol],
     *,
@@ -218,7 +331,7 @@ def _resolve_default_agent_name(
     return default_agent_name
 
 
-def _collect_outcome_messages(outcome: "CommandOutcome") -> tuple[list[str], list[str]]:
+def _collect_outcome_messages(outcome: "CommandOutcome") -> _OutcomeMessages:
     errors: list[str] = []
     warnings: list[str] = []
     for message in outcome.messages:
@@ -227,38 +340,38 @@ def _collect_outcome_messages(outcome: "CommandOutcome") -> tuple[list[str], lis
             errors.append(text)
         elif message.channel == "warning":
             warnings.append(text)
-    return errors, warnings
+    return _OutcomeMessages(errors=errors, warnings=warnings)
 
 
-def _resolve_command_agent_map(agent: Any) -> dict[str, object]:
-    registry = getattr(agent, "agent_registry", None)
+def _resolve_command_agent_map(agent: _SmartCommandAgent) -> dict[str, object]:
+    registry = agent.agent_registry
     agents: dict[str, object] = {}
-    if isinstance(registry, Mapping):
+    if registry is not None:
         agents.update({str(name): member for name, member in registry.items()})
 
-    agent_name = str(getattr(agent, "name", ""))
+    agent_name = str(agent.name)
     if agent_name:
         agents.setdefault(agent_name, agent)
     return agents
 
 
-def _build_command_context(agent: Any) -> tuple[CommandContext, _SmartToolCommandIO]:
-    context = getattr(agent, "context", None)
+def _build_command_context(agent: _SmartCommandAgent) -> _SmartCommandContext:
+    context = agent.context
     settings = context.config if context else None
-    agent_name = str(getattr(agent, "name", ""))
+    agent_name = str(agent.name)
     if not agent_name:
         raise AgentConfigError("Command execution requires named agent", "Agent has no name")
 
     io = _SmartToolCommandIO(messages=[])
     provider = StaticAgentProvider(_resolve_command_agent_map(agent))
-    return (
-        CommandContext(
+    return _SmartCommandContext(
+        context=CommandContext(
             agent_provider=provider,
             current_agent_name=agent_name,
             io=io,
             settings=settings,
         ),
-        io,
+        io=io,
     )
 
 
@@ -285,7 +398,7 @@ async def _run_check_subprocess(argument: str | None) -> CommandOutcome:
     ]
     if argument and argument.strip():
         try:
-            command.extend(shlex.split(argument))
+            command.extend(split_commandline(argument, syntax="posix"))
         except ValueError as exc:
             raise AgentConfigError("Invalid check arguments", str(exc)) from exc
 
@@ -320,14 +433,16 @@ async def _run_named_command_call(
     argument: str | None = None,
     heading: str | None = None,
 ) -> str:
-    normalized_command = command_name.strip().lower()
-    normalized_action = (action or "").strip().lower()
+    normalized_command = normalize_action_token(command_name)
+    normalized_action = normalize_action_token(action)
 
     if normalized_command == "check":
         outcome = await _run_check_subprocess(argument)
         return render_command_outcome_markdown(outcome, heading=heading or "check")
 
-    context, io = _build_command_context(agent)
+    command_context = _build_command_context(agent)
+    context = command_context.context
+    io = command_context.io
     agent_name = context.current_agent_name
 
     if normalized_command == "skills":
@@ -354,8 +469,7 @@ async def _run_named_command_call(
 
     if normalized_command == "model":
         selected_action = normalized_action or "reasoning"
-        management_actions = {"doctor", "references", "catalog", "help"}
-        if selected_action in management_actions:
+        if models_handlers.is_model_manager_action(selected_action):
             outcome = await models_handlers.handle_models_command(
                 context,
                 agent_name=agent_name,
@@ -365,77 +479,30 @@ async def _run_named_command_call(
             final_heading = heading or f"model.{selected_action}"
             return _render_command_outcome(outcome, heading=final_heading, io=io)
 
-        if selected_action == "verbosity":
-            outcome = await model_handlers.handle_model_verbosity(
-                context,
-                agent_name=agent_name,
-                value=argument,
-            )
-        elif selected_action == "task_budget":
-            outcome = await model_handlers.handle_model_task_budget(
-                context,
-                agent_name=agent_name,
-                value=argument,
-            )
-        elif selected_action == "fast":
-            outcome = await model_handlers.handle_model_fast(
-                context,
-                agent_name=agent_name,
-                value=argument,
-            )
-        elif selected_action == "web_search":
-            outcome = await model_handlers.handle_model_web_search(
-                context,
-                agent_name=agent_name,
-                value=argument,
-            )
-        elif selected_action == "x_search":
-            outcome = await model_handlers.handle_model_x_search(
-                context,
-                agent_name=agent_name,
-                value=argument,
-            )
-        elif selected_action == "web_fetch":
-            outcome = await model_handlers.handle_model_web_fetch(
-                context,
-                agent_name=agent_name,
-                value=argument,
-            )
-        elif selected_action == "switch":
-            outcome = await model_handlers.handle_model_switch(
-                context,
-                agent_name=agent_name,
-                value=argument,
-            )
-            if outcome.reset_session:
-                if not context.noenv:
-                    outcome.add_message(
-                        "Model switch starts a new session to avoid mixing histories.",
-                        channel="info",
-                    )
-                    session_outcome = await sessions_handlers.handle_create_session(
-                        context,
-                        session_name=None,
-                    )
-                    outcome.messages.extend(session_outcome.messages)
-                else:
-                    outcome.add_message(
-                        "Model switch cleared in-memory history (--noenv disables session persistence).",
-                        channel="info",
-                    )
-                cleared = clear_agent_histories(_resolve_command_agent_map(agent))
-                if cleared:
-                    outcome.add_message(
-                        f"Cleared agent history: {', '.join(sorted(cleared))}",
-                        channel="info",
-                    )
-        else:
-            outcome = await model_handlers.handle_model_reasoning(
-                context,
-                agent_name=agent_name,
-                value=argument,
-            )
+        model_handler = model_handlers.get_model_action_handler(selected_action)
+        if model_handler is None:
+            model_handler = model_handlers.handle_model_reasoning
+            selected_action = "reasoning"
+        outcome = await model_handler(
+            context,
+            agent_name=agent_name,
+            value=argument,
+        )
+        if selected_action == "switch":
+            await model_handlers.apply_model_switch_session_reset(context, outcome)
         final_heading = heading or f"model.{selected_action}"
+        return _render_command_outcome(outcome, heading=final_heading, io=io)
+
+    if normalized_command == "models":
+        selected_action = normalized_action or "doctor"
+        outcome = await models_handlers.handle_models_command(
+            context,
+            agent_name=agent_name,
+            action=selected_action,
+            argument=argument,
+            command_name="models",
+        )
+        final_heading = heading or f"models.{selected_action}"
         return _render_command_outcome(outcome, heading=final_heading, io=io)
 
     raise AgentConfigError(
@@ -447,7 +514,7 @@ async def _run_named_command_call(
 def _parse_family_command_action(
     command_name: str,
     arguments: str,
-) -> tuple[str, str | None]:
+) -> _FamilyCommandAction:
     spec = get_command_spec(command_name)
     if spec is None:
         raise AgentConfigError(
@@ -457,45 +524,31 @@ def _parse_family_command_action(
 
     trimmed = arguments.strip()
     if not trimmed:
-        return spec.default_action, None
+        return _FamilyCommandAction(action=spec.default_action)
 
     try:
-        tokens = shlex.split(trimmed)
+        tokens = split_commandline(trimmed, syntax="posix")
     except ValueError as exc:
         raise AgentConfigError("Invalid command arguments", str(exc)) from exc
 
     if not tokens:
-        return spec.default_action, None
+        return _FamilyCommandAction(action=spec.default_action)
 
     supported_actions = set(command_action_names(command_name))
-    first = tokens[0].lower()
+    first = strip_casefold(tokens[0])
 
-    if first in {"help", "--help", "-h"}:
-        return "help", None
+    if is_help_flag(first):
+        return _FamilyCommandAction(action="help")
 
-    aliases = command_alias_map(command_name)
-    alias_resolved = aliases.get(first)
-    if alias_resolved is not None:
-        remainder = " ".join(tokens[1:]).strip() or None
-        return alias_resolved, remainder
+    action = normalize_command_action(command_name, first)
+    if action in supported_actions:
+        remainder = strip_to_none(" ".join(tokens[1:]))
+        return _FamilyCommandAction(action=action, argument=remainder)
 
-    if command_name == "skills":
-        extra_actions = {
-            "available",
-            "search",
-        }
-        if first in extra_actions:
-            remainder = " ".join(tokens[1:]).strip() or None
-            return first, remainder
-
-    if first in supported_actions:
-        remainder = " ".join(tokens[1:]).strip() or None
-        return first, remainder
-
-    return spec.default_action, trimmed
+    return _FamilyCommandAction(action=spec.default_action, argument=trimmed)
 
 
-def _parse_slash_command_text(command: str) -> tuple[str, str]:
+def _parse_slash_command_text(command: str) -> _SlashCommandText:
     text = command.strip()
     if not text:
         raise AgentConfigError(
@@ -504,16 +557,25 @@ def _parse_slash_command_text(command: str) -> tuple[str, str]:
         )
 
     if text.startswith("/"):
-        text = text[1:].lstrip()
-
-    if not text:
+        parsed = parse_slash_command_line(text)
+        if parsed is None:
+            raise AgentConfigError(
+                "Slash command is empty",
+                "Pass a command like '/mcp list' or '/skills list'.",
+            )
+    else:
+        parsed = split_subcommand_and_remainder(text)
+    command_name, arguments = parsed
+    if not command_name:
         raise AgentConfigError(
             "Slash command is empty",
             "Pass a command like '/mcp list' or '/skills list'.",
         )
 
-    command_name, _, arguments = text.partition(" ")
-    return command_name.strip().lower(), arguments.strip()
+    return _SlashCommandText(
+        command_name=strip_casefold(command_name),
+        arguments=arguments,
+    )
 
 
 def _smart_slash_usage() -> str:
@@ -531,82 +593,150 @@ def _render_unknown_slash_command(command_name: str) -> str:
 
 def _mcp_usage_text() -> str:
     return (
-        "Usage: /mcp [list|connect|disconnect|reconnect|session|help] [args]\n"
+        "Usage: /mcp [list|connect|disconnect|reconnect|help] [args]\n"
         "- /mcp list\n"
-        "- /mcp connect <target> [--name <server>] [--auth <token-value>] [--timeout <seconds>]\n"
-        "- /mcp session [list|jar|new|use|clear] [args]"
+        "- /mcp connect <target> [--name <server>] [--auth <token-value>] [--timeout <seconds>]"
     )
 
 
-def _model_usage_text() -> str:
-    return (
-        "Usage: /model "
-        "[reasoning|task_budget|verbosity|fast|web_search|x_search|web_fetch|switch|doctor|references|catalog|help] [args]"
+async def _smart_session_help_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del intent, agent_name
+    return await sessions_handlers.handle_list_sessions(context, show_help=True)
+
+
+async def _smart_session_error_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del context, agent_name
+    outcome = CommandOutcome()
+    outcome.add_message(
+        f"Invalid /session arguments: {intent.argument or 'parse error'}",
+        channel="error",
+        right_info="session",
     )
+    return outcome
+
+
+async def _smart_session_list_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del intent, agent_name
+    return await sessions_handlers.handle_list_sessions(context)
+
+
+async def _smart_session_new_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del agent_name
+    outcome = await sessions_handlers.handle_create_session(
+        context,
+        session_name=intent.argument,
+    )
+    sessions_handlers.apply_session_new_history_reset(context, outcome)
+    return outcome
+
+
+async def _smart_session_resume_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    return await sessions_handlers.handle_resume_session(
+        context,
+        agent_name=agent_name,
+        session_id=intent.argument,
+    )
+
+
+async def _smart_session_title_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del agent_name
+    return await sessions_handlers.handle_title_session(
+        context,
+        title=intent.argument,
+    )
+
+
+async def _smart_session_fork_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del agent_name
+    return await sessions_handlers.handle_fork_session(
+        context,
+        title=intent.argument,
+    )
+
+
+async def _smart_session_delete_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del agent_name
+    return await sessions_handlers.handle_clear_sessions(
+        context,
+        target=intent.argument,
+    )
+
+
+async def _smart_session_pin_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del agent_name
+    return await sessions_handlers.handle_pin_session(
+        context,
+        value=intent.pin_value,
+        target=intent.pin_target,
+    )
+
+
+_SMART_SESSION_ROUTES: dict[str, SmartSessionRoute] = {
+    "help": _smart_session_help_route,
+    "error": _smart_session_error_route,
+    "unknown": _smart_session_help_route,
+    "list": _smart_session_list_route,
+    "new": _smart_session_new_route,
+    "resume": _smart_session_resume_route,
+    "title": _smart_session_title_route,
+    "fork": _smart_session_fork_route,
+    "delete": _smart_session_delete_route,
+    "pin": _smart_session_pin_route,
+}
 
 
 async def _run_session_slash_command_call(agent: Any, arguments: str) -> str:
-    context, io = _build_command_context(agent)
+    command_context = _build_command_context(agent)
+    context = command_context.context
+    io = command_context.io
     agent_name = context.current_agent_name
     intent = parse_session_command_intent(arguments)
 
-    if intent.action in {"help", "unknown"}:
-        outcome = await sessions_handlers.handle_list_sessions(context, show_help=True)
-        return _render_smart_slash_outcome(outcome, heading="session", io=io)
-
-    if intent.action == "list":
-        outcome = await sessions_handlers.handle_list_sessions(context)
-        return _render_smart_slash_outcome(outcome, heading="session.list", io=io)
-
-    if intent.action == "new":
-        outcome = await sessions_handlers.handle_create_session(
-            context,
-            session_name=intent.argument,
+    route = _SMART_SESSION_ROUTES.get(intent.action)
+    if route is not None:
+        outcome = await route(context, intent, agent_name)
+        return _render_smart_slash_outcome(
+            outcome,
+            heading=_SMART_SESSION_HEADINGS[intent.action],
+            io=io,
         )
-        cleared = clear_agent_histories(context.agent_provider.registered_agents())
-        if cleared:
-            outcome.add_message(
-                f"Cleared agent history: {', '.join(sorted(cleared))}",
-                channel="info",
-            )
-        return _render_smart_slash_outcome(outcome, heading="session.new", io=io)
 
-    if intent.action == "resume":
-        outcome = await sessions_handlers.handle_resume_session(
-            context,
-            agent_name=agent_name,
-            session_id=intent.argument,
-        )
-        return _render_smart_slash_outcome(outcome, heading="session.resume", io=io)
-
-    if intent.action == "title":
-        outcome = await sessions_handlers.handle_title_session(
-            context,
-            title=intent.argument,
-        )
-        return _render_smart_slash_outcome(outcome, heading="session.title", io=io)
-
-    if intent.action == "fork":
-        outcome = await sessions_handlers.handle_fork_session(
-            context,
-            title=intent.argument,
-        )
-        return _render_smart_slash_outcome(outcome, heading="session.fork", io=io)
-
-    if intent.action == "delete":
-        outcome = await sessions_handlers.handle_clear_sessions(
-            context,
-            target=intent.argument,
-        )
-        return _render_smart_slash_outcome(outcome, heading="session.delete", io=io)
-
-    if intent.action == "pin":
-        outcome = await sessions_handlers.handle_pin_session(
-            context,
-            value=intent.pin_value,
-            target=intent.pin_target,
-        )
-        return _render_smart_slash_outcome(outcome, heading="session.pin", io=io)
     if intent.export_help:
         return render_session_export_help_markdown()
 
@@ -684,135 +814,94 @@ def _render_smart_slash_outcome(
     return _render_command_outcome(outcome, heading=heading, io=io)
 
 
-def _parse_mcp_session_args(
+async def _run_mcp_server_name_command(
+    mcp_context: _SmartMcpCommandContext,
+    *,
     tokens: list[str],
-) -> tuple[str, str | None, str | None, str | None, bool]:
-    session_tokens = tokens[1:]
-    action = "list"
-    server_identity: str | None = None
-    session_id: str | None = None
-    title: str | None = None
-    clear_all = False
-
-    if not session_tokens:
-        return action, server_identity, session_id, title, clear_all
-
-    action = session_tokens[0].lower()
-    args = session_tokens[1:]
-
-    if action == "list":
-        if len(args) > 1:
-            raise AgentConfigError(
-                "Invalid /mcp session arguments",
-                "Usage: /mcp session list [<server_or_identity>]",
-            )
-        server_identity = args[0] if args else None
-        return action, server_identity, session_id, title, clear_all
-
-    if action == "jar":
-        if len(args) > 1:
-            raise AgentConfigError(
-                "Invalid /mcp session arguments",
-                "Usage: /mcp session jar [<server_or_identity>]",
-            )
-        server_identity = args[0] if args else None
-        return action, server_identity, session_id, title, clear_all
-
-    if action in {"new", "create"}:
-        idx = 0
-        while idx < len(args):
-            token = args[idx]
-            if token == "--title":
-                idx += 1
-                if idx >= len(args):
-                    raise AgentConfigError(
-                        "Invalid /mcp session arguments", "Missing value for --title"
-                    )
-                title = args[idx]
-            elif token.startswith("--title="):
-                title = token.split("=", 1)[1] or None
-                if title is None:
-                    raise AgentConfigError(
-                        "Invalid /mcp session arguments",
-                        "Missing value for --title",
-                    )
-            elif token.startswith("--"):
-                raise AgentConfigError(
-                    "Invalid /mcp session arguments",
-                    f"Unknown flag: {token}",
-                )
-            elif server_identity is None:
-                server_identity = token
-            else:
-                raise AgentConfigError(
-                    "Invalid /mcp session arguments",
-                    f"Unexpected argument: {token}",
-                )
-            idx += 1
-        return "new", server_identity, session_id, title, clear_all
-
-    if action in {"resume", "use"}:
-        if len(args) != 2:
-            raise AgentConfigError(
-                "Invalid /mcp session arguments",
-                "Usage: /mcp session use <server_or_identity> <session_id>",
-            )
-        server_identity, session_id = args
-        return "use", server_identity, session_id, title, clear_all
-
-    if action == "clear":
-        for token in args:
-            if token == "--all":
-                clear_all = True
-                continue
-            if token.startswith("--"):
-                raise AgentConfigError(
-                    "Invalid /mcp session arguments",
-                    f"Unknown flag: {token}",
-                )
-            if server_identity is None:
-                server_identity = token
-            else:
-                raise AgentConfigError(
-                    "Invalid /mcp session arguments",
-                    f"Unexpected argument: {token}",
-                )
-
-        if clear_all and server_identity is not None:
-            raise AgentConfigError(
-                "Invalid /mcp session arguments",
-                "Use either --all or a specific server, not both",
-            )
-
-        if not clear_all and server_identity is None:
-            clear_all = True
-
-        return action, server_identity, session_id, title, clear_all
-
-    if args:
+    subcommand: str,
+    handler: SmartMcpServerHandler,
+) -> str:
+    intent = parse_mcp_server_name_tokens(
+        tokens,
+        usage=f"Usage: /mcp {subcommand} <server_name>",
+    )
+    if intent.error or intent.server_name is None:
         raise AgentConfigError(
-            "Invalid /mcp session arguments",
-            (
-                "Usage: /mcp session [list [server]|jar [server]|new [server] "
-                "[--title <title>]|use <server> <session_id>|clear [server|--all]]"
-            ),
+            f"Invalid /mcp {subcommand} arguments",
+            intent.error or f"Usage: /mcp {subcommand} <server_name>",
         )
 
-    server_identity = action
-    return "list", server_identity, session_id, title, clear_all
+    outcome = await handler(
+        mcp_context.context,
+        manager=mcp_context.runtime_manager,
+        agent_name=mcp_context.agent_name,
+        server_name=intent.server_name,
+    )
+    return _render_smart_slash_outcome(outcome, heading="mcp", io=mcp_context.io)
+
+
+async def _run_mcp_list_command(
+    mcp_context: _SmartMcpCommandContext,
+    tokens: list[str],
+) -> str:
+    del tokens
+    outcome = await mcp_runtime_handlers.handle_mcp_list(
+        manager=mcp_context.runtime_manager,
+        agent_name=mcp_context.agent_name,
+    )
+    return _render_smart_slash_outcome(outcome, heading="mcp", io=mcp_context.io)
+
+
+async def _run_mcp_disconnect_command(
+    mcp_context: _SmartMcpCommandContext,
+    tokens: list[str],
+) -> str:
+    return await _run_mcp_server_name_command(
+        mcp_context,
+        tokens=tokens,
+        subcommand="disconnect",
+        handler=mcp_runtime_handlers.handle_mcp_disconnect,
+    )
+
+
+async def _run_mcp_reconnect_command(
+    mcp_context: _SmartMcpCommandContext,
+    tokens: list[str],
+) -> str:
+    return await _run_mcp_server_name_command(
+        mcp_context,
+        tokens=tokens,
+        subcommand="reconnect",
+        handler=mcp_runtime_handlers.handle_mcp_reconnect,
+    )
+
+
+_SMART_MCP_ROUTES: dict[str, SmartMcpRoute] = {
+    "list": _run_mcp_list_command,
+    "disconnect": _run_mcp_disconnect_command,
+    "reconnect": _run_mcp_reconnect_command,
+}
 
 
 async def _run_mcp_slash_command_call(agent: Any, arguments: str) -> str:
-    context, io = _build_command_context(agent)
+    command_context = _build_command_context(agent)
+    context = command_context.context
+    io = command_context.io
     agent_name = context.current_agent_name
     runtime_manager = _SmartToolMcpManager(
         {agent_name: agent},
         configured_server_names=_context_server_names(getattr(agent, "context", None)),
     )
+    mcp_context = _SmartMcpCommandContext(
+        context=context,
+        io=io,
+        runtime_manager=runtime_manager,
+        agent_name=agent_name,
+    )
 
     args = arguments.strip() or "list"
     subcmd_text, connect_remainder = split_subcommand_and_remainder(args)
-    subcmd = (subcmd_text or "list").lower()
+    subcmd = strip_casefold(subcmd_text or "list")
 
     if subcmd == "connect":
         if not connect_remainder:
@@ -836,68 +925,21 @@ async def _run_mcp_slash_command_call(agent: Any, arguments: str) -> str:
         return _render_smart_slash_outcome(outcome, heading="mcp", io=io)
 
     try:
-        tokens = shlex.split(args)
+        tokens = split_commandline(args, syntax="posix")
     except ValueError as exc:
         raise AgentConfigError("Invalid /mcp arguments", str(exc)) from exc
 
     if not tokens:
         tokens = ["list"]
 
-    subcmd = tokens[0].lower()
+    subcmd = strip_casefold(tokens[0])
 
-    if subcmd in {"help", "--help", "-h"}:
+    if is_help_flag(subcmd):
         return _mcp_usage_text()
 
-    if subcmd == "list":
-        outcome = await mcp_runtime_handlers.handle_mcp_list(
-            context,
-            manager=runtime_manager,
-            agent_name=agent_name,
-        )
-        return _render_smart_slash_outcome(outcome, heading="mcp", io=io)
-
-    if subcmd == "disconnect":
-        if len(tokens) != 2:
-            raise AgentConfigError(
-                "Invalid /mcp disconnect arguments",
-                "Usage: /mcp disconnect <server_name>",
-            )
-
-        outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
-            context,
-            manager=runtime_manager,
-            agent_name=agent_name,
-            server_name=tokens[1],
-        )
-        return _render_smart_slash_outcome(outcome, heading="mcp", io=io)
-
-    if subcmd == "reconnect":
-        if len(tokens) != 2:
-            raise AgentConfigError(
-                "Invalid /mcp reconnect arguments",
-                "Usage: /mcp reconnect <server_name>",
-            )
-
-        outcome = await mcp_runtime_handlers.handle_mcp_reconnect(
-            context,
-            manager=runtime_manager,
-            agent_name=agent_name,
-            server_name=tokens[1],
-        )
-        return _render_smart_slash_outcome(outcome, heading="mcp", io=io)
-
-    if subcmd == "session":
-        action, server_identity, session_id, title, clear_all = _parse_mcp_session_args(tokens)
-        outcome = await mcp_runtime_handlers.handle_mcp_session(
-            context,
-            agent_name=agent_name,
-            action=cast("mcp_runtime_handlers.McpSessionAction", action),
-            server_identity=server_identity,
-            session_id=session_id,
-            title=title,
-            clear_all=clear_all,
-        )
-        return _render_smart_slash_outcome(outcome, heading="mcp", io=io)
+    route = _SMART_MCP_ROUTES.get(subcmd)
+    if route is not None:
+        return await route(mcp_context, tokens)
 
     raise AgentConfigError(
         "Unsupported /mcp subcommand",
@@ -906,7 +948,9 @@ async def _run_mcp_slash_command_call(agent: Any, arguments: str) -> str:
 
 
 async def _run_slash_command_call(agent: Any, command: str) -> str:
-    command_name, arguments = _parse_slash_command_text(command)
+    parsed_command = _parse_slash_command_text(command)
+    command_name = parsed_command.command_name
+    arguments = parsed_command.arguments
 
     if command_name in {"help", "?"}:
         return _smart_slash_usage()
@@ -914,33 +958,43 @@ async def _run_slash_command_call(agent: Any, command: str) -> str:
     if command_name == "commands":
         return _run_commands_slash_command_call(arguments)
 
+    direct_command_result = await _run_direct_slash_command(
+        agent,
+        command_name,
+        arguments,
+    )
+    if direct_command_result is not None:
+        return direct_command_result
+
+    command_context = _build_command_context(agent)
+    context = command_context.context
+    io = command_context.io
+    agent_name = context.current_agent_name
+
+    outcome_handler = _SMART_SLASH_OUTCOME_HANDLERS.get(command_name)
+    if outcome_handler is not None:
+        outcome = await outcome_handler(context, agent_name=agent_name)
+        heading = "mcpstatus" if command_name == "status" else command_name
+        return _render_smart_slash_outcome(outcome, heading=heading, io=io)
+
+    return _render_unknown_slash_command(command_name)
+
+
+async def _run_direct_slash_command(
+    agent: Any,
+    command_name: str,
+    arguments: str,
+) -> str | None:
     if command_name in {"skills", "cards", "model", "models", "check"}:
         direct_help = render_direct_command_help(command_name, arguments)
         if direct_help is not None:
             return direct_help
 
-    if command_name in {"skills", "cards", "model"}:
-        action, argument = _parse_family_command_action(command_name, arguments)
-        normalized_action = action
-
-        heading = f"{command_name}.{normalized_action}"
-        return await _run_named_command_call(
-            agent,
-            command_name=command_name,
-            action=normalized_action,
-            argument=argument,
-            heading=heading,
-        )
+    if command_name in {"skills", "cards", "model", "models"}:
+        return await _run_family_slash_command(agent, command_name, arguments)
 
     if command_name == "check":
-        argument = arguments.strip() or None
-        return await _run_named_command_call(
-            agent,
-            command_name="check",
-            action="run",
-            argument=argument,
-            heading="check",
-        )
+        return await _run_check_slash_command(agent, arguments)
 
     if command_name == "mcp":
         return await _run_mcp_slash_command_call(agent, arguments)
@@ -948,34 +1002,33 @@ async def _run_slash_command_call(agent: Any, command: str) -> str:
     if command_name == "session":
         return await _run_session_slash_command_call(agent, arguments)
 
-    context, io = _build_command_context(agent)
-    agent_name = context.current_agent_name
+    return None
 
-    if command_name == "tools":
-        outcome = await tools_handlers.handle_list_tools(context, agent_name=agent_name)
-        return _render_smart_slash_outcome(outcome, heading="tools", io=io)
 
-    if command_name == "prompts":
-        outcome = await prompt_handlers.handle_list_prompts(context, agent_name=agent_name)
-        return _render_smart_slash_outcome(outcome, heading="prompts", io=io)
+async def _run_family_slash_command(
+    agent: Any,
+    command_name: str,
+    arguments: str,
+) -> str:
+    family_action = _parse_family_command_action(command_name, arguments)
+    normalized_action = family_action.action
+    return await _run_named_command_call(
+        agent,
+        command_name=command_name,
+        action=normalized_action,
+        argument=family_action.argument,
+        heading=f"{command_name}.{normalized_action}",
+    )
 
-    if command_name == "usage":
-        outcome = await display_handlers.handle_show_usage(context, agent_name=agent_name)
-        return _render_smart_slash_outcome(outcome, heading="usage", io=io)
 
-    if command_name == "system":
-        outcome = await display_handlers.handle_show_system(context, agent_name=agent_name)
-        return _render_smart_slash_outcome(outcome, heading="system", io=io)
-
-    if command_name == "markdown":
-        outcome = await display_handlers.handle_show_markdown(context, agent_name=agent_name)
-        return _render_smart_slash_outcome(outcome, heading="markdown", io=io)
-
-    if command_name in {"mcpstatus", "status"}:
-        outcome = await display_handlers.handle_show_mcp_status(context, agent_name=agent_name)
-        return _render_smart_slash_outcome(outcome, heading="mcpstatus", io=io)
-
-    return _render_unknown_slash_command(command_name)
+async def _run_check_slash_command(agent: Any, arguments: str) -> str:
+    return await _run_named_command_call(
+        agent,
+        command_name="check",
+        action="run",
+        argument=strip_to_none(arguments),
+        heading="check",
+    )
 
 
 def _context_server_names(context: "Context | None") -> set[str]:
@@ -1015,12 +1068,12 @@ async def _apply_runtime_mcp_connections(
             agent_name=target_agent_name,
             request=request,
         )
-        errors, target_warnings = _collect_outcome_messages(outcome)
-        warnings.extend(target_warnings)
-        if errors:
+        outcome_messages = _collect_outcome_messages(outcome)
+        warnings.extend(outcome_messages.warnings)
+        if outcome_messages.errors:
             raise AgentConfigError(
                 "Failed to connect MCP server for smart tool call",
-                "\n".join(errors),
+                "\n".join(outcome_messages.errors),
             )
 
         connected_names.append(infer_server_name(request.target))
@@ -1093,10 +1146,8 @@ async def _apply_instruction_context(
 
 async def _shutdown_agents(agents: Mapping[str, AgentProtocol]) -> None:
     for agent in agents.values():
-        try:
+        with suppress(Exception):
             await agent.shutdown()
-        except Exception:
-            pass
 
 
 def _format_validation_results(results: Sequence[AgentCardScanResult]) -> str:
@@ -1112,8 +1163,7 @@ def _format_validation_results(results: Sequence[AgentCardScanResult]) -> str:
         else:
             status = "ok"
         lines.append(f"{entry.name} ({entry.type}) - {status}")
-        for error in entry.errors:
-            lines.append(f"  - {error}")
+        lines.extend(f"  - {error}" for error in entry.errors)
     return "\n".join(lines)
 
 
@@ -1198,6 +1248,83 @@ def _extract_read_resource_text(result: ReadResourceResult, *, max_chars: int = 
     return joined[: max_chars - 1] + "…\n[truncated]"
 
 
+def _smart_resource_server_names(
+    resources: Mapping[str, list[str]],
+    templates: Mapping[str, Sequence[Any]],
+    mcp_server_names: Sequence[str],
+) -> list[str]:
+    return sorted(
+        (set(resources.keys()) | set(templates.keys()) | set(mcp_server_names))
+        - {_INTERNAL_RESOURCE_SERVER}
+    )
+
+
+def _append_smart_resource_server_index(lines: list[str], server_names: Sequence[str]) -> None:
+    lines.append("server_names:")
+    lines.append(f"  - {_INTERNAL_RESOURCE_SERVER} (always available)")
+    if server_names:
+        lines.extend(f"  - {server_name}" for server_name in server_names)
+    else:
+        lines.append("  - (no attached MCP servers)")
+    lines.append("")
+
+
+def _append_internal_resource_section(
+    lines: list[str],
+    *,
+    internal_resources: Sequence[InternalResource],
+    has_mcp_servers: bool,
+) -> None:
+    if not internal_resources:
+        return
+
+    lines.append(f"[{_INTERNAL_RESOURCE_SERVER}]")
+    lines.append("resources:")
+    for resource in internal_resources:
+        lines.append(f"  - {resource.uri}")
+        lines.append(f"    description: {resource.description}")
+        lines.append(f"    why: {resource.why}")
+    lines.append("templates: []")
+    if has_mcp_servers:
+        lines.append("")
+
+
+def _append_smart_resource_items(lines: list[str], uris: Sequence[str]) -> None:
+    if not uris:
+        lines.append("resources: []")
+        return
+
+    lines.append("resources:")
+    lines.extend(f"  - {uri}" for uri in uris)
+
+
+def _append_smart_resource_templates(lines: list[str], templates: Sequence[Any]) -> None:
+    if not templates:
+        lines.append("templates: []")
+        return
+
+    lines.append("templates:")
+    for template in templates:
+        uri_template = getattr(template, "uriTemplate", "")
+        name = getattr(template, "name", "")
+        if name:
+            lines.append(f"  - {name}: {uri_template}")
+        else:
+            lines.append(f"  - {uri_template}")
+
+
+def _append_mcp_resource_section(
+    lines: list[str],
+    *,
+    server_name: str,
+    resources: Mapping[str, list[str]],
+    templates: Mapping[str, Sequence[Any]],
+) -> None:
+    lines.append(f"[{server_name}]")
+    _append_smart_resource_items(lines, resources.get(server_name, []))
+    _append_smart_resource_templates(lines, templates.get(server_name, []))
+
+
 def _format_smart_resource_listing(
     resources: Mapping[str, list[str]],
     templates: Mapping[str, Sequence[Any]],
@@ -1206,55 +1333,28 @@ def _format_smart_resource_listing(
     internal_resources: Sequence[InternalResource] = (),
 ) -> str:
     lines: list[str] = []
-    server_names = sorted(
-        (set(resources.keys()) | set(templates.keys()) | set(mcp_server_names))
-        - {_INTERNAL_RESOURCE_SERVER}
+    server_names = _smart_resource_server_names(
+        resources,
+        templates,
+        mcp_server_names,
     )
     if not server_names and not internal_resources:
         return "No resources available."
 
-    lines.append("server_names:")
-    lines.append(f"  - {_INTERNAL_RESOURCE_SERVER} (always available)")
-    if server_names:
-        for server_name in server_names:
-            lines.append(f"  - {server_name}")
-    else:
-        lines.append("  - (no attached MCP servers)")
-    lines.append("")
-
-    if internal_resources:
-        lines.append(f"[{_INTERNAL_RESOURCE_SERVER}]")
-        lines.append("resources:")
-        for resource in internal_resources:
-            lines.append(f"  - {resource.uri}")
-            lines.append(f"    description: {resource.description}")
-            lines.append(f"    why: {resource.why}")
-        lines.append("templates: []")
-        if server_names:
-            lines.append("")
+    _append_smart_resource_server_index(lines, server_names)
+    _append_internal_resource_section(
+        lines,
+        internal_resources=internal_resources,
+        has_mcp_servers=bool(server_names),
+    )
 
     for server_name in server_names:
-        lines.append(f"[{server_name}]")
-        server_resources = resources.get(server_name, [])
-        if server_resources:
-            lines.append("resources:")
-            for uri in server_resources:
-                lines.append(f"  - {uri}")
-        else:
-            lines.append("resources: []")
-
-        server_templates = templates.get(server_name, [])
-        if server_templates:
-            lines.append("templates:")
-            for template in server_templates:
-                uri_template = getattr(template, "uriTemplate", "")
-                name = getattr(template, "name", "")
-                if name:
-                    lines.append(f"  - {name}: {uri_template}")
-                else:
-                    lines.append(f"  - {uri_template}")
-        else:
-            lines.append("templates: []")
+        _append_mcp_resource_section(
+            lines,
+            server_name=server_name,
+            resources=resources,
+            templates=templates,
+        )
 
     return "\n".join(lines)
 
@@ -1570,7 +1670,8 @@ def _slash_command_tool_description() -> str:
     return (
         "Execute a fast-agent slash command using native `/...` syntax. "
         "Use `/commands` or `/commands --json` to discover capabilities. "
-        "Supports `/skills` (including available/search/registry/help), `/cards`, `/model`, `/session`, "
+        "Supports `/skills` (including available/search/registry/help), "
+        "`/cards`, `/model`, `/session`, "
         "`/mcp`, `/tools`, `/prompts`, "
         "`/usage`, `/system`, `/markdown`, and `/check`."
     )
@@ -1590,10 +1691,12 @@ def _enable_smart_tooling(agent: _SmartToolingAgent) -> None:
         agent.smart,
         name="smart",
         description=(
-            "Run subagent tasks from a definition in a file or directory. Subagents are defined with "
-            "AgentCards. Use action=`run` to load a subagent and send it a message. Optionally supply "
-            "`mcp_connect` targets. Use action=`validate` to check card file validity without running them. "
-            "Do not pass Agent Skill SKILL.md files here; inspect skills with read_text_file/read_skill."
+            "Run subagent tasks from a definition in a file or directory. "
+            "Subagents are defined with AgentCards. Use action=`run` to load "
+            "a subagent and send it a message. Optionally supply `mcp_connect` "
+            "targets. Use action=`validate` to check card file validity without "
+            "running them. Do not pass Agent Skill SKILL.md files here; inspect "
+            "skills with read_text_file/read_skill."
         ),
     )
     slash_command_tool = build_default_function_tool(
@@ -1631,8 +1734,8 @@ async def _dispatch_smart_tool(
             "Supported smart actions: run, validate.",
         )
 
-    message_text = (message or "").strip()
-    if not message_text:
+    message_text = strip_to_none(message)
+    if message_text is None:
         raise AgentConfigError(
             "Missing smart message",
             "Provide `message` when action=`run`.",
@@ -1975,7 +2078,7 @@ class SmartAgentWithUI(McpUIMixin, SmartAgent):
         self,
         config: AgentConfig,
         context: Context | None = None,
-        ui_mode: str = "auto",
+        ui_mode: "McpUIMode" = "auto",
         **kwargs: Any,
     ) -> None:
         super().__init__(config=config, context=context, ui_mode=ui_mode, **kwargs)

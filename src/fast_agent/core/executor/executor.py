@@ -249,8 +249,7 @@ class AsyncioExecutor(Executor):
         results: list[R | BaseException] = []
 
         try:
-            for task in running:
-                results.append(await task)
+            results.extend([await task for task in running])
         except BaseException:
             for task in running:
                 if not task.done():

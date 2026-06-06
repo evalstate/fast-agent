@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from mcp.types import ElicitRequestURLParams
 from pydantic import ValidationError
 
+from fast_agent.utils.text import strip_str_to_none
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
 
@@ -35,6 +36,12 @@ class URLElicitationRequiredDisplayPayload:
     request_method: str
     elicitations: list[URLElicitationDisplayItem]
     issues: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedElicitationPayload:
+    payload: dict[str, object]
+    non_compliant_issue: str | None = None
 
 
 def parse_url_elicitation_required_data(data: object) -> ParsedURLElicitationErrorData:
@@ -79,12 +86,15 @@ def parse_url_elicitation_required_data(data: object) -> ParsedURLElicitationErr
             )
             continue
 
-        normalized_elicitation, non_compliant_issue = _normalize_elicitation_payload(raw_elicitation)
-        if non_compliant_issue is not None:
-            issues.append(f"error.data.elicitations[{index}] is non-compliant: {non_compliant_issue}")
+        normalized_elicitation = _normalize_elicitation_payload(raw_elicitation)
+        if normalized_elicitation.non_compliant_issue is not None:
+            issues.append(
+                f"error.data.elicitations[{index}] is non-compliant: "
+                f"{normalized_elicitation.non_compliant_issue}"
+            )
 
         try:
-            elicitation = ElicitRequestURLParams.model_validate(normalized_elicitation)
+            elicitation = ElicitRequestURLParams.model_validate(normalized_elicitation.payload)
         except ValidationError as exc:
             details = _format_validation_error(exc)
             issues.append(f"error.data.elicitations[{index}] is invalid: {details}")
@@ -131,18 +141,20 @@ def _format_validation_error(exc: ValidationError) -> str:
     return f"{loc}: {message}"
 
 
-def _normalize_elicitation_payload(raw_elicitation: dict[str, object]) -> tuple[dict[str, object], str | None]:
+def _normalize_elicitation_payload(
+    raw_elicitation: dict[str, object],
+) -> _NormalizedElicitationPayload:
     """Normalize provider variants while recording MCP wire-format non-compliance."""
     if "elicitationId" in raw_elicitation:
-        return raw_elicitation, None
+        return _NormalizedElicitationPayload(payload=raw_elicitation)
 
-    snake_case_value = raw_elicitation.get("elicitation_id")
-    if isinstance(snake_case_value, str) and snake_case_value:
+    elicitation_id = strip_str_to_none(raw_elicitation.get("elicitation_id"))
+    if elicitation_id is not None:
         normalized = dict(raw_elicitation)
-        normalized["elicitationId"] = snake_case_value
-        return (
-            normalized,
-            "uses 'elicitation_id'; expected MCP field 'elicitationId'",
+        normalized["elicitationId"] = elicitation_id
+        return _NormalizedElicitationPayload(
+            payload=normalized,
+            non_compliant_issue="uses 'elicitation_id'; expected MCP field 'elicitationId'",
         )
 
-    return raw_elicitation, None
+    return _NormalizedElicitationPayload(payload=raw_elicitation)

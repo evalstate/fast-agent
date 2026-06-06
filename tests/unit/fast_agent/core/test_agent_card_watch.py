@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from fast_agent import FastAgent
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.fastagent import AgentRefreshResult
 from fast_agent.session import (
     SessionContinuationSnapshot,
@@ -75,11 +76,44 @@ async def test_reload_agents_detects_function_tool_change(tmp_path: Path) -> Non
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
 
-    tool_path = agents_dir / "tools.py"
+    tool_path = agents_dir / "tools.PY"
     tool_path.write_text("def echo():\n    return 'ok'\n", encoding="utf-8")
 
     card_path = agents_dir / "watcher.md"
-    _write_agent_card(card_path, function_tools=["tools.py:echo"])
+    _write_agent_card(card_path, function_tools=["tools.PY:echo"])
+
+    fast = FastAgent(
+        "watch-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    fast.load_agents(agents_dir)
+
+    tool_path.write_text("def echo():\n    return 'changed'\n", encoding="utf-8")
+
+    changed = await fast.reload_agents()
+
+    assert changed is True
+
+
+@pytest.mark.asyncio
+async def test_reload_agents_detects_function_tool_change_in_path_with_colon(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+
+    tool_dir = agents_dir / "tool:bundle"
+    tool_dir.mkdir()
+    tool_path = tool_dir / "tools.py"
+    tool_path.write_text("def echo():\n    return 'ok'\n", encoding="utf-8")
+
+    card_path = agents_dir / "watcher.md"
+    _write_agent_card(card_path, function_tools=["tool:bundle/tools.py:echo"])
 
     fast = FastAgent(
         "watch-test",
@@ -256,6 +290,46 @@ async def test_reload_agents_prunes_removed_child_agents(tmp_path: Path) -> None
     assert "child" not in fast.agents
     parent_data = fast.agents["parent"]
     assert "child" not in (parent_data.get("child_agents") or [])
+
+
+def test_attach_agent_tools_reports_single_missing_agent(tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    _write_agent_card(agents_dir / "parent.md", name="parent")
+
+    fast = FastAgent(
+        "watch-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    fast.load_agents(agents_dir)
+
+    with pytest.raises(AgentConfigError, match="Agent not found: missing"):
+        fast.attach_agent_tools("parent", ["missing"])
+
+
+def test_attach_agent_tools_reports_multiple_missing_agents(tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    _write_agent_card(agents_dir / "parent.md", name="parent")
+
+    fast = FastAgent(
+        "watch-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    fast.load_agents(agents_dir)
+
+    with pytest.raises(AgentConfigError, match="Agents not found: first, second"):
+        fast.attach_agent_tools("parent", ["first", "second"])
 
 
 @pytest.mark.asyncio

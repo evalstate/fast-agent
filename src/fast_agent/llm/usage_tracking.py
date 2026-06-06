@@ -102,8 +102,7 @@ class TurnUsage(BaseModel):
         # For other providers: subtract cache hits from input_tokens
         if self.provider in _ANTHROPIC_USAGE_PROVIDERS:
             return self.input_tokens
-        else:
-            return max(0, self.input_tokens - self.cache_usage.cache_hit_tokens)
+        return max(0, self.input_tokens - self.cache_usage.cache_hit_tokens)
 
     @computed_field
     @property
@@ -116,9 +115,8 @@ class TurnUsage(BaseModel):
                 + self.cache_usage.cache_read_tokens
                 + self.cache_usage.cache_write_tokens
             )
-        else:
-            # For OpenAI/Google: input_tokens already includes cached tokens
-            return self.input_tokens
+        # For OpenAI/Google: input_tokens already includes cached tokens
+        return self.input_tokens
 
     def set_tool_calls(self, count: int) -> None:
         """Set the number of tool calls made in this turn"""
@@ -161,8 +159,9 @@ class TurnUsage(BaseModel):
     def from_openai(cls, usage: OpenAIUsage, model: str) -> "TurnUsage":
         # Extract cache tokens with proper null handling
         cached_tokens = 0
-        if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
-            cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+        prompt_tokens_details = getattr(usage, "prompt_tokens_details", None)
+        if prompt_tokens_details:
+            cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
 
         cache_usage = CacheUsage(
             cache_hit_tokens=cached_tokens  # These are tokens served from cache (50% discount)

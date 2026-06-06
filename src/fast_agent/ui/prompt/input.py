@@ -5,14 +5,12 @@ Enhanced prompt functionality with advanced prompt_toolkit features.
 from __future__ import annotations
 
 import os
-import platform
-import shlex
-import shutil
 import time
+from contextlib import suppress
 from dataclasses import dataclass
+from html import escape as escape_html
 from importlib.metadata import version
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, runtime_checkable
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
@@ -20,11 +18,25 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from rich import print as rich_print
+from rich.markup import escape as escape_markup
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.commands.model_capabilities import (
+    available_service_tier_values,
+    resolve_reasoning_effort,
+    resolve_reasoning_effort_spec,
+    resolve_service_tier,
+    resolve_service_tier_supported,
+    resolve_text_verbosity,
+    resolve_text_verbosity_spec,
+    set_reasoning_effort,
+    set_service_tier,
+    set_text_verbosity,
+)
+from fast_agent.commands.protocols import HfDisplayInfoProvider
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.connect_targets import parse_connect_command_text
+from fast_agent.mcp.connect_targets import infer_connect_mode, parse_connect_command_text
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -34,6 +46,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
+    HistoryViewCommand,
     HistoryWebClearCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
@@ -46,7 +59,6 @@ from fast_agent.ui.command_payloads import (
     ReloadAgentsCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
-    ShowHistoryCommand,
     ShowMarkdownCommand,
     ShowMcpStatusCommand,
     ShowSystemCommand,
@@ -56,14 +68,18 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.message_primitives import MessageType
+from fast_agent.ui.model_binary_toggles import (
+    WEB_FETCH_TOGGLE,
+    WEB_SEARCH_TOGGLE,
+    ModelBinaryToggle,
+    cycle_model_binary_toggle,
+)
 from fast_agent.ui.model_shortcuts import (
     build_model_shortcut_hints,
     cycle_reasoning_setting,
     cycle_text_verbosity,
 )
-from fast_agent.ui.prompt.agent_info import (
-    collect_tool_children as _collect_tool_children_impl,
-)
+from fast_agent.ui.prompt.agent_info import collect_tool_children
 from fast_agent.ui.prompt.agent_info import (
     display_agent_info as _display_agent_info_impl,
 )
@@ -89,18 +105,103 @@ from fast_agent.ui.prompt.keybindings import ShellPrefixLexer, create_keybinding
 from fast_agent.ui.prompt.special_commands import handle_special_commands_async
 from fast_agent.ui.service_tier_display import cycle_service_tier
 from fast_agent.ui.shell_notice import format_shell_notice
+from fast_agent.ui.streaming_preferences import resolve_streaming_preferences
 from fast_agent.utils.async_utils import suppress_known_runtime_warnings
+from fast_agent.utils.commandline import quote_commandline_token
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.env import env_flag
+from fast_agent.utils.path_display import format_home_relative_path
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from pathlib import Path
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import FastAgentLLMProtocol
 
+
+@runtime_checkable
+class _ContextBackedStatusAgent(Protocol):
+    @property
+    def context(self) -> object | None: ...
+
+
+@runtime_checkable
+class _LlmBackedStatusAgent(Protocol):
+    @property
+    def llm(self) -> object | None: ...
+
+
+@runtime_checkable
+class _ConfigBackedContext(Protocol):
+    @property
+    def config(self) -> object | None: ...
+
+
+@runtime_checkable
+class _ConfigBackedAgent(Protocol):
+    @property
+    def config(self) -> object | None: ...
+
+
+@runtime_checkable
+class _LoggerBackedConfig(Protocol):
+    @property
+    def logger(self) -> object | None: ...
+
+
+@runtime_checkable
+class _ModelSourceConfig(Protocol):
+    @property
+    def model_source(self) -> object | None: ...
+
+
+@runtime_checkable
+class _FastAgentHomeConfig(Protocol):
+    @property
+    def _fast_agent_home(self) -> object | None: ...
+
+    @property
+    def _fast_agent_home_source(self) -> object | None: ...
+
+    @property
+    def model_references(self) -> object | None: ...
+
+
+@runtime_checkable
+class _ToolHookConfig(Protocol):
+    @property
+    def tool_hooks(self) -> object | None: ...
+
+
+@runtime_checkable
+class _LifecycleHookConfig(Protocol):
+    @property
+    def lifecycle_hooks(self) -> object | None: ...
+
+
+@runtime_checkable
+class _CommandBackedConfig(Protocol):
+    @property
+    def commands(self) -> object | None: ...
+
+
+@runtime_checkable
+class _PluginCommandProvider(Protocol):
+    @property
+    def plugin_commands(self) -> object | None: ...
+
+
+@runtime_checkable
+class _ChatVisibilitySettings(Protocol):
+    @property
+    def show_chat(self) -> bool: ...
+
+
 # Get the application version
 try:
     app_version = version("fast-agent-mcp")
-except:  # noqa: E722
+except Exception:
     app_version = "unknown"
 
 # Map of agent names to their history
@@ -122,10 +223,7 @@ _copy_notice_until: float = 0.0
 _SHELL_PATH_SWITCH_DELAY_SECONDS = 8.0
 _ELLIPSIS = "…"
 logger = get_logger(__name__)
-
-
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+ModelSettingT = TypeVar("ModelSettingT")
 
 
 def _env_float(name: str, default: float) -> float:
@@ -138,7 +236,7 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-_TOOLBAR_DIAGNOSTICS_ENABLED = _env_flag("FAST_AGENT_TOOLBAR_DIAGNOSTICS")
+_TOOLBAR_DIAGNOSTICS_ENABLED = env_flag("FAST_AGENT_TOOLBAR_DIAGNOSTICS")
 _TOOLBAR_DIAGNOSTICS_THRESHOLD_MS = _env_float(
     "FAST_AGENT_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS", 50.0
 )
@@ -186,11 +284,11 @@ def _mcp_connect_cmd(
     if error or not target_text:
         return McpConnectCommand(request=None, error=error)
 
-    argv = [target_text]
+    argv: list[str] = []
     if server_name:
-        argv.extend(["--name", shlex.quote(server_name)])
+        argv.extend(["--name", quote_commandline_token(server_name, syntax="posix")])
     if auth_token:
-        argv.extend(["--auth", shlex.quote(auth_token)])
+        argv.extend(["--auth", quote_commandline_token(auth_token, syntax="posix")])
     if timeout_seconds is not None:
         argv.extend(["--timeout", str(timeout_seconds)])
     if trigger_oauth is True:
@@ -201,6 +299,7 @@ def _mcp_connect_cmd(
         argv.append("--no-reconnect")
     if force_reconnect:
         argv.append("--reconnect")
+    argv.append(target_text)
     return McpConnectCommand(
         request=parse_connect_command_text(" ".join(argv)),
         error=None,
@@ -223,29 +322,8 @@ def _hash_agent_cmd(agent_name: str, message: str) -> HashAgentCommand:
     return HashAgentCommand(agent_name=agent_name, message=message)
 
 
-def _default_shell_command() -> str:
-    """Best-effort shell choice for interactive prompt commands."""
-    if platform.system() == "Windows":
-        for shell_name in ["pwsh", "powershell", "cmd"]:
-            shell_path = shutil.which(shell_name)
-            if shell_path:
-                return shell_path
-        return os.environ.get("COMSPEC", "cmd.exe")
-
-    shell_env = os.environ.get("SHELL")
-    if shell_env and Path(shell_env).exists():
-        return shell_env
-
-    for shell_name in ["bash", "zsh", "sh"]:
-        shell_path = shutil.which(shell_name)
-        if shell_path:
-            return shell_path
-
-    return "sh"
-
-
-def _show_history_cmd(target_agent: str | None) -> ShowHistoryCommand:
-    return ShowHistoryCommand(agent=target_agent)
+def _show_history_cmd(target_agent: str | None) -> HistoryViewCommand:
+    return HistoryViewCommand(agent=target_agent)
 
 
 def _clear_last_cmd(target_agent: str | None) -> ClearCommand:
@@ -317,16 +395,7 @@ def _skills_cmd(action: str, argument: str | None) -> SkillsCommand:
 
 
 def _infer_mcp_connect_mode(target_text: str) -> McpConnectMode:
-    stripped = target_text.strip()
-    if stripped.startswith(("http://", "https://")):
-        return "url"
-    if stripped.startswith("@"):
-        return "npx"
-    if stripped.startswith("npx "):
-        return "npx"
-    if stripped.startswith("uvx "):
-        return "uvx"
-    return "stdio"
+    return infer_connect_mode(target_text)
 
 
 def _rebuild_mcp_target_text(tokens: list[str]) -> str:
@@ -337,7 +406,7 @@ def _rebuild_mcp_target_text(tokens: list[str]) -> str:
     rebuilt_parts: list[str] = []
     for token in tokens:
         if token == "" or any(char.isspace() for char in token):
-            rebuilt_parts.append(shlex.quote(token))
+            rebuilt_parts.append(quote_commandline_token(token, syntax="posix"))
         else:
             rebuilt_parts.append(token)
     return " ".join(rebuilt_parts)
@@ -407,7 +476,7 @@ async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") ->
     try:
         agent = agent_provider._agent(agent_name)
     except Exception as exc:
-        rich_print(f"[red]Unable to load agent '{agent_name}': {exc}[/red]")
+        rich_print(Text(f"Unable to load agent '{agent_name}': {exc}", style="red"))
         return
 
     await render_mcp_status(agent)
@@ -434,48 +503,45 @@ async def _display_all_agents_with_hierarchy(
     )
 
 
-def _collect_tool_children(agent: object) -> list[Any]:
-    return _collect_tool_children_impl(agent)
-
-
-def _format_count(count: int, singular: str, plural: str | None = None) -> str:
-    label = singular if count == 1 else (plural or f"{singular}s")
-    return f"{count:,} {label}"
-
-
-def _display_path(path: str) -> str:
-    home = Path.home()
-    resolved = Path(path).expanduser()
-    try:
-        return f"~/{resolved.resolve().relative_to(home).as_posix()}"
-    except ValueError:
-        return str(resolved)
-
-
 def _count_configured_hooks(agent_provider: "AgentApp") -> int:
     total = 0
     for agent in agent_provider.registered_agents().values():
-        config = getattr(agent, "config", None)
-        for field in ("tool_hooks", "lifecycle_hooks"):
-            hooks = getattr(config, field, None)
-            if isinstance(hooks, dict):
-                total += len(hooks)
+        config = _agent_config(agent)
+        if isinstance(config, _ToolHookConfig):
+            total += _dict_size(config.tool_hooks)
+        if isinstance(config, _LifecycleHookConfig):
+            total += _dict_size(config.lifecycle_hooks)
     return total
 
 
 def _count_configured_extensions(agent_provider: "AgentApp") -> int:
-    total = 0
-    global_commands = getattr(agent_provider, "plugin_commands", None)
-    if isinstance(global_commands, dict):
-        total += len(global_commands)
+    total = (
+        _dict_size(agent_provider.plugin_commands)
+        if isinstance(agent_provider, _PluginCommandProvider)
+        else 0
+    )
 
     for agent in agent_provider.registered_agents().values():
-        config = getattr(agent, "config", None)
-        commands = getattr(config, "commands", None)
-        if isinstance(commands, dict):
-            total += len(commands)
+        config = _agent_config(agent)
+        if isinstance(config, _CommandBackedConfig):
+            total += _dict_size(config.commands)
 
     return total
+
+
+def _agent_config(agent: object) -> object | None:
+    if isinstance(agent, _ConfigBackedAgent):
+        return agent.config
+    if not isinstance(agent, _ContextBackedStatusAgent):
+        return None
+    context = agent.context
+    if not isinstance(context, _ConfigBackedContext):
+        return None
+    return context.config
+
+
+def _dict_size(value: object | None) -> int:
+    return len(value) if isinstance(value, dict) else 0
 
 
 def _show_fast_agent_home_summary(agent_provider: "AgentApp | None") -> None:
@@ -486,28 +552,35 @@ def _show_fast_agent_home_summary(agent_provider: "AgentApp | None") -> None:
     except StopIteration:
         return
 
-    context = getattr(first_agent, "context", None)
-    config = getattr(context, "config", None)
-    home = getattr(config, "_fast_agent_home", None)
+    if not isinstance(first_agent, _ContextBackedStatusAgent):
+        return
+    context = first_agent.context
+    if not isinstance(context, _ConfigBackedContext):
+        return
+    config = context.config
+    if not isinstance(config, _FastAgentHomeConfig):
+        return
+
+    home = config._fast_agent_home
     if not home:
         return
 
-    model_refs = getattr(config, "model_references", None)
+    model_refs = config.model_references
     model_ref_count = (
         sum(len(namespace_refs) for namespace_refs in model_refs.values())
         if isinstance(model_refs, dict)
         else 0
     )
     parts = [
-        _format_count(len(agent_provider.registered_agent_names()), "agent"),
-        _format_count(_count_configured_hooks(agent_provider), "hook"),
-        _format_count(_count_configured_extensions(agent_provider), "extension"),
-        _format_count(model_ref_count, "modelref"),
+        format_count(len(agent_provider.registered_agent_names()), "agent"),
+        format_count(_count_configured_hooks(agent_provider), "hook"),
+        format_count(_count_configured_extensions(agent_provider), "extension"),
+        format_count(model_ref_count, "modelref"),
     ]
-    source = getattr(config, "_fast_agent_home_source", None)
-    source_suffix = f" [dim]via {source}[/dim]" if source else ""
+    source = config._fast_agent_home_source
+    source_suffix = f" [dim]via {escape_markup(str(source))}[/dim]" if source else ""
     rich_print(
-        f"[dim]fast-agent environment[/dim] [blue]{_display_path(str(home))}[/blue]"
+        f"[dim]fast-agent environment[/dim] [blue]{format_home_relative_path(str(home))}[/blue]"
         f"[dim] ({', '.join(parts)}){source_suffix}[/dim]"
     )
 
@@ -529,6 +602,12 @@ class ShellInputContext:
     name: str | None = None
     runtime: Any | None = None
     working_dir: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedShellInput:
+    context: ShellInputContext
+    agent: object | None = None
 
 
 @dataclass(slots=True)
@@ -553,10 +632,8 @@ def _initialize_prompt_input_state(
     if available_agent_names:
         available_agents = set(available_agent_names)
     if agent_provider is not None:
-        try:
+        with suppress(Exception):
             available_agents = set(agent_provider.visible_agent_names(force_include=agent_name))
-        except Exception:
-            pass
 
     if agent_name not in agent_histories:
         agent_histories[agent_name] = InMemoryHistory()
@@ -568,7 +645,7 @@ def _build_multiline_toggle(
     def on_multiline_toggle(enabled: bool) -> None:
         del enabled
         session = session_factory()
-        if hasattr(session, "app") and session.app:
+        if session.app:
             session.app.invalidate()
 
     return on_multiline_toggle
@@ -631,70 +708,99 @@ def _build_toolbar(
     return get_toolbar
 
 
+def _cycle_active_llm(
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> "FastAgentLLMProtocol | None":
+    return resolve_active_llm(agent_provider, agent_name)
+
+
+def _cycle_service_tier(llm: "FastAgentLLMProtocol | None") -> None:
+    if llm is None or not resolve_service_tier_supported(llm):
+        return
+
+    next_service_tier = cycle_service_tier(
+        resolve_service_tier(llm),
+        allowed_tiers=available_service_tier_values(llm),
+    )
+    _set_model_setting_if_valid(llm, set_service_tier, next_service_tier)
+
+
+def _cycle_reasoning(llm: "FastAgentLLMProtocol | None") -> None:
+    if llm is None:
+        return
+
+    next_setting = cycle_reasoning_setting(
+        resolve_reasoning_effort(llm),
+        resolve_reasoning_effort_spec(llm),
+    )
+    if next_setting is None:
+        return
+    _set_model_setting_if_valid(llm, set_reasoning_effort, next_setting)
+
+
+def _cycle_verbosity(llm: "FastAgentLLMProtocol | None") -> None:
+    if llm is None:
+        return
+
+    next_value = cycle_text_verbosity(
+        resolve_text_verbosity(llm),
+        resolve_text_verbosity_spec(llm),
+    )
+    if next_value is None:
+        return
+    _set_model_setting_if_valid(llm, set_text_verbosity, next_value)
+
+
+def _cycle_binary_model_toggle(
+    llm: "FastAgentLLMProtocol | None", toggle: ModelBinaryToggle
+) -> None:
+    cycle_model_binary_toggle(llm, toggle)
+
+
+def _set_model_setting_if_valid(
+    llm: "FastAgentLLMProtocol",
+    setter: "Callable[[FastAgentLLMProtocol, ModelSettingT], None]",
+    value: ModelSettingT,
+) -> None:
+    try:
+        setter(llm, value)
+    except ValueError:
+        return
+
+
 def _build_cycle_callbacks(
     *,
     agent_name: str,
     agent_provider: "AgentApp | None",
 ) -> InputCycleCallbacks:
     def on_cycle_service_tier() -> None:
-        llm = resolve_active_llm(agent_provider, agent_name)
-        if llm is None or not llm.service_tier_supported:
-            return
-
-        next_service_tier = cycle_service_tier(
-            llm.service_tier,
-            allowed_tiers=getattr(llm, "available_service_tiers", ()),
+        _cycle_service_tier(
+            _cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider)
         )
-        try:
-            llm.set_service_tier(next_service_tier)
-        except ValueError:
-            return
 
     def on_cycle_reasoning() -> None:
-        llm = resolve_active_llm(agent_provider, agent_name)
-        if llm is None:
-            return
-
-        next_setting = cycle_reasoning_setting(llm.reasoning_effort, llm.reasoning_effort_spec)
-        if next_setting is None:
-            return
-        try:
-            llm.set_reasoning_effort(next_setting)
-        except ValueError:
-            return
+        _cycle_reasoning(
+            _cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider)
+        )
 
     def on_cycle_verbosity() -> None:
-        llm = resolve_active_llm(agent_provider, agent_name)
-        if llm is None:
-            return
-
-        next_value = cycle_text_verbosity(llm.text_verbosity, llm.text_verbosity_spec)
-        if next_value is None:
-            return
-        try:
-            llm.set_text_verbosity(next_value)
-        except ValueError:
-            return
+        _cycle_verbosity(
+            _cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider)
+        )
 
     def on_cycle_web_search() -> None:
-        llm = resolve_active_llm(agent_provider, agent_name)
-        if llm is None or not llm.web_search_supported:
-            return
-
-        try:
-            llm.set_web_search_enabled(not llm.web_search_enabled)
-        except ValueError:
-            return
+        _cycle_binary_model_toggle(
+            _cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider),
+            WEB_SEARCH_TOGGLE,
+        )
 
     def on_cycle_web_fetch() -> None:
-        llm = resolve_active_llm(agent_provider, agent_name)
-        if llm is None or not llm.web_fetch_supported:
-            return
-
-        try:
-            llm.set_web_fetch_enabled(not llm.web_fetch_enabled)
-        except ValueError:
-            return
+        _cycle_binary_model_toggle(
+            _cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider),
+            WEB_FETCH_TOGGLE,
+        )
 
     return InputCycleCallbacks(
         on_cycle_service_tier=on_cycle_service_tier,
@@ -714,56 +820,89 @@ def _llm_supports_clipboard_image_paste(llm: "FastAgentLLMProtocol | None") -> b
     return model_info.supports_vision
 
 
+def _shell_agent_for_input(
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> object | None:
+    if agent_provider is None:
+        return None
+    try:
+        return agent_provider._agent(agent_name)
+    except Exception:
+        return None
+
+
+def _sub_agent_shells(shell_agent: McpAgentProtocol) -> list[McpAgentProtocol]:
+    return [
+        child
+        for child in collect_tool_children(shell_agent)
+        if isinstance(child, McpAgentProtocol) and child.shell_runtime_enabled
+    ]
+
+
+def _shell_access_modes(
+    shell_agent: McpAgentProtocol,
+    sub_agent_shells: list[McpAgentProtocol],
+) -> tuple[tuple[str, ...], Any | None]:
+    if not sub_agent_shells:
+        return shell_agent.shell_access_modes, None
+
+    if not shell_agent.shell_runtime_enabled:
+        shell_runtime = sub_agent_shells[0].shell_runtime if len(sub_agent_shells) == 1 else None
+        return ("sub-agent",), shell_runtime
+
+    if "sub-agent" in shell_agent.shell_access_modes:
+        return shell_agent.shell_access_modes, None
+    return (*shell_agent.shell_access_modes, "sub-agent"), None
+
+
+def _populate_shell_runtime_context(
+    shell_context: ShellInputContext,
+    shell_runtime: Any | None,
+) -> None:
+    shell_context.runtime = shell_runtime
+    if not shell_context.enabled or shell_runtime is None:
+        return
+
+    runtime_info = shell_runtime.runtime_info()
+    shell_context.name = runtime_info.get("name")
+    try:
+        shell_context.working_dir = shell_runtime.working_directory()
+    except Exception:
+        shell_context.working_dir = None
+
+
 def _resolve_shell_context(
     *,
     agent_name: str,
     agent_provider: "AgentApp | None",
-) -> tuple[ShellInputContext, object | None]:
+) -> ResolvedShellInput:
     shell_context = ShellInputContext()
-    shell_agent = None
-    if agent_provider is None:
-        return shell_context, None
-
-    try:
-        shell_agent = agent_provider._agent(agent_name)
-    except Exception:
-        return shell_context, None
+    shell_agent = _shell_agent_for_input(
+        agent_name=agent_name,
+        agent_provider=agent_provider,
+    )
+    if shell_agent is None:
+        return ResolvedShellInput(context=shell_context)
 
     if not isinstance(shell_agent, McpAgentProtocol):
-        return shell_context, shell_agent
+        return ResolvedShellInput(context=shell_context, agent=shell_agent)
 
     direct_shell_enabled = shell_agent.shell_runtime_enabled
-    shell_access_modes = shell_agent.shell_access_modes
-    shell_runtime = None
-
-    sub_agent_shells = [
-        child
-        for child in _collect_tool_children(shell_agent)
-        if isinstance(child, McpAgentProtocol) and child.shell_runtime_enabled
-    ]
-    if sub_agent_shells:
-        if direct_shell_enabled:
-            if "sub-agent" not in shell_access_modes:
-                shell_access_modes = (*shell_access_modes, "sub-agent")
-        else:
-            shell_access_modes = ("sub-agent",)
-            if len(sub_agent_shells) == 1:
-                shell_runtime = sub_agent_shells[0].shell_runtime
+    sub_agent_shells = _sub_agent_shells(shell_agent)
+    shell_access_modes, shell_runtime = _shell_access_modes(
+        shell_agent,
+        sub_agent_shells,
+    )
 
     if direct_shell_enabled:
         shell_runtime = shell_agent.shell_runtime
 
     shell_context.enabled = direct_shell_enabled or bool(sub_agent_shells)
     shell_context.access_modes = shell_access_modes
-    shell_context.runtime = shell_runtime
-    if shell_context.enabled and shell_runtime:
-        runtime_info = shell_runtime.runtime_info()
-        shell_context.name = runtime_info.get("name")
-        try:
-            shell_context.working_dir = shell_runtime.working_directory()
-        except Exception:
-            shell_context.working_dir = None
-    return shell_context, shell_agent
+    _populate_shell_runtime_context(shell_context, shell_runtime)
+    return ResolvedShellInput(context=shell_context, agent=shell_agent)
 
 
 def resolve_shell_working_dir(
@@ -771,8 +910,8 @@ def resolve_shell_working_dir(
     agent_name: str,
     agent_provider: "AgentApp | None",
 ) -> Path | None:
-    shell_context, _ = _resolve_shell_context(agent_name=agent_name, agent_provider=agent_provider)
-    return shell_context.working_dir
+    shell_input = _resolve_shell_context(agent_name=agent_name, agent_provider=agent_provider)
+    return shell_input.context.working_dir
 
 
 def _build_prompt_text_resolver(
@@ -901,39 +1040,86 @@ async def _show_streaming_status(
     if agent_provider is None:
         return
 
-    logger_settings = None
-    agent_context = None
-    try:
-        active_agent = shell_agent or agent_provider._agent(agent_name)
-        try:
-            agent_context = getattr(active_agent, "context")
-        except Exception:
-            agent_context = None
-        if agent_context and agent_context.config:
-            logger_settings = agent_context.config.logger
-    except Exception:
-        logger_settings = None
+    active_agent = _active_status_agent(
+        agent_name=agent_name,
+        agent_provider=agent_provider,
+        shell_agent=shell_agent,
+    )
+    if active_agent is None:
+        return
 
-    if not logger_settings or not getattr(logger_settings, "show_chat", True):
+    agent_config = _status_agent_config(active_agent)
+    logger_settings = _logger_settings(agent_config)
+    if not _show_chat_enabled(logger_settings):
         return
 
     _show_streaming_mode_notice(agent_provider, logger_settings)
-    if agent_context and agent_context.config:
-        model_source = getattr(agent_context.config, "model_source", None)
-        if model_source:
-            rich_print(f"[dim]Model selected via {model_source}[/dim]")
+    model_source = _model_source(agent_config)
+    if model_source:
+        rich_print(f"[dim]Model selected via {escape_markup(str(model_source))}[/dim]")
 
+    _show_hf_display_info(active_agent)
+
+
+def _active_status_agent(
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp",
+    shell_agent: object | None,
+) -> object | None:
+    if shell_agent is not None:
+        return shell_agent
     try:
-        active_agent = shell_agent or agent_provider._agent(agent_name)
-        llm = getattr(active_agent, "llm", None)
-        get_hf_info = getattr(llm, "get_hf_display_info", None) if llm else None
-        if get_hf_info:
-            hf_info = get_hf_info()
-            model = hf_info.get("model", "unknown")
-            provider = hf_info.get("provider", "auto-routing")
-            rich_print(f"[dim]HuggingFace: {model} via {provider}[/dim]")
+        return agent_provider._agent(agent_name)
     except Exception:
+        return None
+
+
+def _status_agent_config(active_agent: object) -> object | None:
+    if not isinstance(active_agent, _ContextBackedStatusAgent):
+        return None
+    context = active_agent.context
+    if not isinstance(context, _ConfigBackedContext):
+        return None
+    return context.config
+
+
+def _logger_settings(config: object | None) -> object | None:
+    if not isinstance(config, _LoggerBackedConfig):
+        return None
+    return config.logger
+
+
+def _show_chat_enabled(logger_settings: object | None) -> bool:
+    if logger_settings is None:
+        return False
+    if not isinstance(logger_settings, _ChatVisibilitySettings):
+        return True
+    return logger_settings.show_chat
+
+
+def _model_source(config: object | None) -> object | None:
+    if not isinstance(config, _ModelSourceConfig):
+        return None
+    return config.model_source
+
+
+def _show_hf_display_info(active_agent: object) -> None:
+    if not isinstance(active_agent, _LlmBackedStatusAgent):
         return
+    llm = active_agent.llm
+    if not isinstance(llm, HfDisplayInfoProvider):
+        return
+    display_info = llm.get_hf_display_info
+    if not callable(display_info):
+        return
+    hf_info = display_info()
+    model = hf_info.get("model", "unknown")
+    provider = hf_info.get("provider", "auto-routing")
+    rich_print(
+        "[dim]HuggingFace: "
+        f"{escape_markup(str(model))} via {escape_markup(str(provider))}[/dim]"
+    )
 
 
 def _show_streaming_mode_notice(agent_provider: "AgentApp", logger_settings: object) -> None:
@@ -943,10 +1129,9 @@ def _show_streaming_mode_notice(agent_provider: "AgentApp", logger_settings: obj
         rich_print("[dim]Markdown Streaming disabled (Parallel Agents configured)[/dim]")
         return
 
-    streaming_enabled = getattr(logger_settings, "streaming_display", True)
-    streaming_mode = getattr(logger_settings, "streaming", "markdown")
-    if streaming_enabled and streaming_mode != "none":
-        rich_print(f"[dim]Streaming Enabled - {streaming_mode} mode[/dim]")
+    preferences = resolve_streaming_preferences(logger_settings)
+    if preferences.enabled:
+        rich_print(f"[dim]Streaming Enabled - {preferences.mode} mode[/dim]")
 
 
 def _render_startup_notices(
@@ -1057,7 +1242,7 @@ async def get_enhanced_input(
         available_agent_names=available_agent_names,
         agent_provider=agent_provider,
     )
-    shell_context, shell_agent = _resolve_shell_context(
+    shell_input = _resolve_shell_context(
         agent_name=agent_name,
         agent_provider=agent_provider,
     )
@@ -1070,7 +1255,7 @@ async def get_enhanced_input(
         agent_name=agent_name,
         toolbar_color=toolbar_color,
         agent_provider=agent_provider,
-        shell_context=shell_context,
+        shell_context=shell_input.context,
         session_factory=session_factory,
     )
     session = create_prompt_session(
@@ -1115,7 +1300,7 @@ async def get_enhanced_input(
     session.app.key_bindings = bindings
 
     toolbar_switch_task = None
-    if shell_context.enabled:
+    if shell_input.context.enabled:
         toolbar_switch_task = start_toolbar_switch_task(
             session,
             _SHELL_PATH_SWITCH_DELAY_SECONDS,
@@ -1126,8 +1311,8 @@ async def get_enhanced_input(
         default=default,
         show_stop_hint=show_stop_hint,
         is_human_input=is_human_input,
-        shell_context=shell_context,
-        shell_agent=shell_agent,
+        shell_context=shell_input.context,
+        shell_agent=shell_input.agent,
         agent_provider=agent_provider,
         supports_clipboard_image_paste=supports_clipboard_image_paste,
     )
@@ -1139,7 +1324,7 @@ async def get_enhanced_input(
         default_agent_name=default_agent_name,
         show_default=show_default,
         default=default,
-        shell_enabled=shell_context.enabled,
+        shell_enabled=shell_input.context.enabled,
     )
 
     try:
@@ -1206,7 +1391,7 @@ async def get_selection_input(
     except (KeyboardInterrupt, EOFError):
         return None
     except Exception as e:
-        rich_print(f"\n[red]Error getting selection: {e}[/red]")
+        rich_print(f"\n[red]Error getting selection: {escape_markup(str(e))}[/red]")
         return None
 
 
@@ -1233,10 +1418,13 @@ async def get_argument_input(
 
     # Show description if available
     if description:
-        rich_print(f"  [dim]{arg_name}: {description}[/dim]")
+        rich_print(
+            f"  [dim]{escape_markup(arg_name)}: {escape_markup(description)}[/dim]"
+        )
 
     prompt_text = HTML(
-        f"Enter value for <ansibrightcyan>{arg_name}</ansibrightcyan> {required_text}: "
+        f"Enter value for <ansibrightcyan>{escape_html(arg_name)}</ansibrightcyan> "
+        f"{required_text}: "
     )
 
     # Create prompt session
@@ -1259,7 +1447,7 @@ async def get_argument_input(
     except (KeyboardInterrupt, EOFError):
         return None
     except Exception as e:
-        rich_print(f"\n[red]Error getting input: {e}[/red]")
+        rich_print(f"\n[red]Error getting input: {escape_markup(str(e))}[/red]")
         return None
     finally:
         # Ensure prompt session cleanup

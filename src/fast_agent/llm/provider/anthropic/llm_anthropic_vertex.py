@@ -7,6 +7,7 @@ from anthropic import AsyncAnthropicVertex
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.anthropic.vertex_config import (
+    AnthropicVertexConfig,
     anthropic_vertex_config,
     detect_google_adc,
     resolve_anthropic_vertex_location,
@@ -20,8 +21,11 @@ class AnthropicVertexLLM(AnthropicLLM):
     def provider_identity(cls) -> Provider:
         return Provider.ANTHROPIC_VERTEX
 
-    def _vertex_cfg(self):
-        return anthropic_vertex_config(getattr(self.context, "config", None))
+    def _vertex_config_source(self) -> object:
+        return self.context.config
+
+    def _vertex_cfg(self) -> AnthropicVertexConfig:
+        return anthropic_vertex_config(self._vertex_config_source())
 
     def _provider_base_url(self) -> str | None:
         return self._vertex_cfg().base_url
@@ -30,7 +34,7 @@ class AnthropicVertexLLM(AnthropicLLM):
         return ""
 
     def _vertex_project_id(self) -> str:
-        project_id = resolve_anthropic_vertex_project_id(getattr(self.context, "config", None))
+        project_id = resolve_anthropic_vertex_project_id(self._vertex_config_source())
         if project_id is None:
             raise ProviderKeyError(
                 "Google Cloud project not configured",
@@ -40,7 +44,7 @@ class AnthropicVertexLLM(AnthropicLLM):
         return project_id
 
     def _vertex_location(self) -> str:
-        location = resolve_anthropic_vertex_location(getattr(self.context, "config", None))
+        location = resolve_anthropic_vertex_location(self._vertex_config_source())
         if location is None:
             raise ProviderKeyError(
                 "Google Cloud location not configured",

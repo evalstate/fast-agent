@@ -176,9 +176,39 @@ def test_file_uri_to_path_preserves_unc_host():
     assert str(path) == r"\\server\share\fast-agent.yaml"
 
 
+def test_file_uri_to_path_preserves_nonlocal_authority_by_default():
+    parsed = urlparse("file://server/share/fast-agent%20config.yaml")
+
+    path = file_uri_to_path(parsed)
+
+    assert path == Path("//server/share/fast-agent config.yaml")
+
+
 def test_file_uri_to_path_treats_localhost_as_local():
     parsed = urlparse("file://localhost/tmp/fast-agent.yaml")
 
     path = file_uri_to_path(parsed)
 
     assert path == Path("/tmp/fast-agent.yaml")
+
+
+def test_file_uri_to_path_normalizes_scheme_and_localhost():
+    parsed = urlparse("FILE://LOCALHOST/tmp/fast-agent.yaml")
+
+    path = file_uri_to_path(parsed)
+
+    assert path == Path("/tmp/fast-agent.yaml")
+
+
+def test_file_uri_to_path_rejects_non_file_scheme():
+    parsed = urlparse("https://example.test/fast-agent.yaml")
+
+    with pytest.raises(ValueError, match="Expected file URI, got https"):
+        file_uri_to_path(parsed)
+
+
+def test_file_uri_to_path_rejects_missing_scheme():
+    parsed = urlparse("/tmp/fast-agent.yaml")
+
+    with pytest.raises(ValueError, match="Expected file URI, got <missing>"):
+        file_uri_to_path(parsed)

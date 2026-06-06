@@ -1,6 +1,7 @@
 """Tests for Anthropic reasoning defaults and adaptive thinking behavior."""
 
 import json
+from typing import Any, cast
 
 import pytest
 from anthropic.lib._parse._transform import transform_schema
@@ -18,7 +19,7 @@ from fast_agent.llm.provider.anthropic.llm_anthropic import (
     AnthropicLLM,
 )
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
-from fast_agent.llm.reasoning_effort import is_auto_reasoning
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, is_auto_reasoning
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -441,6 +442,26 @@ def test_json_structured_output_merges_with_adaptive_effort():
     assert args["thinking"] == {"type": "adaptive"}
     assert args["output_config"]["effort"] == "max"
     assert args["output_config"]["format"]["type"] == "json_schema"
+
+
+def test_anthropic_effort_none_normalizes_case_and_padding_for_thinking_enabled() -> None:
+    llm = _make_llm("claude-opus-4-6")
+    llm._reasoning_effort = ReasoningEffortSetting(
+        kind="effort",
+        value=cast("Any", " NONE "),
+    )
+
+    assert not llm._is_thinking_enabled("claude-opus-4-6")
+
+
+def test_anthropic_adaptive_effort_normalizes_case_and_padding() -> None:
+    llm = _make_llm("claude-opus-4-7")
+    llm._reasoning_effort = ReasoningEffortSetting(
+        kind="effort",
+        value=cast("Any", " XHIGH "),
+    )
+
+    assert llm._resolve_adaptive_effort("claude-opus-4-7") == "xhigh"
 
 
 def test_opus_47_drops_sampling_parameters_from_request_payload() -> None:

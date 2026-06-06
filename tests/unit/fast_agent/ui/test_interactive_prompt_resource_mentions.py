@@ -76,6 +76,11 @@ class _MentionAgentApp:
         return agent_name or "agent1"
 
 
+class _UnavailableMentionAgentApp(_MentionAgentApp):
+    def _agent(self, _name: str) -> _MentionAgent:
+        raise RuntimeError("missing")
+
+
 @pytest.mark.asyncio
 async def test_prompt_loop_materializes_resource_mentions(monkeypatch) -> None:
     inputs = iter(["Summarize ^demo:file:///tmp/report.md", "STOP"])
@@ -198,9 +203,12 @@ async def test_prompt_loop_resolves_attach_paths_from_shell_working_dir(
 
 @pytest.mark.asyncio
 async def test_resolve_prompt_payload_falls_back_to_plain_text_on_resolution_error(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     missing = tmp_path / "missing.png"
+    printed: list[object] = []
+    monkeypatch.setattr(interactive_prompt, "rich_print", printed.append)
     prompt_ui = InteractivePrompt()
     app = _MentionAgentApp()
     app._agent_obj = _LocalMentionAgent()
@@ -212,6 +220,53 @@ async def test_resolve_prompt_payload_falls_back_to_plain_text_on_resolution_err
     )
 
     assert payload == f"can you see ^file:{missing}"
+    assert len(printed) == 1
+    message = str(getattr(printed[0], "plain", printed[0]))
+    assert message.startswith("Failed to resolve resource mentions: ")
+    assert f"^file:{missing}" in message
+    assert str(missing) in message
+
+
+@pytest.mark.asyncio
+async def test_resolve_prompt_payload_prints_unavailable_agent_literally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    printed: list[object] = []
+    monkeypatch.setattr(interactive_prompt, "rich_print", printed.append)
+
+    prompt_ui = InteractivePrompt()
+    payload = await prompt_ui._resolve_prompt_payload(
+        prompt_provider=cast("Any", _UnavailableMentionAgentApp()),
+        agent_name="[draft]",
+        user_input="Read ^demo:file:///tmp/report.md",
+    )
+
+    assert payload == "Read ^demo:file:///tmp/report.md"
+    assert [getattr(item, "plain", item) for item in printed] == [
+        "Unable to resolve resource mentions: agent '[draft]' unavailable"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_resolve_prompt_payload_prints_parse_warning_literally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    printed: list[object] = []
+    monkeypatch.setattr(interactive_prompt, "rich_print", printed.append)
+
+    prompt_ui = InteractivePrompt()
+    payload = await prompt_ui._resolve_prompt_payload(
+        prompt_provider=cast("Any", _MentionAgentApp()),
+        agent_name="agent1",
+        user_input="Read ^demo:file:///repo/{branch}[draft]",
+    )
+
+    assert payload == "Read ^demo:file:///repo/{branch}[draft]"
+    assert len(printed) == 1
+    message = str(getattr(printed[0], "plain", printed[0]))
+    assert message.startswith(
+        "Malformed resource mention '^demo:file:///repo/{branch}[draft]'"
+    )
 
 
 @pytest.mark.asyncio

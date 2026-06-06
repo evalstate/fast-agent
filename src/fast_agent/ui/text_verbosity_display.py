@@ -4,25 +4,49 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fast_agent.ui.gauge_glyph_palette import STANDALONE_GAUGE_GLYPHS, GaugeGlyphPalette
+from fast_agent.ui.gauge_glyph_palette import (
+    STANDALONE_GAUGE_GLYPHS,
+    GaugeGlyphPalette,
+    GaugeState,
+    render_gauge_state,
+)
 
 if TYPE_CHECKING:
     from fast_agent.llm.text_verbosity import TextVerbosityLevel, TextVerbositySpec
 
-FULL_BLOCK = STANDALONE_GAUGE_GLYPHS.full_block
 INACTIVE_COLOR = "ansibrightblack"
 
-VERBOSITY_LEVELS = {
-    "low": 2,
-    "medium": 3,
-    "high": 4,
+
+VERBOSITY_GAUGE_STEPS = {
+    "low": GaugeState(level=2, color="ansigreen"),
+    "medium": GaugeState(level=3, color="ansiyellow"),
+    "high": GaugeState(level=4, color="ansired"),
 }
 
-VERBOSITY_COLORS = {
-    "low": "ansigreen",
-    "medium": "ansiyellow",
-    "high": "ansired",
-}
+
+def _inactive_verbosity_state() -> GaugeState:
+    return GaugeState(level=0, color=INACTIVE_COLOR)
+
+
+def _effective_text_verbosity(
+    setting: "TextVerbosityLevel | None",
+    spec: "TextVerbositySpec",
+) -> "TextVerbosityLevel | None":
+    effective = setting or spec.default
+    if effective not in spec.allowed:
+        return None
+    return effective
+
+
+def _text_verbosity_gauge_state(
+    setting: "TextVerbosityLevel | None",
+    spec: "TextVerbositySpec",
+) -> GaugeState:
+    effective = _effective_text_verbosity(setting, spec)
+    if effective is None:
+        return _inactive_verbosity_state()
+
+    return VERBOSITY_GAUGE_STEPS.get(effective, _inactive_verbosity_state())
 
 
 def render_text_verbosity_gauge(
@@ -34,14 +58,8 @@ def render_text_verbosity_gauge(
     if spec is None:
         return None
 
-    effective = setting or spec.default
-    if effective is None:
-        return f"<style bg='{INACTIVE_COLOR}'>{glyph_palette.full_block}</style>"
-
-    level = VERBOSITY_LEVELS.get(effective, 0)
-    if level <= 0:
-        return f"<style bg='{INACTIVE_COLOR}'>{glyph_palette.full_block}</style>"
-
-    char = glyph_palette.char_for_level(level)
-    color = VERBOSITY_COLORS.get(effective, "ansiyellow")
-    return f"<style bg='{color}'>{char}</style>"
+    return render_gauge_state(
+        _text_verbosity_gauge_state(setting, spec),
+        glyph_palette=glyph_palette,
+        inactive_color=INACTIVE_COLOR,
+    )

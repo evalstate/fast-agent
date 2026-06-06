@@ -7,9 +7,10 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 
 import asyncio
 import os
+from collections.abc import Awaitable, Callable, Sequence
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Sequence, cast
+from typing import Any, cast
 
 from acp import (
     Agent as ACPAgent,
@@ -55,14 +56,18 @@ from acp.schema import (
 
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
 from fast_agent.acp.acp_context import ClientInfo
+from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
 from fast_agent.acp.server.models import ACPSessionState
 from fast_agent.acp.server.prompt_flow import ACPPromptFlow, PromptFlowHost
 from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, SessionRuntimeHost
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
+from fast_agent.commands.model_capabilities import resolve_model_name, resolve_resolved_model
 from fast_agent.config import MCPServerSettings, get_settings
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.core.agent_app import AgentCardLoadResult
+from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
@@ -109,7 +114,7 @@ class AgentACPServer(ACPAgent):
         server_version: str | None = None,
         skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
-        load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
+        load_card_callback: Callable[[str, str | None], Awaitable[AgentCardLoadResult]]
         | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
@@ -138,8 +143,12 @@ class AgentACPServer(ACPAgent):
         super().__init__()
 
         self._bootstrap_instance = bootstrap_instance
-        self._create_instance_task = create_instance
-        self._dispose_instance_task = dispose_instance
+        self._instance_factory = CallableAgentInstanceFactory(
+            create=create_instance,
+            dispose=dispose_instance,
+        )
+        self._create_instance_task = self._instance_factory.create_instance
+        self._dispose_instance_task = self._instance_factory.dispose_instance
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
@@ -157,22 +166,23 @@ class AgentACPServer(ACPAgent):
         self.server_version = server_version
 
         # Session management
-        self.sessions: dict[str, AgentInstance] = {}
+        self._live_sessions = ACPLiveSessionRegistry()
+        self.sessions = self._live_sessions.sessions
         self._session_lock = asyncio.Lock()
 
         # Per-session prompt locks to serialize prompt turns.
         # ACP session/update notifications are correlated only by sessionId, so overlapping
         # prompts would interleave updates and become ambiguous.
-        self._prompt_locks: dict[str, asyncio.Lock] = {}
+        self._prompt_locks = self._live_sessions.prompt_locks
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
-        self._active_prompts: set[str] = set()
+        self._active_prompts = self._live_sessions.active_prompts
 
         # Track asyncio tasks per session for proper task-based cancellation
-        self._session_tasks: dict[str, asyncio.Task] = {}
+        self._session_tasks = self._live_sessions.session_tasks
 
         # Aggregated per-session state
-        self._session_state: dict[str, ACPSessionState] = {}
+        self._session_state = self._live_sessions.session_state
 
         # Connection reference (set during run_async)
         self._connection: ACPClient | None = None
@@ -212,10 +222,10 @@ class AgentACPServer(ACPAgent):
         """
         # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
         llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
-        resolved_model = llm.resolved_model if llm else None
+        resolved_model = resolve_resolved_model(llm)
         if resolved_model is not None:
             return calculate_terminal_output_limit_for_resolved_model(resolved_model)
-        model_name = llm.model_name if llm else None
+        model_name = resolve_model_name(llm)
         return self._calculate_terminal_output_limit_for_model(model_name)
 
     @staticmethod
@@ -598,7 +608,7 @@ class AgentACPServer(ACPAgent):
         source: str,
         *,
         attach_to: str | None = None,
-    ) -> tuple[AgentInstance, list[str], list[str]]:
+    ) -> tuple[AgentInstance, AgentCardLoadResult]:
         return await self._slash_runtime.load_agent_card_for_session(
             session_state,
             source,
@@ -721,7 +731,14 @@ class AgentACPServer(ACPAgent):
             request_name="session/new",
             required=True,
         )
-        assert request_cwd is not None
+        if request_cwd is None:
+            raise RequestError.invalid_params(
+                {
+                    "cwd": cwd,
+                    "request": "session/new",
+                    "reason": "cwd is required and must be an absolute path",
+                }
+            )
         manager = self._get_session_manager(cwd=Path(request_cwd))
         session_id = manager.generate_session_id()
 
@@ -770,7 +787,7 @@ class AgentACPServer(ACPAgent):
             SetSessionModeResponse (empty response on success)
 
         Raises:
-            ValueError: If session not found or mode ID is invalid
+            RequestError: If session not found or mode ID is invalid
         """
         logger.info(
             "ACP set session mode request",
@@ -790,7 +807,13 @@ class AgentACPServer(ACPAgent):
                 name="acp_set_mode_error",
                 session_id=session_id,
             )
-            raise ValueError(f"Session not found: {session_id}")
+            raise RequestError.invalid_params(
+                {
+                    "sessionId": session_id,
+                    "modeId": mode_id,
+                    "reason": "session not found",
+                }
+            )
 
         # Validate that the mode_id exists in the instance's agents
         if mode_id not in instance.agents:
@@ -801,8 +824,13 @@ class AgentACPServer(ACPAgent):
                 mode_id=mode_id,
                 available_modes=list(instance.agents.keys()),
             )
-            raise ValueError(
-                f"Invalid mode ID '{mode_id}'. Available modes: {list(instance.agents.keys())}"
+            raise RequestError.invalid_params(
+                {
+                    "sessionId": session_id,
+                    "modeId": mode_id,
+                    "availableModes": list(instance.agents.keys()),
+                    "reason": "invalid mode id",
+                }
             )
 
         # Update the session's current agent
@@ -981,87 +1009,76 @@ class AgentACPServer(ACPAgent):
         logger.info(f"Cleaning up {len(self.sessions)} sessions")
 
         async with self._session_lock:
-            # Clean up per-session state
             for session_id, state in list(self._session_state.items()):
-                if state.terminal_runtime:
-                    try:
-                        logger.debug(
-                            f"Terminal runtime for session {session_id} will be cleaned up"
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Error noting terminal cleanup for session {session_id}: {e}",
-                            name="acp_terminal_cleanup_error",
-                        )
+                await self._cleanup_session_state(session_id, state)
 
-                if state.filesystem_runtime:
-                    try:
-                        logger.debug(f"Filesystem runtime for session {session_id} cleaned up")
-                    except Exception as e:
-                        logger.error(
-                            f"Error noting filesystem cleanup for session {session_id}: {e}",
-                            name="acp_filesystem_cleanup_error",
-                        )
-
-                if state.permission_handler:
-                    try:
-                        await state.permission_handler.clear_session_cache()
-                        logger.debug(f"Permission handler for session {session_id} cleaned up")
-                    except Exception as e:
-                        logger.error(
-                            f"Error cleaning up permission handler for session {session_id}: {e}",
-                            name="acp_permission_cleanup_error",
-                        )
-
-                if state.progress_manager:
-                    try:
-                        await state.progress_manager.cleanup_session_tools(session_id)
-                        logger.debug(f"Progress manager for session {session_id} cleaned up")
-                    except Exception as e:
-                        logger.error(
-                            f"Error cleaning up progress manager for session {session_id}: {e}",
-                            name="acp_progress_cleanup_error",
-                        )
-
-                if state.acp_context:
-                    try:
-                        await state.acp_context.cleanup()
-                        logger.debug(f"ACPContext for session {session_id} cleaned up")
-                    except Exception as e:
-                        logger.error(
-                            f"Error cleaning up ACPContext for session {session_id}: {e}",
-                            name="acp_context_cleanup_error",
-                        )
-
-            self._session_state.clear()
-            self._session_tasks.clear()
-            self._active_prompts.clear()
-            self._prompt_locks.clear()
-
-            disposed_instances: set[int] = set()
-            for session_id, instance in self.sessions.items():
-                instance_id = id(instance)
-                if instance_id in disposed_instances:
-                    continue
-                disposed_instances.add(instance_id)
-                try:
-                    await self._dispose_instance_task(instance)
-                except Exception as e:
-                    logger.error(
-                        f"Error disposing instance for session {session_id}: {e}",
-                        name="acp_cleanup_error",
-                    )
-
-            bootstrap_instance = self._bootstrap_instance
-            if bootstrap_instance and id(bootstrap_instance) not in disposed_instances:
-                try:
-                    await self._dispose_instance_task(bootstrap_instance)
-                except Exception as e:
-                    logger.error(
-                        f"Error disposing ACP bootstrap instance: {e}",
-                        name="acp_cleanup_error",
-                    )
-
-            self.sessions.clear()
+            disposed_instances = await self._dispose_session_instances()
+            await self._dispose_bootstrap_instance(disposed_instances)
+            self._live_sessions.clear_all()
 
         logger.info("ACP cleanup complete")
+
+    async def _cleanup_session_state(self, session_id: str, state: ACPSessionState) -> None:
+        if state.terminal_runtime:
+            logger.debug(f"Terminal runtime for session {session_id} will be cleaned up")
+
+        if state.filesystem_runtime:
+            logger.debug(f"Filesystem runtime for session {session_id} cleaned up")
+
+        if state.permission_handler:
+            try:
+                await state.permission_handler.clear_session_cache()
+                logger.debug(f"Permission handler for session {session_id} cleaned up")
+            except Exception as e:
+                logger.error(
+                    f"Error cleaning up permission handler for session {session_id}: {e}",
+                    name="acp_permission_cleanup_error",
+                )
+
+        if state.progress_manager:
+            try:
+                await state.progress_manager.cleanup_session_tools(session_id)
+                logger.debug(f"Progress manager for session {session_id} cleaned up")
+            except Exception as e:
+                logger.error(
+                    f"Error cleaning up progress manager for session {session_id}: {e}",
+                    name="acp_progress_cleanup_error",
+                )
+
+        if state.acp_context:
+            try:
+                await state.acp_context.cleanup()
+                logger.debug(f"ACPContext for session {session_id} cleaned up")
+            except Exception as e:
+                logger.error(
+                    f"Error cleaning up ACPContext for session {session_id}: {e}",
+                    name="acp_context_cleanup_error",
+                )
+
+    async def _dispose_session_instances(self) -> set[int]:
+        disposed_instances: set[int] = set()
+        for session_id, instance in self.sessions.items():
+            instance_id = id(instance)
+            if instance_id in disposed_instances:
+                continue
+            disposed_instances.add(instance_id)
+            try:
+                await self._dispose_instance_task(instance)
+            except Exception as e:
+                logger.error(
+                    f"Error disposing instance for session {session_id}: {e}",
+                    name="acp_cleanup_error",
+                )
+        return disposed_instances
+
+    async def _dispose_bootstrap_instance(self, disposed_instances: set[int]) -> None:
+        bootstrap_instance = self._bootstrap_instance
+        if not bootstrap_instance or id(bootstrap_instance) in disposed_instances:
+            return
+        try:
+            await self._dispose_instance_task(bootstrap_instance)
+        except Exception as e:
+            logger.error(
+                f"Error disposing ACP bootstrap instance: {e}",
+                name="acp_cleanup_error",
+            )
