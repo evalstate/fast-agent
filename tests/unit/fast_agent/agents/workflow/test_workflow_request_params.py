@@ -230,7 +230,9 @@ async def test_evaluator_optimizer_structured_reparses_generated_text() -> None:
 
     assert result == StructuredResult(value="generator")
     assert message.all_text() == "structured"
-    assert "Convert this evaluator-optimizer response" in generator.structured_inputs[0][0].all_text()
+    assert (
+        "Convert this evaluator-optimizer response" in generator.structured_inputs[0][0].all_text()
+    )
     assert generator.structured_inputs[0][0].all_text().endswith("final prose")
     _assert_child_params(generator.structured_params[0])
 

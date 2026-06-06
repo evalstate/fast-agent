@@ -200,7 +200,9 @@ def render_input_toolbar(
     attachment_summary = _resolve_attachment_summary(
         current_input_text=current_input_text,
         model_name=resolved_agent_state.state.model_name,
-        provider=resolved_agent_state.llm.provider if resolved_agent_state.llm is not None else None,
+        provider=resolved_agent_state.llm.provider
+        if resolved_agent_state.llm is not None
+        else None,
         cwd=shell_state.working_dir,
         cache=cache,
     )
@@ -452,7 +454,9 @@ def _parallel_fan_out_model_cache_key(agent: AgentProtocol) -> tuple[object, ...
     if not isinstance(agent, ParallelAgent):
         return None
 
-    return tuple(_fan_out_agent_model_cache_key(fan_out_agent) for fan_out_agent in agent.fan_out_agents)
+    return tuple(
+        _fan_out_agent_model_cache_key(fan_out_agent) for fan_out_agent in agent.fan_out_agents
+    )
 
 
 def _fan_out_agent_model_cache_key(agent: AgentProtocol) -> tuple[object, ...]:
@@ -517,7 +521,9 @@ def _resolve_model_name(agent: AgentProtocol, llm: "FastAgentLLMProtocol | None"
         return fallback_name
 
     context = agent.context
-    return context.config.default_model if context is not None and context.config is not None else None
+    return (
+        context.config.default_model if context is not None and context.config is not None else None
+    )
 
 
 def _resolve_model_display(
@@ -565,7 +571,9 @@ def _resolve_model_visuals(
 
     visuals.is_codex_responses_model = llm.provider == Provider.CODEX_RESPONSES
     resolved_model = resolve_resolved_model(llm)
-    visuals.is_overlay_model = resolved_model.overlay is not None if resolved_model is not None else False
+    visuals.is_overlay_model = (
+        resolved_model.overlay is not None if resolved_model is not None else False
+    )
     visuals.model_gauges = _render_model_gauges(
         resolve_reasoning_effort(llm),
         resolve_reasoning_effort_spec(llm),
@@ -769,7 +777,10 @@ def _resolve_toolbar_identity_segment(
         )
 
     show_path_segment = shell_state.show_path_segment
-    if not show_path_segment and (time.monotonic() - shell_state.started_at) >= shell_path_switch_delay_seconds:
+    if (
+        not show_path_segment
+        and (time.monotonic() - shell_state.started_at) >= shell_path_switch_delay_seconds
+    ):
         show_path_segment = True
     if show_path_segment:
         return ToolbarIdentitySegment(

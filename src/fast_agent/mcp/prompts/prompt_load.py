@@ -78,9 +78,7 @@ def create_messages_with_resources(
         for resource_path in section.resources:
             try:
                 # Load resource with information about its type
-                resource_content = resource_utils.load_resource_content(
-                    resource_path, prompt_files
-                )
+                resource_content = resource_utils.load_resource_content(resource_path, prompt_files)
 
                 # Create and add the resource message
                 resource_message = create_resource_message(
@@ -164,7 +162,9 @@ def _message_template_variables(messages: list[PromptMessageExtended]) -> set[st
         for item in message.content:
             if isinstance(item, TextContent):
                 variables.update(extract_template_variables(item.text))
-            elif isinstance(item, EmbeddedResource) and isinstance(item.resource, TextResourceContents):
+            elif isinstance(item, EmbeddedResource) and isinstance(
+                item.resource, TextResourceContents
+            ):
                 variables.update(extract_template_variables(item.resource.text))
     return variables
 
@@ -378,8 +378,7 @@ def _rehydrate_responses_usage(
     history_provider = _payload_provider(payloads[-1])
     current_provider = llm.provider
     switched_responses_provider = (
-        history_provider in _RESPONSES_USAGE_PROVIDERS
-        and history_provider != current_provider
+        history_provider in _RESPONSES_USAGE_PROVIDERS and history_provider != current_provider
     )
 
     history_model = _payload_model(payloads[-1])

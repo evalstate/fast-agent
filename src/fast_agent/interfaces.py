@@ -133,7 +133,9 @@ class FastAgentLLMProtocol(Protocol):
     default_request_params: RequestParams
     instruction: str | None
 
-    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]: ...
+    def add_stream_listener(
+        self, listener: Callable[[StreamChunk], None]
+    ) -> Callable[[], None]: ...
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]
@@ -473,7 +475,9 @@ class TurnCancellationStateCapable(Protocol):
 class StreamingAgentProtocol(AgentProtocol, Protocol):
     """Optional extension for agents that expose LLM streaming callbacks."""
 
-    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]: ...
+    def add_stream_listener(
+        self, listener: Callable[[StreamChunk], None]
+    ) -> Callable[[], None]: ...
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]

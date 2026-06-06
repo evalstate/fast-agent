@@ -54,7 +54,7 @@ def test_apply_citations_formatting() -> None:
     # Construct mock grounding metadata
     mock_chunk_1 = MagicMock()
     mock_chunk_1.web = MagicMock(uri="https://aljazeera.com")
-    
+
     mock_chunk_2 = MagicMock()
     mock_chunk_2.web = MagicMock(uri="https://uefa.com")
 
@@ -87,7 +87,9 @@ async def test_google_completion_injects_search_tool() -> None:
     # Mock the client generate_content call
     mock_response = MagicMock()
     mock_candidate = MagicMock()
-    mock_candidate.content = MagicMock(parts=[MagicMock(text="Hello", thought=False, function_call=None)])
+    mock_candidate.content = MagicMock(
+        parts=[MagicMock(text="Hello", thought=False, function_call=None)]
+    )
     mock_candidate.finish_reason = "STOP"
     mock_response.candidates = [mock_candidate]
     mock_response.usage_metadata = None
@@ -98,15 +100,18 @@ async def test_google_completion_injects_search_tool() -> None:
     mock_client.aio.models.generate_content.return_value = mock_response
 
     # Mock _initialize_google_client, we don't need real API keys
-    with patch.object(llm, "_initialize_google_client", return_value=mock_client), \
-         patch.object(llm, "_stream_generate_content", return_value=mock_response) as mock_stream_gen:
-        
+    with (
+        patch.object(llm, "_initialize_google_client", return_value=mock_client),
+        patch.object(
+            llm, "_stream_generate_content", return_value=mock_response
+        ) as mock_stream_gen,
+    ):
         await llm._google_completion(message=[])
-        
+
         # Capture the GenerateContentConfig object passed to the API
         called_args, called_kwargs = mock_stream_gen.call_args
         config_passed = called_kwargs.get("config")
-        
+
         assert config_passed is not None
         assert len(config_passed.tools) == 1
         assert getattr(config_passed.tools[0], "google_search", None) is not None
@@ -121,7 +126,9 @@ async def test_google_completion_injects_search_tool_with_custom_tools() -> None
 
     mock_response = MagicMock()
     mock_candidate = MagicMock()
-    mock_candidate.content = MagicMock(parts=[MagicMock(text="Hello", thought=False, function_call=None)])
+    mock_candidate.content = MagicMock(
+        parts=[MagicMock(text="Hello", thought=False, function_call=None)]
+    )
     mock_candidate.finish_reason = "STOP"
     mock_response.candidates = [mock_candidate]
     mock_response.usage_metadata = None
@@ -136,14 +143,17 @@ async def test_google_completion_injects_search_tool_with_custom_tools() -> None
     custom_tool.description = "custom tool"
     custom_tool.inputSchema = {}
 
-    with patch.object(llm, "_initialize_google_client", return_value=mock_client), \
-         patch.object(llm, "_stream_generate_content", return_value=mock_response) as mock_stream_gen:
-        
+    with (
+        patch.object(llm, "_initialize_google_client", return_value=mock_client),
+        patch.object(
+            llm, "_stream_generate_content", return_value=mock_response
+        ) as mock_stream_gen,
+    ):
         await llm._google_completion(message=[], tools=[custom_tool])
-        
+
         called_args, called_kwargs = mock_stream_gen.call_args
         config_passed = called_kwargs.get("config")
-        
+
         assert config_passed is not None
         assert config_passed.tool_config is not None
         assert config_passed.tool_config.include_server_side_tool_invocations is True

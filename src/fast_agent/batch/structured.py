@@ -453,9 +453,7 @@ def _batch_summary_metadata(
         "template": str(options.template_source) if options.template_source else "<default>",
         "shell_runtime": options.shell_runtime,
         "output_mode": "structured" if schema_source is not None else "text",
-        "export_traces": str(options.export_traces_path)
-        if options.export_traces_path
-        else None,
+        "export_traces": str(options.export_traces_path) if options.export_traces_path else None,
         "hf_dataset": options.hf_dataset,
         "hf_dataset_path": options.hf_dataset_path,
     }

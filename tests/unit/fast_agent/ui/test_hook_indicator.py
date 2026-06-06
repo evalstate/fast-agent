@@ -1,6 +1,5 @@
 """Tests for hook indicator glyph in message headers."""
 
-
 from fast_agent.ui.console_display import HOOK_INDICATOR_GLYPH, ConsoleDisplay
 
 
@@ -43,9 +42,7 @@ class TestBuildHeaderLeft:
             arrow_style="dim green",
             name="agent [draft]",
         )
-        assert result == (
-            "[green]▎[/green][dim green]◀[/dim green] [green]agent \\[draft][/green]"
-        )
+        assert result == ("[green]▎[/green][dim green]◀[/dim green] [green]agent \\[draft][/green]")
 
     def test_header_with_hook_indicator_no_name(self) -> None:
         """Header with hook indicator but no name."""

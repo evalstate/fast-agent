@@ -571,9 +571,7 @@ async def test_permission_denial_notifies_tool_progress() -> None:
             {"command": "echo denied"},
         )
     ]
-    assert tool_handler.denials == [
-        ("execute", "acp_terminal", "llm-tool-1", "terminal denied")
-    ]
+    assert tool_handler.denials == [("execute", "acp_terminal", "llm-tool-1", "terminal denied")]
 
 
 @pytest.mark.asyncio
@@ -692,7 +690,9 @@ async def test_session_id_in_all_terminal_requests():
 
     assert len(conn.calls) == 4
 
-    for (expected_method, should_have_session), (method_name, params) in zip(expected_calls, conn.calls):
+    for (expected_method, should_have_session), (method_name, params) in zip(
+        expected_calls, conn.calls
+    ):
         assert method_name == expected_method
         if should_have_session:
             assert "sessionId" in params

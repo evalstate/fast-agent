@@ -558,8 +558,6 @@ class ACPServerSessionStore:
             {
                 "uri": session_id,
                 "reason": "Session not found",
-                "details": (
-                    f"Session {session_id} could not be resolved from {request_cwd}"
-                ),
+                "details": (f"Session {session_id} could not be resolved from {request_cwd}"),
             },
         )

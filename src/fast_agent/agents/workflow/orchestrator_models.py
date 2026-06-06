@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.agents.workflow.orchestrator_prompts import (

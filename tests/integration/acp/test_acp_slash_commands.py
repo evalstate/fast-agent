@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.interfaces import AgentProtocol
 else:
+
     class AgentProtocol:  # pragma: no cover
         pass
 
@@ -480,7 +481,9 @@ async def test_slash_command_model_web_fetch_unsupported() -> None:
 
     response = await handler.execute_command("model", "web_fetch on")
 
-    assert escape_markdown_text("Current model does not support web_fetch configuration.") in response
+    assert (
+        escape_markdown_text("Current model does not support web_fetch configuration.") in response
+    )
 
 
 @pytest.mark.integration
@@ -817,6 +820,7 @@ async def test_slash_command_history_load_without_agent() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_history_webclear() -> None:
     """Test that /history webclear strips web metadata channels."""
+
     class _LlmStub:
         web_tools_enabled = (True, False)
         web_search_enabled = True
@@ -1061,12 +1065,16 @@ async def test_slash_command_history_show_reports_missing_named_agent() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_history_detail_turn() -> None:
     messages = [
-        PromptMessageExtended(role="user", content=[TextContent(type="text", text="first question")]),
+        PromptMessageExtended(
+            role="user", content=[TextContent(type="text", text="first question")]
+        ),
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="first answer")],
         ),
-        PromptMessageExtended(role="user", content=[TextContent(type="text", text="second question")]),
+        PromptMessageExtended(
+            role="user", content=[TextContent(type="text", text="second question")]
+        ),
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="second answer")],
@@ -1154,9 +1162,7 @@ async def test_slash_command_session_pin_sets_metadata(tmp_path: Path) -> None:
         assert "Pinned session" in response
         assert label in response
 
-        metadata = json.loads(
-            (manager.base_dir / session.info.name / "session.json").read_text()
-        )
+        metadata = json.loads((manager.base_dir / session.info.name / "session.json").read_text())
         assert metadata["metadata"].get("pinned") is True
 
         list_response = await handler.execute_command("session", "list")

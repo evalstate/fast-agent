@@ -39,16 +39,22 @@ def _build_context() -> Context:
 
 
 def test_resolve_model_reference_passthrough() -> None:
-    assert resolve_model_reference(
-        "gpt-5-mini?reasoning=low",
-        {"system": {"fast": "haiku"}},
-    ) == "gpt-5-mini?reasoning=low"
+    assert (
+        resolve_model_reference(
+            "gpt-5-mini?reasoning=low",
+            {"system": {"fast": "haiku"}},
+        )
+        == "gpt-5-mini?reasoning=low"
+    )
 
 
 def test_resolve_model_reference_happy_path() -> None:
     context = _build_context()
     assert context.config is not None
-    assert resolve_model_reference("$system.fast", context.config.model_references) == "claude-haiku-4-5"
+    assert (
+        resolve_model_reference("$system.fast", context.config.model_references)
+        == "claude-haiku-4-5"
+    )
 
 
 def test_resolve_model_reference_normalizes_reference_values() -> None:
@@ -61,7 +67,10 @@ def test_resolve_model_reference_normalizes_reference_values() -> None:
 def test_resolve_model_reference_recursive() -> None:
     context = _build_context()
     assert context.config is not None
-    assert resolve_model_reference("$custom.indirect", context.config.model_references) == "claude-haiku-4-5"
+    assert (
+        resolve_model_reference("$custom.indirect", context.config.model_references)
+        == "claude-haiku-4-5"
+    )
 
 
 def test_resolve_model_reference_unknown_namespace() -> None:

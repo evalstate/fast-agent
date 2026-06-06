@@ -148,6 +148,7 @@ def test_resolve_llm_display_name_uses_overlay_name() -> None:
     )
 
     assert resolved_model.display_name == "haikutiny"
-    assert resolve_llm_display_name(
-        cast("FastAgentLLMProtocol", _StubLLM(resolved_model))
-    ) == "haikutiny"
+    assert (
+        resolve_llm_display_name(cast("FastAgentLLMProtocol", _StubLLM(resolved_model)))
+        == "haikutiny"
+    )

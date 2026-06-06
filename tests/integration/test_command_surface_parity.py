@@ -37,7 +37,9 @@ async def test_tui_and_acp_share_session_pin_state_effect(tmp_path: Path) -> Non
         await dispatch_tui_command("/session pin on", owner=owner, prompt_provider=provider)
         assert manager.current_session is not None
         assert manager.current_session.info.metadata.get("pinned") is True
-        assert any("Pinned session:" in message for message in provider._agent("main").display.messages)
+        assert any(
+            "Pinned session:" in message for message in provider._agent("main").display.messages
+        )
 
         manager.current_session.set_pinned(False)
 

@@ -228,9 +228,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         if not agent_tool_names:
             return 0
         return sum(
-            1
-            for _, tool_request in tool_call_items
-            if tool_request.params.name in agent_tool_names
+            1 for _, tool_request in tool_call_items if tool_request.params.name in agent_tool_names
         )
 
     def _agent_tool_description(
@@ -446,14 +444,10 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         ):
             return base_hooks
 
-        progress_hooks = self._build_loop_progress_hooks(
-            request_params.tool_execution_handler
-        )
+        progress_hooks = self._build_loop_progress_hooks(request_params.tool_execution_handler)
         return self._merge_tool_runner_hooks(base_hooks, progress_hooks)
 
-    def _build_loop_progress_hooks(
-        self, handler: ToolExecutionHandler
-    ) -> ToolRunnerHooks:
+    def _build_loop_progress_hooks(self, handler: ToolExecutionHandler) -> ToolRunnerHooks:
         emitter = ToolLoopProgressEmitter(handler, self.name)
         error_reasons = (
             LlmStopReason.ERROR.value,
@@ -522,9 +516,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             after_llm_call=merge(base.after_llm_call, extra.after_llm_call),
             before_tool_call=merge(base.before_tool_call, extra.before_tool_call),
             after_tool_call=merge(base.after_tool_call, extra.after_tool_call),
-            after_turn_complete=merge(
-                base.after_turn_complete, extra.after_turn_complete
-            ),
+            after_turn_complete=merge(base.after_turn_complete, extra.after_turn_complete),
         )
 
     async def _tool_runner_llm_step(
@@ -597,9 +589,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         if subagent_calls <= 1:
             return
 
-        did_close = self.close_active_streaming_display(
-            reason="parallel subagent tool calls"
-        )
+        did_close = self.close_active_streaming_display(reason="parallel subagent tool calls")
         if did_close:
             logger.info(
                 "Closing streaming display due to parallel subagent tool calls",
@@ -641,9 +631,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tool_metadata: dict[str, dict[str, Any]],
         parallel: bool,
     ) -> None:
-        metadata = self._jsonable_tool_metadata(
-            self._tool_display_metadata(planned_call.name)
-        )
+        metadata = self._jsonable_tool_metadata(self._tool_display_metadata(planned_call.name))
         if metadata:
             tool_metadata[planned_call.correlation_id] = metadata
 

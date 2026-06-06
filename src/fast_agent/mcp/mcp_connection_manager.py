@@ -240,9 +240,7 @@ def _format_lifecycle_exception_group_errors(exception_group: BaseExceptionGroup
 
         messages.append(f"{type(subexc).__name__}: {subexc}")
         if subexc.__cause__ is not None:
-            messages.append(
-                f"Caused by: {type(subexc.__cause__).__name__}: {subexc.__cause__}"
-            )
+            messages.append(f"Caused by: {type(subexc.__cause__).__name__}: {subexc.__cause__}")
     return messages
 
 
@@ -644,9 +642,7 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
             server_conn._ping_last_fail_at = datetime.now(timezone.utc)
             server_conn._ping_last_error = str(exc)
             server_conn.record_ping_event("error")
-            logger.warning(
-                f"{server_conn.server_name}: Ping failed ({missed}/{max_missed}): {exc}"
-            )
+            logger.warning(f"{server_conn.server_name}: Ping failed ({missed}/{max_missed}): {exc}")
             if missed >= max_missed:
                 server_conn._error_occurred = True
                 server_conn._error_message = _format_ping_shutdown_error(missed, exc)
@@ -1290,7 +1286,9 @@ class MCPConnectionManager(ContextDependent):
         transport_metrics: TransportChannelMetrics | None,
     ) -> AbstractAsyncContextManager:
         if not config.command:
-            raise ValueError(f"Server '{server_name}' uses stdio transport but no command is specified")
+            raise ValueError(
+                f"Server '{server_name}' uses stdio transport but no command is specified"
+            )
         server_params = self._stdio_server_parameters(config)
         error_handler = get_stderr_handler(
             server_name,
@@ -1755,7 +1753,9 @@ class MCPConnectionManager(ContextDependent):
             if _is_oauth_registration_404_message(formatted_error):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': OAuth client registration failed during reconnect.",
-                    _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
+                    _format_oauth_registration_404_details(
+                        formatted_error, server_conn.server_config.url
+                    ),
                 )
 
             if _is_stdio_startup_error(server_conn, formatted_error):

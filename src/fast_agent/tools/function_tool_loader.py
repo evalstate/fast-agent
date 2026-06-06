@@ -36,7 +36,9 @@ class _FastToolMetadataCallable(Protocol):
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
-FunctionToolConfig: TypeAlias = Callable[..., Any] | str | ScopedFunctionToolConfig | FunctionToolSpec
+FunctionToolConfig: TypeAlias = (
+    Callable[..., Any] | str | ScopedFunctionToolConfig | FunctionToolSpec
+)
 
 
 def _set_signature(wrapper: Callable[..., Any], source: Callable[..., Any]) -> None:
@@ -127,8 +129,7 @@ def load_function_from_spec(spec: str, base_path: Path | None = None) -> Callabl
         module_name_prefix="_function_tool",
         messages=PythonCallableLoadMessages(
             invalid_spec=(
-                "Invalid function tool spec '{spec}'. Expected format: "
-                "'module.py:function_name'"
+                "Invalid function tool spec '{spec}'. Expected format: 'module.py:function_name'"
             ),
             module_not_found="Function tool module file not found for '{spec}'",
             module_spec_failed="Failed to create module spec for '{spec}'",

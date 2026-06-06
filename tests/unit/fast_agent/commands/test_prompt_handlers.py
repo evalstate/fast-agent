@@ -38,7 +38,9 @@ class StubAgent:
         self.prompt_calls: list[tuple[str, dict[str, str]]] = []
         self.generated_messages: list[object] | None = None
 
-    async def get_prompt(self, namespaced_name: str, arg_values: dict[str, str]) -> StubPromptResult:
+    async def get_prompt(
+        self, namespaced_name: str, arg_values: dict[str, str]
+    ) -> StubPromptResult:
         self.prompt_calls.append((namespaced_name, arg_values))
         return self._prompt_result
 

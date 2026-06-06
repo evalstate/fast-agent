@@ -214,9 +214,7 @@ class RecordingToolHandler(ToolExecutionHandler):
     def __init__(self) -> None:
         self.starts: list[tuple[str, str, dict[str, Any] | None, str | None]] = []
         self.progress: list[tuple[str, float, float | None, str | None]] = []
-        self.completes: list[
-            tuple[str, bool, list[Any] | None, str | None]
-        ] = []
+        self.completes: list[tuple[str, bool, list[Any] | None, str | None]] = []
 
     async def on_tool_start(
         self,
@@ -469,8 +467,12 @@ async def test_run_tools_respects_max_parallel_and_timeout():
     await agent.initialize()
 
     tool_calls = {
-        "1": CallToolRequest(params=CallToolRequestParams(name="agent__fast", arguments={"text": "hi"})),
-        "2": CallToolRequest(params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"})),
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__fast", arguments={"text": "hi"})
+        ),
+        "2": CallToolRequest(
+            params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"})
+        ),
     }
     request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
 
@@ -492,7 +494,11 @@ async def test_run_tools_respects_max_parallel_and_timeout():
     request_single = PromptMessageExtended(
         role="assistant",
         content=[],
-        tool_calls={"3": CallToolRequest(params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"}))},
+        tool_calls={
+            "3": CallToolRequest(
+                params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"})
+            )
+        },
     )
     single_result = await agent.run_tools(request_single)
     assert single_result.tool_results is not None
@@ -537,18 +543,14 @@ async def test_run_tools_preserves_interleaved_child_and_mcp_result_order(
         role="assistant",
         content=[],
         tool_calls={
-            "mcp-1": CallToolRequest(
-                params=CallToolRequestParams(name="base_tool", arguments={})
-            ),
+            "mcp-1": CallToolRequest(params=CallToolRequestParams(name="base_tool", arguments={})),
             "child-1": CallToolRequest(
                 params=CallToolRequestParams(
                     name="agent__child",
                     arguments={"message": "hi"},
                 )
             ),
-            "mcp-2": CallToolRequest(
-                params=CallToolRequestParams(name="other_tool", arguments={})
-            ),
+            "mcp-2": CallToolRequest(params=CallToolRequestParams(name="other_tool", arguments={})),
         },
     )
 
@@ -882,9 +884,7 @@ async def test_invoke_child_completes_tool_call_on_cancellation() -> None:
         )
 
     assert handler.starts == [("child", "agent", {"message": "hi"}, "tool-use-1")]
-    assert handler.completes == [
-        ("tool-call-1", False, None, "Child agent tool call cancelled")
-    ]
+    assert handler.completes == [("tool-call-1", False, None, "Child agent tool call cancelled")]
 
 
 @pytest.mark.asyncio
@@ -1066,7 +1066,9 @@ async def test_nested_agents_as_tools_preserves_instance_labels():
     await parent.initialize()
 
     tool_calls = {
-        "1": CallToolRequest(params=CallToolRequestParams(name="agent__nested", arguments={"text": "hi"})),
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__nested", arguments={"text": "hi"})
+        ),
     }
     request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
 

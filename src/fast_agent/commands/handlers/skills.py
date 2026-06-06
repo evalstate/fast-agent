@@ -134,7 +134,9 @@ def _format_local_skills_by_directory(manifests_by_dir: dict[Path, list[SkillMan
     content.append_text(Text("Browse marketplace skills with /skills available", style="dim"))
     if total_skills > 0:
         content.append("\n")
-        content.append_text(Text("Search marketplace skills with /skills search <query>", style="dim"))
+        content.append_text(
+            Text("Search marketplace skills with /skills search <query>", style="dim")
+        )
         content.append("\n")
         content.append_text(Text("Remove a skill with /skills remove <number|name>", style="dim"))
 
@@ -695,10 +697,7 @@ async def _apply_skill_update_sources(
     resolver = SkillSourceResolver(ctx, agent_name=agent_name)
     groups = await resolver.update_sources(list(updates))
     applied_groups = await asyncio.gather(
-        *(
-            group.source.apply_updates(group.updates, force=force)
-            for group in groups
-        )
+        *(group.source.apply_updates(group.updates, force=force) for group in groups)
     )
     return [update for group in applied_groups for update in group]
 

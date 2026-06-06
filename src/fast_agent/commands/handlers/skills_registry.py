@@ -49,9 +49,7 @@ def _format_skills_registry_overview(
     mcp_registries: Sequence[McpSkillRegistry],
 ) -> Text:
     current_display = format_marketplace_display_url(current_url)
-    configured_displays = [
-        format_marketplace_display_url(reg_url) for reg_url in configured_urls
-    ]
+    configured_displays = [format_marketplace_display_url(reg_url) for reg_url in configured_urls]
     current_mcp_server = mcp_registry_server_name(current_url)
     current_in_configured = current_display in configured_displays or (
         current_mcp_server is not None
@@ -91,9 +89,7 @@ def _format_skills_registry_overview(
             )
 
     content.append("\n")
-    content.append_text(
-        Text("Usage: /skills registry <number|url|path|mcp-server>", style="dim")
-    )
+    content.append_text(Text("Usage: /skills registry <number|url|path|mcp-server>", style="dim"))
     return content
 
 
@@ -161,9 +157,7 @@ async def handle_set_skills_registry(
     active_agent_name = agent_name or ctx.current_agent_name
     settings = ctx.resolve_settings()
     configured_urls = [
-        url
-        for url in resolve_skill_registries(settings)
-        if mcp_registry_server_name(url) is None
+        url for url in resolve_skill_registries(settings) if mcp_registry_server_name(url) is None
     ]
     mcp_registries = await _list_mcp_skill_registries(ctx, agent_name=active_agent_name)
 
@@ -202,9 +196,7 @@ async def handle_set_skills_registry(
     if selected_mcp is not None:
         ctx.set_active_skill_source(active_agent_name, url)
         content = Text()
-        content.append_text(
-            Text(f"Registry set to: {selected_mcp.display_name}", style="green")
-        )
+        content.append_text(Text(f"Registry set to: {selected_mcp.display_name}", style="green"))
         content.append("\n")
         content.append_text(Text(f"Skills discovered: {len(selected_mcp.skills)}", style="dim"))
         outcome.add_message(content, right_info="skills", agent_name=agent_name)

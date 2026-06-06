@@ -63,10 +63,7 @@ def _unsupported_choice_error(
     supported: tuple[str, ...],
     supported_label: str,
 ) -> str:
-    return (
-        f"Unsupported {flag} '{value}'. "
-        f"Supported {supported_label}: {', '.join(supported)}."
-    )
+    return f"Unsupported {flag} '{value}'. Supported {supported_label}: {', '.join(supported)}."
 
 
 def _privacy_filter_options_requested(
@@ -303,7 +300,9 @@ def _build_privacy_sanitizer(
                     f"using cached variant '{resolved_variant}'."
                 ),
             )
-        _emit_export_progress(progress_callback, f"Privacy filter: loading model from {model_dir}...")
+        _emit_export_progress(
+            progress_callback, f"Privacy filter: loading model from {model_dir}..."
+        )
         sanitizer = OpenAIPrivacyFilterOnnxSanitizer(
             model_dir,
             variant=resolved_variant,

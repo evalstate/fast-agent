@@ -559,8 +559,7 @@ async def handle_model_switch(
     current_resolved_model = resolve_resolved_model(updated_llm)
     if (
         previous_resolved_model is not None
-        and
-        current_resolved_model is not None
+        and current_resolved_model is not None
         and current_resolved_model.selected_model_name
         == previous_resolved_model.selected_model_name
     ):

@@ -55,7 +55,9 @@ def main() -> int:
 
     active_names = active_provider_names(snapshot)
     active_text = ", ".join(active_names) if active_names else "none"
-    console.print(Panel.fit(f"[bold]Model picker prototype (rich)[/bold]\nActive providers: {active_text}"))
+    console.print(
+        Panel.fit(f"[bold]Model picker prototype (rich)[/bold]\nActive providers: {active_text}")
+    )
 
     provider_table = Table(title="Providers")
     provider_table.add_column("#", justify="right")

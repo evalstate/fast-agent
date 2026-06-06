@@ -20,9 +20,7 @@ DEFAULT_SKILL_REGISTRIES = [
     "https://github.com/anthropics/skills",
 ]
 
-DEFAULT_MARKETPLACE_URL = (
-    "https://github.com/fast-agent-ai/skills/blob/main/marketplace.json"
-)
+DEFAULT_MARKETPLACE_URL = "https://github.com/fast-agent-ai/skills/blob/main/marketplace.json"
 
 SKILL_SOURCE_FILENAME = ".skill-source.json"
 SKILL_MANIFEST_FILENAME = "SKILL.md"

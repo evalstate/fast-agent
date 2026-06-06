@@ -256,9 +256,7 @@ def build_provider_tool_summaries(agent: object) -> list[ProviderToolSummary]:
         if summary is not None:
             summaries.append(summary)
     summaries.extend(
-        summary
-        for summary in _provider_managed_tool_summaries(agent)
-        if summary.enabled is True
+        summary for summary in _provider_managed_tool_summaries(agent) if summary.enabled is True
     )
     return summaries
 
@@ -305,7 +303,9 @@ def _collect_tool_name_sets(agent: object) -> _ToolNameSets:
         if isinstance(agent, AgentBackedToolProvider)
         else set()
     )
-    return _ToolNameSets(card=card_tool_names, smart=smart_tool_names, agent_backed=agent_tool_names)
+    return _ToolNameSets(
+        card=card_tool_names, smart=smart_tool_names, agent_backed=agent_tool_names
+    )
 
 
 def _classify_tool(

@@ -223,7 +223,7 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
     pack_root = repo / "packs" / "alpha"
     pack_root.mkdir(parents=True, exist_ok=True)
     (pack_root / "fastagent.config.yaml").write_text(
-        "default_model: \"$system.default\"\n"
+        'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
         "    fast: codexspark\n"
@@ -248,7 +248,7 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
 
     config_path = env_paths.root / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: \"$system.default\"\n"
+        'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
         "    fast: codexspark\n"
@@ -257,7 +257,7 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
     )
 
     (pack_root / "fastagent.config.yaml").write_text(
-        "default_model: \"$system.default\"\n"
+        'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
         "    fast: codexmax\n"
@@ -295,7 +295,9 @@ def test_publish_commits_local_changes_without_push(tmp_path) -> None:
     _commit_all(repo, "initial")
 
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    install_result = manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    install_result = manager._install_marketplace_card_pack_sync(
+        _pack(repo), env_paths, False, False, None
+    )
 
     installed_card = env_paths.agent_cards / "alpha.md"
     installed_card.write_text(
@@ -329,7 +331,9 @@ def test_publish_creates_patch_when_push_fails(tmp_path) -> None:
     _commit_all(repo, "initial")
 
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    install_result = manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    install_result = manager._install_marketplace_card_pack_sync(
+        _pack(repo), env_paths, False, False, None
+    )
 
     installed_card = env_paths.agent_cards / "alpha.md"
     installed_card.write_text(
@@ -361,7 +365,9 @@ def test_publish_remote_clone_failure_can_retain_temp_checkout(tmp_path) -> None
     _commit_all(repo, "initial")
 
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    install_result = manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    install_result = manager._install_marketplace_card_pack_sync(
+        _pack(repo), env_paths, False, False, None
+    )
 
     source, error = manager.read_installed_card_pack_source(install_result.pack_dir)
     assert error is None

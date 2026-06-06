@@ -331,9 +331,7 @@ async def test_attach_media_youtube_url_stages_video_resource_link() -> None:
         model_info=_model_info("video/mp4"),
     )
 
-    result = await runtime.attach_media(
-        {"source": "https://WWW.YouTube.com/watch?v=dQw4w9WgXcQ"}
-    )
+    result = await runtime.attach_media({"source": "https://WWW.YouTube.com/watch?v=dQw4w9WgXcQ"})
 
     assert result.isError is False
     assert result.content is not None
@@ -383,7 +381,9 @@ async def test_attach_media_rejects_unsupported_mime_for_model(tmp_path: Path) -
     assert result.isError is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
-    assert "does not support embedded attachments with MIME type 'image/png'" in result.content[0].text
+    assert (
+        "does not support embedded attachments with MIME type 'image/png'" in result.content[0].text
+    )
 
 
 @pytest.mark.asyncio
@@ -742,13 +742,7 @@ async def test_apply_patch_updates_file_relative_to_working_directory(tmp_path: 
     )
 
     patch_text = (
-        "*** Begin Patch\n"
-        "*** Update File: notes.txt\n"
-        "@@\n"
-        "-one\n"
-        "+ONE\n"
-        " two\n"
-        "*** End Patch\n"
+        "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
     )
     result = await runtime.apply_patch({"input": patch_text})
 

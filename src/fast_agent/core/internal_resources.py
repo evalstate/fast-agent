@@ -191,8 +191,8 @@ def _load_manifest_payload() -> object:
     if source_manifest.is_file():
         return json.loads(source_manifest.read_text(encoding="utf-8"))
 
-    packaged_manifest = files("fast_agent").joinpath("resources").joinpath("shared").joinpath(
-        _MANIFEST_FILENAME
+    packaged_manifest = (
+        files("fast_agent").joinpath("resources").joinpath("shared").joinpath(_MANIFEST_FILENAME)
     )
     if packaged_manifest.is_file():
         return json.loads(packaged_manifest.read_text(encoding="utf-8"))

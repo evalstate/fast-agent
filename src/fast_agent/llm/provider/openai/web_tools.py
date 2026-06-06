@@ -190,7 +190,9 @@ def _extract_source_payload(source: object) -> dict[str, str] | None:
     return None
 
 
-def normalize_web_search_call_payload(item: object) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
+def normalize_web_search_call_payload(
+    item: object,
+) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
     payload = _as_payload(item)
     item_type = payload.get("type")
     if item_type != "web_search_call":

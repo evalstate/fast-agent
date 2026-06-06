@@ -125,10 +125,9 @@ def test_model_database_default_provider_prefers_exact_slash_catalog_key() -> No
 
 
 def test_model_database_provider_qualified_aliases_keep_capabilities() -> None:
-    assert (
-        ModelDatabase.get_max_output_tokens("anthropic-vertex.sonnet")
-        == ModelDatabase.get_max_output_tokens("sonnet")
-    )
+    assert ModelDatabase.get_max_output_tokens(
+        "anthropic-vertex.sonnet"
+    ) == ModelDatabase.get_max_output_tokens("sonnet")
 
 
 def test_anthropic_catalog_keeps_current_and_vertex_legacy_models() -> None:
@@ -171,9 +170,7 @@ def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
 
     assert {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash"} <= gemini_models
     assert not {
-        model
-        for model in gemini_models
-        if model.startswith("gemini-2.5-") and "preview" in model
+        model for model in gemini_models if model.startswith("gemini-2.5-") and "preview" in model
     }
 
 
@@ -240,30 +237,28 @@ def test_huggingface_kimi25_uses_schema_mode() -> None:
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
-    assert ModelDatabase.get_anthropic_web_search_version("claude-opus-4-6") == "web_search_20260209"
+    assert (
+        ModelDatabase.get_anthropic_web_search_version("claude-opus-4-6") == "web_search_20260209"
+    )
     assert ModelDatabase.get_anthropic_web_fetch_version("claude-opus-4-6") == "web_fetch_20260209"
     assert ModelDatabase.get_anthropic_required_betas("claude-opus-4-6") == (
         "code-execution-web-tools-2026-02-09",
     )
 
     assert (
-        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-6")
-        == "web_search_20260209"
+        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-6") == "web_search_20260209"
     )
     assert (
-        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-6")
-        == "web_fetch_20260209"
+        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-6") == "web_fetch_20260209"
     )
 
 
 def test_model_database_anthropic_web_tool_versions_for_non_46_models():
     assert (
-        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-5")
-        == "web_search_20250305"
+        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-5") == "web_search_20250305"
     )
     assert (
-        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-5")
-        == "web_fetch_20250910"
+        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-5") == "web_fetch_20250910"
     )
     assert ModelDatabase.get_anthropic_required_betas("claude-sonnet-4-5") is None
 
@@ -570,14 +565,8 @@ def test_model_database_response_websocket_provider_support() -> None:
         ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.CODEX_RESPONSES)
         is True
     )
-    assert (
-        ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES)
-        is True
-    )
-    assert (
-        ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.RESPONSES)
-        is True
-    )
+    assert ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES) is True
+    assert ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.RESPONSES) is True
     assert (
         ModelDatabase.supports_response_websocket_provider(
             "gpt-5.3-codex-spark", Provider.CODEX_RESPONSES

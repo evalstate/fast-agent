@@ -115,9 +115,7 @@ class ACPServerSlashRuntime:
             session_instructions=session_state.resolved_instructions,
             instruction_resolver=partial(self._resolve_instruction_for_system, session_state),
             card_loader=(
-                partial(self._load_card, session_state)
-                if self._host._load_card_callback
-                else None
+                partial(self._load_card, session_state) if self._host._load_card_callback else None
             ),
             attach_agent_callback=(
                 partial(self._attach_agent_tools, session_state)
@@ -138,9 +136,7 @@ class ACPServerSlashRuntime:
                 self._list_configured_detached_mcp_servers, session_state
             ),
             dump_agent_callback=(
-                partial(self._dump_agent_card)
-                if self._host._dump_agent_card_callback
-                else None
+                partial(self._dump_agent_card) if self._host._dump_agent_card_callback else None
             ),
             reload_callback=(
                 partial(self.reload_agent_cards_for_session, session_state.session_id)

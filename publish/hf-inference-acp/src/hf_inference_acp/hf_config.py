@@ -293,10 +293,7 @@ def copy_toad_cards_from_resources(
     # Try to access fast-agent-mcp package resources
     try:
         source_dir_traversable = (
-            files("fast_agent")
-            .joinpath("resources")
-            .joinpath("examples")
-            .joinpath("hf-toad-cards")
+            files("fast_agent").joinpath("resources").joinpath("examples").joinpath("hf-toad-cards")
         )
         if not source_dir_traversable.is_dir():
             raise FileNotFoundError("hf-toad-cards not found in package resources")

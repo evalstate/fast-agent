@@ -258,7 +258,9 @@ async def test_prompt_model_selection_preserves_overlay_token_when_resolved_mode
 
 
 @pytest.mark.asyncio
-async def test_prompt_model_selection_passes_resolved_start_path(monkeypatch, tmp_path: Path) -> None:
+async def test_prompt_model_selection_passes_resolved_start_path(
+    monkeypatch, tmp_path: Path
+) -> None:
     display = _FakeDisplay()
     provider = cast("AgentProvider", _FakeProvider(display))
     project_root = tmp_path / "project"

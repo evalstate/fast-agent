@@ -24,9 +24,7 @@ class OpenAIStructuredOutputMixin:
             return messages, request_params.model_copy(update={"structured_schema": None})
         return messages, request_params.model_copy(
             update={
-                "response_format": self.schema_to_response_format(
-                    request_params.structured_schema
-                )
+                "response_format": self.schema_to_response_format(request_params.structured_schema)
             }
         )
 

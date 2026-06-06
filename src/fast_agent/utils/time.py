@@ -62,7 +62,12 @@ def format_two_unit_duration(total_seconds: int) -> str:
     if total == 0:
         return "0s"
 
-    for primary_seconds, primary_suffix, secondary_seconds, secondary_suffix in _TWO_UNIT_DURATION_FORMATS:
+    for (
+        primary_seconds,
+        primary_suffix,
+        secondary_seconds,
+        secondary_suffix,
+    ) in _TWO_UNIT_DURATION_FORMATS:
         label = _format_two_unit_label(
             total,
             primary_seconds=primary_seconds,

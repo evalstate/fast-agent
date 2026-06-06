@@ -319,11 +319,7 @@ def _format_reference_definition_block(
 
     lines: list[str] = []
     for definition in definitions:
-        title = (
-            definition.title.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", " ")
-        )
+        title = definition.title.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
         if title:
             lines.append(f'[{definition.label}]: {definition.url} "{title}"')
         else:

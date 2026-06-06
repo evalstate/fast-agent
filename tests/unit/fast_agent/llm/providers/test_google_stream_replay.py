@@ -221,7 +221,7 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
                     "id": "call_weather",
                     "name": "weather",
                     "args": {"city": "P"},
-                }
+                },
             ),
             _google_chunk(
                 thought_signature=b"sig",

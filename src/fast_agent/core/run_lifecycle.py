@@ -44,9 +44,7 @@ class FastAgentRunLifecycle:
                 model_override=model_override,
                 force_headless=force_headless,
             )
-            span_context = trace.get_tracer(__name__).start_as_current_span(
-                self._fast_agent.name
-            )
+            span_context = trace.get_tracer(__name__).start_as_current_span(self._fast_agent.name)
             exit_stack.enter_context(span_context)
             await exit_stack.enter_async_context(self._fast_agent.app.run())
             default_skills = self._fast_agent._load_default_skills_for_run()

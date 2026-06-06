@@ -874,10 +874,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             case "toggle" | "budget":
                 enabled = bool(setting.value)
             case "effort":
-                enabled = (
-                    strip_casefold(str(setting.value)) != "none"
-                    and self._supports_adaptive_thinking(model)
-                )
+                enabled = strip_casefold(
+                    str(setting.value)
+                ) != "none" and self._supports_adaptive_thinking(model)
             case _:
                 enabled = False
         return enabled
@@ -1229,7 +1228,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         """
         return any(tool.name == STRUCTURED_OUTPUT_TOOL_NAME for tool in tool_uses)
 
-    def _build_tool_calls_dict(self, tool_uses: list[BetaToolUseBlock]) -> dict[str, CallToolRequest]:
+    def _build_tool_calls_dict(
+        self, tool_uses: list[BetaToolUseBlock]
+    ) -> dict[str, CallToolRequest]:
         """
         Convert Anthropic tool use blocks into our CallToolRequest.
 
@@ -1650,9 +1651,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if tool_state is None:
             return
 
-        tool_name, server_name, raw_input = self._server_tool_stop_details(
-            event, tool_state.name
-        )
+        tool_name, server_name, raw_input = self._server_tool_stop_details(event, tool_state.name)
         if raw_input is not None:
             self._notify_tool_stream_listeners(
                 "replace",
@@ -1764,10 +1763,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         try:
             return await stream.get_final_message()
         except Exception as error:
-            if not (
-                _is_beta_text_block_validation_error(error)
-                and state.streamed_text_segments
-            ):
+            if not (_is_beta_text_block_validation_error(error) and state.streamed_text_segments):
                 raise
 
             logger.warning(
@@ -2213,7 +2209,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         structured_schema: dict[str, Any] | None,
         messages: list[BetaMessageParam],
     ) -> _AnthropicStopResult:
-        tool_uses = [content for content in response.content if isinstance(content, BetaToolUseBlock)]
+        tool_uses = [
+            content for content in response.content if isinstance(content, BetaToolUseBlock)
+        ]
         if not tool_uses:
             return _AnthropicStopResult(LlmStopReason.END_TURN)
 
@@ -2264,7 +2262,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         return {REASONING: [TextContent(type="text", text="".join(thinking_texts))]}
 
     @staticmethod
-    def _raw_anthropic_thinking_blocks(response: BetaMessage) -> list[BetaThinkingBlock | BetaRedactedThinkingBlock]:
+    def _raw_anthropic_thinking_blocks(
+        response: BetaMessage,
+    ) -> list[BetaThinkingBlock | BetaRedactedThinkingBlock]:
         return [
             block
             for block in response.content or []
@@ -2296,7 +2296,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             payload = serialize_anthropic_block_payload(block)
             if payload is not None:
                 try:
-                    payloads.raw_assistant.append(TextContent(type="text", text=json.dumps(payload)))
+                    payloads.raw_assistant.append(
+                        TextContent(type="text", text=json.dumps(payload))
+                    )
                 except Exception as error:
                     logger.warning(
                         "Skipping non-serializable assistant block payload",

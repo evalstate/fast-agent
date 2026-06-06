@@ -48,9 +48,9 @@ else:
     try:  # OpenAI SDK versions may not include reasoning delta events yet.
         from openai.types.responses import ResponseReasoningDeltaStreamingEvent
     except Exception:  # pragma: no cover - fallback for older SDKs
+
         class ResponseReasoningDeltaStreamingEvent:
             pass
-
 
 
 _DONE_RESULT_TOOL_TYPES = {"mcp_call"}
@@ -64,9 +64,7 @@ class _OpenResponsesStreamState:
     estimated_tokens: int = 0
     reasoning_chars: int = 0
     reasoning_segments: ReasoningTextAccumulator = field(
-        default_factory=lambda: ReasoningTextAccumulator(
-            normalizer=normalize_reasoning_delta
-        )
+        default_factory=lambda: ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
     )
     tool_state: OpenAIToolStreamState = field(default_factory=OpenAIToolStreamState)
     notified_tool_indices: set[int] = field(default_factory=set)
@@ -88,9 +86,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
             self, event_type: str, payload: dict[str, Any] | None = None
         ) -> None: ...
 
-        def _update_streaming_progress(
-            self, chunk: str, model: str, current_total: int
-        ) -> int: ...
+        def _update_streaming_progress(self, chunk: str, model: str, current_total: int) -> int: ...
 
         def _emit_stream_text_delta(
             self,
@@ -212,9 +208,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
         normalized_delta = state.reasoning_segments.append(delta_text)
         if not normalized_delta:
             return
-        self._notify_stream_listeners(
-            StreamChunk(text=normalized_delta, is_reasoning=True)
-        )
+        self._notify_stream_listeners(StreamChunk(text=normalized_delta, is_reasoning=True))
         state.reasoning_chars += len(normalized_delta)
         await self._emit_streaming_progress(
             model=progress_model,
@@ -277,8 +271,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
         state: _OpenResponsesStreamState,
     ) -> bool:
         if not (
-            isinstance(event, ResponseTextDeltaEvent)
-            or is_responses_text_delta_event(event_type)
+            isinstance(event, ResponseTextDeltaEvent) or is_responses_text_delta_event(event_type)
         ):
             return False
         if delta:
@@ -387,9 +380,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
         index = getattr(event, "output_index", None)
         item_id = responses_event_item_id(event, item)
         tool_use_id = self._tool_use_id_from_item(item)
-        tool_info = state.tool_state.close(
-            index=index, tool_use_id=tool_use_id, item_id=item_id
-        )
+        tool_info = state.tool_state.close(index=index, tool_use_id=tool_use_id, item_id=item_id)
         if tool_info is None:
             return True
 
@@ -527,23 +518,15 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 event, event_type, delta, model, state
             )
         if not handled:
-            handled = self._handle_openresponses_text_delta(
-                event, event_type, delta, model, state
-            )
+            handled = self._handle_openresponses_text_delta(event, event_type, delta, model, state)
         if not handled:
             handled = self._handle_openresponses_terminal_event(event, event_type, state)
         if not handled:
-            handled = self._handle_openresponses_output_item_added(
-                event, event_type, model, state
-            )
+            handled = self._handle_openresponses_output_item_added(event, event_type, model, state)
         if not handled:
-            handled = self._handle_openresponses_tool_delta(
-                event, event_type, delta, state
-            )
+            handled = self._handle_openresponses_tool_delta(event, event_type, delta, state)
         if not handled:
-            handled = self._handle_openresponses_output_item_done(
-                event, event_type, model, state
-            )
+            handled = self._handle_openresponses_output_item_done(event, event_type, model, state)
         if not handled:
             self._handle_openresponses_tool_status(event, event_type, model, state)
 

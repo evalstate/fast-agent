@@ -9,9 +9,7 @@ from fast_agent.tools.filesystem_tool_args import (
 
 
 def test_parse_read_text_file_arguments_normalizes_path_and_bounds() -> None:
-    parsed = parse_read_text_file_arguments(
-        {"path": "  sample.txt  ", "line": 2, "limit": 3}
-    )
+    parsed = parse_read_text_file_arguments({"path": "  sample.txt  ", "line": 2, "limit": 3})
 
     assert parsed.payload == {"path": "  sample.txt  ", "line": 2, "limit": 3}
     assert parsed.path == "sample.txt"

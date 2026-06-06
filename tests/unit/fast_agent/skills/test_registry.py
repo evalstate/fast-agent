@@ -271,6 +271,4 @@ def test_cli_override_propagates_to_global_settings(tmp_path: Path, monkeypatch)
     directories = resolve_skill_directories()
     directory_strs = [str(d) for d in directories]
 
-    assert str(custom_skills) in directory_strs, (
-        f"Expected {custom_skills} in {directory_strs}"
-    )
+    assert str(custom_skills) in directory_strs, f"Expected {custom_skills} in {directory_strs}"

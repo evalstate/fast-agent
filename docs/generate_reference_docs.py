@@ -231,21 +231,34 @@ def generate_harness_reference() -> str:
     lines.append("  Source: generate_reference_docs.py\n")
     lines.append("-->\n\n")
     lines.append("## AgentHarness Class\n\n")
-    lines.append("`AgentHarness` is an async context manager returned by `FastAgent.harness()`.\n\n")
-    lines.append(_md_code("python", "from fast_agent import AgentHarness\n\n\nasync with fast.harness() as harness:\n    typed: AgentHarness = harness"))
+    lines.append(
+        "`AgentHarness` is an async context manager returned by `FastAgent.harness()`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            "from fast_agent import AgentHarness\n\n\nasync with fast.harness() as harness:\n    typed: AgentHarness = harness",
+        )
+    )
     lines.append("### Properties\n\n")
     lines.append("| Property | Type | Description |\n")
     lines.append("|----------|------|-------------|\n")
     lines.append("| `sessions` | `HarnessSessions` | Session manager for the running harness |\n\n")
     lines.append("### Methods\n\n")
     lines.append("#### `session()`\n\n")
-    lines.append(_md_code("python", f"await {_format_method_signature('harness.session', AgentHarness.session)}"))
+    lines.append(
+        _md_code(
+            "python", f"await {_format_method_signature('harness.session', AgentHarness.session)}"
+        )
+    )
     lines.append(
         "Returns an existing session or creates one by delegating to\n"
         "`harness.sessions.get_or_create()`.\n\n"
     )
     lines.append("#### `shell()`\n\n")
-    lines.append(_md_code("python", f"await {_format_method_signature('harness.shell', AgentHarness.shell)}"))
+    lines.append(
+        _md_code("python", f"await {_format_method_signature('harness.shell', AgentHarness.shell)}")
+    )
     lines.append(
         "Runs a shell command through the harness shell executor and returns a\n"
         "`ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is\n"
@@ -272,13 +285,15 @@ def generate_harness_reference() -> str:
         )
     )
     lines.append("Session ID rules:\n\n")
-    lines.append("- `None` means `\"default\"`;\n")
+    lines.append('- `None` means `"default"`;\n')
     lines.append("- strings are stripped;\n")
     lines.append("- empty strings raise `ValueError`;\n")
     lines.append(f"- IDs must be 1-{HARNESS_SESSION_ID_MAX_LENGTH} characters;\n")
     lines.append("- IDs must start and end with a letter or digit;\n")
     lines.append("- IDs may contain only letters, digits, dashes, and underscores.\n\n")
-    lines.append(f"Generated from `HARNESS_SESSION_ID_PATTERN`: `{HARNESS_SESSION_ID_PATTERN.pattern}`.\n\n")
+    lines.append(
+        f"Generated from `HARNESS_SESSION_ID_PATTERN`: `{HARNESS_SESSION_ID_PATTERN.pattern}`.\n\n"
+    )
     lines.append("| Method | Signature | Behavior |\n")
     lines.append("|--------|-----------|----------|\n")
     get_signature = _escape_table(_format_method_signature("get", HarnessSessions.get))
@@ -332,7 +347,9 @@ def generate_harness_reference() -> str:
     lines.append("1. explicit per-call `agent_name`;\n")
     lines.append("2. the session `default_agent_name`;\n")
     lines.append("3. the app default agent.\n\n")
-    lines.append("`clear()` clears only the resolved target agent, not every agent in the session.\n\n")
+    lines.append(
+        "`clear()` clears only the resolved target agent, not every agent in the session.\n\n"
+    )
     lines.append(
         "`shell()` returns `ShellExecutionResult` with `stdout`, `stderr`, and\n"
         "`exit_code`. It does not add the command or output to chat history, but it\n"
@@ -469,9 +486,7 @@ def generate_tui_runtime_reference() -> str:
     for item in DOCUMENTED_ENV_VARS:
         if item.surface != "tui":
             continue
-        lines.append(
-            f"| `{item.symbol}` | `{item.value}` | {_escape_table(item.purpose)} |\n"
-        )
+        lines.append(f"| `{item.symbol}` | `{item.value}` | {_escape_table(item.purpose)} |\n")
 
     lines.append("\n#### TUI-related settings\n\n")
     lines.append("| Setting | Environment variable | Type | Default | Description |\n")
@@ -808,7 +823,9 @@ def _load_model_factory_constants(
 
         provider_names = {provider.value for provider in Provider}
         model_aliases = {
-            key: value for key, value in ModelFactory.MODEL_PRESETS.items() if isinstance(value, str)
+            key: value
+            for key, value in ModelFactory.MODEL_PRESETS.items()
+            if isinstance(value, str)
         }
         default_providers = {
             model_name: provider.value
@@ -1129,7 +1146,9 @@ def main() -> int:
         _write(GENERATED_DIR / "harness_reference.md", generate_harness_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
-        _write(GENERATED_DIR / "current_models_responses.md", generate_current_model_table("responses"))
+        _write(
+            GENERATED_DIR / "current_models_responses.md", generate_current_model_table("responses")
+        )
         _write(
             GENERATED_DIR / "current_models_codexresponses.md",
             generate_current_model_table("codexresponses"),

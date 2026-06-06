@@ -114,9 +114,7 @@ async def handle_show_markdown(ctx: CommandContext, *, agent_name: str) -> Comma
     return outcome
 
 
-async def handle_show_mcp_status(
-    ctx: CommandContext, *, agent_name: str
-) -> CommandOutcome:
+async def handle_show_mcp_status(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     from fast_agent.ui.enhanced_prompt import show_mcp_status
 

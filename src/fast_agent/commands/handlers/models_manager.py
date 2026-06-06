@@ -1607,9 +1607,7 @@ async def _handle_reference_mutation(
     return outcome
 
 
-def _render_reference_list(
-    references: dict[str, dict[str, str]]
-) -> tuple[Text, CommandChannel]:
+def _render_reference_list(references: dict[str, dict[str, str]]) -> tuple[Text, CommandChannel]:
     rows = _flatten_references(references)
     if not rows:
         empty = Text()
@@ -1646,9 +1644,7 @@ def _render_reference_list(
     return content, "system"
 
 
-async def _handle_models_references(
-    ctx: "CommandContext", argument: str | None
-) -> CommandOutcome:
+async def _handle_models_references(ctx: "CommandContext", argument: str | None) -> CommandOutcome:
     outcome = CommandOutcome()
 
     parsed = _parse_references_arguments(argument)
@@ -1885,9 +1881,7 @@ async def _handle_models_catalog(
     return outcome
 
 
-async def _handle_models_help(
-    ctx: "CommandContext", argument: str | None = None
-) -> CommandOutcome:
+async def _handle_models_help(ctx: "CommandContext", argument: str | None = None) -> CommandOutcome:
     del ctx, argument
     outcome = CommandOutcome()
     outcome.add_message(_MODELS_USAGE, right_info="model")

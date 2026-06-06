@@ -55,7 +55,9 @@ def add_tool_update(server_name: str) -> None:
     notifications.append(_notification("tool_update", server=server_name))
 
 
-def add_warning(message: str, *, surface: Literal["runtime_toolbar", "startup_once"] = "runtime_toolbar") -> None:
+def add_warning(
+    message: str, *, surface: Literal["runtime_toolbar", "startup_once"] = "runtime_toolbar"
+) -> None:
     """Add a deferred warning notification.
 
     Args:
@@ -93,18 +95,12 @@ def remove_startup_warnings_containing(fragment: str) -> int:
     if not needle:
         return 0
 
-    to_remove = [
-        warning
-        for warning in startup_warnings
-        if needle in strip_casefold(warning)
-    ]
+    to_remove = [warning for warning in startup_warnings if needle in strip_casefold(warning)]
     if not to_remove:
         return 0
 
     startup_warnings[:] = [
-        warning
-        for warning in startup_warnings
-        if needle not in strip_casefold(warning)
+        warning for warning in startup_warnings if needle not in strip_casefold(warning)
     ]
     for warning in to_remove:
         _startup_warning_seen.discard(warning)
@@ -123,8 +119,8 @@ def _invalidate_prompt() -> None:
 
 def _start_active_event(event_type: str, server_name: str) -> None:
     active_events[(event_type, server_name)] = {
-        'server': server_name,
-        'start_time': datetime.now().isoformat()
+        "server": server_name,
+        "start_time": datetime.now().isoformat(),
     }
     _invalidate_prompt()
 
@@ -143,7 +139,7 @@ def start_sampling(server_name: str) -> None:
     Args:
         server_name: Name of the server making the sampling request
     """
-    _start_active_event('sampling', server_name)
+    _start_active_event("sampling", server_name)
 
 
 def end_sampling(server_name: str) -> None:
@@ -152,7 +148,7 @@ def end_sampling(server_name: str) -> None:
     Args:
         server_name: Name of the server that made the sampling request
     """
-    _complete_active_event('sampling', server_name)
+    _complete_active_event("sampling", server_name)
 
 
 def start_elicitation(server_name: str) -> None:
@@ -161,7 +157,7 @@ def start_elicitation(server_name: str) -> None:
     Args:
         server_name: Name of the server making the elicitation request
     """
-    _start_active_event('elicitation', server_name)
+    _start_active_event("elicitation", server_name)
 
 
 def end_elicitation(server_name: str) -> None:
@@ -170,7 +166,7 @@ def end_elicitation(server_name: str) -> None:
     Args:
         server_name: Name of the server that made the elicitation request
     """
-    _complete_active_event('elicitation', server_name)
+    _complete_active_event("elicitation", server_name)
 
 
 def get_active_status() -> dict[str, str] | None:
@@ -182,7 +178,7 @@ def get_active_status() -> dict[str, str] | None:
     for event_type in ("sampling", "elicitation"):
         for active_type, server_name in active_events:
             if active_type == event_type:
-                return {'type': event_type, 'server': server_name}
+                return {"type": event_type, "server": server_name}
     return None
 
 
@@ -214,14 +210,10 @@ def _ordered_event_counts(counts: Mapping[str, int]) -> dict[str, int]:
     if not counts:
         return {}
     ordered = {
-        event_type: counts[event_type]
-        for event_type in _EVENT_ORDER
-        if event_type in counts
+        event_type: counts[event_type] for event_type in _EVENT_ORDER if event_type in counts
     }
     ordered.update(
-        (event_type, count)
-        for event_type, count in counts.items()
-        if event_type not in ordered
+        (event_type, count) for event_type, count in counts.items() if event_type not in ordered
     )
     return ordered
 
@@ -231,7 +223,7 @@ def format_event_label(event_type: str, count: int, *, compact: bool = False) ->
     event_display = _EVENT_DISPLAY.get(event_type)
 
     if event_display is None:
-        base = event_type.replace('_', ' ')
+        base = event_type.replace("_", " ")
         if compact:
             return f"{base[:1]}:{count}"
         return format_count(count, base)

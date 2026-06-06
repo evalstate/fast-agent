@@ -106,8 +106,7 @@ def merge_card_sources(
 
     if default_dir.is_dir():
         has_cards = any(
-            entry.is_file() and is_agent_card_path(entry)
-            for entry in default_dir.iterdir()
+            entry.is_file() and is_agent_card_path(entry) for entry in default_dir.iterdir()
         )
         if has_cards:
             merged.append(str(default_dir))
@@ -342,8 +341,7 @@ def _merge_url_servers(
             headers = server_config.get("headers")
             if isinstance(headers, dict):
                 normalized_config["headers"] = {
-                    str(key): str(value)
-                    for key, value in headers.items()
+                    str(key): str(value) for key, value in headers.items()
                 }
             if client_metadata_url:
                 normalized_config["auth"] = {

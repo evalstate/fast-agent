@@ -50,6 +50,7 @@ class RecordingSchemaAgent(LlmAgent):
         message = PromptMessageExtended(role="assistant", content=[text_content("structured")])
         return {"value": self.name}, message
 
+
 # Model tests
 
 

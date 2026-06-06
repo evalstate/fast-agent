@@ -34,8 +34,7 @@ def test_display_bool_defaults_match_logger_settings() -> None:
     defaults = config_command.LoggerSettings().model_dump()
 
     assert {
-        key: defaults[key]
-        for key in config_command.DISPLAY_BOOL_DEFAULTS
+        key: defaults[key] for key in config_command.DISPLAY_BOOL_DEFAULTS
     } == config_command.DISPLAY_BOOL_DEFAULTS
 
 
@@ -155,9 +154,7 @@ def test_config_display_normalizes_invalid_streaming_mode(tmp_path: Path, monkey
 def test_config_display_removes_default_theme_and_code_theme(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        "logger:\n"
-        "  theme_file: themes/custom.ini\n"
-        "  code_theme: monokai\n",
+        "logger:\n  theme_file: themes/custom.ini\n  code_theme: monokai\n",
         encoding="utf-8",
     )
 
@@ -205,9 +202,7 @@ def test_load_config_defaults_to_environment_config_path(tmp_path: Path, monkeyp
     assert config_path == expected
 
 
-def test_load_config_prefers_cwd_config_before_legacy(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_load_config_prefers_cwd_config_before_legacy(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     nested = workspace / "child"
     workspace.mkdir()
@@ -215,13 +210,11 @@ def test_load_config_prefers_cwd_config_before_legacy(
     monkeypatch.chdir(nested)
     monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     (workspace / "fastagent.config.yaml").write_text(
-        "logger:\n"
-        "  show_tools: false\n",
+        "logger:\n  show_tools: false\n",
         encoding="utf-8",
     )
     (nested / "fastagent.config.yaml").write_text(
-        "logger:\n"
-        "  show_tools: true\n",
+        "logger:\n  show_tools: true\n",
         encoding="utf-8",
     )
 
@@ -231,9 +224,7 @@ def test_load_config_prefers_cwd_config_before_legacy(
     assert config_data == {"logger": {"show_tools": True}}
 
 
-def test_load_config_ignores_parent_config(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_load_config_ignores_parent_config(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     nested = workspace / "child"
     workspace.mkdir()
@@ -241,8 +232,7 @@ def test_load_config_ignores_parent_config(
     monkeypatch.chdir(nested)
     monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     (workspace / "fastagent.config.yaml").write_text(
-        "logger:\n"
-        "  show_tools: false\n",
+        "logger:\n  show_tools: false\n",
         encoding="utf-8",
     )
 
@@ -262,8 +252,7 @@ def test_config_display_writes_selected_home_config_when_parent_config_exists(
     monkeypatch.chdir(nested)
     monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     (workspace / "fastagent.config.yaml").write_text(
-        "logger:\n"
-        "  show_tools: false\n",
+        "logger:\n  show_tools: false\n",
         encoding="utf-8",
     )
 

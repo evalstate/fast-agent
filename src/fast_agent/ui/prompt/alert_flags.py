@@ -75,7 +75,9 @@ def _extract_alert_flags_from_alert(blocks: Sequence[ContentBlock] | None) -> se
     flags: set[str] = set()
     for payload in _iter_json_payloads_of_type(blocks, "unsupported_content_removed"):
         flags.update(
-            raw_flag for raw_flag in _string_values(payload.get("flags")) if raw_flag in _ALERT_FLAGS
+            raw_flag
+            for raw_flag in _string_values(payload.get("flags"))
+            if raw_flag in _ALERT_FLAGS
         )
         flags.update(
             category_flag

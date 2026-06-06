@@ -351,7 +351,9 @@ class ChainAgent(LlmAgent):
                 )
 
         if response is None:
-            raise AgentConfigError(f"Chain '{self.name}' requires at least one intermediate response")
+            raise AgentConfigError(
+                f"Chain '{self.name}' requires at least one intermediate response"
+            )
         return [Prompt.user(*response.content)]
 
     async def _run_cumulative_intermediate_agents(

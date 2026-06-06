@@ -423,14 +423,13 @@ def _decorator_impl(
     return decorator
 
 
-
 class DecoratorMixin:
     """
     Mixin class providing decorator methods for FastAgent.
-    
+
     This mixin contains all the agent decorator methods (@agent, @router, etc.)
     that can be applied to async functions to register them as agents.
-    
+
     The host class must provide an `agents` dict attribute for storing
     agent configurations.
     """
@@ -645,7 +644,6 @@ class DecoratorMixin:
             ),
         )
 
-
     def custom(
         self,
         cls,
@@ -721,13 +719,11 @@ class DecoratorMixin:
             function_tools=function_tools,
         )
 
-
     DEFAULT_INSTRUCTION_ORCHESTRATOR = """
     You are an expert planner. Given an objective task and a list of Agents
     (which are collections of capabilities), your job is to break down the objective
     into a series of steps, which can be performed by these agents.
     """
-
 
     def orchestrator(
         self,
@@ -783,7 +779,6 @@ class DecoratorMixin:
             api_key=api_key,
         )
 
-
     def iterative_planner(
         self,
         name: str,
@@ -832,7 +827,6 @@ class DecoratorMixin:
             default=default,
             api_key=api_key,
         )
-
 
     def router(
         self,
@@ -891,7 +885,6 @@ class DecoratorMixin:
             resources=resources,
         )
 
-
     def chain(
         self,
         name: str,
@@ -932,7 +925,6 @@ class DecoratorMixin:
             cumulative=cumulative,
             default=default,
         )
-
 
     def parallel(
         self,
@@ -975,7 +967,6 @@ class DecoratorMixin:
             include_request=include_request,
             default=default,
         )
-
 
     def evaluator_optimizer(
         self,
@@ -1024,7 +1015,6 @@ class DecoratorMixin:
             refinement_instruction=refinement_instruction,
             default=default,
         )
-
 
     def maker(
         self,

@@ -454,9 +454,7 @@ class RichProgressDisplay:
         if event.action in (ProgressAction.STREAMING, ProgressAction.THINKING):
             tokens = event.streaming_tokens
             if tokens:
-                formatted_tokens = f"▎[dim]◀[/dim] {escape_markup(tokens.strip())}".ljust(
-                    17 + 11
-                )
+                formatted_tokens = f"▎[dim]◀[/dim] {escape_markup(tokens.strip())}".ljust(17 + 11)
                 return f"[{action_style}]{formatted_tokens}"
 
         icon = _ACTION_DESCRIPTION_ICONS.get(event.action, "•")

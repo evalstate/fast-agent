@@ -209,9 +209,7 @@ class GoogleConverter:
         if uri_str:
             return types.Part.from_uri(file_uri=str(uri_str), mime_type=mime_str)
 
-        return types.Part.from_text(
-            text=f"[Video Resource: No URI provided, MIME: {mime_str}]"
-        )
+        return types.Part.from_text(text=f"[Video Resource: No URI provided, MIME: {mime_str}]")
 
     @staticmethod
     def _resource_link_to_google_part(content: ResourceLink) -> types.Part | None:
@@ -598,9 +596,7 @@ class GoogleConverter:
         """
         return [self._convert_from_google_content(content) for content in contents]
 
-    def _convert_from_google_content(
-        self, content: types.Content | None
-    ) -> PromptMessageExtended:
+    def _convert_from_google_content(self, content: types.Content | None) -> PromptMessageExtended:
         """
         Converts a single google.genai types.Content to a fast-agent PromptMessageExtended.
         """

@@ -159,9 +159,7 @@ class MetricsWriter:
         if self._count % self._interval != 0:
             return
         run_elapsed_ms = (
-            (time.monotonic() - self._start_time) * 1000
-            if self._start_time is not None
-            else None
+            (time.monotonic() - self._start_time) * 1000 if self._start_time is not None else None
         )
         payload = {
             "ts": time.time(),
@@ -320,7 +318,7 @@ def _build_fence_focus(scale: int) -> str:
         "",
         "```python",
         "def greet(name: str) -> str:",
-        "    return f\"hello, {name}\"",
+        '    return f"hello, {name}"',
         "```",
         "",
         "After fence marker: reflow here should stay stable when the block above closes.",
@@ -361,13 +359,13 @@ def _build_fence_focus(scale: int) -> str:
             "See [renderer notes][render-docs] before the block; the prose above should still resolve the link.",
             "",
             "```python",
-            "config = {\"padding\": True, \"reference_defs\": \"preserved\"}",
-            "print(config[\"padding\"])",
+            'config = {"padding": True, "reference_defs": "preserved"}',
+            'print(config["padding"])',
             "```",
             "",
             "The block above should keep its visual separation without stray blank chunks before this paragraph.",
             "",
-            "[render-docs]: https://example.com/rendering \"Renderer notes\"",
+            '[render-docs]: https://example.com/rendering "Renderer notes"',
             "",
             "Recommended runs:",
             "- `uv run fast-agent demo streaming --scenario fence-focus --chunk-size 7 --delay 0.03`",
@@ -479,8 +477,7 @@ def _build_large_table(scale: int) -> str:
     rows = max(24, 18 * scale)
     content = ["### Large Table", "| Column A | Column B | Column C |", "| --- | --- | --- |"]
     content.extend(
-        f"| row {idx:02d} | some longer value to wrap {idx} | z{idx * 3} |"
-        for idx in range(rows)
+        f"| row {idx:02d} | some longer value to wrap {idx} | z{idx * 3} |" for idx in range(rows)
     )
     content.append("")
     return "\n".join(content)
@@ -539,7 +536,7 @@ def _build_interspersed(scale: int) -> str:
                 f"| score | {idx * 7} |",
                 "",
                 "```bash",
-                f"echo \"round {idx}\"",
+                f'echo "round {idx}"',
                 "sleep 1",
                 "```",
                 "",
@@ -587,7 +584,7 @@ def _build_random_mix(scale: int, seed: int | None) -> str:
             if language == "python":
                 content.append(f"result_{line:02d} = {line} * {line}")
             elif language == "bash":
-                content.append(f"echo \"step {line + 1}\"")
+                content.append(f'echo "step {line + 1}"')
             else:
                 content.append(f"line {line + 1}: lorem ipsum")
         content.extend(["```", ""])

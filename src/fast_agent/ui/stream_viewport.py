@@ -92,8 +92,7 @@ class StreamViewport:
         max_lines = max(1, int(terminal_height * target_ratio))
 
         heights = [
-            self._segment_height(segment, console=console, width=width)
-            for segment in segments_list
+            self._segment_height(segment, console=console, width=width) for segment in segments_list
         ]
         total_height = sum(heights)
         if total_height <= max_lines:
@@ -119,9 +118,7 @@ class StreamViewport:
             )
             if trimmed.text:
                 window.append(trimmed)
-                window_heights.append(
-                    self._segment_height(trimmed, console=console, width=width)
-                )
+                window_heights.append(self._segment_height(trimmed, console=console, width=width))
             break
 
         window.reverse()

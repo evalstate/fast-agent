@@ -35,9 +35,7 @@ def test_format_session_entries_strips_timestamp_prefix() -> None:
 
 
 def test_extract_session_title_uses_first_nonblank_metadata_value() -> None:
-    assert extract_session_title({"title": "  ", "label": " Review session "}) == (
-        "Review session"
-    )
+    assert extract_session_title({"title": "  ", "label": " Review session "}) == ("Review session")
     assert extract_session_title({"title": "\n\t", "first_user_preview": " First prompt "}) == (
         "First prompt"
     )
@@ -65,7 +63,7 @@ def test_format_session_entries_marks_pinned() -> None:
 
     verbose = format_session_entries([session], None, mode="verbose")
     assert verbose
-    assert "\U0001F4CC" in verbose[0]
+    assert "\U0001f4cc" in verbose[0]
 
 
 def test_format_session_entries_accepts_named_mode() -> None:
@@ -121,10 +119,7 @@ def test_format_session_entries_rejects_unknown_mode() -> None:
 
 
 def test_format_history_summary_pluralizes_message_counts() -> None:
-    assert (
-        format_history_summary({"alpha": 1, "beta": 2})
-        == "alpha (1 message), beta (2 messages)"
-    )
+    assert format_history_summary({"alpha": 1, "beta": 2}) == "alpha (1 message), beta (2 messages)"
 
 
 def test_format_session_agent_label_pluralizes_agent_count() -> None:

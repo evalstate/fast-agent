@@ -149,11 +149,7 @@ def _should_rewrite_growing_last_line(
     lines: list[_RenderedLine],
     first_diff: int,
 ) -> bool:
-    return bool(
-        old_lines
-        and len(lines) > len(old_lines)
-        and first_diff == len(old_lines) - 1
-    )
+    return bool(old_lines and len(lines) > len(old_lines) and first_diff == len(old_lines) - 1)
 
 
 def _elapsed_ms(newer: object, older: object) -> float | None:
@@ -1259,9 +1255,7 @@ class StreamingMessageHandle:
         queue_age_ms = _elapsed_ms(render_start, oldest_enqueued)
         batch_span_ms = _elapsed_ms(newest_enqueued, oldest_enqueued)
         scroll_age_ms = (
-            (now - self._scroll_start_time) * 1000
-            if self._scroll_start_time is not None
-            else None
+            (now - self._scroll_start_time) * 1000 if self._scroll_start_time is not None else None
         )
         with suppress(Exception):
             self._performance_hook(
@@ -1310,7 +1304,9 @@ class StreamingMessageHandle:
         return merged
 
     def _tool_header_text(self, segment: "StreamSegment") -> Text:
-        header_text = self._tool_header_prefix.copy() if self._tool_header_prefix is not None else Text()
+        header_text = (
+            self._tool_header_prefix.copy() if self._tool_header_prefix is not None else Text()
+        )
         tool_name = segment.tool_name or "tool"
         if tool_name:
             if header_text.plain:

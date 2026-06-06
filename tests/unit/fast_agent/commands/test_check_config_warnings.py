@@ -34,8 +34,7 @@ def test_check_config_warns_missing_api_key(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     normalized = " ".join(captured.out.split())
     assert (
-        'Warning: Card "data_cleaner" uses model "gpt-4.1" (OpenAI) '
-        "but no API key configured."
+        'Warning: Card "data_cleaner" uses model "gpt-4.1" (OpenAI) but no API key configured.'
     ) in normalized
 
 
@@ -161,6 +160,5 @@ def test_check_config_reports_overlay_preset_collision_as_info(
     captured = capsys.readouterr()
     normalized = " ".join(captured.out.split())
     assert (
-        'Info: Local model overlay "sonnet" overrides existing '
-        'built-in model preset "sonnet".'
+        'Info: Local model overlay "sonnet" overrides existing built-in model preset "sonnet".'
     ) in normalized

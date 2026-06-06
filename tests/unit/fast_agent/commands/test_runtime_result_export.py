@@ -711,6 +711,7 @@ async def test_resume_session_interactive_queues_markdown_preview(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
+
     async def _resume_session_agents_async(*args, **kwargs):
         del args, kwargs
         return ResumeSessionAgentsResult(
@@ -825,6 +826,7 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
+
     async def _resume_session_agents_async(*args, **kwargs):
         del args, kwargs
         return ResumeSessionAgentsResult(
@@ -880,6 +882,7 @@ async def test_resume_session_applies_hydrated_active_agent_to_request(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
+
     async def _resume_session_agents_async(*args, **kwargs):
         del args, kwargs
         return ResumeSessionAgentsResult(
@@ -1051,9 +1054,7 @@ def test_apply_shell_cwd_policy_preflight_interactive_honors_error_policy(
         },
         app=SimpleNamespace(
             context=SimpleNamespace(
-                config=Settings(
-                    shell_execution=ShellSettings(missing_cwd_policy="error")
-                )
+                config=Settings(shell_execution=ShellSettings(missing_cwd_policy="error"))
             )
         ),
     )
@@ -1090,9 +1091,7 @@ def test_apply_shell_cwd_policy_preflight_interactive_honors_warn_policy(
         },
         app=SimpleNamespace(
             context=SimpleNamespace(
-                config=Settings(
-                    shell_execution=ShellSettings(missing_cwd_policy="warn")
-                )
+                config=Settings(shell_execution=ShellSettings(missing_cwd_policy="warn"))
             )
         ),
     )
@@ -1123,9 +1122,7 @@ def test_apply_shell_cwd_policy_preflight_interactive_honors_create_policy(
         },
         app=SimpleNamespace(
             context=SimpleNamespace(
-                config=Settings(
-                    shell_execution=ShellSettings(missing_cwd_policy="create")
-                )
+                config=Settings(shell_execution=ShellSettings(missing_cwd_policy="create"))
             )
         ),
     )
@@ -1158,9 +1155,7 @@ def test_apply_shell_cwd_policy_preflight_interactive_create_errors_on_remaining
         },
         app=SimpleNamespace(
             context=SimpleNamespace(
-                config=Settings(
-                    shell_execution=ShellSettings(missing_cwd_policy="create")
-                )
+                config=Settings(shell_execution=ShellSettings(missing_cwd_policy="create"))
             )
         ),
     )

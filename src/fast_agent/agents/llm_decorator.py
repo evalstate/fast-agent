@@ -273,9 +273,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         source_path = getattr(self.config, "source_path", None)
         if source_path:
             source_path = (
-                Path(source_path).expanduser()
-                if not isinstance(source_path, Path)
-                else source_path
+                Path(source_path).expanduser() if not isinstance(source_path, Path) else source_path
             )
             base_path = source_path.parent
 
@@ -314,9 +312,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             )
             if hook_descriptor.raises_on_failure:
                 logger.exception("Lifecycle hook failed", hook_type=hook_type)
-                raise AgentConfigError(
-                    f"Lifecycle hook '{hook_type}' failed", str(exc)
-                ) from exc
+                raise AgentConfigError(f"Lifecycle hook '{hook_type}' failed", str(exc)) from exc
             logger.exception("Lifecycle hook failed during shutdown", hook_type=hook_type)
 
     @property
@@ -354,9 +350,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             self._default_request_params.model = wire_model
 
         if self._llm_attach_kwargs is None:
-            raise RuntimeError(
-                "LLM attachment parameters missing despite factory being available"
-            )
+            raise RuntimeError("LLM attachment parameters missing despite factory being available")
 
         attach_kwargs = dict(self._llm_attach_kwargs)
         request_params = attach_kwargs.pop("request_params", None)
@@ -588,9 +582,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         )
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
-            return await self.generate_impl(
-                multipart_messages, final_request_params, tools
-            )
+            return await self.generate_impl(multipart_messages, final_request_params, tools)
 
     async def generate_impl(
         self,
@@ -613,9 +605,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             The LLM's response as a PromptMessageExtended
         """
-        response, _ = await self._generate_with_summary(
-            messages, request_params, tools
-        )
+        response, _ = await self._generate_with_summary(messages, request_params, tools)
         return response
 
     async def apply_prompt_template(
@@ -797,9 +787,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         llm = self._require_llm()
         call_ctx = self._prepare_llm_call(messages, request_params)
 
-        response = await llm.generate(
-            call_ctx.full_history, call_ctx.call_params, tools
-        )
+        response = await llm.generate(call_ctx.full_history, call_ctx.call_params, tools)
 
         if call_ctx.persist_history:
             self._persist_history(call_ctx.sanitized_messages, response)
@@ -815,9 +803,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         llm = self._require_llm()
         call_ctx = self._prepare_llm_call(messages, request_params)
 
-        structured_result = await llm.structured(
-            call_ctx.full_history, model, call_ctx.call_params
-        )
+        structured_result = await llm.structured(call_ctx.full_history, model, call_ctx.call_params)
 
         if call_ctx.persist_history:
             try:
@@ -1228,9 +1214,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         category_order = ("vision", "document", "other", "text")
         ordered_categories = [category for category in category_order if category in counts]
-        ordered_categories.extend(
-            category for category in counts if category not in category_order
-        )
+        ordered_categories.extend(category for category in counts if category not in category_order)
         segments = [
             self._removed_block_segment(
                 count=counts[category],

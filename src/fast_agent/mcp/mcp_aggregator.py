@@ -645,11 +645,7 @@ class MCPAggregator(ContextDependent):
             server_registry = self.context.server_registry if self.context else None
             if server_registry is not None:
                 server_config = server_registry.get_server_config(server_name)
-                if (
-                    server_config
-                    and not server_config.load_on_start
-                    and not force_connect
-                ):
+                if server_config and not server_config.load_on_start and not force_connect:
                     logger.debug(f"Skipping server '{server_name}' - load_on_start=False")
                     skipped_servers.append(server_name)
                     continue
@@ -813,9 +809,7 @@ class MCPAggregator(ContextDependent):
         return updated_config
 
     def _attached_tool_names(self, server_name: str) -> set[str]:
-        return {
-            tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])
-        }
+        return {tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])}
 
     def _attached_prompt_names(self, server_name: str) -> set[str]:
         return {prompt.name for prompt in self._prompt_cache.get(server_name, [])}
@@ -1299,9 +1293,7 @@ class MCPAggregator(ContextDependent):
     ) -> None:
         valid_tool_count = sum(1 for tool in tool_configs if tool.is_valid)
         if config.enabled and valid_tool_count == 0:
-            warning = (
-                f"App resources detected on server '{server_name}' but no tools expose them"
-            )
+            warning = f"App resources detected on server '{server_name}' but no tools expose them"
             config.warnings.append(warning)
             logger.warning(warning)
 
@@ -1634,9 +1626,7 @@ class MCPAggregator(ContextDependent):
             self._apply_config_status(status, server_cfg, server_conn)
             if status.server_capabilities is None:
                 status.server_capabilities = await self._capabilities_for_status(server_name)
-            status.mcp_skills_enabled = server_supports_mcp_skills(
-                status.server_capabilities
-            )
+            status.mcp_skills_enabled = server_supports_mcp_skills(status.server_capabilities)
             status_map[server_name] = status
 
         return status_map
@@ -1706,9 +1696,7 @@ class MCPAggregator(ContextDependent):
             status.implementation_version = implementation.version
 
         status.server_capabilities = server_conn.server_capabilities
-        status.mcp_skills_enabled = server_supports_mcp_skills(
-            server_conn.server_capabilities
-        )
+        status.mcp_skills_enabled = server_supports_mcp_skills(server_conn.server_capabilities)
         status.client_capabilities = server_conn.client_capabilities
         self._apply_client_info_status(status, server_conn.session)
 
@@ -1912,6 +1900,7 @@ class MCPAggregator(ContextDependent):
         Returns:
             Result from the operation or an error result
         """
+
         async def try_execute(client: ClientSession) -> R:
             return await self._execute_session_method(
                 client,
@@ -1930,9 +1919,7 @@ class MCPAggregator(ContextDependent):
             result = await self._execute_initial_server_operation(server_name, try_execute)
             success_flag = True
         except ConnectionError:
-            recovery = await self._handle_connection_error(
-                server_name, try_execute, error_factory
-            )
+            recovery = await self._handle_connection_error(server_name, try_execute, error_factory)
             result = recovery.result
             success_flag = recovery.success
         except ServerSessionTerminatedError as exc:
@@ -2106,10 +2093,9 @@ class MCPAggregator(ContextDependent):
         config = server_registry.get_server_config(server_name)
         if config is None:
             return False
-        return (
-            _resolve_oauth_mode(config, trigger_oauth=None) == 'auto'
-            and _is_http_auth_challenge_error(exc)
-        )
+        return _resolve_oauth_mode(
+            config, trigger_oauth=None
+        ) == "auto" and _is_http_auth_challenge_error(exc)
 
     async def _handle_auth_challenge(
         self,
@@ -2603,8 +2589,7 @@ class MCPAggregator(ContextDependent):
         try:
             content = result.content if result.content else None
             logger.debug(
-                "Tool execution completed, notifying handler: "
-                f"{_display_tool_id(tool_call_id)}",
+                f"Tool execution completed, notifying handler: {_display_tool_id(tool_call_id)}",
                 name="mcp_tool_complete_notify",
                 tool_call_id=tool_call_id,
                 has_content=content is not None,
@@ -2747,7 +2732,9 @@ class MCPAggregator(ContextDependent):
             error_factory=lambda msg: GetPromptResult(description=msg, messages=[]),
         )
         if result and result.messages:
-            return self._prompt_result_with_metadata(result, server_name, prompt.local_name, arguments)
+            return self._prompt_result_with_metadata(
+                result, server_name, prompt.local_name, arguments
+            )
         return result or GetPromptResult(
             description=f"Prompt '{prompt.local_name}' not found on server '{server_name}'",
             messages=[],

@@ -162,7 +162,9 @@ async def test_dispatch_smart_tool_run_requires_message() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dispatch_smart_get_resource_routes_internal_uris(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_smart_get_resource_routes_internal_uris(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     internal_read = AsyncMock(return_value="internal result")
     smart_read = AsyncMock(return_value="smart result")
     monkeypatch.setattr(smart_agent, "_run_internal_resource_read_call", internal_read)

@@ -240,9 +240,7 @@ class _HistoryTurnDisplayContext:
             )
 
 
-def _append_web_activity_badges(
-    additional_message: Text | None, badges: list[str]
-) -> Text | None:
+def _append_web_activity_badges(additional_message: Text | None, badges: list[str]) -> Text | None:
     if not badges:
         return additional_message
 

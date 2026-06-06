@@ -69,9 +69,7 @@ def _iter_channel_payloads(
             payloads.append(payload)
         elif isinstance(decoded, list):
             payloads.extend(
-                item_payload
-                for item in decoded
-                if (item_payload := _json_object(item)) is not None
+                item_payload for item in decoded if (item_payload := _json_object(item)) is not None
             )
 
     return payloads

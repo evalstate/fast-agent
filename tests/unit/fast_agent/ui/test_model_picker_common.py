@@ -237,7 +237,10 @@ def test_46_models_do_not_report_optional_long_context() -> None:
 
 
 def test_infer_initial_picker_provider_uses_vertex_group_for_anthropic_vertex() -> None:
-    assert infer_initial_picker_provider("anthropic-vertex.claude-sonnet-4-6") == ANTHROPIC_VERTEX_PROVIDER_KEY
+    assert (
+        infer_initial_picker_provider("anthropic-vertex.claude-sonnet-4-6")
+        == ANTHROPIC_VERTEX_PROVIDER_KEY
+    )
 
 
 def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) -> None:
@@ -353,7 +356,9 @@ def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
         else:
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
-    option = next(provider for provider in snapshot.providers if provider.option_key == LLAMACPP_PROVIDER_KEY)
+    option = next(
+        provider for provider in snapshot.providers if provider.option_key == LLAMACPP_PROVIDER_KEY
+    )
 
     assert option.option_display_name == "llama.cpp"
     assert option.active is False
@@ -365,9 +370,16 @@ def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
     ]
 
     option_keys = [provider.option_key for provider in snapshot.providers]
-    assert option_keys.index(LLAMACPP_PROVIDER_KEY) == option_keys.index(Provider.DEEPSEEK.config_name) - 1
+    assert (
+        option_keys.index(LLAMACPP_PROVIDER_KEY)
+        == option_keys.index(Provider.DEEPSEEK.config_name) - 1
+    )
 
-    generic_option = next(provider for provider in snapshot.providers if provider.option_key == Provider.GENERIC.config_name)
+    generic_option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == Provider.GENERIC.config_name
+    )
     assert generic_option.option_display_name == "Generic (ollama)"
 
 
@@ -375,12 +387,19 @@ def test_build_snapshot_places_deepseek_under_llamacpp() -> None:
     snapshot = build_snapshot(config_payload={})
     option_keys = [provider.option_key for provider in snapshot.providers]
 
-    assert option_keys.index(Provider.DEEPSEEK.config_name) == option_keys.index(LLAMACPP_PROVIDER_KEY) + 1
+    assert (
+        option_keys.index(Provider.DEEPSEEK.config_name)
+        == option_keys.index(LLAMACPP_PROVIDER_KEY) + 1
+    )
 
 
 def test_build_snapshot_uses_xai_brand_casing() -> None:
     snapshot = build_snapshot(config_payload={})
-    option = next(provider for provider in snapshot.providers if provider.option_key == Provider.XAI.config_name)
+    option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == Provider.XAI.config_name
+    )
 
     assert option.option_display_name == "xAI"
 
@@ -435,7 +454,9 @@ def test_has_explicit_provider_prefix_handles_supported_delimiters() -> None:
 
 def test_refer_to_docs_providers_show_docs_option() -> None:
     snapshot = build_snapshot(config_payload={})
-    option = next(provider for provider in snapshot.providers if provider.provider == Provider.AZURE)
+    option = next(
+        provider for provider in snapshot.providers if provider.provider == Provider.AZURE
+    )
 
     assert model_options_for_option(option, source="curated") == [
         ModelOption(
@@ -563,7 +584,9 @@ def test_build_snapshot_with_explicit_config_stays_scoped_to_config_project(tmp_
         assert overlay_group.curated_entries == ()
 
         anthropic_option = next(
-            option for option in snapshot.providers if option.option_key == Provider.ANTHROPIC.config_name
+            option
+            for option in snapshot.providers
+            if option.option_key == Provider.ANTHROPIC.config_name
         )
         assert any(entry.alias == "sonnet" for entry in anthropic_option.curated_entries)
         assert all(not entry.local for entry in anthropic_option.curated_entries)
@@ -578,7 +601,9 @@ def test_build_snapshot_with_explicit_config_stays_scoped_to_config_project(tmp_
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
-def test_build_snapshot_with_explicit_project_config_ignores_parent_overlays(tmp_path: Path) -> None:
+def test_build_snapshot_with_explicit_project_config_ignores_parent_overlays(
+    tmp_path: Path,
+) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir(parents=True)
     config_path = project_root / "fastagent.config.yaml"

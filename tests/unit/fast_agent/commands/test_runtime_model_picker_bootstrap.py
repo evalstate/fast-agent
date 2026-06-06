@@ -271,8 +271,14 @@ def test_model_picker_keyring_notice_is_emitted_immediately(monkeypatch) -> None
         emitter("keyring notice")
         return True
 
-    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.emit_keyring_access_notice", fake_emit_keyring_access_notice)
-    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.typer.echo", lambda message, err=False: emitted.append((message, err)))
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup.emit_keyring_access_notice",
+        fake_emit_keyring_access_notice,
+    )
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup.typer.echo",
+        lambda message, err=False: emitted.append((message, err)),
+    )
     monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.sys.stderr.isatty", lambda: True)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", queued.append)
 
@@ -354,7 +360,9 @@ async def test_select_model_from_picker_preserves_overlay_token_when_resolved_mo
 
 
 @pytest.mark.asyncio
-async def test_select_model_from_picker_passes_config_start_path(monkeypatch, tmp_path: Path) -> None:
+async def test_select_model_from_picker_passes_config_start_path(
+    monkeypatch, tmp_path: Path
+) -> None:
     config_path = tmp_path / "project" / "fast-agent.yaml"
     config_path.parent.mkdir(parents=True)
     config_path.write_text("default_model: haikutiny\n", encoding="utf-8")
@@ -525,11 +533,7 @@ def test_resolve_model_picker_initial_selection_uses_config_relative_overlay_dir
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text("environment_dir: .fast-agent\n", encoding="utf-8")
     (overlays_dir / "haikutiny.yaml").write_text(
-        (
-            "name: haikutiny\n"
-            "provider: anthropic\n"
-            "model: claude-haiku-4-5\n"
-        ),
+        ("name: haikutiny\nprovider: anthropic\nmodel: claude-haiku-4-5\n"),
         encoding="utf-8",
     )
 
@@ -561,9 +565,7 @@ def test_load_request_settings_refreshes_stale_cached_settings(tmp_path: Path) -
     workspace.mkdir(parents=True)
     env_dir.mkdir(parents=True)
     (env_dir / "fast-agent.yaml").write_text(
-        "model_references:\n"
-        "  system:\n"
-        "    last_used: gpt-4.1-mini\n",
+        "model_references:\n  system:\n    last_used: gpt-4.1-mini\n",
         encoding="utf-8",
     )
 
@@ -741,9 +743,7 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
     workspace.mkdir(parents=True)
     env_dir.mkdir(parents=True)
     config_path.write_text(
-        "model_references:\n"
-        "  system:\n"
-        "    last_used: google.gemini-3.1-pro-preview\n",
+        "model_references:\n  system:\n    last_used: google.gemini-3.1-pro-preview\n",
         encoding="utf-8",
     )
 
@@ -919,10 +919,7 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
     env_dir = workspace / ".cdx"
     env_dir.mkdir(parents=True)
     (env_dir / "fast-agent.yaml").write_text(
-        "default_model: null\n"
-        "model_references:\n"
-        "  system:\n"
-        "    last_used: claude-haiku-4-5\n",
+        "default_model: null\nmodel_references:\n  system:\n    last_used: claude-haiku-4-5\n",
         encoding="utf-8",
     )
 

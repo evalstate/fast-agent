@@ -28,10 +28,7 @@ def test_plugin_manifest_normalizes_blank_optional_text_to_none(tmp_path: Path) 
     plugin_dir = tmp_path / "plugin"
     plugin_dir.mkdir()
     (plugin_dir / "plugin.yaml").write_text(
-        "schema_version: 1\n"
-        "name: tidy-plugin\n"
-        "version: '   '\n"
-        "description: ''\n",
+        "schema_version: 1\nname: tidy-plugin\nversion: '   '\ndescription: ''\n",
         encoding="utf-8",
     )
 

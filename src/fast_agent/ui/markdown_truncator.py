@@ -36,9 +36,7 @@ class MarkdownTruncator:
         self._buffer = StreamBuffer(target_height_ratio=target_height_ratio)
         self._height_cache: OrderedDict[tuple[int, int, str, int, str], int] = OrderedDict()
         self._height_cache_limit = 128
-        self._truncate_cache: OrderedDict[tuple[int, int, int, str, int, str], str] = (
-            OrderedDict()
-        )
+        self._truncate_cache: OrderedDict[tuple[int, int, int, str, int, str], str] = OrderedDict()
         self._truncate_cache_limit = 32
 
     def truncate(

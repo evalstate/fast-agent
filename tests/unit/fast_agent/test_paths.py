@@ -81,9 +81,9 @@ def test_resolve_environment_dir_settings_environment_dir_wins_over_cached_home(
     settings = Settings(environment_dir="configured-home")
     settings._fast_agent_home = str(tmp_path / ".fast-agent")
 
-    assert resolve_environment_dir(settings, cwd=tmp_path) == (
-        tmp_path / "configured-home"
-    ).resolve()
+    assert (
+        resolve_environment_dir(settings, cwd=tmp_path) == (tmp_path / "configured-home").resolve()
+    )
 
 
 def test_resolve_environment_dir_uses_settings_selected_home(

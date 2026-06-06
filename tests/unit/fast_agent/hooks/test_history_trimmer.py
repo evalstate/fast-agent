@@ -186,6 +186,7 @@ class TestTrimToolLoopHistory:
     @pytest.mark.asyncio
     async def test_trims_history_when_turn_complete(self):
         """Test that history is trimmed when turn is complete."""
+
         # Create a mock agent with message history
         class MockAgent:
             name = "mock"
@@ -208,9 +209,7 @@ class TestTrimToolLoopHistory:
             def message_history(self) -> list[PromptMessageExtended]:
                 return self._history
 
-            def load_message_history(
-                self, messages: list[PromptMessageExtended] | None
-            ) -> None:
+            def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
                 self._history = list(messages or [])
 
             def get_agent(self, name: str):
@@ -262,9 +261,7 @@ class TestTrimToolLoopHistory:
             def message_history(self) -> list[PromptMessageExtended]:
                 return self._history
 
-            def load_message_history(
-                self, messages: list[PromptMessageExtended] | None
-            ) -> None:
+            def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
                 self._history = list(messages or [])
 
             def get_agent(self, name: str):
@@ -321,9 +318,7 @@ class TestTrimToolLoopHistory:
             def message_history(self) -> list[PromptMessageExtended]:
                 return self._history
 
-            def load_message_history(
-                self, messages: list[PromptMessageExtended] | None
-            ) -> None:
+            def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
                 self._history = list(messages or [])
 
             def get_agent(self, name: str):

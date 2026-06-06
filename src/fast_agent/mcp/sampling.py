@@ -162,7 +162,9 @@ def _default_sampling_model(app_context: Any | None) -> str | None:
             hardcoded_default=HARDCODED_DEFAULT_MODEL,
         )
         if resolved_model.model:
-            logger.debug(f"Using {resolved_model.source} model for sampling: {resolved_model.model}")
+            logger.debug(
+                f"Using {resolved_model.source} model for sampling: {resolved_model.model}"
+            )
         return resolved_model.model
     except Exception as e:
         logger.debug(f"Could not resolve default model for sampling: {e}")

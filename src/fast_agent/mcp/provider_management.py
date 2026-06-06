@@ -405,9 +405,7 @@ def build_anthropic_provider_managed_mcp_payload(
         if allowlist is not None:
             tool_payload["default_config"] = {"enabled": False}
             if allowlist:
-                tool_payload["configs"] = {
-                    tool_name: {"enabled": True} for tool_name in allowlist
-                }
+                tool_payload["configs"] = {tool_name: {"enabled": True} for tool_name in allowlist}
         toolsets.append(tool_payload)
 
     return AnthropicProviderManagedMcpPayload(servers=mcp_servers, tools=toolsets)

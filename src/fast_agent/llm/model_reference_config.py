@@ -218,8 +218,8 @@ def _discover_paths(
     project_read_path = find_config_in_directory(start_path)
     if resolved_project_write_path is not None and resolved_project_write_path.exists():
         project_read_path = resolved_project_write_path
-    resolved_project_path = resolved_project_write_path or project_read_path or (
-        start_path / PREFERRED_CONFIG_FILENAME
+    resolved_project_path = (
+        resolved_project_write_path or project_read_path or (start_path / PREFERRED_CONFIG_FILENAME)
     )
     home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
     env_root = home.path if home is not None else start_path

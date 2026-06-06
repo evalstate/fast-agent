@@ -864,9 +864,7 @@ def test_codexplan_aliases_use_codex_oauth_provider():
         ("qwen35:nebius", "Qwen/Qwen3.5-397B-A17B:nebius"),
     ],
 )
-def test_huggingface_alias_provider_routing_contracts(
-    model: str, expected_model_name: str
-) -> None:
+def test_huggingface_alias_provider_routing_contracts(model: str, expected_model_name: str) -> None:
     """Test HuggingFace alias/provider suffix behavior with stable test aliases."""
     config = ModelFactory.parse_model_string(model, presets=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
@@ -958,9 +956,7 @@ def test_model_query_task_budget_off_clears_default() -> None:
 
 
 def test_model_query_task_budget_aliases_preserve_url_order() -> None:
-    config = ModelFactory.parse_model_string(
-        "claude-opus-4-7?taskBudget=128k&task_budget=off"
-    )
+    config = ModelFactory.parse_model_string("claude-opus-4-7?taskBudget=128k&task_budget=off")
 
     assert config.task_budget_tokens is None
     assert config.task_budget_configured is True

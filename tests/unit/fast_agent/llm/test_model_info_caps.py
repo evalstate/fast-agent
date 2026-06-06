@@ -59,6 +59,7 @@ class DummyLLM:
             return None
         return ModelInfo.from_name(self.model_name, self.provider)
 
+
 def test_model_alias_capabilities_match_canonical() -> None:
     alias = ModelInfo.from_name("gemini25")
     canonical = ModelInfo.from_name("gemini-2.5-flash")
@@ -229,7 +230,9 @@ def test_model_info_anthropic_models_support_office_documents() -> None:
     assert info.supports_mime("image/png", resource_source="link")
 
 
-def test_anthropic_image_only_overlay_keeps_document_support_without_lighting_document_flag() -> None:
+def test_anthropic_image_only_overlay_keeps_document_support_without_lighting_document_flag() -> (
+    None
+):
     resolved_model = ResolvedModelSpec(
         raw_input="visionoverlay",
         selected_model_name="visionoverlay",

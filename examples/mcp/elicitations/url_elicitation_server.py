@@ -142,8 +142,7 @@ async def initiate_payment(amount: float, currency: str, description: str) -> st
 
     # In a real implementation, this would be your payment processor's checkout URL
     payment_url = (
-        f"https://pay.example.com/checkout?"
-        f"amount={amount}&currency={currency}&id={elicitation_id}"
+        f"https://pay.example.com/checkout?amount={amount}&currency={currency}&id={elicitation_id}"
     )
 
     result = await ctx.elicit_url(

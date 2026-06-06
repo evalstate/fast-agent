@@ -71,11 +71,13 @@ class FakeAgentSideConnection:
     ) -> RequestPermissionResponse:
         """Fake implementation that returns configured responses (new SDK kwargs style)."""
         # Store the call for assertions
-        self.permission_requests.append({
-            "options": options,
-            "session_id": session_id,
-            "tool_call": tool_call,
-        })
+        self.permission_requests.append(
+            {
+                "options": options,
+                "session_id": session_id,
+                "tool_call": tool_call,
+            }
+        )
 
         if self._should_raise:
             raise self._should_raise
@@ -101,11 +103,13 @@ class FakeAgentSideConnection:
         update: Any = None,
         **kwargs: Any,
     ) -> None:
-        self.session_updates.append({
-            "session_id": session_id,
-            "update": update,
-            "kwargs": kwargs,
-        })
+        self.session_updates.append(
+            {
+                "session_id": session_id,
+                "update": update,
+                "kwargs": kwargs,
+            }
+        )
 
 
 class FakeToolProgressManager:
@@ -435,7 +439,9 @@ class TestPermissionStoreEdgeCases:
         """Should handle special characters in server/tool names."""
         store = PermissionStore(cwd=temp_dir)
 
-        await store.set("server-with-dashes", "tool_with_underscores", PermissionDecision.ALLOW_ALWAYS)
+        await store.set(
+            "server-with-dashes", "tool_with_underscores", PermissionDecision.ALLOW_ALWAYS
+        )
 
         result = await store.get("server-with-dashes", "tool_with_underscores")
         assert result == PermissionDecision.ALLOW_ALWAYS
@@ -548,9 +554,7 @@ class TestACPToolPermissionAdapter:
     async def test_uses_acp_tool_call_id_from_progress_manager(self, temp_dir: Path) -> None:
         """Known progress ids should be forwarded to the permission prompt."""
         acp_tool_call_id = "0123456789abcdef0123456789abcdef"
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         progress = FakeToolProgressManager({"provider-call-1": acp_tool_call_id})
         adapter = ACPToolPermissionAdapter(
             connection=connection,
@@ -575,9 +579,7 @@ class TestACPToolPermissionAdapter:
         self, temp_dir: Path
     ) -> None:
         """Provider tool-use ids are not necessarily valid ACP tool-call ids."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         progress = FakeToolProgressManager({"provider-call-1": None})
         adapter = ACPToolPermissionAdapter(
             connection=connection,
@@ -656,9 +658,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_requests_from_client_when_not_stored(self, temp_dir: Path) -> None:
         """Should call client when no stored decision exists."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -697,9 +697,7 @@ class TestACPToolPermissionManager:
         self,
         temp_dir: Path,
     ) -> None:
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -715,9 +713,7 @@ class TestACPToolPermissionManager:
 
     @pytest.mark.asyncio
     async def test_allow_always_is_tool_scoped_not_argument_scoped(self, temp_dir: Path) -> None:
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_always"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -734,9 +730,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_long_arguments_stay_in_raw_input_not_title(self, temp_dir: Path) -> None:
         """Long arguments should stay available without bloating the title."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -777,9 +771,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_persists_allow_always_to_store(self, temp_dir: Path) -> None:
         """Should persist allow_always decisions."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_always"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -821,9 +813,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_handles_cancelled_response(self, temp_dir: Path) -> None:
         """Should handle cancelled permission requests."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "cancelled"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "cancelled"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -838,9 +828,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_fail_safe_denies_on_connection_error(self, temp_dir: Path) -> None:
         """FAIL-SAFE: Should DENY when client communication fails."""
-        connection = FakeAgentSideConnection(
-            should_raise=Exception("Connection failed")
-        )
+        connection = FakeAgentSideConnection(should_raise=Exception("Connection failed"))
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -854,9 +842,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_session_cache_avoids_repeated_client_calls(self, temp_dir: Path) -> None:
         """Should cache allow_always in session to avoid repeated client calls."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_always"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -893,9 +879,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_clears_session_cache(self, temp_dir: Path) -> None:
         """Should be able to clear session cache."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_always"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -912,9 +896,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_reject_once_does_not_persist(self, temp_dir: Path) -> None:
         """reject_once should not be persisted to store."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "reject_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "reject_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -934,9 +916,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_allow_once_does_not_persist(self, temp_dir: Path) -> None:
         """allow_once should not be persisted to store."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",

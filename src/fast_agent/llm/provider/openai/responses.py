@@ -208,9 +208,7 @@ class ResponsesLLM(
     def _configure_reasoning(self, kwargs: dict[str, Any], settings: Any) -> None:
         raw_setting = kwargs.get("reasoning_effort")
         if settings and raw_setting is None:
-            raw_setting, warn_deprecated_reasoning_effort = reasoning_setting_from_config(
-                settings
-            )
+            raw_setting, warn_deprecated_reasoning_effort = reasoning_setting_from_config(settings)
             if warn_deprecated_reasoning_effort:
                 self.logger.warning(
                     "Responses config 'reasoning_effort' is deprecated; use 'reasoning'."
@@ -787,8 +785,7 @@ class ResponsesLLM(
         tools_payload: list[dict[str, Any]],
     ) -> bool:
         has_deferred_attachment = any(
-            attachment.defer_loading
-            for attachment in self.provider_managed_mcp_state.attachments
+            attachment.defer_loading for attachment in self.provider_managed_mcp_state.attachments
         )
         has_tool_search = any(
             isinstance(tool_payload, dict) and tool_payload.get("type") == "tool_search"
@@ -1041,9 +1038,7 @@ class ResponsesLLM(
         response: Any,
         channels: dict[str, list[ContentBlock]] | None,
     ) -> tuple[dict[str, list[ContentBlock]] | None, Any]:
-        assistant_message_items, message_phase = self._extract_raw_assistant_message_items(
-            response
-        )
+        assistant_message_items, message_phase = self._extract_raw_assistant_message_items(response)
         channels = self._add_response_channel(
             channels, OPENAI_ASSISTANT_MESSAGE_ITEMS, assistant_message_items
         )
@@ -1090,9 +1085,7 @@ class ResponsesLLM(
         channels = self._add_response_channel(
             channels, ANTHROPIC_SERVER_TOOLS_CHANNEL, server_tool_payloads
         )
-        return self._add_response_channel(
-            channels, ANTHROPIC_CITATIONS_CHANNEL, citation_payloads
-        )
+        return self._add_response_channel(channels, ANTHROPIC_CITATIONS_CHANNEL, citation_payloads)
 
     @staticmethod
     def _responses_content_blocks(response: Any) -> list[ContentBlock]:
@@ -1139,9 +1132,7 @@ class ResponsesLLM(
             tool_calls=tool_calls,
             channels=channels,
             stop_reason=(
-                LlmStopReason.TOOL_USE
-                if tool_calls
-                else self._map_response_stop_reason(response)
+                LlmStopReason.TOOL_USE if tool_calls else self._map_response_stop_reason(response)
             ),
             phase=message_phase,
         )
@@ -1284,9 +1275,7 @@ class ResponsesLLM(
 
         phase_started_at = time.perf_counter()
         connection, is_reusable = await self._ws_connections.acquire(_create_connection)
-        self._record_ws_phase(
-            context.phase_timings, "acquire_connection", phase_started_at
-        )
+        self._record_ws_phase(context.phase_timings, "acquire_connection", phase_started_at)
         reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
         planner = connection.session_state.request_planner
         if planner is None:

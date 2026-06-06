@@ -341,9 +341,7 @@ class ModelSelectionCatalog:
         merged: dict[Provider, tuple[CatalogModelEntry, ...]] = {}
         ordered_providers = list(provider_map.keys())
         ordered_providers.extend(
-            provider
-            for provider in overlay_entries_by_provider
-            if provider not in provider_map
+            provider for provider in overlay_entries_by_provider if provider not in provider_map
         )
 
         for provider in ordered_providers:

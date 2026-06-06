@@ -81,7 +81,9 @@ def test_advertised_session_commands_are_dispatch_routable() -> None:
 
 
 def test_reload_session_command_is_dispatch_routable_when_advertised() -> None:
-    command_names = {command.name for command in _handler(reload_enabled=True).get_available_commands()}
+    command_names = {
+        command.name for command in _handler(reload_enabled=True).get_available_commands()
+    }
 
     assert "reload" in command_names
     assert command_names <= slash_dispatch.routed_command_names()

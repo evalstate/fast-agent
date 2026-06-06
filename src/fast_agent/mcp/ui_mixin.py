@@ -92,9 +92,7 @@ class McpUIMixin:
             extraction = self._extract_ui_from_tool_results(result.tool_results)
 
             # For mode 'auto', only act when we actually extracted something
-            if self._ui_mode == "enabled" or (
-                self._ui_mode == "auto" and extraction.ui_blocks
-            ):
+            if self._ui_mode == "enabled" or (self._ui_mode == "auto" and extraction.ui_blocks):
                 # Update tool_results with UI resources removed
                 result.tool_results = extraction.tool_results
 

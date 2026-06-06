@@ -192,15 +192,9 @@ def _iter_model_identity_lines(
 ) -> list[tuple[str, str, bool]]:
     resolved_model = resolve_resolved_model(llm)
     selected_model = (
-        resolved_model.selected_model_name
-        if resolved_model is not None
-        else llm.model_name
+        resolved_model.selected_model_name if resolved_model is not None else llm.model_name
     )
-    wire_model = (
-        resolved_model.wire_model_name
-        if resolved_model is not None
-        else llm.model_name
-    )
+    wire_model = resolved_model.wire_model_name if resolved_model is not None else llm.model_name
     lines = [
         ("Provider", _provider_value(llm), True),
         ("Selected model", selected_model, True),
@@ -209,9 +203,7 @@ def _iter_model_identity_lines(
     ]
 
     context_window = (
-        positive_int_or_none(resolved_model.context_window)
-        if resolved_model is not None
-        else None
+        positive_int_or_none(resolved_model.context_window) if resolved_model is not None else None
     )
     if context_window is not None:
         lines.append(("Context window", str(context_window), False))
@@ -283,9 +275,7 @@ def _emit_transport_details(
         )
 
     active_transport = (
-        _transport_label(llm.active_transport)
-        if isinstance(llm, ResponseTransportAware)
-        else None
+        _transport_label(llm.active_transport) if isinstance(llm, ResponseTransportAware) else None
     )
     if active_transport is not None:
         _emit_model_line(
@@ -306,9 +296,7 @@ def _add_model_runtime_settings(
         _emit_model_line(
             outcome,
             "Text verbosity",
-            format_text_verbosity(
-                resolve_text_verbosity(llm) or text_verbosity_spec.default
-            ),
+            format_text_verbosity(resolve_text_verbosity(llm) or text_verbosity_spec.default),
         )
 
     if resolve_service_tier_supported(llm):
@@ -406,9 +394,7 @@ def add_model_details(
 
     resolved_model = resolve_resolved_model(llm)
     wire_model_name = (
-        resolved_model.wire_model_name
-        if resolved_model is not None
-        else llm.model_name or ""
+        resolved_model.wire_model_name if resolved_model is not None else llm.model_name or ""
     )
     if wire_model_name:
         _emit_transport_details(outcome, llm=llm)

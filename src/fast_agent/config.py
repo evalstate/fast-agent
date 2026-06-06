@@ -588,9 +588,7 @@ class MCPServerSettings(BaseModel):
             if validation.has_url:
                 provider_url = self.url
                 if provider_url is None:
-                    raise ValueError(
-                        "Provider-managed URL servers require url"
-                    )
+                    raise ValueError("Provider-managed URL servers require url")
                 self.url = normalize_provider_managed_url_server(
                     transport=self.transport,
                     url=provider_url,
@@ -2184,7 +2182,9 @@ def _settings_from_sources(
     settings._config_file = str(sources.config_file) if sources.config_file else None
     settings._secrets_file = str(sources.secrets_file) if sources.secrets_file else None
     settings._fast_agent_home = str(sources.discovery.home.path) if sources.discovery.home else None
-    settings._fast_agent_home_source = sources.discovery.home.source if sources.discovery.home else None
+    settings._fast_agent_home_source = (
+        sources.discovery.home.source if sources.discovery.home else None
+    )
     settings._fast_agent_global_plugin_home = (
         str(global_plugin_home) if global_plugin_home is not None else None
     )

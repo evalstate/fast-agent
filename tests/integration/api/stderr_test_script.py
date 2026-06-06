@@ -2,6 +2,7 @@
 """
 Simple script that outputs messages to stderr for testing.
 """
+
 import sys
 
 # Write complete lines

@@ -389,6 +389,7 @@ class McpAgent(ABC, ToolAgent):
     @staticmethod
     def _register_mcp_elicitation_adapter() -> None:
         try:
+
             async def _mcp_elicitation_adapter(
                 request_payload: dict,
                 agent_name: str | None = None,
@@ -890,7 +891,10 @@ class McpAgent(ABC, ToolAgent):
         super()._on_llm_attached(llm)
 
         if self._provider_managed_mcp_state.has_servers():
-            if self._provider_managed_mcp_state.has_connectors() and llm.provider != Provider.RESPONSES:
+            if (
+                self._provider_managed_mcp_state.has_connectors()
+                and llm.provider != Provider.RESPONSES
+            ):
                 raise AgentConfigError(
                     "Provider-managed connectors are only supported for the OpenAI Responses provider."
                 )
@@ -1164,7 +1168,9 @@ class McpAgent(ABC, ToolAgent):
         if isinstance(runtime, (LocalFilesystemRuntime, CompositeFilesystemRuntime)):
             self._filesystem_runtime = runtime
         elif local_runtime is not None and runtime is not local_runtime:
-            self._filesystem_runtime = CompositeFilesystemRuntime(primary=runtime, fallback=local_runtime)
+            self._filesystem_runtime = CompositeFilesystemRuntime(
+                primary=runtime, fallback=local_runtime
+            )
         else:
             self._filesystem_runtime = runtime
         current_local_runtime = self._local_filesystem_runtime()
@@ -1911,7 +1917,11 @@ class McpAgent(ABC, ToolAgent):
         if namespaced_tool is not None or local_tool is not None:
             return None
         return next(
-            (candidate for candidate in namespaced_tools.values() if candidate.tool.name == tool_name),
+            (
+                candidate
+                for candidate in namespaced_tools.values()
+                if candidate.tool.name == tool_name
+            ),
             None,
         )
 
@@ -1951,9 +1961,7 @@ class McpAgent(ABC, ToolAgent):
             and tool_name == self._shell_runtime.tool.name
         )
         is_skill_reader_tool = bool(
-            self._skill_reader
-            and self._skill_reader.enabled
-            and tool_name == READ_SKILL_TOOL_NAME
+            self._skill_reader and self._skill_reader.enabled and tool_name == READ_SKILL_TOOL_NAME
         )
         return (
             tool_name == HUMAN_INPUT_TOOL_NAME
@@ -1985,7 +1993,11 @@ class McpAgent(ABC, ToolAgent):
             return self._shell_runtime.metadata(tool_args.get("command"))
         if is_external_runtime_tool and self._external_runtime is not None:
             return self._external_runtime.metadata()
-        if is_filesystem_runtime_tool and self._filesystem_runtime and not route_to_namespaced_candidate:
+        if (
+            is_filesystem_runtime_tool
+            and self._filesystem_runtime
+            and not route_to_namespaced_candidate
+        ):
             return self._filesystem_runtime.metadata()
         if local_tool is not None:
             return self._jsonable_tool_metadata(self._tool_display_metadata(tool_name))
@@ -2395,9 +2407,7 @@ class McpAgent(ABC, ToolAgent):
 
     def _assistant_bottom_items(self, bottom_items: list[str] | None) -> list[str]:
         server_names = (
-            list(self.list_attached_mcp_servers())
-            if bottom_items is None
-            else list(bottom_items)
+            list(self.list_attached_mcp_servers()) if bottom_items is None else list(bottom_items)
         )
         server_names = self._unique_preserving_order(server_names)
         server_names = self._with_shell_label_first(server_names)

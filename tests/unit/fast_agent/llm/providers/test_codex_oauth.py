@@ -58,7 +58,9 @@ def test_explicit_auth_json_path_overrides_keyring(monkeypatch, tmp_path: Path) 
     assert tokens.access_token == "local-token"
 
 
-def test_save_codex_tokens_writes_local_auth_file_without_keyring(monkeypatch, tmp_path: Path) -> None:
+def test_save_codex_tokens_writes_local_auth_file_without_keyring(
+    monkeypatch, tmp_path: Path
+) -> None:
     auth_path = tmp_path / ".codex" / "auth.json"
     auth_path.parent.mkdir(parents=True, exist_ok=True)
     auth_path.write_text(json.dumps({"OPENAI_API_KEY": "preserve-me"}))
@@ -91,12 +93,8 @@ def test_save_codex_tokens_writes_local_auth_file_without_keyring(monkeypatch, t
 def test_tokens_from_response_rejects_bool_expires_in(monkeypatch) -> None:
     monkeypatch.setattr(codex_oauth.time, "time", lambda: 1000.0)
 
-    bool_expiry = codex_oauth._tokens_from_response(
-        {"access_token": "token", "expires_in": True}
-    )
-    valid_expiry = codex_oauth._tokens_from_response(
-        {"access_token": "token", "expires_in": 60}
-    )
+    bool_expiry = codex_oauth._tokens_from_response({"access_token": "token", "expires_in": True})
+    valid_expiry = codex_oauth._tokens_from_response({"access_token": "token", "expires_in": 60})
 
     assert bool_expiry.expires_at is None
     assert valid_expiry.expires_at == 1060.0

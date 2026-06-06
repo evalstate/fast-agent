@@ -41,15 +41,14 @@ class _KeyringProtocol(Protocol):
     def set_password(self, service: str, username: str, password: str) -> None: ...
     def delete_password(self, service: str, username: str) -> None: ...
 
+
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
 CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token"
 CODEX_REDIRECT_HOST = "localhost"
 CODEX_REDIRECT_PORT = 1455
 CODEX_REDIRECT_PATH = "/auth/callback"
-CODEX_REDIRECT_URI = (
-    f"http://{CODEX_REDIRECT_HOST}:{CODEX_REDIRECT_PORT}{CODEX_REDIRECT_PATH}"
-)
+CODEX_REDIRECT_URI = f"http://{CODEX_REDIRECT_HOST}:{CODEX_REDIRECT_PORT}{CODEX_REDIRECT_PATH}"
 CODEX_SCOPE = "openid profile email offline_access"
 CODEX_AUTH_CLAIM = "https://api.openai.com/auth"
 CODEX_KEYRING_SERVICE = "fast-agent-codex"
@@ -58,6 +57,8 @@ CODEX_TOKEN_KEY = f"oauth:tokens:{CODEX_KEYRING_IDENTITY}"
 CODEX_TOKEN_META_KEY = f"{CODEX_TOKEN_KEY}:meta"
 CODEX_TOKEN_CHUNK_PREFIX = f"{CODEX_TOKEN_KEY}:chunk"
 CODEX_KEYRING_MAX_PAYLOAD_BYTES = 512
+
+
 class CodexOAuthTokens(BaseModel):
     access_token: str
     refresh_token: str | None = None
@@ -345,9 +346,7 @@ def _set_keyring_password(payload: str) -> None:
         if not status.available:
             backend_note = "No usable keyring backend was detected."
         elif not status.writable:
-            backend_note = (
-                f"Keyring backend '{status.name}' is present but not writable."
-            )
+            backend_note = f"Keyring backend '{status.name}' is present but not writable."
         else:
             backend_note = f"Keyring backend '{status.name}' failed to store tokens."
         raise ProviderKeyError(

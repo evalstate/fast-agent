@@ -83,9 +83,7 @@ async def test_sampling_with_tools(ctx: Context, message: str) -> ToolResult:
 
     # Return info about what we received
     info = f"stopReason={result.stopReason}, model={result.model}"
-    return ToolResult(
-        content=[TextContent(type="text", text=f"Sampling completed: {info}")]
-    )
+    return ToolResult(content=[TextContent(type="text", text=f"Sampling completed: {info}")])
 
 
 @mcp.tool()
@@ -111,15 +109,11 @@ async def test_sampling_without_tools(ctx: Context, message: str) -> ToolResult:
     if isinstance(result.content, TextContent):
         response_text = result.content.text
     elif isinstance(result.content, list):
-        response_text = " ".join(
-            c.text for c in result.content if isinstance(c, TextContent)
-        )
+        response_text = " ".join(c.text for c in result.content if isinstance(c, TextContent))
     else:
         response_text = str(result.content)
 
-    return ToolResult(
-        content=[TextContent(type="text", text=f"Response: {response_text}")]
-    )
+    return ToolResult(content=[TextContent(type="text", text=f"Response: {response_text}")])
 
 
 @mcp.tool()
@@ -176,9 +170,7 @@ async def test_tool_result_handling(ctx: Context) -> ToolResult:
                 messages=[
                     SamplingMessage(
                         role="user",
-                        content=TextContent(
-                            type="text", text="Use the echo tool to say hello"
-                        ),
+                        content=TextContent(type="text", text="Use the echo tool to say hello"),
                     ),
                     SamplingMessage(role="assistant", content=result.content),
                     SamplingMessage(role="user", content=tool_results),
@@ -197,9 +189,7 @@ async def test_tool_result_handling(ctx: Context) -> ToolResult:
 
     # Single turn response
     return ToolResult(
-        content=[
-            TextContent(type="text", text=f"Single turn: stopReason={result.stopReason}")
-        ]
+        content=[TextContent(type="text", text=f"Single turn: stopReason={result.stopReason}")]
     )
 
 

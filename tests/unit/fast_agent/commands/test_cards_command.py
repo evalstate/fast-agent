@@ -86,8 +86,7 @@ def test_cards_add_and_remove_via_cli(tmp_path: Path) -> None:
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -177,8 +176,7 @@ def test_cards_readme_without_readme_reports_notice(tmp_path: Path) -> None:
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -245,8 +243,7 @@ def test_cards_readme_without_selector_uses_only_installed_pack(tmp_path: Path) 
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -401,8 +398,7 @@ def test_cards_publish_no_push_commits_locally(tmp_path: Path) -> None:
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -428,9 +424,9 @@ def test_cards_publish_no_push_commits_locally(tmp_path: Path) -> None:
         )
         assert publish_result.exit_code == 0, publish_result.output
         assert "Status: committed" in publish_result.output
-        assert "local publish edit" in (repo / "packs" / "alpha" / "agent-cards" / "alpha.md").read_text(
-            encoding="utf-8"
-        )
+        assert "local publish edit" in (
+            repo / "packs" / "alpha" / "agent-cards" / "alpha.md"
+        ).read_text(encoding="utf-8")
     finally:
         update_global_settings(old_settings)
 
@@ -450,10 +446,7 @@ def test_cards_update_reports_invalid_settings_yaml_without_traceback(tmp_path: 
     env_root.mkdir(parents=True)
     config_path = env_root / "fastagent.config.yaml"
     config_path.write_text(
-        "mcp:\n"
-        "  targets:\n"
-        "    - name: openai\n"
-        "        target: https://developers.openai.com/mcp\n",
+        "mcp:\n  targets:\n    - name: openai\n        target: https://developers.openai.com/mcp\n",
         encoding="utf-8",
     )
 

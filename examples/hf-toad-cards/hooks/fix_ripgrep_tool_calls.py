@@ -301,7 +301,9 @@ async def fix_ripgrep_tool_calls(ctx: "HookContext") -> None:
 
     seen_commands: set[str] = getattr(ctx.runner, "_ripgrep_seen_commands", set())
     command_count: int = getattr(ctx.runner, "_ripgrep_command_count", 0)
-    command_budget: int = getattr(ctx.runner, "_ripgrep_command_budget", 0) or _extract_command_budget(ctx)
+    command_budget: int = getattr(
+        ctx.runner, "_ripgrep_command_budget", 0
+    ) or _extract_command_budget(ctx)
     budget_exhausted: bool = bool(getattr(ctx.runner, "_ripgrep_budget_exhausted", False))
     repo_root = _extract_repo_root(ctx)
 
@@ -310,7 +312,11 @@ async def fix_ripgrep_tool_calls(ctx: "HookContext") -> None:
         if corrected:
             logger.warning(
                 "Corrected hallucinated tool name",
-                data={"tool_id": tool_id, "original": tool_call.params.name, "corrected": normalized_name},
+                data={
+                    "tool_id": tool_id,
+                    "original": tool_call.params.name,
+                    "corrected": normalized_name,
+                },
             )
             tool_call.params.name = normalized_name
 

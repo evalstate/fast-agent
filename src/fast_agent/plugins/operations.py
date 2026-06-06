@@ -658,6 +658,7 @@ def _copy_plugin_from_source(
             path_oid=path_oid,
         )
 
+
 def _copy_plugin_source(source_dir: Path, install_dir: Path) -> None:
     _validate_plugin_source_dir(source_dir)
     shutil.copytree(source_dir, install_dir)

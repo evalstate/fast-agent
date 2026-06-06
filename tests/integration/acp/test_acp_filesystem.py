@@ -69,13 +69,13 @@ async def test_acp_filesystem_support_enabled() -> None:
             client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
         )
 
-        assert getattr(init_response, "protocol_version", None) == 1 or getattr(
-            init_response, "protocolVersion", None
-        ) == 1
+        assert (
+            getattr(init_response, "protocol_version", None) == 1
+            or getattr(init_response, "protocolVersion", None) == 1
+        )
         assert (
             getattr(init_response, "agent_capabilities", None)
-            or getattr(init_response, "agentCapabilities", None)
-            is not None
+            or getattr(init_response, "agentCapabilities", None) is not None
         )
 
         # Create session
@@ -84,8 +84,10 @@ async def test_acp_filesystem_support_enabled() -> None:
         assert session_id
 
         # Send prompt that should trigger filesystem operations
-        prompt_text = 'use the read_text_file tool to read: /test/file.txt'
-        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+        prompt_text = "use the read_text_file tool to read: /test/file.txt"
+        prompt_response = await connection.prompt(
+            session_id=session_id, prompt=[text_block(prompt_text)]
+        )
         assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for any notifications

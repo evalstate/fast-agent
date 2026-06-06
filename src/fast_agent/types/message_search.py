@@ -73,11 +73,7 @@ def search_messages(
     """
     scope = _validate_scope(scope)
     compiled_pattern = _compile_pattern(pattern)
-    return [
-        msg
-        for msg in messages
-        if _message_contains_pattern(msg, compiled_pattern, scope)
-    ]
+    return [msg for msg in messages if _message_contains_pattern(msg, compiled_pattern, scope)]
 
 
 def find_matches(
@@ -209,9 +205,7 @@ def _find_in_message(
 ) -> list[re.Match]:
     """Find all matches of pattern in a message."""
     return [
-        match
-        for text in _extract_searchable_text(msg, scope)
-        for match in pattern.finditer(text)
+        match for text in _extract_searchable_text(msg, scope) for match in pattern.finditer(text)
     ]
 
 

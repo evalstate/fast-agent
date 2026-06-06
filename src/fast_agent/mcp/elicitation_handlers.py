@@ -199,8 +199,7 @@ def _handle_url_elicitation(
     url = str(params.url)
     elicitation_id = str(params.elicitationId) if params.elicitationId is not None else None
     logger.info(
-        f"URL elicitation from {context_info.server_name}: {url} "
-        f"(elicitationId={elicitation_id})"
+        f"URL elicitation from {context_info.server_name}: {url} (elicitationId={elicitation_id})"
     )
 
     queued = False

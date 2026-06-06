@@ -75,7 +75,9 @@ class TestOpenTelemetryCompatibility:
         final_message = self._create_mock_message()
         mock_stream_manager = MockStreamManager(final_message)
 
-        with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_anthropic_cls:
+        with patch(
+            "fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic"
+        ) as mock_anthropic_cls:
             mock_anthropic = MagicMock()
             mock_anthropic_cls.return_value = mock_anthropic
 
@@ -110,7 +112,10 @@ class TestOpenTelemetryCompatibility:
                 assert result.role == "assistant"
                 # stop_reason is an enum-like object, compare the value string
                 assert result.stop_reason is not None
-                assert str(result.stop_reason.value) == "endTurn" or result.stop_reason.value == "end_turn"
+                assert (
+                    str(result.stop_reason.value) == "endTurn"
+                    or result.stop_reason.value == "end_turn"
+                )
 
     @pytest.mark.asyncio
     async def test_stream_with_opentelemetry(self):
@@ -126,7 +131,9 @@ class TestOpenTelemetryCompatibility:
             """Simulate OpenTelemetry wrapping: return coroutine that resolves to manager."""
             return mock_stream_manager
 
-        with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_anthropic_cls:
+        with patch(
+            "fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic"
+        ) as mock_anthropic_cls:
             mock_anthropic = MagicMock()
             mock_anthropic_cls.return_value = mock_anthropic
 
@@ -161,7 +168,10 @@ class TestOpenTelemetryCompatibility:
                 assert result.role == "assistant"
                 # stop_reason is an enum-like object, compare the value string
                 assert result.stop_reason is not None
-                assert str(result.stop_reason.value) == "endTurn" or result.stop_reason.value == "end_turn"
+                assert (
+                    str(result.stop_reason.value) == "endTurn"
+                    or result.stop_reason.value == "end_turn"
+                )
 
     @pytest.mark.asyncio
     async def test_iscoroutine_detection(self):
@@ -169,7 +179,7 @@ class TestOpenTelemetryCompatibility:
         Test that asyncio.iscoroutine() correctly detects both scenarios.
         """
         final_message = self._create_mock_message()
-        
+
         # Test non-coroutine case
         mock_stream_manager = MockStreamManager(final_message)
         assert not asyncio.iscoroutine(mock_stream_manager)

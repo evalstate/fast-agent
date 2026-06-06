@@ -46,7 +46,9 @@ logger = get_logger(__name__)
 class ToolUpdateDisplay(Protocol):
     """Protocol for displays that can emit tool update notifications."""
 
-    async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None: ...
+    async def show_tool_update(
+        self, updated_server: str, agent_name: str | None = None
+    ) -> None: ...
 
 
 @runtime_checkable
@@ -145,9 +147,7 @@ def resolve_instruction_skill_manifests(
     return skill_manifests
 
 
-def format_server_instructions(
-    instructions_data: dict[str, tuple[str | None, list[str]]]
-) -> str:
+def format_server_instructions(instructions_data: dict[str, tuple[str | None, list[str]]]) -> str:
     """
     Format server instructions with XML tags and tool lists.
 
@@ -383,7 +383,7 @@ async def rebuild_agent_instruction(
                     agent_name=configured_agent.name,
                 )
             except Exception as exc:  # pragma: no cover - UI notification best effort
-                    logger.debug("Failed to emit tool update for skills", data={"error": str(exc)})
+                logger.debug("Failed to emit tool update for skills", data={"error": str(exc)})
 
         return InstructionRefreshResult(
             updated_skill_manifests=updated_skill_manifests,

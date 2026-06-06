@@ -579,7 +579,9 @@ class ElicitationForm:
             return self._number_field_hints(field_def)
         return []
 
-    def _build_field_label(self, field_name: str, field_type: str, field_def: dict[str, Any]) -> Label:
+    def _build_field_label(
+        self, field_name: str, field_type: str, field_def: dict[str, Any]
+    ) -> Label:
         title = field_def.get("title", field_name)
         description = field_def.get("description", "")
         label_text = title + (" *" if field_name in self.required_fields else "")
@@ -603,7 +605,9 @@ class ElicitationForm:
             )
         return Label(text=FormattedText([("class:field-label", label_text)]))
 
-    def _build_boolean_field(self, field_name: str, label: Label, field_def: dict[str, Any]) -> HSplit:
+    def _build_boolean_field(
+        self, field_name: str, label: Label, field_def: dict[str, Any]
+    ) -> HSplit:
         checkbox = Checkbox(text="Yes")
         checkbox.checked = field_def.get("default", False)
         self.field_widgets[field_name] = checkbox
@@ -877,9 +881,7 @@ class ElicitationForm:
             self.app.exit()
         except Exception as e:
             # Use styled error message
-            self.status_control.text = FormattedText(
-                [("class:validation-error", f"Error: {e!s}")]
-            )
+            self.status_control.text = FormattedText([("class:validation-error", f"Error: {e!s}")])
 
     def _cancel(self):
         """Handle cancel."""

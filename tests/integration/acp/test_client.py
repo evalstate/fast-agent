@@ -212,9 +212,7 @@ class TestClient(Client):
             return WaitForTerminalExitResponse(exit_code=exit_code, signal=None)
 
         # Unknown or negative exit -> model as killed/terminated with no exit code
-        return WaitForTerminalExitResponse(
-            exit_code=None, signal="SIGKILL" if exit_code else None
-        )
+        return WaitForTerminalExitResponse(exit_code=None, signal="SIGKILL" if exit_code else None)
 
     async def kill_terminal(
         self,

@@ -65,9 +65,17 @@ def test_provider_defaults_use_global_max_iterations() -> None:
     settings = Settings()
     context = Context(config=settings)
 
-    assert GenericLLM(context=context).default_request_params.max_iterations == DEFAULT_MAX_ITERATIONS
-    assert GoogleOaiLLM(context=context).default_request_params.max_iterations == DEFAULT_MAX_ITERATIONS
-    assert GoogleNativeLLM(context=context).default_request_params.max_iterations == DEFAULT_MAX_ITERATIONS
+    assert (
+        GenericLLM(context=context).default_request_params.max_iterations == DEFAULT_MAX_ITERATIONS
+    )
+    assert (
+        GoogleOaiLLM(context=context).default_request_params.max_iterations
+        == DEFAULT_MAX_ITERATIONS
+    )
+    assert (
+        GoogleNativeLLM(context=context).default_request_params.max_iterations
+        == DEFAULT_MAX_ITERATIONS
+    )
 
 
 def test_responses_provider_default_model_used_when_model_missing() -> None:
@@ -122,7 +130,9 @@ def test_openresponses_provider_does_not_inherit_openai_base_url() -> None:
 def test_openrouter_provider_default_model_used_when_model_missing() -> None:
     ModelDatabase.clear_runtime_model_params(provider=Provider.OPENROUTER)
     try:
-        settings = Settings(openrouter=OpenRouterSettings(default_model="google/gemini-2.0-flash-exp"))
+        settings = Settings(
+            openrouter=OpenRouterSettings(default_model="google/gemini-2.0-flash-exp")
+        )
         llm = OpenRouterLLM(context=Context(config=settings), model="")
 
         assert llm.default_request_params.model == "google/gemini-2.0-flash-exp"

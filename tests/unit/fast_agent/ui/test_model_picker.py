@@ -105,7 +105,10 @@ def test_picker_uses_cursor_position_for_model_scrolling() -> None:
     for index, option in enumerate(picker.snapshot.providers):
         if option.provider is None:
             continue
-        if len(model_options_for_provider(picker.snapshot, option.provider, source="all")) > picker.LIST_VISIBLE_ROWS:
+        if (
+            len(model_options_for_provider(picker.snapshot, option.provider, source="all"))
+            > picker.LIST_VISIBLE_ROWS
+        ):
             provider_index = index
             break
 
@@ -128,7 +131,9 @@ def test_picker_uses_cursor_position_for_provider_scrolling() -> None:
                 provider=provider,
                 active=True,
                 curated_entries=(
-                    CatalogModelEntry(alias=f"{provider.config_name}-demo", model=f"{provider.config_name}.demo"),
+                    CatalogModelEntry(
+                        alias=f"{provider.config_name}-demo", model=f"{provider.config_name}.demo"
+                    ),
                 ),
             )
             for provider in Provider

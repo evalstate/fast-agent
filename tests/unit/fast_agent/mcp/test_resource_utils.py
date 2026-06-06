@@ -86,8 +86,7 @@ class TestUriNormalization(unittest.TestCase):
 
 def test_parse_resource_marker_extracts_text_resource() -> None:
     resource = parse_resource_marker(
-        "[Resource: resource://demo/report.json, MIME: application/json]\n"
-        '{"ok": true}'
+        '[Resource: resource://demo/report.json, MIME: application/json]\n{"ok": true}'
     )
 
     assert resource is not None
@@ -98,22 +97,25 @@ def test_parse_resource_marker_extracts_text_resource() -> None:
 
 
 def test_parse_resource_marker_rejects_text_plain_marker() -> None:
-    assert parse_resource_marker(
-        "[Resource: resource://demo/report.txt, MIME: text/plain]\ntext"
-    ) is None
+    assert (
+        parse_resource_marker("[Resource: resource://demo/report.txt, MIME: text/plain]\ntext")
+        is None
+    )
 
 
 def test_parse_resource_marker_rejects_normalized_text_plain_marker() -> None:
-    assert parse_resource_marker(
-        "[Resource: resource://demo/report.txt, MIME: TEXT/PLAIN]\ntext"
-    ) is None
+    assert (
+        parse_resource_marker("[Resource: resource://demo/report.txt, MIME: TEXT/PLAIN]\ntext")
+        is None
+    )
     assert parse_resource_marker("[Resource: resource://demo/report.txt, MIME: txt]\ntext") is None
 
 
 def test_parse_resource_marker_rejects_binary_marker() -> None:
-    assert parse_resource_marker(
-        "[Binary Resource: resource://demo/image.png, MIME: image/png]\nabc"
-    ) is None
+    assert (
+        parse_resource_marker("[Binary Resource: resource://demo/image.png, MIME: image/png]\nabc")
+        is None
+    )
 
 
 def test_parse_resource_marker_rejects_malformed_header() -> None:

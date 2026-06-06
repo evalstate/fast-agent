@@ -48,6 +48,7 @@ async def cleanup_logging():
         await asyncio.sleep(0)
         await asyncio.gather(*pending, return_exceptions=True)
 
+
 # =============================================================================
 # Test Doubles
 # =============================================================================

@@ -105,7 +105,9 @@ def _print_local_plugins(ctx: typer.Context) -> None:
         commands = ", ".join(entry.manifest.commands) if entry.manifest else "invalid manifest"
         keys = _format_plugin_keys(entry)
         if entry.source is None:
-            provenance = f"invalid metadata: {entry.metadata_error}" if entry.metadata_error else "unmanaged"
+            provenance = (
+                f"invalid metadata: {entry.metadata_error}" if entry.metadata_error else "unmanaged"
+            )
             table.add_row(str(entry.index), entry.name, commands, keys, provenance, "-")
             continue
         source = entry.source
@@ -175,9 +177,16 @@ def plugins_list(ctx: typer.Context) -> None:
 @app.command("add")
 def plugins_add(
     ctx: typer.Context,
-    selector: Annotated[str | None, typer.Argument(help="Plugin name or marketplace index.", show_default=False)] = None,
+    selector: Annotated[
+        str | None, typer.Argument(help="Plugin name or marketplace index.", show_default=False)
+    ] = None,
     registry: RegistryOption = None,
-    global_install: Annotated[bool, typer.Option("--global", help="Install and enable globally (FAST_AGENT_HOME, or ~/.fast-agent).")] = False,
+    global_install: Annotated[
+        bool,
+        typer.Option(
+            "--global", help="Install and enable globally (FAST_AGENT_HOME, or ~/.fast-agent)."
+        ),
+    ] = False,
     force: Annotated[bool, typer.Option("--force", help="Replace an existing plugin.")] = False,
 ) -> None:
     """Install and enable a command plugin."""
@@ -185,7 +194,9 @@ def plugins_add(
     marketplace_input = _resolve_registry_input(ctx, registry)
     plugins, source = plugin_ops.fetch_marketplace_plugins_with_source_sync(marketplace_input)
     if not selector:
-        print_detail_section(console, "Marketplace Plugins", [DetailDisplayRow(label="marketplace", value=source)])
+        print_detail_section(
+            console, "Marketplace Plugins", [DetailDisplayRow(label="marketplace", value=source)]
+        )
         _print_marketplace_plugins(plugins)
         print_hint(console, "Install with: fast-agent plugins add <number|name>")
         raise typer.Exit(0)
@@ -222,8 +233,12 @@ def plugins_add(
 @app.command("remove")
 def plugins_remove(
     ctx: typer.Context,
-    selector: Annotated[str | None, typer.Argument(help="Installed plugin name or index.", show_default=False)] = None,
-    global_remove: Annotated[bool, typer.Option("--global", help="Remove globally (FAST_AGENT_HOME, or ~/.fast-agent).")] = False,
+    selector: Annotated[
+        str | None, typer.Argument(help="Installed plugin name or index.", show_default=False)
+    ] = None,
+    global_remove: Annotated[
+        bool, typer.Option("--global", help="Remove globally (FAST_AGENT_HOME, or ~/.fast-agent).")
+    ] = False,
 ) -> None:
     """Remove an installed plugin."""
     destination_root, config_path = _target_install_context(ctx, global_install=global_remove)
@@ -238,13 +253,21 @@ def plugins_remove(
         raise typer.Exit(1)
     plugin_ops.remove_local_plugin(selected.plugin_dir, destination_root=destination_root)
     disable_plugin_in_config(config_path, selected.name)
-    print_detail_section(console, "Plugin Removed", [DetailDisplayRow(label="name", value=selected.name)], color="green")
+    print_detail_section(
+        console,
+        "Plugin Removed",
+        [DetailDisplayRow(label="name", value=selected.name)],
+        color="green",
+    )
 
 
 @app.command("update")
 def plugins_update(
     ctx: typer.Context,
-    selector: Annotated[str | None, typer.Argument(help="Plugin name, index, or 'all'. Omit to check.", show_default=False)] = None,
+    selector: Annotated[
+        str | None,
+        typer.Argument(help="Plugin name, index, or 'all'. Omit to check.", show_default=False),
+    ] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite local modifications.")] = False,
     yes: Annotated[bool, typer.Option("--yes", help="Confirm multi-plugin apply.")] = False,
 ) -> None:
@@ -252,9 +275,19 @@ def plugins_update(
     env_paths = _environment_paths(ctx)
     updates = plugin_ops.check_plugin_updates(destination_root=env_paths.plugins)
     if not selector:
-        print_detail_section(console, "Plugin Update Check", [DetailDisplayRow(label="plugins directory", value=format_display_path(env_paths.plugins))])
+        print_detail_section(
+            console,
+            "Plugin Update Check",
+            [
+                DetailDisplayRow(
+                    label="plugins directory", value=format_display_path(env_paths.plugins)
+                )
+            ],
+        )
         _print_updates(updates)
-        print_hint(console, "Apply with: fast-agent plugins update <number|name|all> [--force] [--yes]")
+        print_hint(
+            console, "Apply with: fast-agent plugins update <number|name|all> [--force] [--yes]"
+        )
         raise typer.Exit(0)
     selected = plugin_ops.select_plugin_updates(updates, selector)
     if not selected:
@@ -275,7 +308,11 @@ def _target_install_context(ctx: typer.Context, *, global_install: bool) -> tupl
 
     settings = _settings(ctx)
     env_paths = resolve_environment_paths(settings)
-    config_path = Path(settings._config_file) if settings._config_file else env_paths.root / PREFERRED_CONFIG_FILENAME
+    config_path = (
+        Path(settings._config_file)
+        if settings._config_file
+        else env_paths.root / PREFERRED_CONFIG_FILENAME
+    )
     return env_paths.plugins, config_path
 
 

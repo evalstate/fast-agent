@@ -47,8 +47,7 @@ def test_global_elicitation_object_can_auto_cancel() -> None:
 
 def test_global_elicitation_mode_status_normalizes_padded_text() -> None:
     assert (
-        resolve_global_elicitation_mode({"elicitation": {"mode": " Auto-Cancel "}})
-        == "auto-cancel"
+        resolve_global_elicitation_mode({"elicitation": {"mode": " Auto-Cancel "}}) == "auto-cancel"
     )
 
 

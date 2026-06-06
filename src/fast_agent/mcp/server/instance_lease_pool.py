@@ -164,7 +164,9 @@ class ScopedAgentInstancePool:
             new_instance = await self._instance_factory.create_instance()
             old_instance = self.primary_instance
             self.primary_instance = new_instance
-            self._primary_registry_version = getattr(new_instance, "registry_version", latest_version)
+            self._primary_registry_version = getattr(
+                new_instance, "registry_version", latest_version
+            )
             self._stale_instances.append(old_instance)
             self._register_missing_agents(new_instance)
 

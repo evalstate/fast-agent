@@ -650,11 +650,7 @@ def _extract_skills_directories(config: dict[str, Any]) -> list[str] | None:
 
 
 def _clean_string_values(values: Iterable[object]) -> list[str]:
-    return [
-        cleaned
-        for value in values
-        if (cleaned := strip_to_none(str(value))) is not None
-    ]
+    return [cleaned for value in values if (cleaned := strip_to_none(str(value))) is not None]
 
 
 def get_config_summary(config_path: Path | None) -> dict:
@@ -1465,11 +1461,7 @@ def _adjacent_settings_pairs(
     rows: Sequence[SettingsTableRow],
 ) -> list[tuple[SettingsTableRow, SettingsTableRow | None]]:
     row_iter = iter(rows)
-    return [
-        (left, right)
-        for left, right in zip_longest(row_iter, row_iter)
-        if left is not None
-    ]
+    return [(left, right) for left, right in zip_longest(row_iter, row_iter) if left is not None]
 
 
 def _split_provider_status_rows(

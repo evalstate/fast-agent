@@ -73,12 +73,13 @@ async def sample_parallel(ctx: Context, count: int = 5) -> ToolResult:
         async def _send_sampling(request: int):
             return await ctx.session.create_message(
                 max_tokens=100,
-                messages=[SamplingMessage(
-                    role="user",
-                    content=TextContent(type="text", text=f"Parallel request {request+1}")
-                )],
+                messages=[
+                    SamplingMessage(
+                        role="user",
+                        content=TextContent(type="text", text=f"Parallel request {request + 1}"),
+                    )
+                ],
             )
-
 
         tasks = []
         for i in range(count):
@@ -90,7 +91,9 @@ async def sample_parallel(ctx: Context, count: int = 5) -> ToolResult:
 
         # Combine results
         response_texts = [result.content.text for result in results]
-        combined_response = f"Completed {len(results)} parallel requests: " + ", ".join(response_texts[:3])
+        combined_response = f"Completed {len(results)} parallel requests: " + ", ".join(
+            response_texts[:3]
+        )
         if len(response_texts) > 3:
             combined_response += f"... and {len(response_texts) - 3} more"
 

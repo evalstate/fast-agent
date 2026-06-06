@@ -51,7 +51,9 @@ def test_tool_activity_status_text_uses_family_specific_copy() -> None:
         == "remote tool call failed"
     )
     assert tool_activity_status_text(family="tool", status=" QUEUED ") == "queued..."
-    assert tool_activity_status_text(family="web_search", status="unknown_status") == "unknown status"
+    assert (
+        tool_activity_status_text(family="web_search", status="unknown_status") == "unknown status"
+    )
 
 
 def test_tool_activity_family_predicates_capture_shared_rendering_groups() -> None:
@@ -65,16 +67,14 @@ def test_tool_activity_family_predicates_capture_shared_rendering_groups() -> No
 
 def test_classify_tool_activity_family_handles_provider_names() -> None:
     assert (
-        classify_tool_activity_family(tool_name="tool_search", provider_tool_type="tool_search_call")
+        classify_tool_activity_family(
+            tool_name="tool_search", provider_tool_type="tool_search_call"
+        )
         == "remote_tool_search"
     )
+    assert classify_tool_activity_family(tool_name="server/mcp_list_tools") == "remote_tool_listing"
     assert (
-        classify_tool_activity_family(tool_name="server/mcp_list_tools")
-        == "remote_tool_listing"
-    )
-    assert (
-        classify_tool_activity_family(tool_name="", provider_tool_type="mcp_call")
-        == "remote_tool"
+        classify_tool_activity_family(tool_name="", provider_tool_type="mcp_call") == "remote_tool"
     )
     assert classify_tool_activity_family(tool_name="web_search") == "web_search"
 
@@ -86,6 +86,5 @@ def test_classify_tool_activity_family_normalizes_lookup_tokens() -> None:
     )
     assert classify_tool_activity_family(tool_name=" WEB_SEARCH ") == "web_search"
     assert (
-        classify_tool_activity_family(tool_name=" SERVER/MCP_LIST_TOOLS ")
-        == "remote_tool_listing"
+        classify_tool_activity_family(tool_name=" SERVER/MCP_LIST_TOOLS ") == "remote_tool_listing"
     )

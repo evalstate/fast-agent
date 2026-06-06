@@ -82,7 +82,10 @@ class TraceNormalizer:
         if isinstance(value, Path):
             return self._normalize_string(str(value))
         if isinstance(value, dict):
-            return {str(item_key): self.normalize(item, key=str(item_key)) for item_key, item in value.items()}
+            return {
+                str(item_key): self.normalize(item, key=str(item_key))
+                for item_key, item in value.items()
+            }
         if isinstance(value, list):
             return [self.normalize(item) for item in value]
         return self._normalize_string(str(value))
@@ -229,7 +232,11 @@ def _standard_name(path: Path) -> str:
         return "listener_stream.jsonl"
     if name == "listener_tools.jsonl":
         return "listener_tools.jsonl"
-    if name == "google_stream_chunks.jsonl" or name.endswith("_chunks.jsonl") or name.endswith(".jsonl"):
+    if (
+        name == "google_stream_chunks.jsonl"
+        or name.endswith("_chunks.jsonl")
+        or name.endswith(".jsonl")
+    ):
         return "stream.jsonl"
     if (
         name == "google_stream_request.json"
@@ -272,9 +279,7 @@ def _normalize_meta(
     normalized["model_label"] = identity.model_label
     normalized["scenario"] = identity.scenario
     normalized["source_run"] = normalizer.normalize(str(source_run))
-    normalized["trace_files"] = [
-        name for name in ("stream.jsonl", "request.json") if name in files
-    ]
+    normalized["trace_files"] = [name for name in ("stream.jsonl", "request.json") if name in files]
     return normalized
 
 
@@ -377,10 +382,7 @@ def main() -> None:
 
     _validate_fixture_contract(output_dir)
 
-    print(
-        "Normalized "
-        f"{source.relative_to(REPO_ROOT)} -> {output_dir.relative_to(REPO_ROOT)}"
-    )
+    print(f"Normalized {source.relative_to(REPO_ROOT)} -> {output_dir.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":

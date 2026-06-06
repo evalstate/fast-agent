@@ -14,9 +14,7 @@ def test_sanitize_filename_component_preserves_unicode_alphanumerics() -> None:
 
 
 def test_sanitize_filename_component_replaces_unsafe_characters() -> None:
-    assert sanitize_filename_component("My Agent/row:1", fallback="item") == (
-        "My_Agent_row_1"
-    )
+    assert sanitize_filename_component("My Agent/row:1", fallback="item") == ("My_Agent_row_1")
 
 
 def test_sanitize_filename_component_strips_outer_separators() -> None:

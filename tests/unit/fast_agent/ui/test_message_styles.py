@@ -134,7 +134,9 @@ class TestA3MessageStyle:
     def test_header_line_rule_fill_without_right_info(self) -> None:
         """User headers can extend to the edge with a dim rule."""
         style = A3MessageStyle()
-        result = style.header_line("[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]", "", 40, rule_fill=True)
+        result = style.header_line(
+            "[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]", "", 40, rule_fill=True
+        )
         assert result.plain.startswith("▎▶ dev ")
         assert "─" in result.plain
         assert result.cell_len == 40

@@ -209,10 +209,7 @@ def test_pinned_checkout_ref_ignores_local_revision(
     pinned_revision: str | None,
     expected: str | None,
 ) -> None:
-    assert (
-        git_sources.pinned_checkout_ref(pinned_revision, local_revision="local")
-        == expected
-    )
+    assert git_sources.pinned_checkout_ref(pinned_revision, local_revision="local") == expected
 
 
 def test_resolve_git_path_oid_if_commit_skips_missing_commit(tmp_path: Path) -> None:
@@ -531,10 +528,7 @@ def test_repo_subdir_for_manifest_path(
     manifest_filename: str,
     expected: str,
 ) -> None:
-    assert (
-        provenance_io.repo_subdir_for_manifest_path(repo_path, manifest_filename)
-        == expected
-    )
+    assert provenance_io.repo_subdir_for_manifest_path(repo_path, manifest_filename) == expected
 
 
 @pytest.mark.parametrize(
@@ -553,10 +547,7 @@ def test_repo_name_for_manifest_path(
     manifest_filename: str,
     expected: str,
 ) -> None:
-    assert (
-        provenance_io.repo_name_for_manifest_path(repo_path, manifest_filename)
-        == expected
-    )
+    assert provenance_io.repo_name_for_manifest_path(repo_path, manifest_filename) == expected
 
 
 def test_derive_local_repo_root_from_marketplace_file(tmp_path: Path) -> None:
@@ -678,11 +669,14 @@ def test_resolve_repo_subdir_accepts_nested_path(tmp_path: Path) -> None:
     nested = repo_root / "plugins" / "demo"
     nested.mkdir(parents=True)
 
-    assert git_sources.resolve_repo_subdir(
-        repo_root,
-        "plugins/demo",
-        label="Plugin",
-    ) == nested.resolve()
+    assert (
+        git_sources.resolve_repo_subdir(
+            repo_root,
+            "plugins/demo",
+            label="Plugin",
+        )
+        == nested.resolve()
+    )
 
 
 def test_extract_tar_safely_rejects_links_outside_destination(tmp_path: Path) -> None:

@@ -141,9 +141,7 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
 
         if entry.source is None:
             provenance = (
-                f"invalid metadata: {entry.metadata_error}"
-                if entry.metadata_error
-                else "unmanaged"
+                f"invalid metadata: {entry.metadata_error}" if entry.metadata_error else "unmanaged"
             )
             content.append("     ", style="dim")
             content.append(f"provenance: {provenance}", style="dim")
@@ -193,7 +191,9 @@ def _format_marketplace_plugins(plugins: Sequence[MarketplacePlugin], *, source:
     return content
 
 
-def _add_empty_plugins_registry_warning(outcome: CommandOutcome, url: str, *, agent_name: str) -> None:
+def _add_empty_plugins_registry_warning(
+    outcome: CommandOutcome, url: str, *, agent_name: str
+) -> None:
     content = Text()
     content.append_text(
         Text("No plugins found in the registry; registry unchanged.", style="yellow")
@@ -210,17 +210,13 @@ def _add_empty_plugins_registry_warning(outcome: CommandOutcome, url: str, *, ag
 
 def _plugin_selection_options(plugins: Sequence[MarketplacePlugin]) -> list[str]:
     return unique_selection_options(
-        option
-        for entry in plugins
-        for option in (entry.name, entry.install_dir_name)
+        option for entry in plugins for option in (entry.name, entry.install_dir_name)
     )
 
 
 def _local_plugin_selection_options(plugins: Sequence[LocalPlugin]) -> list[str]:
     return unique_selection_options(
-        option
-        for entry in plugins
-        for option in (entry.name, entry.plugin_dir.name)
+        option for entry in plugins for option in (entry.name, entry.plugin_dir.name)
     )
 
 

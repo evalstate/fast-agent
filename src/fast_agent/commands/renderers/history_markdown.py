@@ -28,9 +28,7 @@ def _format_positive_duration_ms(value: float) -> str:
 
 
 def _format_turn_table_row(turn: "HistoryTurnSummary") -> str:
-    turn_text = escape_markdown_table_cell(
-        f"{turn.user_snippet} → {turn.assistant_snippet}"
-    )
+    turn_text = escape_markdown_table_cell(f"{turn.user_snippet} → {turn.assistant_snippet}")
     return (
         "| "
         f"{turn.turn_index} | "

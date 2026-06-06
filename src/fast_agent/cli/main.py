@@ -107,6 +107,7 @@ def _first_root_command(args: list[str]) -> str | None:
         return arg
     return None
 
+
 # Shared application context
 application = Application()
 # Use shared console to match app-wide styling
@@ -128,7 +129,9 @@ def show_welcome(update_notice: str | None = None) -> None:
     table.add_row("[bold]go[/bold]", "Start an interactive session")
     table.add_row("go -x", "Start an interactive session with a local shell tool")
     table.add_row("[bold]serve[/bold]", "Expose fast-agent over MCP (http/stdio) or ACP")
-    table.add_row("[bold]acp[/bold]", "Start fast-agent as an ACP stdio server (for Zed, Toad, etc.)")
+    table.add_row(
+        "[bold]acp[/bold]", "Start fast-agent as an ACP stdio server (for Zed, Toad, etc.)"
+    )
     table.add_row("[bold]export[/bold]", "Export a persisted session trace")
     table.add_row("check", "Show current configuration")
     table.add_row("cards", "Manage card packs (list/add/remove/update/publish)")
@@ -196,8 +199,12 @@ def main(
         application.error_console = base_error_console.__class__(color_system=None, stderr=True)
 
     update_notice: str | None = None
-    if not version and ctx.invoked_subcommand is None and should_run_update_check(
-        disabled=no_update_check,
+    if (
+        not version
+        and ctx.invoked_subcommand is None
+        and should_run_update_check(
+            disabled=no_update_check,
+        )
     ):
         update_notice = check_for_update_notice(environment_dir=resolved_env_dir)
 

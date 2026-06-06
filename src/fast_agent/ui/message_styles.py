@@ -172,7 +172,9 @@ def _render_items_with_jump(
     jump_indicator = Text(_JUMP_INDICATOR, style="dim") if use_jump_indicator else Text("")
 
     # Calculate space needed for jump indicator + highlighted item
-    reserved_space = highlight_text.cell_len + (jump_indicator.cell_len if use_jump_indicator else 0)
+    reserved_space = highlight_text.cell_len + (
+        jump_indicator.cell_len if use_jump_indicator else 0
+    )
 
     if max_width is not None:
         available_for_prefix = max_width - reserved_space
@@ -224,7 +226,10 @@ def _append_prefix_items(
     for index, item in enumerate(items):
         sep = Text(separator, style="dim") if index > 0 else Text("")
         item_text = Text(item, style=default_style)
-        if max_width is not None and formatted.cell_len + sep.cell_len + item_text.cell_len > max_width:
+        if (
+            max_width is not None
+            and formatted.cell_len + sep.cell_len + item_text.cell_len > max_width
+        ):
             return
         _append_item_segment(formatted, sep, item_text)
 

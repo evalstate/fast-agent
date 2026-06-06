@@ -33,7 +33,9 @@ _LONG_OPTIONS_WITH_VALUES = {
 _SHORT_OPTIONS_WITH_VALUES = {
     option
     for option in GO_SPECIFIC_OPTIONS
-    if option.startswith("-") and not option.startswith("--") and option not in _OPTIONS_WITHOUT_VALUES
+    if option.startswith("-")
+    and not option.startswith("--")
+    and option not in _OPTIONS_WITHOUT_VALUES
 }
 
 
@@ -108,7 +110,8 @@ def main():
 
         # Only auto-route if any known go-specific options are present
         has_go_options = any(
-            (arg in GO_SPECIFIC_OPTIONS) or any(arg.startswith(opt + "=") for opt in GO_SPECIFIC_OPTIONS)
+            (arg in GO_SPECIFIC_OPTIONS)
+            or any(arg.startswith(opt + "=") for opt in GO_SPECIFIC_OPTIONS)
             for arg in sys.argv[1:]
         )
 

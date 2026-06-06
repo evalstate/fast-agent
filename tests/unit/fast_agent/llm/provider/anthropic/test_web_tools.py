@@ -464,7 +464,9 @@ async def test_tool_use_with_thinking_persists_raw_assistant_content_channel() -
         type="message",
         role="assistant",
         content=[
-            BetaThinkingBlock(type="thinking", thinking="I should call a tool", signature="sig_123"),
+            BetaThinkingBlock(
+                type="thinking", thinking="I should call a tool", signature="sig_123"
+            ),
             BetaTextBlock(type="text", text="Let me fetch data."),
             BetaToolUseBlock(
                 type="tool_use",

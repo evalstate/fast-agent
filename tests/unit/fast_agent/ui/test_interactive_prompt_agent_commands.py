@@ -645,7 +645,9 @@ async def test_cancelled_turn_reports_interrupted_tool_marker(monkeypatch, capsy
                 ),
                 PromptMessageExtended(
                     role="user",
-                    content=[TextContent(type="text", text="**The user interrupted this tool call**")],
+                    content=[
+                        TextContent(type="text", text="**The user interrupted this tool call**")
+                    ],
                     tool_results={
                         "call-1": CallToolResult(
                             content=[
@@ -773,9 +775,7 @@ async def test_reload_agents_switches_to_hydrated_active_agent(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_mcp_connect_ctrl_c_cancels_and_returns_to_prompt(
-    monkeypatch, capsys: Any
-) -> None:
+async def test_mcp_connect_ctrl_c_cancels_and_returns_to_prompt(monkeypatch, capsys: Any) -> None:
     _patch_input(monkeypatch, ["/mcp connect --name demo npx demo-server", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
@@ -806,9 +806,7 @@ async def test_mcp_connect_ctrl_c_cancels_and_returns_to_prompt(
 
 
 @pytest.mark.asyncio
-async def test_mcp_connect_cancel_survives_detach_cancelled_error(
-    monkeypatch, capsys: Any
-) -> None:
+async def test_mcp_connect_cancel_survives_detach_cancelled_error(monkeypatch, capsys: Any) -> None:
     _patch_input(monkeypatch, ["/mcp connect --name demo npx demo-server", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
@@ -873,10 +871,12 @@ async def test_mcp_connect_cancel_does_not_detach_previously_attached_server(
 
 @pytest.mark.asyncio
 async def test_mcp_connect_cancel_allows_stop_immediately(monkeypatch, capsys: Any) -> None:
-    inputs = iter([
-        "/mcp connect --name demo npx demo-server",
-        "STOP",
-    ])
+    inputs = iter(
+        [
+            "/mcp connect --name demo npx demo-server",
+            "STOP",
+        ]
+    )
     input_calls = {"count": 0}
 
     async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
@@ -961,7 +961,9 @@ async def test_mcp_connect_oauth_link_is_not_repeated_in_final_outcome(
 
 
 @pytest.mark.asyncio
-async def test_prompt_loop_recovers_from_keyboard_interrupt_in_input(monkeypatch, capsys: Any) -> None:
+async def test_prompt_loop_recovers_from_keyboard_interrupt_in_input(
+    monkeypatch, capsys: Any
+) -> None:
     inputs = iter(["STOP"])
     input_calls = {"count": 0}
 

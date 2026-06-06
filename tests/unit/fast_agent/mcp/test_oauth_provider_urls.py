@@ -83,9 +83,10 @@ async def test_build_oauth_provider_checks_endpoint_parent_and_root_prm_urls() -
         "https://example.com/.well-known/oauth-protected-resource/api"
     )
 
-    root_discovery_request = await flow.asend(
-        httpx.Response(404, request=parent_discovery_request)
+    root_discovery_request = await flow.asend(httpx.Response(404, request=parent_discovery_request))
+    assert (
+        str(root_discovery_request.url)
+        == "https://example.com/.well-known/oauth-protected-resource"
     )
-    assert str(root_discovery_request.url) == "https://example.com/.well-known/oauth-protected-resource"
 
     await flow.aclose()

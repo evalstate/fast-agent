@@ -209,9 +209,7 @@ async def test_run_model_setup_prefills_system_default_alias_when_no_aliases_exi
 
     saved = _read_yaml(env_dir / "fast-agent.yaml")
     assert saved["model_references"]["system"]["default"] == "claude-haiku-4-5"
-    assert io.prompt_text_calls == [
-        ("Reference token ($namespace.key):", "$system.default", False)
-    ]
+    assert io.prompt_text_calls == [("Reference token ($namespace.key):", "$system.default", False)]
     assert outcome.messages
     assert "model references set" in str(outcome.messages[0].text)
 
@@ -224,10 +222,7 @@ async def test_run_model_setup_repairs_invalid_default_alias_from_diagnostics(
     env_dir = workspace / ".model-env"
     workspace.mkdir(parents=True)
     (workspace / "fast-agent.yaml").write_text(
-        'default_model: "$system.default"\n'
-        "model_references:\n"
-        "  system:\n"
-        '    default: ""\n',
+        'default_model: "$system.default"\nmodel_references:\n  system:\n    default: ""\n',
         encoding="utf-8",
     )
 
@@ -313,7 +308,9 @@ async def test_run_model_doctor_reports_unresolved_default_alias(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_run_model_doctor_uses_environment_dir_parent_when_cwd_differs(tmp_path: Path) -> None:
+async def test_run_model_doctor_uses_environment_dir_parent_when_cwd_differs(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "workspace"
     elsewhere = tmp_path / "elsewhere"
     env_dir = workspace / ".model-env"

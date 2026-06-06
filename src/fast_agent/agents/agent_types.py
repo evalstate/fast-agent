@@ -46,6 +46,7 @@ SkillConfig: TypeAlias = (
     | SkillsDefault
 )
 
+
 # Function tools can be:
 # - A callable (Python function)
 # - A string spec like "module.py:function_name" (for dynamic loading)

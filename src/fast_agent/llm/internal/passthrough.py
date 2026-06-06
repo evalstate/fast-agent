@@ -107,7 +107,12 @@ class PassthroughLLM(FastAgentLLM):
             assert last_message.tool_results
             concatenated_content = " ".join(
                 [
-                    (tool_result_text_for_llm(tool_result, logger=self.logger, source="passthrough") or "<empty>")
+                    (
+                        tool_result_text_for_llm(
+                            tool_result, logger=self.logger, source="passthrough"
+                        )
+                        or "<empty>"
+                    )
                     for tool_result in last_message.tool_results.values()
                 ]
             )

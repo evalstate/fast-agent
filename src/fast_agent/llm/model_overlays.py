@@ -86,7 +86,9 @@ class ModelOverlayConnection(BaseModel):
         if self.auth == "env" and not self.api_key_env:
             raise ValueError("connection.api_key_env is required when connection.auth is 'env'")
         if self.auth == "secret_ref" and not self.secret_ref:
-            raise ValueError("connection.secret_ref is required when connection.auth is 'secret_ref'")
+            raise ValueError(
+                "connection.secret_ref is required when connection.auth is 'secret_ref'"
+            )
         return self
 
     def auth_mode(self) -> Literal["none", "env", "secret_ref"] | None:
@@ -617,9 +619,7 @@ def build_model_overlay_manifest_from_database(
     prefix_provider, bare_model = _split_provider_prefix(model_name)
 
     lookup_name = model_name if prefix_provider is not None else bare_model
-    if prefix_provider == Provider.HUGGINGFACE and starts_with_casefold(
-        model_name, "huggingface."
-    ):
+    if prefix_provider == Provider.HUGGINGFACE and starts_with_casefold(model_name, "huggingface."):
         lookup_name = f"{Provider.HUGGINGFACE.value}.{bare_model}"
     effective_provider = provider or prefix_provider
     if effective_provider is None and "/" in bare_model:
@@ -730,7 +730,9 @@ def _settings_environment_override(
         return None
 
     raw_config_file = getattr(settings, "_config_file", None)
-    config_file = raw_config_file if isinstance(raw_config_file, str) and raw_config_file.strip() else None
+    config_file = (
+        raw_config_file if isinstance(raw_config_file, str) and raw_config_file.strip() else None
+    )
     environment_dir = getattr(settings, "environment_dir", None)
     if environment_dir is None and (
         os.getenv("ENVIRONMENT_DIR")

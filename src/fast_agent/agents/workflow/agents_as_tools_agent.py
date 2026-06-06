@@ -919,7 +919,7 @@ class AgentsAsToolsAgent(McpAgent):
             return CallToolResult(
                 content=[text_content(response_mode_control.error)],
                 isError=True,
-        )
+            )
         child_request_params = self._build_child_request_params(
             request_params,
             response_mode_control.tool_result_mode_override,
@@ -1301,9 +1301,7 @@ class AgentsAsToolsAgent(McpAgent):
         request_params: RequestParams | None,
     ) -> list[CallToolResult | BaseException]:
         semaphore = (
-            asyncio.Semaphore(self._options.max_parallel)
-            if self._options.max_parallel
-            else None
+            asyncio.Semaphore(self._options.max_parallel) if self._options.max_parallel else None
         )
 
         async def bounded_call(
@@ -1555,10 +1553,7 @@ class AgentsAsToolsAgent(McpAgent):
         combined_results = {
             correlation_id: result
             for correlation_id in request.tool_calls
-            if (
-                result := child_results.get(correlation_id)
-                or mcp_results.get(correlation_id)
-            )
+            if (result := child_results.get(correlation_id) or mcp_results.get(correlation_id))
             is not None
         }
 

@@ -250,9 +250,7 @@ def test_find_matches_multiple_in_same_message():
         PromptMessageExtended(
             role="user",
             content=[
-                TextContent(
-                    type="text", text="Found error at line 10. Another error at line 20."
-                )
+                TextContent(type="text", text="Found error at line 10. Another error at line 20.")
             ],
         ),
     ]

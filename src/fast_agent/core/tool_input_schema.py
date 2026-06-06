@@ -103,10 +103,7 @@ def _validate_required_properties_exist(
 ) -> None:
     unknown_required = sorted(name for name in required_set if name not in properties)
     if unknown_required:
-        errors.append(
-            "'required' references undefined properties: "
-            + ", ".join(unknown_required)
-        )
+        errors.append("'required' references undefined properties: " + ", ".join(unknown_required))
 
 
 def _validate_property_schemas(
@@ -157,9 +154,7 @@ def _warn_missing_required_description(
 
 def _validate_additional_properties(schema: Mapping[str, Any], errors: list[str]) -> None:
     additional_properties = schema.get("additionalProperties")
-    if additional_properties is not None and not isinstance(
-        additional_properties, (bool, Mapping)
-    ):
+    if additional_properties is not None and not isinstance(additional_properties, (bool, Mapping)):
         errors.append("'additionalProperties' must be a boolean or mapping")
 
 

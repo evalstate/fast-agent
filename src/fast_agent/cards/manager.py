@@ -59,9 +59,7 @@ DEFAULT_CARD_REGISTRIES = [
     "https://github.com/fast-agent-ai/card-packs",
 ]
 
-DEFAULT_CARD_REGISTRY_URL = (
-    "https://github.com/fast-agent-ai/card-packs/blob/main/marketplace.json"
-)
+DEFAULT_CARD_REGISTRY_URL = "https://github.com/fast-agent-ai/card-packs/blob/main/marketplace.json"
 
 CARD_PACK_SOURCE_FILENAME = ".card-pack-source.json"
 CARD_PACK_SOURCE_SCHEMA_VERSION = 1
@@ -71,10 +69,13 @@ LOCAL_REVISION = "local"
 CardPackSourceOrigin = Literal["remote", "local"]
 CardPackKind = Literal["card", "bundle"]
 _CARD_PACK_KINDS: tuple[CardPackKind, ...] = ("card", "bundle")
-CardPackUpdateStatus = CommonMarketplaceUpdateStatus | Literal[
-    "invalid_local_pack",
-    "ownership_conflict",
-]
+CardPackUpdateStatus = (
+    CommonMarketplaceUpdateStatus
+    | Literal[
+        "invalid_local_pack",
+        "ownership_conflict",
+    ]
+)
 
 CardPackPublishStatus = Literal[
     "published",
@@ -90,9 +91,7 @@ CardPackPublishStatus = Literal[
 CARD_PACK_PUBLISH_SUCCESS_STATUSES: frozenset[CardPackPublishStatus] = frozenset(
     {"published", "committed", "no_changes"}
 )
-CARD_PACK_PUBLISH_FAILURE_STATUSES: frozenset[CardPackPublishStatus] = frozenset(
-    {"publish_failed"}
-)
+CARD_PACK_PUBLISH_FAILURE_STATUSES: frozenset[CardPackPublishStatus] = frozenset({"publish_failed"})
 CARD_PACK_PUBLISH_STATUS_LABELS: dict[CardPackPublishStatus, str] = {
     "published": "published",
     "committed": "committed locally",
@@ -555,7 +554,9 @@ def load_card_pack_manifest(pack_root: Path) -> CardPackManifest:
     if model.schema_version not in {1, 2}:
         raise ValueError(f"Unsupported card pack schema_version: {model.schema_version}")
 
-    agent_cards = tuple(_validate_manifest_install_path(entry) for entry in model.install.agent_cards)
+    agent_cards = tuple(
+        _validate_manifest_install_path(entry) for entry in model.install.agent_cards
+    )
     tool_cards = tuple(_validate_manifest_install_path(entry) for entry in model.install.tool_cards)
     files = tuple(_validate_manifest_install_path(entry) for entry in model.install.files)
 
@@ -2185,11 +2186,7 @@ def _conflicting_installed_paths(
     source: InstalledCardPackSource,
     owners: dict[str, set[str]],
 ) -> list[str]:
-    return [
-        path
-        for path in source.installed_files
-        if owners.get(path, set()) - {source.name}
-    ]
+    return [path for path in source.installed_files if owners.get(path, set()) - {source.name}]
 
 
 def _preview_paths(paths: Sequence[str]) -> str:
@@ -2495,7 +2492,9 @@ def _normalize_repo_path(path: str) -> str | None:
     return marketplace_provenance_io.normalize_relative_repo_path(path)
 
 
-def _clone_publish_repository(*, source: InstalledCardPackSource, destination_dir: Path) -> str | None:
+def _clone_publish_repository(
+    *, source: InstalledCardPackSource, destination_dir: Path
+) -> str | None:
     clone_args = [
         "git",
         "clone",

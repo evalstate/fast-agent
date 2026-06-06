@@ -422,7 +422,11 @@ def go(
         if noenv:
             raise typer.BadParameter("Cannot combine --pack with --noenv.", param_hint="--pack")
 
-        settings = get_settings_or_exit(config_path) if (resolved_env_dir is None or pack_registry is None) else None
+        settings = (
+            get_settings_or_exit(config_path)
+            if (resolved_env_dir is None or pack_registry is None)
+            else None
+        )
         effective_env_dir = _resolve_effective_environment_dir(
             settings=settings,
             env_dir=resolved_env_dir,

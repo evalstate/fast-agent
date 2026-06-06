@@ -313,7 +313,9 @@ def _build_schema_from_fields(arguments: dict[str, Any]) -> _ResolvedElicitation
     fields_value = arguments.get("fields")
     assert isinstance(fields_value, list)
     if len(fields_value) > 7:
-        raise ValueError(f"Error: form requests {len(fields_value)} fields; the maximum allowed is 7.")
+        raise ValueError(
+            f"Error: form requests {len(fields_value)} fields; the maximum allowed is 7."
+        )
 
     properties: dict[str, Any] = {}
     required_fields: list[str] = []
@@ -456,9 +458,7 @@ def get_elicitation_fastmcp_tool() -> FunctionTool:
             "title": title,
             "description": description,
             "message": message,
-            "fields": [
-                f.model_dump() if isinstance(f, BaseModel) else f for f in resolved_fields
-            ],
+            "fields": [f.model_dump() if isinstance(f, BaseModel) else f for f in resolved_fields],
         }
         return await run_elicitation_form(args)
 

@@ -217,7 +217,9 @@ def normalize_relative_repo_path(path: str, *, allow_current_dir: bool = False) 
 
 
 def repo_subdir_for_manifest_path(repo_path: str, manifest_filename: str) -> str:
-    path_value = normalize_relative_repo_path(repo_path, allow_current_dir=True) or repo_path.strip()
+    path_value = (
+        normalize_relative_repo_path(repo_path, allow_current_dir=True) or repo_path.strip()
+    )
     path = PurePosixPath(path_value)
     if path_name_matches(path, manifest_filename):
         return str(path.parent)

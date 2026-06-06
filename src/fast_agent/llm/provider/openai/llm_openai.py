@@ -132,9 +132,7 @@ class _ManualOpenAIStreamState:
     estimated_tokens: int = 0
     reasoning_active: bool = False
     reasoning_segments: ReasoningTextAccumulator = field(
-        default_factory=lambda: ReasoningTextAccumulator(
-            normalizer=normalize_reasoning_delta
-        )
+        default_factory=lambda: ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
     )
     accumulated_content: str = ""
     cumulative_content: str = ""
@@ -292,16 +290,12 @@ class OpenAILLM(
             return part, False
 
         filename = self._chat_file_filename(file_obj)
-        data_bytes, filename, mime_type = await self._chat_file_bytes_from_url(
-            file_url, filename
-        )
+        data_bytes, filename, mime_type = await self._chat_file_bytes_from_url(file_url, filename)
         if data_bytes is None:
             return part, False
 
         resolved_mime_type = mime_type or guess_mime_type(filename or file_url)
-        file_id = await self._upload_file_bytes(
-            client, data_bytes, filename, resolved_mime_type
-        )
+        file_id = await self._upload_file_bytes(client, data_bytes, filename, resolved_mime_type)
         return {"type": "file", "file": {"file_id": file_id}}, True
 
     async def _normalize_chat_content_parts(
@@ -344,10 +338,7 @@ class OpenAILLM(
         client: AsyncOpenAI,
         messages: list[ChatCompletionMessageParam],
     ) -> list[ChatCompletionMessageParam]:
-        return [
-            await self._normalize_chat_message_files(client, message)
-            for message in messages
-        ]
+        return [await self._normalize_chat_message_files(client, message) for message in messages]
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
@@ -574,7 +565,6 @@ class OpenAILLM(
                     },
                 )
 
-
     def _process_stream_chunk_common(
         self,
         chunk: Any,
@@ -589,7 +579,7 @@ class OpenAILLM(
         estimated_tokens: int,
     ) -> tuple[str, int, bool, str | None]:
         """Process common streaming chunk logic shared by multiple stream processing methods.
-        
+
         Returns:
             Tuple of (cumulative_content, estimated_tokens, reasoning_active, incremental_content)
         """
@@ -635,7 +625,7 @@ class OpenAILLM(
                     model=model,
                     notified_tool_indices=notified_tool_indices,
                 )
-        
+
         return cumulative_content, estimated_tokens, reasoning_active, incremental
 
     def _finalize_tool_calls_on_stop(
@@ -891,11 +881,7 @@ class OpenAILLM(
                 "id": delta_tool_call.id,
                 "type": delta_tool_call.type or "function",
                 "function": {
-                    "name": (
-                        delta_tool_call.function.name
-                        if delta_tool_call.function
-                        else None
-                    ),
+                    "name": (delta_tool_call.function.name if delta_tool_call.function else None),
                     "arguments": "",
                 },
             },
@@ -1028,9 +1014,7 @@ class OpenAILLM(
         if not state.usage_data:
             return
 
-        actual_tokens = getattr(
-            state.usage_data, "completion_tokens", state.estimated_tokens
-        )
+        actual_tokens = getattr(state.usage_data, "completion_tokens", state.estimated_tokens)
         token_str = str(actual_tokens).rjust(5)
         self.logger.info(
             "Streaming progress",
@@ -1109,9 +1093,7 @@ class OpenAILLM(
         messages: list[ChatCompletionMessageParam] = []
         system_prompt = self.instruction or request_params.systemPrompt
         if system_prompt:
-            messages.append(
-                ChatCompletionSystemMessageParam(role="system", content=system_prompt)
-            )
+            messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
         if message:
             messages.extend(cast("list[ChatCompletionMessageParam]", message))
         return messages
@@ -1129,9 +1111,7 @@ class OpenAILLM(
                     "function": {
                         "name": tool.name,
                         "description": tool.description if tool.description else "",
-                        "parameters": self.adjust_schema(
-                            tool.inputSchema, model_name=model_name
-                        ),
+                        "parameters": self.adjust_schema(tool.inputSchema, model_name=model_name),
                     },
                 }
                 for tool in tools or []

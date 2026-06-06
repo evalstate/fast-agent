@@ -102,6 +102,5 @@ async def test_get_argument_input_escapes_markup(
     assert printed == [r"  [dim]name <draft> \[local]: Use \[literal] text[/dim]"]
     assert prompts
     assert getattr(prompts[0], "value", "") == (
-        "Enter value for <ansibrightcyan>name &lt;draft&gt; [local]</ansibrightcyan> "
-        "(required): "
+        "Enter value for <ansibrightcyan>name &lt;draft&gt; [local]</ansibrightcyan> (required): "
     )

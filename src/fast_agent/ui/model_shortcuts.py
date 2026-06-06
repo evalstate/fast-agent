@@ -49,9 +49,7 @@ def _shortcut_reasoning_values(spec: ReasoningEffortSpec) -> list[str]:
         for token in available_reasoning_values(spec)
         if token != "default"
         and not (
-            token == "off"
-            and spec.kind == "effort"
-            and "none" in (spec.allowed_efforts or [])
+            token == "off" and spec.kind == "effort" and "none" in (spec.allowed_efforts or [])
         )
     ]
     if "auto" in values:

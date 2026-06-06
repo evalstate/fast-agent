@@ -1084,7 +1084,9 @@ class ModelDatabase:
         aliased = cls._preset_for_model_name(model_spec)
         if aliased:
             alias_key = strip_casefold(aliased)
-            return alias_key if alias_key in cls.MODELS else cls._normalize_parsed_model_name(aliased)
+            return (
+                alias_key if alias_key in cls.MODELS else cls._normalize_parsed_model_name(aliased)
+            )
 
         # If parsing failed, still support common "model:route" forms by stripping the suffix
         # only when the base resolves to a known database key.

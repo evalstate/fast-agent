@@ -36,6 +36,7 @@ DEFAULT_VALUE = "__default__"
 def is_model_availability(value: object) -> TypeGuard[ModelAvailability]:
     return value in MODEL_AVAILABILITIES
 
+
 PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.RESPONSES,
     Provider.OPENRESPONSES,
@@ -400,9 +401,7 @@ def build_snapshot(
                 provider=provider,
                 active=provider in active_providers,
                 curated_entries=entries,
-                display_name=(
-                    "Generic (ollama)" if provider == Provider.GENERIC else None
-                ),
+                display_name=("Generic (ollama)" if provider == Provider.GENERIC else None),
                 disabled_reason=(
                     anthropic_vertex_ready(config_payload)[1]
                     if provider == Provider.ANTHROPIC_VERTEX and provider not in active_providers
@@ -578,7 +577,9 @@ def provider_option_count_label(option: ProviderOption) -> str:
 
 def build_provider_label(option: ProviderOption) -> str:
     count_text = provider_option_count_label(option)
-    return f"{option.option_display_name:<16} [{provider_option_status_label(option)}] · {count_text}"
+    return (
+        f"{option.option_display_name:<16} [{provider_option_status_label(option)}] · {count_text}"
+    )
 
 
 def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:

@@ -73,9 +73,7 @@ class _Aggregator:
 
 
 def _skills_capabilities() -> ServerCapabilities:
-    return ServerCapabilities.model_validate(
-        {"extensions": {"io.modelcontextprotocol/skills": {}}}
-    )
+    return ServerCapabilities.model_validate({"extensions": {"io.modelcontextprotocol/skills": {}}})
 
 
 def _tar_gz(files: dict[str, bytes]) -> bytes:

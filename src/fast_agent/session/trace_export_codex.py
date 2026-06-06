@@ -401,8 +401,7 @@ def _reasoning_item(
     return {
         "type": "reasoning",
         "summary": [
-            {"type": "summary_text", "text": _sanitize_text(sanitization, text)}
-            for text in texts
+            {"type": "summary_text", "text": _sanitize_text(sanitization, text)} for text in texts
         ],
     }
 
@@ -529,8 +528,7 @@ def _web_search_fields(
         queries=[
             _sanitize_text(sanitization, item)
             for item in (
-                _string_list_field(tool_input, "queries")
-                or _string_list_field(payload, "queries")
+                _string_list_field(tool_input, "queries") or _string_list_field(payload, "queries")
             )
         ],
         url=_string_field(tool_input, "url") or _string_field(payload, "url"),
@@ -578,11 +576,7 @@ def _web_search_action(
     sanitization: _TextSanitization | None = None,
 ) -> dict[str, object] | None:
     fields = _web_search_fields(payload, sanitization)
-    return (
-        _open_page_action(fields)
-        or _find_in_page_action(fields)
-        or _search_action(fields)
-    )
+    return _open_page_action(fields) or _find_in_page_action(fields) or _search_action(fields)
 
 
 def _server_tool_response_items(
@@ -1141,9 +1135,7 @@ def _turn_complete_payload(
         "type": "task_complete",
         "turn_id": turn_id,
         "last_agent_message": (
-            None
-            if last_agent_message is None
-            else _sanitize_text(sanitization, last_agent_message)
+            None if last_agent_message is None else _sanitize_text(sanitization, last_agent_message)
         ),
     }
     completed_at_timestamp = _timestamp_or_none(completed_at)

@@ -716,7 +716,9 @@ def _append_channel_timeline(
     bucket_count = (
         len(channel.activity_buckets)
         if channel is not None and channel.activity_buckets
-        else channel.activity_bucket_count if channel else None
+        else channel.activity_bucket_count
+        if channel
+        else None
     )
     if not bucket_count or bucket_count <= 0:
         bucket_count = layout.default_bucket_count
@@ -726,7 +728,9 @@ def _append_channel_timeline(
         style="dim",
     )
 
-    bucket_states = channel.activity_buckets if channel is not None and channel.activity_buckets else []
+    bucket_states = (
+        channel.activity_buckets if channel is not None and channel.activity_buckets else []
+    )
     if bucket_states:
         color_map = _timeline_color_map(is_stdio=layout.is_stdio)
         for bucket_state in bucket_states:
@@ -776,7 +780,9 @@ def _append_channel_metrics(
         line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
         return
 
-    ping_style = Colours.TEXT_DEFAULT if channel is not None and channel.ping_count else Colours.TEXT_DIM
+    ping_style = (
+        Colours.TEXT_DEFAULT if channel is not None and channel.ping_count else Colours.TEXT_DIM
+    )
     line.append("  ", style="dim")
     line.append(req, style=metrics_style)
     line.append(" ", style="dim")
@@ -875,7 +881,9 @@ def _render_channel_footer(
     *,
     is_stdio: bool,
 ) -> None:
-    has_timelines = any(entry.channel is not None and entry.channel.activity_buckets for entry in entries)
+    has_timelines = any(
+        entry.channel is not None and entry.channel.activity_buckets for entry in entries
+    )
     if has_timelines:
         empty_before = Text(indent)
         empty_before.append("│", style="dim")
@@ -903,7 +911,11 @@ def _render_channel_footer(
         for index, (name, color) in enumerate(legend_map):
             if index > 0:
                 footer.append(" ", style="dim")
-            symbol = SYMBOL_STDIO_ACTIVITY if is_stdio and name == "activity" else _timeline_symbol_for_state(name, is_stdio=is_stdio)
+            symbol = (
+                SYMBOL_STDIO_ACTIVITY
+                if is_stdio and name == "activity"
+                else _timeline_symbol_for_state(name, is_stdio=is_stdio)
+            )
             footer.append(symbol, style=color)
             footer.append(f" {name}", style="dim")
 
@@ -1007,13 +1019,17 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
     meta_fields = [
         _build_aligned_field(
             "name",
-            _truncate_detail(status.implementation_name or status.server_name or "unknown", max_len=30),
+            _truncate_detail(
+                status.implementation_name or status.server_name or "unknown", max_len=30
+            ),
         )
     ]
 
     version_display = status.implementation_version or ""
     if version_display:
-        meta_fields.append(_build_aligned_field("version", _truncate_detail(version_display, max_len=12)))
+        meta_fields.append(
+            _build_aligned_field("version", _truncate_detail(version_display, max_len=12))
+        )
 
     for index, field in enumerate(meta_fields):
         if index:

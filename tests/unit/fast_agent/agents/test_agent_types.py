@@ -48,11 +48,7 @@ def test_instruction_propagates_to_default_request_params():
     a user provides their own default_request_params.
     """
     # Create RequestParams with custom settings but no systemPrompt
-    request_params = RequestParams(
-        model="sonnet",
-        temperature=0.7,
-        maxTokens=32768
-    )
+    request_params = RequestParams(model="sonnet", temperature=0.7, maxTokens=32768)
 
     # Verify systemPrompt is not set initially
     assert request_params.systemPrompt is None
@@ -63,7 +59,7 @@ def test_instruction_propagates_to_default_request_params():
         name="my_agent",
         instruction=instruction,
         default_request_params=request_params,
-        model="sonnet"
+        model="sonnet",
     )
 
     # The instruction should be propagated to default_request_params.systemPrompt
@@ -197,10 +193,7 @@ def test_instruction_takes_precedence_over_systemPrompt():
     # Create RequestParams with a systemPrompt already set
     original_system_prompt = "You are a generic assistant from RequestParams."
     request_params = RequestParams(
-        model="sonnet",
-        temperature=0.7,
-        maxTokens=32768,
-        systemPrompt=original_system_prompt
+        model="sonnet", temperature=0.7, maxTokens=32768, systemPrompt=original_system_prompt
     )
 
     # Verify systemPrompt is set initially
@@ -212,7 +205,7 @@ def test_instruction_takes_precedence_over_systemPrompt():
         name="my_agent",
         instruction=instruction,
         default_request_params=request_params,
-        model="sonnet"
+        model="sonnet",
     )
 
     # The AgentConfig.instruction should take precedence over systemPrompt in RequestParams

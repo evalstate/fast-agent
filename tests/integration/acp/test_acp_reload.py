@@ -114,9 +114,7 @@ async def test_acp_reload_agent_cards(tmp_path: Path) -> None:
         session_id = session_response.session_id
 
         start_index = len(client.notifications)
-        response = await connection.prompt(
-            session_id=session_id, prompt=[text_block("/reload")]
-        )
+        response = await connection.prompt(session_id=session_id, prompt=[text_block("/reload")])
         assert _get_stop_reason(response) == "end_turn"
         await _wait_for_message_text(
             client,
@@ -129,9 +127,7 @@ async def test_acp_reload_agent_cards(tmp_path: Path) -> None:
         await asyncio.sleep(0.05)
 
         start_index = len(client.notifications)
-        response = await connection.prompt(
-            session_id=session_id, prompt=[text_block("/reload")]
-        )
+        response = await connection.prompt(session_id=session_id, prompt=[text_block("/reload")])
         assert _get_stop_reason(response) == "end_turn"
         await _wait_for_message_text(
             client,

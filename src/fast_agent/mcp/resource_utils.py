@@ -204,11 +204,7 @@ def _parse_resource_marker_header(header: str) -> _ResourceMarkerHeader | None:
 
 
 def parse_resource_marker(text: str) -> EmbeddedResource | None:
-    if (
-        not text
-        or not text.startswith(RESOURCE_MARKER_PREFIXES)
-        or "\n" not in text
-    ):
+    if not text or not text.startswith(RESOURCE_MARKER_PREFIXES) or "\n" not in text:
         return None
 
     header, content_text = text.split("\n", 1)

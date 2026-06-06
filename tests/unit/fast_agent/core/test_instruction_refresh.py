@@ -240,9 +240,7 @@ def test_build_instruction_with_model_specific_context() -> None:
     )
     context = build_agent_instruction_context(cast("InstructionContextAgent", agent))
 
-    result = asyncio.run(
-        build_instruction("Base\n{{model_specific}}", context=context)
-    )
+    result = asyncio.run(build_instruction("Base\n{{model_specific}}", context=context))
 
     assert "Before making tool calls, send a brief preamble" in result
     assert "{{model_specific}}" not in result
@@ -260,7 +258,10 @@ def test_resolve_instruction_skill_manifests_inherits_shared_context_for_default
     agent = StubAgent()
     agent.set_instruction_context({"agentSkills": "shared skills"})
 
-    assert resolve_instruction_skill_manifests(cast("ConfiguredMcpInstructionCapable", agent), []) is None
+    assert (
+        resolve_instruction_skill_manifests(cast("ConfiguredMcpInstructionCapable", agent), [])
+        is None
+    )
 
 
 def test_resolve_instruction_skill_manifests_blanks_default_skills_without_shared_context() -> None:
@@ -272,7 +273,9 @@ def test_resolve_instruction_skill_manifests_blanks_default_skills_without_share
     )
 
     assert resolved_manifests == []
-    result = asyncio.run(build_instruction("Skills:\n{{agentSkills}}", skill_manifests=resolved_manifests))
+    result = asyncio.run(
+        build_instruction("Skills:\n{{agentSkills}}", skill_manifests=resolved_manifests)
+    )
     assert "{{agentSkills}}" not in result
 
 

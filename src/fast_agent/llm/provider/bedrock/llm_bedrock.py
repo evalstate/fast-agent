@@ -209,9 +209,7 @@ class BedrockStreamState:
     response_content: list[str] = field(default_factory=list)
     tool_uses: list[dict[str, Any]] = field(default_factory=list)
     stop_reason: str | None = None
-    usage: dict[str, Any] = field(
-        default_factory=lambda: {"input_tokens": 0, "output_tokens": 0}
-    )
+    usage: dict[str, Any] = field(default_factory=lambda: {"input_tokens": 0, "output_tokens": 0})
 
 
 def _extract_tool_call_payload(value: object) -> tuple[str, dict[str, object]] | None:
@@ -551,9 +549,13 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             self.aws_region = self.aws_region or bedrock_config.region
             self.aws_profile = self.aws_profile or bedrock_config.profile
 
-        self.aws_region = self.aws_region or os.environ.get("AWS_REGION") or os.environ.get(
-            "AWS_DEFAULT_REGION",
-            "us-east-1",
+        self.aws_region = (
+            self.aws_region
+            or os.environ.get("AWS_REGION")
+            or os.environ.get(
+                "AWS_DEFAULT_REGION",
+                "us-east-1",
+            )
         )
         self.aws_profile = self.aws_profile or os.environ.get("AWS_PROFILE")
 
@@ -903,7 +905,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 # Single value argument - try to map to appropriate parameter name
                 value = args_str.strip("\"'")
                 # Handle common single-parameter functions
-                arguments = {"location": value} if func_name == "check_weather" else {"value": value}
+                arguments = (
+                    {"location": value} if func_name == "check_weather" else {"value": value}
+                )
         except Exception as e:
             self.logger.warning(f"Failed to parse tool arguments: {args_str} - {e}")
         return arguments
@@ -1050,9 +1054,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             return native_tool_uses
 
         # Family-agnostic fallback: parse JSON array embedded in text
-        parsed_calls = _bedrock_json_array_tool_calls(
-            _bedrock_response_text(processed_response)
-        )
+        parsed_calls = _bedrock_json_array_tool_calls(_bedrock_response_text(processed_response))
         if parsed_calls:
             return parsed_calls
 
@@ -1418,9 +1420,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         state: BedrockStreamState,
     ) -> BedrockMessage:
         full_text = "".join(state.response_content)
-        response_content_items: list[dict[str, Any]] = (
-            [{"text": full_text}] if full_text else []
-        )
+        response_content_items: list[dict[str, Any]] = [{"text": full_text}] if full_text else []
 
         if state.tool_uses:
             self._finalize_stream_tool_inputs(state, final=True)
@@ -1784,7 +1784,11 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
     def _inject_orphaned_tool_results(self, messages: list[BedrockMessageParam]) -> None:
         for msg_idx, msg in enumerate(list(messages)):
-            if not isinstance(msg, dict) or msg.get("role") != "assistant" or not msg.get("content"):
+            if (
+                not isinstance(msg, dict)
+                or msg.get("role") != "assistant"
+                or not msg.get("content")
+            ):
                 continue
 
             tool_use_ids = self._tool_use_ids(msg)
@@ -2235,9 +2239,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             )
         except _BOTOCORE_ERRORS as exc:
             last_error_msg = str(exc)
-            self.logger.debug(
-                f"Bedrock API error after non-streaming fallback: {last_error_msg}"
-            )
+            self.logger.debug(f"Bedrock API error after non-streaming fallback: {last_error_msg}")
             return BedrockFallbackResult(last_error_msg=last_error_msg, attempted=True)
 
     async def _try_system_inject_fallback(
@@ -2299,9 +2301,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             )
         except _BOTOCORE_ERRORS as exc:
             last_error_msg = str(exc)
-            self.logger.debug(
-                f"Bedrock API error after system inject fallback: {last_error_msg}"
-            )
+            self.logger.debug(f"Bedrock API error after system inject fallback: {last_error_msg}")
             return BedrockFallbackResult(last_error_msg=last_error_msg, attempted=True)
 
     def _bedrock_completion_inputs(
@@ -2341,9 +2341,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         caps.schema = ToolSchemaType.NONE
         self.capabilities[model] = caps
         return {
-            "content": [
-                {"text": f"Error during generation: {last_error_msg or 'Unknown error'}"}
-            ],
+            "content": [{"text": f"Error during generation: {last_error_msg or 'Unknown error'}"}],
             "stop_reason": "error",
             "usage": {"input_tokens": 0, "output_tokens": 0},
             "model": model,
@@ -2560,9 +2558,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             return json.dumps(schema, indent=2)
         return self.schema_to_schema_str(schema)
 
-    def _structured_json_params(
-        self, request_params: RequestParams | None
-    ) -> RequestParams:
+    def _structured_json_params(self, request_params: RequestParams | None) -> RequestParams:
         return self.get_request_params(request_params).model_copy(
             update={"structured_schema": None, "temperature": 0.0}
         )
@@ -2598,9 +2594,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         try:
             if not multipart_messages or multipart_messages[-1].role != "assistant":
                 return None
-            parsed_model, parsed_mp = self._structured_from_multipart(
-                multipart_messages[-1], model
-            )
+            parsed_model, parsed_mp = self._structured_from_multipart(multipart_messages[-1], model)
             if parsed_model is None:
                 return None
             return parsed_model, parsed_mp
@@ -2759,9 +2753,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         return messages, request_params.model_copy(update={"structured_schema": None})
 
     def _clean_json_response(self, text: str) -> str:
-        """Clean up JSON response by removing text before first { and after last }.
-
-        """
+        """Clean up JSON response by removing text before first { and after last }."""
         if not text:
             return text
 

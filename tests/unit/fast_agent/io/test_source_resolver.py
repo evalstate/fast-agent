@@ -90,7 +90,9 @@ def test_read_text_source_delegates_hf_scheme(monkeypatch):
 
     monkeypatch.setattr(source_resolver, "_read_hf_text_source", fake_read_hf_text_source)
 
-    assert read_text_source("hf://buckets/evalstate/home/demo.md", label="prompt file") == "delegated"
+    assert (
+        read_text_source("hf://buckets/evalstate/home/demo.md", label="prompt file") == "delegated"
+    )
     assert calls == [("hf://buckets/evalstate/home/demo.md", "prompt file")]
 
 
@@ -153,7 +155,9 @@ def test_materialized_text_source_removes_remote_temp_file(monkeypatch):
 
     monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
 
-    with materialized_text_source("hf://buckets/evalstate/home/demo.md", label="prompt file") as path:
+    with materialized_text_source(
+        "hf://buckets/evalstate/home/demo.md", label="prompt file"
+    ) as path:
         assert path.exists()
         assert path.read_text(encoding="utf-8") == "hf prompt"
 

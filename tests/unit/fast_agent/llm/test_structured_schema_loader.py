@@ -11,9 +11,7 @@ from fast_agent.llm.structured_schema import (
 
 def _write_schema_module(tmp_path: Path) -> None:
     (tmp_path / "schema_models.py").write_text(
-        "from pydantic import BaseModel\n"
-        "class Answer(BaseModel):\n"
-        "    value: str\n",
+        "from pydantic import BaseModel\nclass Answer(BaseModel):\n    value: str\n",
         encoding="utf-8",
     )
 

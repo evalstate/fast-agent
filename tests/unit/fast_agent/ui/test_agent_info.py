@@ -24,9 +24,18 @@ from fast_agent.ui.prompt.agent_info import (
 
 
 def test_format_dim_count_pluralizes_and_keeps_suffix_inside_dim_markup() -> None:
-    assert _format_dim_count(1, "tool", suffix=", ") == "[bold bright_cyan]1[/bold bright_cyan][dim] tool, [/dim]"
-    assert _format_dim_count(2, "tool", suffix=" available") == "[bold bright_cyan]2[/bold bright_cyan][dim] tools available[/dim]"
-    assert _format_dim_count(1_200, "tool") == "[bold bright_cyan]1,200[/bold bright_cyan][dim] tools[/dim]"
+    assert (
+        _format_dim_count(1, "tool", suffix=", ")
+        == "[bold bright_cyan]1[/bold bright_cyan][dim] tool, [/dim]"
+    )
+    assert (
+        _format_dim_count(2, "tool", suffix=" available")
+        == "[bold bright_cyan]2[/bold bright_cyan][dim] tools available[/dim]"
+    )
+    assert (
+        _format_dim_count(1_200, "tool")
+        == "[bold bright_cyan]1,200[/bold bright_cyan][dim] tools[/dim]"
+    )
 
 
 def test_format_installed_skill_count_uses_clear_installed_wording() -> None:

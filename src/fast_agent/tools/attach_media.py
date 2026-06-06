@@ -97,9 +97,7 @@ def model_supports_attach_media(model_info: ModelInfo | None) -> bool:
 def normalize_attach_media_max_bytes(value: object) -> int:
     max_bytes = positive_int_or_none(value)
     if max_bytes is None:
-        raise ValueError(
-            "attach media maximum size must be an integer greater than or equal to 1"
-        )
+        raise ValueError("attach media maximum size must be an integer greater than or equal to 1")
     return max_bytes
 
 

@@ -574,8 +574,7 @@ class WebSocketResponsesStream:
         diagnostics = self._close_diagnostics(close_code, close_reason)
         detail = "; ".join(diagnostics)
         raise ResponsesWebSocketError(
-            "WebSocket stream closed before completion event"
-            + (f" ({detail})" if detail else ""),
+            "WebSocket stream closed before completion event" + (f" ({detail})" if detail else ""),
             stream_started=self._stream_started,
         )
 
@@ -695,9 +694,7 @@ class WebSocketResponsesStream:
         self._raise_payload_error(payload)
 
     def _raise_payload_error(self, payload: Mapping[str, Any]) -> None:
-        error_message, error_code, error_status, error_param = self._extract_error_details(
-            payload
-        )
+        error_message, error_code, error_status, error_param = self._extract_error_details(payload)
         raise ResponsesWebSocketError(
             error_message,
             stream_started=self._stream_started,

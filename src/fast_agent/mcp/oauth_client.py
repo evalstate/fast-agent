@@ -237,7 +237,9 @@ class _CallbackServer:
     ) -> None:
         self._preferred_port = port
         self._path = path.rstrip("/") or "/callback"
-        self._fallback_ports = list(self.FALLBACK_PORTS if fallback_ports is None else fallback_ports)
+        self._fallback_ports = list(
+            self.FALLBACK_PORTS if fallback_ports is None else fallback_ports
+        )
         self._result = _CallbackResult()
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -293,8 +295,7 @@ class _CallbackServer:
                 return
 
         raise OSError(
-            f"Could not bind to any port. Tried: {ports_to_try}. "
-            "All ports may be in use."
+            f"Could not bind to any port. Tried: {ports_to_try}. All ports may be in use."
         )
 
     def stop(self) -> None:
@@ -356,8 +357,7 @@ def _select_preferred_redirect_port(preferred_port: int) -> int:
                 sock.close()
 
     raise OSError(
-        f"Could not reserve any redirect port. Tried: {ports_to_try}. "
-        "All ports may be in use."
+        f"Could not reserve any redirect port. Tried: {ports_to_try}. All ports may be in use."
     )
 
 
@@ -527,10 +527,13 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
             return None
 
         client_metadata_url = self.context.client_metadata_url
-        if should_use_client_metadata_url(
-            self.context.oauth_metadata,
-            client_metadata_url,
-        ) and client_metadata_url is not None:
+        if (
+            should_use_client_metadata_url(
+                self.context.oauth_metadata,
+                client_metadata_url,
+            )
+            and client_metadata_url is not None
+        ):
             logger.debug(f"Using URL-based client ID (CIMD): {client_metadata_url}")
             await self._store_client_info(
                 create_client_info_from_metadata_url(
@@ -1202,9 +1205,7 @@ def _oauth_redirect_uris(
     for port in _CallbackServer.FALLBACK_PORTS:
         if port != 0 and port not in ports_for_registration:
             ports_for_registration.append(port)
-    return [
-        AnyUrl(f"http://127.0.0.1:{port}{redirect_path}") for port in ports_for_registration
-    ]
+    return [AnyUrl(f"http://127.0.0.1:{port}{redirect_path}") for port in ports_for_registration]
 
 
 def _oauth_client_metadata(

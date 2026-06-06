@@ -20,11 +20,7 @@ def _write_skill(root: Path, name: str) -> Path:
     skill_dir = root / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
-        "---\n"
-        f"name: {name}\n"
-        "description: Test skill\n"
-        "---\n\n"
-        "body\n",
+        f"---\nname: {name}\ndescription: Test skill\n---\n\nbody\n",
         encoding="utf-8",
     )
     return skill_dir
@@ -202,9 +198,8 @@ def test_render_marketplace_skills_escapes_backticks_in_repository() -> None:
 
 
 def test_render_marketplace_skills_strips_and_omits_blank_repository() -> None:
-    assert (
-        "Repository: `repo`"
-        in render_marketplace_skills([], heading="skills available", repository=" repo ")
+    assert "Repository: `repo`" in render_marketplace_skills(
+        [], heading="skills available", repository=" repo "
     )
     assert "Repository:" not in render_marketplace_skills(
         [],

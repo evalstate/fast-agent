@@ -44,9 +44,7 @@ def test_tool_kind_keywords_are_unique_across_ordered_groups() -> None:
         ("process_data", "other"),
     ],
 )
-def test_infer_tool_kind_uses_ordered_keyword_groups(
-    tool_name: str, expected: "ToolKind"
-) -> None:
+def test_infer_tool_kind_uses_ordered_keyword_groups(tool_name: str, expected: "ToolKind") -> None:
     assert infer_tool_kind(tool_name) == expected
 
 

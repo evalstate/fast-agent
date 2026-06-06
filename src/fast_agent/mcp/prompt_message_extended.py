@@ -41,7 +41,6 @@ class PromptMessageExtended(BaseModel):
             self.timestamp = at or datetime.now(timezone.utc)
         return self
 
-
     @classmethod
     def to_extended(cls, messages: list[PromptMessage]) -> list["PromptMessageExtended"]:
         """Convert a sequence of PromptMessages into PromptMessageExtended objects."""

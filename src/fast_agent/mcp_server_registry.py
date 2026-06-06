@@ -167,12 +167,12 @@ class ServerRegistry:
                     yield session
 
         try:
-            async with _initialized_session(oauth_mode == 'force') as session:
+            async with _initialized_session(oauth_mode == "force") as session:
                 yield session
         except Exception as exc:
-            if oauth_mode == 'auto' and _is_http_auth_challenge_error(exc):
+            if oauth_mode == "auto" and _is_http_auth_challenge_error(exc):
                 logger.info(
-                    '%s: Received authentication challenge during probe; retrying with OAuth enabled',
+                    "%s: Received authentication challenge during probe; retrying with OAuth enabled",
                     server_name,
                 )
                 async with _initialized_session(True) as session:

@@ -149,8 +149,7 @@ def constrained_viterbi(token_scores: list[list[float]], labels: list[str]) -> l
         backpointers.append(current_backpointers)
 
     final_scores = [
-        score if valid_end[index] else IMPOSSIBLE
-        for index, score in enumerate(scores[-1])
+        score if valid_end[index] else IMPOSSIBLE for index, score in enumerate(scores[-1])
     ]
     last = max(range(label_count), key=lambda index: final_scores[index])
     path = [last]

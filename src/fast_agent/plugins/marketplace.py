@@ -56,19 +56,10 @@ class MarketplacePluginEntryModel(MarketplaceEntryFieldsModel):
             if source_url_value_is_url
             else None
         )
-        if (
-            source_url_value
-            and repo_path
-            and not source_url
-            and not repo_url
-        ):
+        if source_url_value and repo_path and not source_url and not repo_url:
             repo_url = source_url_value
             source_url = source_url_value
-        source_path = (
-            source_value
-            if not source_value_is_url
-            else None
-        )
+        source_path = source_value if not source_value_is_url else None
 
         resolved_fields = marketplace_source_urls.repo_fields_from_source_url(
             repo_url=repo_url,

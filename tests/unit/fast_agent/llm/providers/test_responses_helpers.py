@@ -376,7 +376,11 @@ class _LoggerSpy:
 
 
 def _load_reasoning_summary_trace_response() -> Response:
-    repo_root = next(parent for parent in Path(__file__).resolve().parents if (parent / "tests" / "support").is_dir())
+    repo_root = next(
+        parent
+        for parent in Path(__file__).resolve().parents
+        if (parent / "tests" / "support").is_dir()
+    )
     trace_path = (
         repo_root
         / "tests"
@@ -1278,7 +1282,9 @@ def test_convert_extended_messages_to_provider_uses_raw_mcp_list_tools_items_cha
     message = PromptMessageExtended(
         role="assistant",
         content=[TextContent(type="text", text="Final answer")],
-        channels={OPENAI_MCP_LIST_TOOLS_ITEMS: [TextContent(type="text", text=json.dumps(raw_item))]},
+        channels={
+            OPENAI_MCP_LIST_TOOLS_ITEMS: [TextContent(type="text", text=json.dumps(raw_item))]
+        },
     )
 
     items = harness._convert_extended_messages_to_provider([message])
@@ -1347,8 +1353,7 @@ def test_extract_reasoning_summary_preserves_markdown_heading_paragraph_breaks()
     assert len(blocks) == 1
     assert isinstance(blocks[0], TextContent)
     assert (
-        blocks[0].text
-        == "**Deciding on naming and implementation**\n\n"
+        blocks[0].text == "**Deciding on naming and implementation**\n\n"
         "I think I should prepare an implementation checklist, "
         "needing just one or two from them.\n\n"
         "**Identifying key decisions**\n\n"
@@ -2240,9 +2245,7 @@ def test_extract_web_search_metadata_captures_tool_and_citations() -> None:
 def test_web_citation_dedupe_key_casefolds_metadata() -> None:
     assert ResponsesOutputMixin._web_citation_dedupe_key(
         {"title": " Straße ", "source": " WEB "}
-    ) == ResponsesOutputMixin._web_citation_dedupe_key(
-        {"title": "strasse", "source": "web"}
-    )
+    ) == ResponsesOutputMixin._web_citation_dedupe_key({"title": "strasse", "source": "web"})
 
 
 def test_extract_provider_mcp_metadata_captures_remote_activity() -> None:
@@ -2856,9 +2859,7 @@ async def test_stream_process_emits_mcp_status_events_with_mcp_copy() -> None:
 
     await harness._process_stream(stream, model="gpt-test", capture_filename=None)
 
-    status_payloads = [
-        payload for event_type, payload in harness.events if event_type == "status"
-    ]
+    status_payloads = [payload for event_type, payload in harness.events if event_type == "status"]
     assert status_payloads
     assert status_payloads[0]["presentation_family"] == "remote_tool_listing"
     assert status_payloads[0]["tool_display_name"] == "Loading remote tools"
@@ -2926,7 +2927,9 @@ async def test_stream_process_emits_named_mcp_call_result_events() -> None:
     assert replace_payloads[-1]["tool_display_name"] == "remote tool: create_payment_link"
     assert "https://pay.stripe.com/test" in replace_payloads[-1]["chunk"]
 
-    stop_indices = [index for index, (event, _payload) in enumerate(harness.events) if event == "stop"]
+    stop_indices = [
+        index for index, (event, _payload) in enumerate(harness.events) if event == "stop"
+    ]
     assert len(stop_indices) == 1
     last_replace_index = max(
         index for index, (event, _payload) in enumerate(harness.events) if event == "replace"

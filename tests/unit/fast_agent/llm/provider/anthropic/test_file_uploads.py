@@ -89,7 +89,9 @@ async def test_prepare_anthropic_file_resources_caches_repeated_uploads() -> Non
         blob=blob,
     )
     messages = [
-        PromptMessageExtended(role="user", content=[EmbeddedResource(type="resource", resource=first)]),
+        PromptMessageExtended(
+            role="user", content=[EmbeddedResource(type="resource", resource=first)]
+        ),
         PromptMessageExtended(
             role="user", content=[EmbeddedResource(type="resource", resource=second)]
         ),

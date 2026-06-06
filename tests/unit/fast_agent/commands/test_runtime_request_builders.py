@@ -122,7 +122,7 @@ def test_build_agent_run_request_skips_invalid_stdio_commands(capsys) -> None:
         prompt_file=None,
         result_file=None,
         resume=None,
-        stdio_commands=["python good.py", "python \"unterminated", ""],
+        stdio_commands=["python good.py", 'python "unterminated', ""],
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
@@ -544,7 +544,9 @@ def test_build_command_run_request_rejects_message_and_prompt_file() -> None:
 
 
 def test_build_command_run_request_rejects_json_schema_without_one_shot_input() -> None:
-    with pytest.raises(typer.BadParameter, match="--json-schema requires --message or --prompt-file"):
+    with pytest.raises(
+        typer.BadParameter, match="--json-schema requires --message or --prompt-file"
+    ):
         build_command_run_request(
             name="cli",
             instruction_option=None,
@@ -573,7 +575,9 @@ def test_build_command_run_request_rejects_json_schema_without_one_shot_input() 
 
 
 def test_build_command_run_request_rejects_json_schema_with_multi_model() -> None:
-    with pytest.raises(typer.BadParameter, match="Cannot combine --json-schema with multiple models"):
+    with pytest.raises(
+        typer.BadParameter, match="Cannot combine --json-schema with multiple models"
+    ):
         build_command_run_request(
             name="cli",
             instruction_option=None,
@@ -634,7 +638,9 @@ def test_build_command_run_request_accepts_schema_model_for_one_shot() -> None:
 
 
 def test_build_command_run_request_rejects_json_schema_with_schema_model() -> None:
-    with pytest.raises(typer.BadParameter, match="Cannot combine --json-schema with --schema-model"):
+    with pytest.raises(
+        typer.BadParameter, match="Cannot combine --json-schema with --schema-model"
+    ):
         build_command_run_request(
             name="cli",
             instruction_option=None,
@@ -756,11 +762,14 @@ def test_build_command_run_request_rejects_invalid_structured_tool_policy() -> N
 
 
 def test_resolve_smart_agent_enabled_disables_smart_for_multi_model_even_when_forced() -> None:
-    assert resolve_smart_agent_enabled(
-        "gpt-4.1,claude-sonnet-4-5",
-        "interactive",
-        force_smart=True,
-    ) is False
+    assert (
+        resolve_smart_agent_enabled(
+            "gpt-4.1,claude-sonnet-4-5",
+            "interactive",
+            force_smart=True,
+        )
+        is False
+    )
 
 
 def test_build_agent_run_request_rejects_multi_model_with_explicit_cards() -> None:

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from .session_manager import SessionInfo
 
+
 class SessionListMode(StrEnum):
     COMPACT = "compact"
     VERBOSE = "verbose"
@@ -43,9 +44,7 @@ def _history_agent_names(metadata: Mapping[str, object]) -> list[str]:
     if not isinstance(history_map, Mapping):
         return []
     return sorted(
-        agent_name
-        for key in history_map
-        if (agent_name := _metadata_text(key)) is not None
+        agent_name for key in history_map if (agent_name := _metadata_text(key)) is not None
     )
 
 
@@ -162,8 +161,8 @@ def format_session_entries(
 
         display_name = display_session_name(session_info.name)
 
-        current_marker = " \U0001F7E2" if is_current else ""
-        pin_marker = " \U0001F4CC" if is_session_pinned(session_info) else ""
+        current_marker = " \U0001f7e2" if is_current else ""
+        pin_marker = " \U0001f4cc" if is_session_pinned(session_info) else ""
         created = session_info.created_at.strftime("%Y-%m-%d %H:%M")
         last_activity = session_info.last_activity.strftime("%Y-%m-%d %H:%M")
         history_count = len(session_info.history_files)
@@ -180,6 +179,5 @@ def format_history_summary(summary: "Mapping[str, int]") -> str:
     if not summary:
         return ""
     return ", ".join(
-        f"{agent} ({format_count(count, 'message')})"
-        for agent, count in sorted(summary.items())
+        f"{agent} ({format_count(count, 'message')})" for agent, count in sorted(summary.items())
     )

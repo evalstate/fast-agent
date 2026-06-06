@@ -36,7 +36,7 @@ class SessionHydrationPolicy:
     restore_runtime_state: bool = True
 
     @classmethod
-    def for_refresh(cls) -> 'SessionHydrationPolicy':
+    def for_refresh(cls) -> "SessionHydrationPolicy":
         return cls(
             restore_transcript=True,
             restore_usage=True,
@@ -185,7 +185,9 @@ class SessionHydrator:
                 warnings=state.warnings,
             )
         if policy.restore_transcript:
-            self._restore_agent_transcript(session, agent_name, agent, agent_snapshot, policy, state)
+            self._restore_agent_transcript(
+                session, agent_name, agent, agent_snapshot, policy, state
+            )
         if policy.restore_prompt:
             self._restore_agent_prompt(agent_name, agent, agent_snapshot, state)
 
@@ -194,7 +196,7 @@ class SessionHydrator:
         state.skipped_agents.append(agent_name)
         state.warnings.append(
             SessionHydrationWarning(
-                code='missing-agent',
+                code="missing-agent",
                 message=f"Persisted agent {agent_name!r} is not available in this runtime",
                 agent_name=agent_name,
             )
@@ -218,7 +220,7 @@ class SessionHydrator:
             state.missing_history_files.append(history_file)
             state.warnings.append(
                 SessionHydrationWarning(
-                    code='missing-history-file',
+                    code="missing-history-file",
                     message=(
                         f"Persisted history file {history_file!r} is missing for agent"
                         f" {agent_name!r}"
@@ -234,7 +236,7 @@ class SessionHydrator:
         except Exception as exc:
             state.warnings.append(
                 SessionHydrationWarning(
-                    code='history-load-failed',
+                    code="history-load-failed",
                     message=f"Failed to restore history for agent {agent_name!r}: {exc}",
                     agent_name=agent_name,
                     ref=history_file,
@@ -274,7 +276,7 @@ class SessionHydrator:
         except Exception as exc:
             state.warnings.append(
                 SessionHydrationWarning(
-                    code='prompt-restore-failed',
+                    code="prompt-restore-failed",
                     message=f"Failed to restore prompt for agent {agent_name!r}: {exc}",
                     agent_name=agent_name,
                 )
@@ -324,7 +326,7 @@ class SessionHydrator:
         except Exception as exc:
             warnings.append(
                 SessionHydrationWarning(
-                    code='model-restore-failed',
+                    code="model-restore-failed",
                     message=f"Failed to restore model for agent {agent_name!r}: {exc}",
                     agent_name=agent_name,
                     ref=model_spec,
@@ -346,7 +348,7 @@ class SessionHydrator:
         except Exception as exc:
             warnings.append(
                 SessionHydrationWarning(
-                    code='request-settings-restore-failed',
+                    code="request-settings-restore-failed",
                     message=f"Failed to restore request settings for agent {agent_name!r}: {exc}",
                     agent_name=agent_name,
                 )
@@ -372,7 +374,7 @@ class SessionHydrator:
             except Exception as exc:
                 warnings.append(
                     SessionHydrationWarning(
-                        code='attachment-restore-failed',
+                        code="attachment-restore-failed",
                         message=(
                             f"Failed to restore MCP attachment {server_name!r} for agent"
                             f" {agent_name!r}: {exc}"
@@ -405,7 +407,7 @@ class SessionHydrator:
             if child_agent is None:
                 warnings.append(
                     SessionHydrationWarning(
-                        code='attachment-restore-missing-agent',
+                        code="attachment-restore-missing-agent",
                         message=(
                             f"Persisted agent tool {child_name!r} for agent {agent_name!r}"
                             " is not available in this runtime"
@@ -421,7 +423,7 @@ class SessionHydrator:
             except Exception as exc:
                 warnings.append(
                     SessionHydrationWarning(
-                        code='attachment-restore-failed',
+                        code="attachment-restore-failed",
                         message=(
                             f"Failed to restore agent tool {child_name!r} for agent"
                             f" {agent_name!r}: {exc}"
@@ -460,8 +462,8 @@ class SessionHydrator:
         if model_name is None:
             return None
         provider_name = agent_snapshot.provider
-        if provider_name is not None and not model_name.startswith(f'{provider_name}.'):
-            return f'{provider_name}.{model_name}'
+        if provider_name is not None and not model_name.startswith(f"{provider_name}."):
+            return f"{provider_name}.{model_name}"
         return model_name
 
     def _resolve_overlay_model_spec(
@@ -487,7 +489,7 @@ class SessionHydrator:
         except Exception as exc:
             warnings.append(
                 SessionHydrationWarning(
-                    code='overlay-restore-failed',
+                    code="overlay-restore-failed",
                     message=f"Failed to load model overlays for agent {agent_name!r}: {exc}",
                     agent_name=agent_name,
                     ref=overlay_ref,
@@ -501,7 +503,7 @@ class SessionHydrator:
 
         warnings.append(
             SessionHydrationWarning(
-                code='overlay-restore-missing',
+                code="overlay-restore-missing",
                 message=(
                     f"Persisted model overlay {overlay_ref!r} is not available for agent"
                     f" {agent_name!r}"
@@ -574,9 +576,9 @@ class SessionHydrator:
         server_names: list[str] = []
         for attachment_ref in attachment_refs:
             ref = attachment_ref.ref
-            if not ref.startswith('mcp_server:'):
+            if not ref.startswith("mcp_server:"):
                 continue
-            server_name = ref.split(':', 1)[1]
+            server_name = ref.split(":", 1)[1]
             if server_name and server_name not in server_names:
                 server_names.append(server_name)
         return server_names
@@ -588,9 +590,9 @@ class SessionHydrator:
         tool_names: list[str] = []
         for attachment_ref in attachment_refs:
             ref = attachment_ref.ref
-            if not ref.startswith('agent_tool:'):
+            if not ref.startswith("agent_tool:"):
                 continue
-            child_name = ref.split(':', 1)[1]
+            child_name = ref.split(":", 1)[1]
             if child_name and child_name not in tool_names:
                 tool_names.append(child_name)
         return tool_names
@@ -601,8 +603,8 @@ class SessionHydrator:
 
         attached: set[str] = set()
         for tool_name, child_agent in agent.agent_backed_tools.items():
-            if tool_name.startswith('agent__'):
-                attached.add(tool_name.split('__', 1)[1])
+            if tool_name.startswith("agent__"):
+                attached.add(tool_name.split("__", 1)[1])
             if isinstance(child_agent, _NamedAgent):
                 attached.add(child_agent.name)
         return attached
@@ -620,8 +622,8 @@ class SessionHydrator:
         except Exception as exc:
             warnings.append(
                 SessionHydrationWarning(
-                    code='snapshot-load-fallback',
-                    message=f'Falling back to compatibility session info while loading snapshot: {exc}',
+                    code="snapshot-load-fallback",
+                    message=f"Falling back to compatibility session info while loading snapshot: {exc}",
                     ref=str(snapshot_path),
                 )
             )
@@ -639,7 +641,7 @@ class SessionHydrator:
             return snapshot.continuation.agents
 
         metadata = session.info.metadata
-        history_map = metadata.get('last_history_by_agent') if isinstance(metadata, dict) else None
+        history_map = metadata.get("last_history_by_agent") if isinstance(metadata, dict) else None
         if isinstance(history_map, Mapping) and history_map:
             return snapshot_from_session_info(session.info).continuation.agents
 
@@ -669,10 +671,10 @@ class SessionHydrator:
                 return persisted_active_agent
             warnings.append(
                 SessionHydrationWarning(
-                    code='missing-active-agent',
+                    code="missing-active-agent",
                     message=(
                         f"Persisted active agent {persisted_active_agent!r} is not available in"
-                        ' this runtime'
+                        " this runtime"
                     ),
                     agent_name=persisted_active_agent,
                 )

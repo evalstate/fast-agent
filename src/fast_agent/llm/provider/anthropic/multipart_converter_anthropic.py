@@ -119,9 +119,7 @@ class AnthropicConverter:
             return AnthropicConverter._assistant_tool_call_message(multipart_msg)
 
         if multipart_msg.tool_results:
-            all_content_blocks.extend(
-                AnthropicConverter._tool_result_content_blocks(multipart_msg)
-            )
+            all_content_blocks.extend(AnthropicConverter._tool_result_content_blocks(multipart_msg))
 
         if role == "assistant" and multipart_msg.channels:
             AnthropicConverter._append_assistant_channel_blocks(
@@ -137,9 +135,7 @@ class AnthropicConverter:
             )
 
             if role == "assistant":
-                anthropic_blocks = AnthropicConverter._assistant_text_blocks(
-                    anthropic_blocks
-                )
+                anthropic_blocks = AnthropicConverter._assistant_text_blocks(anthropic_blocks)
 
             all_content_blocks.extend(anthropic_blocks)
 
@@ -156,9 +152,7 @@ class AnthropicConverter:
     ) -> list[BetaContentBlockParam] | None:
         if not channels:
             return None
-        raw_assistant_content = AnthropicConverter._deserialize_assistant_raw_blocks(
-            channels
-        )
+        raw_assistant_content = AnthropicConverter._deserialize_assistant_raw_blocks(channels)
         return raw_assistant_content or None
 
     @staticmethod
@@ -175,17 +169,15 @@ class AnthropicConverter:
                 multipart_msg.content,
                 document_mode=True,
             )
-            all_content_blocks.extend(
-                AnthropicConverter._assistant_text_blocks(anthropic_blocks)
-            )
+            all_content_blocks.extend(AnthropicConverter._assistant_text_blocks(anthropic_blocks))
 
-        all_content_blocks.extend(
-            AnthropicConverter._tool_use_blocks(multipart_msg.tool_calls)
-        )
+        all_content_blocks.extend(AnthropicConverter._tool_use_blocks(multipart_msg.tool_calls))
         return BetaMessageParam(role="assistant", content=all_content_blocks)
 
     @staticmethod
-    def _assistant_text_blocks(blocks: Sequence[BetaContentBlockParam]) -> list[BetaContentBlockParam]:
+    def _assistant_text_blocks(
+        blocks: Sequence[BetaContentBlockParam],
+    ) -> list[BetaContentBlockParam]:
         text_blocks: list[BetaContentBlockParam] = []
         for block in blocks:
             block_type = block.get("type") if isinstance(block, dict) else None
@@ -354,9 +346,7 @@ class AnthropicConverter:
     ) -> dict[str, Any] | None:
         candidate = cast("BetaContentBlockParam", payload)
         try:
-            validated_blocks = _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python(
-                [candidate]
-            )
+            validated_blocks = _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python([candidate])
         except Exception as error:
             payload_type = payload.get("type")
             _logger.warning(
@@ -428,6 +418,7 @@ class AnthropicConverter:
 
         # Use the existing conversion method
         return AnthropicConverter.convert_to_anthropic(multipart)
+
     @staticmethod
     def _convert_content_items(
         content_items: Sequence[ContentBlock],
@@ -717,9 +708,7 @@ class AnthropicConverter:
         from fast_agent.mcp.resource_utils import extract_title_from_uri
 
         title = (
-            extract_title_from_uri(resource.uri)
-            if resource.uri
-            else (resource.name or "resource")
+            extract_title_from_uri(resource.uri) if resource.uri else (resource.name or "resource")
         )
 
         if is_url and is_image_mime_type(mime_type):
@@ -790,9 +779,7 @@ class AnthropicConverter:
         return BetaTextBlockParam(type="text", text="[SVG content could not be extracted]")
 
     @staticmethod
-    def _create_fallback_text(
-        message: str, resource: ContentBlock
-    ) -> BetaTextBlockParam:
+    def _create_fallback_text(message: str, resource: ContentBlock) -> BetaTextBlockParam:
         """
         Create a fallback text block for unsupported resource types.
 
@@ -870,7 +857,9 @@ class AnthropicConverter:
                     BetaToolResultBlockParam(
                         type="tool_result",
                         tool_use_id=sanitized_id,
-                        content=[BetaTextBlockParam(type="text", text="[No content in tool result]")],
+                        content=[
+                            BetaTextBlockParam(type="text", text="[No content in tool result]")
+                        ],
                         is_error=result.isError,
                     )
                 )

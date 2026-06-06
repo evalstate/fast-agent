@@ -448,11 +448,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             tool_use_id=tool_use_id,
             item_id=item_id,
         )
-        tool_info = tool_state.close(
-            index=index,
-            tool_use_id=tool_use_id,
-            item_id=item_id,
-        ) or tool_info
+        tool_info = (
+            tool_state.close(
+                index=index,
+                tool_use_id=tool_use_id,
+                item_id=item_id,
+            )
+            or tool_info
+        )
         if tool_info is None and tool_state.is_completed(
             index=index,
             tool_use_id=tool_use_id,
@@ -529,10 +532,9 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         reasoning_chars: int,
         model: str,
     ) -> tuple[bool, int]:
-        if (
-            not isinstance(event, ResponseReasoningSummaryTextDeltaEvent)
-            and not is_responses_reasoning_delta_event(event_type)
-        ):
+        if not isinstance(
+            event, ResponseReasoningSummaryTextDeltaEvent
+        ) and not is_responses_reasoning_delta_event(event_type):
             return False, reasoning_chars
 
         delta = getattr(event, "delta", None)
@@ -703,7 +705,11 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 tool_use_id=tool_use_id,
                 item_id=item_id,
             )
-            if tool_info is None or not tool_info.awaiting_output_item_done or tool_info.stop_notified:
+            if (
+                tool_info is None
+                or not tool_info.awaiting_output_item_done
+                or tool_info.stop_notified
+            ):
                 continue
             tool_name = responses_tool_name(item)
             stop_payload = tool_event_payload(

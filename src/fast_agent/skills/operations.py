@@ -62,6 +62,8 @@ class _CopiedSkillSource:
     commit: str | None
     path_oid: str | None
     resolved_repo_path: str
+
+
 PathResolution = marketplace_source_models.SourcePathOid[SkillUpdateStatus]
 HeadCache = dict[tuple[str, str | None], HeadResolution]
 PathCache = dict[tuple[str, str | None, str, str], PathResolution]
@@ -614,8 +616,7 @@ def resolve_source_revision(
         local_revision=LOCAL_REVISION,
         source_ref_missing_status="source_ref_missing",
         source_unreachable_status="source_unreachable",
-        resolve_local_repo_fn=resolve_local_repo_fn
-        or marketplace_git_sources.resolve_local_repo,
+        resolve_local_repo_fn=resolve_local_repo_fn or marketplace_git_sources.resolve_local_repo,
         resolve_git_commit_fn=marketplace_git_sources.resolve_git_commit,
         run_subprocess_fn=run_subprocess_fn or subprocess.run,
     )
@@ -879,9 +880,7 @@ def _discover_nested_marketplace_skills(
     nested: list[MarketplaceSkill] = []
     for manifest in manifests:
         relative_skill_dir = manifest.path.parent.relative_to(source_dir)
-        repo_path = PurePosixPath(skill.repo_subdir) / PurePosixPath(
-            relative_skill_dir.as_posix()
-        )
+        repo_path = PurePosixPath(skill.repo_subdir) / PurePosixPath(relative_skill_dir.as_posix())
         nested.append(
             MarketplaceSkill(
                 name=manifest.name,

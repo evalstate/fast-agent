@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
@@ -89,9 +88,7 @@ def _visibility(meta: dict[str, Any]) -> VisibilityMetadata:
     ]
     invalid = sorted(set(raw_visibility) - _VALID_APP_VISIBILITY)
     warnings = (
-        [f"invalid _meta.ui.visibility values ignored: {', '.join(invalid)}"]
-        if invalid
-        else []
+        [f"invalid _meta.ui.visibility values ignored: {', '.join(invalid)}"] if invalid else []
     )
     return VisibilityMetadata(
         values=visibility or list(DEFAULT_APP_VISIBILITY),
@@ -190,12 +187,12 @@ class SkybridgeServerConfig(BaseModel):
 
     @property
     def has_mcp_apps(self) -> bool:
-        return any(
-            resource.is_mcp_app for resource in self.ui_resources
-        ) or any(tool.kind is AppIntegrationKind.MCP_APP for tool in self.tools)
+        return any(resource.is_mcp_app for resource in self.ui_resources) or any(
+            tool.kind is AppIntegrationKind.MCP_APP for tool in self.tools
+        )
 
     @property
     def has_skybridge(self) -> bool:
-        return any(
-            resource.is_skybridge for resource in self.ui_resources
-        ) or any(tool.kind is AppIntegrationKind.SKYBRIDGE for tool in self.tools)
+        return any(resource.is_skybridge for resource in self.ui_resources) or any(
+            tool.kind is AppIntegrationKind.SKYBRIDGE for tool in self.tools
+        )

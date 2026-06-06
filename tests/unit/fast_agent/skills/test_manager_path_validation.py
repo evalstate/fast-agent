@@ -77,6 +77,4 @@ def test_candidate_marketplace_urls_for_github_blob_marketplace() -> None:
     urls = candidate_marketplace_urls(
         "https://github.com/fast-agent-ai/skills/blob/main/marketplace.json"
     )
-    assert urls == [
-        "https://raw.githubusercontent.com/fast-agent-ai/skills/main/marketplace.json"
-    ]
+    assert urls == ["https://raw.githubusercontent.com/fast-agent-ai/skills/main/marketplace.json"]

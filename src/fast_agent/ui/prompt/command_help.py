@@ -47,7 +47,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /mcp list      - List attached runtime MCP servers",
             "  /mcp connect <target> - Connect MCP server at runtime",
             "      [dim]flags: --name --auth <token-value> --timeout --oauth/--no-oauth --reconnect[/dim]",
-            "      [dim]example: /mcp connect \"C:\\Program Files\\Tool\\tool.exe\" --flag[/dim]",
+            '      [dim]example: /mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag[/dim]',
             "  /mcp disconnect <name> - Disconnect attached MCP server",
             "  /mcp reconnect <name> - Reconnect attached MCP server",
             "  /connect <target> - Alias for /mcp connect",

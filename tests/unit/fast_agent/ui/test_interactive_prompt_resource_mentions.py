@@ -176,7 +176,9 @@ async def test_prompt_loop_resolves_attach_paths_from_shell_working_dir(
         return next_input
 
     monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
-    monkeypatch.setattr(interactive_prompt, "resolve_shell_working_dir", lambda **_kwargs: shell_dir)
+    monkeypatch.setattr(
+        interactive_prompt, "resolve_shell_working_dir", lambda **_kwargs: shell_dir
+    )
 
     sent_payloads: list[str | PromptMessageExtended] = []
 
@@ -264,9 +266,7 @@ async def test_resolve_prompt_payload_prints_parse_warning_literally(
     assert payload == "Read ^demo:file:///repo/{branch}[draft]"
     assert len(printed) == 1
     message = str(getattr(printed[0], "plain", printed[0]))
-    assert message.startswith(
-        "Malformed resource mention '^demo:file:///repo/{branch}[draft]'"
-    )
+    assert message.startswith("Malformed resource mention '^demo:file:///repo/{branch}[draft]'")
 
 
 @pytest.mark.asyncio
@@ -279,7 +279,9 @@ async def test_resolve_prompt_payload_uses_shell_working_dir_for_local_file_ment
     notes = shell_dir / "notes.txt"
     notes.write_text("hello", encoding="utf-8")
 
-    monkeypatch.setattr(interactive_prompt, "resolve_shell_working_dir", lambda **_kwargs: shell_dir)
+    monkeypatch.setattr(
+        interactive_prompt, "resolve_shell_working_dir", lambda **_kwargs: shell_dir
+    )
 
     prompt_ui = InteractivePrompt()
     app = _MentionAgentApp()

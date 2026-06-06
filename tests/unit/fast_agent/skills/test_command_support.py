@@ -147,9 +147,7 @@ def test_filter_marketplace_skills_matches_install_dir_name_alias() -> None:
 
 
 def test_marketplace_repository_hint_includes_ref_when_available() -> None:
-    hint = marketplace_repository_hint(
-        [_marketplace_skill(name="docker-build", repo_ref="main")]
-    )
+    hint = marketplace_repository_hint([_marketplace_skill(name="docker-build", repo_ref="main")])
 
     assert hint == "https://github.com/example/skills@main"
 

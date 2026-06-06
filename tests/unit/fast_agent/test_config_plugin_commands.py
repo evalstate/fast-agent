@@ -17,9 +17,9 @@ def test_settings_parses_global_plugin_commands(tmp_path: Path) -> None:
                 "commands:",
                 "  draft-next:",
                 "    description: Draft the next user message",
-                "    input_hint: \"[format]\"",
-                "    handler: \"commands.py:draft_next\"",
-                "    key: \"c-x d\"",
+                '    input_hint: "[format]"',
+                '    handler: "commands.py:draft_next"',
+                '    key: "c-x d"',
             ]
         ),
         encoding="utf-8",
@@ -80,22 +80,18 @@ def test_settings_merges_fast_agent_home_plugins(tmp_path: Path, monkeypatch) ->
             encoding="utf-8",
         )
         (plugin_dir / "commands.py").write_text(
-            "async def run(ctx):\n"
-            "    return 'ok'\n",
+            "async def run(ctx):\n    return 'ok'\n",
             encoding="utf-8",
         )
     home.mkdir(exist_ok=True)
     (home / "fast-agent.yaml").write_text(
-        "plugins:\n"
-        "  enabled: ['global-finder']\n",
+        "plugins:\n  enabled: ['global-finder']\n",
         encoding="utf-8",
     )
     project.mkdir()
     config_path = project / "fast-agent.yaml"
     config_path.write_text(
-        f"environment_dir: '{project_env.as_posix()}'\n"
-        "plugins:\n"
-        "  enabled: ['project-helper']\n",
+        f"environment_dir: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())
@@ -138,8 +134,7 @@ def test_env_override_still_loads_fast_agent_home_plugins(
             encoding="utf-8",
         )
         (plugin_dir / "commands.py").write_text(
-            "async def run(ctx):\n"
-            "    return 'ok'\n",
+            "async def run(ctx):\n    return 'ok'\n",
             encoding="utf-8",
         )
 
@@ -198,13 +193,11 @@ def test_default_user_global_plugins_are_loaded(tmp_path: Path, monkeypatch) -> 
         encoding="utf-8",
     )
     (plugin / "commands.py").write_text(
-        "async def run(ctx):\n"
-        "    return 'ok'\n",
+        "async def run(ctx):\n    return 'ok'\n",
         encoding="utf-8",
     )
     (global_home / "fast-agent.yaml").write_text(
-        "plugins:\n"
-        "  enabled: ['global-finder']\n",
+        "plugins:\n  enabled: ['global-finder']\n",
         encoding="utf-8",
     )
     (env_root / "fast-agent.yaml").write_text("default_model: passthrough\n", encoding="utf-8")
@@ -237,23 +230,19 @@ def test_missing_home_plugin_is_skipped_without_dropping_project_plugins(
         encoding="utf-8",
     )
     (project_plugin / "commands.py").write_text(
-        "async def run(ctx):\n"
-        "    return 'ok'\n",
+        "async def run(ctx):\n    return 'ok'\n",
         encoding="utf-8",
     )
 
     home.mkdir()
     (home / "fast-agent.yaml").write_text(
-        "plugins:\n"
-        "  enabled: ['missing-global']\n",
+        "plugins:\n  enabled: ['missing-global']\n",
         encoding="utf-8",
     )
     project.mkdir()
     config_path = project / "fast-agent.yaml"
     config_path.write_text(
-        f"environment_dir: '{project_env.as_posix()}'\n"
-        "plugins:\n"
-        "  enabled: ['project-helper']\n",
+        f"environment_dir: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())
@@ -293,20 +282,16 @@ def test_enabled_plugin_sources_returns_named_groups(tmp_path: Path, monkeypatch
             encoding="utf-8",
         )
         (plugin_dir / "commands.py").write_text(
-            "async def run(ctx):\n"
-            "    return 'ok'\n",
+            "async def run(ctx):\n    return 'ok'\n",
             encoding="utf-8",
         )
     (home / "fast-agent.yaml").write_text(
-        "plugins:\n"
-        "  enabled: ['global-finder']\n",
+        "plugins:\n  enabled: ['global-finder']\n",
         encoding="utf-8",
     )
     config_path = project / "fast-agent.yaml"
     config_path.write_text(
-        f"environment_dir: '{project_env.as_posix()}'\n"
-        "plugins:\n"
-        "  enabled: ['project-helper']\n",
+        f"environment_dir: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())

@@ -162,7 +162,6 @@ def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) ->
     return content
 
 
-
 async def handle_create_session(
     ctx: CommandContext,
     *,
@@ -517,7 +516,9 @@ async def handle_title_session(
     elif session is None:
         session = manager.create_session()
     if session is None:
-        outcome.add_message("No session available to title.", channel="warning", right_info="session")
+        outcome.add_message(
+            "No session available to title.", channel="warning", right_info="session"
+        )
         return outcome
     session.set_title(title)
     outcome.add_message(f"Session title set: {title}", channel="info", right_info="session")
@@ -537,7 +538,9 @@ async def handle_fork_session(
     title = _strip_wrapping_quotes(title)
     forked = manager.fork_current_session(title=title)
     if forked is None:
-        outcome.add_message("No session available to fork.", channel="warning", right_info="session")
+        outcome.add_message(
+            "No session available to fork.", channel="warning", right_info="session"
+        )
         return outcome
     label = forked.info.metadata.get("title") or forked.info.name
     outcome.add_message(f"Forked session: {label}", channel="info", right_info="session")

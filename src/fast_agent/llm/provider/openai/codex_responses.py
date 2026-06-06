@@ -134,6 +134,7 @@ class CodexResponsesLLM(ResponsesLLM):
             refresh_codex_tokens,
             save_codex_tokens,
         )
+
         tokens = load_codex_tokens()
         if not tokens or not tokens.refresh_token:
             raise ProviderKeyError(

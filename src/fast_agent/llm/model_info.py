@@ -74,7 +74,9 @@ class ModelInfo:
 
     def _supports_document_indicator(self) -> bool:
         tokenizes = {
-            normalized for mime in (self.tokenizes or []) if (normalized := normalize_mime_type(mime))
+            normalized
+            for mime in (self.tokenizes or [])
+            if (normalized := normalize_mime_type(mime))
         }
         return any(mime in tokenizes for mime in DOCUMENT_MIME_TYPES)
 

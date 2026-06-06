@@ -100,11 +100,11 @@ def _start_llamacpp_server(
                         "default_generation_settings": {
                             "n_ctx": 32768,
                             "params": {
-                            "temperature": 0.7,
-                            "top_k": 30,
-                            "top_p": 0.9,
-                            "min_p": 0.02,
-                            "n_predict": 1024,
+                                "temperature": 0.7,
+                                "top_k": 30,
+                                "top_p": 0.9,
+                                "min_p": 0.02,
+                                "n_predict": 1024,
                             },
                         },
                         "model_alias": "Llama local",
@@ -496,9 +496,7 @@ def test_model_llamacpp_command_json_lists_discovered_models(tmp_path: Path) -> 
     ]
 
 
-def test_model_llamacpp_import_json_start_now_still_launches(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_model_llamacpp_import_json_start_now_still_launches(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".model-env"
     workspace.mkdir(parents=True)

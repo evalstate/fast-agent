@@ -533,7 +533,9 @@ async def test_local_filesystem_edit_tools_report_completion_to_tool_handler(
     patch_target.write_text("one\ntwo\n", encoding="utf-8")
 
     edit_agent = McpAgent(
-        config=AgentConfig(name="test", instruction="Instruction", servers=[], shell=True, cwd=tmp_path),
+        config=AgentConfig(
+            name="test", instruction="Instruction", servers=[], shell=True, cwd=tmp_path
+        ),
         context=Context(),
     )
     patch_agent = McpAgent(
@@ -560,13 +562,7 @@ async def test_local_filesystem_edit_tools_report_completion_to_tool_handler(
         "apply_patch",
         {
             "input": (
-                "*** Begin Patch\n"
-                "*** Update File: patch.txt\n"
-                "@@\n"
-                "-one\n"
-                "+ONE\n"
-                " two\n"
-                "*** End Patch\n"
+                "*** Begin Patch\n*** Update File: patch.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
             )
         },
         tool_use_id="patch-use-1",
@@ -629,13 +625,7 @@ async def test_shell_can_include_apply_patch_when_model_prefers_it(tmp_path: Pat
     assert "edit_file" not in tool_names
 
     patch_text = (
-        "*** Begin Patch\n"
-        "*** Update File: notes.txt\n"
-        "@@\n"
-        "-one\n"
-        "+ONE\n"
-        " two\n"
-        "*** End Patch\n"
+        "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
     )
     result = await agent.call_tool("apply_patch", {"input": patch_text})
 
@@ -877,8 +867,8 @@ async def test_acp_filesystem_runtime_injection_augments_local_shell_edit_tools(
                     description="ACP read tool",
                     inputSchema={
                         "type": "object",
-                            "properties": {"path": {"type": "string"}},
-                        },
+                        "properties": {"path": {"type": "string"}},
+                    },
                 ),
                 Tool(
                     name="write_text_file",
@@ -1015,7 +1005,9 @@ async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
-            return CallToolResult(content=[TextContent(type="text", text="acp-read")], isError=False)
+            return CallToolResult(
+                content=[TextContent(type="text", text="acp-read")], isError=False
+            )
 
         async def write_text_file(
             self,
@@ -1023,7 +1015,9 @@ async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
-            return CallToolResult(content=[TextContent(type="text", text="acp-write")], isError=False)
+            return CallToolResult(
+                content=[TextContent(type="text", text="acp-write")], isError=False
+            )
 
         def metadata(self) -> dict[str, object]:
             return {"variant": "acp_filesystem", "tools": ["read_text_file", "write_text_file"]}
@@ -1066,13 +1060,7 @@ async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_
     assert "edit_file" not in tool_names
 
     patch_text = (
-        "*** Begin Patch\n"
-        "*** Update File: notes.txt\n"
-        "@@\n"
-        "-one\n"
-        "+ONE\n"
-        " two\n"
-        "*** End Patch\n"
+        "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
     )
     result = await agent.call_tool("apply_patch", {"input": patch_text})
 
@@ -1809,11 +1797,15 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
 
     assert recording_display.result_type_labels == ["file read", "file read"]
     assert recording_display.result_tool_call_ids == [None, None]
-    assert [getattr(result, "read_text_file_line", None) for result in recording_display.results] == [
+    assert [
+        getattr(result, "read_text_file_line", None) for result in recording_display.results
+    ] == [
         1,
         1,
     ]
-    assert [getattr(result, "read_text_file_limit", None) for result in recording_display.results] == [
+    assert [
+        getattr(result, "read_text_file_limit", None) for result in recording_display.results
+    ] == [
         20,
         20,
     ]

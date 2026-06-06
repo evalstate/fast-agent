@@ -59,7 +59,6 @@ def block_content(block: dict[str, object]) -> list[dict[str, object]]:
     return cast("list[dict[str, object]]", filtered)
 
 
-
 def create_pdf_resource(pdf_base64) -> EmbeddedResource:
     pdf_resource: BlobResourceContents = BlobResourceContents(
         uri=AnyUrl("test://example.com/document.pdf"),
@@ -109,7 +108,9 @@ class TestAnthropicUserConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "image")
         self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["type"], "base64")
         self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["media_type"], "image/jpeg")
-        self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["data"], self.sample_image_base64)
+        self.assertEqual(
+            block_source(content_blocks(anthropic_msg)[0])["data"], self.sample_image_base64
+        )
 
     def test_embedded_resource_text_conversion(self):
         """Test conversion of text-based EmbeddedResource to Anthropic document block."""
@@ -148,7 +149,9 @@ class TestAnthropicUserConverter(unittest.TestCase):
         self.assertEqual(len(content_blocks(anthropic_msg)), 1)
         self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "document")
         self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["type"], "base64")
-        self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["media_type"], "application/pdf")
+        self.assertEqual(
+            block_source(content_blocks(anthropic_msg)[0])["media_type"], "application/pdf"
+        )
         self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["data"], PDF_BASE64)
 
     def test_embedded_resource_image_url_conversion(self):
@@ -369,9 +372,7 @@ class TestAnthropicUserConverter(unittest.TestCase):
             content_blocks(anthropic_msg)[1]["type"], "text"
         )  # Fallback text for unsupported
         self.assertEqual(content_blocks(anthropic_msg)[2]["type"], "image")  # Supported image kept
-        self.assertEqual(
-            block_source(content_blocks(anthropic_msg)[2])["media_type"], "image/jpeg"
-        )
+        self.assertEqual(block_source(content_blocks(anthropic_msg)[2])["media_type"], "image/jpeg")
 
     def test_multipart_with_tool_results_and_content(self):
         """Test conversion of PromptMessageExtended with both tool_results and content."""
@@ -399,7 +400,9 @@ class TestAnthropicUserConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "tool_result")
         self.assertEqual(content_blocks(anthropic_msg)[0]["tool_use_id"], "tool_id_1")
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["type"], "text")
-        self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["text"], "Tool execution result")
+        self.assertEqual(
+            block_content(content_blocks(anthropic_msg)[0])[0]["text"], "Tool execution result"
+        )
 
         # Second block should be the additional content
         self.assertEqual(content_blocks(anthropic_msg)[1]["type"], "text")
@@ -507,7 +510,9 @@ class TestAnthropicToolConverter(unittest.TestCase):
         self.assertEqual(len(block_content(content_blocks(anthropic_msg)[0])), 2)
         # First inner block: text
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["type"], "text")
-        self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["text"], self.sample_text)
+        self.assertEqual(
+            block_content(content_blocks(anthropic_msg)[0])[0]["text"], self.sample_text
+        )
         # Second inner block: document (PDF)
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[1]["type"], "document")
         self.assertEqual(
@@ -626,14 +631,14 @@ class TestAnthropicToolConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "tool_result")
         self.assertEqual(content_blocks(anthropic_msg)[0]["tool_use_id"], tool_use_id1)
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["type"], "text")
-        self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["text"], self.sample_text)
+        self.assertEqual(
+            block_content(content_blocks(anthropic_msg)[0])[0]["text"], self.sample_text
+        )
 
         # Check second tool result
         self.assertEqual(content_blocks(anthropic_msg)[1]["type"], "tool_result")
         self.assertEqual(content_blocks(anthropic_msg)[1]["tool_use_id"], tool_use_id2)
-        self.assertEqual(
-            block_content(content_blocks(anthropic_msg)[1])[0]["type"], "image"
-        )
+        self.assertEqual(block_content(content_blocks(anthropic_msg)[1])[0]["type"], "image")
 
     def test_create_tool_results_message_with_error(self):
         """Test creation of tool results message with error flag."""
@@ -653,7 +658,8 @@ class TestAnthropicToolConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[0]["is_error"], True)
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["type"], "text")
         self.assertEqual(
-            block_content(content_blocks(anthropic_msg)[0])[0]["text"], "Error: Something went wrong"
+            block_content(content_blocks(anthropic_msg)[0])[0]["text"],
+            "Error: Something went wrong",
         )
 
     def test_create_tool_results_message_with_empty_content(self):
@@ -673,7 +679,8 @@ class TestAnthropicToolConverter(unittest.TestCase):
         self.assertEqual(len(block_content(content_blocks(anthropic_msg)[0])), 1)
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["type"], "text")
         self.assertEqual(
-            block_content(content_blocks(anthropic_msg)[0])[0]["text"], "[No content in tool result]"
+            block_content(content_blocks(anthropic_msg)[0])[0]["text"],
+            "[No content in tool result]",
         )
 
     def test_create_tool_results_message_with_unsupported_image(self):
@@ -721,7 +728,9 @@ class TestAnthropicToolConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[0]["tool_use_id"], tool_use_id)
         self.assertEqual(len(block_content(content_blocks(anthropic_msg)[0])), 2)
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["type"], "text")
-        self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["text"], self.sample_text)
+        self.assertEqual(
+            block_content(content_blocks(anthropic_msg)[0])[0]["text"], self.sample_text
+        )
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[1]["type"], "image")
 
     def test_create_tool_results_message_with_text_resource(self):
@@ -747,7 +756,9 @@ class TestAnthropicToolConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[0]["tool_use_id"], tool_use_id)
         self.assertEqual(len(block_content(content_blocks(anthropic_msg)[0])), 1)
         self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["type"], "text")
-        self.assertEqual(block_content(content_blocks(anthropic_msg)[0])[0]["text"], "markdown text")
+        self.assertEqual(
+            block_content(content_blocks(anthropic_msg)[0])[0]["text"], "markdown text"
+        )
 
 
 def create_text_resource(
@@ -845,7 +856,9 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "document")
         self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["type"], "text")
         self.assertEqual(content_blocks(anthropic_msg)[0]["title"], "document.txt")
-        self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["data"], "This is a text resource")
+        self.assertEqual(
+            block_source(content_blocks(anthropic_msg)[0])["data"], "This is a text resource"
+        )
 
     def test_assistant_multiple_text_blocks(self):
         """Test conversion of assistant messages with multiple text blocks."""

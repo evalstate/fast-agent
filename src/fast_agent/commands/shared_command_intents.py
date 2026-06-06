@@ -82,14 +82,10 @@ MODEL_COMMAND_ACTION_CATEGORIES: dict[ModelCommandAction, ModelCommandActionCate
     "help": "manager",
 }
 MODEL_VALUE_COMMAND_ACTIONS: frozenset[ModelCommandAction] = frozenset(
-    action
-    for action, category in MODEL_COMMAND_ACTION_CATEGORIES.items()
-    if category == "value"
+    action for action, category in MODEL_COMMAND_ACTION_CATEGORIES.items() if category == "value"
 )
 MODEL_MANAGER_COMMAND_ACTIONS: frozenset[ModelCommandAction] = frozenset(
-    action
-    for action, category in MODEL_COMMAND_ACTION_CATEGORIES.items()
-    if category == "manager"
+    action for action, category in MODEL_COMMAND_ACTION_CATEGORIES.items() if category == "manager"
 )
 MODEL_DIRECT_HANDLER_ACTIONS: frozenset[ModelCommandAction] = MODEL_VALUE_COMMAND_ACTIONS
 TOOL_MUTATION_ACTIONS: frozenset[ToolMutationAction] = frozenset(

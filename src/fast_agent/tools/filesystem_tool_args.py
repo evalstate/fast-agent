@@ -49,9 +49,7 @@ def coerce_positive_int_argument(value: Any, field: str) -> int | None:
         return None
     parsed = positive_int_or_none(value)
     if parsed is None:
-        raise ValueError(
-            f"Error: '{field}' argument must be an integer greater than or equal to 1"
-        )
+        raise ValueError(f"Error: '{field}' argument must be an integer greater than or equal to 1")
     return parsed
 
 

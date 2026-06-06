@@ -230,9 +230,7 @@ def _validate_toggle_setting(setting: ReasoningEffortSetting) -> None:
 
 def _spec_allows_toggle_disable(spec: ReasoningEffortSpec) -> bool:
     return (
-        spec.kind != "effort"
-        or "none" in (spec.allowed_efforts or [])
-        or spec.allow_toggle_disable
+        spec.kind != "effort" or "none" in (spec.allowed_efforts or []) or spec.allow_toggle_disable
     )
 
 

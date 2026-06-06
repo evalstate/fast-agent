@@ -141,9 +141,7 @@ def _agent_metadata(agent: Any | None) -> _AgentMetadata:
     return _AgentMetadata(
         description=description if isinstance(description, str) else None,
         default_request_params=(
-            default_request_params
-            if isinstance(default_request_params, RequestParams)
-            else None
+            default_request_params if isinstance(default_request_params, RequestParams) else None
         ),
     )
 
@@ -318,7 +316,9 @@ class AgentMCPServer:
             else self._tool_description
         )
         metadata = _agent_metadata(agent)
-        return tool_description or metadata.description or f"Send a message to the {agent_name} agent"
+        return (
+            tool_description or metadata.description or f"Send a message to the {agent_name} agent"
+        )
 
     async def _send_agent_message(
         self,

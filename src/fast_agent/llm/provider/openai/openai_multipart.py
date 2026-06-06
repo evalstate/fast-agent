@@ -40,9 +40,7 @@ def _message_role_and_content(
     if isinstance(message, ChatCompletionMessage):
         return _coerce_extended_role(message.role), message.content
     if isinstance(message, dict):
-        return _coerce_extended_role(message.get("role", "assistant")), message.get(
-            "content", ""
-        )
+        return _coerce_extended_role(message.get("role", "assistant")), message.get("content", "")
 
     return _coerce_extended_role(getattr(message, "role", "assistant")), getattr(
         message, "content", ""
@@ -55,7 +53,9 @@ def _part_mapping(part: object) -> dict[str, Any] | None:
     return {str(key): value for key, value in part.items()}
 
 
-def _part_value(part: object, mapping: dict[str, Any] | None, key: str, default: object = None) -> object:
+def _part_value(
+    part: object, mapping: dict[str, Any] | None, key: str, default: object = None
+) -> object:
     if mapping is not None:
         return mapping.get(key, default)
     return getattr(part, key, default)
@@ -78,9 +78,7 @@ def _text_part_to_content(part: object, mapping: dict[str, Any] | None) -> TextC
     return TextContent(type="text", text=text)
 
 
-def _image_url_part_to_content(
-    part: object, mapping: dict[str, Any] | None
-) -> ImageContent | None:
+def _image_url_part_to_content(part: object, mapping: dict[str, Any] | None) -> ImageContent | None:
     image_url = _part_value(part, mapping, "image_url")
     if not image_url:
         return None
@@ -133,7 +131,9 @@ def _blob_resource_to_content(resource: dict[str, Any]) -> ImageContent | Embedd
     )
 
 
-def _resource_part_to_content(mapping: dict[str, Any] | None) -> TextContent | ImageContent | EmbeddedResource | None:
+def _resource_part_to_content(
+    mapping: dict[str, Any] | None,
+) -> TextContent | ImageContent | EmbeddedResource | None:
     if mapping is None:
         return None
 
@@ -156,7 +156,9 @@ def _content_part_to_mcp_content(
 
     if part_type == "text":
         text_content = _text_part_to_content(part, mapping)
-        if isinstance(text_content, (TextContent, ImageContent, AudioContent, ResourceLink, EmbeddedResource)):
+        if isinstance(
+            text_content, (TextContent, ImageContent, AudioContent, ResourceLink, EmbeddedResource)
+        ):
             return text_content
         return None
     if part_type == "image_url":

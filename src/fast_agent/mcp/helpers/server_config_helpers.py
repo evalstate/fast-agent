@@ -36,9 +36,7 @@ def get_server_config(ctx: object) -> MCPServerSettings | None:
     if isinstance(ctx, MCPAgentClientSession):
         return ctx.server_config
 
-    if isinstance(ctx, _SessionRequestContext) and isinstance(
-        ctx.session, MCPAgentClientSession
-    ):
+    if isinstance(ctx, _SessionRequestContext) and isinstance(ctx.session, MCPAgentClientSession):
         return ctx.session.server_config
 
     return None

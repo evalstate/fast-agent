@@ -73,21 +73,15 @@ _WORKFLOW_REFERENCE_RULES: dict[str, _WorkflowReferenceRule] = {
     ),
     AgentType.ORCHESTRATOR.value: _WorkflowReferenceRule(
         component_label="Orchestrator",
-        dependency_fields=(
-            _DependencyFieldRule("child_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("child_agents", "agents"),),
     ),
     AgentType.ITERATIVE_PLANNER.value: _WorkflowReferenceRule(
         component_label="Iterative planner",
-        dependency_fields=(
-            _DependencyFieldRule("child_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("child_agents", "agents"),),
     ),
     AgentType.ROUTER.value: _WorkflowReferenceRule(
         component_label="Router",
-        dependency_fields=(
-            _DependencyFieldRule("router_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("router_agents", "agents"),),
     ),
     AgentType.EVALUATOR_OPTIMIZER.value: _WorkflowReferenceRule(
         component_label="Evaluator-Optimizer",
@@ -99,15 +93,11 @@ _WORKFLOW_REFERENCE_RULES: dict[str, _WorkflowReferenceRule] = {
     ),
     AgentType.CHAIN.value: _WorkflowReferenceRule(
         component_label="Chain",
-        dependency_fields=(
-            _DependencyFieldRule("sequence", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("sequence", "agents"),),
     ),
     AgentType.MAKER.value: _WorkflowReferenceRule(
         component_label="Maker",
-        dependency_fields=(
-            _DependencyFieldRule("worker", "worker"),
-        ),
+        dependency_fields=(_DependencyFieldRule("worker", "worker"),),
     ),
 }
 
@@ -171,8 +161,7 @@ def is_basic_like_agent_type(agent_type: AgentType | str | None) -> bool:
 
 def get_agent_dependency_attribute_names(agent_type: AgentType | str | None) -> tuple[str, ...]:
     return tuple(
-        field_spec.field_name
-        for field_spec in get_agent_dependency_field_specs(agent_type)
+        field_spec.field_name for field_spec in get_agent_dependency_field_specs(agent_type)
     )
 
 
@@ -297,22 +286,20 @@ _WORKFLOW_REFERENCE_RULES = {
     **_WORKFLOW_REFERENCE_RULES,
     AgentType.ORCHESTRATOR.value: _WorkflowReferenceRule(
         component_label="Orchestrator",
-        dependency_fields=(
-            _DependencyFieldRule("child_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("child_agents", "agents"),),
         compatibility_check=_validate_planner_children,
     ),
     AgentType.ITERATIVE_PLANNER.value: _WorkflowReferenceRule(
         component_label="Iterative planner",
-        dependency_fields=(
-            _DependencyFieldRule("child_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("child_agents", "agents"),),
         compatibility_check=_validate_planner_children,
     ),
 }
 
 
-def validate_server_references(context, agents: Mapping[str, AgentCardData | dict[str, Any]]) -> None:
+def validate_server_references(
+    context, agents: Mapping[str, AgentCardData | dict[str, Any]]
+) -> None:
     """
     Validate that all server references in agent configurations exist in config.
     Raises ServerConfigError if any referenced servers are not defined.
@@ -516,9 +503,7 @@ def get_dependencies_groups(
     if not allow_cycles:
         cycle = find_dependency_cycle(agent_names, dependencies)
         if cycle:
-            raise CircularDependencyError(
-                f"Circular dependency detected: {' -> '.join(cycle)}"
-            )
+            raise CircularDependencyError(f"Circular dependency detected: {' -> '.join(cycle)}")
 
     # Group agents by dependency level
     result = []

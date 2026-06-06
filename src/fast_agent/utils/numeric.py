@@ -55,9 +55,5 @@ def positive_int_or_none(value: object) -> int | None:
 
 def sorted_unique_positive_ints(values: Iterable[object]) -> list[int]:
     return sorted(
-        {
-            parsed
-            for value in values
-            if (parsed := positive_int_or_none(value)) is not None
-        }
+        {parsed for value in values if (parsed := positive_int_or_none(value)) is not None}
     )

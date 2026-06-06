@@ -123,9 +123,7 @@ def _parse_mcp_connect_entry(
     )
     headers, headers_ok = _mcp_connect_headers(raw_entry.get("headers"), idx, errors)
     auth, auth_ok = _mcp_connect_auth(raw_entry.get("auth"), idx, errors)
-    management, management_ok = _optional_non_empty_mcp_string(
-        raw_entry, idx, "management", errors
-    )
+    management, management_ok = _optional_non_empty_mcp_string(raw_entry, idx, "management", errors)
     description, description_ok = _optional_mcp_string(raw_entry, idx, "description", errors)
     access_token, access_token_ok = _optional_mcp_string(raw_entry, idx, "access_token", errors)
     defer_loading, defer_loading_ok = _mcp_connect_defer_loading(
@@ -156,7 +154,9 @@ def _parse_mcp_connect_entry(
         errors.append(f"'mcp_connect[{idx}]' must set exactly one of 'target' or 'connector_id'")
         return None
     if connector_id is not None and name is None:
-        errors.append(f"'mcp_connect[{idx}].name' must be a non-empty string when connector_id is set")
+        errors.append(
+            f"'mcp_connect[{idx}].name' must be a non-empty string when connector_id is set"
+        )
         return None
 
     return _McpConnectEntry(

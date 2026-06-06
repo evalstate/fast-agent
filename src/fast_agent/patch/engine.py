@@ -101,9 +101,7 @@ def apply_hunks_to_files(
                 try:
                     _resolve_target_path(hunk.path, base_directory).unlink()
                 except OSError as exc:
-                    raise ApplyPatchError(
-                        f"Failed to remove original {hunk.path}"
-                    ) from exc
+                    raise ApplyPatchError(f"Failed to remove original {hunk.path}") from exc
                 modified.append(destination)
             else:
                 _write_file(_resolve_target_path(hunk.path, base_directory), applied.new_contents)
@@ -157,9 +155,7 @@ def compute_replacements(
                 False,
             )
             if found is None:
-                raise ApplyPatchError(
-                    f"Failed to find context '{chunk.change_context}' in {path}"
-                )
+                raise ApplyPatchError(f"Failed to find context '{chunk.change_context}' in {path}")
             line_index = found + 1
 
         if not chunk.old_lines:

@@ -257,7 +257,9 @@ async def test_run_slash_command_skills_help_returns_usage(tmp_path: Path) -> No
     result = await _run_slash_command_call(agent, "/skills --help")
 
     assert "# commands skills" in result
-    assert "Usage: `/skills [list|available|search|add|remove|update|registry|help] [args]`" in result
+    assert (
+        "Usage: `/skills [list|available|search|add|remove|update|registry|help] [args]`" in result
+    )
 
 
 @pytest.mark.asyncio
@@ -334,7 +336,10 @@ async def test_run_slash_command_skills_add_help(tmp_path: Path) -> None:
     result = await _run_slash_command_call(agent, "/skills add --help")
 
     assert "# commands skills add" in result
-    assert "`/skills add [<number|name|github-url|path>] [--registry url] [--skills-dir path]`" in result
+    assert (
+        "`/skills add [<number|name|github-url|path>] [--registry url] [--skills-dir path]`"
+        in result
+    )
     assert "`--skills-dir path`" in result
 
 

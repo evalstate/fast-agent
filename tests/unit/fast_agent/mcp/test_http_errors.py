@@ -23,4 +23,3 @@ def test_format_http_error_detail_uses_response_fallback_for_blank_text() -> Non
 
     assert detail.status_code == 599
     assert detail.detail == "HTTP 599: response"
-

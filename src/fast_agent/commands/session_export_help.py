@@ -35,6 +35,7 @@ class SessionExportActionDetail(TypedDict):
     options: list[SessionExportOptionDetail]
     notes: list[str]
 
+
 SESSION_EXPORT_USAGE = (
     "/session export [latest|id|path] [--agent name] [--output path] "
     "[--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] "
@@ -63,9 +64,7 @@ SESSION_EXPORT_PRIVACY_PATH_HELP = "Local OpenAI Privacy Filter model directory.
 SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP = (
     "Download the default privacy-filter model if it is not already cached."
 )
-SESSION_EXPORT_PRIVACY_DEVICE_HELP = (
-    "Privacy filter device: auto, cpu, or cuda. Defaults to auto."
-)
+SESSION_EXPORT_PRIVACY_DEVICE_HELP = "Privacy filter device: auto, cpu, or cuda. Defaults to auto."
 SESSION_EXPORT_PRIVACY_VARIANT_HELP = (
     "Privacy filter model variant: q4, q4f16, q8, or fp16. Defaults to q8."
 )

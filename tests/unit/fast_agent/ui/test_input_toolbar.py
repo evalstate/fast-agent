@@ -109,8 +109,7 @@ def test_build_notification_segment_escapes_active_server_name() -> None:
 
     try:
         assert _build_notification_segment() == (
-            " | <style fg='ansired' bg='ansiblack'>"
-            "◀ SAMPLING (server&lt;one&amp;two&gt;)</style>"
+            " | <style fg='ansired' bg='ansiblack'>◀ SAMPLING (server&lt;one&amp;two&gt;)</style>"
         )
     finally:
         notification_tracker.clear()
@@ -124,8 +123,7 @@ def test_build_copy_notice_segment_escapes_text_and_style() -> None:
     )
 
     assert segment.html == (
-        " | <style fg='bad&#x27;color' bg='ansiblack'> "
-        "copied &lt;draft&amp;1&gt; </style>"
+        " | <style fg='bad&#x27;color' bg='ansiblack'> copied &lt;draft&amp;1&gt; </style>"
     )
     assert segment.should_clear is False
 

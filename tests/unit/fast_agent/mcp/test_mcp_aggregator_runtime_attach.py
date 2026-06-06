@@ -182,9 +182,7 @@ async def test_fetch_server_tools_optimistic_fallback_when_capability_missing() 
                 error_factory,
                 progress_callback,
             )
-            return ListToolsResult(
-                tools=[Tool(name="echo", inputSchema={"type": "object"})]
-            )
+            return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
 
     aggregator = _FallbackAggregator(
         server_names=["alpha"],
@@ -224,9 +222,7 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
                 progress_callback,
             )
             if method_name == "list_tools":
-                return ListToolsResult(
-                    tools=[Tool(name="echo", inputSchema={"type": "object"})]
-                )
+                return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
             if method_name == "list_prompts":
                 return SimpleNamespace(prompts=[SimpleNamespace(name="demo-prompt")])
             raise AssertionError(f"Unexpected MCP method: {method_name}")
@@ -273,7 +269,9 @@ async def test_attached_result_uses_cached_mcp_skill_registry() -> None:
 
     result = await aggregator._attached_result(
         server_name="runtime",
-        resolved_config=MCPServerSettings(name="runtime", transport="http", url="https://example.com/mcp"),
+        resolved_config=MCPServerSettings(
+            name="runtime", transport="http", url="https://example.com/mcp"
+        ),
         already_attached=False,
         existing_tool_names=set(),
         existing_prompt_names=set(),

@@ -13,6 +13,5 @@ if TYPE_CHECKING:
 def format_incomplete_tool_call_error(incomplete_tools: Sequence[str]) -> str:
     tool_call_label = plural_label(len(incomplete_tools), "tool call")
     return (
-        f"Streaming completed but {tool_call_label} never finished: "
-        f"{', '.join(incomplete_tools)}"
+        f"Streaming completed but {tool_call_label} never finished: {', '.join(incomplete_tools)}"
     )

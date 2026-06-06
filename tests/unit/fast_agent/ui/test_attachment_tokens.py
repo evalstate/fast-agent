@@ -64,6 +64,6 @@ def test_append_attachment_tokens_preserves_existing_trailing_space() -> None:
 
 
 def test_append_attachment_tokens_inserts_single_separator_when_needed() -> None:
-    assert append_attachment_tokens("describe this", ["^file:/tmp/a.png", "^url:https://x.test"]) == (
-        "describe this ^file:/tmp/a.png ^url:https://x.test"
-    )
+    assert append_attachment_tokens(
+        "describe this", ["^file:/tmp/a.png", "^url:https://x.test"]
+    ) == ("describe this ^file:/tmp/a.png ^url:https://x.test")

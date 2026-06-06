@@ -786,7 +786,10 @@ def test_stream_cursor_suffix_only_targets_last_segment() -> None:
     handle = _make_handle("plain")
 
     assert handle._cursor_suffix(segment_index=0, total_segments=2) == ""
-    assert handle._cursor_suffix(segment_index=1, total_segments=2) == streaming_module.STREAM_CURSOR_BLOCK
+    assert (
+        handle._cursor_suffix(segment_index=1, total_segments=2)
+        == streaming_module.STREAM_CURSOR_BLOCK
+    )
 
     handle._show_stream_cursor = False
     assert handle._cursor_suffix(segment_index=1, total_segments=2) == ""
@@ -874,7 +877,9 @@ def test_preserve_final_frame_finalize_omits_tail_padding_from_last_frame(monkey
         assert fake_live.renderable is not None
 
         options = console.console.options.update(width=40)
-        rendered_lines = console.console.render_lines(fake_live.renderable, options=options, pad=False)
+        rendered_lines = console.console.render_lines(
+            fake_live.renderable, options=options, pad=False
+        )
         rendered_text = [console.console._render_buffer(line).rstrip() for line in rendered_lines]
 
         assert rendered_text[-1] == "short response"
@@ -951,9 +956,7 @@ def test_diff_live_clamps_new_frame_to_terminal_height() -> None:
     output = io.StringIO()
     # Terminal height = 4
     live = streaming_module._DiffLive(
-        console=Console(
-            file=output, force_terminal=True, color_system=None, width=40, height=4
-        ),
+        console=Console(file=output, force_terminal=True, color_system=None, width=40, height=4),
         transient=True,
     )
 
@@ -974,9 +977,7 @@ def test_diff_live_clamps_old_frame_for_safe_diff() -> None:
     """If a previous frame exceeded height, old lines are clamped before diff."""
     output = io.StringIO()
     live = streaming_module._DiffLive(
-        console=Console(
-            file=output, force_terminal=True, color_system=None, width=40, height=4
-        ),
+        console=Console(file=output, force_terminal=True, color_system=None, width=40, height=4),
         transient=True,
     )
 
@@ -984,9 +985,7 @@ def test_diff_live_clamps_old_frame_for_safe_diff() -> None:
 
     # Manually set _lines to something oversized (simulates a pre-fix state or
     # a terminal that was resized smaller between frames).
-    live._lines = [
-        streaming_module._RenderedLine(f"old{i}", len(f"old{i}")) for i in range(8)
-    ]
+    live._lines = [streaming_module._RenderedLine(f"old{i}", len(f"old{i}")) for i in range(8)]
 
     # Now refresh with a small frame – the old lines should be clamped first
     # so the diff can compute correct cursor-up distances.
@@ -1000,9 +999,7 @@ def test_diff_live_height_clamp_preserves_cursor_tracking() -> None:
     """After clamping, subsequent diffs position correctly."""
     output = io.StringIO()
     live = streaming_module._DiffLive(
-        console=Console(
-            file=output, force_terminal=True, color_system=None, width=40, height=5
-        ),
+        console=Console(file=output, force_terminal=True, color_system=None, width=40, height=5),
         transient=True,
     )
 

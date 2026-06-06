@@ -73,7 +73,9 @@ def test_parse_marketplace_payload_normalizes_entries() -> None:
         ]
     }
 
-    packs = manager._parse_marketplace_payload(payload, source_url="https://example.com/marketplace.json")
+    packs = manager._parse_marketplace_payload(
+        payload, source_url="https://example.com/marketplace.json"
+    )
     assert len(packs) == 2
 
     first = packs[0]
@@ -137,7 +139,9 @@ def test_parse_marketplace_payload_names_normalized_manifest_path_from_parent_di
         ]
     }
 
-    packs = manager._parse_marketplace_payload(payload, source_url="https://example.com/marketplace.json")
+    packs = manager._parse_marketplace_payload(
+        payload, source_url="https://example.com/marketplace.json"
+    )
 
     assert len(packs) == 1
     assert packs[0].name == "alpha"
@@ -178,7 +182,9 @@ def test_parse_marketplace_payload_treats_scp_source_url_as_repo_url() -> None:
         ]
     }
 
-    packs = manager._parse_marketplace_payload(payload, source_url="https://example.com/marketplace.json")
+    packs = manager._parse_marketplace_payload(
+        payload, source_url="https://example.com/marketplace.json"
+    )
 
     assert len(packs) == 1
     assert packs[0].repo_url == "git@github.com:example/cards.git"
@@ -241,8 +247,7 @@ def test_parse_marketplace_payload_does_not_parse_github_registry_url_as_pack_pa
     packs = manager._parse_marketplace_payload(
         payload,
         source_url=(
-            "https://raw.githubusercontent.com/example/cards/main/"
-            ".claude-plugin/marketplace.json"
+            "https://raw.githubusercontent.com/example/cards/main/.claude-plugin/marketplace.json"
         ),
     )
 

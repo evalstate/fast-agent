@@ -527,11 +527,7 @@ def _render_labeled_metadata(
     label_for_item: Callable[[MetadataItemPayload], str | None],
     indent: str,
 ) -> None:
-    labeled_items = [
-        (label, item)
-        for item in items
-        if (label := label_for_item(item)) is not None
-    ]
+    labeled_items = [(label, item) for item in items if (label := label_for_item(item)) is not None]
     if not labeled_items:
         return
 
@@ -657,8 +653,7 @@ def render_commands_index_markdown(*, command_names: Collection[str] | None = No
             continue
 
         lines.append(
-            f"- {markdown_code_span(f'/{name}')} — "
-            f"{escape_markdown_text(entry['summary'])}"
+            f"- {markdown_code_span(f'/{name}')} — {escape_markdown_text(entry['summary'])}"
         )
         actions = entry["actions"]
         if not actions:
@@ -861,8 +856,4 @@ def _normalized_command_name_filter(
 ) -> set[str] | None:
     if command_names is None:
         return None
-    return {
-        normalized
-        for name in command_names
-        if (normalized := normalize_action_token(name))
-    }
+    return {normalized for name in command_names if (normalized := normalize_action_token(name))}

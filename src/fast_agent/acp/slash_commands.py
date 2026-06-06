@@ -113,9 +113,7 @@ class _ACPAgentCardManager:
             raise RuntimeError("AgentCard dumping is not available.")
         return await self._handler._dump_agent_callback(agent_name)
 
-    async def attach_agent_tools(
-        self, parent_agent: str, child_agents: Sequence[str]
-    ) -> list[str]:
+    async def attach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]:
         if not self._handler._attach_agent_callback:
             raise RuntimeError("Agent tool attachment is not available.")
         instance, attached_names = await self._handler._attach_agent_callback(
@@ -124,9 +122,7 @@ class _ACPAgentCardManager:
         self._handler.instance = instance
         return attached_names
 
-    async def detach_agent_tools(
-        self, parent_agent: str, child_agents: Sequence[str]
-    ) -> list[str]:
+    async def detach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]:
         if not self._handler._detach_agent_callback:
             raise RuntimeError("Agent tool detachment is not available.")
         instance, removed_names = await self._handler._detach_agent_callback(
@@ -254,9 +250,14 @@ class SlashCommandHandler:
         self._noenv = noenv
         self._acp_context: ACPContext | None = None
 
-        cards_action_hint = "|".join(
-            action for action in command_action_names("cards") if action not in {"list", "readme", "help"}
-        ) or "add|remove|update|publish|registry"
+        cards_action_hint = (
+            "|".join(
+                action
+                for action in command_action_names("cards")
+                if action not in {"list", "readme", "help"}
+            )
+            or "add|remove|update|publish|registry"
+        )
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -309,11 +310,7 @@ class SlashCommandHandler:
                 name="model",
                 description="Inspect, switch, or update model settings",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(
-                        hint=(
-                            self._model_command_hint()
-                        )
-                    )
+                    root=UnstructuredCommandInput(hint=(self._model_command_hint()))
                 ),
             ),
             "history": AvailableCommand(
@@ -584,9 +581,7 @@ class SlashCommandHandler:
             noenv=self._noenv,
             acp_session_id=self.session_id,
             session_cwd=(
-                Path(str(raw_session_cwd)).expanduser().resolve()
-                if raw_session_cwd
-                else None
+                Path(str(raw_session_cwd)).expanduser().resolve() if raw_session_cwd else None
             ),
             session_store_scope=session_store_scope,
             session_store_cwd=(
@@ -808,9 +803,7 @@ class SlashCommandHandler:
             outcome.add_message(result.message)
         if result.buffer_prefill:
             outcome.add_message(
-                "Command produced draft text:\n\n```text\n"
-                f"{result.buffer_prefill}\n"
-                "```",
+                f"Command produced draft text:\n\n```text\n{result.buffer_prefill}\n```",
                 render_markdown=True,
             )
         if outcome.switch_agent is not None:

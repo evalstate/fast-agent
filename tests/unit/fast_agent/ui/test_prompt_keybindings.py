@@ -136,7 +136,12 @@ def test_function_key_callbacks_fire_when_configured() -> None:
         on_cycle_web_fetch=lambda: events.append("web_fetch"),
     )
 
-    for key, label in ((Keys.F6, "reasoning"), (Keys.F7, "verbosity"), (Keys.F8, "web_search"), (Keys.F9, "web_fetch")):
+    for key, label in (
+        (Keys.F6, "reasoning"),
+        (Keys.F7, "verbosity"),
+        (Keys.F8, "web_search"),
+        (Keys.F9, "web_fetch"),
+    ):
         binding = _binding_for(kb, key)
         binding.handler(SimpleNamespace(current_buffer=Buffer(), app=_App()))
         assert label in events

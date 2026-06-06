@@ -51,7 +51,9 @@ def test_parse_mentions_deduplicates_mentions() -> None:
 
 
 def test_parse_mentions_renders_template_values() -> None:
-    parsed = parse_mentions("Inspect ^demo:file:///repo/{branch}/{path}{branch=main,path=README.md}")
+    parsed = parse_mentions(
+        "Inspect ^demo:file:///repo/{branch}/{path}{branch=main,path=README.md}"
+    )
 
     assert len(parsed.mentions) == 1
     assert parsed.mentions[0].resource_uri == "file:///repo/main/README.md"
@@ -91,9 +93,7 @@ def test_parse_mentions_preserves_commas_inside_template_values() -> None:
 
 
 def test_parse_mentions_preserves_commas_before_next_template_arg() -> None:
-    parsed = parse_mentions(
-        "Inspect ^demo:https://example.com/search{?q,empty}{q=a,b,empty=}"
-    )
+    parsed = parse_mentions("Inspect ^demo:https://example.com/search{?q,empty}{q=a,b,empty=}")
 
     assert len(parsed.mentions) == 1
     assert parsed.mentions[0].resource_uri == "https://example.com/search?q=a%2Cb&empty="
