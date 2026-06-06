@@ -55,6 +55,8 @@
 | `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
 | `glm` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm?reasoning=off` | — | — |
+| `gpt-oss-20b` | `hf` | Text | `json` (schema) | — | — | — |
+| `gpt-oss` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.minimaxai/minimax-m2` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.qwen/qwen3-next-80b-a3b-instruct` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.zai-org/glm-4.6` | `hf` | Text | `json` (schema) | — | — | — |
@@ -74,9 +76,7 @@
 | `gpt-4o-mini-2024-07-18` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4o-mini` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4o` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
-| `gpt-oss-20b` | `openai` | Text | `json` (schema) | — | — | — |
-| `gpt-oss` | `openai` | Text | `json` (schema) | — | — | — |
-| `chatgpt` | `responses` | Text, Vision, Document | `json` (schema) | — | — | — |
+| `chat-latest` | `responses` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `codex` | `responses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `codex.medium` | `low`, `medium`, `high`<br>Example: `codex?verbosity=low` | — |
 | `gpt-5-mini` | `responses` | Text, Vision, Document | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gpt-5-mini.medium` | `low`, `medium`, `high`<br>Example: `gpt-5-mini?verbosity=low` | — |
 | `gpt-5-nano-2025-08-07` | `responses` | Text, Vision, Document | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gpt-5-nano-2025-08-07.medium` | `low`, `medium`, `high`<br>Example: `gpt-5-nano-2025-08-07?verbosity=low` | — |

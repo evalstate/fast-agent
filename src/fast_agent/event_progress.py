@@ -19,6 +19,7 @@ class ProgressAction(str, Enum):
     PLANNING = "Planning"
     READY = "Ready"
     CALLING_TOOL = "Calling Tool"
+    READING_RESOURCE = "Reading Resource"
     TOOL_PROGRESS = "Tool Progress"
     UPDATED = "Updated"
     FINISHED = "Finished"

@@ -40,7 +40,7 @@ def test_output_envelopes_are_stable():
     }
 
 
-def test_resume_loads_only_successful_ids_and_normalizes_to_string(tmp_path):
+def test_resume_loads_only_successful_ids_without_string_coercion(tmp_path):
     path = tmp_path / "out.jsonl"
     records = [
         {"id": 123, "ok": True},
@@ -49,7 +49,16 @@ def test_resume_loads_only_successful_ids_and_normalizes_to_string(tmp_path):
     ]
     path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
 
-    assert load_completed_ids(path) == {"123", "789"}
+    assert load_completed_ids(path) == {123, "789"}
+
+
+@pytest.mark.parametrize("value", [None, True, False, "", [], {}])
+def test_resume_rejects_ambiguous_existing_output_ids(tmp_path, value):
+    path = tmp_path / "out.jsonl"
+    path.write_text(json.dumps({"id": value, "ok": True}) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Existing output id at line 1"):
+        load_completed_ids(path)
 
 
 def test_resume_fails_on_malformed_existing_output(tmp_path):
@@ -58,4 +67,3 @@ def test_resume_fails_on_malformed_existing_output(tmp_path):
 
     with pytest.raises(ValueError, match="Invalid JSONL"):
         load_completed_ids(path)
-

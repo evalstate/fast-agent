@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
+from fast_agent.utils.text import strip_str_to_none
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ProviderModelInventory:
     """Dynamic model inventory returned by provider-specific adapters."""
 
@@ -47,8 +48,9 @@ class OpenRouterModelCatalogAdapter:
         openrouter_cfg = config.get("openrouter")
         if isinstance(openrouter_cfg, dict):
             cfg_base_url = openrouter_cfg.get("base_url")
-            if isinstance(cfg_base_url, str) and cfg_base_url.strip():
-                base_url = cfg_base_url.strip()
+            normalized_base_url = strip_str_to_none(cfg_base_url)
+            if normalized_base_url is not None:
+                base_url = normalized_base_url
 
         try:
             from fast_agent.llm.openrouter_model_lookup import list_openrouter_model_specs_sync
@@ -62,7 +64,7 @@ class OpenRouterModelCatalogAdapter:
 class ProviderModelCatalogRegistry:
     """Registry for provider-specific model discovery adapters."""
 
-    _ADAPTERS: dict[Provider, ProviderModelCatalogAdapter] = {
+    _ADAPTERS: ClassVar[dict[Provider, ProviderModelCatalogAdapter]] = {
         Provider.OPENROUTER: OpenRouterModelCatalogAdapter(),
     }
 
@@ -72,4 +74,3 @@ class ProviderModelCatalogRegistry:
         if adapter is None:
             return ProviderModelInventory()
         return adapter.discover(config)
-

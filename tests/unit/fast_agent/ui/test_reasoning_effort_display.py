@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.ui.gauge_glyph_palette import PAIRED_REASONING_GAUGE_GLYPHS
 from fast_agent.ui.reasoning_effort_display import (
@@ -117,9 +119,7 @@ def test_effort_none_low_medium_high_scale_uses_full_dynamic_range() -> None:
         == "<style bg='ansigreen'>⣤</style>"
     )
     assert (
-        render_reasoning_effort_gauge(
-            ReasoningEffortSetting(kind="effort", value="medium"), spec
-        )
+        render_reasoning_effort_gauge(ReasoningEffortSetting(kind="effort", value="medium"), spec)
         == "<style bg='ansiyellow'>⣶</style>"
     )
     assert (
@@ -136,9 +136,7 @@ def test_effort_minimal_low_medium_high_scale_uses_full_dynamic_range() -> None:
     )
 
     assert (
-        render_reasoning_effort_gauge(
-            ReasoningEffortSetting(kind="effort", value="minimal"), spec
-        )
+        render_reasoning_effort_gauge(ReasoningEffortSetting(kind="effort", value="minimal"), spec)
         == "<style bg='ansigreen'>⣀</style>"
     )
     assert (
@@ -146,9 +144,7 @@ def test_effort_minimal_low_medium_high_scale_uses_full_dynamic_range() -> None:
         == "<style bg='ansigreen'>⣤</style>"
     )
     assert (
-        render_reasoning_effort_gauge(
-            ReasoningEffortSetting(kind="effort", value="medium"), spec
-        )
+        render_reasoning_effort_gauge(ReasoningEffortSetting(kind="effort", value="medium"), spec)
         == "<style bg='ansiyellow'>⣶</style>"
     )
     assert (
@@ -185,3 +181,56 @@ def test_reasoning_gauge_can_render_paired_palette() -> None:
     )
 
     assert gauge == "<style bg='ansigreen'>⢠</style>"
+
+
+def test_budget_gauge_renders_inactive_for_malformed_runtime_value() -> None:
+    spec = ReasoningEffortSpec(
+        kind="budget",
+        min_budget_tokens=0,
+        max_budget_tokens=10_000,
+    )
+    setting = ReasoningEffortSetting(kind="budget", value=cast("Any", "not-a-budget"))
+
+    gauge = render_reasoning_effort_gauge(setting, spec)
+
+    assert gauge == f"<style bg='{INACTIVE_COLOR}'>" + FULL_BLOCK + "</style>"
+
+
+def test_budget_gauge_renders_inactive_for_non_positive_runtime_value() -> None:
+    spec = ReasoningEffortSpec(
+        kind="budget",
+        min_budget_tokens=0,
+        max_budget_tokens=10_000,
+    )
+
+    zero_gauge = render_reasoning_effort_gauge(
+        ReasoningEffortSetting(kind="budget", value=0),
+        spec,
+    )
+    negative_gauge = render_reasoning_effort_gauge(
+        ReasoningEffortSetting(kind="budget", value=-1),
+        spec,
+    )
+
+    inactive_gauge = f"<style bg='{INACTIVE_COLOR}'>" + FULL_BLOCK + "</style>"
+    assert zero_gauge == inactive_gauge
+    assert negative_gauge == inactive_gauge
+
+
+def test_budget_gauge_normalizes_presets_for_level_and_color() -> None:
+    spec = ReasoningEffortSpec(
+        kind="budget",
+        budget_presets=[20_000, 0, 1_000, 1_000, -5],
+    )
+
+    low_gauge = render_reasoning_effort_gauge(
+        ReasoningEffortSetting(kind="budget", value=500),
+        spec,
+    )
+    max_gauge = render_reasoning_effort_gauge(
+        ReasoningEffortSetting(kind="budget", value=20_000),
+        spec,
+    )
+
+    assert low_gauge == "<style bg='ansigreen'>⣀</style>"
+    assert max_gauge == "<style bg='ansired'>⣿</style>"

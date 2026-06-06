@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Mapping
 
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.results import CommandOutcome

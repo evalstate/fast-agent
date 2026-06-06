@@ -47,4 +47,4 @@ MESSAGE_CONFIGS: dict[MessageType, dict[str, str]] = {
 }
 
 
-__all__ = ["MessageType", "MESSAGE_CONFIGS"]
+__all__ = ["MESSAGE_CONFIGS", "MessageType"]

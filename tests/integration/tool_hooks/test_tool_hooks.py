@@ -35,7 +35,9 @@ class MultiToolCallLlm(PassthroughLLM):
                 tool_calls={
                     f"call_{self._call_count}": CallToolRequest(
                         method="tools/call",
-                        params=CallToolRequestParams(name="dummy_tool", arguments={"input": f"test{self._call_count}"}),
+                        params=CallToolRequestParams(
+                            name="dummy_tool", arguments={"input": f"test{self._call_count}"}
+                        ),
                     )
                 },
             )
@@ -205,7 +207,7 @@ async def mark_hook_called(ctx: HookContext) -> None:
 
     # Create child agent card that uses our test hook
     child_card = hooks_dir / "agent_child_test.md"
-    child_card.write_text('''---
+    child_card.write_text("""---
 type: agent
 name: child_test
 model: passthrough
@@ -213,18 +215,18 @@ tool_hooks:
   after_turn_complete: child_hooks_test.py:mark_hook_called
 instruction: Child agent with test hooks.
 ---
-''')
+""")
 
     # Create parent agent card
     parent_card = hooks_dir / "agent_parent_test.md"
-    parent_card.write_text('''---
+    parent_card.write_text("""---
 type: agent
 name: parent_test
 model: passthrough
 agents: [child_test]
 instruction: Parent agent that uses child.
 ---
-''')
+""")
 
     try:
         fast_agent.load_agents("agent_child_test.md")

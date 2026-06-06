@@ -150,14 +150,30 @@ def discover_cards() -> list[PageCard]:
         markdown = source.read_text(encoding="utf-8")
         meta, body = _frontmatter(markdown)
         theme = _card_theme(themes, rel, meta)
-        default_title = "fast-agent" if rel == Path("index.md") else source.stem.replace("_", " ").replace("-", " ").title()
-        title = _theme_value(theme, "title") or _plain(meta.get("title")) or _title_from_body(body, default_title)
-        description = _theme_value(theme, "description") or _plain(meta.get("description")) or _description_from_body(body)
+        default_title = (
+            "fast-agent"
+            if rel == Path("index.md")
+            else source.stem.replace("_", " ").replace("-", " ").title()
+        )
+        title = (
+            _theme_value(theme, "title")
+            or _plain(meta.get("title"))
+            or _title_from_body(body, default_title)
+        )
+        description = (
+            _theme_value(theme, "description")
+            or _plain(meta.get("description"))
+            or _description_from_body(body)
+        )
         section = "fast-agent" if len(rel.parts) == 1 else rel.parts[0].replace("_", " ")
         is_section_index = rel.name == "index.md" and rel.parent != Path(".")
-        default_variant = "hero" if rel == Path("index.md") else "section" if is_section_index else "doc"
+        default_variant = (
+            "hero" if rel == Path("index.md") else "section" if is_section_index else "doc"
+        )
         if rel.name == "index.md":
-            output_rel = Path("index.png") if rel.parent == Path(".") else rel.parent.with_suffix(".png")
+            output_rel = (
+                Path("index.png") if rel.parent == Path(".") else rel.parent.with_suffix(".png")
+            )
         else:
             output_rel = rel.with_suffix(".png")
         output = OUTPUT_DIR / output_rel
@@ -218,7 +234,7 @@ def _background_html(card: PageCard) -> str:
     </svg>
   </div>
   <div class="tui-bg">
-    <div class="inner {glyph_position if glyph_position in {'left', 'center'} else 'bottom-right'}">
+    <div class="inner {glyph_position if glyph_position in {"left", "center"} else "bottom-right"}">
 <span class="row dimx">~/research → <span class="cyan bold">gpt-5</span> ⇔ (22.1%)</span>
 <span class="row"><span class="green bold">▸ commentary</span></span>
 <span class="row dimx">  Found the MCP spec — fetching tool list…</span>
@@ -349,7 +365,9 @@ def render(cards: list[PageCard]) -> int:
         tmpdir = Path(tmp)
         for card in cards:
             card.output.parent.mkdir(parents=True, exist_ok=True)
-            html_path = tmpdir / (card.output.relative_to(OUTPUT_DIR).as_posix().replace("/", "__") + ".html")
+            html_path = tmpdir / (
+                card.output.relative_to(OUTPUT_DIR).as_posix().replace("/", "__") + ".html"
+            )
             html_path.write_text(_card_html(card), encoding="utf-8")
             print(f"Generating {card.output.relative_to(DOCS_DIR)}")
             result = subprocess.run(
@@ -397,7 +415,9 @@ def write_variant_previews(cards: list[PageCard]) -> None:
             "Simple, extendable agents." if variant == "hero" else sample.description,
         )
         path = PREVIEWS_DIR / f"{variant}.html"
-        path.write_text(_card_html(card, stylesheet_uri=stylesheet_uri, brand_uri=brand_uri), encoding="utf-8")
+        path.write_text(
+            _card_html(card, stylesheet_uri=stylesheet_uri, brand_uri=brand_uri), encoding="utf-8"
+        )
         links.append(
             f"""
             <article>
@@ -699,8 +719,12 @@ def check(cards: list[PageCard], *, check_stale: bool = True) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true", help="only verify committed cards exist")
-    parser.add_argument("--contact-sheet", action="store_true", help="only write the HTML contact sheet")
-    parser.add_argument("--variant-previews", action="store_true", help="write CRT design variant previews")
+    parser.add_argument(
+        "--contact-sheet", action="store_true", help="only write the HTML contact sheet"
+    )
+    parser.add_argument(
+        "--variant-previews", action="store_true", help="write CRT design variant previews"
+    )
     parser.add_argument("--page", help="render/check one page, e.g. guides/codex.md")
     args = parser.parse_args()
     all_cards = discover_cards()

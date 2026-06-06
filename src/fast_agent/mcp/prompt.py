@@ -7,12 +7,13 @@ fast_agent.core.prompt importing this Prompt.
 """
 
 from pathlib import Path
-from typing import Literal, Union
+from typing import Union
 
 from mcp import CallToolRequest
 from mcp.types import ContentBlock, PromptMessage, ReadResourceResult, ResourceContents
 
 from fast_agent.mcp.mcp_content import Assistant, MCPPrompt, User
+from fast_agent.mcp.message_roles import MessageRole
 from fast_agent.types import AssistantMessagePhase, LlmStopReason, PromptMessageExtended
 
 
@@ -58,7 +59,7 @@ class Prompt:
             item = content_items[0]
             if isinstance(item, PromptMessage):
                 return PromptMessageExtended(role="user", content=[item.content])
-            elif isinstance(item, PromptMessageExtended):
+            if isinstance(item, PromptMessageExtended):
                 # Keep the content but change role to user
                 return PromptMessageExtended(role="user", content=item.content)
 
@@ -98,7 +99,7 @@ class Prompt:
                     tool_calls=tool_calls,
                     phase=phase,
                 )
-            elif isinstance(item, PromptMessageExtended):
+            if isinstance(item, PromptMessageExtended):
                 # Keep the content but change role to assistant
                 return PromptMessageExtended(
                     role="assistant",
@@ -132,7 +133,7 @@ class Prompt:
             PromptMessage,
             PromptMessageExtended,
         ],
-        role: Literal["user", "assistant"] = "user",
+        role: MessageRole = "user",
     ) -> PromptMessageExtended:
         """
         Create a PromptMessageExtended with the specified role and content items.
@@ -142,7 +143,7 @@ class Prompt:
             item = content_items[0]
             if isinstance(item, PromptMessage):
                 return PromptMessageExtended(role=role, content=[item.content])
-            elif isinstance(item, PromptMessageExtended):
+            if isinstance(item, PromptMessageExtended):
                 # Keep the content but change role as specified
                 return PromptMessageExtended(role=role, content=item.content)
 
@@ -169,9 +170,11 @@ class Prompt:
                 result.append(PromptMessage(**item))
             elif isinstance(item, list):
                 # Process each item in the list
-                for msg in item:
-                    if isinstance(msg, dict) and "role" in msg and "content" in msg:
-                        result.append(PromptMessage(**msg))
+                result.extend(
+                    PromptMessage(**msg)
+                    for msg in item
+                    if isinstance(msg, dict) and "role" in msg and "content" in msg
+                )
             # Ignore other types
 
         return result

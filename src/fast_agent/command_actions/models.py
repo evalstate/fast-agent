@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Awaitable, Mapping, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from mcp.types import TextContent
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Mapping
     from pathlib import Path
 
     from fast_agent.agents.agent_types import AgentConfig

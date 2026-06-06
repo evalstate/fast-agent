@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from fast_agent.acp.acp_aware_mixin import ACPCommand
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.llm.provider_types import Provider
@@ -23,6 +24,31 @@ class _Agent:
     def __init__(self) -> None:
         self.config = SimpleNamespace(model=None)
         self.llm = None
+
+
+class _UppercaseCommandAgent(_Agent):
+    @property
+    def acp(self) -> None:
+        return None
+
+    @property
+    def is_acp_mode(self) -> bool:
+        return True
+
+    @property
+    def acp_commands(self) -> dict[str, ACPCommand]:
+        return {
+            "JumpNow": ACPCommand(
+                description="Jump now",
+                handler=self._handle_jump_now,
+            )
+        }
+
+    def acp_mode_info(self) -> None:
+        return None
+
+    async def _handle_jump_now(self, arguments: str) -> str:
+        return f"jumped {arguments}".strip()
 
 
 class _FastModeLlm:
@@ -85,8 +111,11 @@ class _TaskBudgetAgent:
 
 
 class _App:
+    def __init__(self, agent: object | None = None) -> None:
+        self.agent = agent or _Agent()
+
     def _agent(self, _name: str):
-        return _Agent()
+        return self.agent
 
     def visible_agent_names(self, *, force_include: str | None = None):
         del force_include
@@ -96,7 +125,7 @@ class _App:
         return ["main"]
 
     def registered_agents(self):
-        return {"main": _Agent()}
+        return {"main": self.agent}
 
     def resolve_target_agent_name(self, agent_name: str | None = None):
         return agent_name or "main"
@@ -200,6 +229,25 @@ async def test_slash_command_model_doctor_renders_markdown_table(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_slash_command_model_reports_unclosed_quotes() -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    output = await handler.execute_command("model", 'switch "gpt-5')
+
+    assert output == "Invalid /model arguments: No closing quotation"
+
+
+@pytest.mark.asyncio
 async def test_slash_command_model_fast_and_dynamic_hint() -> None:
     app = _App()
     agent = _FastModeAgent()
@@ -240,9 +288,15 @@ async def test_slash_command_model_task_budget() -> None:
     )
 
     output = await handler.execute_command("model", "task_budget 64k")
+    commands = {command.name: command for command in handler.get_available_commands()}
+    model_input = commands["model"].input
 
     assert "Task budget: set to 64k." in output
     assert agent.llm.task_budget_tokens == 64_000
+    assert model_input is not None
+    assert model_input.root.hint is not None
+    assert "task_budget <off|20k+>" in model_input.root.hint
+    assert "task_budget <off|20k+|status>" not in model_input.root.hint
 
 
 @pytest.mark.asyncio
@@ -289,6 +343,28 @@ async def test_slash_command_commands_index() -> None:
 
     assert "# commands" in output
     assert "`/skills`" in output
+
+
+@pytest.mark.asyncio
+async def test_slash_command_discovery_preserves_custom_command_case() -> None:
+    agent = _UppercaseCommandAgent()
+    app = _App(agent)
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", agent)},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    detail = await handler.execute_command("commands", "jumpnow")
+    executed = await handler.execute_command("JumpNow", "fast")
+
+    assert "No discovery metadata for `JumpNow` yet." in detail
+    assert executed == "jumped fast"
 
 
 @pytest.mark.asyncio
@@ -346,4 +422,4 @@ async def test_slash_command_model_references_set_dry_run(tmp_path: Path) -> Non
 
     assert "# model.references" in output
     assert "Mode: dry-run" in output
-    assert "model_references.system.fast" in output
+    assert r"model\_references.system.fast" in output

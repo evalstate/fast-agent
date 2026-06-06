@@ -30,7 +30,9 @@ class _StubIO:
         del arg_name, description, required
         return None
 
-    async def display_history_turn(self, agent_name: str, turn, *, turn_index=None, total_turns=None):
+    async def display_history_turn(
+        self, agent_name: str, turn, *, turn_index=None, total_turns=None
+    ):
         del agent_name, turn, turn_index, total_turns
         return None
 
@@ -101,7 +103,9 @@ async def test_handle_session_export_leaves_agent_unset_for_exporter_inference(
             )
 
     monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: session_manager)
-    monkeypatch.setattr("fast_agent.commands.handlers.session_export.SessionTraceExporter", _Exporter)
+    monkeypatch.setattr(
+        "fast_agent.commands.handlers.session_export.SessionTraceExporter", _Exporter
+    )
 
     ctx = CommandContext(
         agent_provider=_StubAgentProvider(),

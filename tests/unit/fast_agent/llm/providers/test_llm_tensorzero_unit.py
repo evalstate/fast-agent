@@ -4,7 +4,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from fast_agent.agents import McpAgent
+from fast_agent.config import Settings, TensorZeroSettings
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
+from fast_agent.context import Context
 from fast_agent.llm.provider.openai.llm_tensorzero_openai import TensorZeroOpenAILLM
 from fast_agent.llm.request_params import RequestParams
 
@@ -65,6 +67,14 @@ def test_base_url_uses_default_when_config_missing(mock_agent):
 
     llm = TensorZeroOpenAILLM(agent=mock_agent, model="test")
     assert llm._base_url() == "http://localhost:3000/openai/v1"
+
+
+def test_base_url_uses_configured_tensorzero_settings() -> None:
+    settings = Settings(tensorzero=TensorZeroSettings(base_url="https://tensorzero.example"))
+
+    llm = TensorZeroOpenAILLM(context=Context(config=settings), model="test")
+
+    assert llm._base_url() == "https://tensorzero.example/openai/v1"
 
 
 # --- Tests for _prepare_api_request ---

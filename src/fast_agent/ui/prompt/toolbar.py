@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import shutil
-from typing import TYPE_CHECKING
+from html import escape as escape_html
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.formatted_text import HTML, to_formatted_text
 from prompt_toolkit.formatted_text.utils import fragment_list_width
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.validation import normalize_agent_type_value
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.gauge_glyph_palette import (
     PAIRED_REASONING_GAUGE_GLYPHS,
@@ -17,6 +19,11 @@ from fast_agent.ui.gauge_glyph_palette import (
 )
 from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
 from fast_agent.ui.text_verbosity_display import render_text_verbosity_gauge
+from fast_agent.utils.path_display import (
+    fit_path_for_display,
+    format_parent_current_path,
+    left_truncate_with_ellipsis,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,6 +34,12 @@ if TYPE_CHECKING:
 _ELLIPSIS = "…"
 
 
+@runtime_checkable
+class _AgentTypeProvider(Protocol):
+    @property
+    def agent_type(self) -> AgentType | str | None: ...
+
+
 def _format_context_usage_percent_for_toolbar(pct: float | None) -> str | None:
     """Format context usage for toolbar display with stable width."""
     return format_compact_context_usage_percent(pct)
@@ -34,38 +47,23 @@ def _format_context_usage_percent_for_toolbar(pct: float | None) -> str | None:
 
 def _left_truncate_with_ellipsis(text: str, max_length: int) -> str:
     """Truncate text from the left using a single-character ellipsis."""
-    if max_length <= 0:
-        return ""
-    if len(text) <= max_length:
-        return text
-    if max_length == 1:
-        return _ELLIPSIS
-    return f"{_ELLIPSIS}{text[-(max_length - 1) :]}"
+    return left_truncate_with_ellipsis(text, max_length, ellipsis=_ELLIPSIS)
 
 
 def _format_parent_current_path(path: Path) -> str:
     """Render a path as parent/current when both names are available."""
-    current = path.name or str(path)
-    parent = path.parent.name
-    if parent:
-        return f"{parent}/{current}"
-    return current
+    return format_parent_current_path(str(path))
 
 
 def _fit_shell_path_for_toolbar(path: Path, max_length: int) -> str:
     """Fit a shell path for toolbar display without spilling."""
-    if max_length <= 0:
-        return ""
+    return fit_path_for_display(str(path), max_length)
 
+
+def _shell_identity_candidates(path: Path, version_segment: str) -> tuple[str, str]:
     parent_current = _format_parent_current_path(path)
-    if len(parent_current) <= max_length:
-        return parent_current
-
     current = path.name or str(path)
-    if len(current) <= max_length:
-        return current
-
-    return _left_truncate_with_ellipsis(current, max_length)
+    return f"{parent_current} | {version_segment}", f"{current} | {version_segment}"
 
 
 def _fit_shell_identity_for_toolbar(path: Path, version_segment: str, max_length: int) -> str:
@@ -73,14 +71,12 @@ def _fit_shell_identity_for_toolbar(path: Path, version_segment: str, max_length
     if max_length <= 0:
         return ""
 
-    parent_current = _format_parent_current_path(path)
-    current = path.name or str(path)
-
-    parent_current_with_version = f"{parent_current} | {version_segment}"
+    parent_current_with_version, current_with_version = _shell_identity_candidates(
+        path, version_segment
+    )
     if len(parent_current_with_version) <= max_length:
         return parent_current_with_version
 
-    current_with_version = f"{current} | {version_segment}"
     if len(current_with_version) <= max_length:
         return current_with_version
 
@@ -92,14 +88,10 @@ def _can_fit_shell_path_and_version(path: Path, version_segment: str, max_length
     if max_length <= 0:
         return False
 
-    parent_current = _format_parent_current_path(path)
-    parent_current_with_version = f"{parent_current} | {version_segment}"
-    if len(parent_current_with_version) <= max_length:
-        return True
-
-    current = path.name or str(path)
-    current_with_version = f"{current} | {version_segment}"
-    return len(current_with_version) <= max_length
+    return any(
+        len(candidate) <= max_length
+        for candidate in _shell_identity_candidates(path, version_segment)
+    )
 
 
 def _toolbar_markup_width(markup: str) -> int:
@@ -150,13 +142,9 @@ def _render_model_gauges(
 
 def _is_smart_agent(agent: object | None) -> bool:
     """Return True when the provided agent instance is a smart agent."""
-    if agent is None:
+    if not isinstance(agent, _AgentTypeProvider):
         return False
-    agent_type = getattr(agent, "agent_type", None)
-    normalized = getattr(agent_type, "value", agent_type)
-    if isinstance(normalized, str):
-        return normalized.lower() == AgentType.SMART.value
-    return normalized == AgentType.SMART
+    return normalize_agent_type_value(agent.agent_type) == AgentType.SMART.value
 
 
 def _format_toolbar_agent_identity(
@@ -164,4 +152,6 @@ def _format_toolbar_agent_identity(
 ) -> str:
     """Render toolbar agent identity, suffixing [S] for smart agents."""
     label = f"{agent_name}[S]" if _is_smart_agent(agent) else agent_name
-    return f"<style fg='{toolbar_color}' bg='ansiblack'> {label} </style>"
+    color = escape_html(toolbar_color, quote=True)
+    escaped_label = escape_html(label, quote=False)
+    return f"<style fg='{color}' bg='ansiblack'> {escaped_label} </style>"

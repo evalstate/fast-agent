@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -17,7 +18,6 @@ from fast_agent.config import (
     load_layered_model_settings,
     load_yaml_mapping,
 )
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.model_resolution import parse_model_reference_token
 from fast_agent.home import (
@@ -26,6 +26,7 @@ from fast_agent.home import (
     find_config_in_directory,
     resolve_fast_agent_home,
 )
+from fast_agent.paths import resolve_settings_start_path
 
 ModelReferenceWriteTarget = Literal["env", "project"]
 
@@ -187,10 +188,12 @@ class ModelReferenceConfigService:
         )
 
     def _resolve_target_path(self, target: ModelReferenceWriteTarget) -> Path:
-        if target == "env":
-            return self.paths.env_path
-        if target == "project":
-            return self.paths.project_write_path
+        target_paths: dict[ModelReferenceWriteTarget, Path] = {
+            "env": self.paths.env_path,
+            "project": self.paths.project_write_path,
+        }
+        if target in target_paths:
+            return target_paths[target]
         raise ValueError("target must be 'env' or 'project'")
 
 
@@ -200,28 +203,7 @@ def resolve_model_reference_start_path(
     fallback_path: Path | None = None,
 ) -> Path:
     """Resolve the deterministic base path for model reference config discovery."""
-    if settings is not None:
-        config_file = getattr(settings, "_config_file", None)
-        if isinstance(config_file, str) and config_file.strip():
-            config_parent = Path(config_file).expanduser().resolve().parent
-            if config_parent.name == DEFAULT_ENVIRONMENT_DIR:
-                return config_parent.parent
-            return config_parent
-
-        env_dir = getattr(settings, "environment_dir", None)
-        if isinstance(env_dir, str) and env_dir.strip():
-            env_root = Path(env_dir).expanduser()
-            if env_root.is_absolute():
-                return env_root.resolve().parent
-        elif isinstance(env_dir, Path):
-            env_root = env_dir.expanduser()
-            if env_root.is_absolute():
-                return env_root.resolve().parent
-
-    if fallback_path is not None:
-        return fallback_path.resolve()
-
-    return Path.cwd().resolve()
+    return resolve_settings_start_path(settings, fallback_path=fallback_path)
 
 
 def _discover_paths(
@@ -236,8 +218,8 @@ def _discover_paths(
     project_read_path = find_config_in_directory(start_path)
     if resolved_project_write_path is not None and resolved_project_write_path.exists():
         project_read_path = resolved_project_write_path
-    resolved_project_path = resolved_project_write_path or project_read_path or (
-        start_path / PREFERRED_CONFIG_FILENAME
+    resolved_project_path = (
+        resolved_project_write_path or project_read_path or (start_path / PREFERRED_CONFIG_FILENAME)
     )
     home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
     env_root = home.path if home is not None else start_path
@@ -282,6 +264,8 @@ def _extract_valid_references(references_payload: Any) -> dict[str, dict[str, st
         for key, raw_value in entries.items():
             if not isinstance(key, str) or not isinstance(raw_value, str):
                 continue
+            if not _is_valid_reference_name(namespace, key):
+                continue
             model_value = raw_value.strip()
             if not model_value:
                 continue
@@ -293,6 +277,14 @@ def _extract_valid_references(references_payload: Any) -> dict[str, dict[str, st
     return valid_references
 
 
+def _is_valid_reference_name(namespace: str, key: str) -> bool:
+    try:
+        parse_model_reference_token(f"${namespace}.{key}")
+    except ModelConfigError:
+        return False
+    return True
+
+
 _ROUND_TRIP_YAML = YAML()
 _ROUND_TRIP_YAML.preserve_quotes = True
 
@@ -301,7 +293,7 @@ def _load_round_trip_yaml(path: Path) -> CommentedMap:
     if not path.exists():
         return CommentedMap()
 
-    with open(path, "r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8") as handle:
         payload = _ROUND_TRIP_YAML.load(handle)
 
     if payload is None:
@@ -357,10 +349,10 @@ def _unset_reference_value(document: CommentedMap, namespace: str, key: str) -> 
     if key in namespace_entries:
         del namespace_entries[key]
 
-    if len(namespace_entries) == 0 and namespace in references:
+    if not namespace_entries and namespace in references:
         del references[namespace]
 
-    if len(references) == 0 and "model_references" in document:
+    if not references and "model_references" in document:
         del document["model_references"]
 
 
@@ -382,10 +374,8 @@ def _atomic_write_round_trip_yaml(document: CommentedMap, path: Path) -> None:
             os.fsync(handle.fileno())
             temp_path = Path(handle.name)
 
-        os.replace(temp_path, path)
+        temp_path.replace(path)
     finally:
         if temp_path and temp_path.exists():
-            try:
+            with suppress(Exception):
                 temp_path.unlink()
-            except Exception:
-                pass

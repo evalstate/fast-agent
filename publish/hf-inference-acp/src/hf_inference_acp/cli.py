@@ -259,8 +259,6 @@ def _load_agent_cards(
     return loaded_names, errors
 
 
-
-
 async def run_agents(
     *,
     name: str,
@@ -521,7 +519,11 @@ def run_acp(
 
     instruction_override = None
     if instruction:
-        instruction_override, _ = resolve_instruction_option(instruction, model, "serve")
+        instruction_override = resolve_instruction_option(
+            instruction,
+            model,
+            "serve",
+        ).instruction
 
     server_list = servers.split(",") if servers else None
 

@@ -130,7 +130,9 @@ async def _probe_mode(core: Core, model: str, mode: JsonMode) -> ModeProbe:
                 error=None if passed else "parsed JSON did not match expected payload",
             )
         except Exception as exc:
-            return ModeProbe(mode=mode, passed=False, parsed=None, error=f"{type(exc).__name__}: {exc}")
+            return ModeProbe(
+                mode=mode, passed=False, parsed=None, error=f"{type(exc).__name__}: {exc}"
+            )
         finally:
             await agent.shutdown()
 

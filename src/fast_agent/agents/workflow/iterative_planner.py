@@ -3,8 +3,9 @@ Iterative Planner Agent - works towards an objective using sub-agents
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any
 
+from a2a.types import AgentCard
 from mcp import Tool
 from mcp.types import TextContent
 
@@ -19,6 +20,7 @@ from fast_agent.agents.workflow.orchestrator_models import (
     format_plan_result,
     format_step_result_text,
 )
+from fast_agent.agents.workflow.request_params import child_request_params
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -172,9 +174,9 @@ class IterativePlanner(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        agents: List[AgentProtocol],
+        agents: list[AgentProtocol],
         plan_iterations: int = -1,
-        context: Optional[Any] = None,
+        context: Any | None = None,
         **kwargs,
     ) -> None:
         """
@@ -191,7 +193,7 @@ class IterativePlanner(LlmAgent):
             raise AgentConfigError("At least one worker agent must be provided")
 
         # Store agents by name for easier lookup
-        self.agents: Dict[str, AgentProtocol] = {}
+        self.agents: dict[str, AgentProtocol] = {}
         for agent in agents:
             agent_name = agent.name
             self.agents[agent_name] = agent
@@ -216,19 +218,20 @@ class IterativePlanner(LlmAgent):
 
     async def initialize(self) -> None:
         """Initialize the orchestrator agent and worker agents."""
+        if self.initialized:
+            return
+
         # Initialize all worker agents first if not already initialized
         for agent_name, agent in self.agents.items():
-            if not getattr(agent, "initialized", False):
+            if not agent.initialized:
                 logger.debug(f"Initializing agent: {agent_name}")
                 await agent.initialize()
 
         # Format agent information using agent cards with XML formatting
-        agent_descriptions = []
-        for agent_name, agent in self.agents.items():
-            agent_card = await agent.agent_card()
-            # Format as XML for better readability in prompts
-            xml_formatted = self._format_agent_card_as_xml(agent_card)
-            agent_descriptions.append(xml_formatted)
+        agent_descriptions = [
+            self._format_agent_card_as_xml(await agent.agent_card())
+            for agent in self.agents.values()
+        ]
 
         agents_str = "\n".join(agent_descriptions)
 
@@ -251,13 +254,13 @@ class IterativePlanner(LlmAgent):
             try:
                 await agent.shutdown()
             except Exception as e:
-                logger.warning(f"Error shutting down agent {agent_name}: {str(e)}")
+                logger.warning(f"Error shutting down agent {agent_name}: {e!s}")
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Execute an orchestrated plan to process the input.
@@ -280,10 +283,10 @@ class IterativePlanner(LlmAgent):
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
-        model: Type[ModelT],
-        request_params: Optional[RequestParams] = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+        messages: list[PromptMessageExtended],
+        model: type[ModelT],
+        request_params: RequestParams | None = None,
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Execute an orchestration plan and parse the result into a structured format.
 
@@ -304,11 +307,10 @@ class IterativePlanner(LlmAgent):
             prompt_message = PromptMessageExtended(
                 role="user", content=[TextContent(type="text", text=result_text)]
             )
-            assert self._llm
-            return await self._llm.structured([prompt_message], model, request_params)
+            return await self._require_llm().structured([prompt_message], model, request_params)
         except Exception as e:
-            logger.warning(f"Failed to parse orchestration result: {str(e)}")
-            return None, Prompt.assistant(f"Failed to parse orchestration result: {str(e)}")
+            logger.warning(f"Failed to parse orchestration result: {e!s}")
+            return None, Prompt.assistant(f"Failed to parse orchestration result: {e!s}")
 
     async def _execute_plan(
         self, objective: str, request_params: RequestParams | None
@@ -341,10 +343,9 @@ class IterativePlanner(LlmAgent):
                 logger.error("Failed to generate next step, terminating plan early")
                 break
 
-            assert next_step  # lets keep the indenting manageable!
-
             if next_step.is_complete:
                 objective_met = True
+                plan_result.is_complete = True
                 terminate_plan = "Plan completed successfully"
                 # Mark all entries as completed
                 for entry in plan_entries:
@@ -371,7 +372,7 @@ class IterativePlanner(LlmAgent):
             await self.plan_telemetry.update_plan(plan_entries)
 
             for step in plan.steps:  # this will only be one for iterative (change later)
-                step_result = await self._execute_step(step, plan_result)
+                step_result = await self._execute_step(step, plan_result, request_params)
                 plan_result.add_step_result(step_result)
 
                 # Mark subtasks as completed
@@ -381,9 +382,9 @@ class IterativePlanner(LlmAgent):
             # Store plan in result
             plan_result.plan = plan
 
-            if self.plan_iterations > 0:
-                if len(plan_result.step_results) >= self.plan_iterations:
-                    terminate_plan = f"Reached maximum number of iterations ({self.plan_iterations}), terminating plan"
+            if self.plan_iterations > 0 and len(plan_result.step_results) >= self.plan_iterations:
+                plan_result.max_iterations_reached = True
+                terminate_plan = f"Reached maximum number of iterations ({self.plan_iterations}), terminating plan"
 
         if not terminate_plan:
             terminate_plan = "Unknown termination reason"
@@ -397,7 +398,12 @@ class IterativePlanner(LlmAgent):
         await self.show_assistant_message(final_message)
         return plan_result
 
-    async def _execute_step(self, step: Step, previous_result: PlanResult) -> Any:
+    async def _execute_step(
+        self,
+        step: Step,
+        previous_result: PlanResult,
+        request_params: RequestParams | None = None,
+    ) -> Any:
         """
         Execute a single step from the plan.
 
@@ -416,6 +422,7 @@ class IterativePlanner(LlmAgent):
 
         # Format context for tasks
         context = format_plan_result(previous_result)
+        forward_params = child_request_params(request_params)
 
         # Group tasks by agent and execute different agents in parallel
         from collections import defaultdict
@@ -424,10 +431,19 @@ class IterativePlanner(LlmAgent):
         for task in step.tasks:
             tasks_by_agent[task.agent].append(task)
 
-        async def execute_agent_tasks(agent_name: str, agent_tasks: List) -> List[TaskWithResult]:
+        async def execute_agent_tasks(agent_name: str, agent_tasks: list) -> list[TaskWithResult]:
             """Execute all tasks for a single agent sequentially (preserves history)"""
             agent = self.agents.get(agent_name)
-            assert agent is not None
+            if agent is None:
+                logger.error(f"Plan referenced unknown agent: {agent_name}")
+                return [
+                    TaskWithResult(
+                        description=task.description,
+                        agent=task.agent,
+                        result=f"ERROR: Agent '{agent_name}' is not available",
+                    )
+                    for task in agent_tasks
+                ]
 
             results = []
             for task in agent_tasks:
@@ -441,7 +457,8 @@ class IterativePlanner(LlmAgent):
                                 role="user",
                                 content=[TextContent(type="text", text=task_description)],
                             )
-                        ]
+                        ],
+                        request_params=forward_params,
                     )
 
                     task_model = task.model_dump()
@@ -453,13 +470,13 @@ class IterativePlanner(LlmAgent):
                         )
                     )
                 except Exception as e:
-                    logger.error(f"Error executing task: {str(e)}")
+                    logger.error(f"Error executing task: {e!s}")
                     task_model = task.model_dump()
                     results.append(
                         TaskWithResult(
                             description=task_model["description"],
                             agent=task_model["agent"],
-                            result=f"ERROR: {str(e)}",
+                            result=f"ERROR: {e!s}",
                         )
                     )
             return results
@@ -533,35 +550,32 @@ class IterativePlanner(LlmAgent):
             plan_msg = PromptMessageExtended(
                 role="user", content=[TextContent(type="text", text=prompt)]
             )
-            assert self._llm
             self.show_user_message(plan_msg)
-            next_step, raw_response = await self._llm.structured(
+            next_step, raw_response = await self._require_llm().structured(
                 [plan_msg], PlanningStep, request_params
             )
             await self.show_assistant_message(raw_response)
             return next_step
         except Exception as e:
-            logger.error(f"Failed to parse next step: {str(e)}")
+            logger.error(f"Failed to parse next step: {e!s}")
             return None
 
-    def _validate_agent_names(self, plan: Plan) -> List[str]:
+    def _validate_agent_names(self, plan: Plan) -> list[str]:
         """
         Validate all agent names in a plan before execution.
 
         Args:
             plan: The plan to validate
         """
-        invalid_agents = []
-
-        for step in plan.steps:
-            for task in step.tasks:
-                if task.agent not in self.agents:
-                    invalid_agents.append(task.agent)
-
-        return invalid_agents
+        return [
+            task.agent
+            for step in plan.steps
+            for task in step.tasks
+            if task.agent not in self.agents
+        ]
 
     @staticmethod
-    def _format_agent_card_as_xml(agent_card) -> str:
+    def _format_agent_card_as_xml(agent_card: AgentCard) -> str:
         """
         Format an agent card as XML for display in prompts.
 
@@ -583,11 +597,11 @@ class IterativePlanner(LlmAgent):
             )
 
         # Add skills if available
-        if hasattr(agent_card, "skills") and agent_card.skills:
+        if agent_card.skills:
             xml_parts.append("  <fastagent:skills>")
             for skill in agent_card.skills:
                 xml_parts.append(f'    <fastagent:skill name="{skill.name}">')
-                if hasattr(skill, "description") and skill.description:
+                if skill.description:
                     xml_parts.append(
                         f"      <fastagent:description>{skill.description}</fastagent:description>"
                     )
@@ -615,8 +629,7 @@ class IterativePlanner(LlmAgent):
         prompt = PromptMessageExtended(
             role="user", content=[TextContent(type="text", text=message)]
         )
-        assert self._llm, "LLM must be initialized before generating text"
-        return await self._llm.generate([prompt], request_params)
+        return await self._require_llm().generate([prompt], request_params)
 
     @staticmethod
     def _build_plan_entries_for_step(step: PlanningStep | Step) -> list[PlanEntry]:
@@ -624,17 +637,14 @@ class IterativePlanner(LlmAgent):
         Build plan entries for telemetry using individual step tasks when available.
         """
         if step.tasks:
-            entries = []
-            for task in step.tasks:
-                agent_name = getattr(task, "agent", None) or "Unknown agent"
-                entries.append(
-                    PlanEntry(
-                        content=f"{agent_name}: {task.description}",
-                        priority="high",
-                        status="pending",
-                    )
+            return [
+                PlanEntry(
+                    content=f"{task.agent}: {task.description}",
+                    priority="high",
+                    status="pending",
                 )
-            return entries
+                for task in step.tasks
+            ]
 
         # Fallback to a single entry if the planner supplied no explicit tasks
         return [

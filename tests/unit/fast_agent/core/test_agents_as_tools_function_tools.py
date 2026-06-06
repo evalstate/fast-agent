@@ -141,3 +141,109 @@ async def test_agents_as_tools_requires_messages_for_history_source_messages(
             await create_agents_in_dependency_order(core, agents_dict, model_factory)
     finally:
         await core.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_agents_as_tools_rejects_invalid_history_mode(tmp_path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    source_path = tmp_path / "vertex-rag.md"
+    source_path.write_text("", encoding="utf-8")
+
+    agents_dict = {
+        "vertex-rag": {
+            "config": AgentConfig(
+                name="vertex-rag",
+                instruction="Use mini_rag.",
+            ),
+            "type": AgentType.BASIC.value,
+            "child_agents": ["sizer"],
+            "agents_as_tools_options": {"history_source": "chlid"},
+            "source_path": source_path,
+        },
+        "sizer": {
+            "config": AgentConfig(
+                name="sizer",
+                instruction="Return size.",
+            ),
+            "type": AgentType.BASIC.value,
+        },
+    }
+
+    def model_factory_func(model: str | None = None) -> LLMFactoryProtocol:
+        return ModelFactory.create_factory("passthrough")
+
+    model_factory = cast("ModelFactoryFunctionProtocol", model_factory_func)
+
+    core = Core(settings=str(config_path))
+    await core.initialize()
+    try:
+        with pytest.raises(AgentConfigError, match="Invalid agents_as_tools_options"):
+            await create_agents_in_dependency_order(core, agents_dict, model_factory)
+    finally:
+        await core.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_agents_as_tools_rejects_unknown_option_key(tmp_path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dict = {
+        "parent": {
+            "config": AgentConfig(name="parent", instruction="Use children."),
+            "type": AgentType.BASIC.value,
+            "child_agents": ["child"],
+            "agents_as_tools_options": {"histroy_source": "child"},
+        },
+        "child": {
+            "config": AgentConfig(name="child", instruction="Return size."),
+            "type": AgentType.BASIC.value,
+        },
+    }
+
+    def model_factory_func(model: str | None = None) -> LLMFactoryProtocol:
+        return ModelFactory.create_factory("passthrough")
+
+    model_factory = cast("ModelFactoryFunctionProtocol", model_factory_func)
+
+    core = Core(settings=str(config_path))
+    await core.initialize()
+    try:
+        with pytest.raises(AgentConfigError, match="Invalid agents_as_tools_options"):
+            await create_agents_in_dependency_order(core, agents_dict, model_factory)
+    finally:
+        await core.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_agents_as_tools_rejects_non_mapping_options(tmp_path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dict = {
+        "parent": {
+            "config": AgentConfig(name="parent", instruction="Use children."),
+            "type": AgentType.BASIC.value,
+            "child_agents": ["child"],
+            "agents_as_tools_options": ["history_source", "child"],
+        },
+        "child": {
+            "config": AgentConfig(name="child", instruction="Return size."),
+            "type": AgentType.BASIC.value,
+        },
+    }
+
+    def model_factory_func(model: str | None = None) -> LLMFactoryProtocol:
+        return ModelFactory.create_factory("passthrough")
+
+    model_factory = cast("ModelFactoryFunctionProtocol", model_factory_func)
+
+    core = Core(settings=str(config_path))
+    await core.initialize()
+    try:
+        with pytest.raises(AgentConfigError, match="Invalid agents_as_tools_options"):
+            await create_agents_in_dependency_order(core, agents_dict, model_factory)
+    finally:
+        await core.cleanup()

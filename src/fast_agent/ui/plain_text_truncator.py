@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-import math
+
+def _line_row_count(line: str, *, width: int) -> int:
+    expanded_len = len(line.expandtabs())
+    if expanded_len == 0:
+        return 1
+    return max(1, (expanded_len + width - 1) // width)
 
 
 class PlainTextTruncator:
@@ -41,9 +46,7 @@ class PlainTextTruncator:
             prev_newline = text.rfind("\n", 0, idx)
             line_start = prev_newline + 1 if prev_newline != -1 else 0
             line = text[line_start:idx]
-            expanded = line.expandtabs()
-            line_len = len(expanded)
-            line_rows = max(1, math.ceil(line_len / width)) if line_len else 1
+            line_rows = _line_row_count(line, width=width)
 
             if rows_used + line_rows >= target_rows:
                 rows_remaining = target_rows - rows_used

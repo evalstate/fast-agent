@@ -2,54 +2,41 @@
 
 from __future__ import annotations
 
+import re
 import textwrap
 from typing import TYPE_CHECKING
 
 from rich.text import Text
 
+from fast_agent.commands.handlers._text_formatting import indexed_row
 from fast_agent.commands.handlers._text_utils import truncate_description
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.tool_summaries import (
     ProviderToolSummary,
-    ToolSummary,
     build_provider_tool_summaries,
     build_tool_summaries,
+    provider_tool_status_label,
 )
 from fast_agent.interfaces import AgentProtocol
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
-    from mcp.types import Tool
-
     from fast_agent.commands.context import CommandContext
 
 
 APP_SUFFIX_BADGES = ("(Apps SDK)", "(MCP App)")
+_APP_SUFFIX_BADGE_PATTERN = re.compile(
+    f"({'|'.join(re.escape(badge) for badge in APP_SUFFIX_BADGES)})"
+)
 
 
 def _append_suffix(line: Text, suffix: str) -> None:
     line.append(" ", style="dim cyan")
-
-    index = 0
-    while index < len(suffix):
-        badge = next(
-            (badge for badge in APP_SUFFIX_BADGES if suffix.startswith(badge, index)),
-            None,
-        )
-        if badge:
-            line.append(badge, style="bright_yellow")
-            index += len(badge)
+    for segment in _APP_SUFFIX_BADGE_PATTERN.split(suffix):
+        if not segment:
             continue
-
-        next_badge = min(
-            (
-                position
-                for badge in APP_SUFFIX_BADGES
-                if (position := suffix.find(badge, index)) >= 0
-            ),
-            default=len(suffix),
-        )
-        line.append(suffix[index:next_badge], style="dim cyan")
-        index = next_badge
+        style = "bright_yellow" if segment in APP_SUFFIX_BADGES else "dim cyan"
+        line.append(segment, style=style)
 
 
 def _format_tool_line(tool_name: str, title: str | None, suffix: str | None) -> Text:
@@ -57,8 +44,9 @@ def _format_tool_line(tool_name: str, title: str | None, suffix: str | None) -> 
     line.append(tool_name, style="bright_blue bold")
     if suffix:
         _append_suffix(line, suffix)
-    if title and title.strip():
-        line.append(f" {title}", style="default")
+    title_label = strip_to_none(title)
+    if title_label is not None:
+        line.append(f" {title_label}", style="default")
     return line
 
 
@@ -79,18 +67,13 @@ def _append_provider_tool_section(
     content.append("\n\n")
 
     for summary in provider_summaries:
-        state = "enabled" if summary.enabled else "disabled"
         line = Text()
         line.append("  • ", style="dim cyan")
         line.append(summary.name, style="bright_blue bold")
-        line.append(f" ({summary.suffix}, {state})", style="dim cyan")
+        line.append(f" ({provider_tool_status_label(summary)})", style="dim cyan")
         line.append(f" {summary.description}", style="white")
         content.append_text(line)
         content.append("\n")
-
-
-def _summaries_from_tools(agent: object, tools: list["Tool"]) -> list[ToolSummary]:
-    return build_tool_summaries(agent, tools)
 
 
 def _format_args_text(args: list[str]) -> str:
@@ -98,6 +81,20 @@ def _format_args_text(args: list[str]) -> str:
     if len(args_text) > 80:
         return args_text[:77] + "..."
     return args_text
+
+
+def _append_tool_detail(
+    content: Text,
+    label: str,
+    value: str,
+    *,
+    label_style: str = "dim magenta",
+    value_style: str | None = None,
+) -> None:
+    content.append("     ", style="dim")
+    content.append(f"{label}: ", style=label_style)
+    content.append(value, style=value_style)
+    content.append("\n")
 
 
 async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
@@ -125,7 +122,7 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
         )
         return outcome
 
-    summaries = _summaries_from_tools(agent, list(tools_result.tools))
+    summaries = build_tool_summaries(agent, list(tools_result.tools))
 
     content = Text()
     header = Text(f"Tools for agent {agent_name}:", style="bold")
@@ -137,8 +134,7 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
         content.append("\n\n")
 
         for index, summary in enumerate(summaries, 1):
-            line = Text()
-            line.append(f"[{index:2}] ", style="dim cyan")
+            line = indexed_row(index)
             line.append_text(_format_tool_line(summary.name, summary.title, summary.suffix))
             content.append_text(line)
             content.append("\n")
@@ -153,15 +149,15 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
             if summary.args:
                 args_text = _format_args_text(summary.args)
                 if args_text:
-                    content.append("     ", style="dim")
-                    content.append(f"args: {args_text}", style="dim magenta")
-                    content.append("\n")
+                    _append_tool_detail(
+                        content,
+                        "args",
+                        args_text,
+                        value_style="dim magenta",
+                    )
 
             if summary.template:
-                content.append("     ", style="dim")
-                content.append("template: ", style="dim magenta")
-                content.append(str(summary.template))
-                content.append("\n")
+                _append_tool_detail(content, "template", str(summary.template))
 
             content.append("\n")
 

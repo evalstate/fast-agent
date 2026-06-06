@@ -68,9 +68,7 @@ async def create_user_account(service_name: str = "MyApp") -> str:
         agree_terms: bool = Field(description="I agree to the terms of service")
         marketing_emails: bool = Field(False, description="Send me product updates")
 
-    result = await get_context().elicit(
-        f"Create Your {service_name} Account", AccountSignup
-    )
+    result = await get_context().elicit(f"Create Your {service_name} Account", AccountSignup)
 
     match result:
         case AcceptedElicitation(data=data):

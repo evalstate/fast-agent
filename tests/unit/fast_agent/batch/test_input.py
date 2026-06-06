@@ -6,7 +6,9 @@ from io import BytesIO
 import pytest
 
 from fast_agent.batch.input import (
+    _normalize_user_sql,
     _parquet_query,
+    is_parquet_input_source,
     iter_csv_rows,
     iter_hf_rows,
     iter_input_rows,
@@ -65,6 +67,57 @@ def test_csv_rows_are_dicts(tmp_path):
     ]
 
 
+def test_csv_duplicate_headers_become_row_error(tmp_path):
+    path = tmp_path / "rows.csv"
+    path.write_text("id,id\n1,2\n", encoding="utf-8")
+
+    rows = list(iter_csv_rows(path))
+
+    assert len(rows) == 1
+    assert rows[0].error is not None
+    assert rows[0].error.type == "InvalidRow"
+    assert "duplicate column names: id" in rows[0].error.message
+
+
+def test_csv_blank_headers_become_row_error(tmp_path):
+    path = tmp_path / "rows.csv"
+    path.write_text("id,\n1,hello\n", encoding="utf-8")
+
+    rows = list(iter_csv_rows(path))
+
+    assert len(rows) == 1
+    assert rows[0].error is not None
+    assert rows[0].error.type == "InvalidRow"
+    assert "blank column names: 2" in rows[0].error.message
+
+
+def test_csv_extra_columns_become_row_error(tmp_path):
+    path = tmp_path / "rows.csv"
+    path.write_text("id,message\n1,hello,extra\n2,world\n", encoding="utf-8")
+
+    rows = list(iter_csv_rows(path))
+
+    assert rows[0].row is None
+    assert rows[0].row_number == 2
+    assert rows[0].error is not None
+    assert rows[0].error.type == "InvalidRow"
+    assert rows[0].error.message == "Line 2: too many CSV columns"
+    assert rows[1].row_number == 3
+    assert rows[1].row == {"id": "2", "message": "world"}
+
+
+def test_empty_csv_becomes_row_error(tmp_path):
+    path = tmp_path / "rows.csv"
+    path.write_text("", encoding="utf-8")
+
+    rows = list(iter_csv_rows(path))
+
+    assert len(rows) == 1
+    assert rows[0].error is not None
+    assert rows[0].error.type == "InvalidRow"
+    assert "missing a header row" in rows[0].error.message
+
+
 def test_hf_jsonl_rows_are_read_from_dataset_file_uri():
     source = "hf://datasets/evalstate/example/data/train.jsonl"
     filesystem = FakeHfFileSystem(
@@ -103,6 +156,38 @@ def test_hf_dataset_uri_uses_single_supported_file():
     assert rows[0].row == {"id": "1"}
 
 
+def test_hf_dataset_uri_normalizes_supported_file_suffix():
+    source = "hf://datasets/evalstate/example"
+    file_source = "hf://datasets/evalstate/example/data/train.CSV"
+    filesystem = FakeHfFileSystem({file_source: b"id\n1\n"})
+
+    rows = list(iter_hf_rows(source, filesystem=filesystem))
+
+    assert filesystem.opened == [(file_source, "rb")]
+    assert rows[0].row == {"id": "1"}
+
+
+def test_iter_input_rows_normalizes_local_supported_file_suffix(tmp_path):
+    path = tmp_path / "rows.JSONL"
+    path.write_text('{"id": "1"}\n', encoding="utf-8")
+
+    rows = list(iter_input_rows(path))
+
+    assert rows[0].row == {"id": "1"}
+
+
+def test_hf_dataset_uri_with_dotted_repo_name_is_repository():
+    source = "hf://datasets/evalstate/my.dataset"
+    file_source = "hf://datasets/evalstate/my.dataset/data/train.jsonl"
+    filesystem = FakeHfFileSystem({file_source: b'{"id": "1"}\n'})
+
+    rows = list(iter_hf_rows(source, filesystem=filesystem))
+
+    assert filesystem.opened == [(file_source, "rb")]
+    assert rows[0].row == {"id": "1"}
+    assert is_parquet_input_source(source)
+
+
 def test_hf_dataset_uri_with_many_supported_files_requires_explicit_file():
     source = "hf://datasets/evalstate/example"
     filesystem = FakeHfFileSystem(
@@ -112,8 +197,31 @@ def test_hf_dataset_uri_with_many_supported_files_requires_explicit_file():
         }
     )
 
-    with pytest.raises(ValueError, match="contains multiple JSONL/CSV files"):
+    with pytest.raises(ValueError, match="contains multiple JSONL/CSV/parquet files"):
         list(iter_hf_rows(source, filesystem=filesystem))
+
+
+def test_hf_dataset_uri_uses_single_raw_parquet_file(monkeypatch):
+    source = "hf://datasets/evalstate/example"
+    file_source = "hf://datasets/evalstate/example/data/train.parquet"
+    filesystem = FakeHfFileSystem({file_source: b"parquet bytes"})
+    monkeypatch.setattr(
+        "fast_agent.batch.input._read_parquet_records",
+        lambda sources, *, offset, limit, sql: [{"source": sources[0]}],
+    )
+
+    rows = list(iter_hf_rows(source, filesystem=filesystem))
+
+    assert filesystem.opened == [(file_source, "rb")]
+    assert rows[0].row is not None
+    assert rows[0].row["source"].endswith(".parquet")
+
+
+def test_queried_hf_dataset_file_is_not_parquet_source():
+    assert not is_parquet_input_source("hf://datasets/evalstate/example/data/train.csv?split=train")
+    assert not is_parquet_input_source(
+        "hf://datasets/evalstate/example/data/train.jsonl?split=train"
+    )
 
 
 def test_parquet_rows_are_read_with_duckdb(monkeypatch):
@@ -192,6 +300,57 @@ def test_parquet_rows_accept_sql(monkeypatch):
     assert captured["sql"] == "SELECT * FROM input WHERE id = '2'"
     assert [row.row_number for row in rows] == [1]
     assert [row.row for row in rows] == [{"id": "2"}]
+
+
+def test_user_sql_accepts_single_trailing_statement_terminator():
+    assert _normalize_user_sql("SELECT * FROM input;") == "SELECT * FROM input"
+    assert _normalize_user_sql("SELECT ';' AS token; -- trailing comment") == "SELECT ';' AS token"
+
+
+def test_user_sql_rejects_multiple_statements():
+    with pytest.raises(ValueError, match="exactly one SELECT query"):
+        _normalize_user_sql("SELECT * FROM input; DROP VIEW input")
+
+
+def test_user_sql_accepts_cte_select_query():
+    assert (
+        _normalize_user_sql("WITH rows AS (SELECT * FROM input) SELECT * FROM rows")
+        == "WITH rows AS (SELECT * FROM input) SELECT * FROM rows"
+    )
+    assert (
+        _normalize_user_sql("  WiTh rows AS (SELECT * FROM input) SELECT * FROM rows  ")
+        == "WiTh rows AS (SELECT * FROM input) SELECT * FROM rows"
+    )
+
+
+def test_user_sql_accepts_multiple_cte_select_query():
+    query = (
+        "WITH first AS (SELECT * FROM input), second AS (SELECT * FROM first) SELECT * FROM second"
+    )
+
+    assert _normalize_user_sql(query) == query
+
+
+def test_user_sql_rejects_cte_non_select_query():
+    with pytest.raises(ValueError, match="must be a SELECT query"):
+        _normalize_user_sql("WITH rows AS (SELECT * FROM input) DELETE FROM rows")
+
+
+def test_cli_duckdb_sql_rejects_multiple_statements_before_execution(monkeypatch):
+    called = False
+
+    def fake_run(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("DuckDB CLI should not run invalid SQL")
+
+    monkeypatch.setattr("fast_agent.batch.input.shutil.which", lambda name: "/usr/bin/duckdb")
+    monkeypatch.setattr("fast_agent.batch.input.subprocess.run", fake_run)
+
+    with pytest.raises(ValueError, match="exactly one SELECT query"):
+        list(iter_parquet_rows(["rows.parquet"], sql="SELECT * FROM input; DROP VIEW input"))
+
+    assert called is False
 
 
 def test_sql_is_rejected_for_jsonl_input(tmp_path):
@@ -345,6 +504,41 @@ def test_hf_dataset_uri_passes_config_and_split_to_parquet_listing(monkeypatch):
 
     assert captured["source"] == "hf://datasets/evalstate/example?config=default&split=train"
     assert rows[0].row == {"ok": True}
+
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        (
+            "hf://datasets/evalstate/example?spilt=train",
+            "Unsupported Hugging Face dataset query parameter",
+        ),
+        (
+            "hf://datasets/evalstate/example?split=train&split=test",
+            "Expected at most one split= query parameter",
+        ),
+        (
+            "hf://datasets/evalstate/example?config=",
+            "Expected non-empty config= query parameter",
+        ),
+        (
+            "hf://datasets/evalstate/example/subdir?split=train",
+            "point at a file for nested paths",
+        ),
+    ],
+)
+def test_hf_dataset_uri_rejects_ambiguous_repository_filters(
+    monkeypatch,
+    source: str,
+    message: str,
+) -> None:
+    monkeypatch.setattr(
+        "fast_agent.batch.input._read_parquet_records",
+        lambda sources, *, offset, limit, sql: [{"ok": True}],
+    )
+
+    with pytest.raises(ValueError, match=message):
+        list(iter_hf_rows(source, filesystem=FakeHfFileSystem({})))
 
 
 def test_iter_input_rows_routes_hf_uri_to_hf_filesystem(monkeypatch):

@@ -6,7 +6,7 @@ import json
 import os
 from dataclasses import dataclass
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from fast_agent.privacy.dependencies import (
     PRIVACY_EXTRA_INSTALL_MESSAGE,
@@ -35,8 +35,10 @@ from fast_agent.privacy.viterbi import (
     token_spans_from_path,
 )
 from fast_agent.session.trace_export_errors import SessionExportPrivacyFilterError
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 _PLACEHOLDERS = {
@@ -296,9 +298,7 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
                     f"to load. {PRIVACY_EXTRA_INSTALL_MESSAGE}"
                 )
             )
-            raise SessionExportPrivacyFilterError(
-                message
-            ) from exc
+            raise SessionExportPrivacyFilterError(message) from exc
 
         # Only try to preload CUDA / cuDNN DLLs when CUDA is actually in play.
         # On CPU-only "auto" runs this avoids spurious ORT warnings about
@@ -421,10 +421,7 @@ def _load_viterbi_transition_biases(path: Path) -> dict[str, float]:
                 f"Invalid Viterbi calibration operating_points in {path}."
             )
         default = operating_points.get("default")
-        if isinstance(default, dict):
-            raw_biases = default.get("biases")
-        else:
-            raw_biases = None
+        raw_biases = default.get("biases") if isinstance(default, dict) else None
 
     if raw_biases in (None, {}):
         return dict(ZERO_TRANSITION_BIASES)
@@ -450,7 +447,7 @@ def _should_emit_window_progress(window_number: int, total_windows: int) -> bool
     if total_windows <= 5:
         return True
     step = max(1, total_windows // 10)
-    return window_number == 1 or window_number == total_windows or window_number % step == 0
+    return window_number in (1, total_windows) or window_number % step == 0
 
 
 def _percent(value: int, total: int) -> int:
@@ -529,7 +526,7 @@ def _redaction_snippet(text: str, *, limit: int = 160) -> str:
 def _privacy_filter_device(value: str | None) -> Literal["auto", "cpu", "cuda"]:
     if value is None:
         value = os.getenv("FAST_AGENT_PRIVACY_FILTER_DEVICE", _DEFAULT_DEVICE)
-    normalized = value.strip().lower()
+    normalized = strip_casefold(value)
     if normalized == "auto":
         return "auto"
     if normalized == "cpu":

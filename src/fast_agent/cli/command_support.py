@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.utils.text import strip_str_to_none, strip_to_none
+
 if TYPE_CHECKING:
     import typer
 
@@ -28,12 +30,10 @@ def resolve_context_string_option(
     command_value: str | None = None,
 ) -> str | None:
     """Resolve a string option from the current command, then the shared context."""
-    if command_value:
-        return command_value
+    if (resolved_value := strip_to_none(command_value)) is not None:
+        return resolved_value
     ctx_value = ensure_context_object(ctx).get(key)
-    if isinstance(ctx_value, str) and ctx_value.strip():
-        return ctx_value
-    return None
+    return strip_str_to_none(ctx_value)
 
 
 def resolve_context_path_option(
@@ -48,8 +48,8 @@ def resolve_context_path_option(
     ctx_value = ensure_context_object(ctx).get(key)
     if isinstance(ctx_value, Path):
         return ctx_value
-    if isinstance(ctx_value, str) and ctx_value.strip():
-        return Path(ctx_value)
+    if (resolved_value := strip_str_to_none(ctx_value)) is not None:
+        return Path(resolved_value)
     return None
 
 
@@ -76,6 +76,6 @@ def get_settings_or_exit(
     except FastAgentError as exc:
         typer.echo(f"Error loading fast-agent settings: {format_fast_agent_error(exc)}", err=True)
         raise typer.Exit(1) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Error loading fast-agent settings: {exc}", err=True)
         raise typer.Exit(1) from exc

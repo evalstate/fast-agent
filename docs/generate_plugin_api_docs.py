@@ -87,8 +87,7 @@ def _field_table(cls: type[object]) -> list[str]:
     for field in fields(cls):
         key = f"{cls.__name__}.{field.name}"
         lines.append(
-            f"| `{field.name}` | `{_type_name(field.type)}` | "
-            f"{FIELD_DESCRIPTIONS.get(key, '')} |"
+            f"| `{field.name}` | `{_type_name(field.type)}` | {FIELD_DESCRIPTIONS.get(key, '')} |"
         )
     return lines
 

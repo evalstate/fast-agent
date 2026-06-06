@@ -1,18 +1,45 @@
 """HuggingFace authentication utilities for MCP connections."""
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from urllib.parse import urlparse
 
 from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
+from fast_agent.utils.text import strip_casefold
 
 # Type alias for token provider functions
 TokenProvider = Callable[[], str | None]
+_HF_HOSTNAMES = frozenset({"hf.co", "huggingface.co"})
+_HF_AUTH_HEADER_NAMES = frozenset({"authorization", "x-hf-authorization"})
 
 
 def _default_hub_token_provider() -> str | None:
     """Default token provider that uses huggingface_hub.get_token()."""
     return get_huggingface_hub_token()
+
+
+def _is_hf_space_hostname(hostname: str | None) -> bool:
+    if hostname is None:
+        return False
+
+    parts = hostname.split(".")
+    if len(parts) != 3 or parts[-2:] != ["hf", "space"]:
+        return False
+
+    space_name = parts[0]
+    return (
+        bool(space_name)
+        and space_name != "-"
+        and not space_name.startswith(".")
+        and not space_name.endswith(".")
+        and " " not in space_name
+    )
+
+
+def _has_hf_auth_header(headers: Mapping[str, str] | None) -> bool:
+    if not headers:
+        return False
+    return any(strip_casefold(header_name) in _HF_AUTH_HEADER_NAMES for header_name in headers)
 
 
 def is_huggingface_url(url: str) -> bool:
@@ -31,29 +58,10 @@ def is_huggingface_url(url: str) -> bool:
         if hostname is None:
             return False
 
-        # Check for HuggingFace domains
-        if hostname in {"hf.co", "huggingface.co"}:
+        if hostname in _HF_HOSTNAMES:
             return True
 
-        # Check for HuggingFace Spaces (*.hf.space)
-        # Use endswith to match subdomains like space-name.hf.space
-        # but ensure exact match to prevent spoofing like evil.hf.space.com
-        if hostname.endswith(".hf.space") and hostname.count(".") >= 2:
-            # Additional validation: ensure it's a valid HF Space domain
-            # Format should be: {space-name}.hf.space
-            parts = hostname.split(".")
-            if len(parts) == 3 and parts[-2:] == ["hf", "space"]:
-                space_name = parts[0]
-                # Validate space name: not empty, not just hyphens/dots, no spaces
-                return (
-                    len(space_name) > 0
-                    and space_name != "-"
-                    and not space_name.startswith(".")
-                    and not space_name.endswith(".")
-                    and " " not in space_name
-                )
-
-        return False
+        return _is_hf_space_hostname(hostname)
     except Exception:
         return False
 
@@ -84,7 +92,7 @@ def get_hf_token_from_env(
 
 def should_add_hf_auth(
     url: str,
-    existing_headers: dict[str, str] | None,
+    existing_headers: Mapping[str, str] | None,
     hub_token_provider: TokenProvider | None = None,
 ) -> bool:
     """
@@ -99,18 +107,11 @@ def should_add_hf_auth(
     Returns:
         True if HF auth should be added, False otherwise
     """
-    # Only add HF auth if:
-    # 1. URL is a HuggingFace URL
-    # 2. No existing Authorization/X-HF-Authorization header is set
-    # 3. HF_TOKEN environment variable is available
-
     if not is_huggingface_url(url):
         return False
 
-    # Don't add auth if Authorization or X-HF-Authorization already present
-    if existing_headers:
-        if "Authorization" in existing_headers or "X-HF-Authorization" in existing_headers:
-            return False
+    if _has_hf_auth_header(existing_headers):
+        return False
 
     return get_hf_token_from_env(hub_token_provider) is not None
 
@@ -145,7 +146,7 @@ def add_hf_auth_header(
     try:
         parsed = urlparse(url)
         hostname = parsed.hostname
-        if hostname and hostname.endswith(".hf.space"):
+        if _is_hf_space_hostname(hostname):
             # For .hf.space domains, send BOTH headers:
             # - Authorization: for the app's OAuth (HF infra doesn't consume this)
             # - X-HF-Authorization: for HF infrastructure (inference credit tracking)

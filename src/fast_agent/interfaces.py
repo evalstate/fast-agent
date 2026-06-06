@@ -5,16 +5,12 @@ These are provider- and transport-agnostic and can be safely imported
 without pulling in MCP-specific code, helping to avoid circular imports.
 """
 
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Collection,
     Literal,
-    Mapping,
     Protocol,
-    Sequence,
-    Type,
     TypeVar,
     Union,
     runtime_checkable,
@@ -44,21 +40,21 @@ if TYPE_CHECKING:
     from fast_agent.mcp.provider_management import ProviderManagedMCPState
 
 __all__ = [
-    "FastAgentLLMProtocol",
-    "LlmCapableProtocol",
-    "StreamingAgentProtocol",
-    "LlmAgentProtocol",
-    "MessageHistoryAgentProtocol",
-    "AgentProtocol",
-    "AgentBackedToolProvider",
-    "CardToolProvider",
-    "SmartToolingCapable",
-    "ToolRunnerHookCapable",
-    "TurnCancellationStateCapable",
     "ACPAwareProtocol",
+    "AgentBackedToolProvider",
+    "AgentProtocol",
+    "CardToolProvider",
+    "FastAgentLLMProtocol",
     "LLMFactoryProtocol",
+    "LlmAgentProtocol",
+    "LlmCapableProtocol",
+    "MessageHistoryAgentProtocol",
     "ModelFactoryFunctionProtocol",
     "ModelT",
+    "SmartToolingCapable",
+    "StreamingAgentProtocol",
+    "ToolRunnerHookCapable",
+    "TurnCancellationStateCapable",
 ]
 
 
@@ -109,7 +105,7 @@ class FastAgentLLMProtocol(Protocol):
     async def structured(
         self,
         messages: list[PromptMessageExtended],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]: ...
 
@@ -137,7 +133,9 @@ class FastAgentLLMProtocol(Protocol):
     default_request_params: RequestParams
     instruction: str | None
 
-    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]: ...
+    def add_stream_listener(
+        self, listener: Callable[[StreamChunk], None]
+    ) -> Callable[[], None]: ...
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]
@@ -305,7 +303,7 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
             PromptMessageExtended,
             Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]: ...
 
@@ -477,7 +475,9 @@ class TurnCancellationStateCapable(Protocol):
 class StreamingAgentProtocol(AgentProtocol, Protocol):
     """Optional extension for agents that expose LLM streaming callbacks."""
 
-    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]: ...
+    def add_stream_listener(
+        self, listener: Callable[[StreamChunk], None]
+    ) -> Callable[[], None]: ...
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]

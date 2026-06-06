@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fast_agent.llm.tool_tracking import ToolCallState, ToolCallTracker, ToolKind
+from fast_agent.utils.text import strip_str_to_none
 
 
 @dataclass(slots=True)
@@ -54,6 +55,8 @@ class OpenAIToolStreamState:
         item_type: str | None = None,
         kind: ToolKind = "tool",
     ) -> OpenAIToolStreamEntry:
+        item_id = self._clean_optional_string(item_id)
+        item_type = self._clean_optional_string(item_type)
         previous_entry = self.resolve_open(
             tool_use_id=tool_use_id,
             index=index,
@@ -99,6 +102,7 @@ class OpenAIToolStreamState:
         index: int | None = None,
         item_id: str | None = None,
     ) -> OpenAIToolStreamEntry | None:
+        item_id = self._clean_optional_string(item_id)
         resolved_tool_use_id = self._resolve_tool_use_id(
             tool_use_id=tool_use_id,
             item_id=item_id,
@@ -117,6 +121,7 @@ class OpenAIToolStreamState:
         index: int | None = None,
         item_id: str | None = None,
     ) -> OpenAIToolStreamEntry | None:
+        item_id = self._clean_optional_string(item_id)
         entry = self.resolve_open(tool_use_id=tool_use_id, index=index, item_id=item_id)
         if entry is None:
             return None
@@ -132,6 +137,7 @@ class OpenAIToolStreamState:
         index: int | None = None,
         item_id: str | None = None,
     ) -> OpenAIToolStreamEntry | None:
+        item_id = self._clean_optional_string(item_id)
         resolved_tool_use_id = self._resolve_tool_use_id(
             tool_use_id=tool_use_id,
             item_id=item_id,
@@ -150,15 +156,14 @@ class OpenAIToolStreamState:
         index: int | None = None,
         item_id: str | None = None,
     ) -> bool:
+        item_id = self._clean_optional_string(item_id)
         resolved_tool_use_id = self._resolve_tool_use_id(
             tool_use_id=tool_use_id,
             item_id=item_id,
         )
         if self._tracker.is_completed(tool_use_id=resolved_tool_use_id, index=index):
             return True
-        if item_id and self._tracker.is_completed(tool_use_id=item_id, index=index):
-            return True
-        return False
+        return bool(item_id and self._tracker.is_completed(tool_use_id=item_id, index=index))
 
     def incomplete(self) -> list[OpenAIToolStreamEntry]:
         return [self._entry_for_state(state) for state in self._tracker.incomplete()]
@@ -183,3 +188,7 @@ class OpenAIToolStreamState:
         if item_id:
             return self._item_id_aliases.get(item_id, item_id)
         return None
+
+    @staticmethod
+    def _clean_optional_string(value: object) -> str | None:
+        return strip_str_to_none(value)

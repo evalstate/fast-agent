@@ -1,13 +1,39 @@
-from typing import Any, Type
+from typing import Any
 
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.llm.reasoning_effort import ReasoningEffortLevel, ReasoningEffortSetting
 from fast_agent.types import RequestParams
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
+_DEEPSEEK_REASONING_EFFORT_MAP: dict[ReasoningEffortLevel, ReasoningEffortLevel | None] = {
+    "none": None,
+    "minimal": "high",
+    "low": "high",
+    "medium": "high",
+    "high": "high",
+    "xhigh": "max",
+    "max": "max",
+}
+
+
+def _normalize_deepseek_reasoning_setting(
+    setting: ReasoningEffortSetting,
+) -> ReasoningEffortSetting:
+    if setting.kind != "effort":
+        return setting
+
+    if not isinstance(setting.value, str) or setting.value not in _DEEPSEEK_REASONING_EFFORT_MAP:
+        return setting
+
+    effort = _DEEPSEEK_REASONING_EFFORT_MAP[setting.value]
+    if effort is None:
+        if setting.value == "none":
+            return ReasoningEffortSetting(kind="toggle", value=False)
+        return setting
+    return ReasoningEffortSetting(kind="effort", value=effort)
 
 
 class DeepSeekLLM(OpenAICompatibleLLM):
@@ -27,13 +53,8 @@ class DeepSeekLLM(OpenAICompatibleLLM):
         return base_url if base_url else DEEPSEEK_BASE_URL
 
     def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
-        if setting is not None and setting.kind == "effort":
-            if setting.value in {"none"}:
-                setting = ReasoningEffortSetting(kind="toggle", value=False)
-            elif setting.value in {"minimal", "low", "medium", "high"}:
-                setting = ReasoningEffortSetting(kind="effort", value="high")
-            elif setting.value in {"xhigh", "max"}:
-                setting = ReasoningEffortSetting(kind="effort", value="max")
+        if setting is not None:
+            setting = _normalize_deepseek_reasoning_setting(setting)
         super().set_reasoning_effort(setting)
 
     def _resolve_reasoning_effort(self) -> str | None:
@@ -45,13 +66,8 @@ class DeepSeekLLM(OpenAICompatibleLLM):
         if setting.kind == "budget":
             self.logger.warning("Ignoring budget reasoning setting for DeepSeek models.")
             return "high"
-        effort = str(setting.value)
-        if effort == "none":
-            return None
-        if effort in {"minimal", "low", "medium", "high"}:
-            return "high"
-        if effort in {"xhigh", "max"}:
-            return "max"
+        if isinstance(setting.value, str) and setting.value in _DEEPSEEK_REASONING_EFFORT_MAP:
+            return _DEEPSEEK_REASONING_EFFORT_MAP[setting.value]
         return "high"
 
     def _prepare_api_request(
@@ -75,12 +91,12 @@ class DeepSeekLLM(OpenAICompatibleLLM):
             arguments.pop("reasoning_effort", None)
         return arguments
 
-    def _build_structured_prompt_instruction(self, model: Type[ModelT]) -> str | None:
+    def _build_structured_prompt_instruction(self, model: type[ModelT]) -> str | None:
         full_schema = model.model_json_schema()
         properties = full_schema.get("properties", {})
         required_fields = set(full_schema.get("required", []))
 
-        format_lines = ["{"] 
+        format_lines = ["{"]
         for field_name, field_info in properties.items():
             field_type = field_info.get("type", "string")
             description = field_info.get("description", "")

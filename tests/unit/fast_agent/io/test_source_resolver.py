@@ -90,7 +90,9 @@ def test_read_text_source_delegates_hf_scheme(monkeypatch):
 
     monkeypatch.setattr(source_resolver, "_read_hf_text_source", fake_read_hf_text_source)
 
-    assert read_text_source("hf://buckets/evalstate/home/demo.md", label="prompt file") == "delegated"
+    assert (
+        read_text_source("hf://buckets/evalstate/home/demo.md", label="prompt file") == "delegated"
+    )
     assert calls == [("hf://buckets/evalstate/home/demo.md", "prompt file")]
 
 
@@ -153,7 +155,9 @@ def test_materialized_text_source_removes_remote_temp_file(monkeypatch):
 
     monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
 
-    with materialized_text_source("hf://buckets/evalstate/home/demo.md", label="prompt file") as path:
+    with materialized_text_source(
+        "hf://buckets/evalstate/home/demo.md", label="prompt file"
+    ) as path:
         assert path.exists()
         assert path.read_text(encoding="utf-8") == "hf prompt"
 
@@ -176,9 +180,39 @@ def test_file_uri_to_path_preserves_unc_host():
     assert str(path) == r"\\server\share\fast-agent.yaml"
 
 
+def test_file_uri_to_path_preserves_nonlocal_authority_by_default():
+    parsed = urlparse("file://server/share/fast-agent%20config.yaml")
+
+    path = file_uri_to_path(parsed)
+
+    assert path == Path("//server/share/fast-agent config.yaml")
+
+
 def test_file_uri_to_path_treats_localhost_as_local():
     parsed = urlparse("file://localhost/tmp/fast-agent.yaml")
 
     path = file_uri_to_path(parsed)
 
     assert path == Path("/tmp/fast-agent.yaml")
+
+
+def test_file_uri_to_path_normalizes_scheme_and_localhost():
+    parsed = urlparse("FILE://LOCALHOST/tmp/fast-agent.yaml")
+
+    path = file_uri_to_path(parsed)
+
+    assert path == Path("/tmp/fast-agent.yaml")
+
+
+def test_file_uri_to_path_rejects_non_file_scheme():
+    parsed = urlparse("https://example.test/fast-agent.yaml")
+
+    with pytest.raises(ValueError, match="Expected file URI, got https"):
+        file_uri_to_path(parsed)
+
+
+def test_file_uri_to_path_rejects_missing_scheme():
+    parsed = urlparse("/tmp/fast-agent.yaml")
+
+    with pytest.raises(ValueError, match="Expected file URI, got <missing>"):
+        file_uri_to_path(parsed)

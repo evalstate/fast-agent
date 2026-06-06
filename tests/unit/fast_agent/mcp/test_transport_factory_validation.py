@@ -3,7 +3,7 @@
 import pytest
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
-from fast_agent.mcp.mcp_connection_manager import create_transport_context
+from fast_agent.mcp.mcp_connection_manager import PreparedHttpAuth, create_transport_context
 
 
 def test_transport_factory_validation_stdio_without_command():
@@ -73,7 +73,7 @@ def test_nonpersistent_transport_avoids_speculative_oauth(monkeypatch: pytest.Mo
     def _fake_prepare_headers_and_auth(server_config, **kwargs):
         del server_config
         captured.append(kwargs.get("trigger_oauth"))
-        return {}, None, set()
+        return PreparedHttpAuth(headers={}, oauth_provider=None, user_auth_keys=set())
 
     monkeypatch.setattr(
         "fast_agent.mcp.mcp_connection_manager._prepare_headers_and_auth",
@@ -99,7 +99,7 @@ def test_nonpersistent_transport_honors_explicit_oauth_config(
     def _fake_prepare_headers_and_auth(server_config, **kwargs):
         del server_config
         captured.append(kwargs.get("trigger_oauth"))
-        return {}, None, set()
+        return PreparedHttpAuth(headers={}, oauth_provider=None, user_auth_keys=set())
 
     monkeypatch.setattr(
         "fast_agent.mcp.mcp_connection_manager._prepare_headers_and_auth",

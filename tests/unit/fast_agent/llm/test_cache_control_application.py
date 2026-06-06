@@ -20,7 +20,7 @@ def _as_content_list(value: object) -> list[dict[str, Any]]:
     return cast("list[dict[str, Any]]", value)
 
 
-def apply_cache_control_to_message(message: dict[str, Any], position: int) -> bool:
+def apply_cache_control_to_message(message: object, position: int) -> bool:
     """
     Apply cache control to a message at the specified position.
 
@@ -34,7 +34,8 @@ def apply_cache_control_to_message(message: dict[str, Any], position: int) -> bo
     if not isinstance(message, dict) or "content" not in message:
         return False
 
-    content_list = message["content"]
+    message_dict = _as_dict(message)
+    content_list = message_dict["content"]
     if not isinstance(content_list, list) or not content_list:
         return False
 

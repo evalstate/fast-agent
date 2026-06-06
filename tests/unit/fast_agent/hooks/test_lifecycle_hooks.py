@@ -10,10 +10,12 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
 from fast_agent.hooks.lifecycle_hook_loader import (
     VALID_LIFECYCLE_HOOK_TYPES,
     load_lifecycle_hooks,
 )
+from fast_agent.hooks.lifecycle_hook_types import lifecycle_hook_descriptor
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -78,6 +80,35 @@ def test_valid_lifecycle_hook_types_constant() -> None:
     assert VALID_LIFECYCLE_HOOK_TYPES == {"on_start", "on_shutdown"}
 
 
+@pytest.mark.unit
+def test_lifecycle_hook_descriptors_define_failure_policy() -> None:
+    startup = lifecycle_hook_descriptor("on_start")
+    shutdown = lifecycle_hook_descriptor("on_shutdown")
+
+    assert startup.progress_kind == "agent_startup"
+    assert startup.raises_on_failure is True
+    assert shutdown.progress_kind == "agent_shutdown"
+    assert shutdown.raises_on_failure is False
+
+
+@pytest.mark.unit
+def test_lifecycle_context_exposes_agent_registry() -> None:
+    primary = LlmDecorator(config=AgentConfig("primary"))
+    peer = LlmDecorator(config=AgentConfig("peer"))
+    registry = {"primary": primary, "peer": peer}
+    primary.set_agent_registry(registry)
+
+    ctx = AgentLifecycleContext(
+        agent=primary,
+        context=None,
+        config=primary.config,
+        hook_type="on_start",
+    )
+
+    assert ctx.agent_registry == registry
+    assert ctx.get_agent("peer") is peer
+
+
 class _CloseTrackingLLM:
     def __init__(self) -> None:
         self.closed = False
@@ -118,3 +149,26 @@ async def test_shutdown_is_idempotent() -> None:
     await agent.shutdown()
 
     assert llm.close_calls == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_shutdown_lifecycle_hook_failure_does_not_raise(tmp_path: Path) -> None:
+    hook_file = tmp_path / "hooks.py"
+    hook_file.write_text(
+        """
+async def shutdown_hook(ctx):
+    raise RuntimeError("shutdown failed")
+"""
+    )
+    config = AgentConfig(
+        "test-agent",
+        lifecycle_hooks={"on_shutdown": f"{hook_file}:shutdown_hook"},
+    )
+    agent = LlmDecorator(config=config)
+    llm = _CloseTrackingLLM()
+    agent._llm = cast("Any", llm)
+
+    await agent.shutdown()
+
+    assert llm.closed is True

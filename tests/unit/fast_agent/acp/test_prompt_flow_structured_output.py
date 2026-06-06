@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from acp.helpers import text_block, update_agent_thought_text
 
+from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
 from fast_agent.acp.server.prompt_flow import ACPPromptFlow
 from fast_agent.acp.server.prompt_flow import PromptFlowHost as ACPPromptFlowHost
 from fast_agent.types import LlmStopReason, PromptMessageExtended
@@ -54,12 +55,9 @@ class EmptyStructuredAgent:
 
 class FakePromptFlowHost(ACPPromptFlowHost):
     def __init__(self, agent: EmptyStructuredAgent) -> None:
-        self.sessions: dict[str, Any] = {"session-1": SimpleNamespace(agents={"main": agent})}
+        instance = cast("AgentInstance", SimpleNamespace(agents={"main": agent}))
+        self._live_sessions = ACPLiveSessionRegistry(sessions={"session-1": instance})
         self._session_lock = asyncio.Lock()
-        self._prompt_locks: dict[str, asyncio.Lock] = {}
-        self._active_prompts: set[str] = set()
-        self._session_tasks: dict[str, asyncio.Task] = {}
-        self._session_state: dict[str, ACPSessionState] = {}
         self._connection = None
         self.primary_agent_name = "main"
 

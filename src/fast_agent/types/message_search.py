@@ -15,13 +15,34 @@ Search Scopes:
 Note: The search looks at text content extracted with get_text(), not raw ContentBlock objects.
 """
 
+from __future__ import annotations
+
 import re
-from typing import Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from fast_agent.mcp.helpers.content_helpers import get_text
-from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 SearchScope = Literal["user", "assistant", "tool_calls", "tool_results", "all"]
+SEARCH_SCOPES: Final[tuple[SearchScope, ...]] = (
+    "user",
+    "assistant",
+    "tool_calls",
+    "tool_results",
+    "all",
+)
+
+
+def _validate_scope(scope: SearchScope) -> SearchScope:
+    if scope not in SEARCH_SCOPES:
+        raise ValueError(f"Unsupported message search scope: {scope}")
+    return scope
+
+
+def _compile_pattern(pattern: str | re.Pattern) -> re.Pattern:
+    return re.compile(pattern) if isinstance(pattern, str) else pattern
 
 
 def search_messages(
@@ -50,14 +71,9 @@ def search_messages(
         )
         ```
     """
-    compiled_pattern = re.compile(pattern) if isinstance(pattern, str) else pattern
-    matching_messages = []
-
-    for msg in messages:
-        if _message_contains_pattern(msg, compiled_pattern, scope):
-            matching_messages.append(msg)
-
-    return matching_messages
+    scope = _validate_scope(scope)
+    compiled_pattern = _compile_pattern(pattern)
+    return [msg for msg in messages if _message_contains_pattern(msg, compiled_pattern, scope)]
 
 
 def find_matches(
@@ -91,15 +107,8 @@ def find_matches(
             print(f"Found job: {job_id}")
         ```
     """
-    compiled_pattern = re.compile(pattern) if isinstance(pattern, str) else pattern
-    results = []
-
-    for msg in messages:
-        matches = _find_in_message(msg, compiled_pattern, scope)
-        for match in matches:
-            results.append((msg, match))
-
-    return results
+    scope = _validate_scope(scope)
+    return list(_iter_matches(messages, _compile_pattern(pattern), scope))
 
 
 def extract_first(
@@ -133,12 +142,10 @@ def extract_first(
         )
         ```
     """
-    matches = find_matches(messages, pattern, scope)
-    if not matches:
-        return None
-
-    _, match = matches[0]
-    return match.group(group)
+    scope = _validate_scope(scope)
+    for _message, match in _iter_matches(messages, _compile_pattern(pattern), scope):
+        return match.group(group)
+    return None
 
 
 def extract_last(
@@ -173,12 +180,13 @@ def extract_last(
         )
         ```
     """
-    matches = find_matches(messages, pattern, scope)
-    if not matches:
+    scope = _validate_scope(scope)
+    last_match: re.Match | None = None
+    for _message, match in _iter_matches(messages, _compile_pattern(pattern), scope):
+        last_match = match
+    if last_match is None:
         return None
-
-    _, match = matches[-1]
-    return match.group(group)
+    return last_match.group(group)
 
 
 def _message_contains_pattern(
@@ -187,11 +195,7 @@ def _message_contains_pattern(
     scope: SearchScope,
 ) -> bool:
     """Check if a message contains the pattern in the specified scope."""
-    texts = _extract_searchable_text(msg, scope)
-    for text in texts:
-        if pattern.search(text):
-            return True
-    return False
+    return any(pattern.search(text) for text in _extract_searchable_text(msg, scope))
 
 
 def _find_in_message(
@@ -200,12 +204,23 @@ def _find_in_message(
     scope: SearchScope,
 ) -> list[re.Match]:
     """Find all matches of pattern in a message."""
-    texts = _extract_searchable_text(msg, scope)
-    matches = []
-    for text in texts:
-        for match in pattern.finditer(text):
-            matches.append(match)
-    return matches
+    return [
+        match for text in _extract_searchable_text(msg, scope) for match in pattern.finditer(text)
+    ]
+
+
+def _iter_matches(
+    messages: list[PromptMessageExtended],
+    pattern: re.Pattern,
+    scope: SearchScope,
+):
+    for msg in messages:
+        for match in _find_in_message(msg, pattern, scope):
+            yield msg, match
+
+
+def _content_texts(contents) -> list[str]:
+    return [text for content in contents if (text := get_text(content))]
 
 
 def _extract_searchable_text(
@@ -217,17 +232,11 @@ def _extract_searchable_text(
 
     # User content
     if scope in ("user", "all") and msg.role == "user":
-        for content in msg.content:
-            text = get_text(content)
-            if text:
-                texts.append(text)
+        texts.extend(_content_texts(msg.content))
 
     # Assistant content
     if scope in ("assistant", "all") and msg.role == "assistant":
-        for content in msg.content:
-            text = get_text(content)
-            if text:
-                texts.append(text)
+        texts.extend(_content_texts(msg.content))
 
     # Tool calls (search in tool names and serialized arguments)
     if scope in ("tool_calls", "all") and msg.tool_calls:
@@ -241,9 +250,6 @@ def _extract_searchable_text(
     # Tool results
     if scope in ("tool_results", "all") and msg.tool_results:
         for tool_result in msg.tool_results.values():
-            for content in tool_result.content:
-                text = get_text(content)
-                if text:
-                    texts.append(text)
+            texts.extend(_content_texts(tool_result.content))
 
     return texts

@@ -5,6 +5,7 @@ from fast_agent.ui.message_styles import (
     _format_bottom_metadata_compact,
     _render_items_normal,
     _render_items_with_jump,
+    _shorten_items,
 )
 
 
@@ -61,6 +62,16 @@ class TestFormatBottomMetadataCompact:
         result = _format_bottom_metadata_compact(items, 2, "bold", max_width=11)
         assert "▶" in result.plain
         assert "bb" in result.plain
+
+
+class TestShortenItems:
+    """Tests for item length normalization before rendering."""
+
+    def test_zero_length_budget_returns_empty_items(self) -> None:
+        assert _shorten_items(["alpha", ""], 0) == ["", ""]
+
+    def test_single_character_budget_uses_ellipsis_for_non_empty_items(self) -> None:
+        assert _shorten_items(["alpha", ""], 1) == ["…", ""]
 
 
 class TestRenderItemsNormal:
@@ -123,7 +134,9 @@ class TestA3MessageStyle:
     def test_header_line_rule_fill_without_right_info(self) -> None:
         """User headers can extend to the edge with a dim rule."""
         style = A3MessageStyle()
-        result = style.header_line("[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]", "", 40, rule_fill=True)
+        result = style.header_line(
+            "[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]", "", 40, rule_fill=True
+        )
         assert result.plain.startswith("▎▶ dev ")
         assert "─" in result.plain
         assert result.cell_len == 40
@@ -164,7 +177,6 @@ class TestA3MessageStyle:
         style = A3MessageStyle()
         result = style.shell_exit_line(
             exit_code=0,
-            width=80,
             detail="(no output) id: call_…123456",
         )
         assert result.plain.startswith("▎ exit code 0")
@@ -172,6 +184,19 @@ class TestA3MessageStyle:
         assert "exit code 0" in result.plain
         assert "(no output)" in result.plain
         assert "id: call_…123456" in result.plain
+
+    def test_shell_exit_line_styles_success_warning_and_error(self) -> None:
+        """Exit code styling distinguishes clean, simple failure, and other failures."""
+        style = A3MessageStyle()
+
+        success = style.shell_exit_line(exit_code=0)
+        warning = style.shell_exit_line(exit_code=1)
+        error = style.shell_exit_line(exit_code=2)
+
+        assert success.spans[0].style == "dim"
+        assert success.spans[1].style == "white reverse dim"
+        assert warning.spans[1].style == "red reverse dim"
+        assert error.spans[1].style == "red reverse bold"
 
     def test_stream_reprint_banner_spans_full_width(self) -> None:
         """Stream reprint banner renders three full-width bright rows."""
@@ -184,3 +209,18 @@ class TestA3MessageStyle:
         assert lines[0].plain == "━" * 40
         assert "FINAL RESPONSE" in lines[1].plain
         assert lines[2].plain == "━" * 40
+
+    def test_bottom_metadata_respects_zero_item_length(self) -> None:
+        style = A3MessageStyle()
+
+        result = style.bottom_metadata_line(
+            items=["alpha", "beta"],
+            highlight_index=None,
+            highlight_color="bold",
+            max_item_length=0,
+            width=40,
+        )
+
+        assert result is not None
+        assert "alpha" not in result.plain
+        assert "beta" not in result.plain

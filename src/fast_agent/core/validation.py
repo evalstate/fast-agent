@@ -2,9 +2,9 @@
 Validation utilities for FastAgent configuration and dependencies.
 """
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.core.agent_card_types import AgentCardData
@@ -15,6 +15,7 @@ from fast_agent.core.exceptions import (
 )
 from fast_agent.interfaces import LlmAgentProtocol, LlmCapableProtocol
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.utils.action_normalization import normalize_action_token
 
 _BASIC_LIKE_AGENT_TYPE_VALUES = frozenset(
     {
@@ -72,21 +73,15 @@ _WORKFLOW_REFERENCE_RULES: dict[str, _WorkflowReferenceRule] = {
     ),
     AgentType.ORCHESTRATOR.value: _WorkflowReferenceRule(
         component_label="Orchestrator",
-        dependency_fields=(
-            _DependencyFieldRule("child_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("child_agents", "agents"),),
     ),
     AgentType.ITERATIVE_PLANNER.value: _WorkflowReferenceRule(
         component_label="Iterative planner",
-        dependency_fields=(
-            _DependencyFieldRule("child_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("child_agents", "agents"),),
     ),
     AgentType.ROUTER.value: _WorkflowReferenceRule(
         component_label="Router",
-        dependency_fields=(
-            _DependencyFieldRule("router_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("router_agents", "agents"),),
     ),
     AgentType.EVALUATOR_OPTIMIZER.value: _WorkflowReferenceRule(
         component_label="Evaluator-Optimizer",
@@ -98,15 +93,11 @@ _WORKFLOW_REFERENCE_RULES: dict[str, _WorkflowReferenceRule] = {
     ),
     AgentType.CHAIN.value: _WorkflowReferenceRule(
         component_label="Chain",
-        dependency_fields=(
-            _DependencyFieldRule("sequence", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("sequence", "agents"),),
     ),
     AgentType.MAKER.value: _WorkflowReferenceRule(
         component_label="Maker",
-        dependency_fields=(
-            _DependencyFieldRule("worker", "worker"),
-        ),
+        dependency_fields=(_DependencyFieldRule("worker", "worker"),),
     ),
 }
 
@@ -148,6 +139,11 @@ _CARD_DEPENDENCY_FIELD_SPECS: dict[str, tuple[DependencyFieldSpec, ...]] = {
     "MAKER": (DependencyFieldSpec("worker", multiple=False),),
 }
 
+_TOPOLOGICAL_DEPENDENCY_FIELDS: dict[str, tuple[str, ...]] = {
+    AgentType.PARALLEL.value: ("fan_out",),
+    AgentType.CHAIN.value: ("sequence", "router_agents"),
+}
+
 
 def normalize_agent_type_value(agent_type: AgentType | str | None) -> str | None:
     if isinstance(agent_type, AgentType):
@@ -155,7 +151,7 @@ def normalize_agent_type_value(agent_type: AgentType | str | None) -> str | None
     if not isinstance(agent_type, str):
         return None
 
-    normalized = agent_type.strip().lower()
+    normalized = normalize_action_token(agent_type)
     return normalized or None
 
 
@@ -165,8 +161,7 @@ def is_basic_like_agent_type(agent_type: AgentType | str | None) -> bool:
 
 def get_agent_dependency_attribute_names(agent_type: AgentType | str | None) -> tuple[str, ...]:
     return tuple(
-        field_spec.field_name
-        for field_spec in get_agent_dependency_field_specs(agent_type)
+        field_spec.field_name for field_spec in get_agent_dependency_field_specs(agent_type)
     )
 
 
@@ -291,22 +286,20 @@ _WORKFLOW_REFERENCE_RULES = {
     **_WORKFLOW_REFERENCE_RULES,
     AgentType.ORCHESTRATOR.value: _WorkflowReferenceRule(
         component_label="Orchestrator",
-        dependency_fields=(
-            _DependencyFieldRule("child_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("child_agents", "agents"),),
         compatibility_check=_validate_planner_children,
     ),
     AgentType.ITERATIVE_PLANNER.value: _WorkflowReferenceRule(
         component_label="Iterative planner",
-        dependency_fields=(
-            _DependencyFieldRule("child_agents", "agents"),
-        ),
+        dependency_fields=(_DependencyFieldRule("child_agents", "agents"),),
         compatibility_check=_validate_planner_children,
     ),
 }
 
 
-def validate_server_references(context, agents: Mapping[str, AgentCardData | dict[str, Any]]) -> None:
+def validate_server_references(
+    context, agents: Mapping[str, AgentCardData | dict[str, Any]]
+) -> None:
     """
     Validate that all server references in agent configurations exist in config.
     Raises ServerConfigError if any referenced servers are not defined.
@@ -368,8 +361,8 @@ def validate_workflow_references(agents: Mapping[str, AgentCardData | dict[str, 
 def get_dependencies(
     name: str,
     agents: Mapping[str, AgentCardData | dict[str, Any]],
-    visited: set,
-    path: set,
+    visited: set[str],
+    path: set[str],
     agent_type: AgentType | None = None,
 ) -> list[str]:
     """
@@ -407,18 +400,10 @@ def get_dependencies(
         return []
 
     path.add(name)
-    deps = []
+    deps: list[str] = []
 
-    # Handle dependencies based on agent type
-    if config_agent_type == AgentType.PARALLEL.value:
-        # Get dependencies from fan-out agents
-        for fan_out in config["fan_out"]:
-            deps.extend(get_dependencies(fan_out, agents, visited, path, agent_type))
-    elif config_agent_type == AgentType.CHAIN.value:
-        # Get dependencies from sequence agents
-        sequence = config.get("sequence", config.get("router_agents", []))
-        for agent_name in sequence:
-            deps.extend(get_dependencies(agent_name, agents, visited, path, agent_type))
+    for dependency_name in _iter_topological_dependency_names(config, config_agent_type):
+        deps.extend(get_dependencies(dependency_name, agents, visited, path, agent_type))
 
     # Add this agent after its dependencies
     deps.append(name)
@@ -426,6 +411,17 @@ def get_dependencies(
     path.remove(name)
 
     return deps
+
+
+def _iter_topological_dependency_names(
+    agent_data: Mapping[str, Any],
+    agent_type: str | None,
+) -> Iterator[str]:
+    for field_name in _TOPOLOGICAL_DEPENDENCY_FIELDS.get(agent_type or "", ()):
+        dependency_names = _iter_dependency_values(agent_data, field_name)
+        if dependency_names:
+            yield from dependency_names
+            return
 
 
 def get_agent_dependencies(agent_data: AgentCardData | dict[str, Any]) -> set[str]:
@@ -467,7 +463,7 @@ def find_dependency_cycle(
             if dep in active:
                 path_nodes = [entry[0] for entry in stack]
                 cycle_start = path_nodes.index(dep)
-                return path_nodes[cycle_start:] + [dep]
+                return [*path_nodes[cycle_start:], dep]
 
             if dep in visited:
                 continue
@@ -507,9 +503,7 @@ def get_dependencies_groups(
     if not allow_cycles:
         cycle = find_dependency_cycle(agent_names, dependencies)
         if cycle:
-            raise CircularDependencyError(
-                f"Circular dependency detected: {' -> '.join(cycle)}"
-            )
+            raise CircularDependencyError(f"Circular dependency detected: {' -> '.join(cycle)}")
 
     # Group agents by dependency level
     result = []
@@ -551,7 +545,7 @@ def validate_provider_keys_post_creation(active_agents: dict[str, Any]) -> None:
     Raises:
         ProviderKeyError: If any required API key is missing
     """
-    for agent_name, agent in active_agents.items():
+    for agent in active_agents.values():
         llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
         if llm:
             # This throws a ProviderKeyError if the key is not present

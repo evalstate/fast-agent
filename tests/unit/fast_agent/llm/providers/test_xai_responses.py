@@ -246,6 +246,16 @@ def test_xai_web_search_rejects_conflicting_domain_filters() -> None:
         )
 
 
+def test_xai_web_search_domain_filter_limit() -> None:
+    domains = [f"domain-{index}.example.com" for index in range(6)]
+
+    with pytest.raises(ValueError, match="at most 5 domains"):
+        XAIWebSearchSettings(allowed_domains=domains)
+
+    with pytest.raises(ValueError, match="at most 5 domains"):
+        XAIWebSearchSettings(excluded_domains=domains)
+
+
 def test_xai_responses_advertises_x_search() -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
@@ -360,6 +370,61 @@ def test_xai_responses_records_x_search_internal_calls_as_server_metadata() -> N
         "arguments": '{"query":"from:evalstate","limit":"5"}',
         "input": {"query": "from:evalstate", "limit": "5"},
     }
+
+
+def test_xai_responses_records_clean_x_search_tool_use_id() -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model="grok-4.3",
+        x_search=True,
+    )
+    response = SimpleNamespace(
+        model="grok-4.3",
+        output=[
+            SimpleNamespace(
+                type="custom_tool_call",
+                id="  ctc_1  ",
+                call_id=123,
+                name="x_keyword_search",
+                input="{}",
+            )
+        ],
+    )
+
+    payloads = llm._extract_provider_mcp_metadata(response)
+
+    assert len(payloads) == 1
+    assert isinstance(payloads[0], TextContent)
+    payload = json.loads(payloads[0].text)
+    assert payload["id"] == "ctc_1"
+
+
+def test_xai_responses_falls_back_to_arguments_when_input_is_not_text() -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model="grok-4.3",
+        x_search=True,
+    )
+    response = SimpleNamespace(
+        model="grok-4.3",
+        output=[
+            SimpleNamespace(
+                type="custom_tool_call",
+                id="ctc_1",
+                name="x_keyword_search",
+                input={"query": "ignored-provider-shape"},
+                arguments='{"query":"from:evalstate"}',
+            )
+        ],
+    )
+
+    payloads = llm._extract_provider_mcp_metadata(response)
+
+    assert len(payloads) == 1
+    assert isinstance(payloads[0], TextContent)
+    payload = json.loads(payloads[0].text)
+    assert payload["arguments"] == '{"query":"from:evalstate"}'
+    assert payload["input"] == {"query": "from:evalstate"}
 
 
 def test_xai_responses_preserves_regular_function_calls_when_x_search_enabled() -> None:

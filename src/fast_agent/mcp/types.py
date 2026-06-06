@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fast_agent.interfaces import AgentProtocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from rich.text import Text
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
-    from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
     from fast_agent.mcp.mcp_aggregator import (
         MCPAggregator,
         MCPAttachOptions,
@@ -28,9 +29,6 @@ class McpAgentProtocol(AgentProtocol, Protocol):
 
     @property
     def aggregator(self) -> MCPAggregator: ...
-
-    @property
-    def experimental_sessions(self) -> "ExperimentalSessionClient": ...
 
     async def attach_mcp_server(
         self,

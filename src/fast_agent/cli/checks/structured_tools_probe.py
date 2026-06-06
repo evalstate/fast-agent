@@ -141,7 +141,9 @@ class ProbeResult:
     error: str | None = None
 
 
-def _base_order_report(*, summary: str = "Paris order is ready for expedited DHL shipping.") -> dict[str, Any]:
+def _base_order_report(
+    *, summary: str = "Paris order is ready for expedited DHL shipping."
+) -> dict[str, Any]:
     return {
         "order_id": ORDER_ID,
         "customer_tier": "plus",

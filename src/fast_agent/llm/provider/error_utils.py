@@ -5,6 +5,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.text import strip_str_to_none
 
 
 def build_stream_failure_response(
@@ -25,8 +26,7 @@ def build_stream_failure_response(
     """
     provider_label = provider.value if isinstance(provider, Provider) else str(provider)
 
-    detail = getattr(error, "message", None) or str(error)
-    detail = detail.strip() if isinstance(detail, str) else ""
+    detail = strip_str_to_none(getattr(error, "message", None)) or str(error).strip()
 
     parts: list[str] = [f"{provider_label} request failed"]
     if model_name:

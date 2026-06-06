@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # Backport StrEnum for Python < 3.11 environments
 if not hasattr(enum, "StrEnum"):
+
     class StrEnum(str, enum.Enum):
         pass
 
@@ -104,12 +105,8 @@ def test_skybridge_detection_marks_valid_resources() -> None:
     assert tool_cfg.is_valid is True
     assert tool_cfg.template_uri is not None
     assert tool_cfg.resource_uri == config.ui_resources[0].uri
-    aggregator._list_resources_from_server.assert_awaited_once_with(
-        "test", check_support=False
-    )
-    aggregator._get_resource_from_server.assert_awaited_once_with(
-        "test", "ui://component/app"
-    )
+    aggregator._list_resources_from_server.assert_awaited_once_with("test", check_support=False)
+    aggregator._get_resource_from_server.assert_awaited_once_with("test", "ui://component/app")
 
 
 def test_mcp_app_detection_marks_valid_resources() -> None:
@@ -231,8 +228,7 @@ def test_skybridge_detection_warns_on_invalid_mime() -> None:
     assert config.enabled is False
     assert len(config.ui_resources) == 1
     assert (
-        config.ui_resources[0].warning
-        == "served as 'text/html' instead of 'text/html+skybridge'"
+        config.ui_resources[0].warning == "served as 'text/html' instead of 'text/html+skybridge'"
     )
     assert config.warnings
     assert config.warnings[0] == (
@@ -246,12 +242,8 @@ def test_skybridge_detection_warns_on_invalid_mime() -> None:
         == "Tool 'test.tool_a' references resource 'ui://component/app' served as 'text/html' "
         "instead of 'text/html+skybridge'"
     )
-    aggregator._list_resources_from_server.assert_awaited_once_with(
-        "test", check_support=False
-    )
-    aggregator._get_resource_from_server.assert_awaited_once_with(
-        "test", "ui://component/app"
-    )
+    aggregator._list_resources_from_server.assert_awaited_once_with("test", check_support=False)
+    aggregator._get_resource_from_server.assert_awaited_once_with("test", "ui://component/app")
 
 
 def test_skybridge_detection_handles_missing_resources_capability() -> None:
@@ -407,6 +399,4 @@ def test_skybridge_resource_without_tool_warns() -> None:
 
     assert config.enabled is True
     assert not config.tools
-    assert any(
-        "no tools expose them" in warning.lower() for warning in config.warnings
-    )
+    assert any("no tools expose them" in warning.lower() for warning in config.warnings)

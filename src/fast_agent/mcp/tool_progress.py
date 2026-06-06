@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from contextlib import suppress
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from mcp.types import ContentBlock
 else:
     ContentBlock = Any
@@ -43,10 +46,8 @@ class MCPToolProgressManager(ToolExecutionHandler):
         total: float | None,
         message: str | None,
     ) -> None:
-        try:
+        with suppress(Exception):
             await self._reporter(progress, total, message)
-        except Exception:
-            pass
 
     async def on_tool_start(
         self,

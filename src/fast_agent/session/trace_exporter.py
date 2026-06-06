@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -33,6 +34,9 @@ from fast_agent.session.trace_export_models import (
     ExportResult,
     ResolvedSessionExport,
 )
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.filename import sanitize_filename_component
+from fast_agent.utils.text import strip_casefold, strip_str_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,9 +46,20 @@ if TYPE_CHECKING:
     from fast_agent.session.session_manager import SessionManager
 
 
-def _sanitize_filename_component(value: str) -> str:
-    sanitized = "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
-    return sanitized or "agent"
+@dataclass(frozen=True, slots=True)
+class _ResolvedExportAgent:
+    name: str
+    history_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class _LoadedExportHistory:
+    messages: list["PromptMessageExtended"]
+    timestamps: tuple[datetime | None, ...]
+
+
+def _is_json_history_path(path: Path) -> bool:
+    return strip_casefold(path.suffix) == ".json"
 
 
 def _export_summary_message(
@@ -68,9 +83,9 @@ def _export_summary_message(
 
     return (
         f"Export: preparing {export_format} trace for agent '{resolved.agent_name}' "
-        f"from {len(resolved.history):,} message(s): "
+        f"from {format_count(len(resolved.history), 'message')}: "
         f"{user_messages:,} user, {assistant_messages:,} assistant, "
-        f"{tool_calls:,} tool call(s), {tool_results:,} tool result(s)."
+        f"{format_count(tool_calls, 'tool call')}, {format_count(tool_results, 'tool result')}."
     )
 
 
@@ -129,25 +144,26 @@ class SessionTraceExporter:
             current_session_id=request.current_session_id,
         )
         snapshot = self._load_snapshot(session_dir)
-        agent_name, history_path = self._resolve_agent(
+        agent = self._resolve_agent(
             snapshot=snapshot,
             session_dir=session_dir,
             requested_agent=request.agent_name,
         )
         try:
-            history, message_timestamps = self._load_history(history_path)
+            loaded_history = self._load_history(agent.history_path)
         except (AgentConfigError, OSError, ValueError, ValidationError) as exc:
             raise SessionExportReadError(
-                f"Failed to load session history for agent '{agent_name}' from {history_path}: {exc}"
+                f"Failed to load session history for agent '{agent.name}' "
+                f"from {agent.history_path}: {exc}"
             ) from exc
         return ResolvedSessionExport(
             session_id=snapshot.session_id,
             session_dir=session_dir,
             snapshot=snapshot,
-            agent_name=agent_name,
-            history_path=history_path,
-            history=history,
-            message_timestamps=message_timestamps,
+            agent_name=agent.name,
+            history_path=agent.history_path,
+            history=loaded_history.messages,
+            message_timestamps=loaded_history.timestamps,
         )
 
     def _resolve_session_dir(
@@ -159,9 +175,9 @@ class SessionTraceExporter:
         if isinstance(target, Path):
             return self._resolve_session_path_target(target)
 
-        target_text = target.strip() if isinstance(target, str) else None
+        target_text = strip_str_to_none(target)
         if target_text:
-            if target_text == "latest":
+            if strip_casefold(target_text) == "latest":
                 return self._resolve_latest_session_dir()
             candidate_path = Path(target_text).expanduser()
             if candidate_path.exists():
@@ -220,7 +236,7 @@ class SessionTraceExporter:
         snapshot: SessionSnapshot,
         session_dir: Path,
         requested_agent: str | None,
-    ) -> tuple[str, Path]:
+    ) -> _ResolvedExportAgent:
         exportable: dict[str, Path] = {}
         for agent_name, agent_snapshot in snapshot.continuation.agents.items():
             history_file = agent_snapshot.history_file
@@ -236,7 +252,7 @@ class SessionTraceExporter:
                 raise SessionExportAgentNotFoundError(
                     f"Agent '{requested_agent}' has no exportable history in session '{snapshot.session_id}'."
                 )
-            return requested_agent, history_path
+            return _ResolvedExportAgent(name=requested_agent, history_path=history_path)
 
         if not exportable:
             raise SessionExportNoAgentsError(
@@ -250,7 +266,7 @@ class SessionTraceExporter:
             )
 
         agent_name = next(iter(exportable))
-        return agent_name, exportable[agent_name]
+        return _ResolvedExportAgent(name=agent_name, history_path=exportable[agent_name])
 
     def _resolve_output_path(
         self,
@@ -263,10 +279,8 @@ class SessionTraceExporter:
             format_suffix = request.format
             if request.privacy_filter:
                 format_suffix = f"{format_suffix}-privacy"
-            filename = (
-                f"{resolved.session_id}__{_sanitize_filename_component(resolved.agent_name)}__"
-                f"{format_suffix}.jsonl"
-            )
+            agent_filename = sanitize_filename_component(resolved.agent_name, fallback="agent")
+            filename = f"{resolved.session_id}__{agent_filename}__{format_suffix}.jsonl"
             return (workspace_dir / filename).resolve()
         output_path = output_path.expanduser()
         if not output_path.is_absolute():
@@ -275,9 +289,7 @@ class SessionTraceExporter:
             output_path = output_path.resolve()
         return output_path
 
-    def _load_history(
-        self, history_path: Path
-    ) -> tuple[list[PromptMessageExtended], tuple[datetime | None, ...]]:
+    def _load_history(self, history_path: Path) -> _LoadedExportHistory:
         history = load_messages(str(history_path))
         model_timestamps = tuple(
             _normalize_utc(message.timestamp) if message.timestamp is not None else None
@@ -295,10 +307,10 @@ class SessionTraceExporter:
             )
         else:
             message_timestamps = model_timestamps
-        return history, message_timestamps
+        return _LoadedExportHistory(messages=history, timestamps=message_timestamps)
 
     def _load_message_timestamps(self, history_path: Path) -> tuple[datetime | None, ...] | None:
-        if history_path.suffix.lower() != ".json":
+        if not _is_json_history_path(history_path):
             return None
 
         with history_path.open(encoding="utf-8") as handle:

@@ -52,8 +52,8 @@ class TensorZeroOpenAILLM(OpenAILLM):
         Constructs the TensorZero OpenAI-compatible endpoint URL.
         """
         default_url = "http://localhost:3000/openai/v1"
-        if self.context and self.context.config and hasattr(self.context.config, "tensorzero"):
-            base_url = getattr(self.context.config.tensorzero, "base_url", default_url)
+        if self.context and self.context.config and self.context.config.tensorzero:
+            base_url = self.context.config.tensorzero.base_url or default_url
             # Ensure the path is correctly appended
             if not base_url.endswith("/openai/v1"):
                 base_url = f"{base_url.rstrip('/')}/openai/v1"
@@ -61,6 +61,76 @@ class TensorZeroOpenAILLM(OpenAILLM):
             return base_url
         self.logger.debug(f"Using default TensorZero base URL: {default_url}")
         return default_url
+
+    @staticmethod
+    def _tensorzero_system_message(
+        template_vars: dict[str, Any],
+    ) -> ChatCompletionSystemMessageParam:
+        return cast(
+            "ChatCompletionSystemMessageParam",
+            {"role": "system", "content": [template_vars]},
+        )
+
+    @staticmethod
+    def _first_system_content_dict(
+        messages: list[ChatCompletionMessageParam],
+    ) -> dict[str, Any] | None:
+        for msg in messages:
+            msg_dict = cast("dict[str, Any]", msg)
+            content = msg_dict.get("content")
+            if msg_dict.get("role") == "system" and isinstance(content, list) and content:
+                first_part = content[0]
+                if isinstance(first_part, dict):
+                    return first_part
+        return None
+
+    def _apply_template_vars(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        template_vars: dict[str, Any] | None,
+    ) -> None:
+        if not template_vars:
+            return
+
+        self.logger.debug(f"Injecting template variables: {template_vars}")
+        for i, msg in enumerate(messages):
+            msg_dict = cast("dict[str, Any]", msg)
+            if msg_dict.get("role") != "system":
+                continue
+
+            content = msg_dict.get("content")
+            if isinstance(content, str):
+                messages[i] = self._tensorzero_system_message(template_vars)
+            elif isinstance(content, list) and content and isinstance(content[0], dict):
+                content[0].update(template_vars)
+            return
+
+        messages.insert(0, self._tensorzero_system_message(template_vars))
+
+    def _merge_metadata_arguments(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        metadata: Any,
+    ) -> None:
+        if not isinstance(metadata, dict):
+            return
+
+        t0_args = metadata.get("tensorzero_arguments")
+        if not t0_args:
+            return
+
+        self.logger.debug(f"Merging tensorzero_arguments from metadata: {t0_args}")
+        system_content = self._first_system_content_dict(messages)
+        if system_content is not None:
+            system_content.update(t0_args)
+
+    def _tensorzero_extra_body(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        extra_body_raw = arguments.get("extra_body", {})
+        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
+        if self._t0_episode_id:
+            extra_body["tensorzero::episode_id"] = str(self._t0_episode_id)
+            self.logger.debug(f"Added tensorzero::episode_id: {self._t0_episode_id}")
+        return extra_body
 
     def _prepare_api_request(
         self,
@@ -78,59 +148,9 @@ class TensorZeroOpenAILLM(OpenAILLM):
         # Start with the base arguments from the parent class
         arguments = super()._prepare_api_request(messages, tools, request_params)
 
-        # Handle system template variables
-        if request_params.template_vars:
-            self.logger.debug(f"Injecting template variables: {request_params.template_vars}")
-            system_message_found = False
-            for i, msg in enumerate(messages):
-                # Work with msg as a dict for type safety
-                msg_dict = cast("dict[str, Any]", msg)
-                if msg_dict.get("role") == "system":
-                    content = msg_dict.get("content")
-                    # If content is a string, convert it to the TensorZero format
-                    if isinstance(content, str):
-                        # TensorZero expects content as list with template vars
-                        messages[i] = cast(
-                            "ChatCompletionSystemMessageParam",
-                            {"role": "system", "content": [request_params.template_vars]},
-                        )
-                    elif isinstance(content, list) and len(content) > 0:
-                        # If content is already a list, merge the template vars
-                        if isinstance(content[0], dict):
-                            content[0].update(request_params.template_vars)
-                    system_message_found = True
-                    break
-
-            if not system_message_found:
-                # If no system message exists, create one
-                messages.insert(
-                    0,
-                    cast(
-                        "ChatCompletionSystemMessageParam",
-                        {"role": "system", "content": [request_params.template_vars]},
-                    ),
-                )
-
-        # Add TensorZero-specific extra body parameters
-        extra_body_raw = arguments.get("extra_body", {})
-        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
-
-        if self._t0_episode_id:
-            extra_body["tensorzero::episode_id"] = str(self._t0_episode_id)
-            self.logger.debug(f"Added tensorzero::episode_id: {self._t0_episode_id}")
-
-        # Merge metadata arguments
-        if request_params.metadata and isinstance(request_params.metadata, dict):
-            t0_args = request_params.metadata.get("tensorzero_arguments")
-            if t0_args:
-                self.logger.debug(f"Merging tensorzero_arguments from metadata: {t0_args}")
-                for msg in messages:
-                    msg_dict = cast("dict[str, Any]", msg)
-                    content = msg_dict.get("content")
-                    if msg_dict.get("role") == "system" and isinstance(content, list) and len(content) > 0:
-                        if isinstance(content[0], dict):
-                            content[0].update(t0_args)
-                        break
+        self._apply_template_vars(messages, request_params.template_vars)
+        extra_body = self._tensorzero_extra_body(arguments)
+        self._merge_metadata_arguments(messages, request_params.metadata)
 
         if extra_body:
             arguments["extra_body"] = extra_body

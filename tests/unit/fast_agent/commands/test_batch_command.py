@@ -637,7 +637,9 @@ def test_batch_run_export_traces_writes_row_trace_and_manifest(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    manifest = [json.loads(line) for line in (trace_dir / "manifest.jsonl").read_text().splitlines()]
+    manifest = [
+        json.loads(line) for line in (trace_dir / "manifest.jsonl").read_text().splitlines()
+    ]
     assert len(manifest) == 1
     assert manifest[0]["id"] == "1"
     assert manifest[0]["ok"] is True
@@ -658,10 +660,7 @@ def test_batch_run_accepts_pydantic_schema_model(tmp_path):
     input_path.write_text('{"id":"1","x":2}\n', encoding="utf-8")
     template_path.write_text("{{row_json}}", encoding="utf-8")
     schema_module.write_text(
-        "from pydantic import BaseModel\n\n"
-        "class RowResult(BaseModel):\n"
-        "    id: str\n"
-        "    x: int\n",
+        "from pydantic import BaseModel\n\nclass RowResult(BaseModel):\n    id: str\n    x: int\n",
         encoding="utf-8",
     )
 
@@ -905,3 +904,33 @@ def test_batch_run_hf_dataset_requires_export_traces(tmp_path):
 
     assert result.exit_code != 0
     assert "--hf-dataset requires --export-traces" in result.output
+
+
+def test_batch_run_treats_blank_hf_dataset_as_missing_for_dataset_path(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(tmp_path / "rows.jsonl"),
+            "--output",
+            str(tmp_path / "out.jsonl"),
+            "--export-traces",
+            str(tmp_path / "traces"),
+            "--hf-dataset",
+            "   ",
+            "--hf-dataset-path",
+            "runs/",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--hf-dataset-path requires --hf-dataset" in result.output

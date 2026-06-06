@@ -17,13 +17,15 @@ Usage:
 import asyncio
 import sys
 import time
-from contextlib import nullcontext
+from collections.abc import Awaitable, Callable
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, Union, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, Union, cast, runtime_checkable
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
+from rich.text import Text
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -38,12 +40,13 @@ from fast_agent.cli.runtime.shell_cwd_policy import (
     effective_missing_shell_cwd_policy,
     resolve_missing_shell_cwd_policy,
 )
-from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers  # noqa: F401
+from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
+from fast_agent.tools.session_environment import ShellExecutionResult
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
@@ -63,7 +66,7 @@ from fast_agent.ui.enhanced_prompt import (
     set_last_copyable_output,
 )
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
-from fast_agent.ui.interactive_shell import ShellExecutionResult, run_interactive_shell_command
+from fast_agent.ui.interactive_shell import run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt.input import resolve_shell_working_dir
 from fast_agent.ui.prompt.resource_mentions import (
@@ -72,6 +75,10 @@ from fast_agent.ui.prompt.resource_mentions import (
     resolve_mentions,
 )
 from fast_agent.ui.prompt_marks import emit_prompt_mark
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.text import strip_casefold
+
+_MCP_RUNTIME_HANDLERS_COMPAT = mcp_runtime_handlers
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
@@ -152,12 +159,54 @@ class PromptCommandPhase:
 
 
 @dataclass(slots=True)
+class DispatchApplicationResult:
+    """Prompt-loop state after applying a command dispatch result."""
+
+    agent_state: PromptLoopAgents
+    pending: PendingCommandExecution
+    buffer_prefill: str
+    should_continue: bool
+
+
+@dataclass(slots=True)
+class PendingExecutionResult:
+    """Result of running post-command pending work."""
+
+    result: PromptLoopResult
+    buffer_prefill: str | None = None
+    handled: bool = False
+
+
+@dataclass(slots=True)
 class PromptLoopRuntimeState:
     """Cross-turn interactive prompt control state."""
 
     ctrl_c_deadline: float | None = None
     startup_warning_digest_checked: bool = False
     shell_cwd_startup_prompt_checked: bool = False
+
+
+def _turn_preparation_ready(turn_preparation: PromptTurnPreparation) -> bool:
+    return not turn_preparation.should_continue and turn_preparation.agent_state is not None
+
+
+def _input_phase_ready(input_phase: PromptInputPhase) -> bool:
+    return (
+        not input_phase.should_continue
+        and input_phase.user_input is not None
+        and input_phase.agent_state is not None
+    )
+
+
+def _hash_send_status_text(prefix: str, target_agent: str, suffix: str, *, style: str) -> Text:
+    text = Text(prefix, style=style)
+    text.append(target_agent)
+    text.append(suffix, style=style)
+    return text
+
+
+def _warning_text(message: str) -> Text:
+    return Text(message, style="yellow")
 
 
 def _clear_current_task_cancellation_requests() -> int:
@@ -203,7 +252,10 @@ class InteractivePrompt:
         try:
             return prompt_provider._agent(agent_name)
         except Exception:
-            rich_print(f"[red]Unable to load agent '{agent_name}'[/red]")
+            message = Text("Unable to load agent '", style="red")
+            message.append(agent_name)
+            message.append("'", style="red")
+            rich_print(message)
             return None
 
     def _get_history_agent_or_warn(
@@ -220,7 +272,7 @@ class InteractivePrompt:
         self,
         prompt_provider: "AgentApp",
         agent_name: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[prompt_handlers.PromptSummary]:
         from fast_agent.ui.interactive.command_context import build_command_context
 
         target_agent = prompt_provider.resolve_target_agent_name(agent_name) or ""
@@ -360,7 +412,7 @@ class InteractivePrompt:
         )
         if refreshed:
             for warning in refresh_result.warnings:
-                rich_print(f"[yellow]{warning}[/yellow]")
+                rich_print(_warning_text(warning))
             rich_print("[green]AgentCards reloaded.[/green]")
 
         return PromptLoopAgents(
@@ -369,9 +421,7 @@ class InteractivePrompt:
             available_agents_set=next_available_agents_set,
         )
 
-    def _describe_cancelled_history_state(
-        self, history_state: HistoryRollbackState | None
-    ) -> str:
+    def _describe_cancelled_history_state(self, history_state: HistoryRollbackState | None) -> str:
         if history_state is None:
             return "History reconciliation completed."
 
@@ -397,8 +447,8 @@ class InteractivePrompt:
             return "No dangling tool call was found; history was left unchanged."
 
         return (
-            f"History reconciliation completed (removed {removed_messages} "
-            "message(s))."
+            f"History reconciliation completed (removed "
+            f"{format_count(removed_messages, 'message')})."
         )
 
     def _report_previous_turn_cancellation(
@@ -413,7 +463,10 @@ class InteractivePrompt:
         except Exception:
             agent_obj = None
 
-        if not isinstance(agent_obj, TurnCancellationStateCapable) or not agent_obj.last_turn_cancelled:
+        if (
+            not isinstance(agent_obj, TurnCancellationStateCapable)
+            or not agent_obj.last_turn_cancelled
+        ):
             return
 
         _clear_current_task_cancellation_requests()
@@ -465,10 +518,8 @@ class InteractivePrompt:
 
     def _clear_progress_for_agent(self, agent_name: str | None) -> None:
         """Remove stale progress rows after an interrupted/cancelled send."""
-        try:
+        with suppress(Exception):
             progress_display.clear_agent_tasks(agent_name)
-        except Exception:
-            pass
 
     def _last_assistant_message_cancelled(
         self,
@@ -515,15 +566,66 @@ class InteractivePrompt:
         if not startup_warnings:
             return
 
-        count = len(startup_warnings)
-        if count == 1:
-            rich_print("[yellow]Startup warning:[/yellow]")
-            rich_print(f"  {startup_warnings[0]}")
-            return
+        header = Text("Startup warning", style="yellow")
+        if len(startup_warnings) > 1:
+            header.append(f"s ({len(startup_warnings)})")
+        header.append(":")
+        rich_print(header)
 
-        rich_print(f"[yellow]Startup warnings ({count}):[/yellow]")
+        prefix = "  • " if len(startup_warnings) > 1 else "  "
         for warning in startup_warnings:
-            rich_print(f"  • {warning}")
+            rich_print(Text(f"{prefix}{warning}"))
+
+    @staticmethod
+    def _shell_cwd_startup_issues(
+        prompt_provider: "AgentApp",
+    ) -> tuple[Any, Any] | None:
+        runtime_agents = prompt_provider.registered_agents()
+        if not isinstance(runtime_agents, dict):
+            return None
+
+        issues = collect_shell_cwd_issues_from_runtime_agents(runtime_agents, cwd=Path.cwd())
+        if not issues:
+            return None
+        return runtime_agents, issues
+
+    @staticmethod
+    async def _confirm_shell_cwd_creation() -> bool:
+        selection = await get_selection_input(
+            "Create missing shell directories now? [Y/n] ",
+            default="y",
+            allow_cancel=False,
+            complete_options=False,
+        )
+        answer = strip_casefold(selection or "")
+        return answer in {"", "y", "yes"}
+
+    @staticmethod
+    def _print_shell_cwd_creation_result(creation_result: Any) -> None:
+        if creation_result.created_paths:
+            rich_print("[green]Created missing shell cwd directories:[/green]")
+            for path in creation_result.created_paths:
+                rich_print(Text(f"  • {path}"))
+
+        if creation_result.errors:
+            rich_print("[red]Failed to create one or more shell cwd directories:[/red]")
+            for item in creation_result.errors:
+                rich_print(Text(f"  • {item.path}: {item.message}"))
+
+    @staticmethod
+    def _clear_shell_cwd_warnings_if_resolved(runtime_agents: Any) -> None:
+        remaining_issues = collect_shell_cwd_issues_from_runtime_agents(
+            runtime_agents,
+            cwd=Path.cwd(),
+        )
+        if remaining_issues:
+            return
+        try:
+            from fast_agent.ui import notification_tracker
+
+            notification_tracker.remove_startup_warnings_containing("shell cwd")
+        except Exception:
+            pass
 
     async def _maybe_prompt_for_shell_cwd_startup_once(
         self,
@@ -539,49 +641,21 @@ class InteractivePrompt:
         if shell_cwd_policy != "ask":
             return
 
-        runtime_agents = prompt_provider.registered_agents()
-        if not isinstance(runtime_agents, dict):
+        issue_context = self._shell_cwd_startup_issues(prompt_provider)
+        if issue_context is None:
             return
+        runtime_agents, issues = issue_context
 
-        issues = collect_shell_cwd_issues_from_runtime_agents(runtime_agents, cwd=Path.cwd())
-        if not issues:
-            return
-
-        issue_word = "issue" if len(issues) == 1 else "issues"
-        rich_print(f"[yellow]Shell cwd startup check:[/yellow] {len(issues)} {issue_word} found.")
-
-        selection = await get_selection_input(
-            "Create missing shell directories now? [Y/n] ",
-            default="y",
-            allow_cancel=False,
-            complete_options=False,
+        rich_print(
+            f"[yellow]Shell cwd startup check:[/yellow] {format_count(len(issues), 'issue')} found."
         )
-        answer = (selection or "").strip().lower()
-        if answer not in {"", "y", "yes"}:
+
+        if not await self._confirm_shell_cwd_creation():
             return
 
-        created_paths, creation_errors = create_missing_shell_cwd_directories(issues)
-        if created_paths:
-            rich_print("[green]Created missing shell cwd directories:[/green]")
-            for path in created_paths:
-                rich_print(f"  • {path}")
-
-        if creation_errors:
-            rich_print("[red]Failed to create one or more shell cwd directories:[/red]")
-            for item in creation_errors:
-                rich_print(f"  • {item.path}: {item.message}")
-
-        remaining_issues = collect_shell_cwd_issues_from_runtime_agents(
-            runtime_agents,
-            cwd=Path.cwd(),
-        )
-        if not remaining_issues:
-            try:
-                from fast_agent.ui import notification_tracker
-
-                notification_tracker.remove_startup_warnings_containing("shell cwd")
-            except Exception:
-                pass
+        creation_result = create_missing_shell_cwd_directories(issues)
+        self._print_shell_cwd_creation_result(creation_result)
+        self._clear_shell_cwd_warnings_if_resolved(runtime_agents)
 
     def _apply_dispatch_result(
         self,
@@ -589,7 +663,7 @@ class InteractivePrompt:
         state: PromptLoopAgents,
         dispatch_result: Any,
         buffer_prefill: str,
-    ) -> tuple[PromptLoopAgents, PendingCommandExecution, str, bool]:
+    ) -> DispatchApplicationResult:
         next_available_agents = dispatch_result.available_agents or state.available_agents
         next_available_agents_set = (
             dispatch_result.available_agents_set or state.available_agents_set
@@ -611,7 +685,12 @@ class InteractivePrompt:
             else buffer_prefill
         )
         should_continue = dispatch_result.handled and not pending.has_pending_execution()
-        return next_state, pending, next_buffer_prefill, should_continue
+        return DispatchApplicationResult(
+            agent_state=next_state,
+            pending=pending,
+            buffer_prefill=next_buffer_prefill,
+            should_continue=should_continue,
+        )
 
     async def _prepare_prompt_turn(
         self,
@@ -786,11 +865,14 @@ class InteractivePrompt:
                     should_continue=True,
                 )
 
-            agent_state, pending, buffer_prefill, should_continue = self._apply_dispatch_result(
+            dispatch_application = self._apply_dispatch_result(
                 state=agent_state,
                 dispatch_result=dispatch_result,
                 buffer_prefill=buffer_prefill,
             )
+            agent_state = dispatch_application.agent_state
+            pending = dispatch_application.pending
+            buffer_prefill = dispatch_application.buffer_prefill
             if dispatch_result.should_return:
                 return PromptCommandPhase(
                     agent_state=agent_state,
@@ -798,7 +880,7 @@ class InteractivePrompt:
                     buffer_prefill=buffer_prefill,
                     should_return=True,
                 )
-            if should_continue:
+            if dispatch_application.should_continue:
                 return PromptCommandPhase(
                     agent_state=agent_state,
                     pending=pending,
@@ -806,14 +888,17 @@ class InteractivePrompt:
                     should_continue=True,
                 )
 
-        if not pending.has_pending_execution() and isinstance(user_input, str):
-            if user_input.strip().upper() == "STOP":
-                return PromptCommandPhase(
-                    agent_state=agent_state,
-                    pending=pending,
-                    buffer_prefill=buffer_prefill,
-                    should_return=True,
-                )
+        if (
+            not pending.has_pending_execution()
+            and isinstance(user_input, str)
+            and user_input.strip().upper() == "STOP"
+        ):
+            return PromptCommandPhase(
+                agent_state=agent_state,
+                pending=pending,
+                buffer_prefill=buffer_prefill,
+                should_return=True,
+            )
 
         if self._should_continue_after_command(
             user_input=user_input,
@@ -858,7 +943,7 @@ class InteractivePrompt:
         display: "ConsoleDisplay",
         current_result: PromptLoopResult,
         runtime_state: PromptLoopRuntimeState,
-    ) -> tuple[PromptLoopResult, str | None, bool]:
+    ) -> PendingExecutionResult:
         if pending.hash_send_target is not None and pending.hash_send_message is not None:
             active_send_func = (
                 quiet_send_func if pending.hash_send_quiet and quiet_send_func else send_func
@@ -882,7 +967,11 @@ class InteractivePrompt:
                     )
                 ),
             )
-            return current_result, hash_send_execution.buffer_prefill, True
+            return PendingExecutionResult(
+                result=current_result,
+                buffer_prefill=hash_send_execution.buffer_prefill,
+                handled=True,
+            )
 
         if pending.shell_execute_cmd:
             print(f"$ {pending.shell_execute_cmd}", flush=True)
@@ -891,17 +980,17 @@ class InteractivePrompt:
                 pending.shell_execute_cmd,
                 echo_command=False,
             )
-            emit_prompt_mark(f"D;{result.return_code}")
+            emit_prompt_mark(f"D;{result.exit_code}")
 
-            if result.output.strip():
-                set_last_copyable_output(result.output.rstrip())
+            if result.stdout.strip():
+                set_last_copyable_output(result.stdout.rstrip())
 
-            if result.return_code != 0:
-                display.show_shell_exit_code(result.return_code)
+            if result.exit_code != 0:
+                display.show_shell_exit_code(result.exit_code)
 
-            return result, None, True
+            return PendingExecutionResult(result=result, handled=True)
 
-        return current_result, None, False
+        return PendingExecutionResult(result=current_result)
 
     async def _resolve_prompt_payload(
         self,
@@ -916,7 +1005,7 @@ class InteractivePrompt:
             cwd=resolve_shell_working_dir(agent_name=agent_name, agent_provider=prompt_provider),
         )
         for warning in parsed_mentions.warnings:
-            rich_print(f"[yellow]{warning}[/yellow]")
+            rich_print(_warning_text(warning))
 
         if not parsed_mentions.mentions:
             return prompt_payload
@@ -924,14 +1013,19 @@ class InteractivePrompt:
         try:
             agent_for_mentions = prompt_provider._agent(agent_name)
         except Exception:
-            rich_print(f"[red]Unable to resolve resource mentions: agent '{agent_name}' unavailable[/red]")
+            message = Text("Unable to resolve resource mentions: agent '", style="red")
+            message.append(agent_name)
+            message.append("' unavailable", style="red")
+            rich_print(message)
             return user_input
 
         try:
             resolved_mentions = await resolve_mentions(agent_for_mentions, parsed_mentions)
             return build_prompt_with_resources(user_input, resolved_mentions)
         except Exception as exc:
-            rich_print(f"[red]Failed to resolve resource mentions: {exc}[/red]")
+            message = Text("Failed to resolve resource mentions: ", style="red")
+            message.append(str(exc))
+            rich_print(message)
             return user_input
 
     async def _send_regular_message(
@@ -981,6 +1075,44 @@ class InteractivePrompt:
             set_last_copyable_output(result)
 
         return result
+
+    @staticmethod
+    def _apply_pending_execution_result(
+        *,
+        pending_result: PendingExecutionResult,
+        buffer_prefill: str,
+    ) -> tuple[PromptLoopResult, str, bool]:
+        if not pending_result.handled:
+            return pending_result.result, buffer_prefill, False
+        return (
+            pending_result.result,
+            pending_result.buffer_prefill or buffer_prefill,
+            True,
+        )
+
+    async def _send_user_input_if_prompt_payload(
+        self,
+        *,
+        send_func: SendFunc,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+        user_input: str,
+        runtime_state: PromptLoopRuntimeState,
+    ) -> PromptLoopResult | None:
+        prompt_payload = await self._resolve_prompt_payload(
+            prompt_provider=prompt_provider,
+            agent_name=agent_name,
+            user_input=user_input,
+        )
+        if prompt_payload is None:
+            return None
+        return await self._send_regular_message(
+            send_func=send_func,
+            prompt_payload=prompt_payload,
+            prompt_provider=prompt_provider,
+            agent_name=agent_name,
+            runtime_state=runtime_state,
+        )
 
     async def prompt_loop(
         self,
@@ -1050,8 +1182,9 @@ class InteractivePrompt:
             )
             if turn_preparation.should_return:
                 return result
-            if turn_preparation.should_continue or turn_preparation.agent_state is None:
+            if not _turn_preparation_ready(turn_preparation):
                 continue
+            assert turn_preparation.agent_state is not None
             agent_state = turn_preparation.agent_state
 
             input_phase = await self._collect_turn_input(
@@ -1065,12 +1198,10 @@ class InteractivePrompt:
             )
             if input_phase.should_return:
                 return result
-            if (
-                input_phase.should_continue
-                or input_phase.user_input is None
-                or input_phase.agent_state is None
-            ):
+            if not _input_phase_ready(input_phase):
                 continue
+            assert input_phase.agent_state is not None
+            assert input_phase.user_input is not None
 
             agent_state = input_phase.agent_state
             buffer_prefill = input_phase.buffer_prefill
@@ -1093,7 +1224,7 @@ class InteractivePrompt:
             if command_phase.should_continue:
                 continue
 
-            result, hash_buffer_prefill, handled_pending = await self._handle_pending_execution(
+            pending_result = await self._handle_pending_execution(
                 pending=command_phase.pending,
                 send_func=send_func,
                 quiet_send_func=quiet_send_func,
@@ -1102,32 +1233,25 @@ class InteractivePrompt:
                 current_result=result,
                 runtime_state=runtime_state,
             )
-            if handled_pending:
-                if hash_buffer_prefill:
-                    buffer_prefill = hash_buffer_prefill
+            result, buffer_prefill, pending_handled = self._apply_pending_execution_result(
+                pending_result=pending_result,
+                buffer_prefill=buffer_prefill,
+            )
+            if pending_handled:
                 continue
 
             # Send the message to the agent
             # Type narrowing: by this point user_input is str (non-str inputs continue above)
             assert isinstance(user_input, str)
-            prompt_payload = await self._resolve_prompt_payload(
+            send_result = await self._send_user_input_if_prompt_payload(
+                send_func=send_func,
                 prompt_provider=prompt_provider,
                 agent_name=agent_state.current_agent,
                 user_input=user_input,
-            )
-            if prompt_payload is None:
-                continue
-
-            send_result = await self._send_regular_message(
-                send_func=send_func,
-                prompt_payload=prompt_payload,
-                prompt_provider=prompt_provider,
-                agent_name=agent_state.current_agent,
                 runtime_state=runtime_state,
             )
-            if send_result is None:
-                continue
-            result = send_result
+            if send_result is not None:
+                result = send_result
 
         return result
 
@@ -1144,7 +1268,7 @@ class InteractivePrompt:
         last_assistant_message_cancelled: Callable[[str | None], bool],
     ) -> HashSendExecution:
         if not quiet:
-            rich_print(f"[dim]Asking {target_agent}...[/dim]")
+            rich_print(_hash_send_status_text("Asking ", target_agent, "...", style="dim"))
 
         try:
             emit_prompt_mark("C")
@@ -1175,7 +1299,9 @@ class InteractivePrompt:
             handle_inflight_cancel()
             return HashSendExecution(buffer_prefill=None)
         except Exception as exc:
-            rich_print(f"[red]Error asking {target_agent}: {exc}[/red]")
+            status_text = _hash_send_status_text("Error asking ", target_agent, ": ", style="red")
+            status_text.append(str(exc))
+            rich_print(status_text)
             return HashSendExecution(buffer_prefill=None)
         finally:
             write_interactive_trace(
@@ -1193,13 +1319,26 @@ class InteractivePrompt:
 
         if response_text:
             if not quiet:
-                rich_print(f"[blue]Response from {target_agent} loaded into input buffer[/blue]")
+                rich_print(
+                    _hash_send_status_text(
+                        "Response from ",
+                        target_agent,
+                        " loaded into input buffer",
+                        style="blue",
+                    )
+                )
             return HashSendExecution(buffer_prefill=response_text)
 
+        status_text = _hash_send_status_text(
+            "No response received from ",
+            target_agent,
+            "",
+            style="dim" if quiet else "yellow",
+        )
         if quiet:
-            rich_print(f"[dim]No response received from {target_agent}[/dim]")
+            rich_print(status_text)
         else:
-            rich_print(f"[yellow]No response received from {target_agent}[/yellow]")
+            rich_print(status_text)
         return HashSendExecution(buffer_prefill=None)
 
     def _resolve_display(

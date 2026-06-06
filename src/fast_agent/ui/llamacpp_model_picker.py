@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from contextlib import suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Callable, Literal
+from typing import TYPE_CHECKING, Literal
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app_or_none
@@ -16,7 +17,10 @@ from prompt_toolkit.layout.margins import ScrollbarMargin
 from prompt_toolkit.widgets import Frame
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from fast_agent.llm.llamacpp_discovery import LlamaCppModelListing
+    from fast_agent.ui.model_picker_common import ModelAvailability
 
 from fast_agent.ui.picker_theme import build_picker_style
 from fast_agent.utils.async_utils import suppress_known_runtime_warnings
@@ -85,9 +89,7 @@ class _LlamaCppModelPicker:
     def __init__(
         self,
         models: tuple[LlamaCppModelListing, ...],
-        runtime_context_loader: Callable[
-            [str], Awaitable[LlamaCppModelPickerContext | int | None]
-        ]
+        runtime_context_loader: Callable[[str], Awaitable[LlamaCppModelPickerContext | int | None]]
         | None = None,
     ) -> None:
         if not models:
@@ -203,7 +205,7 @@ class _LlamaCppModelPicker:
         self,
         *,
         selected: bool,
-        availability: Literal["active", "attention", "inactive"],
+        availability: "ModelAvailability",
     ) -> str:
         parts: list[str] = []
         if selected:
@@ -291,10 +293,8 @@ class _LlamaCppModelPicker:
             self._runtime_context_errors.add(model_id)
         finally:
             self._runtime_context_loading.discard(model_id)
-            try:
+            with suppress(Exception):
                 self.app.invalidate()
-            except Exception:
-                pass
 
     @classmethod
     def _model_row_label(
@@ -311,58 +311,79 @@ class _LlamaCppModelPicker:
         @kb.add("up")
         @kb.add("k")
         def _go_up(event) -> None:
-            del event
-            if self._models_focused():
-                self._move_models(-1)
-            else:
-                self._move_actions(-1)
+            self._go_up(event)
 
         @kb.add("down")
         @kb.add("j")
         def _go_down(event) -> None:
-            del event
-            if self._models_focused():
-                self._move_models(1)
-            else:
-                self._move_actions(1)
+            self._go_down(event)
 
         @kb.add("left")
         @kb.add("h")
         def _go_left(event) -> None:
-            del event
-            self._focus_models()
+            self._go_left(event)
 
         @kb.add("right")
         @kb.add("l")
         @kb.add("tab")
         def _go_right(event) -> None:
-            del event
-            self._focus_actions()
+            self._go_right(event)
 
         @kb.add("s-tab")
         def _go_back(event) -> None:
-            del event
-            self._focus_models()
+            self._go_back(event)
 
         @kb.add("enter")
         def _accept(event) -> None:
-            if self._models_focused():
-                self._focus_actions()
-                return
-            event.app.exit(
-                result=LlamaCppModelPickerResult(
-                    action=self.current_action.key,
-                    model_id=self.current_model.model_id,
-                )
-            )
+            self._accept(event)
 
         @kb.add("escape")
         @kb.add("q")
         @kb.add("c-c")
         def _cancel(event) -> None:
-            event.app.exit(result=None)
+            self._cancel(event)
 
         return kb
+
+    def _go_up(self, event) -> None:
+        del event
+        if self._models_focused():
+            self._move_models(-1)
+        else:
+            self._move_actions(-1)
+
+    def _go_down(self, event) -> None:
+        del event
+        if self._models_focused():
+            self._move_models(1)
+        else:
+            self._move_actions(1)
+
+    def _go_left(self, event) -> None:
+        del event
+        self._focus_models()
+
+    def _go_right(self, event) -> None:
+        del event
+        self._focus_actions()
+
+    def _go_back(self, event) -> None:
+        del event
+        self._focus_models()
+
+    def _accept(self, event) -> None:
+        if self._models_focused():
+            self._focus_actions()
+            return
+        event.app.exit(
+            result=LlamaCppModelPickerResult(
+                action=self.current_action.key,
+                model_id=self.current_model.model_id,
+            )
+        )
+
+    def _cancel(self, event) -> None:
+        event.app.exit(result=None)
 
     def _render_models(self) -> StyleFragments:
         panel_width = self._model_panel_width()
@@ -397,7 +418,9 @@ class _LlamaCppModelPicker:
     def _render_details(self) -> StyleFragments:
         model = self.current_model
         action = self.current_action
-        training_context = self._training_context_label(self._training_context_for_model(model)).replace(
+        training_context = self._training_context_label(
+            self._training_context_for_model(model)
+        ).replace(
             "train ",
             "",
         )

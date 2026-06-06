@@ -11,7 +11,6 @@ _EXTRA_TOOL_ADDED = False
 app = FastMCP(name="A3 Styling Demo")
 
 
-
 def _extra_tool(note: str = "Tool list update confirmed") -> str:
     return f"Extra tool active: {note}"
 
@@ -46,8 +45,6 @@ def a3_structured_report(topic: str, count: int = 3) -> StructuredReport:
 )
 def a3_unstructured_echo(message: str) -> str:
     return f"Echo: {message}"
-
-
 
 
 @app.tool(

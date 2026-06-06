@@ -25,7 +25,11 @@ def _content_dicts(message: BetaMessageParam) -> list[dict[str, object]]:
     content = message.get("content", [])
     if isinstance(content, str):
         return []
-    return [{str(key): value for key, value in block.items()} for block in content if isinstance(block, dict)]
+    return [
+        {str(key): value for key, value in block.items()}
+        for block in content
+        if isinstance(block, dict)
+    ]
 
 
 def _cache_control(block: dict[str, object]) -> dict[str, object] | None:
@@ -70,7 +74,9 @@ class TestAnthropicCaching:
         cache_ttl: Literal["5m", "1h"] = "5m",
     ) -> list[BetaMessageParam]:
         planner = AnthropicCachePlanner()
-        plan = planner.plan_indices(messages, cache_mode=cache_mode, system_cache_blocks=system_blocks)
+        plan = planner.plan_indices(
+            messages, cache_mode=cache_mode, system_cache_blocks=system_blocks
+        )
         converted = [AnthropicConverter.convert_to_anthropic(m) for m in messages]
         for idx in plan:
             AnthropicLLM._apply_cache_control_to_message(converted[idx], ttl=cache_ttl)
@@ -80,9 +86,7 @@ class TestAnthropicCaching:
         """Test that no cache_control is applied when cache_mode is 'off'."""
         # Create test messages
         messages = [
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Hello")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="Hello")]),
             PromptMessageExtended(
                 role="assistant", content=[TextContent(type="text", text="Hi there")]
             ),
@@ -105,16 +109,18 @@ class TestAnthropicCaching:
         # Create template + conversation messages (agent supplies all, flags templates)
         template_msgs = [
             PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="System context")], is_template=True
+                role="user",
+                content=[TextContent(type="text", text="System context")],
+                is_template=True,
             ),
             PromptMessageExtended(
-                role="assistant", content=[TextContent(type="text", text="Understood")], is_template=True
+                role="assistant",
+                content=[TextContent(type="text", text="Understood")],
+                is_template=True,
             ),
         ]
         conversation_msgs = [
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Question")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="Question")]),
         ]
 
         converted = self._apply_cache_plan(template_msgs + conversation_msgs, cache_mode="prompt")
@@ -151,9 +157,7 @@ class TestAnthropicCaching:
             ),
         ]
         conversation_msgs = [
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Question")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="Question")]),
         ]
 
         converted = self._apply_cache_plan(template_msgs + conversation_msgs, cache_mode="auto")
@@ -177,13 +181,13 @@ class TestAnthropicCaching:
                 role="user", content=[TextContent(type="text", text="Template")], is_template=True
             ),
             PromptMessageExtended(
-                role="assistant", content=[TextContent(type="text", text="Response")], is_template=True
+                role="assistant",
+                content=[TextContent(type="text", text="Response")],
+                is_template=True,
             ),
         ]
         conversation_msgs = [
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Question")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="Question")]),
         ]
 
         converted = self._apply_cache_plan(template_msgs + conversation_msgs, cache_mode="off")
@@ -198,15 +202,11 @@ class TestAnthropicCaching:
     def test_conversion_multiple_messages_structure(self):
         """Test that message structure is preserved during conversion."""
         messages = [
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="First")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="First")]),
             PromptMessageExtended(
                 role="assistant", content=[TextContent(type="text", text="Second")]
             ),
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Third")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="Third")]),
         ]
 
         converted = [AnthropicConverter.convert_to_anthropic(m) for m in messages]
@@ -224,7 +224,9 @@ class TestAnthropicCaching:
         tool_result = CallToolResult(
             content=[TextContent(type="text", text="result payload")], isError=False
         )
-        user_msg = PromptMessageExtended(role="user", content=[], tool_results={tool_id: tool_result})
+        user_msg = PromptMessageExtended(
+            role="user", content=[], tool_results={tool_id: tool_result}
+        )
         history = [user_msg]
 
         params = llm.get_request_params(RequestParams(use_history=True))
@@ -330,16 +332,18 @@ class TestAnthropicCaching:
         """Test that cache_ttl='1h' produces correct cache_control with 1h TTL."""
         template_msgs = [
             PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="System context")], is_template=True
+                role="user",
+                content=[TextContent(type="text", text="System context")],
+                is_template=True,
             ),
             PromptMessageExtended(
-                role="assistant", content=[TextContent(type="text", text="Understood")], is_template=True
+                role="assistant",
+                content=[TextContent(type="text", text="Understood")],
+                is_template=True,
             ),
         ]
         conversation_msgs = [
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Question")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="Question")]),
         ]
 
         converted = self._apply_cache_plan(
@@ -370,9 +374,7 @@ class TestAnthropicCaching:
             ),
         ]
         conversation_msgs = [
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Question")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="Question")]),
         ]
 
         converted = self._apply_cache_plan(
@@ -389,7 +391,9 @@ class TestAnthropicCaching:
                 assert cache_control["ttl"] == "1h"
                 found_1h_cache_control = True
 
-        assert found_1h_cache_control, "Template messages should have cache_control with 1h TTL in 'auto' mode"
+        assert found_1h_cache_control, (
+            "Template messages should have cache_control with 1h TTL in 'auto' mode"
+        )
 
     @pytest.mark.parametrize("cache_ttl", ["5m", "1h"])
     def test_cache_ttl_values(self, cache_ttl: Literal["5m", "1h"]):

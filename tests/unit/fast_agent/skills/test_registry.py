@@ -1,10 +1,11 @@
 import os
 from contextlib import contextmanager
 from pathlib import Path
+from xml.etree import ElementTree
 
 from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
 from fast_agent.paths import default_skill_paths
-from fast_agent.skills.registry import SkillRegistry
+from fast_agent.skills.registry import SkillManifest, SkillRegistry, format_skills_for_prompt
 
 
 @contextmanager
@@ -111,6 +112,90 @@ def test_load_directory_helper(tmp_path: Path) -> None:
     assert {manifest.name for manifest in manifests} == {"alpha", "beta"}
 
 
+def test_load_manifests_deduplicates_skill_names_case_insensitively(tmp_path: Path) -> None:
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    write_skill(first_dir, "Alpha", body="First body")
+    write_skill(second_dir, "alpha", body="Second body")
+
+    registry = SkillRegistry(base_dir=tmp_path, directories=[first_dir, second_dir])
+
+    manifests = registry.load_manifests()
+
+    assert [manifest.name for manifest in manifests] == ["alpha"]
+    assert manifests[0].body == "Second body"
+    assert "Duplicate skill 'alpha'" in registry.warnings[0]
+
+
+def test_format_skills_for_prompt_escapes_xml_text(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "skills" / "alpha & beta"
+    skill_dir.mkdir(parents=True)
+    manifest_path = skill_dir / "SKILL.md"
+    manifest_path.write_text("---\nname: alpha\n---\n", encoding="utf-8")
+    (skill_dir / "references").mkdir()
+    manifest = SkillManifest(
+        name="alpha <beta>",
+        description="Use A & B > C",
+        body="",
+        path=manifest_path,
+    )
+
+    formatted = format_skills_for_prompt([manifest], include_preamble=False)
+
+    root = ElementTree.fromstring(formatted)
+    skill = root.find("skill")
+    assert skill is not None
+    assert skill.findtext("name") == "alpha <beta>"
+    assert skill.findtext("description") == "Use A & B > C"
+    assert skill.findtext("location") == str(manifest_path)
+    assert skill.findtext("directory") == str(skill_dir)
+    assert skill.findtext("references") == str(skill_dir / "references")
+    assert "alpha &lt;beta&gt;" in formatted
+    assert "Use A &amp; B &gt; C" in formatted
+
+
+def test_format_skills_for_prompt_omits_blank_description(tmp_path: Path) -> None:
+    manifest = SkillManifest(
+        name="alpha",
+        description="   ",
+        body="",
+        path=tmp_path / "skills" / "alpha" / "SKILL.md",
+    )
+
+    formatted = format_skills_for_prompt([manifest], include_preamble=False)
+
+    root = ElementTree.fromstring(formatted)
+    skill = root.find("skill")
+    assert skill is not None
+    assert skill.find("description") is None
+
+
+def test_parse_manifest_text_normalizes_optional_fields() -> None:
+    manifest, error = SkillRegistry.parse_manifest_text(
+        """---
+name: "  demo  "
+description: "  Demo skill  "
+license: "  MIT  "
+compatibility: "   "
+allowed-tools: "  bash   python  "
+metadata:
+  retries: 3
+  enabled: true
+---
+Body
+"""
+    )
+
+    assert error is None
+    assert manifest is not None
+    assert manifest.name == "demo"
+    assert manifest.description == "Demo skill"
+    assert manifest.license == "MIT"
+    assert manifest.compatibility is None
+    assert manifest.allowed_tools == ["bash", "python"]
+    assert manifest.metadata == {"retries": "3", "enabled": "True"}
+
+
 def test_no_default_directory(tmp_path: Path) -> None:
     with _without_environment_dir():
         registry = SkillRegistry(base_dir=tmp_path)
@@ -186,6 +271,4 @@ def test_cli_override_propagates_to_global_settings(tmp_path: Path, monkeypatch)
     directories = resolve_skill_directories()
     directory_strs = [str(d) for d in directories]
 
-    assert str(custom_skills) in directory_strs, (
-        f"Expected {custom_skills} in {directory_strs}"
-    )
+    assert str(custom_skills) in directory_strs, f"Expected {custom_skills} in {directory_strs}"

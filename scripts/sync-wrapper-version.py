@@ -46,7 +46,9 @@ def _sync_wrapper(wrapper_pyproject: Path, main_version: str) -> None:
     )
 
     wrapper_pyproject.write_text(wrapper_text)
-    print(f"Updated {wrapper_pyproject} to version {main_version} (pin fast-agent-mcp=={main_version})")
+    print(
+        f"Updated {wrapper_pyproject} to version {main_version} (pin fast-agent-mcp=={main_version})"
+    )
 
 
 def sync_version():

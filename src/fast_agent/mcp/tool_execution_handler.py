@@ -146,6 +146,7 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     ) -> str:
         """Generate a simple UUID for tracking."""
         import uuid
+
         return str(uuid.uuid4())
 
     async def on_tool_progress(
@@ -156,7 +157,6 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
         message: str | None,
     ) -> None:
         """No-op - does nothing."""
-        pass
 
     async def on_tool_complete(
         self,
@@ -166,7 +166,6 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
         error: str | None,
     ) -> None:
         """No-op - does nothing."""
-        pass
 
     async def on_tool_permission_denied(
         self,
@@ -176,7 +175,6 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
         error: str | None = None,
     ) -> None:
         """No-op - does nothing."""
-        pass
 
     async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
         """No-op - always returns None."""
@@ -191,4 +189,5 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     ) -> str:
         """No-op - generates a simple UUID."""
         import uuid
+
         return str(uuid.uuid4())

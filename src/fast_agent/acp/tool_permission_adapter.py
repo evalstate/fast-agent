@@ -6,7 +6,7 @@ allowing ACP permission checking to be injected into the MCP aggregator.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.tool_permissions import ACPToolPermissionManager
@@ -16,7 +16,9 @@ from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler, ToolPe
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
-    from fast_agent.acp.tool_progress import ACPToolProgressManager
+
+class _ToolCallIdLookup(Protocol):
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None: ...
 
 
 class ACPToolPermissionAdapter(ToolPermissionHandler):
@@ -33,7 +35,7 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
         session_id: str,
         store: PermissionStore | None = None,
         cwd: str | Path | None = None,
-        tool_handler: "ACPToolProgressManager | None" = None,
+        tool_handler: _ToolCallIdLookup | None = None,
     ) -> None:
         """
         Initialize the adapter.
@@ -82,7 +84,7 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
         """
         # Look up the ACP toolCallId if a streaming notification was already sent
         # This ensures the permission request references the same tool call
-        tool_call_id = tool_use_id
+        tool_call_id = None
         if tool_use_id and self._tool_handler:
             acp_tool_call_id = await self._tool_handler.get_tool_call_id_for_tool_use(tool_use_id)
             if acp_tool_call_id:
@@ -100,25 +102,25 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
         # Convert PermissionResult to ToolPermissionResult
         if result.is_cancelled:
             return ToolPermissionResult.cancelled()
-        elif result.allowed:
+        if result.allowed:
             return ToolPermissionResult(allowed=True, remember=result.remember)
-        else:
-            # Distinguish between one-time and persistent rejection for clearer UX
-            if result.remember:
-                error_message = (
-                    f"The user has permanently declined permission to use this tool: "
-                    f"{namespaced_tool_name}"
-                )
-            else:
-                error_message = (
-                    f"The user has declined permission to use this tool: {namespaced_tool_name}"
-                )
 
-            return ToolPermissionResult(
-                allowed=False,
-                remember=result.remember,
-                error_message=error_message,
+        # Distinguish between one-time and persistent rejection for clearer UX
+        if result.remember:
+            error_message = (
+                f"The user has permanently declined permission to use this tool: "
+                f"{namespaced_tool_name}"
             )
+        else:
+            error_message = (
+                f"The user has declined permission to use this tool: {namespaced_tool_name}"
+            )
+
+        return ToolPermissionResult(
+            allowed=False,
+            remember=result.remember,
+            error_message=error_message,
+        )
 
     async def clear_session_cache(self) -> None:
         """Clear the session-level permission cache."""

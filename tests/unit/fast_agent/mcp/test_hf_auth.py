@@ -293,18 +293,21 @@ class TestAddHfAuthHeader:
         finally:
             _restore_hf_token(original)
 
-    def test_case_sensitive_authorization_header(self):
-        """Test that Authorization header check is case-sensitive as per HTTP spec."""
+    def test_respects_existing_auth_header_case_insensitively(self):
         original = _set_hf_token("test_token_123")
         try:
-            # Lower case 'authorization' should not prevent HF auth
             existing = {"authorization": "Bearer existing_token"}
             result = add_hf_auth_header("https://hf.co/models", existing)
-            expected = {
-                "authorization": "Bearer existing_token",
-                "Authorization": "Bearer test_token_123",
-            }
-            assert result == expected
+            assert result == existing
+        finally:
+            _restore_hf_token(original)
+
+    def test_respects_existing_x_hf_auth_header_case_insensitively(self):
+        original = _set_hf_token("test_token_123")
+        try:
+            existing = {"x-hf-authorization": "Bearer existing_token"}
+            result = add_hf_auth_header("https://myspace.hf.space/api", existing)
+            assert result == existing
         finally:
             _restore_hf_token(original)
 

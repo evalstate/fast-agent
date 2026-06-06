@@ -1,15 +1,20 @@
 """Unit tests for the hook loader."""
 
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
 
+from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.hook_loader import (
     VALID_HOOK_TYPES,
+    _create_hook_wrapper,
     load_hook_function,
     load_tool_runner_hooks,
 )
+from fast_agent.types import PromptMessageExtended
 
 
 @pytest.mark.unit
@@ -64,6 +69,21 @@ async def other_hook(ctx):
 
         assert "not found" in str(exc_info.value)
 
+    def test_sync_function_raises_error(self, tmp_path: Path):
+        """Hook functions must be async because wrappers await them."""
+        hook_file = tmp_path / "hooks.py"
+        hook_file.write_text(
+            """
+def my_hook(ctx):
+    pass
+"""
+        )
+
+        with pytest.raises(AgentConfigError) as exc_info:
+            load_hook_function(f"{hook_file}:my_hook")
+
+        assert "must be async" in str(exc_info.value)
+
     def test_non_callable_raises_error(self, tmp_path: Path):
         """Test that non-callable attribute raises error."""
         hook_file = tmp_path / "hooks.py"
@@ -72,6 +92,16 @@ async def other_hook(ctx):
 my_hook = "not a function"
 """
         )
+
+        with pytest.raises(AgentConfigError) as exc_info:
+            load_hook_function(f"{hook_file}:my_hook")
+
+        assert "not callable" in str(exc_info.value)
+
+    def test_none_attribute_is_not_callable(self, tmp_path: Path):
+        """A present None attribute should not be reported as missing."""
+        hook_file = tmp_path / "hooks.py"
+        hook_file.write_text("my_hook = None\n")
 
         with pytest.raises(AgentConfigError) as exc_info:
             load_hook_function(f"{hook_file}:my_hook")
@@ -128,7 +158,7 @@ async def after_hook(ctx):
             "after_llm_call": f"{hook_file}:after_hook",
         }
 
-        hooks = load_tool_runner_hooks(config, MockAgent(), base_path=tmp_path)
+        hooks = load_tool_runner_hooks(config, base_path=tmp_path)
 
         assert hooks is not None
         assert hooks.before_llm_call is not None
@@ -159,7 +189,7 @@ async def my_hook(ctx):
         }
 
         with pytest.raises(AgentConfigError) as exc_info:
-            load_tool_runner_hooks(config, MockAgent())
+            load_tool_runner_hooks(config)
 
         assert "Invalid hook types" in str(exc_info.value)
 
@@ -169,10 +199,10 @@ async def my_hook(ctx):
         class MockAgent:
             pass
 
-        hooks = load_tool_runner_hooks(None, MockAgent())
+        hooks = load_tool_runner_hooks(None)
         assert hooks is None
 
-        hooks = load_tool_runner_hooks({}, MockAgent())
+        hooks = load_tool_runner_hooks({})
         assert hooks is None
 
     def test_all_valid_hook_types(self, tmp_path: Path):
@@ -204,7 +234,7 @@ async def hook5(ctx): pass
             "after_turn_complete": f"{hook_file}:hook5",
         }
 
-        hooks = load_tool_runner_hooks(config, MockAgent())
+        hooks = load_tool_runner_hooks(config)
 
         assert hooks is not None
         assert hooks.before_llm_call is not None
@@ -213,18 +243,38 @@ async def hook5(ctx): pass
         assert hooks.after_tool_call is not None
         assert hooks.after_turn_complete is not None
 
+    @pytest.mark.asyncio
+    async def test_hook_wrappers_build_expected_contexts(self):
+        """Wrapper signatures should both pass a HookContext to the user's hook."""
+        seen: list[tuple[str, str, object]] = []
+
+        class MockAgent:
+            pass
+
+        class MockRunner:
+            _agent = MockAgent()
+
+        async def record_hook(ctx):
+            seen.append((ctx.hook_type, ctx.message.all_text(), ctx.agent))
+
+        runner = MockRunner()
+        before_wrapper = _create_hook_wrapper(record_hook, "before_llm_call")
+        message_wrapper = _create_hook_wrapper(record_hook, "after_llm_call")
+        message = PromptMessageExtended(role="assistant", content=[text_content("done")])
+
+        await before_wrapper(runner, [])
+        await message_wrapper(runner, message)
+
+        assert seen == [
+            ("before_llm_call", "", runner._agent),
+            ("after_llm_call", "done", runner._agent),
+        ]
+
 
 @pytest.mark.unit
 class TestValidHookTypes:
     """Tests for the VALID_HOOK_TYPES constant."""
 
     def test_valid_hook_types_contains_expected(self):
-        """Test that VALID_HOOK_TYPES contains all expected hook types."""
-        expected = {
-            "before_llm_call",
-            "after_llm_call",
-            "before_tool_call",
-            "after_tool_call",
-            "after_turn_complete",
-        }
-        assert VALID_HOOK_TYPES == expected
+        """Config hook names should stay aligned with the ToolRunnerHooks fields."""
+        assert VALID_HOOK_TYPES == frozenset(field.name for field in fields(ToolRunnerHooks))

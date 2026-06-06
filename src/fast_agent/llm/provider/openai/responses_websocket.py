@@ -5,6 +5,7 @@ import copy
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 from urllib.parse import urlparse, urlunparse
@@ -12,15 +13,19 @@ from urllib.parse import urlparse, urlunparse
 import aiohttp
 from aiohttp import WSMsgType, WSServerHandshakeError
 
+from fast_agent.llm.provider.openai.responses_events import (
+    is_responses_failure_event,
+    is_responses_terminal_event,
+)
+from fast_agent.llm.provider.openai.tool_event_helpers import (
+    item_type_is_responses_function_tool_call,
+)
+from fast_agent.utils.numeric import int_or_none
+from fast_agent.utils.text import strip_str_to_none
+
 RESPONSES_WEBSOCKET_BETA_HEADER = "responses_websockets=2026-02-06"
 RESPONSES_WEBSOCKET_BETA_HEADER_NAME = "OpenAI-Beta"
 RESPONSES_CREATE_EVENT_TYPE = "response.create"
-TERMINAL_RESPONSE_EVENT_TYPES = {
-    "response.completed",
-    "response.done",
-    "response.incomplete",
-}
-
 _STREAM_START_EVENT_TYPES = {
     "response.output_item.added",
     "response.function_call_arguments.delta",
@@ -101,9 +106,11 @@ def _stream_event_started(event_type: str | None) -> bool:
         return True
     if event_type.startswith("response.output_text"):
         return True
-    if event_type.startswith("response.text"):
-        return True
-    return False
+    return event_type.startswith("response.text")
+
+
+def _non_empty_string(value: Any) -> str | None:
+    return strip_str_to_none(value)
 
 
 def resolve_responses_ws_url(base_url: str) -> str:
@@ -358,10 +365,8 @@ async def connect_websocket(
 
 async def close_websocket_connection(connection: ManagedWebSocketConnection) -> None:
     if not connection.websocket.closed:
-        try:
+        with suppress(Exception):
             await connection.websocket.close()
-        except Exception:
-            pass
     if not connection.session.closed:
         await connection.session.close()
 
@@ -435,7 +440,7 @@ def _is_replayed_response_item(item: Any) -> bool:
     item_type = item.get("type")
     if item_type == "reasoning":
         return True
-    if item_type in {"function_call", "custom_tool_call"}:
+    if item_type_is_responses_function_tool_call(item_type):
         return True
     if item_type == "message":
         return item.get("role") == "assistant"
@@ -535,136 +540,168 @@ class WebSocketResponsesStream:
 
         while True:
             message = await self._websocket.receive()
+            should_return, event = self._event_from_message(message)
+            if should_return:
+                return event
 
-            if message.type in {WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED}:
-                if self._saw_terminal_event:
-                    raise StopAsyncIteration
-                close_code = getattr(message, "data", None) or getattr(
-                    self._websocket, "close_code", None
-                )
-                close_reason = getattr(message, "extra", None)
-                diagnostics = []
-                if close_code is not None:
-                    diagnostics.append(f"close_code={close_code}")
-                if close_reason:
-                    diagnostics.append(f"reason={close_reason}")
-                diagnostics.append(f"events_seen={self._events_seen}")
-                if self._last_frame_preview:
-                    diagnostics.append(f"last_frame={self._last_frame_preview}")
-                if close_code == 1008:
-                    diagnostics.append(
-                        "hint=policy_violation (account/feature may not permit Responses websocket beta)"
-                    )
-                detail = "; ".join(diagnostics)
-                raise ResponsesWebSocketError(
-                    "WebSocket stream closed before completion event"
-                    + (f" ({detail})" if detail else ""),
-                    stream_started=self._stream_started,
-                )
+    def _event_from_message(self, message: Any) -> tuple[bool, Any | None]:
+        self._raise_if_closed_message(message)
+        self._raise_if_error_message(message)
+        if message.type not in {WSMsgType.TEXT, WSMsgType.BINARY}:
+            return False, None
 
-            if message.type == WSMsgType.ERROR:
-                ws_error = self._websocket.exception()
-                detail = str(ws_error) if ws_error else "unknown websocket error"
-                raise ResponsesWebSocketError(
-                    f"WebSocket transport error: {detail}",
-                    stream_started=self._stream_started,
-                )
+        raw_data = self._raw_message_data(message)
+        payload = self._payload_from_raw_data(raw_data)
+        event_type = payload.get("type")
+        self._raise_top_level_payload_error(payload, event_type)
+        self._record_completed_output_item(payload, event_type)
+        payload = self._merge_response_payload(payload)
+        event = _to_attr_object(payload)
+        self._record_event_state(payload, event_type)
+        self._raise_event_error(payload, event_type)
+        return True, event
 
-            if message.type not in {WSMsgType.TEXT, WSMsgType.BINARY}:
-                continue
+    def _raise_if_closed_message(self, message: Any) -> None:
+        if message.type not in {WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED}:
+            return
+        if self._saw_terminal_event:
+            raise StopAsyncIteration
 
-            raw_data: str
-            if message.type == WSMsgType.BINARY:
-                raw_data = message.data.decode("utf-8", errors="replace")
-            else:
-                raw_data = str(message.data)
+        close_code = getattr(message, "data", None)
+        if close_code is None:
+            close_code = getattr(self._websocket, "close_code", None)
+        close_reason = getattr(message, "extra", None)
+        diagnostics = self._close_diagnostics(close_code, close_reason)
+        detail = "; ".join(diagnostics)
+        raise ResponsesWebSocketError(
+            "WebSocket stream closed before completion event" + (f" ({detail})" if detail else ""),
+            stream_started=self._stream_started,
+        )
 
-            try:
-                payload = json.loads(raw_data)
-            except json.JSONDecodeError as exc:
-                self._last_frame_preview = _preview_text(raw_data)
-                raise ResponsesWebSocketError(
-                    "Received non-JSON websocket message"
-                    + (f" ({self._last_frame_preview})" if self._last_frame_preview else ""),
-                    stream_started=self._stream_started,
-                ) from exc
+    def _close_diagnostics(self, close_code: Any, close_reason: Any) -> list[str]:
+        diagnostics = []
+        if close_code is not None:
+            diagnostics.append(f"close_code={close_code}")
+        if close_reason:
+            diagnostics.append(f"reason={close_reason}")
+        diagnostics.append(f"events_seen={self._events_seen}")
+        if self._last_frame_preview:
+            diagnostics.append(f"last_frame={self._last_frame_preview}")
+        if close_code == 1008:
+            diagnostics.append(
+                "hint=policy_violation (account/feature may not permit Responses websocket beta)"
+            )
+        return diagnostics
 
-            if not isinstance(payload, dict):
-                self._last_frame_preview = _preview_text(raw_data)
-                raise ResponsesWebSocketError(
-                    "Received unexpected websocket payload"
-                    + (f" ({self._last_frame_preview})" if self._last_frame_preview else ""),
-                    stream_started=self._stream_started,
-                )
+    def _raise_if_error_message(self, message: Any) -> None:
+        if message.type != WSMsgType.ERROR:
+            return
+        ws_error = self._websocket.exception()
+        detail = str(ws_error) if ws_error else "unknown websocket error"
+        raise ResponsesWebSocketError(
+            f"WebSocket transport error: {detail}",
+            stream_started=self._stream_started,
+        )
 
-            self._last_frame_preview = _preview_text(raw_data)
+    @staticmethod
+    def _raw_message_data(message: Any) -> str:
+        if message.type == WSMsgType.BINARY:
+            return message.data.decode("utf-8", errors="replace")
+        return str(message.data)
 
-            event_type = payload.get("type")
-            if not isinstance(event_type, str) and "error" in payload:
-                (
-                    error_message,
-                    error_code,
-                    error_status,
-                    error_param,
-                ) = self._extract_error_details(payload)
-                raise ResponsesWebSocketError(
-                    error_message,
-                    stream_started=self._stream_started,
-                    error_code=error_code,
-                    status=error_status,
-                    error_param=error_param,
-                )
+    def _payload_from_raw_data(self, raw_data: str) -> dict[str, Any]:
+        self._last_frame_preview = _preview_text(raw_data)
+        try:
+            payload = json.loads(raw_data)
+        except json.JSONDecodeError as exc:
+            raise ResponsesWebSocketError(
+                "Received non-JSON websocket message"
+                + (f" ({self._last_frame_preview})" if self._last_frame_preview else ""),
+                stream_started=self._stream_started,
+            ) from exc
 
-            if event_type == "response.output_item.done":
-                item = payload.get("item")
-                output_index = payload.get("output_index")
-                sequence_number = payload.get("sequence_number")
-                if item is not None:
-                    self._completed_output_items.append(
-                        (
-                            output_index if isinstance(output_index, int) else None,
-                            sequence_number if isinstance(sequence_number, int) else self._events_seen,
-                            item,
-                        )
-                    )
+        if not isinstance(payload, dict):
+            raise ResponsesWebSocketError(
+                "Received unexpected websocket payload"
+                + (f" ({self._last_frame_preview})" if self._last_frame_preview else ""),
+                stream_started=self._stream_started,
+            )
+        return payload
 
-            if "response" in payload:
-                payload = dict(payload)
-                payload["response"] = _merge_completed_output_into_response(
-                    payload["response"],
-                    self._completed_output_items,
-                )
+    def _raise_top_level_payload_error(
+        self,
+        payload: Mapping[str, Any],
+        event_type: Any,
+    ) -> None:
+        if isinstance(event_type, str) or "error" not in payload:
+            return
+        self._raise_payload_error(payload)
 
-            event = _to_attr_object(payload)
-            if isinstance(event_type, str) and _stream_event_started(event_type):
-                self._stream_started = True
+    def _record_completed_output_item(
+        self,
+        payload: Mapping[str, Any],
+        event_type: Any,
+    ) -> None:
+        if event_type != "response.output_item.done":
+            return
+        item = payload.get("item")
+        if item is None:
+            return
+        output_index = payload.get("output_index")
+        sequence_number = payload.get("sequence_number")
+        sequence_index = int_or_none(sequence_number)
+        self._completed_output_items.append(
+            (
+                int_or_none(output_index),
+                sequence_index if sequence_index is not None else self._events_seen,
+                item,
+            )
+        )
 
-            if "response" in payload:
-                self._final_response = _to_attr_object(payload["response"])
+    def _merge_response_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if "response" not in payload:
+            return payload
+        merged_payload = dict(payload)
+        merged_payload["response"] = _merge_completed_output_into_response(
+            payload["response"],
+            self._completed_output_items,
+        )
+        return merged_payload
 
-            if event_type in {"error", "response.failed"}:
-                (
-                    error_message,
-                    error_code,
-                    error_status,
-                    error_param,
-                ) = self._extract_error_details(payload)
-                raise ResponsesWebSocketError(
-                    error_message,
-                    stream_started=self._stream_started,
-                    error_code=error_code,
-                    status=error_status,
-                    error_param=error_param,
-                )
+    def _record_event_state(
+        self,
+        payload: Mapping[str, Any],
+        event_type: Any,
+    ) -> None:
+        if isinstance(event_type, str) and _stream_event_started(event_type):
+            self._stream_started = True
+        if "response" in payload:
+            self._final_response = _to_attr_object(payload["response"])
+        if is_responses_terminal_event(event_type):
+            self._saw_terminal_event = True
+            self._stop_after_next = True
+        if self.first_event_monotonic is None:
+            self.first_event_monotonic = time.perf_counter()
+        self._events_seen += 1
 
-            if event_type in TERMINAL_RESPONSE_EVENT_TYPES:
-                self._saw_terminal_event = True
-                self._stop_after_next = True
+    def _raise_event_error(
+        self,
+        payload: Mapping[str, Any],
+        event_type: Any,
+    ) -> None:
+        if not is_responses_failure_event(event_type):
+            return
+        self._raise_payload_error(payload)
 
-            if self.first_event_monotonic is None:
-                self.first_event_monotonic = time.perf_counter()
-            self._events_seen += 1
-            return event
+    def _raise_payload_error(self, payload: Mapping[str, Any]) -> None:
+        error_message, error_code, error_status, error_param = self._extract_error_details(payload)
+        raise ResponsesWebSocketError(
+            error_message,
+            stream_started=self._stream_started,
+            error_code=error_code,
+            status=error_status,
+            error_param=error_param,
+        )
 
     async def get_final_response(self) -> Any:
         if self._final_response is None:
@@ -678,35 +715,31 @@ class WebSocketResponsesStream:
     def _extract_error_details(
         payload: Mapping[str, Any],
     ) -> tuple[str, str | None, int | None, str | None]:
-        status = payload.get("status")
-        error_status = status if isinstance(status, int) else None
+        error_status = int_or_none(payload.get("status"))
         error_code: str | None = None
         error_param: str | None = None
 
         message = payload.get("message")
-        if isinstance(message, str) and message.strip():
-            top_level_message = message
-        else:
-            top_level_message = None
+        top_level_message = _non_empty_string(message)
 
         error = payload.get("error")
-        if isinstance(error, str) and error.strip():
-            return error, None, error_status, None
+        if (error_text := _non_empty_string(error)) is not None:
+            return error_text, None, error_status, None
         if isinstance(error, Mapping):
             code_value = error.get("code")
-            if isinstance(code_value, str) and code_value.strip():
+            if (code_value := _non_empty_string(code_value)) is not None:
                 error_code = code_value
 
             status_value = error.get("status")
-            if isinstance(status_value, int):
+            if (status_value := int_or_none(status_value)) is not None:
                 error_status = status_value
 
             param_value = error.get("param")
-            if isinstance(param_value, str) and param_value.strip():
+            if (param_value := _non_empty_string(param_value)) is not None:
                 error_param = param_value
 
             error_message = error.get("message")
-            if isinstance(error_message, str) and error_message.strip():
+            if (error_message := _non_empty_string(error_message)) is not None:
                 return error_message, error_code, error_status, error_param
 
         if top_level_message:

@@ -27,9 +27,7 @@ async def test_router_functionality(fast_agent):
         async with fast.run() as agent:
             await agent.target1.send(f"{FIXED_RESPONSE_INDICATOR} target1-result")
             await agent.target2.send(f"{FIXED_RESPONSE_INDICATOR} target2-result")
-            router_setup: list[PromptMessageExtended] = load_prompt(
-                Path("router_script.txt")
-            )
+            router_setup: list[PromptMessageExtended] = load_prompt(Path("router_script.txt"))
             setup: PromptMessageExtended = await agent.router._llm.generate(router_setup)
             assert "LOADED" in setup.first_text()
             result: str = await agent.router.send("some routing")

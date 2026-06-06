@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
 
@@ -12,8 +12,10 @@ from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overl
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
+from fast_agent.utils.collections import unique_preserve_order
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from pathlib import Path
 
 
@@ -45,7 +47,7 @@ class CatalogModelEntry:
 class ModelSelectionCatalog:
     """Catalog of current/listed and fast model preset tokens."""
 
-    CATALOG_ENTRIES_BY_PROVIDER: dict[Provider, tuple[CatalogModelEntry, ...]] = {
+    CATALOG_ENTRIES_BY_PROVIDER: ClassVar[dict[Provider, tuple[CatalogModelEntry, ...]]] = {
         Provider.RESPONSES: (
             CatalogModelEntry(
                 alias="gpt-5.5",
@@ -79,9 +81,16 @@ class ModelSelectionCatalog:
         ),
         Provider.ANTHROPIC: (
             CatalogModelEntry(alias="opus", model="claude-opus-4-8"),
+            CatalogModelEntry(alias="opus4", model="claude-opus-4-8"),
             CatalogModelEntry(alias="opus46", model="claude-opus-4-6"),
+            CatalogModelEntry(alias="opus47", model="claude-opus-4-7"),
+            CatalogModelEntry(alias="opus48", model="claude-opus-4-8"),
             CatalogModelEntry(alias="sonnet", model="claude-sonnet-4-6"),
+            CatalogModelEntry(alias="sonnet4", model="claude-sonnet-4-6"),
+            CatalogModelEntry(alias="sonnet46", model="claude-sonnet-4-6"),
+            CatalogModelEntry(alias="claude", model="claude-sonnet-4-6"),
             CatalogModelEntry(alias="haiku", model="claude-haiku-4-5", fast=True),
+            CatalogModelEntry(alias="haiku45", model="claude-haiku-4-5", fast=True),
         ),
         Provider.ANTHROPIC_VERTEX: (
             CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),
@@ -286,17 +295,6 @@ class ModelSelectionCatalog:
     }
 
     @staticmethod
-    def _dedupe_preserve_order(items: Iterable[str]) -> list[str]:
-        seen: set[str] = set()
-        deduped: list[str] = []
-        for item in items:
-            if item in seen:
-                continue
-            seen.add(item)
-            deduped.append(item)
-        return deduped
-
-    @staticmethod
     def _resolve_overlay_registry(
         overlay_registry: ModelOverlayRegistry | None = None,
         *,
@@ -342,9 +340,9 @@ class ModelSelectionCatalog:
 
         merged: dict[Provider, tuple[CatalogModelEntry, ...]] = {}
         ordered_providers = list(provider_map.keys())
-        for provider in overlay_entries_by_provider:
-            if provider not in provider_map:
-                ordered_providers.append(provider)
+        ordered_providers.extend(
+            provider for provider in overlay_entries_by_provider if provider not in provider_map
+        )
 
         for provider in ordered_providers:
             overlay_entries = overlay_entries_by_provider.get(provider, [])
@@ -354,7 +352,7 @@ class ModelSelectionCatalog:
                 for entry in provider_map.get(provider, [])
                 if entry.alias not in overlay_aliases
             ]
-            merged[provider] = tuple([*overlay_entries, *static_entries])
+            merged[provider] = (*overlay_entries, *static_entries)
         return merged
 
     @classmethod
@@ -438,7 +436,7 @@ class ModelSelectionCatalog:
             start_path=start_path,
             env_dir=env_dir,
         )
-        return cls._dedupe_preserve_order(entry.model for entry in entries)
+        return unique_preserve_order(entry.model for entry in entries)
 
     @classmethod
     def list_current_aliases(
@@ -456,7 +454,7 @@ class ModelSelectionCatalog:
             start_path=start_path,
             env_dir=env_dir,
         )
-        return cls._dedupe_preserve_order(entry.alias for entry in entries)
+        return unique_preserve_order(entry.alias for entry in entries)
 
     @classmethod
     def list_non_current_aliases(
@@ -474,7 +472,7 @@ class ModelSelectionCatalog:
             start_path=start_path,
             env_dir=env_dir,
         )
-        return cls._dedupe_preserve_order(entry.alias for entry in entries)
+        return unique_preserve_order(entry.alias for entry in entries)
 
     @classmethod
     def list_fast_models(
@@ -492,7 +490,7 @@ class ModelSelectionCatalog:
             start_path=start_path,
             env_dir=env_dir,
         )
-        return cls._dedupe_preserve_order(entry.model for entry in entries if entry.fast)
+        return unique_preserve_order(entry.model for entry in entries if entry.fast)
 
     # Backward-compatible aliases
     @classmethod
@@ -588,7 +586,7 @@ class ModelSelectionCatalog:
         if not discovered.all_models:
             return static_models
 
-        return cls._dedupe_preserve_order([*static_models, *discovered.all_models])
+        return unique_preserve_order([*static_models, *discovered.all_models])
 
     @classmethod
     def is_fast_model(cls, model: str) -> bool:
@@ -617,7 +615,7 @@ class ModelSelectionCatalog:
             discovered = ProviderModelCatalogRegistry.discover(provider, config_payload)
 
             current_models = tuple(
-                cls._dedupe_preserve_order(
+                unique_preserve_order(
                     [
                         *cls.list_current_models(
                             provider, overlay_registry=resolved_overlay_registry
@@ -634,7 +632,7 @@ class ModelSelectionCatalog:
             )
             fast = tuple(cls.list_fast_models(provider, overlay_registry=resolved_overlay_registry))
             all_models = tuple(
-                cls._dedupe_preserve_order(
+                unique_preserve_order(
                     [
                         *cls._list_static_models_for_provider(
                             provider,
@@ -754,8 +752,8 @@ class ModelSelectionCatalog:
                 for model in models
                 if ModelDatabase.get_default_provider(model) == Provider.ANTHROPIC
             ]
-            return ModelSelectionCatalog._dedupe_preserve_order([*overlay_models, *static_models])
+            return unique_preserve_order([*overlay_models, *static_models])
         static_models = [
             model for model in models if ModelDatabase.get_default_provider(model) == provider
         ]
-        return ModelSelectionCatalog._dedupe_preserve_order([*overlay_models, *static_models])
+        return unique_preserve_order([*overlay_models, *static_models])

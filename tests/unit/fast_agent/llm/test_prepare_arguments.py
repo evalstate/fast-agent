@@ -2,12 +2,14 @@ from typing import Any, cast
 
 import pytest
 from mcp.types import GetPromptResult, PromptMessage, TextContent
+from pydantic import BaseModel
 
-from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.fastagent_llm import FastAgentLLM, _mcp_metadata_var
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import BatchRequestContext, RequestParams
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 
@@ -36,12 +38,32 @@ class StubLLM(FastAgentLLM):
         return []
 
 
+class MetadataRecordingLLM(StubLLM):
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen_metadata: list[dict[str, Any] | None] = []
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list["PromptMessageExtended"],
+        request_params: RequestParams | None = None,
+        tools=None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self.seen_metadata.append(_mcp_metadata_var.get())
+        return Prompt.assistant("ok")
+
+
 class _PromptLoadedDisplay:
     def __init__(self) -> None:
         self.loaded: dict[str, Any] | None = None
 
     async def show_prompt_loaded(self, **kwargs: Any) -> None:
         self.loaded = dict(kwargs)
+
+
+class _StructuredResult(BaseModel):
+    value: str
 
 
 @pytest.mark.asyncio
@@ -69,6 +91,43 @@ async def test_apply_prompt_template_reads_arguments_from_prompt_metadata() -> N
     assert result == "hello"
     assert display.loaded is not None
     assert display.loaded["arguments"] == {"topic": "release notes"}
+
+
+@pytest.mark.asyncio
+async def test_generate_requires_messages() -> None:
+    llm = StubLLM()
+
+    with pytest.raises(ValueError, match="at least one message"):
+        await llm.generate([])
+
+
+@pytest.mark.asyncio
+async def test_generate_resets_mcp_metadata_context_between_calls() -> None:
+    llm = MetadataRecordingLLM()
+
+    token = _mcp_metadata_var.set(None)
+    try:
+        await llm.generate(
+            [Prompt.user("one")],
+            RequestParams(mcp_metadata={"server": {"tool": {"id": "first"}}}),
+        )
+        assert _mcp_metadata_var.get() is None
+
+        await llm.generate([Prompt.user("two")])
+    finally:
+        _mcp_metadata_var.reset(token)
+
+    assert llm.seen_metadata == [{"server": {"tool": {"id": "first"}}}, None]
+
+
+def test_structured_from_multipart_handles_empty_content() -> None:
+    llm = StubLLM()
+    message = PromptMessageExtended(role="assistant", content=[])
+
+    result, returned_message = llm._structured_from_multipart(message, _StructuredResult)
+
+    assert result is None
+    assert returned_message is message
 
 
 class TestRequestParamsInLLM:

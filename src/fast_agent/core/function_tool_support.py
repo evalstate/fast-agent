@@ -34,8 +34,7 @@ def custom_class_supports_function_tools(cls: Any) -> bool:
     classes receive the resolved tool objects via a constructor kwarg named
     ``tools`` for compatibility with existing ``ToolAgent``/``McpAgent`` APIs.
     """
-    init = getattr(cls, "__init__", None)
-    return _callable_accepts_keyword_arg(init, "tools")
+    return _callable_accepts_keyword_arg(cls, "tools")
 
 
 def decorator_supports_scoped_function_tools(

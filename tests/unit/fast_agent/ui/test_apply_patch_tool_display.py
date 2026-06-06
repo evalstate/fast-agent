@@ -104,15 +104,9 @@ def test_shell_tool_call_header_includes_timeout() -> None:
     assert "bash (/bin/bash) | timeout 90s" in rendered
 
 
-
 def test_apply_patch_tool_call_renders_preview() -> None:
     display = ConsoleDisplay()
-    patch_text = (
-        "*** Begin Patch\n"
-        "*** Add File: hello.txt\n"
-        "+hello\n"
-        "*** End Patch\n"
-    )
+    patch_text = "*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch\n"
 
     with console.console.capture() as capture:
         display.show_tool_call(
@@ -129,16 +123,9 @@ def test_apply_patch_tool_call_renders_preview() -> None:
 
 
 def test_apply_patch_tool_call_respects_preview_line_limit() -> None:
-    display = ConsoleDisplay(
-        Settings(logger=LoggerSettings(apply_patch_preview_max_lines=4))
-    )
+    display = ConsoleDisplay(Settings(logger=LoggerSettings(apply_patch_preview_max_lines=4)))
     patch_text = (
-        "*** Begin Patch\n"
-        "*** Add File: hello.txt\n"
-        "+line-1\n"
-        "+line-2\n"
-        "+line-3\n"
-        "*** End Patch\n"
+        "*** Begin Patch\n*** Add File: hello.txt\n+line-1\n+line-2\n+line-3\n*** End Patch\n"
     )
 
     with console.console.capture() as capture:

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
+from fast_agent.llm.request_params import is_structured_tool_policy
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -90,10 +92,19 @@ class AgentRunRequest:
     attachments: list[str] | None = None
 
     def __post_init__(self) -> None:
+        self._validate_environment_options()
+        self._resolve_execution_mode()
+        self._validate_structured_options()
+
+    def _validate_environment_options(self) -> None:
         if self.noenv and self.environment_dir is not None:
             raise ValueError("--noenv cannot be combined with --env")
+        if self.noenv and self.resume is not None:
+            raise ValueError("--noenv cannot be combined with --resume")
         if self.shell_runtime and self.no_shell:
             raise ValueError("--shell cannot be combined with --no-shell")
+
+    def _resolve_execution_mode(self) -> None:
         resolved_execution_mode = resolve_execution_mode(
             message=self.message,
             prompt_file=self.prompt_file,
@@ -104,25 +115,33 @@ class AgentRunRequest:
             raise ValueError(
                 f"execution_mode {self.execution_mode!r} does not match request inputs"
             )
+
+    def _validate_structured_options(self) -> None:
         if self.json_schema is not None and self.schema_model is not None:
             raise ValueError("--json-schema cannot be combined with --schema-model")
         if self.attachments and self.execution_mode == "repl":
             raise ValueError("--attach requires --message or --prompt-file")
         if self.structured_tool_policy is not None:
-            if self.structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
-                raise ValueError(
-                    "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'"
-                )
-            if self.json_schema is None:
-                raise ValueError("--structured-tool-policy requires --json-schema")
-            if self.schema_model is not None:
-                raise ValueError("--structured-tool-policy cannot be combined with --schema-model")
+            self._validate_structured_tool_policy()
         if self.json_schema is not None or self.schema_model is not None:
-            if self.execution_mode == "repl":
-                raise ValueError("--json-schema/--schema-model requires --message or --prompt-file")
-            if self.model is not None and "," in self.model:
-                raise ValueError("structured output options cannot be combined with multiple models")
-            self.quiet = True
+            self._validate_structured_output_mode()
+
+    def _validate_structured_tool_policy(self) -> None:
+        if not is_structured_tool_policy(self.structured_tool_policy):
+            raise ValueError(
+                "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'"
+            )
+        if self.json_schema is None:
+            raise ValueError("--structured-tool-policy requires --json-schema")
+        if self.schema_model is not None:
+            raise ValueError("--structured-tool-policy cannot be combined with --schema-model")
+
+    def _validate_structured_output_mode(self) -> None:
+        if self.execution_mode == "repl":
+            raise ValueError("--json-schema/--schema-model requires --message or --prompt-file")
+        if self.model is not None and "," in self.model:
+            raise ValueError("structured output options cannot be combined with multiple models")
+        self.quiet = True
 
     @property
     def allow_sessions(self) -> bool:

@@ -10,9 +10,10 @@ import keyword
 import logging
 import re
 import sys
+from collections.abc import Awaitable, Callable, Sequence
 from inspect import Parameter, Signature
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Sequence, cast
+from typing import Any, cast
 
 from fastmcp import FastMCP
 from fastmcp.prompts import Message, Prompt, PromptArgument, PromptResult
@@ -39,6 +40,7 @@ from fast_agent.mcp.prompts.prompt_load import (
 from fast_agent.mcp.prompts.prompt_template import PromptMetadata, PromptTemplateLoader
 from fast_agent.types import PromptMessageExtended
 from fast_agent.utils.async_utils import run_sync
+from fast_agent.utils.text import strip_casefold
 
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger("prompt_server")
@@ -72,7 +74,7 @@ def convert_to_fastmcp_messages(
 class PromptConfig(PromptMetadata):
     """Configuration for the prompt server."""
 
-    prompt_files: list[Path] = []
+    prompt_files: list[Path] = Field(default_factory=list)
     user_delimiter: str = DEFAULT_USER_DELIMITER
     assistant_delimiter: str = DEFAULT_ASSISTANT_DELIMITER
     resource_delimiter: str = DEFAULT_RESOURCE_DELIMITER
@@ -95,8 +97,13 @@ class _TemplateFunctionPrompt(FunctionPrompt):
     internal_arguments: list[PromptArgument] = Field(default_factory=list, exclude=True)
 
     async def render(self, arguments: dict[str, Any] | None = None) -> PromptResult:
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            raise ValueError("Prompt arguments must be a dict.")
+
         translated_arguments: dict[str, Any] = {}
-        for name, value in (arguments or {}).items():
+        for name, value in arguments.items():
             translated_name = self.argument_name_map.get(name, name)
             if (
                 translated_name in translated_arguments
@@ -172,20 +179,16 @@ def _build_dynamic_prompt_handler(
     handler.__name__ = metadata.name
     handler.__annotations__ = {template_var_aliases[var]: str for var in template_vars}
     handler.__annotations__["return"] = list[Message]
-    setattr(
-        cast("Any", handler),
-        "__signature__",
-        Signature(
-            parameters=[
-                Parameter(
-                    name=template_var_aliases[var],
-                    kind=Parameter.POSITIONAL_OR_KEYWORD,
-                    annotation=str,
-                )
-                for var in template_vars
-            ],
-            return_annotation=list[Message],
-        ),
+    cast("Any", handler).__signature__ = Signature(
+        parameters=[
+            Parameter(
+                name=template_var_aliases[var],
+                kind=Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=str,
+            )
+            for var in template_vars
+        ],
+        return_annotation=list[Message],
     )
     return handler
 
@@ -213,9 +216,7 @@ def _template_var_aliases(template_vars: Sequence[str]) -> dict[str, str]:
         if not candidate or candidate in used_names:
             candidate = f"{candidate or 'template_var'}_{index}"
         while (
-            candidate in used_names
-            or keyword.iskeyword(candidate)
-            or not candidate.isidentifier()
+            candidate in used_names or keyword.iskeyword(candidate) or not candidate.isidentifier()
         ):
             candidate = f"{candidate}_{index}"
         aliases[var_name] = candidate
@@ -269,109 +270,125 @@ def _register_prompt_handler(
     mcp.add_prompt(prompt)
 
 
+def _register_json_prompt(file_path: Path) -> PromptMetadata:
+    template_vars = sorted(prompt_file_template_variables(file_path))
+    metadata = _unique_prompt_name(
+        PromptMetadata(
+            name=file_path.stem,
+            description=f"JSON prompt: {file_path.stem}",
+            template_variables=set(template_vars),
+            resource_paths=[],
+            file_path=file_path,
+        )
+    )
+
+    if template_vars:
+        template_var_aliases = _template_var_aliases(template_vars)
+        handler = _build_dynamic_prompt_handler(
+            metadata=metadata,
+            template_vars=template_vars,
+            template_var_aliases=template_var_aliases,
+            render_context=lambda context: convert_to_fastmcp_messages(
+                load_prompt(file_path, arguments=context)
+            ),
+        )
+        prompt = _build_dynamic_prompt(
+            metadata=metadata,
+            handler=handler,
+            template_var_aliases=template_var_aliases,
+        )
+    else:
+
+        async def handler() -> list[Message]:
+            return convert_to_fastmcp_messages(load_prompt(file_path))
+
+        prompt = None
+
+    _register_prompt_handler(metadata=metadata, handler=handler, prompt=prompt)
+    return metadata
+
+
+def _template_loader_for_config(config_values: dict[str, Any]) -> PromptTemplateLoader:
+    return PromptTemplateLoader(
+        {
+            config_values["user_delimiter"]: "user",
+            config_values["assistant_delimiter"]: "assistant",
+            config_values["resource_delimiter"]: "resource",
+        }
+    )
+
+
+def _register_template_prompt(file_path: Path, config: PromptConfig | None) -> PromptMetadata:
+    config_values = get_delimiter_config(config, file_path)
+    loader = _template_loader_for_config(config_values)
+    metadata = _unique_prompt_name(loader.get_metadata(file_path))
+    template = loader.load_from_file(file_path)
+    template_vars = sorted(metadata.template_variables)
+
+    if template_vars:
+        template_var_aliases = _template_var_aliases(template_vars)
+        handler = _build_dynamic_prompt_handler(
+            metadata=metadata,
+            template_vars=template_vars,
+            template_var_aliases=template_var_aliases,
+            render_context=lambda context: _prompt_messages_for_template(
+                template,
+                config_values["prompt_files"],
+                context,
+            ),
+        )
+        prompt = _build_dynamic_prompt(
+            metadata=metadata,
+            handler=handler,
+            template_var_aliases=template_var_aliases,
+        )
+    else:
+
+        async def handler() -> list[Message]:
+            return _prompt_messages_for_template(template, config_values["prompt_files"])
+
+        prompt = None
+
+    _register_prompt_handler(metadata=metadata, handler=handler, prompt=prompt)
+    return metadata
+
+
+def _register_prompt_resources(file_path: Path, resource_paths: Sequence[str]) -> None:
+    for resource_path in resource_paths:
+        if resource_path.startswith(("http://", "https://")):
+            continue
+        resource_file = file_path.parent / resource_path
+        if not resource_file.exists():
+            continue
+
+        resource_id = f"resource://fast-agent/{resource_file.name}"
+        if resource_id in exposed_resources:
+            continue
+
+        exposed_resources[resource_id] = resource_file
+        mime_type = mime_utils.guess_mime_type(str(resource_file))
+        mcp.add_resource(
+            FileResource(
+                uri=AnyUrl(resource_id),
+                path=resource_file,
+                mime_type=mime_type,
+                is_binary=mime_utils.is_binary_content(mime_type),
+            )
+        )
+        logger.info(f"Registered resource: {resource_id} ({resource_file})")
+
+
 def register_prompt(file_path: Path, config: PromptConfig | None = None) -> None:
     """Register a prompt file."""
     try:
-        file_str = str(file_path).lower()
-        if file_str.endswith(".json"):
-            template_vars = sorted(prompt_file_template_variables(file_path))
-            metadata = _unique_prompt_name(
-                PromptMetadata(
-                    name=file_path.stem,
-                    description=f"JSON prompt: {file_path.stem}",
-                    template_variables=set(template_vars),
-                    resource_paths=[],
-                    file_path=file_path,
-                )
-            )
-
-            if template_vars:
-                template_var_aliases = _template_var_aliases(template_vars)
-                json_prompt_handler = _build_dynamic_prompt_handler(
-                    metadata=metadata,
-                    template_vars=template_vars,
-                    template_var_aliases=template_var_aliases,
-                    render_context=lambda context: convert_to_fastmcp_messages(
-                        load_prompt(file_path, arguments=context)
-                    ),
-                )
-                prompt = _build_dynamic_prompt(
-                    metadata=metadata,
-                    handler=json_prompt_handler,
-                    template_var_aliases=template_var_aliases,
-                )
-            else:
-
-                async def json_prompt_handler() -> list[Message]:
-                    return convert_to_fastmcp_messages(load_prompt(file_path))
-
-                prompt = None
-
-            _register_prompt_handler(metadata=metadata, handler=json_prompt_handler, prompt=prompt)
+        if strip_casefold(file_path.suffix) == ".json":
+            metadata = _register_json_prompt(file_path)
             logger.info(f"Registered JSON prompt: {metadata.name} ({file_path})")
             return
 
-        config_values = get_delimiter_config(config, file_path)
-        loader = PromptTemplateLoader(
-            {
-                config_values["user_delimiter"]: "user",
-                config_values["assistant_delimiter"]: "assistant",
-                config_values["resource_delimiter"]: "resource",
-            }
-        )
-
-        metadata = _unique_prompt_name(loader.get_metadata(file_path))
-        template = loader.load_from_file(file_path)
-        template_vars = sorted(metadata.template_variables)
-
-        if template_vars:
-            template_var_aliases = _template_var_aliases(template_vars)
-            handler = _build_dynamic_prompt_handler(
-                metadata=metadata,
-                template_vars=template_vars,
-                template_var_aliases=template_var_aliases,
-                render_context=lambda context: _prompt_messages_for_template(
-                    template,
-                    config_values["prompt_files"],
-                    context,
-                ),
-            )
-            prompt = _build_dynamic_prompt(
-                metadata=metadata,
-                handler=handler,
-                template_var_aliases=template_var_aliases,
-            )
-        else:
-
-            async def handler() -> list[Message]:
-                return _prompt_messages_for_template(template, config_values["prompt_files"])
-            prompt = None
-
-        _register_prompt_handler(metadata=metadata, handler=handler, prompt=prompt)
+        metadata = _register_template_prompt(file_path, config)
         logger.info(f"Registered prompt: {metadata.name} ({file_path})")
-
-        for resource_path in metadata.resource_paths:
-            if resource_path.startswith(("http://", "https://")):
-                continue
-            resource_file = file_path.parent / resource_path
-            if not resource_file.exists():
-                continue
-
-            resource_id = f"resource://fast-agent/{resource_file.name}"
-            if resource_id in exposed_resources:
-                continue
-
-            exposed_resources[resource_id] = resource_file
-            mime_type = mime_utils.guess_mime_type(str(resource_file))
-            mcp.add_resource(
-                FileResource(
-                    uri=AnyUrl(resource_id),
-                    path=resource_file,
-                    mime_type=mime_type,
-                    is_binary=mime_utils.is_binary_content(mime_type),
-                )
-            )
-            logger.info(f"Registered resource: {resource_id} ({resource_file})")
+        _register_prompt_resources(file_path, metadata.resource_paths)
     except Exception as exc:
         logger.error(f"Error registering prompt {file_path}: {exc}", exc_info=True)
 
@@ -423,7 +440,9 @@ def parse_args():
         default="0.0.0.0",
         help="Host to bind to for HTTP transport (default: 0.0.0.0)",
     )
-    parser.add_argument("--test", type=str, help="Test a specific prompt without starting the server")
+    parser.add_argument(
+        "--test", type=str, help="Test a specific prompt without starting the server"
+    )
     return parser.parse_args()
 
 
@@ -472,9 +491,9 @@ async def register_file_resource_handler(config: PromptConfig) -> None:
 
             mime_type = mime_utils.guess_mime_type(str(file_path))
             if mime_utils.is_binary_content(mime_type):
-                with open(file_path, "rb") as file:
+                with file_path.open("rb") as file:
                     return base64.b64encode(file.read()).decode("utf-8")
-            with open(file_path, "r", encoding="utf-8") as file:
+            with file_path.open("r", encoding="utf-8") as file:
                 return file.read()
         except Exception as exc:
             logger.error(f"Error accessing resource at '{path}': {exc}")

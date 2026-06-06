@@ -28,12 +28,18 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     send_response_create,
     send_response_request,
 )
-from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
+from fast_agent.llm.provider.openai.streaming_utils import (
+    validate_incomplete_tool_entries,
+    with_stream_idle_timeout,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 
 if TYPE_CHECKING:
     from mcp import Tool
+
+    from fast_agent.core.logging.logger import Logger
 
 
 class _FakeSession:
@@ -73,6 +79,7 @@ class _FakeWebSocket:
         self._fail_send_times = fail_send_times
         self.sent_payloads: list[str] = []
         self._exception: BaseException | None = None
+        self.close_code: int | None = None
 
     async def receive(self, timeout: float | None = None) -> SimpleNamespace:
         del timeout
@@ -311,6 +318,32 @@ async def test_with_stream_idle_timeout_preserves_get_final_response() -> None:
     assert await cast("Any", timed_stream).get_final_response() is final_response
 
 
+def test_format_incomplete_tool_call_error_uses_singular_label() -> None:
+    assert format_incomplete_tool_call_error(["lookup:call-1"]) == (
+        "Streaming completed but tool call never finished: lookup:call-1"
+    )
+
+
+def test_format_incomplete_tool_call_error_uses_plural_label() -> None:
+    assert format_incomplete_tool_call_error(["lookup:call-1", "search:call-2"]) == (
+        "Streaming completed but tool calls never finished: lookup:call-1, search:call-2"
+    )
+
+
+def test_validate_incomplete_tool_entries_raises_formatted_error() -> None:
+    entries = [
+        SimpleNamespace(tool_name="lookup", tool_use_id="call-1"),
+        SimpleNamespace(tool_name="search", tool_use_id="call-2"),
+    ]
+
+    with pytest.raises(RuntimeError, match="tool calls never finished"):
+        validate_incomplete_tool_entries(
+            incomplete_entries=entries,
+            final_response=SimpleNamespace(status="completed"),
+            logger=cast("Logger", _CapturingLogger()),
+        )
+
+
 @pytest.mark.asyncio
 async def test_send_response_create_envelope_preserves_service_tier() -> None:
     websocket = _FakeWebSocket()
@@ -356,7 +389,9 @@ def test_attr_object_view_model_dump_recurses_nested_mappings() -> None:
     assert json.loads(json.dumps(dumped)) == dumped
 
 
-def _build_ws_arguments(input_items: list[dict[str, Any]], *, temperature: float = 0.0) -> dict[str, Any]:
+def _build_ws_arguments(
+    input_items: list[dict[str, Any]], *, temperature: float = 0.0
+) -> dict[str, Any]:
     return {
         "model": "gpt-5.3-codex",
         "input": input_items,
@@ -389,7 +424,6 @@ def _build_reasoning_item(reasoning_id: str) -> dict[str, Any]:
     }
 
 
-
 def _build_custom_tool_call(call_id: str, input_text: str) -> dict[str, Any]:
     return {
         "type": "custom_tool_call",
@@ -410,7 +444,9 @@ def _build_tool_result(call_id: str, output: str) -> dict[str, Any]:
 def test_stateless_planner_always_create() -> None:
     planner = StatelessResponsesWsPlanner()
     first = planner.plan(_build_ws_arguments([_build_input_message("one")]))
-    second = planner.plan(_build_ws_arguments([_build_input_message("one"), _build_input_message("two")]))
+    second = planner.plan(
+        _build_ws_arguments([_build_input_message("one"), _build_input_message("two")])
+    )
     assert first.event_type == RESPONSES_CREATE_EVENT_TYPE
     assert second.event_type == RESPONSES_CREATE_EVENT_TYPE
 
@@ -458,8 +494,6 @@ def test_continuation_planner_strips_replayed_assistant_items_from_incremental_i
         _build_tool_result("call_1", "ok"),
         _build_input_message("two"),
     ]
-
-
 
 
 def test_continuation_planner_strips_replayed_custom_tool_calls_from_incremental_input() -> None:
@@ -520,7 +554,9 @@ def test_continuation_planner_equal_or_shorter_input_forces_create() -> None:
     baseline = _build_ws_arguments([_build_input_message("one"), _build_input_message("two")])
     planner.commit(baseline, planner.plan(baseline), {"id": "resp_1"})
 
-    equal = planner.plan(_build_ws_arguments([_build_input_message("one"), _build_input_message("two")]))
+    equal = planner.plan(
+        _build_ws_arguments([_build_input_message("one"), _build_input_message("two")])
+    )
     shorter = planner.plan(_build_ws_arguments([_build_input_message("one")]))
 
     assert equal.event_type == RESPONSES_CREATE_EVENT_TYPE
@@ -622,7 +658,9 @@ def test_resolve_responses_ws_url() -> None:
     assert resolve_responses_ws_url("https://chatgpt.com/backend-api/codex") == (
         "wss://chatgpt.com/backend-api/codex/responses"
     )
-    assert resolve_responses_ws_url("http://localhost:8080/v1") == "ws://localhost:8080/v1/responses"
+    assert (
+        resolve_responses_ws_url("http://localhost:8080/v1") == "ws://localhost:8080/v1/responses"
+    )
     assert resolve_responses_ws_url("https://api.openai.com/v1/responses") == (
         "wss://api.openai.com/v1/responses"
     )
@@ -665,9 +703,7 @@ async def test_websocket_stream_terminal_events_and_final_response() -> None:
     websocket = _FakeWebSocket(messages)
     stream = WebSocketResponsesStream(websocket)
 
-    collected: list[Any] = []
-    async for event in stream:
-        collected.append(event)
+    collected = [event async for event in stream]
 
     assert len(collected) == 2
     assert getattr(collected[0], "type", None) == "response.output_text.delta"
@@ -734,9 +770,7 @@ async def test_websocket_stream_reconstructs_empty_terminal_response_output() ->
     ]
     stream = WebSocketResponsesStream(_FakeWebSocket(messages))
 
-    collected: list[Any] = []
-    async for event in stream:
-        collected.append(event)
+    collected = [event async for event in stream]
 
     completed_response = getattr(collected[-1], "response", None)
     assert completed_response is not None
@@ -755,6 +789,61 @@ async def test_websocket_stream_reconstructs_empty_terminal_response_output() ->
 
 
 @pytest.mark.asyncio
+async def test_websocket_stream_ignores_boolean_output_item_indexes() -> None:
+    messages = [
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "sequence_number": 1,
+                    "output_index": False,
+                    "item": {
+                        "type": "message",
+                        "id": "msg_unindexed",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "fallback"}],
+                    },
+                }
+            ),
+        ),
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.output_item.done",
+                    "sequence_number": 2,
+                    "output_index": 1,
+                    "item": {
+                        "type": "message",
+                        "id": "msg_indexed",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "indexed"}],
+                    },
+                }
+            ),
+        ),
+        SimpleNamespace(
+            type=WSMsgType.TEXT,
+            data=json.dumps(
+                {
+                    "type": "response.completed",
+                    "sequence_number": 3,
+                    "response": {"status": "completed", "output": []},
+                }
+            ),
+        ),
+    ]
+    stream = WebSocketResponsesStream(_FakeWebSocket(messages))
+
+    collected = [event async for event in stream]
+
+    completed_response = getattr(collected[-1], "response", None)
+    assert completed_response is not None
+    assert [item.id for item in completed_response.output] == ["msg_indexed", "msg_unindexed"]
+
+
+@pytest.mark.asyncio
 async def test_websocket_stream_close_before_completion_raises() -> None:
     websocket = _FakeWebSocket([SimpleNamespace(type=WSMsgType.CLOSED, data=None)])
     stream = WebSocketResponsesStream(websocket)
@@ -763,6 +852,21 @@ async def test_websocket_stream_close_before_completion_raises() -> None:
         await stream.__anext__()
 
     assert not excinfo.value.stream_started
+
+
+@pytest.mark.asyncio
+async def test_websocket_stream_close_prefers_message_close_code() -> None:
+    websocket = _FakeWebSocket([SimpleNamespace(type=WSMsgType.CLOSED, data=0)])
+    websocket.close_code = 1008
+    stream = WebSocketResponsesStream(websocket)
+
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        await stream.__anext__()
+
+    message = str(excinfo.value)
+    assert "close_code=0" in message
+    assert "close_code=1008" not in message
+    assert "policy_violation" not in message
 
 
 @pytest.mark.asyncio
@@ -776,9 +880,9 @@ async def test_websocket_stream_error_payload_exposes_error_details() -> None:
                         "type": "error",
                         "status": 400,
                         "error": {
-                            "code": "previous_response_not_found",
-                            "message": "Previous response with id 'resp_abc' not found.",
-                            "param": "previous_response_id",
+                            "code": " previous_response_not_found ",
+                            "message": " Previous response with id 'resp_abc' not found. ",
+                            "param": " previous_response_id ",
                         },
                     }
                 ),
@@ -790,9 +894,38 @@ async def test_websocket_stream_error_payload_exposes_error_details() -> None:
     with pytest.raises(ResponsesWebSocketError) as excinfo:
         await stream.__anext__()
 
+    assert str(excinfo.value) == "Previous response with id 'resp_abc' not found."
     assert excinfo.value.error_code == "previous_response_not_found"
     assert excinfo.value.status == 400
     assert excinfo.value.error_param == "previous_response_id"
+
+
+@pytest.mark.asyncio
+async def test_websocket_stream_error_payload_ignores_boolean_status_values() -> None:
+    websocket = _FakeWebSocket(
+        [
+            SimpleNamespace(
+                type=WSMsgType.TEXT,
+                data=json.dumps(
+                    {
+                        "type": "error",
+                        "status": True,
+                        "error": {
+                            "status": False,
+                            "message": "Invalid request",
+                        },
+                    }
+                ),
+            )
+        ]
+    )
+    stream = WebSocketResponsesStream(websocket)
+
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        await stream.__anext__()
+
+    assert str(excinfo.value) == "Invalid request"
+    assert excinfo.value.status is None
 
 
 @pytest.mark.asyncio
@@ -951,7 +1084,9 @@ class _TransportHarness(ResponsesLLM):
 
 class _ConnectionLifecycleHarness(ResponsesLLM):
     def __init__(self) -> None:
-        super().__init__(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket")
+        super().__init__(
+            provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket"
+        )
         connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
         self._release_manager = _ReleaseTrackingConnectionManager(connection)
         self._ws_connections = self._release_manager
@@ -1035,8 +1170,12 @@ class _TimeoutLifecycleHarness(_ConnectionLifecycleHarness):
 
 class _ContinuationConnectionLifecycleHarness(CodexResponsesLLM):
     def __init__(self) -> None:
-        super().__init__(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket")
-        self.connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+        super().__init__(
+            provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket"
+        )
+        self.connection = ManagedWebSocketConnection(
+            session=_FakeSession(), websocket=_FakeWebSocket()
+        )
         self._release_manager = _ReleaseTrackingConnectionManager(self.connection)
         self._ws_connections = self._release_manager
         self._capturing_logger = _CapturingLogger()
@@ -1395,7 +1534,9 @@ async def test_websocket_completion_ws_rolls_back_planner_on_timeout() -> None:
 async def test_temporary_connection_has_isolated_planner_state() -> None:
     harness = _ContinuationConnectionLifecycleHarness()
     reusable_connection = harness.connection
-    temporary_connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+    temporary_connection = ManagedWebSocketConnection(
+        session=_FakeSession(), websocket=_FakeWebSocket()
+    )
     manager = _PlannedAcquireConnectionManager(
         [(temporary_connection, False), (reusable_connection, True)]
     )
@@ -1728,12 +1869,10 @@ async def test_websocket_reestablish_debug_status_includes_diagnostics() -> None
     assert streamed_summary == []
     assert normalized_input == _ws_input_items("hello")
     assert not any(
-        "WS reconnecting" in message
-        for message in harness._capturing_display.status_messages
+        "WS reconnecting" in message for message in harness._capturing_display.status_messages
     )
     assert not any(
-        "WebSocket reconnected" in message
-        for message in harness._capturing_display.status_messages
+        "WebSocket reconnected" in message for message in harness._capturing_display.status_messages
     )
 
 
@@ -1748,8 +1887,12 @@ async def test_websocket_reestablish_debug_status_includes_diagnostics() -> None
 async def test_websocket_retries_on_recoverable_server_error_codes(error_code: str) -> None:
     harness = _ContinuationConnectionLifecycleHarness()
     harness._ws_debug_inline = True
-    first_connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
-    second_connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+    first_connection = ManagedWebSocketConnection(
+        session=_FakeSession(), websocket=_FakeWebSocket()
+    )
+    second_connection = ManagedWebSocketConnection(
+        session=_FakeSession(), websocket=_FakeWebSocket()
+    )
     manager = _PlannedAcquireConnectionManager(
         planned_connections=[
             (first_connection, False),
@@ -1783,10 +1926,8 @@ async def test_websocket_retries_on_recoverable_server_error_codes(error_code: s
     assert second_payload["type"] == RESPONSES_CREATE_EVENT_TYPE
     assert "previous_response_id" not in second_payload
     assert not any(
-        "WS reconnecting" in message
-        for message in harness._capturing_display.status_messages
+        "WS reconnecting" in message for message in harness._capturing_display.status_messages
     )
     assert not any(
-        "WebSocket reconnected" in message
-        for message in harness._capturing_display.status_messages
+        "WebSocket reconnected" in message for message in harness._capturing_display.status_messages
     )

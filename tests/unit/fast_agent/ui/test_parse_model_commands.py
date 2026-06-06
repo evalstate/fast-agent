@@ -36,12 +36,11 @@ def test_parse_model_fast_command() -> None:
     assert result.value == "on"
 
 
-
-
 def test_parse_model_fast_flex_command() -> None:
     result = parse_special_input("/model fast flex")
     assert isinstance(result, ModelFastCommand)
     assert result.value == "flex"
+
 
 def test_parse_hidden_fast_alias_command() -> None:
     result = parse_special_input("/fast status")

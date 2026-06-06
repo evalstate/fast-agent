@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from rich.style import Style
 
@@ -43,15 +44,13 @@ def test_console_display_ignores_legacy_theme_when_env_config_is_selected(
         encoding="utf-8",
     )
     (tmp_path / "fastagent.config.yaml").write_text(
-        "logger:\n"
-        "  theme_file: themes/yellow.ini\n",
+        "logger:\n  theme_file: themes/yellow.ini\n",
         encoding="utf-8",
     )
     env_dir = tmp_path / ".fast-agent"
     env_dir.mkdir()
     (env_dir / "fastagent.config.yaml").write_text(
-        "logger:\n"
-        "  show_tools: false\n",
+        "logger:\n  show_tools: false\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -80,7 +79,9 @@ def test_console_display_without_theme_file_restores_default_theme() -> None:
         console.configure_console_theme(theme_file)
         assert console.console.get_style("markdown.h3") == Style.parse("bold bright_cyan")
         assert console.console.get_style("markdown.block_quote") == Style.parse("bright_blue")
-        assert console.console.get_style("markdown.code") == Style.parse("bold bright_green on black")
+        assert console.console.get_style("markdown.code") == Style.parse(
+            "bold bright_green on black"
+        )
 
         ConsoleDisplay(config=Settings(logger=LoggerSettings()))
 
@@ -105,3 +106,14 @@ def test_configless_console_display_preserves_existing_shared_theme() -> None:
         assert console.console.get_style("markdown.block_quote") == Style.parse("bright_blue")
     finally:
         console.configure_console_theme(None)
+
+
+def test_console_display_normalizes_partial_logger_config() -> None:
+    config = SimpleNamespace(logger=SimpleNamespace(show_chat=False))
+
+    display = ConsoleDisplay(config=config)
+
+    assert display.logger_settings.show_chat is False
+    assert display.logger_settings.code_word_wrap is True
+    assert display.logger_settings.render_fences_with_syntax is True
+    assert config.logger is display.logger_settings

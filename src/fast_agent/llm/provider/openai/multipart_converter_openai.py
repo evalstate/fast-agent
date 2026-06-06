@@ -3,11 +3,19 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Union
 
 from mcp.types import (
+    AudioContent,
+    BlobResourceContents,
+    CallToolRequest,
     CallToolResult,
     EmbeddedResource,
     ImageContent,
     PromptMessage,
+    ResourceLink,
     TextContent,
+    TextResourceContents,
+)
+from mcp.types import (
+    ContentBlock as MCPContentBlock,
 )
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -44,8 +52,12 @@ _logger = get_logger("multipart_converter_openai")
 # Define type aliases for content blocks
 ContentBlock = dict[str, Any]
 OpenAIMessage = dict[str, Any]
+McpResourceContents = BlobResourceContents | TextResourceContents
 type OpenAITextExtractableBlock = (
-    ChatCompletionContentPartParam | ContentArrayOfContentPart | ChatCompletionContentPartTextParam
+    ChatCompletionContentPartParam
+    | ContentArrayOfContentPart
+    | ChatCompletionContentPartTextParam
+    | Mapping[str, Any]
 )
 type OpenAITextExtractableContent = str | Iterable[OpenAITextExtractableBlock] | None
 
@@ -58,15 +70,14 @@ class OpenAIConverter:
         """Create a properly typed message based on role."""
         if role == "assistant":
             return ChatCompletionAssistantMessageParam(role="assistant", content=content)
-        elif role == "user":
+        if role == "user":
             return ChatCompletionUserMessageParam(role="user", content=content)
-        elif role == "tool":
+        if role == "tool":
             # Tool messages need tool_call_id, but this helper is for simple content messages
             # Tool messages are handled separately in convert_tool_result_to_openai
             return ChatCompletionUserMessageParam(role="user", content=content)
-        else:
-            # Default to user for unknown roles (system messages handled elsewhere)
-            return ChatCompletionUserMessageParam(role="user", content=content)
+        # Default to user for unknown roles (system messages handled elsewhere)
+        return ChatCompletionUserMessageParam(role="user", content=content)
 
     @staticmethod
     def _is_supported_image_type(mime_type: str) -> bool:
@@ -101,30 +112,15 @@ class OpenAIConverter:
         # assistant message with tool_calls per OpenAI format to establish the
         # required call IDs before tool responses appear.
         if multipart_msg.role == "assistant" and multipart_msg.tool_calls:
-            tool_calls_list: list[ChatCompletionMessageToolCallParam] = []
-            for tool_id, req in multipart_msg.tool_calls.items():
-                name = None
-                arguments = {}
-                try:
-                    params = getattr(req, "params", None)
-                    if params is not None:
-                        name = getattr(params, "name", None)
-                        arguments = getattr(params, "arguments", {}) or {}
-                except Exception:
-                    pass
-
-                tool_calls_list.append(
-                    ChatCompletionMessageToolCallParam(
-                        id=tool_id,
-                        type="function",
-                        function={
-                            "name": name or "unknown_tool",
-                            "arguments": json.dumps(arguments),
-                        },
-                    )
+            return [
+                ChatCompletionAssistantMessageParam(
+                    role="assistant",
+                    tool_calls=OpenAIConverter._convert_tool_calls_to_openai(
+                        multipart_msg.tool_calls
+                    ),
+                    content=OpenAIConverter._assistant_tool_call_content(multipart_msg.content),
                 )
-
-            return [ChatCompletionAssistantMessageParam(role="assistant", tool_calls=tool_calls_list, content="")]
+            ]
 
         # Handle tool_results first if present
         if multipart_msg.tool_results:
@@ -151,6 +147,31 @@ class OpenAIConverter:
         return [content_msg] if content_msg else []
 
     @staticmethod
+    def _convert_tool_calls_to_openai(
+        tool_calls: Mapping[str, CallToolRequest],
+    ) -> list[ChatCompletionMessageToolCallParam]:
+        return [
+            ChatCompletionMessageToolCallParam(
+                id=tool_id,
+                type="function",
+                function={
+                    "name": request.params.name,
+                    "arguments": json.dumps(request.params.arguments or {}),
+                },
+            )
+            for tool_id, request in tool_calls.items()
+        ]
+
+    @staticmethod
+    def _assistant_tool_call_content(content: list) -> str:
+        if not content:
+            return ""
+        content_message = OpenAIConverter._convert_content_to_message(content, "assistant")
+        if content_message is None:
+            return ""
+        return OpenAIConverter._extract_text_from_content_blocks(content_message.get("content"))
+
+    @staticmethod
     def _convert_content_to_message(
         content: list, role: str, concatenate_text_blocks: bool = False
     ) -> ChatCompletionMessageParam | None:
@@ -170,7 +191,7 @@ class OpenAIConverter:
             return OpenAIConverter._make_message(role, "")
 
         # single text block
-        if 1 == len(content) and is_text_content(content[0]):
+        if len(content) == 1 and is_text_content(content[0]):
             return OpenAIConverter._make_message(role, get_text(content[0]))
 
         # For user messages, convert each content block
@@ -179,54 +200,7 @@ class OpenAIConverter:
         _logger.debug(f"Converting {len(content)} content items for role '{role}'")
 
         for item in content:
-            try:
-                if is_text_content(item):
-                    text = get_text(item)
-                    content_blocks.append({"type": "text", "text": text})
-
-                elif is_image_content(item):
-                    image_block = OpenAIConverter._convert_image_content(item)
-                    content_blocks.append(image_block)
-                    _logger.debug(
-                        f"Added image content block: {image_block.get('type', 'unknown')}"
-                    )
-
-                elif is_resource_content(item):
-                    block = OpenAIConverter._convert_embedded_resource(item)
-                    if block:
-                        content_blocks.append(block)
-
-                elif is_resource_link(item):
-                    uri = getattr(item, "uri", None)
-                    mime_type = getattr(item, "mimeType", None)
-                    if uri and mime_type and OpenAIConverter._is_supported_image_type(mime_type):
-                        content_blocks.append(
-                            {"type": "image_url", "image_url": {"url": str(uri)}}
-                        )
-                    elif (
-                        uri
-                        and mime_type
-                        and is_document_mime_type(mime_type)
-                    ):
-                        content_blocks.append(
-                            OpenAIConverter._convert_resource_link_document(item, str(uri))
-                        )
-                    else:
-                        text = get_text(item)
-                        if text:
-                            content_blocks.append({"type": "text", "text": text})
-
-                else:
-                    _logger.warning(f"Unsupported content type: {type(item)}")
-                    # Create a text block with information about the skipped content
-                    fallback_text = f"[Unsupported content type: {type(item).__name__}]"
-                    content_blocks.append({"type": "text", "text": fallback_text})
-
-            except Exception as e:
-                _logger.warning(f"Error converting content item: {e}")
-                # Create a text block with information about the conversion error
-                fallback_text = f"[Content conversion error: {str(e)}]"
-                content_blocks.append({"type": "text", "text": fallback_text})
+            content_blocks.extend(OpenAIConverter._convert_content_item_to_blocks(item))
 
         if not content_blocks:
             return OpenAIConverter._make_message(role, "")
@@ -235,9 +209,68 @@ class OpenAIConverter:
         if concatenate_text_blocks:
             content_blocks = OpenAIConverter._concatenate_text_blocks(content_blocks)
 
+        if role == "assistant":
+            return OpenAIConverter._make_message(
+                role,
+                OpenAIConverter._extract_text_from_content_blocks(content_blocks),
+            )
+
         # Return message with content blocks
         _logger.debug(f"Final message for role '{role}': {len(content_blocks)} content blocks")
         return OpenAIConverter._make_message(role, content_blocks)
+
+    @staticmethod
+    def _convert_content_item_to_blocks(item: Any) -> list[ContentBlock]:
+        try:
+            block = OpenAIConverter._convert_content_item(item)
+            if block is None:
+                return []
+            return [block]
+        except Exception as e:
+            _logger.warning(f"Error converting content item: {e}")
+            fallback_text = f"[Content conversion error: {e!s}]"
+            return [{"type": "text", "text": fallback_text}]
+
+    @staticmethod
+    def _convert_content_item(item: Any) -> ContentBlock | None:
+        if is_text_content(item):
+            return {"type": "text", "text": get_text(item)}
+
+        if is_image_content(item):
+            image_block = OpenAIConverter._convert_image_content(item)
+            _logger.debug(f"Added image content block: {image_block.get('type', 'unknown')}")
+            return image_block
+
+        if isinstance(item, AudioContent):
+            return OpenAIConverter._convert_audio_content(item)
+
+        if is_resource_content(item):
+            return OpenAIConverter._convert_embedded_resource(item)
+
+        if is_resource_link(item):
+            return OpenAIConverter._convert_resource_link_content(item)
+
+        _logger.warning(f"Unsupported content type: {type(item)}")
+        return {"type": "text", "text": f"[Unsupported content type: {type(item).__name__}]"}
+
+    @staticmethod
+    def _convert_audio_content(item: AudioContent) -> ContentBlock:
+        mime_type = item.mimeType or "audio"
+        return {"type": "text", "text": f"[Unsupported audio content: {mime_type}]"}
+
+    @staticmethod
+    def _convert_resource_link_content(item: ResourceLink) -> ContentBlock | None:
+        uri = item.uri
+        mime_type = item.mimeType
+        if uri and mime_type and OpenAIConverter._is_supported_image_type(mime_type):
+            return {"type": "image_url", "image_url": {"url": str(uri)}}
+        if uri and mime_type and is_document_mime_type(mime_type):
+            return OpenAIConverter._convert_resource_link_document(item, str(uri))
+
+        text = get_text(item)
+        if text:
+            return {"type": "text", "text": text}
+        return None
 
     @staticmethod
     def _concatenate_text_blocks(blocks: list[ContentBlock]) -> list[ContentBlock]:
@@ -308,17 +341,10 @@ class OpenAIConverter:
         # OpenAI requires image URLs or data URIs for images
         image_url = {"url": f"data:{content.mimeType};base64,{image_data}"}
 
-        # Check if the image has annotations for detail level
-        if hasattr(content, "annotations") and content.annotations:
-            if hasattr(content.annotations, "detail"):
-                detail = content.annotations.detail
-                if isinstance(detail, str) and detail in ("auto", "low", "high"):
-                    image_url["detail"] = detail
-
         return {"type": "image_url", "image_url": image_url}
 
     @staticmethod
-    def _determine_mime_type(resource_content) -> str:
+    def _determine_mime_type(resource_content: McpResourceContents) -> str:
         """
         Determine the MIME type of a resource.
 
@@ -328,17 +354,14 @@ class OpenAIConverter:
         Returns:
             The determined MIME type as a string
         """
-        if hasattr(resource_content, "mimeType") and resource_content.mimeType:
+        if resource_content.mimeType:
             return resource_content.mimeType
 
-        if hasattr(resource_content, "uri") and resource_content.uri:
-            mime_type = guess_mime_type(str(resource_content.uri))
-            return mime_type
+        return guess_mime_type(str(resource_content.uri))
 
-        if hasattr(resource_content, "blob"):
-            return "application/octet-stream"
-
-        return "text/plain"
+    @staticmethod
+    def _is_binary_resource_content(resource_content: McpResourceContents) -> bool:
+        return isinstance(resource_content, BlobResourceContents)
 
     @staticmethod
     def _convert_embedded_resource(
@@ -355,72 +378,41 @@ class OpenAIConverter:
         """
         resource_content = resource.resource
         uri_str = get_resource_uri(resource)
-        uri = getattr(resource_content, "uri", None)
+        uri = resource_content.uri
         is_url = uri and str(uri).startswith(("http://", "https://"))
         from fast_agent.mcp.resource_utils import extract_title_from_uri
 
         title = extract_title_from_uri(uri) if uri else "resource"
         mime_type = OpenAIConverter._determine_mime_type(resource_content)
 
-        # Handle different resource types based on MIME type
-
-        # Handle images
         if OpenAIConverter._is_supported_image_type(mime_type):
-            if is_url and uri_str:
-                return {"type": "image_url", "image_url": {"url": uri_str}}
+            return OpenAIConverter._convert_embedded_image_resource(
+                resource,
+                title=title,
+                mime_type=mime_type,
+                uri_str=uri_str,
+                is_url=bool(is_url),
+            )
 
-            # Try to get image data
-            image_data = get_image_data(resource)
-            if image_data:
-                return {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime_type};base64,{image_data}"},
-                }
-            else:
-                return {"type": "text", "text": f"[Image missing data: {title}]"}
+        if mime_type == "application/pdf":
+            return OpenAIConverter._convert_embedded_pdf_resource(
+                resource_content,
+                title=title,
+                uri_str=uri_str,
+                is_url=bool(is_url),
+            )
 
-        # Handle PDFs
-        elif mime_type == "application/pdf":
-            if is_url and uri_str:
-                return OpenAIConverter._build_file_part(title or "document.pdf", file_url=uri_str)
-            elif hasattr(resource_content, "blob"):
-                return {
-                    "type": "file",
-                    "file": {
-                        "filename": title or "document.pdf",
-                        "file_data": f"data:application/pdf;base64,{resource_content.blob}",
-                    },
-                }
+        if mime_type == "image/svg+xml" or is_text_mime_type(mime_type):
+            return OpenAIConverter._convert_embedded_text_resource(
+                resource, title=title, mime_type=mime_type
+            )
 
-        # Handle SVG (convert to text)
-        elif mime_type == "image/svg+xml":
-            text = get_text(resource)
-            if text:
-                file_text = (
-                    f'<fastagent:file title="{title}" mimetype="{mime_type}">\n'
-                    f"{text}\n"
-                    f"</fastagent:file>"
-                )
-                return {"type": "text", "text": file_text}
-
-        # Handle text files
-        elif is_text_mime_type(mime_type):
-            text = get_text(resource)
-            if text:
-                file_text = (
-                    f'<fastagent:file title="{title}" mimetype="{mime_type}">\n'
-                    f"{text}\n"
-                    f"</fastagent:file>"
-                )
-                return {"type": "text", "text": file_text}
-
-        # Default fallback for text resources
         text = get_text(resource)
         if text:
             return {"type": "text", "text": text}
 
         # Default fallback for binary resources
-        elif hasattr(resource_content, "blob"):
+        if OpenAIConverter._is_binary_resource_content(resource_content):
             return {
                 "type": "text",
                 "text": f"[Binary resource: {title} ({mime_type})]",
@@ -431,6 +423,60 @@ class OpenAIConverter:
             "type": "text",
             "text": f"[Unsupported resource: {title} ({mime_type})]",
         }
+
+    @staticmethod
+    def _convert_embedded_image_resource(
+        resource: EmbeddedResource,
+        *,
+        title: str,
+        mime_type: str,
+        uri_str: str | None,
+        is_url: bool,
+    ) -> ContentBlock:
+        if is_url and uri_str:
+            return {"type": "image_url", "image_url": {"url": uri_str}}
+
+        image_data = get_image_data(resource)
+        if image_data:
+            return {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{image_data}"},
+            }
+        return {"type": "text", "text": f"[Image missing data: {title}]"}
+
+    @staticmethod
+    def _convert_embedded_pdf_resource(
+        resource_content: McpResourceContents,
+        *,
+        title: str,
+        uri_str: str | None,
+        is_url: bool,
+    ) -> ContentBlock | None:
+        filename = title or "document.pdf"
+        if is_url and uri_str:
+            return OpenAIConverter._build_file_part(filename, file_url=uri_str)
+        if isinstance(resource_content, BlobResourceContents):
+            return {
+                "type": "file",
+                "file": {
+                    "filename": filename,
+                    "file_data": f"data:application/pdf;base64,{resource_content.blob}",
+                },
+            }
+        return None
+
+    @staticmethod
+    def _convert_embedded_text_resource(
+        resource: EmbeddedResource, *, title: str, mime_type: str
+    ) -> ContentBlock | None:
+        text = get_text(resource)
+        if not text:
+            return None
+
+        file_text = (
+            f'<fastagent:file title="{title}" mimetype="{mime_type}">\n{text}\n</fastagent:file>'
+        )
+        return {"type": "text", "text": file_text}
 
     @staticmethod
     def _build_file_part(
@@ -453,11 +499,7 @@ class OpenAIConverter:
     ) -> ContentBlock:
         from fast_agent.mcp.resource_utils import extract_title_from_uri
 
-        filename = (
-            resource.name
-            or extract_title_from_uri(resource.uri)
-            or "document"
-        )
+        filename = resource.name or extract_title_from_uri(resource.uri) or "document"
         return OpenAIConverter._build_file_part(
             filename,
             file_url=uri_str,
@@ -496,7 +538,10 @@ class OpenAIConverter:
         tool_result: CallToolResult,
         tool_call_id: str,
         concatenate_text_blocks: bool = False,
-    ) -> Union[ChatCompletionMessageParam, tuple[ChatCompletionMessageParam, list[ChatCompletionMessageParam]]]:
+    ) -> Union[
+        ChatCompletionMessageParam,
+        tuple[ChatCompletionMessageParam, list[ChatCompletionMessageParam]],
+    ]:
         """
         Convert a CallToolResult to an OpenAI tool message.
 
@@ -527,8 +572,8 @@ class OpenAIConverter:
             )
 
         # Separate text and non-text content
-        text_content = []
-        non_text_content = []
+        text_content: list[MCPContentBlock] = []
+        non_text_content: list[MCPContentBlock] = []
 
         for item in canonical_content:
             if isinstance(item, TextContent):
@@ -626,7 +671,7 @@ class OpenAIConverter:
                 fallback_message = ChatCompletionToolMessageParam(
                     role="tool",
                     tool_call_id=tool_call_id,
-                    content=f"[Conversion error: {str(e)}]",
+                    content=f"[Conversion error: {e!s}]",
                 )
                 tool_messages.append(fallback_message)
 

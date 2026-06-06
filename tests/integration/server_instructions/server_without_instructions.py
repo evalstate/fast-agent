@@ -48,10 +48,12 @@ def get_status() -> str:
 )
 def random_number() -> str:
     import random
+
     return f"Random number: {random.randint(1, 100)}"
 
 
 if __name__ == "__main__":
     import sys
+
     app.run(transport="stdio")
     sys.exit(0)

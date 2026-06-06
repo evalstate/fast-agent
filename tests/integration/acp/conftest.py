@@ -128,13 +128,14 @@ async def _initialize_agent(
                 f"returncode={process.returncode} stdout={stdout!r} stderr={stderr!r}"
             ) from exc
         raise AssertionError(
-            "Timed out waiting for ACP agent initialization. "
-            f"stdout={stdout!r} stderr={stderr!r}"
+            f"Timed out waiting for ACP agent initialization. stdout={stdout!r} stderr={stderr!r}"
         ) from exc
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def acp_basic_process() -> AsyncIterator[tuple[ClientSideConnection, TestClient, InitializeResponse]]:
+async def acp_basic_process() -> AsyncIterator[
+    tuple[ClientSideConnection, TestClient, InitializeResponse]
+]:
     cmd = _fast_agent_cmd("fast-agent-acp-test")
     async with _spawn_initialized_agent(cmd, terminal=False) as harness:
         yield harness
@@ -254,7 +255,9 @@ async def acp_runtime_telemetry_shell_process() -> AsyncIterator[
 
 @pytest_asyncio.fixture
 async def acp_runtime_telemetry_shell(
-    acp_runtime_telemetry_shell_process: tuple[ClientSideConnection, TestClient, InitializeResponse],
+    acp_runtime_telemetry_shell_process: tuple[
+        ClientSideConnection, TestClient, InitializeResponse
+    ],
 ) -> AsyncIterator[tuple[ClientSideConnection, TestClient, InitializeResponse]]:
     connection, client, init_response = acp_runtime_telemetry_shell_process
     client.reset()
@@ -373,7 +376,9 @@ async def acp_terminal_client_unsupported_process() -> AsyncIterator[
 
 @pytest_asyncio.fixture
 async def acp_terminal_client_unsupported(
-    acp_terminal_client_unsupported_process: tuple[ClientSideConnection, TestClient, InitializeResponse],
+    acp_terminal_client_unsupported_process: tuple[
+        ClientSideConnection, TestClient, InitializeResponse
+    ],
 ) -> AsyncIterator[tuple[ClientSideConnection, TestClient, InitializeResponse]]:
     connection, client, init_response = acp_terminal_client_unsupported_process
     client.reset()

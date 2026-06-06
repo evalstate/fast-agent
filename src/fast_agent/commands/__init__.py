@@ -4,10 +4,10 @@ from __future__ import annotations
 
 __all__ = [
     "CommandContext",
+    "CommandHandler",
     "CommandIO",
     "CommandMessage",
     "CommandOutcome",
-    "CommandHandler",
     "CommandRegistry",
 ]
 

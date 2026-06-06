@@ -10,7 +10,6 @@ notifications, while the default implementation is a no-op.
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -47,7 +46,7 @@ class NoOpPlanTelemetryProvider:
     """Provider that does nothing with plan updates."""
 
     async def update_plan(self, entries: list[PlanEntry]) -> None:
-        pass
+        del entries
 
 
 class WorkflowStepHandle(Protocol):
@@ -85,6 +84,7 @@ class WorkflowTelemetry(AbstractAsyncContextManager, WorkflowStepHandle):
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:
         # Default no-op exit (override in subclasses to auto-complete)
+        del exc_type, exc, tb
         return False
 
     async def update(  # pragma: no cover - default no-op
@@ -94,7 +94,7 @@ class WorkflowTelemetry(AbstractAsyncContextManager, WorkflowStepHandle):
         progress: float | None = None,
         total: float | None = None,
     ) -> None:
-        return None
+        del message, progress, total
 
     async def finish(  # pragma: no cover - default no-op
         self,
@@ -104,13 +104,14 @@ class WorkflowTelemetry(AbstractAsyncContextManager, WorkflowStepHandle):
         content: list[ContentBlock] | None = None,
         error: str | None = None,
     ) -> None:
-        return None
+        del success, text, content, error
 
 
 class NullWorkflowTelemetry(WorkflowTelemetry):
     """No-op telemetry implementation used when no transport wants workflow updates."""
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:
+        del exc_type, exc, tb
         return False
 
 
@@ -136,6 +137,7 @@ class NoOpWorkflowTelemetryProvider:
         server_name: str = "workflow",
         arguments: dict[str, Any] | None = None,
     ) -> WorkflowTelemetry:
+        del tool_name, server_name, arguments
         return NullWorkflowTelemetry()
 
 
@@ -148,7 +150,6 @@ class _ToolHandlerWorkflowStep(WorkflowTelemetry):
 
     _tool_call_id: str | None = None
     _finished: bool = False
-    _lock: asyncio.Lock = asyncio.Lock()
 
     async def __aenter__(self) -> WorkflowStepHandle:
         self._tool_call_id = await self.handler.on_tool_start(

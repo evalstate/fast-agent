@@ -161,15 +161,14 @@ async def test_handle_auth_challenge_reports_retry_failure() -> None:
         del session
         raise AssertionError("try_execute should not run when reconnect fails")
 
-    result, success = await aggregator._handle_auth_challenge(
+    recovery = await aggregator._handle_auth_challenge(
         "alpha",
         _try_execute,
         lambda message: message,
-        RuntimeError("401 Unauthorized"),
     )
 
-    assert success is False
-    assert result == "OAuth callback timed out"
+    assert recovery.success is False
+    assert recovery.result == "OAuth callback timed out"
 
 
 @pytest.mark.asyncio
@@ -241,9 +240,7 @@ async def test_initialize_server_retries_with_oauth_after_401(monkeypatch) -> No
         del read_stream, write_stream, read_timeout, kwargs
         return _ChallengeSession(oauth_enabled=bool(trigger_history[-1]))
 
-    async with registry.initialize_server(
-        "demo", client_session_factory=_fake_factory
-    ) as session:
+    async with registry.initialize_server("demo", client_session_factory=_fake_factory) as session:
         assert isinstance(session, _ChallengeSession)
         assert session.initialized is True
 
@@ -255,11 +252,7 @@ async def test_execute_on_server_nonpersistent_retries_with_oauth_after_401(
     monkeypatch,
 ) -> None:
     context = _build_context(
-        {
-            "alpha": MCPServerSettings(
-                name="alpha", transport="http", url="https://example.com"
-            )
-        }
+        {"alpha": MCPServerSettings(name="alpha", transport="http", url="https://example.com")}
     )
     aggregator = MCPAggregator(
         server_names=["alpha"],
@@ -320,7 +313,9 @@ async def test_get_capabilities_nonpersistent_returns_real_capabilities(
     expected_caps = ServerCapabilities(tools=ToolsCapability(), prompts=PromptsCapability())
 
     @asynccontextmanager
-    async def _fake_initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
+    async def _fake_initialize_server(
+        self, server_name, client_session_factory=None, trigger_oauth=None
+    ):
         del trigger_oauth
         self._init_results[server_name] = InitializeResult(
             protocolVersion="2025-03-26",
@@ -355,7 +350,9 @@ async def test_get_capabilities_nonpersistent_caches_result(monkeypatch) -> None
     init_count = 0
 
     @asynccontextmanager
-    async def _counting_initialize(self, server_name, client_session_factory=None, trigger_oauth=None):
+    async def _counting_initialize(
+        self, server_name, client_session_factory=None, trigger_oauth=None
+    ):
         del trigger_oauth
         nonlocal init_count
         init_count += 1
@@ -394,7 +391,9 @@ async def test_get_capabilities_returns_none_when_initialize_raises(monkeypatch)
     )
 
     @asynccontextmanager
-    async def _exploding_initialize(self, server_name, client_session_factory=None, trigger_oauth=None):
+    async def _exploding_initialize(
+        self, server_name, client_session_factory=None, trigger_oauth=None
+    ):
         del trigger_oauth
         raise RuntimeError("server crashed on startup")
         yield  # pragma: no cover — makes this a valid async generator
@@ -573,7 +572,7 @@ def test_is_capability_probe_error_with_method_not_found_message_no_code() -> No
     assert _is_capability_probe_error(exc) is False
 
     # When code is genuinely absent (None), message fallback works
-    exc2 = _make_mcp_error_none_code("Method not found on server")
+    exc2 = _make_mcp_error_none_code(" METHOD NOT FOUND on server ")
     assert _is_capability_probe_error(exc2) is True
 
 
@@ -601,7 +600,9 @@ async def test_detach_server_clears_capabilities_cache(monkeypatch) -> None:
     expected_caps = ServerCapabilities(tools=ToolsCapability())
 
     @asynccontextmanager
-    async def _fake_initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
+    async def _fake_initialize_server(
+        self, server_name, client_session_factory=None, trigger_oauth=None
+    ):
         del trigger_oauth
         self._init_results[server_name] = InitializeResult(
             protocolVersion="2025-03-26",

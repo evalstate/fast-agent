@@ -13,6 +13,7 @@ from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.model_resolution import (
     get_context_cli_model_override,
+    get_context_model_references,
     resolve_model_reference,
     resolve_model_spec,
 )
@@ -38,22 +39,38 @@ def _build_context() -> Context:
 
 
 def test_resolve_model_reference_passthrough() -> None:
-    assert resolve_model_reference(
-        "gpt-5-mini?reasoning=low",
-        {"system": {"fast": "haiku"}},
-    ) == "gpt-5-mini?reasoning=low"
+    assert (
+        resolve_model_reference(
+            "gpt-5-mini?reasoning=low",
+            {"system": {"fast": "haiku"}},
+        )
+        == "gpt-5-mini?reasoning=low"
+    )
 
 
 def test_resolve_model_reference_happy_path() -> None:
     context = _build_context()
     assert context.config is not None
-    assert resolve_model_reference("$system.fast", context.config.model_references) == "claude-haiku-4-5"
+    assert (
+        resolve_model_reference("$system.fast", context.config.model_references)
+        == "claude-haiku-4-5"
+    )
+
+
+def test_resolve_model_reference_normalizes_reference_values() -> None:
+    assert (
+        resolve_model_reference("  $system.fast  ", {"system": {"fast": "  claude-haiku-4-5  "}})
+        == "claude-haiku-4-5"
+    )
 
 
 def test_resolve_model_reference_recursive() -> None:
     context = _build_context()
     assert context.config is not None
-    assert resolve_model_reference("$custom.indirect", context.config.model_references) == "claude-haiku-4-5"
+    assert (
+        resolve_model_reference("$custom.indirect", context.config.model_references)
+        == "claude-haiku-4-5"
+    )
 
 
 def test_resolve_model_reference_unknown_namespace() -> None:
@@ -88,38 +105,53 @@ def test_resolve_model_reference_rejects_non_exact_token_format() -> None:
 
 def test_resolve_model_spec_resolves_default_alias_from_context() -> None:
     context = _build_context()
-    model, source = resolve_model_spec(
+    resolved_model = resolve_model_spec(
         context,
         hardcoded_default="playback",
         env_var="FAST_AGENT_MODEL_TEST_UNSET",
     )
-    assert model == "passthrough"
-    assert source == "config file"
+    assert resolved_model.model == "passthrough"
+    assert resolved_model.source == "config file"
 
 
 def test_resolve_model_spec_precedence_with_aliases() -> None:
     context = _build_context()
-    model, source = resolve_model_spec(
+    resolved_model = resolve_model_spec(
         context,
         model="$system.fast",
         cli_model="gpt-5-mini?reasoning=low",
         hardcoded_default="playback",
     )
-    assert model == "claude-haiku-4-5"
-    assert source == "explicit model"
+    assert resolved_model.model == "claude-haiku-4-5"
+    assert resolved_model.source == "explicit model"
 
 
 def test_resolve_model_spec_cli_overrides_explicit_system_default_alias() -> None:
     context = _build_context()
-    model, source = resolve_model_spec(
+    resolved_model = resolve_model_spec(
         context,
         model="$system.default",
         cli_model="gpt-5-mini?reasoning=low",
         hardcoded_default="playback",
     )
 
-    assert model == "gpt-5-mini?reasoning=low"
-    assert source == "CLI --model"
+    assert resolved_model.model == "gpt-5-mini?reasoning=low"
+    assert resolved_model.source == "CLI --model"
+
+
+def test_resolve_model_spec_ignores_blank_higher_precedence_candidates() -> None:
+    context = _build_context()
+
+    resolved_model = resolve_model_spec(
+        context,
+        model="   ",
+        cli_model="   ",
+        hardcoded_default="playback",
+        env_var="FAST_AGENT_MODEL_TEST_UNSET",
+    )
+
+    assert resolved_model.model == "passthrough"
+    assert resolved_model.source == "config file"
 
 
 def test_get_context_cli_model_override_returns_normalized_string() -> None:
@@ -128,6 +160,35 @@ def test_get_context_cli_model_override_returns_normalized_string() -> None:
     context.config.cli_model_override = "  passthrough  "  # type: ignore[attr-defined]
 
     assert get_context_cli_model_override(context) == "passthrough"
+
+    context.config.cli_model_override = "   "  # type: ignore[attr-defined]
+    assert get_context_cli_model_override(context) is None
+
+
+def test_context_model_helpers_accept_missing_context() -> None:
+    assert get_context_cli_model_override(None) is None
+    assert get_context_model_references(None) is None
+
+    context = Context(config=None)
+    assert get_context_cli_model_override(context) is None
+    assert get_context_model_references(context) is None
+
+
+def test_context_model_helpers_tolerate_partial_config_without_optional_fields() -> None:
+    class _PartialConfig:
+        pass
+
+    context = Context.model_construct(config=_PartialConfig())
+
+    assert get_context_cli_model_override(context) is None
+    assert get_context_model_references(context) is None
+
+
+def test_get_context_model_references_returns_config_mapping() -> None:
+    context = _build_context()
+    assert context.config is not None
+
+    assert get_context_model_references(context) is context.config.model_references
 
 
 def test_get_model_factory_inherits_context_cli_override_for_system_default() -> None:
@@ -144,14 +205,14 @@ def test_get_model_factory_inherits_context_cli_override_for_system_default() ->
 
 def test_resolve_model_spec_falls_back_when_explicit_alias_unresolved() -> None:
     context = _build_context()
-    model, source = resolve_model_spec(
+    resolved_model = resolve_model_spec(
         context,
         model="$system.unknown",
         hardcoded_default="playback",
     )
 
-    assert model == "passthrough"
-    assert source == "config file"
+    assert resolved_model.model == "passthrough"
+    assert resolved_model.source == "config file"
 
 
 def test_resolve_model_spec_falls_back_to_hardcoded_when_config_alias_unresolved() -> None:
@@ -166,14 +227,14 @@ def test_resolve_model_spec_falls_back_to_hardcoded_when_config_alias_unresolved
         )
     )
 
-    model, source = resolve_model_spec(
+    resolved_model = resolve_model_spec(
         context,
         hardcoded_default="playback",
         env_var="FAST_AGENT_MODEL_TEST_UNSET",
     )
 
-    assert model == "playback"
-    assert source == "hardcoded default"
+    assert resolved_model.model == "playback"
+    assert resolved_model.source == "hardcoded default"
 
 
 def test_resolve_model_spec_env_alias() -> None:
@@ -190,7 +251,7 @@ def test_resolve_model_spec_env_alias() -> None:
     original = os.environ.get("FAST_AGENT_MODEL")
     try:
         os.environ["FAST_AGENT_MODEL"] = "$system.plan"
-        model, source = resolve_model_spec(
+        resolved_model = resolve_model_spec(
             context,
             default_model=None,
             fallback_to_hardcoded=False,
@@ -201,8 +262,8 @@ def test_resolve_model_spec_env_alias() -> None:
         else:
             os.environ["FAST_AGENT_MODEL"] = original
 
-    assert model == "codexplan"
-    assert source == "environment variable FAST_AGENT_MODEL"
+    assert resolved_model.model == "codexplan"
+    assert resolved_model.source == "environment variable FAST_AGENT_MODEL"
 
 
 def test_settings_rejects_invalid_model_alias_namespace() -> None:

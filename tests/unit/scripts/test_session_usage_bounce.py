@@ -37,9 +37,7 @@ def _write_history(
                 "role": "assistant",
                 "content": [{"type": "text", "text": "ok"}],
                 "channels": {
-                    "fast-agent-usage": [
-                        {"type": "text", "text": json.dumps(usage_payload)}
-                    ],
+                    "fast-agent-usage": [{"type": "text", "text": json.dumps(usage_payload)}],
                     "fast-agent-provider-diagnostics": [
                         {"type": "text", "text": json.dumps(diag_payload)}
                     ],

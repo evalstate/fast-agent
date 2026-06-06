@@ -19,6 +19,7 @@ from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.mcp.mcp_aggregator import MCPAttachResult
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.types import RequestParams
 
@@ -47,14 +48,10 @@ def test_instruction_propagates_to_default_request_params():
     a user provides their own default_request_params.
     """
     # Create RequestParams with custom settings but no systemPrompt
-    request_params = RequestParams(
-        model="sonnet",
-        temperature=0.7,
-        maxTokens=32768
-    )
+    request_params = RequestParams(model="sonnet", temperature=0.7, maxTokens=32768)
 
     # Verify systemPrompt is not set initially
-    assert not hasattr(request_params, 'systemPrompt') or request_params.systemPrompt is None
+    assert request_params.systemPrompt is None
 
     # Create AgentConfig with both instruction and default_request_params
     instruction = "You are a helpful assistant specialized in testing."
@@ -62,7 +59,7 @@ def test_instruction_propagates_to_default_request_params():
         name="my_agent",
         instruction=instruction,
         default_request_params=request_params,
-        model="sonnet"
+        model="sonnet",
     )
 
     # The instruction should be propagated to default_request_params.systemPrompt
@@ -196,10 +193,7 @@ def test_instruction_takes_precedence_over_systemPrompt():
     # Create RequestParams with a systemPrompt already set
     original_system_prompt = "You are a generic assistant from RequestParams."
     request_params = RequestParams(
-        model="sonnet",
-        temperature=0.7,
-        maxTokens=32768,
-        systemPrompt=original_system_prompt
+        model="sonnet", temperature=0.7, maxTokens=32768, systemPrompt=original_system_prompt
     )
 
     # Verify systemPrompt is set initially
@@ -211,7 +205,7 @@ def test_instruction_takes_precedence_over_systemPrompt():
         name="my_agent",
         instruction=instruction,
         default_request_params=request_params,
-        model="sonnet"
+        model="sonnet",
     )
 
     # The AgentConfig.instruction should take precedence over systemPrompt in RequestParams
@@ -221,12 +215,6 @@ def test_instruction_takes_precedence_over_systemPrompt():
         f"RequestParams.systemPrompt ('{original_system_prompt}'), "
         f"but got {config.default_request_params.systemPrompt}"
     )
-
-
-@dataclass
-class _FakeAttachResult:
-    tools_added: list[str]
-    prompts_added: list[str]
 
 
 class _FakeMcpAgent:
@@ -240,7 +228,15 @@ class _FakeMcpAgent:
         if self._fail:
             raise RuntimeError("boom")
         self.attached.append(server_name)
-        return _FakeAttachResult(tools_added=[], prompts_added=[])
+        return MCPAttachResult(
+            server_name=server_name,
+            transport="stdio",
+            attached=True,
+            already_attached=False,
+            tools_added=[],
+            prompts_added=[],
+            warnings=[],
+        )
 
     async def detach_mcp_server(self, server_name: str):
         detached = server_name in self.attached
@@ -281,7 +277,7 @@ async def test_apply_runtime_mcp_connections_attaches_servers() -> None:
         context=None,
         agents_map=cast("Any", {"main": agent}),
         target_agent_name="main",
-        mcp_connect=["npx demo-server --name demo"],
+        mcp_connect=["--name demo npx demo-server"],
     )
 
     assert summary.connected == ["demo"]
@@ -297,7 +293,7 @@ async def test_apply_runtime_mcp_connections_raises_on_connect_error() -> None:
             context=None,
             agents_map=cast("Any", {"main": failing}),
             target_agent_name="main",
-            mcp_connect=["npx demo-server --name demo"],
+            mcp_connect=["--name demo npx demo-server"],
         )
 
 
@@ -309,5 +305,5 @@ async def test_apply_runtime_mcp_connections_wraps_parse_errors() -> None:
             context=None,
             agents_map=cast("Any", {"main": agent}),
             target_agent_name="main",
-            mcp_connect=["npx demo-server --timeout 0"],
+            mcp_connect=["--timeout 0 npx demo-server"],
         )

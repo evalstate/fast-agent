@@ -20,10 +20,11 @@ def _build_dataset_file_url(repo_id: str, path_in_repo: str) -> str:
 def _resolve_path_in_repo(trace_path: Path, dataset_path: str | None) -> str:
     if dataset_path is None:
         return trace_path.name
-    normalized = dataset_path.strip().strip("/")
+    stripped = dataset_path.strip()
+    normalized = stripped.strip("/")
     if not normalized:
         return trace_path.name
-    if dataset_path.endswith("/"):
+    if stripped.endswith("/"):
         return f"{normalized}/{trace_path.name}"
     return normalized
 

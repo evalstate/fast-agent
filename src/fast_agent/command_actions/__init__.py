@@ -25,6 +25,6 @@ __all__ = [
     "PluginCommandActionSpec",
     "PluginRuntime",
     "PluginRuntimeFacade",
-    "parse_plugin_command_action_specs",
     "normalize_plugin_command_action_result",
+    "parse_plugin_command_action_specs",
 ]

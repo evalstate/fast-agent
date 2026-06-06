@@ -3,10 +3,140 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
 import yaml
 
 import fast_agent.config as config_module
-from fast_agent.config import Settings, get_settings, update_global_settings
+from fast_agent.config import (
+    LoggerSettings,
+    MCPServerAuthSettings,
+    MCPServerSettings,
+    MCPTimelineSettings,
+    OpenTelemetrySettings,
+    Settings,
+    ShellSettings,
+    TerminalImageSettings,
+    get_settings,
+    normalize_shell_write_text_file_mode,
+    update_global_settings,
+)
+
+
+def test_nested_settings_defaults_are_per_settings_instance() -> None:
+    first = Settings()
+    second = Settings()
+
+    first.plugins.enabled.append("first-plugin")
+    first.plugins.config["first-plugin"] = {"enabled": True}
+    first.skills.directories = ["first-skills"]
+
+    assert second.plugins.enabled == []
+    assert second.plugins.config == {}
+    assert second.skills.directories is None
+
+
+def test_string_config_sentinels_are_case_and_space_insensitive() -> None:
+    terminal_images = TerminalImageSettings(width=" AUTO ", height=" NULL ")
+    logger = LoggerSettings.model_validate({"apply_patch_preview_max_lines": " Unlimited "})
+
+    assert terminal_images.width == "auto"
+    assert terminal_images.height is None
+    assert logger.apply_patch_preview_max_lines is None
+    assert normalize_shell_write_text_file_mode(" YES ") == "on"
+
+
+def test_mcp_timeline_steps_rejects_boolean_values() -> None:
+    assert MCPTimelineSettings.model_validate({"steps": "12"}).steps == 12
+
+    with pytest.raises(TypeError, match="Timeline steps must be an integer"):
+        MCPTimelineSettings.model_validate({"steps": True})
+
+
+def test_mcp_server_auth_redirect_port_rejects_boolean_values() -> None:
+    assert MCPServerAuthSettings.model_validate({"redirect_port": "3031"}).redirect_port == 3031
+
+    with pytest.raises(TypeError, match="redirect_port must be an integer"):
+        MCPServerAuthSettings.model_validate({"redirect_port": True})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "read_timeout_seconds",
+        "ping_interval_seconds",
+        "http_timeout_seconds",
+        "http_read_timeout_seconds",
+        "read_transport_sse_timeout_seconds",
+    ],
+)
+def test_mcp_server_timeout_settings_reject_boolean_values(field_name: str) -> None:
+    assert MCPServerSettings.model_validate({field_name: "12"}).model_dump()[field_name] == 12
+
+    with pytest.raises(TypeError, match="MCP timeout fields must be an integer"):
+        MCPServerSettings.model_validate({field_name: False})
+
+
+def test_shell_integer_settings_reject_boolean_values() -> None:
+    settings = ShellSettings.model_validate(
+        {
+            "timeout_seconds": " 2M ",
+            "warning_interval_seconds": "30S",
+            "output_display_lines": "12",
+            "output_byte_limit": "4096",
+        }
+    )
+
+    assert settings.timeout_seconds == 120
+    assert settings.warning_interval_seconds == 30
+    assert settings.output_display_lines == 12
+    assert settings.output_byte_limit == 4096
+
+    with pytest.raises(TypeError, match="timeout_seconds must be an integer"):
+        ShellSettings.model_validate({"timeout_seconds": True})
+
+    with pytest.raises(TypeError, match="warning_interval_seconds must be an integer"):
+        ShellSettings.model_validate({"warning_interval_seconds": False})
+
+    with pytest.raises(TypeError, match="output_display_lines must be an integer"):
+        ShellSettings.model_validate({"output_display_lines": True})
+
+    with pytest.raises(TypeError, match="output_byte_limit must be an integer"):
+        ShellSettings.model_validate({"output_byte_limit": True})
+
+
+def test_opentelemetry_sample_rate_rejects_boolean_values() -> None:
+    assert OpenTelemetrySettings.model_validate({"sample_rate": "0.5"}).sample_rate == 0.5
+
+    with pytest.raises(TypeError, match="sample_rate must be a number"):
+        OpenTelemetrySettings.model_validate({"sample_rate": True})
+
+
+@pytest.mark.parametrize("field_name", ["batch_size", "max_queue_size"])
+def test_logger_integer_controls_reject_boolean_values(field_name: str) -> None:
+    assert LoggerSettings.model_validate({field_name: "12"}).model_dump()[field_name] == 12
+
+    with pytest.raises(TypeError, match="logger integer controls must be an integer"):
+        LoggerSettings.model_validate({field_name: True})
+
+
+@pytest.mark.parametrize("field_name", ["flush_interval", "http_timeout"])
+def test_logger_numeric_controls_reject_boolean_values(field_name: str) -> None:
+    assert LoggerSettings.model_validate({field_name: "0.5"}).model_dump()[field_name] == 0.5
+
+    with pytest.raises(TypeError, match="logger numeric controls must be a number"):
+        LoggerSettings.model_validate({field_name: False})
+
+
+def test_logger_apply_patch_preview_max_lines_rejects_boolean_values() -> None:
+    assert (
+        LoggerSettings.model_validate(
+            {"apply_patch_preview_max_lines": "12"}
+        ).apply_patch_preview_max_lines
+        == 12
+    )
+
+    with pytest.raises(TypeError, match="apply_patch_preview_max_lines must be an integer"):
+        LoggerSettings.model_validate({"apply_patch_preview_max_lines": True})
 
 
 def _write_yaml(path: Path, payload: dict) -> None:

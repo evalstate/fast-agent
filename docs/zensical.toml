@@ -29,6 +29,7 @@ nav = [
   { "Agents" = [
     { "Defining Agents" = [
       { "Overview" = "agents/defining/index.md" },
+      { "Harness API" = "agents/defining/harness-api.md" },
       { "Python API" = "agents/defining/python_api.md" },
       { "Agent Cards" = "agents/defining/agent_cards.md" },
     ] },
@@ -46,10 +47,11 @@ nav = [
       { "OpenAI" = "models/providers/openai.md" },
       { "Anthropic" = "models/providers/anthropic.md" },
       { "Google" = "models/providers/google.md" },
+      { "Hugging Face" = "models/providers/huggingface.md" },
+      { "llama.cpp" = "models/providers/llamacpp.md" },
+      { "xAI" = "models/providers/xai.md" },
       { "Azure" = "models/providers/azure.md" },
       { "Bedrock" = "models/providers/bedrock.md" },
-      { "xAI" = "models/providers/xai.md" },
-      { "Hugging Face" = "models/providers/huggingface.md" },
       { "Additional Providers" = "models/providers/additional.md" },
     ] },
     { "Reference" = [
@@ -69,6 +71,7 @@ nav = [
   },
   { "MCP" = [
     { "Configuring Servers" = "mcp/index.md" },
+    { "Skills over MCP" = "mcp/skills-over-mcp.md" },
     { "Deploying as an MCP Server" = "mcp/mcp-server.md" },
     { "Inspecting Servers" = "mcp/mcp_display.md" },
     { "Quickstart - Elicitations" = "mcp/elicitations.md" },
@@ -85,12 +88,12 @@ nav = [
     { "Batch Processing" = "ref/batch.md" },
     { "Config File" = "ref/config_file.md" },
     { "Command Line" = "ref/cmd_switches.md" },
-    { "Generated Docs" = "ref/generated_docs.md" },
-    { "Docs Automation" = "ref/docs_automation.md" },
     { "Class Reference" = "ref/class_reference.md" },
     { "Open Telemetry" = "ref/open_telemetry.md" },
-    { "Azure Configuration" = "ref/azure-config.md" },
     { "Articles & Blog Posts" = "ref/fast_agent_ai_articles.md" },
+    { "Generated Docs" = "ref/generated_docs.md" },
+    { "Docs Automation" = "ref/docs_automation.md" },
+    { "Azure Configuration" = "ref/azure-config.md" },
     { "About" = "ref/about.md" },
   ] },
 ]

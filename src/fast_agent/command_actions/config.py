@@ -6,6 +6,43 @@ from typing import Any
 
 from fast_agent.command_actions.models import PluginCommandActionSpec
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.utils.text import strip_casefold, strip_to_none
+
+
+def normalize_plugin_command_name(raw_name: str) -> str:
+    return strip_casefold(raw_name).lstrip("/")
+
+
+def _required_string_field(
+    raw_value: dict[str, Any],
+    field_name: str,
+    *,
+    command_name: str,
+    source: str,
+) -> str:
+    value = raw_value.get(field_name)
+    if not isinstance(value, str) or (normalized := strip_to_none(value)) is None:
+        raise AgentConfigError(
+            f"Command action '{command_name}' requires a non-empty '{field_name}' in {source}"
+        )
+    return normalized
+
+
+def _optional_string_field(
+    raw_value: dict[str, Any],
+    field_name: str,
+    *,
+    command_name: str,
+    source: str,
+) -> str | None:
+    value = raw_value.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise AgentConfigError(
+            f"Command action '{command_name}' field '{field_name}' must be a string in {source}"
+        )
+    return strip_to_none(value)
 
 
 def parse_plugin_command_action_specs(
@@ -20,40 +57,47 @@ def parse_plugin_command_action_specs(
 
     commands: dict[str, PluginCommandActionSpec] = {}
     for raw_name, raw_value in raw_commands.items():
-        name = str(raw_name).strip().lstrip("/")
+        if not isinstance(raw_name, str):
+            raise AgentConfigError(f"Command action names must be strings in {source}")
+        name = normalize_plugin_command_name(raw_name)
         if not name:
             raise AgentConfigError(f"Command action names must not be empty in {source}")
+        if name in commands:
+            raise AgentConfigError(
+                f"Duplicate command action '{name}' after normalization in {source}"
+            )
         if not isinstance(raw_value, dict):
             raise AgentConfigError(f"Command action '{name}' must be a dict in {source}")
 
-        description = raw_value.get("description")
-        if not isinstance(description, str) or not description.strip():
-            raise AgentConfigError(
-                f"Command action '{name}' requires a non-empty 'description' in {source}"
-            )
-
-        handler = raw_value.get("handler")
-        if not isinstance(handler, str) or not handler.strip():
-            raise AgentConfigError(
-                f"Command action '{name}' requires a non-empty 'handler' in {source}"
-            )
-
-        input_hint = raw_value.get("input_hint")
-        if input_hint is not None and not isinstance(input_hint, str):
-            raise AgentConfigError(
-                f"Command action '{name}' field 'input_hint' must be a string in {source}"
-            )
-
-        key = raw_value.get("key")
-        if key is not None and not isinstance(key, str):
-            raise AgentConfigError(
-                f"Command action '{name}' field 'key' must be a string in {source}"
-            )
+        description = _required_string_field(
+            raw_value,
+            "description",
+            command_name=name,
+            source=source,
+        )
+        handler = _required_string_field(
+            raw_value,
+            "handler",
+            command_name=name,
+            source=source,
+        )
+        input_hint = _optional_string_field(
+            raw_value,
+            "input_hint",
+            command_name=name,
+            source=source,
+        )
+        key = _optional_string_field(
+            raw_value,
+            "key",
+            command_name=name,
+            source=source,
+        )
 
         commands[name] = PluginCommandActionSpec(
             name=name,
-            description=description.strip(),
-            handler=handler.strip(),
+            description=description,
+            handler=handler,
             input_hint=input_hint,
             key=key,
         )

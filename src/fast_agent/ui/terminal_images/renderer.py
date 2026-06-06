@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from io import BytesIO
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 from rich.console import Group, RenderableType
@@ -17,6 +18,15 @@ if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 logger = get_logger(__name__)
+
+_TEXTUAL_IMAGE_CLASS_BY_BACKEND: dict[str, str] = {
+    "auto": "Image",
+    "textual-image": "Image",
+    "kitty": "TGPImage",
+    "sixel": "SixelImage",
+    "halfcell": "HalfcellImage",
+    "unicode": "UnicodeImage",
+}
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,13 @@ def render_assistant_images(
     content: Sequence[object] | PromptMessageExtended | None,
 ) -> RenderableType | None:
     settings = _assistant_settings(config)
+    return render_assistant_images_for_settings(settings, content)
+
+
+def render_assistant_images_for_settings(
+    settings: TerminalImageSettings | None,
+    content: Sequence[object] | PromptMessageExtended | None,
+) -> RenderableType | None:
     if settings is None or content is None:
         return None
 
@@ -85,6 +102,13 @@ def render_tool_result_images(
     content: Sequence[object] | None,
 ) -> RenderableType | None:
     settings = _tool_result_settings(config)
+    return render_tool_result_images_for_settings(settings, content)
+
+
+def render_tool_result_images_for_settings(
+    settings: TerminalImageSettings | None,
+    content: Sequence[object] | None,
+) -> RenderableType | None:
     if settings is None or content is None:
         return None
     return render_image_items(settings, extract_image_render_items(content))
@@ -104,8 +128,7 @@ def render_image_items(
             continue
         renderables.append(Text(item.artifact.label, style="dim"))
         renderables.append(renderable)
-        for metadata in item.metadata:
-            renderables.append(Text(metadata, style="dim"))
+        renderables.extend(Text(metadata, style="dim") for metadata in item.metadata)
 
     if not renderables:
         return None
@@ -113,10 +136,8 @@ def render_image_items(
 
 
 def _assistant_settings(config: Settings | None) -> TerminalImageSettings | None:
-    if config is None:
-        return None
-    terminal_images = config.logger.terminal_images
-    if not terminal_images.enabled or terminal_images.backend == "none":
+    terminal_images = _active_terminal_image_settings(config)
+    if terminal_images is None:
         return None
     if not terminal_images.render_assistant:
         return None
@@ -124,14 +145,23 @@ def _assistant_settings(config: Settings | None) -> TerminalImageSettings | None
 
 
 def _tool_result_settings(config: Settings | None) -> TerminalImageSettings | None:
-    if config is None:
-        return None
-    terminal_images = config.logger.terminal_images
-    if not terminal_images.enabled or terminal_images.backend == "none":
+    terminal_images = _active_terminal_image_settings(config)
+    if terminal_images is None:
         return None
     # Tool-result images are rendered at the tool-result boundary. Keep
     # render_assistant as the user-facing "show generated images" switch.
     if not terminal_images.render_assistant:
+        return None
+    return terminal_images
+
+
+def _active_terminal_image_settings(
+    config: Settings | None,
+) -> TerminalImageSettings | None:
+    if config is None:
+        return None
+    terminal_images = config.logger.terminal_images
+    if not terminal_images.enabled or terminal_images.backend == "none":
         return None
     return terminal_images
 
@@ -201,23 +231,13 @@ def _render_artifact(
 
 
 def _resolve_textual_image_class(backend: str) -> Any | None:
+    class_name = _TEXTUAL_IMAGE_CLASS_BY_BACKEND.get(backend)
+    if class_name is None:
+        return None
+
     try:
-        if backend in {"auto", "textual-image"}:
-            module = import_module("textual_image.renderable")
-            return module.Image
-        if backend == "kitty":
-            module = import_module("textual_image.renderable")
-            return module.TGPImage
-        if backend == "sixel":
-            module = import_module("textual_image.renderable")
-            return module.SixelImage
-        if backend == "halfcell":
-            module = import_module("textual_image.renderable")
-            return module.HalfcellImage
-        if backend == "unicode":
-            module = import_module("textual_image.renderable")
-            return module.UnicodeImage
+        module = import_module("textual_image.renderable")
     except ImportError:
         logger.debug("textual-image is not installed; terminal image rendering disabled")
         return None
-    return None
+    return getattr(module, class_name, None)

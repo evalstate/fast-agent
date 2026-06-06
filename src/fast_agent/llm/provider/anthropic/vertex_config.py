@@ -5,6 +5,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel
+
+from fast_agent.utils.text import strip_str_to_none
+
 _VERTEX_PROJECT_ENV_VARS: tuple[str, ...] = (
     "ANTHROPIC_VERTEX_PROJECT_ID",
     "GOOGLE_CLOUD_PROJECT",
@@ -46,11 +50,29 @@ def _get_value(source: Any, key: str) -> Any:
     return getattr(source, key, None)
 
 
+def _source_values(source: Any) -> Mapping[str, Any]:
+    if isinstance(source, Mapping):
+        return source
+    if isinstance(source, BaseModel):
+        return source.model_dump()
+    try:
+        values = vars(source)
+    except TypeError:
+        return {}
+    return values if isinstance(values, Mapping) else {}
+
+
+def _vertex_config_from_values(source: Mapping[str, Any]) -> AnthropicVertexConfig:
+    return AnthropicVertexConfig(
+        enabled=bool(source.get("enabled")),
+        project_id=_clean_str(source.get("project_id")),
+        location=_clean_str(source.get("location")),
+        base_url=_clean_str(source.get("base_url")),
+    )
+
+
 def _clean_str(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    stripped = value.strip()
-    return stripped or None
+    return strip_str_to_none(value)
 
 
 def _env_value(env_vars: tuple[str, ...]) -> str | None:
@@ -71,12 +93,7 @@ def anthropic_vertex_config(config: Any) -> AnthropicVertexConfig:
     if source is None:
         return AnthropicVertexConfig()
 
-    return AnthropicVertexConfig(
-        enabled=bool(_get_value(source, "enabled")),
-        project_id=_clean_str(_get_value(source, "project_id")),
-        location=_clean_str(_get_value(source, "location")),
-        base_url=_clean_str(_get_value(source, "base_url")),
-    )
+    return _vertex_config_from_values(_source_values(source))
 
 
 def anthropic_vertex_intent(config: Any) -> bool:
@@ -138,6 +155,8 @@ def resolve_anthropic_vertex_location(config: Any) -> str | None:
         return env_location
 
     return "global"
+
+
 def anthropic_vertex_ready(
     config: Any,
     *,

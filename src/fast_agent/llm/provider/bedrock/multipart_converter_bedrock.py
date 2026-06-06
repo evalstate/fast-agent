@@ -39,7 +39,7 @@ class BedrockConverter:
 
             # Check if any tool ID indicates system prompt format
             has_system_prompt_tools = any(
-                tool_id.startswith("system_prompt_") for tool_id in multipart_msg.tool_results.keys()
+                tool_id.startswith("system_prompt_") for tool_id in multipart_msg.tool_results
             )
 
             if has_system_prompt_tools:
@@ -60,13 +60,14 @@ class BedrockConverter:
             else:
                 # For Nova/Anthropic models: use structured tool_result format
                 for tool_id, tool_result in multipart_msg.tool_results.items():
-                    result_content_blocks = []
-                    for part in canonicalize_tool_result_content_for_llm(
-                        tool_result,
-                        source="bedrock.static",
-                    ):
-                        if isinstance(part, TextContent):
-                            result_content_blocks.append({"text": part.text})
+                    result_content_blocks = [
+                        {"text": part.text}
+                        for part in canonicalize_tool_result_content_for_llm(
+                            tool_result,
+                            source="bedrock.static",
+                        )
+                        if isinstance(part, TextContent)
+                    ]
 
                     if not result_content_blocks:
                         result_content_blocks.append({"text": "[No content in tool result]"})
@@ -93,8 +94,10 @@ class BedrockConverter:
                 )
 
         # Handle regular content
-        for content_item in multipart_msg.content:
-            if isinstance(content_item, TextContent):
-                content_list.append({"type": "text", "text": content_item.text})
+        content_list.extend(
+            {"type": "text", "text": content_item.text}
+            for content_item in multipart_msg.content
+            if isinstance(content_item, TextContent)
+        )
 
         return bedrock_msg

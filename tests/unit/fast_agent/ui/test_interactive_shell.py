@@ -3,7 +3,9 @@ from __future__ import annotations
 import shlex
 import sys
 
+from fast_agent.config import Settings, ShellSettings
 from fast_agent.ui.interactive_shell import (
+    _interactive_shell_prefers_pty,
     _PtyCleanupState,
     _update_alt_screen_state,
     run_interactive_shell_command,
@@ -14,13 +16,23 @@ def _python_shell_command(script: str) -> str:
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
 
 
+def test_interactive_shell_prefers_pty_reads_typed_shell_setting(monkeypatch) -> None:
+    monkeypatch.setattr("fast_agent.ui.interactive_shell.os.name", "posix")
+    monkeypatch.setattr(
+        "fast_agent.ui.interactive_shell.get_settings",
+        lambda: Settings(shell_execution=ShellSettings(interactive_use_pty=False)),
+    )
+
+    assert not _interactive_shell_prefers_pty()
+
+
 def test_run_interactive_shell_command_captures_output() -> None:
     command = _python_shell_command("print('hello from shell')")
 
     result = run_interactive_shell_command(command, show_output=False)
 
-    assert result.return_code == 0
-    assert "hello from shell" in result.output
+    assert result.exit_code == 0
+    assert "hello from shell" in result.stdout
 
 
 def test_run_interactive_shell_command_truncates_captured_output() -> None:
@@ -32,9 +44,9 @@ def test_run_interactive_shell_command_truncates_captured_output() -> None:
         show_output=False,
     )
 
-    assert result.return_code == 0
-    assert len(result.output) == 8
-    assert result.output in {"xxxxxxx\n", "xxxxxx\r\n"}
+    assert result.exit_code == 0
+    assert len(result.stdout) == 8
+    assert result.stdout in {"xxxxxxx\n", "xxxxxx\r\n"}
 
 
 def test_update_alt_screen_state_tracks_enter_and_exit_sequences() -> None:

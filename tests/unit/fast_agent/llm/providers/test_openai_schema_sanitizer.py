@@ -106,7 +106,7 @@ def test_openai_response_format_uses_strict_schema_for_raw_structured_schema() -
 
 
 def test_should_strip_tool_schema_defaults_known_kimi_variants() -> None:
-    assert should_strip_tool_schema_defaults("kimi25")
+    assert should_strip_tool_schema_defaults(" KIMI25 ")
     assert should_strip_tool_schema_defaults("kimi26")
     assert should_strip_tool_schema_defaults("hf.moonshotai/Kimi-K2.5:fireworks-ai")
     assert should_strip_tool_schema_defaults("hf.moonshotai/Kimi-K2.6:novita")

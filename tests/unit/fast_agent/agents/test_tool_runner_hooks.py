@@ -194,7 +194,9 @@ async def test_tool_runner_stages_pending_media_as_followup_user_message():
     assert result.last_text() == "done"
     assert len(llm.calls) == 2
     second_call = llm.calls[1]
-    assert all(FAST_AGENT_PENDING_MEDIA_ATTACHMENTS not in channels for _, _, channels in second_call)
+    assert all(
+        FAST_AGENT_PENDING_MEDIA_ATTACHMENTS not in channels for _, _, channels in second_call
+    )
     assert second_call[-1][0] == "user"
     assert second_call[-1][1] == ["image"]
 

@@ -15,16 +15,20 @@ The InstructionBuilder handles template resolution (placeholders like {{currentD
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from weakref import WeakKeyDictionary
 
 from fast_agent.core.instruction import InstructionBuilder
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import create_namespaced_name
 from fast_agent.skills import SKILLS_DEFAULT
+from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
     from fast_agent.skills import SkillManifest
@@ -42,7 +46,9 @@ logger = get_logger(__name__)
 class ToolUpdateDisplay(Protocol):
     """Protocol for displays that can emit tool update notifications."""
 
-    async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None: ...
+    async def show_tool_update(
+        self, updated_server: str, agent_name: str | None = None
+    ) -> None: ...
 
 
 @runtime_checkable
@@ -141,9 +147,7 @@ def resolve_instruction_skill_manifests(
     return skill_manifests
 
 
-def format_server_instructions(
-    instructions_data: dict[str, tuple[str | None, list[str]]]
-) -> str:
+def format_server_instructions(instructions_data: dict[str, tuple[str | None, list[str]]]) -> str:
     """
     Format server instructions with XML tags and tool lists.
 
@@ -176,7 +180,7 @@ def format_server_instructions(
 
 def format_agent_skills(
     manifests: Sequence["SkillManifest"],
-    read_tool_name: str = "read_skill",
+    read_tool_name: str = READ_SKILL_TOOL_NAME,
 ) -> str:
     """
     Format skill manifests for inclusion in the instruction.
@@ -198,7 +202,7 @@ async def build_instruction(
     *,
     aggregator: "MCPAggregator | None" = None,
     skill_manifests: Sequence["SkillManifest"] | None = None,
-    skill_read_tool_name: str = "read_skill",
+    skill_read_tool_name: str = READ_SKILL_TOOL_NAME,
     context: Mapping[str, str] | None = None,
     source: str | None = None,
 ) -> str:
@@ -368,15 +372,18 @@ async def rebuild_agent_instruction(
         agent.set_instruction(new_instruction)
         rebuilt_instruction = True
 
-        if needs_tool_update and configured_agent.skill_read_tool_name == "read_skill":
-            if isinstance(configured_agent, ToolUpdateNotifyingAgent):
-                try:
-                    await configured_agent.display.show_tool_update(
-                        "skills",
-                        agent_name=configured_agent.name,
-                    )
-                except Exception as exc:  # pragma: no cover - UI notification best effort
-                    logger.debug("Failed to emit tool update for skills", data={"error": str(exc)})
+        if (
+            needs_tool_update
+            and configured_agent.skill_read_tool_name == READ_SKILL_TOOL_NAME
+            and isinstance(configured_agent, ToolUpdateNotifyingAgent)
+        ):
+            try:
+                await configured_agent.display.show_tool_update(
+                    "skills",
+                    agent_name=configured_agent.name,
+                )
+            except Exception as exc:  # pragma: no cover - UI notification best effort
+                logger.debug("Failed to emit tool update for skills", data={"error": str(exc)})
 
         return InstructionRefreshResult(
             updated_skill_manifests=updated_skill_manifests,

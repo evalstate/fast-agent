@@ -64,8 +64,8 @@ class PassthroughLLM(FastAgentLLM):
         if len(parts) > 2:
             try:
                 arguments = json.loads(parts[2])
-            except json.JSONDecodeError:
-                raise ValueError(f"Invalid JSON arguments: {parts[2]}")
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON arguments: {parts[2]}") from exc
 
         self.logger.info(f"Calling tool {tool_name} with arguments {arguments}")
         return tool_name, arguments
@@ -77,6 +77,8 @@ class PassthroughLLM(FastAgentLLM):
         tools: list[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
+        del request_params, tools
+
         # Add messages to history with proper is_prompt flag
         self.history.extend(multipart_messages, is_prompt=is_template)
 
@@ -101,11 +103,16 @@ class PassthroughLLM(FastAgentLLM):
                 last_message.first_text().split(FIXED_RESPONSE_INDICATOR, 1)[1].strip()
             )
 
-        if len(last_message.tool_results or {}) > 0:
+        if last_message.tool_results:
             assert last_message.tool_results
             concatenated_content = " ".join(
                 [
-                    (tool_result_text_for_llm(tool_result, logger=self.logger, source="passthrough") or "<empty>")
+                    (
+                        tool_result_text_for_llm(
+                            tool_result, logger=self.logger, source="passthrough"
+                        )
+                        or "<empty>"
+                    )
                     for tool_result in last_message.tool_results.values()
                 ]
             )
@@ -155,6 +162,8 @@ class PassthroughLLM(FastAgentLLM):
         Returns:
             Empty list (passthrough doesn't use provider-specific messages)
         """
+        del messages
+
         return []
 
     def is_tool_call(self, message: PromptMessageExtended) -> bool:

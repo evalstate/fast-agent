@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, Union
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 from mcp.types import Tool as McpTool
 from pydantic import BaseModel, Field
@@ -58,6 +61,18 @@ class HumanFormArgs(BaseModel):
     description: str | None = None
     message: str | None = None
     fields: list[FormField] = Field(default_factory=list, max_length=7)
+
+
+@dataclass(frozen=True, slots=True)
+class _FormFieldProperty:
+    name: str
+    schema: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedElicitationSchema:
+    schema: dict[str, Any]
+    message: str | None = None
 
 
 # -----------------------
@@ -189,24 +204,52 @@ def _coerce_elicitation_arguments(arguments: dict | str) -> dict[str, Any]:
     raise ValueError("Invalid arguments. Provide FormSpec or JSON Schema object.")
 
 
-def _field_string_property(field: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "string"}
-
-
 def _field_number_property(field: dict[str, Any]) -> dict[str, Any]:
     prop: dict[str, Any] = {"type": "number"}
     minimum = field.get("min")
     maximum = field.get("max")
-    if isinstance(minimum, int | float):
+    if _is_json_schema_number(minimum):
         prop["minimum"] = minimum
-    if isinstance(maximum, int | float):
+    if _is_json_schema_number(maximum):
         prop["maximum"] = maximum
     return prop
 
 
+def _is_json_schema_number(value: Any) -> bool:
+    if type(value) is int:
+        return True
+    return type(value) is float and math.isfinite(value)
+
+
+def _json_schema_type_for_enum_value(value: Any) -> str | None:
+    if type(value) is bool:
+        return "boolean"
+    if type(value) is int:
+        return "integer"
+    if type(value) is float:
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    return None
+
+
+def _json_schema_type_for_enum_values(values: list[Any]) -> str | None:
+    value_types: set[str] = set()
+    for value in values:
+        enum_type = _json_schema_type_for_enum_value(value)
+        if enum_type is None:
+            return None
+        value_types.add(enum_type)
+    if len(value_types) != 1:
+        return None
+    return next(iter(value_types))
+
+
 def _field_radio_property(field: dict[str, Any]) -> dict[str, Any]:
-    prop: dict[str, Any] = {"type": "string"}
-    options = field.get("options") or []
+    prop: dict[str, Any] = {}
+    options = field.get("options")
+    if not isinstance(options, list):
+        options = []
     enum_vals: list[Any] = []
     enum_names: list[str] = []
     for option in options:
@@ -218,28 +261,38 @@ def _field_radio_property(field: dict[str, Any]) -> dict[str, Any]:
         elif option is not None:
             enum_vals.append(option)
     if enum_vals:
+        enum_type = _json_schema_type_for_enum_values(enum_vals)
+        if enum_type is not None:
+            prop["type"] = enum_type
         prop["enum"] = enum_vals
         if enum_names and len(enum_names) == len(enum_vals):
             prop["enumNames"] = enum_names
+    else:
+        prop["type"] = "string"
     return prop
 
 
-def _build_form_field_property(field: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+FieldPropertyBuilder = Callable[[dict[str, Any]], dict[str, Any]]
+
+_FORM_FIELD_PROPERTY_BUILDERS: dict[str, FieldPropertyBuilder] = {
+    "text": lambda _field: {"type": "string"},
+    "textarea": lambda _field: {"type": "string"},
+    "number": _field_number_property,
+    "checkbox": lambda _field: {"type": "boolean"},
+    "radio": _field_radio_property,
+}
+
+
+def _build_form_field_property(field: dict[str, Any]) -> _FormFieldProperty | None:
     name = field.get("name")
     field_type = field.get("type")
     if not isinstance(name, str) or not isinstance(field_type, str):
         return None
 
-    if field_type in {"text", "textarea"}:
-        prop = _field_string_property(field)
-    elif field_type == "number":
-        prop = _field_number_property(field)
-    elif field_type == "checkbox":
-        prop = {"type": "boolean"}
-    elif field_type == "radio":
-        prop = _field_radio_property(field)
-    else:
+    property_builder = _FORM_FIELD_PROPERTY_BUILDERS.get(field_type)
+    if property_builder is None:
         return None
+    prop = property_builder(field)
 
     label = field.get("label")
     help_text = field.get("help")
@@ -253,14 +306,16 @@ def _build_form_field_property(field: dict[str, Any]) -> tuple[str, dict[str, An
         prop["description"] = " - ".join(desc_parts)
     if default is not None:
         prop["default"] = default
-    return name, prop
+    return _FormFieldProperty(name=name, schema=prop)
 
 
-def _build_schema_from_fields(arguments: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+def _build_schema_from_fields(arguments: dict[str, Any]) -> _ResolvedElicitationSchema:
     fields_value = arguments.get("fields")
     assert isinstance(fields_value, list)
     if len(fields_value) > 7:
-        raise ValueError(f"Error: form requests {len(fields_value)} fields; the maximum allowed is 7.")
+        raise ValueError(
+            f"Error: form requests {len(fields_value)} fields; the maximum allowed is 7."
+        )
 
     properties: dict[str, Any] = {}
     required_fields: list[str] = []
@@ -270,10 +325,9 @@ def _build_schema_from_fields(arguments: dict[str, Any]) -> tuple[dict[str, Any]
         field_property = _build_form_field_property(field)
         if field_property is None:
             continue
-        name, prop = field_property
-        properties[name] = prop
+        properties[field_property.name] = field_property.schema
         if field.get("required") is True:
-            required_fields.append(name)
+            required_fields.append(field_property.name)
 
     if not properties:
         raise ValueError("Invalid form specification: no valid fields provided.")
@@ -291,13 +345,13 @@ def _build_schema_from_fields(arguments: dict[str, Any]) -> tuple[dict[str, Any]
         schema["title"] = title
     if description:
         schema["description"] = description
-    return schema, message
+    return _ResolvedElicitationSchema(schema=schema, message=message)
 
 
 def _merge_schema_overrides(
     schema: dict[str, Any],
     arguments: dict[str, Any],
-) -> tuple[dict[str, Any], str | None]:
+) -> _ResolvedElicitationSchema:
     message = arguments.get("message") if isinstance(arguments.get("message"), str) else None
     if isinstance(arguments.get("title"), str) and "title" not in schema:
         schema["title"] = arguments["title"]
@@ -307,10 +361,10 @@ def _merge_schema_overrides(
         schema["required"] = arguments["required"]
     if isinstance(arguments.get("properties"), dict) and "properties" not in schema:
         schema["properties"] = arguments["properties"]
-    return schema, message
+    return _ResolvedElicitationSchema(schema=schema, message=message)
 
 
-def _build_schema_from_schema_argument(arguments: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+def _build_schema_from_schema_argument(arguments: dict[str, Any]) -> _ResolvedElicitationSchema:
     schema_value = arguments.get("schema")
     if isinstance(schema_value, str):
         parsed = _parse_schema_json_string(schema_value)
@@ -322,7 +376,7 @@ def _build_schema_from_schema_argument(arguments: dict[str, Any]) -> tuple[dict[
     return _merge_schema_overrides(schema_value, arguments)
 
 
-def _resolve_elicitation_schema(arguments: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+def _resolve_elicitation_schema(arguments: dict[str, Any]) -> _ResolvedElicitationSchema:
     fields_value = arguments.get("fields")
     if isinstance(fields_value, list):
         return _build_schema_from_fields(arguments)
@@ -331,7 +385,7 @@ def _resolve_elicitation_schema(arguments: dict[str, Any]) -> tuple[dict[str, An
     if ("type" in arguments and "properties" in arguments) or (
         "$schema" in arguments and "properties" in arguments
     ):
-        return arguments, None
+        return _ResolvedElicitationSchema(schema=arguments)
     raise ValueError("Missing or invalid schema or fields in arguments.")
 
 
@@ -366,11 +420,11 @@ async def run_elicitation_form(arguments: dict | str, agent_name: str | None = N
     Returns the response string from the callback. Raises if no callback is registered.
     """
     arguments_dict = _coerce_elicitation_arguments(arguments)
-    schema_dict, message = _resolve_elicitation_schema(arguments_dict)
-    _validate_elicitation_schema_field_limit(schema_dict)
+    resolved_schema = _resolve_elicitation_schema(arguments_dict)
+    _validate_elicitation_schema_field_limit(resolved_schema.schema)
     request_payload = _build_elicitation_request_payload(
-        schema=schema_dict,
-        message=message,
+        schema=resolved_schema.schema,
+        message=resolved_schema.message,
         agent_name=agent_name,
     )
     cb = get_elicitation_input_callback()
@@ -397,13 +451,14 @@ def get_elicitation_fastmcp_tool() -> FunctionTool:
         title: str | None = None,
         description: str | None = None,
         message: str | None = None,
-        fields: list[FormField] = Field(default_factory=list, max_length=7),
+        fields: list[FormField] | None = None,
     ) -> str:
+        resolved_fields = fields or []
         args = {
             "title": title,
             "description": description,
             "message": message,
-            "fields": [f.model_dump() if isinstance(f, BaseModel) else f for f in fields],
+            "fields": [f.model_dump() if isinstance(f, BaseModel) else f for f in resolved_fields],
         }
         return await run_elicitation_form(args)
 

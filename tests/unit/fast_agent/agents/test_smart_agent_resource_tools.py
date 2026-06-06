@@ -97,6 +97,20 @@ def test_enable_smart_tooling_registers_minimal_visible_tools() -> None:
     assert "/model" in description
 
 
+def test_parse_slash_command_text_normalizes_command_case() -> None:
+    parsed = smart_agent._parse_slash_command_text("  /MCP   list  ")
+
+    assert parsed.command_name == "mcp"
+    assert parsed.arguments == "list"
+
+
+def test_parse_family_command_action_normalizes_action_case() -> None:
+    parsed = smart_agent._parse_family_command_action("skills", "ADD demo-skill")
+
+    assert parsed.action == "add"
+    assert parsed.argument == "demo-skill"
+
+
 @pytest.mark.asyncio
 async def test_enable_smart_tooling_tools_default_to_content_only() -> None:
     harness = _SmartToolHarness()
@@ -148,7 +162,9 @@ async def test_dispatch_smart_tool_run_requires_message() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dispatch_smart_get_resource_routes_internal_uris(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_smart_get_resource_routes_internal_uris(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     internal_read = AsyncMock(return_value="internal result")
     smart_read = AsyncMock(return_value="smart result")
     monkeypatch.setattr(smart_agent, "_run_internal_resource_read_call", internal_read)

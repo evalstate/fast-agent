@@ -23,9 +23,7 @@ class _StubIO:
     async def prompt_text(self, prompt: str, *, default=None, allow_empty=True):
         return default
 
-    async def prompt_selection(
-        self, prompt: str, *, options, allow_cancel=False, default=None
-    ):
+    async def prompt_selection(self, prompt: str, *, options, allow_cancel=False, default=None):
         return default
 
     async def prompt_model_selection(
@@ -40,7 +38,9 @@ class _StubIO:
     async def prompt_argument(self, arg_name: str, *, description=None, required=True):
         return None
 
-    async def display_history_turn(self, agent_name: str, turn, *, turn_index=None, total_turns=None):
+    async def display_history_turn(
+        self, agent_name: str, turn, *, turn_index=None, total_turns=None
+    ):
         return None
 
     async def display_history_overview(self, agent_name: str, history, usage=None):
@@ -217,6 +217,7 @@ async def test_resume_session_switches_to_hydrated_active_agent(
         io=io,
     )
     session = SimpleNamespace(info=SimpleNamespace(name="s-1", metadata={}))
+
     async def _resume_session_agents_async(*args, **kwargs):
         del args, kwargs
         return ResumeSessionAgentsResult(

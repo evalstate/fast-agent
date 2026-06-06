@@ -1,4 +1,6 @@
-from fast_agent.llm.text_verbosity import TextVerbositySpec
+from typing import cast
+
+from fast_agent.llm.text_verbosity import TextVerbosityLevel, TextVerbositySpec
 from fast_agent.ui.gauge_glyph_palette import PAIRED_VERBOSITY_GAUGE_GLYPHS
 from fast_agent.ui.text_verbosity_display import render_text_verbosity_gauge
 
@@ -14,6 +16,24 @@ def test_text_verbosity_gauge_uses_default_when_setting_is_unset() -> None:
     )
 
     assert gauge == "<style bg='ansiyellow'>⣶</style>"
+
+
+def test_text_verbosity_gauge_uses_inactive_style_for_unexpected_setting() -> None:
+    gauge = render_text_verbosity_gauge(
+        setting=cast("TextVerbosityLevel", "unexpected"),
+        spec=TextVerbositySpec(default="medium"),
+    )
+
+    assert gauge == "<style bg='ansibrightblack'>⣿</style>"
+
+
+def test_text_verbosity_gauge_uses_inactive_style_for_disallowed_setting() -> None:
+    gauge = render_text_verbosity_gauge(
+        setting="high",
+        spec=TextVerbositySpec(allowed=("low",), default="low"),
+    )
+
+    assert gauge == "<style bg='ansibrightblack'>⣿</style>"
 
 
 def test_text_verbosity_gauge_uses_three_step_three_high_braille_progression() -> None:
