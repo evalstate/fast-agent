@@ -5,8 +5,6 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
-    Awaitable,
-    Callable,
     Literal,
     Protocol,
     Union,
@@ -31,6 +29,8 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from mcp import Tool
 
     from fast_agent.hooks.hook_context import HookAgentProtocol
@@ -124,9 +124,9 @@ class ToolRunnerHooks:
     after_llm_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
     before_tool_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
     after_tool_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
-    after_turn_complete: (
-        Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None
-    ) = None
+    after_turn_complete: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = (
+        None
+    )
 
 
 class ToolRunner:
@@ -187,6 +187,19 @@ class ToolRunner:
         return self
 
     async def __anext__(self) -> PromptMessageExtended:
+        staged = await self._prepare_next_llm_step()
+        if staged is not None:
+            return staged
+
+        await self._ensure_tools_ready()
+        await self._run_before_llm_hook()
+        assistant_message = await self._call_llm()
+        await self._run_after_llm_hook(assistant_message)
+        self._apply_assistant_message_state(assistant_message)
+
+        return assistant_message
+
+    async def _prepare_next_llm_step(self) -> PromptMessageExtended | None:
         staged = self._consume_staged_terminal_response()
         if staged is not None:
             return staged
@@ -202,60 +215,74 @@ class ToolRunner:
 
         if self._done:
             raise StopAsyncIteration
+        return None
 
-        await self._ensure_tools_ready()
+    async def _run_before_llm_hook(self) -> None:
+        if self._hooks.before_llm_call is None:
+            return
+        try:
+            with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_LLM_CALL):
+                await self._hooks.before_llm_call(self, self._delta_messages)
+        finally:
+            self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_LLM_CALL)
 
-        if self._hooks.before_llm_call is not None:
-            try:
-                with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_LLM_CALL):
-                    await self._hooks.before_llm_call(self, self._delta_messages)
-            finally:
-                self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_LLM_CALL)
+    def _tools_for_next_llm_call(self) -> list[Tool] | None:
+        if self._agent.should_suppress_tools_for_structured_turn(
+            self._delta_messages,
+            self._request_params,
+            self._tools,
+        ):
+            return []
+        return self._tools
 
-        tools_for_call = (
-            []
-            if self._agent.should_suppress_tools_for_structured_turn(
-                self._delta_messages,
-                self._request_params,
-                self._tools,
-            )
-            else self._tools
-        )
-
+    async def _call_llm(self) -> PromptMessageExtended:
         assistant_message = await self._agent._tool_runner_llm_step(
             self._delta_messages,
             request_params=self._request_params,
-            tools=tools_for_call,
+            tools=self._tools_for_next_llm_call(),
         )
-
         self._last_message = assistant_message
-        if self._hooks.after_llm_call is not None:
-            bucket = (
-                _HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS
-                if assistant_message.stop_reason == LlmStopReason.TOOL_USE
-                else _HOOK_STATUS_BUCKET_AFTER_LLM_CALL
-            )
-            try:
-                with self._defer_hook_status_messages(bucket):
-                    await self._hooks.after_llm_call(self, assistant_message)
-            except Exception:
-                if assistant_message.stop_reason == LlmStopReason.TOOL_USE:
-                    self._clear_deferred_hook_status_messages(bucket)
-                else:
-                    self._flush_deferred_hook_status_messages(bucket)
-                raise
-            if assistant_message.stop_reason != LlmStopReason.TOOL_USE:
-                self._flush_deferred_hook_status_messages(bucket)
+        return assistant_message
 
+    async def _run_after_llm_hook(self, assistant_message: PromptMessageExtended) -> None:
+        if self._hooks.after_llm_call is None:
+            return
+
+        bucket = self._after_llm_hook_bucket(assistant_message)
+        try:
+            with self._defer_hook_status_messages(bucket):
+                await self._hooks.after_llm_call(self, assistant_message)
+        except Exception:
+            self._handle_after_llm_hook_error(bucket, assistant_message)
+            raise
+        if assistant_message.stop_reason != LlmStopReason.TOOL_USE:
+            self._flush_deferred_hook_status_messages(bucket)
+
+    @staticmethod
+    def _after_llm_hook_bucket(assistant_message: PromptMessageExtended) -> str:
+        if assistant_message.stop_reason == LlmStopReason.TOOL_USE:
+            return _HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS
+        return _HOOK_STATUS_BUCKET_AFTER_LLM_CALL
+
+    def _handle_after_llm_hook_error(
+        self,
+        bucket: str,
+        assistant_message: PromptMessageExtended,
+    ) -> None:
+        if assistant_message.stop_reason == LlmStopReason.TOOL_USE:
+            self._clear_deferred_hook_status_messages(bucket)
+            return
+        self._flush_deferred_hook_status_messages(bucket)
+
+    def _apply_assistant_message_state(self, assistant_message: PromptMessageExtended) -> None:
         if assistant_message.stop_reason == LlmStopReason.TOOL_USE:
             self._pending_tool_request = assistant_message
-            self._pending_tool_response = None  # Clear cache for new request
-        elif self._should_start_deferred_structured_finalization(assistant_message):
+            self._pending_tool_response = None
+            return
+        if self._should_start_deferred_structured_finalization(assistant_message):
             self._start_deferred_structured_finalization(assistant_message)
-        else:
-            self._done = True
-
-        return assistant_message
+            return
+        self._done = True
 
     async def until_done(self) -> PromptMessageExtended:
         last: PromptMessageExtended | None = None
@@ -424,9 +451,7 @@ class ToolRunner:
 
         pending_request = ToolRunner._pending_tool_request_at_history_end(history)
         if pending_request is not None:
-            interrupted_tool_message = ToolRunner._build_interrupted_tool_result(
-                pending_request
-            )
+            interrupted_tool_message = ToolRunner._build_interrupted_tool_result(pending_request)
             updated_history = [*history, interrupted_tool_message]
             agent.load_message_history(updated_history)
             return HistoryRollbackState(
@@ -455,7 +480,7 @@ class ToolRunner:
     ) -> PromptMessageExtended:
         interrupted_text = "**The user interrupted this tool call**"
         tool_results: dict[str, CallToolResult] = {}
-        for tool_id in (pending_request.tool_calls or {}).keys():
+        for tool_id in pending_request.tool_calls or {}:
             tool_results[tool_id] = CallToolResult(
                 content=[text_content(interrupted_text)],
                 isError=True,
@@ -471,7 +496,7 @@ class ToolRunner:
         self, request: PromptMessageExtended, error_message: str
     ) -> PromptMessageExtended:
         tool_results: dict[str, CallToolResult] = {}
-        for tool_id in (request.tool_calls or {}).keys():
+        for tool_id in request.tool_calls or {}:
             tool_results[tool_id] = CallToolResult(
                 content=[text_content(error_message)],
                 isError=True,
@@ -499,9 +524,7 @@ class ToolRunner:
                     with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL):
                         await self._hooks.before_tool_call(self, self._pending_tool_request)
                 finally:
-                    self._flush_deferred_hook_status_messages(
-                        _HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL
-                    )
+                    self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL)
             hook_phase = "run_tools"
             tool_message = await self._agent.run_tools(
                 self._pending_tool_request, request_params=self._request_params
@@ -716,11 +739,17 @@ class ToolRunner:
                 if blocks:
                     channels[channel_name] = list(blocks)
 
+        stop_reason = (
+            LlmStopReason.ERROR
+            if tool_message.channels and FAST_AGENT_ERROR_CHANNEL in tool_message.channels
+            else LlmStopReason.END_TURN
+        )
+
         return PromptMessageExtended(
             role="assistant",
             content=content_blocks,
             channels=channels,
-            stop_reason=LlmStopReason.END_TURN,
+            stop_reason=stop_reason,
         )
 
     async def _ensure_tools_ready(self) -> None:

@@ -8,6 +8,7 @@ from fast_agent.llm.hf_inference_lookup import (
     InferenceProvider,
     InferenceProviderLookupResult,
     InferenceProviderStatus,
+    format_inference_lookup_message,
     lookup_inference_providers,
 )
 
@@ -174,3 +175,49 @@ async def test_lookup_result_format_model_strings() -> None:
     model_strings = result.format_model_strings()
     assert "moonshotai/Kimi-K2-Instruct:groq" in model_strings
     assert "moonshotai/Kimi-K2-Instruct:together" in model_strings
+
+
+def test_format_inference_lookup_message_uses_singular_provider_label() -> None:
+    result = InferenceProviderLookupResult(
+        model_id="test/model",
+        exists=True,
+        providers=[
+            InferenceProvider(
+                name="groq",
+                status=InferenceProviderStatus.LIVE,
+                providerId="test",
+                task="conversational",
+            ),
+        ],
+    )
+
+    message = format_inference_lookup_message(result)
+
+    assert "has **1** inference provider available" in message
+    assert "provider(s)" not in message
+
+
+def test_format_inference_lookup_message_uses_plural_provider_label() -> None:
+    result = InferenceProviderLookupResult(
+        model_id="test/model",
+        exists=True,
+        providers=[
+            InferenceProvider(
+                name="groq",
+                status=InferenceProviderStatus.LIVE,
+                providerId="test",
+                task="conversational",
+            ),
+            InferenceProvider(
+                name="together",
+                status=InferenceProviderStatus.LIVE,
+                providerId="test",
+                task="conversational",
+            ),
+        ],
+    )
+
+    message = format_inference_lookup_message(result)
+
+    assert "has **2** inference providers available" in message
+    assert "provider(s)" not in message

@@ -72,6 +72,36 @@ def test_hf_dataset_uploader_appends_filename_for_folder_path(tmp_path: Path) ->
     assert result.path_in_repo == "exports/trace.jsonl"
 
 
+def test_hf_dataset_uploader_appends_filename_for_padded_folder_path(tmp_path: Path) -> None:
+    api = _ApiStub()
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text("{}", encoding="utf-8")
+
+    result = HuggingFaceDatasetTraceUploader(api=api).upload(
+        dataset_repo="owner/dataset",
+        trace_path=trace_path,
+        dataset_path="  /exports/  ",
+    )
+
+    assert api.upload_file_calls[0][1] == "exports/trace.jsonl"
+    assert result.path_in_repo == "exports/trace.jsonl"
+
+
+def test_hf_dataset_uploader_treats_blank_dataset_path_as_repo_root(tmp_path: Path) -> None:
+    api = _ApiStub()
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text("{}", encoding="utf-8")
+
+    result = HuggingFaceDatasetTraceUploader(api=api).upload(
+        dataset_repo="owner/dataset",
+        trace_path=trace_path,
+        dataset_path=" / ",
+    )
+
+    assert api.upload_file_calls[0][1] == "trace.jsonl"
+    assert result.path_in_repo == "trace.jsonl"
+
+
 def test_hf_dataset_uploader_reports_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
     def _missing_module(module_name: str) -> object:
         raise ModuleNotFoundError(module_name)

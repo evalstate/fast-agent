@@ -227,12 +227,7 @@ async def test_acp_prompt_saves_session_history_in_configured_environment_dir(
         await _wait_for_session_info_update(client, session_response.session_id)
         listed = await connection.list_sessions(cwd=str(session_cwd))
 
-    session_dir = (
-        session_cwd
-        / ".custom-fast-agent"
-        / "sessions"
-        / session_response.session_id
-    )
+    session_dir = session_cwd / ".custom-fast-agent" / "sessions" / session_response.session_id
     assert session_dir.exists()
     assert not (session_cwd / ".fast-agent" / "sessions" / session_response.session_id).exists()
     metadata = json.loads((session_dir / "session.json").read_text())
@@ -356,12 +351,7 @@ async def test_acp_session_resume_emits_current_mode_update(
     beta_card = cards_dir / "beta.md"
 
     alpha_card.write_text(
-        "---\n"
-        "type: agent\n"
-        "name: alpha\n"
-        "model: passthrough\n"
-        "instruction: Alpha agent.\n"
-        "---\n"
+        "---\ntype: agent\nname: alpha\nmodel: passthrough\ninstruction: Alpha agent.\n---\n"
     )
     beta_card.write_text(
         "---\n"
@@ -391,7 +381,9 @@ async def test_acp_session_resume_emits_current_mode_update(
             def __init__(self) -> None:
                 self.name = "alpha"
                 self.instruction = "Alpha agent."
-                self.config = AgentConfig("alpha", instruction=self.instruction, model="passthrough")
+                self.config = AgentConfig(
+                    "alpha", instruction=self.instruction, model="passthrough"
+                )
                 self.llm = None
                 self.usage_accumulator = None
                 self.message_history = [history_message]
@@ -604,7 +596,9 @@ async def test_acp_load_session_streams_history(
             def __init__(self) -> None:
                 self.name = "alpha"
                 self.instruction = "Alpha agent."
-                self.config = AgentConfig("alpha", instruction=self.instruction, model="passthrough")
+                self.config = AgentConfig(
+                    "alpha", instruction=self.instruction, model="passthrough"
+                )
                 self.llm = None
                 self.usage_accumulator = None
                 self.message_history = history_messages
@@ -649,9 +643,7 @@ async def test_acp_load_session_streams_history(
         )
 
     updates = [
-        note["update"]
-        for note in client.notifications
-        if note["session_id"] == session.info.name
+        note["update"] for note in client.notifications if note["session_id"] == session.info.name
     ]
     update_types = [_get_session_update_type(update) for update in updates]
     assert "user_message_chunk" in update_types
@@ -718,7 +710,9 @@ async def test_acp_load_session_reads_workspace_scoped_session_when_server_runs_
             def __init__(self) -> None:
                 self.name = "alpha"
                 self.instruction = "Alpha agent."
-                self.config = AgentConfig("alpha", instruction=self.instruction, model="passthrough")
+                self.config = AgentConfig(
+                    "alpha", instruction=self.instruction, model="passthrough"
+                )
                 self.llm = None
                 self.usage_accumulator = None
                 self.message_history = history_messages
@@ -761,9 +755,7 @@ async def test_acp_load_session_reads_workspace_scoped_session_when_server_runs_
         await _wait_for_session_updates(client, session.info.name)
 
     updates = [
-        note["update"]
-        for note in client.notifications
-        if note["session_id"] == session.info.name
+        note["update"] for note in client.notifications if note["session_id"] == session.info.name
     ]
     user_texts = [
         _get_update_text(update)
@@ -821,10 +813,7 @@ async def test_acp_load_session_missing_returns_resource_not_found(
     assert isinstance(data, dict)
     assert data["reason"] == "Session not found"
     assert data["uri"] == missing_session_id
-    assert (
-        data["details"]
-        == f"Session {missing_session_id} could not be resolved from {tmp_path}"
-    )
+    assert data["details"] == f"Session {missing_session_id} could not be resolved from {tmp_path}"
 
 
 def _get_session_update_type(update: Any) -> str | None:

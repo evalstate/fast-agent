@@ -33,10 +33,10 @@ def resolve_skills_management_scope(
     """Resolve both the managed skills directory and all discovered skill directories."""
     base = cwd or Path.cwd()
     resolved_settings = settings or get_settings()
-    skills_settings = getattr(resolved_settings, "skills", None)
+    skills_settings = resolved_settings.skills
 
     configured_directories: list[Path] | None = None
-    if skills_settings and getattr(skills_settings, "directories", None):
+    if skills_settings.directories:
         directory_entries = skills_settings.directories
         if directory_entries:
             configured_directories = [

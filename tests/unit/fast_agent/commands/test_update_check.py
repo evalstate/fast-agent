@@ -9,6 +9,7 @@ from fast_agent.cli.update_check import (
     DEFAULT_INTERVAL_SECONDS,
     check_for_update_notice,
     is_newer_version,
+    is_prerelease_or_dev,
     resolve_update_check_marker_path,
     should_check_now,
 )
@@ -69,6 +70,16 @@ def test_is_newer_version_compares_release_segments() -> None:
     assert is_newer_version("0.10.0", "0.9.9")
     assert not is_newer_version("0.6.18", "0.6.18")
     assert not is_newer_version("0.6.17", "0.6.18")
+
+
+def test_is_prerelease_or_dev_recognizes_pep440_prerelease_forms() -> None:
+    assert is_prerelease_or_dev("0.7.0a1")
+    assert is_prerelease_or_dev("0.7.0b2")
+    assert is_prerelease_or_dev("0.7.0-alpha.1")
+    assert is_prerelease_or_dev("0.7.0-beta.1")
+    assert is_prerelease_or_dev("0.7.0rc1")
+    assert is_prerelease_or_dev("0.7.0.dev1")
+    assert not is_prerelease_or_dev("0.7.0+build.1")
 
 
 def test_check_for_update_notice_uses_marker_to_rate_limit(tmp_path: Path) -> None:

@@ -48,9 +48,7 @@ ALLOWED_ENDPOINT_PATTERNS: list[str] = [
     r"^/(models|datasets|spaces)/[^/]+/[^/]+/auth-check$",
 ]
 
-_COMPILED_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(p) for p in ALLOWED_ENDPOINT_PATTERNS
-]
+_COMPILED_PATTERNS: list[re.Pattern[str]] = [re.compile(p) for p in ALLOWED_ENDPOINT_PATTERNS]
 
 
 def _is_endpoint_allowed(endpoint: str) -> bool:

@@ -69,8 +69,8 @@ class OpenRouterLLM(OpenAILLM):
         config = self.context.config
 
         # Check config file for override
-        if config and hasattr(config, "openrouter") and config.openrouter:
-            config_base_url = getattr(config.openrouter, "base_url", None)
+        if config and config.openrouter:
+            config_base_url = config.openrouter.base_url
             if config_base_url:
                 base_url = config_base_url
 

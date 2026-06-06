@@ -14,6 +14,7 @@ from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -192,6 +193,24 @@ def _web_channels() -> dict[str, list[TextContent]]:
 
 
 @pytest.mark.unit
+def test_url_elicitation_issue_summary_uses_singular_hidden_issue_label(capsys) -> None:
+    agent = LlmAgent(AgentConfig("url-debug"))
+    agent.display = _CaptureDisplay()
+    payload = URLElicitationRequiredDisplayPayload(
+        server_name="docs",
+        request_method="tools/call",
+        elicitations=[],
+        issues=["first", "second", "third", "fourth"],
+    )
+
+    agent._display_single_url_elicitation_payload(payload, agent_name="url-debug")
+
+    output = capsys.readouterr().out
+    assert "... and 1 more issue" in output
+    assert "issue(s)" not in output
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_show_assistant_message_hides_web_metadata_for_tool_use() -> None:
     agent = LlmAgent(AgentConfig("web-debug"))
@@ -274,15 +293,11 @@ async def test_show_assistant_message_replays_provider_mcp_tools() -> None:
     assert [item["tool_name"] for item in capture_display.tool_calls] == [
         "huggingface_mcp/hf_whoami"
     ]
-    assert [item["type_label"] for item in capture_display.tool_calls] == [
-        "remote tool call"
-    ]
+    assert [item["type_label"] for item in capture_display.tool_calls] == ["remote tool call"]
     assert [item["tool_name"] for item in capture_display.tool_results] == [
         "huggingface_mcp/hf_whoami"
     ]
-    assert [item["type_label"] for item in capture_display.tool_results] == [
-        "remote tool result"
-    ]
+    assert [item["type_label"] for item in capture_display.tool_results] == ["remote tool result"]
 
 
 @pytest.mark.unit
@@ -338,9 +353,7 @@ async def test_show_assistant_message_replays_x_search_internal_calls() -> None:
         "query": "from:rachelnabors harness",
         "limit": "5",
     }
-    assert capture_display.tool_calls[1]["tool_args"] == {
-        "post_id": "2050165558214066579"
-    }
+    assert capture_display.tool_calls[1]["tool_args"] == {"post_id": "2050165558214066579"}
 
 
 @pytest.mark.unit
@@ -453,7 +466,9 @@ async def test_show_assistant_message_appends_websocket_indicator_to_model() -> 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_show_assistant_message_places_websocket_indicator_before_context_percentage() -> None:
+async def test_show_assistant_message_places_websocket_indicator_before_context_percentage() -> (
+    None
+):
     agent = LlmAgent(AgentConfig("websocket-indicator-context"))
     capture_display = _CaptureDisplay()
     agent.display = capture_display

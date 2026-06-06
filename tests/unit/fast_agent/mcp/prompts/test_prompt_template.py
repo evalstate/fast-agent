@@ -62,6 +62,16 @@ class TestPromptContent:
         assert result.role == "user"
         assert result.resources == ["data_Alice.txt", "profile_30.json"]
 
+    def test_default_resources_are_independent(self):
+        """Default resource lists should not be shared across instances"""
+        first = PromptContent(text="one")
+        second = PromptContent(text="two")
+
+        first.resources.append("one.txt")
+
+        assert first.resources == ["one.txt"]
+        assert second.resources == []
+
 
 class TestPromptTemplate:
     """Tests for the PromptTemplate class"""
@@ -433,18 +443,18 @@ This appears to be a 1x1 pixel test image.
         assert mime_utils.is_image_mime_type(mime_type) is True
 
         # Load the binary content
-        content, mime_type, is_binary = resource_utils.load_resource_content(
+        resource_content = resource_utils.load_resource_content(
             str(temp_image_file), prompt_files=[Path(temp_image_file).parent]
         )
 
         # Verify it's handled as binary
-        assert is_binary is True
-        assert mime_type == "image/png"
+        assert resource_content.is_binary is True
+        assert resource_content.mime_type == "image/png"
 
         # Ensure the content is a base64-encoded string
         # Try to decode it to verify it's valid base64
         try:
-            decoded = base64.b64decode(content)
+            decoded = base64.b64decode(resource_content.content)
             assert len(decoded) > 0
         except Exception as e:
             pytest.fail(f"Failed to decode base64 content: {e}")
@@ -532,12 +542,12 @@ This appears to be a 1x1 pixel test image.
             pytest.fail(f"Resource handler did not return valid base64: {e}")
 
         # Also verify that our direct load_resource_content function produces valid base64
-        content, mime_type, is_binary = resource_utils.load_resource_content(
+        resource_content = resource_utils.load_resource_content(
             path, prompt_files=[Path(temp_image_file).parent]
         )
 
         # The function should produce the same base64 content
-        assert content == file_result
+        assert resource_content.content == file_result
 
 
 class TestIntegration:

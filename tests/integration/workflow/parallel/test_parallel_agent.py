@@ -78,7 +78,7 @@ async def test_parallel_include_request_false(fast_agent):
         name="parallel_no_request",
         fan_out=["fan_out_1", "fan_out_2"],
         fan_in="fan_in",
-        include_request=False
+        include_request=False,
     )
     async def agent_function():
         async with fast.run() as agent:
@@ -96,6 +96,7 @@ foo
 
     await agent_function()
 
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_parallel_include_request_true(fast_agent):
@@ -109,7 +110,7 @@ async def test_parallel_include_request_true(fast_agent):
         name="parallel_with_request",
         fan_out=["fan_out_1", "fan_out_2"],
         fan_in="fan_in",
-        include_request=True
+        include_request=True,
     )
     async def agent_function():
         async with fast.run() as agent:

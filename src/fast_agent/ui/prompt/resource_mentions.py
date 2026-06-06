@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from urllib.parse import quote
 
 from mcp.types import ContentBlock, EmbeddedResource, ReadResourceResult, TextContent
@@ -19,6 +19,7 @@ from fast_agent.ui.prompt.attachment_tokens import (
     normalize_local_attachment_reference,
     normalize_remote_attachment_reference,
 )
+from fast_agent.utils.collections import unique_preserve_order
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 
 _TOKEN_RE = re.compile(r"(?P<prefix>^|\s)(?P<token>\^[^\s]+)")
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
+_TEMPLATE_ARG_KEY_RE = re.compile(r"(?:^|,)(?P<key>[A-Za-z0-9_.-]+)=")
 _TEMPLATE_ARGS_RE = re.compile(
     r"^(?P<template>.+)\{(?P<args>[A-Za-z0-9_.-]+=[^{}]*(?:,[A-Za-z0-9_.-]+=[^{}]*)*)\}$"
 )
@@ -61,11 +63,52 @@ class ResourceMentionError(ValueError):
     """Raised when one or more resource mentions cannot be resolved."""
 
 
+@runtime_checkable
+class _ResourceMentionResolver(Protocol):
+    async def get_resource(
+        self,
+        resource_uri: str,
+        namespace: str | None = None,
+    ) -> ReadResourceResult: ...
+
+
+def _as_resource_mention_resolver(agent: Any) -> _ResourceMentionResolver | None:
+    if not isinstance(agent, _ResourceMentionResolver):
+        return None
+    if not callable(agent.get_resource):
+        return None
+    return agent
+
+
 @dataclass(frozen=True)
 class _TemplateVarSpec:
     name: str
     explode: bool
     prefix: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedTemplateArgs:
+    template_uri: str
+    args: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _TemplateOperatorStyle:
+    prefix: str = ""
+    separator: str = ","
+    named: bool = False
+    if_empty: str = ""
+
+
+_TEMPLATE_OPERATOR_STYLES: dict[str, _TemplateOperatorStyle] = {
+    "#": _TemplateOperatorStyle(prefix="#"),
+    ".": _TemplateOperatorStyle(prefix=".", separator="."),
+    "/": _TemplateOperatorStyle(prefix="/", separator="/"),
+    ";": _TemplateOperatorStyle(prefix=";", separator=";", named=True),
+    "?": _TemplateOperatorStyle(prefix="?", separator="&", named=True, if_empty="="),
+    "&": _TemplateOperatorStyle(prefix="&", separator="&", named=True, if_empty="="),
+}
 
 
 def _parse_template_varspec(raw_spec: str) -> _TemplateVarSpec | None:
@@ -81,10 +124,7 @@ def _parse_template_varspec(raw_spec: str) -> _TemplateVarSpec | None:
     if ":" in spec:
         var_name, prefix_str = spec.split(":", 1)
         var_name = var_name.strip()
-        if prefix_str.isdigit():
-            prefix = int(prefix_str)
-        else:
-            prefix = None
+        prefix = int(prefix_str) if prefix_str.isdigit() else None
     else:
         var_name = spec.strip()
 
@@ -139,24 +179,8 @@ def _expand_template_expression(expression_body: str, args: dict[str, str]) -> s
     if not varspecs:
         return ""
 
-    separator = ","
-    prefix = ""
-    named = False
-    if_empty = ""
+    style = _TEMPLATE_OPERATOR_STYLES.get(operator, _TemplateOperatorStyle())
     allow_reserved = operator in {"+", "#"}
-
-    if operator == "#":
-        prefix = "#"
-    elif operator == ".":
-        prefix, separator = ".", "."
-    elif operator == "/":
-        prefix, separator = "/", "/"
-    elif operator == ";":
-        prefix, separator, named = ";", ";", True
-    elif operator == "?":
-        prefix, separator, named, if_empty = "?", "&", True, "="
-    elif operator == "&":
-        prefix, separator, named, if_empty = "&", "&", True, "="
 
     expanded_parts: list[str] = []
     for spec in varspecs:
@@ -171,17 +195,17 @@ def _expand_template_expression(expression_body: str, args: dict[str, str]) -> s
             preserve_slashes=spec.explode or operator == "",
         )
 
-        if named:
+        if style.named:
             if encoded_value:
                 expanded_parts.append(f"{spec.name}={encoded_value}")
             else:
-                expanded_parts.append(f"{spec.name}{if_empty}")
+                expanded_parts.append(f"{spec.name}{style.if_empty}")
         else:
             expanded_parts.append(encoded_value)
 
     if not expanded_parts:
         return ""
-    return prefix + separator.join(expanded_parts)
+    return style.prefix + style.separator.join(expanded_parts)
 
 
 def template_argument_names(template_uri: str) -> list[str]:
@@ -198,19 +222,25 @@ def template_argument_names(template_uri: str) -> list[str]:
     return names
 
 
+def _template_arg_pairs(args_str: str) -> list[tuple[str, str]]:
+    matches = list(_TEMPLATE_ARG_KEY_RE.finditer(args_str))
+    pairs: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        value_start = match.end()
+        value_end = matches[index + 1].start() if index + 1 < len(matches) else len(args_str)
+        pairs.append((match.group("key").strip(), args_str[value_start:value_end].strip()))
+    return pairs
 
-def _parse_template_args(value: str) -> tuple[str, dict[str, str]]:
+
+def _parse_template_args(value: str) -> _ParsedTemplateArgs:
     match = _TEMPLATE_ARGS_RE.match(value)
     if not match:
-        return value, {}
+        return _ParsedTemplateArgs(template_uri=value, args={})
 
     template_uri = match.group("template")
     args_str = match.group("args")
-    args: dict[str, str] = {}
-    for raw_pair in args_str.split(","):
-        key, raw_value = raw_pair.split("=", 1)
-        args[key.strip()] = raw_value.strip()
-    return template_uri, args
+    args = dict(_template_arg_pairs(args_str))
+    return _ParsedTemplateArgs(template_uri=template_uri, args=args)
 
 
 def _render_template_uri(template_uri: str, args: dict[str, str]) -> str:
@@ -255,8 +285,8 @@ def _parse_token(
     elif server_name == URL_MENTION_SERVER:
         resource_uri = normalize_remote_attachment_reference(resource_expr)
     else:
-        template_uri, args = _parse_template_args(resource_expr)
-        resource_uri = _render_template_uri(template_uri, args)
+        template_args = _parse_template_args(resource_expr)
+        resource_uri = _render_template_uri(template_args.template_uri, template_args.args)
 
     return ParsedMention(
         raw=token,
@@ -300,20 +330,18 @@ def parse_mentions(text: str, *, cwd: Path | None = None) -> ParsedMentions:
     cleaned_text = "".join(pieces)
     cleaned_text = re.sub(r"[ \t]{2,}", " ", cleaned_text).strip()
 
-    unique_mentions: list[ParsedMention] = []
-    seen: set[tuple[str, str]] = set()
-    for mention in mentions:
-        key = (mention.server_name, mention.resource_uri)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_mentions.append(mention)
-
     return ParsedMentions(
         text=text,
         cleaned_text=cleaned_text,
-        mentions=unique_mentions,
+        mentions=_dedupe_mentions(mentions),
         warnings=warnings,
+    )
+
+
+def _dedupe_mentions(mentions: Sequence[ParsedMention]) -> list[ParsedMention]:
+    return unique_preserve_order(
+        mentions,
+        key=lambda mention: (mention.server_name, mention.resource_uri),
     )
 
 
@@ -332,8 +360,8 @@ async def resolve_mentions(agent: Any, parsed: ParsedMentions) -> ResolvedMentio
         for mention in parsed.mentions
         if mention.server_name not in {FILE_MENTION_SERVER, URL_MENTION_SERVER}
     ]
-    get_resource = getattr(agent, "get_resource", None)
-    if remote_mentions and not callable(get_resource):
+    resource_agent = _as_resource_mention_resolver(agent)
+    if remote_mentions and resource_agent is None:
         raise ResourceMentionError("Current agent does not support MCP resources")
 
     resources: list[ContentBlock] = []
@@ -346,14 +374,16 @@ async def resolve_mentions(agent: Any, parsed: ParsedMentions) -> ResolvedMentio
             if mention.server_name == URL_MENTION_SERVER:
                 resources.append(_resolve_remote_content_block(mention.resource_uri))
                 continue
-            if not callable(get_resource):
+            if resource_agent is None:
                 raise ResourceMentionError("Current agent does not support MCP resources")
-            result: ReadResourceResult = await get_resource(
+            result = await resource_agent.get_resource(
                 mention.resource_uri,
                 namespace=mention.server_name,
             )
-            for content in result.contents:
-                resources.append(EmbeddedResource(type="resource", resource=content, annotations=None))
+            resources.extend(
+                EmbeddedResource(type="resource", resource=content, annotations=None)
+                for content in result.contents
+            )
         except Exception as exc:
             failures.append(f"{mention.raw}: {exc}")
 

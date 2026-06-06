@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Final, Mapping
+from typing import TYPE_CHECKING, Any, Final
+
+from fast_agent.utils.text import strip_to_none
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _PLACEHOLDER_RE: Final[re.Pattern[str]] = re.compile(r"{{\s*([^}]+?)\s*}}")
 
@@ -15,12 +20,16 @@ class TemplateRenderResult:
     missing: tuple[str, ...] = ()
 
 
+def _placeholder_name(match: re.Match[str]) -> str | None:
+    return strip_to_none(match.group(1))
+
+
 def extract_template_variables(text: str) -> set[str]:
     """Return placeholder names from ``text`` without braces."""
     return {
         name
         for match in _PLACEHOLDER_RE.finditer(text)
-        if (name := match.group(1).strip())
+        if (name := _placeholder_name(match)) is not None
     }
 
 
@@ -29,8 +38,8 @@ def render_template_text(text: str, values: Mapping[str, Any]) -> TemplateRender
     missing: list[str] = []
 
     def replace(match: re.Match[str]) -> str:
-        name = match.group(1).strip()
-        if not name:
+        name = _placeholder_name(match)
+        if name is None:
             return match.group(0)
         if name not in values:
             missing.append(name)

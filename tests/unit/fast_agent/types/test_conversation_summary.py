@@ -341,9 +341,7 @@ def test_timing_data():
             role="assistant",
             content=[TextContent(type="text", text="Hi there!")],
             channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text=json.dumps(timing_data_1))
-                ]
+                FAST_AGENT_TIMING: [TextContent(type="text", text=json.dumps(timing_data_1))]
             },
         ),
         PromptMessageExtended(
@@ -354,9 +352,7 @@ def test_timing_data():
             role="assistant",
             content=[TextContent(type="text", text="I'm doing well!")],
             channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text=json.dumps(timing_data_2))
-                ]
+                FAST_AGENT_TIMING: [TextContent(type="text", text=json.dumps(timing_data_2))]
             },
         ),
     ]
@@ -404,11 +400,7 @@ def test_timing_partial_data():
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="Second response")],
-            channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text=json.dumps(timing_data))
-                ]
-            },
+            channels={FAST_AGENT_TIMING: [TextContent(type="text", text=json.dumps(timing_data))]},
         ),
         PromptMessageExtended(
             role="assistant",
@@ -430,11 +422,7 @@ def test_timing_invalid_json():
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="Response")],
-            channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text="invalid json{}")
-                ]
-            },
+            channels={FAST_AGENT_TIMING: [TextContent(type="text", text="invalid json{}")]},
         ),
     ]
 
@@ -446,6 +434,26 @@ def test_timing_invalid_json():
     assert summary.average_assistant_response_time_ms == 0.0
 
 
+def test_timing_non_object_json_is_ignored():
+    """Timing payloads must be JSON objects to match summary timing shape."""
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Response")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps([{"duration_ms": 100.0}]))
+                ]
+            },
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    assert summary.total_elapsed_time_ms == 0.0
+    assert summary.assistant_message_timings == []
+
+
 def test_timing_in_model_dump():
     """Test that timing properties are included in model_dump()"""
     timing_data = {"start_time": 100.0, "end_time": 102.5, "duration_ms": 2500.0}
@@ -454,11 +462,7 @@ def test_timing_in_model_dump():
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="Response")],
-            channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text=json.dumps(timing_data))
-                ]
-            },
+            channels={FAST_AGENT_TIMING: [TextContent(type="text", text=json.dumps(timing_data))]},
         ),
     ]
 
@@ -487,27 +491,21 @@ def test_conversation_span():
             role="assistant",
             content=[TextContent(type="text", text="First")],
             channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text=json.dumps(timing_data_1))
-                ]
+                FAST_AGENT_TIMING: [TextContent(type="text", text=json.dumps(timing_data_1))]
             },
         ),
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="Second")],
             channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text=json.dumps(timing_data_2))
-                ]
+                FAST_AGENT_TIMING: [TextContent(type="text", text=json.dumps(timing_data_2))]
             },
         ),
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="Third")],
             channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text=json.dumps(timing_data_3))
-                ]
+                FAST_AGENT_TIMING: [TextContent(type="text", text=json.dumps(timing_data_3))]
             },
         ),
     ]
@@ -551,11 +549,7 @@ def test_conversation_span_single_message():
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="Response")],
-            channels={
-                FAST_AGENT_TIMING: [
-                    TextContent(type="text", text=json.dumps(timing_data))
-                ]
-            },
+            channels={FAST_AGENT_TIMING: [TextContent(type="text", text=json.dumps(timing_data))]},
         ),
     ]
 

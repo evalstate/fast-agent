@@ -45,7 +45,7 @@ def test_build_markdown_renderable_uses_syntax_for_code_only_fence() -> None:
 
 def test_build_markdown_renderable_normalizes_cmd_fence_language() -> None:
     renderable = build_markdown_renderable(
-        "```cmd\ndir\n```",
+        "``` CMD \ndir\n```",
         code_theme="monokai",
         escape_xml=True,
     )
@@ -68,7 +68,7 @@ def test_build_markdown_renderable_can_wrap_syntax_code() -> None:
 
 def test_build_markdown_renderable_styles_apply_patch_fence() -> None:
     renderable = build_markdown_renderable(
-        "```apply_patch\n*** Begin Patch\n*** Update File: a.txt\n@@\n context\n-old\n+new\n```",
+        "``` APPLY_PATCH \n*** Begin Patch\n*** Update File: a.txt\n@@\n context\n-old\n+new\n```",
         code_theme="monokai",
         escape_xml=True,
     )

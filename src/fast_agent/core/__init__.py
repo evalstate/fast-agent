@@ -17,37 +17,34 @@ Exports are resolved lazily to avoid circular imports during package init.
 
 from typing import TYPE_CHECKING
 
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "AgentApp": (".agent_app", "AgentApp"),
+    "Core": (".core_app", "Core"),
+    "FastAgent": (".fastagent", "FastAgent"),
+    "DecoratorMixin": (".direct_decorators", "DecoratorMixin"),
+}
+
 
 def __getattr__(name: str):
-    if name == "AgentApp":
-        from .agent_app import AgentApp
+    try:
+        module_name, attr_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module '{__name__}' has no attribute '{name}'") from exc
+    from importlib import import_module
 
-        return AgentApp
-    elif name == "Core":
-        from .core_app import Core
-
-        return Core
-    elif name == "FastAgent":
-        from .fastagent import FastAgent
-
-        return FastAgent
-    elif name == "DecoratorMixin":
-        from .direct_decorators import DecoratorMixin
-
-        return DecoratorMixin
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    return getattr(import_module(module_name, __name__), attr_name)
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
-    from .agent_app import AgentApp as AgentApp  # noqa: F401
-    from .core_app import Core as Core  # noqa: F401
-    from .direct_decorators import DecoratorMixin as DecoratorMixin  # noqa: F401
-    from .fastagent import FastAgent as FastAgent  # noqa: F401
+    from .agent_app import AgentApp as AgentApp
+    from .core_app import Core as Core
+    from .direct_decorators import DecoratorMixin as DecoratorMixin
+    from .fastagent import FastAgent as FastAgent
 
 
 __all__ = [
-    "Core",
     "AgentApp",
-    "FastAgent",
+    "Core",
     "DecoratorMixin",
+    "FastAgent",
 ]

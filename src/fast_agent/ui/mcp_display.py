@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Iterable, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from rich.text import Text
 
 from fast_agent.ui import console
+from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.time import format_compact_duration, format_two_unit_duration
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from fast_agent.mcp.mcp_aggregator import ServerStatus
     from fast_agent.mcp.transport_tracking import ChannelSnapshot
 
@@ -32,12 +36,33 @@ class _ServerStatusProvider(Protocol):
 
 type CapabilityState = bool | Literal["blue", "red", "warn"]
 
+_ELICITATION_MODE_STATES: dict[str, CapabilityState] = {
+    "auto-cancel": "red",
+    "none": False,
+}
+_SAMPLING_MODE_STATES: dict[str, CapabilityState] = {
+    "auto": True,
+    "configured": "blue",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class _ChannelSummaryEntry:
     label: str
     arrow: str
     channel: ChannelSnapshot | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ChannelErrorEntry:
+    label: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class _HealthState:
+    label: str
+    style: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +121,18 @@ class Colours:
     TEXT_CYAN = "cyan"
 
 
+_ARROW_PRE_ACTIVITY_STYLE_BY_STATE = {
+    "error": Colours.ARROW_ERROR,
+    "off": Colours.ARROW_OFF,
+    "disabled": Colours.ARROW_OFF,
+}
+_ARROW_ACTIVE_STYLE_BY_STATE = {
+    "open": Colours.ARROW_ACTIVE,
+    "connected": Colours.ARROW_ACTIVE,
+}
+METHOD_NOT_ALLOWED_STATUS = 405
+
+
 # Symbol definitions for timelines and legends
 SYMBOL_IDLE = "·"
 SYMBOL_ERROR = "●"
@@ -105,6 +142,18 @@ SYMBOL_REQUEST = "◆"
 SYMBOL_STDIO_ACTIVITY = "●"
 SYMBOL_PING = "●"
 SYMBOL_DISABLED = "▽"
+
+_TIMELINE_BASE_SYMBOLS = {
+    "idle": SYMBOL_IDLE,
+    "none": SYMBOL_IDLE,
+    "error": SYMBOL_ERROR,
+    "ping": SYMBOL_PING,
+    "disabled": SYMBOL_DISABLED,
+}
+_TIMELINE_HTTP_SYMBOLS = {
+    "request": SYMBOL_REQUEST,
+    "notification": SYMBOL_NOTIFICATION,
+}
 
 
 # Color mappings for different contexts
@@ -127,55 +176,15 @@ TIMELINE_COLORS_STDIO = {
     "none": Colours.IDLE,
 }
 
-
-def _format_compact_duration(seconds: float | None) -> str | None:
-    if seconds is None:
-        return None
-    total = int(seconds)
-    if total < 1:
-        return "<1s"
-    mins, secs = divmod(total, 60)
-    if mins == 0:
-        return f"{secs}s"
-    hours, mins = divmod(mins, 60)
-    if hours == 0:
-        return f"{mins}m{secs:02d}s"
-    days, hours = divmod(hours, 24)
-    if days == 0:
-        return f"{hours}h{mins:02d}m"
-    return f"{days}d{hours:02d}h"
+_CAPABILITY_STRING_STYLES: dict[Literal["blue", "red", "warn"], str] = {
+    "red": Colours.TOKEN_ERROR,
+    "blue": Colours.TOKEN_WARNING,
+    "warn": Colours.CAP_TOKEN_CAUTION,
+}
 
 
-def _format_timeline_label(total_seconds: int) -> str:
-    total = max(0, int(total_seconds))
-    if total == 0:
-        return "0s"
-
-    days, remainder = divmod(total, 86400)
-    if days:
-        if remainder == 0:
-            return f"{days}d"
-        hours = remainder // 3600
-        if hours == 0:
-            return f"{days}d"
-        return f"{days}d{hours}h"
-
-    hours, remainder = divmod(total, 3600)
-    if hours:
-        if remainder == 0:
-            return f"{hours}h"
-        minutes = remainder // 60
-        if minutes == 0:
-            return f"{hours}h"
-        return f"{hours}h{minutes:02d}m"
-
-    minutes, seconds = divmod(total, 60)
-    if minutes:
-        if seconds == 0:
-            return f"{minutes}m"
-        return f"{minutes}m{seconds:02d}s"
-
-    return f"{seconds}s"
+_format_compact_duration = format_compact_duration
+_format_timeline_label = format_two_unit_duration
 
 
 def _summarise_call_counts(call_counts: dict[str, int]) -> str | None:
@@ -204,97 +213,6 @@ def _truncate_middle(value: str, *, max_length: int, edge_length: int) -> str:
         return value
     return f"{value[:edge_length]}...{value[-edge_length:]}"
 
-
-def _cookie_string_field(cookie: dict[str, object] | None, key: str) -> str | None:
-    if not isinstance(cookie, dict):
-        return None
-    raw_value = cookie.get(key)
-    if not isinstance(raw_value, str):
-        return None
-    value = raw_value.strip()
-    return value or None
-
-
-def _cookie_timestamp_field(cookie: dict[str, object] | None, *keys: str) -> str | None:
-    if not isinstance(cookie, dict):
-        return None
-
-    for key in keys:
-        value = _cookie_string_field(cookie, key)
-        if value:
-            return value
-
-    data = cookie.get("data")
-    if isinstance(data, dict):
-        key_set = set(keys)
-        for data_key, raw_value in data.items():
-            if data_key not in key_set or not isinstance(raw_value, str):
-                continue
-            if raw_value.strip():
-                return raw_value.strip()
-
-    return None
-
-
-def _format_cookie_timestamp_local(timestamp: str) -> str:
-    try:
-        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except ValueError:
-        return _truncate_middle(timestamp, max_length=32, edge_length=14)
-
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    parsed = parsed.astimezone()
-
-    return parsed.strftime("%d/%m/%y %H:%M")
-
-
-def _format_experimental_session_status(status: ServerStatus) -> Text:
-    text = Text()
-    supported = status.experimental_session_supported
-    if supported is True:
-        cookie_id = _cookie_string_field(status.session_cookie, "sessionId")
-        created = _cookie_timestamp_field(
-            status.session_cookie,
-            "created",
-            "created_at",
-            "createdAt",
-        )
-        expiry = _cookie_timestamp_field(
-            status.session_cookie,
-            "expiry",
-            "expires",
-            "expires_at",
-            "expiresAt",
-        )
-
-        if cookie_id:
-            text.append(
-                _truncate_middle(cookie_id, max_length=32, edge_length=14),
-                style=Colours.TEXT_SUCCESS,
-            )
-        else:
-            text.append("none", style=Colours.TEXT_DIM)
-
-        if created or expiry:
-            text.append(" (", style=Colours.TEXT_DIM)
-            if created:
-                text.append(_format_cookie_timestamp_local(created), style=Colours.TEXT_DEFAULT)
-            if created and expiry:
-                text.append(" → ", style=Colours.TEXT_DIM)
-            if expiry:
-                text.append(_format_cookie_timestamp_local(expiry), style=Colours.TEXT_DEFAULT)
-            text.append(")", style=Colours.TEXT_DIM)
-        else:
-            text.append(" (unknown)", style=Colours.TEXT_DIM)
-        return text
-
-    if supported is False:
-        text.append("not advertised", style=Colours.TEXT_DIM)
-        return text
-
-    text.append("unknown", style=Colours.TEXT_DIM)
-    return text
 
 def _build_aligned_field(
     label: str, value: Text | str, *, label_width: int = 9, value_style: str = Colours.TEXT_DEFAULT
@@ -332,36 +250,22 @@ def _skybridge_capability_state(status: ServerStatus) -> CapabilityState:
         return False
     if skybridge_config.warnings:
         return "warn"
-    if skybridge_config.enabled:
-        return True
-    return False
+    return bool(skybridge_config.enabled)
 
 
 def _elicitation_capability_state(mode: str | None) -> CapabilityState:
-    normalized_mode = (mode or "").lower()
-    if normalized_mode == "auto-cancel":
-        return "red"
-    if normalized_mode and normalized_mode != "none":
-        return True
-    return False
+    normalized_mode = strip_casefold(mode or "")
+    return _ELICITATION_MODE_STATES.get(normalized_mode, bool(normalized_mode))
 
 
 def _sampling_capability_state(mode: str | None) -> CapabilityState:
-    normalized_mode = (mode or "").lower()
-    if normalized_mode == "configured":
-        return "blue"
-    if normalized_mode == "auto":
-        return True
-    return False
+    normalized_mode = strip_casefold(mode or "")
+    return _SAMPLING_MODE_STATES.get(normalized_mode, False)
 
 
 def _capability_token_style(supported: CapabilityState, highlighted: bool) -> str:
-    if supported == "red":
-        return Colours.TOKEN_ERROR
-    if supported == "blue":
-        return Colours.TOKEN_WARNING
-    if supported == "warn":
-        return Colours.CAP_TOKEN_CAUTION
+    if isinstance(supported, str):
+        return _CAPABILITY_STRING_STYLES[supported]
     if not supported:
         return Colours.TOKEN_DISABLED
     if highlighted:
@@ -393,6 +297,7 @@ def _format_capability_shorthand(
         ("Co", bool(completion_caps), False),
         ("Ex", bool(experimental_caps), False),
         ("In", _instruction_capability_state(status, template_expected=template_expected), False),
+        ("Sk", bool(status.mcp_skills_enabled), False),
         ("Ui", _skybridge_capability_state(status), False),
         ("Ro", bool(status.roots_configured), False),
         ("El", _elicitation_capability_state(status.elicitation_mode), False),
@@ -440,15 +345,15 @@ def _build_health_text(status: ServerStatus) -> Text | None:
         return None
 
     health = Text()
-    state_label, state_style = _get_health_state(status)
+    state = _get_health_state(status)
     if interval <= 0:
-        health.append(state_label, style=state_style)
+        health.append(state.label, style=state.style)
         return health
 
     max_missed = status.ping_max_missed or 0
     misses = _compute_display_misses(status)
 
-    health.append(state_label, style=state_style)
+    health.append(state.label, style=state.style)
     health.append(f" | interval: {interval}s", style=Colours.TEXT_DIM)
 
     misses_text = f"{misses}/{max_missed}" if max_missed else str(misses)
@@ -468,12 +373,12 @@ def _build_health_text(status: ServerStatus) -> Text | None:
     return health
 
 
-def _offline_health_state(status: ServerStatus) -> tuple[str, str] | None:
+def _offline_health_state(status: ServerStatus) -> _HealthState | None:
     if status.is_connected is not False:
         return None
     if status.error_message and "initializing" in status.error_message:
-        return ("pending", Colours.TEXT_DIM)
-    return ("offline", Colours.TEXT_ERROR)
+        return _HealthState(label="pending", style=Colours.TEXT_DIM)
+    return _HealthState(label="offline", style=Colours.TEXT_ERROR)
 
 
 def _stale_health_state(
@@ -481,32 +386,34 @@ def _stale_health_state(
     *,
     interval: int,
     max_missed: int,
-) -> tuple[str, str] | None:
-    last_ping_at = status.ping_last_ok_at or status.ping_last_fail_at
+) -> _HealthState | None:
+    last_ping_at = _latest_ping_at(status)
     if last_ping_at is None or max_missed <= 0:
         return None
-    if last_ping_at.tzinfo is None:
-        last_ping_at = last_ping_at.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
     if (now - last_ping_at).total_seconds() > interval * max_missed:
-        return ("stale", Colours.TEXT_ERROR)
+        return _HealthState(label="stale", style=Colours.TEXT_ERROR)
     return None
 
 
-def _get_health_state(status: ServerStatus) -> tuple[str, str]:
+def _get_health_state(status: ServerStatus) -> _HealthState:
     interval = status.ping_interval_seconds
     if interval is None:
-        return ("unknown", Colours.TEXT_DIM)
+        return _HealthState(label="unknown", style=Colours.TEXT_DIM)
     if interval <= 0:
-        return ("disabled", Colours.TEXT_DIM)
+        return _HealthState(label="disabled", style=Colours.TEXT_DIM)
 
     offline_state = _offline_health_state(status)
     if offline_state is not None:
         return offline_state
 
     if _has_transport_error(status):
-        return ("error", Colours.TEXT_ERROR)
+        return _HealthState(label="error", style=Colours.TEXT_ERROR)
 
+    return _active_ping_health_state(status, interval=interval)
+
+
+def _active_ping_health_state(status: ServerStatus, *, interval: int) -> _HealthState:
     max_missed = status.ping_max_missed or 0
     misses = _compute_display_misses(status)
     has_activity = bool(status.ping_last_ok_at or status.ping_last_fail_at)
@@ -515,12 +422,12 @@ def _get_health_state(status: ServerStatus) -> tuple[str, str]:
         return stale_state
 
     if not has_activity:
-        return ("pending", Colours.TEXT_DIM)
+        return _HealthState(label="pending", style=Colours.TEXT_DIM)
     if max_missed and misses >= max_missed:
-        return ("failed", Colours.TEXT_ERROR)
+        return _HealthState(label="failed", style=Colours.TEXT_ERROR)
     if misses > 0:
-        return ("missed", Colours.TEXT_WARNING)
-    return ("ok", Colours.TEXT_SUCCESS)
+        return _HealthState(label="missed", style=Colours.TEXT_WARNING)
+    return _HealthState(label="ok", style=Colours.TEXT_SUCCESS)
 
 
 def _has_transport_error(status: ServerStatus) -> bool:
@@ -538,11 +445,12 @@ def _has_transport_error(status: ServerStatus) -> bool:
     for channel in channels:
         if channel is None:
             continue
-        if channel.last_status_code == 405 or channel.state == "disabled":
+        channel_state = strip_casefold(channel.state or "")
+        if _channel_is_method_not_allowed(channel) or channel_state == "disabled":
             continue
-        if channel.last_error and "405" in channel.last_error:
+        if channel.last_error and str(METHOD_NOT_ALLOWED_STATUS) in channel.last_error:
             continue
-        if channel.state == "error":
+        if channel_state == "error":
             return True
     return False
 
@@ -552,12 +460,9 @@ def _compute_display_misses(status: ServerStatus) -> int:
     if interval is None or interval <= 0:
         return status.ping_consecutive_failures or 0
 
-    last_ping_at = status.ping_last_ok_at or status.ping_last_fail_at
+    last_ping_at = _latest_ping_at(status)
     if last_ping_at is None:
         return status.ping_consecutive_failures or 0
-
-    if last_ping_at.tzinfo is None:
-        last_ping_at = last_ping_at.replace(tzinfo=timezone.utc)
 
     elapsed = (datetime.now(timezone.utc) - last_ping_at).total_seconds()
     if elapsed <= 0:
@@ -566,6 +471,25 @@ def _compute_display_misses(status: ServerStatus) -> int:
     derived = int(elapsed // interval)
     recorded = status.ping_consecutive_failures or 0
     return max(recorded, derived)
+
+
+def _latest_ping_at(status: ServerStatus) -> datetime | None:
+    pings = [
+        _utc_datetime_or_none(status.ping_last_ok_at),
+        _utc_datetime_or_none(status.ping_last_fail_at),
+    ]
+    ping_times = [ping_at for ping_at in pings if ping_at is not None]
+    if not ping_times:
+        return None
+    return max(ping_times)
+
+
+def _utc_datetime_or_none(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _get_ping_attempts(status: ServerStatus) -> int:
@@ -608,21 +532,11 @@ def _build_inline_timeline(
 
 
 def _timeline_symbol_for_state(state: str, *, is_stdio: bool = False) -> str:
-    if state in {"idle", "none"}:
-        return SYMBOL_IDLE
-    if state == "error":
-        return SYMBOL_ERROR
-    if state == "ping":
-        return SYMBOL_PING
-    if state == "disabled":
-        return SYMBOL_DISABLED
+    if state in _TIMELINE_BASE_SYMBOLS:
+        return _TIMELINE_BASE_SYMBOLS[state]
     if is_stdio:
         return SYMBOL_STDIO_ACTIVITY
-    if state == "request":
-        return SYMBOL_REQUEST
-    if state == "notification":
-        return SYMBOL_NOTIFICATION
-    return SYMBOL_RESPONSE
+    return _TIMELINE_HTTP_SYMBOLS.get(state, SYMBOL_RESPONSE)
 
 
 def _timeline_color_map(*, is_stdio: bool) -> dict[str, str]:
@@ -646,8 +560,9 @@ def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
     if snapshot is None:
         return []
 
-    transport_lower = (status.transport or "").lower()
-    http_channels = [snapshot.get, snapshot.post_sse, snapshot.post_json]
+    transport_lower = strip_casefold(status.transport or "")
+    post_json_channel = snapshot.post_json or snapshot.post
+    http_channels = [snapshot.get, snapshot.post_sse, post_json_channel]
     stdio_channel = snapshot.stdio
 
     if any(channel is not None for channel in http_channels):
@@ -656,7 +571,7 @@ def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
             _ChannelSummaryEntry("POST (SSE)", "▶", snapshot.post_sse),
         ]
         if transport_lower != "sse":
-            entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", snapshot.post_json))
+            entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", post_json_channel))
         return entries
 
     if stdio_channel is None:
@@ -731,22 +646,22 @@ def _channel_arrow_style(channel: ChannelSnapshot | None) -> str:
     if channel is None:
         return Colours.ARROW_OFF
 
-    state = (channel.state or "open").lower()
-    if channel.last_status_code == 405:
+    state = strip_casefold(channel.state or "open")
+    if _channel_is_method_not_allowed(channel):
         return Colours.ARROW_METHOD_NOT_ALLOWED
-    if state == "error":
-        return Colours.ARROW_ERROR
-    if state in {"off", "disabled"}:
-        return Colours.ARROW_OFF
+    if pre_activity_style := _ARROW_PRE_ACTIVITY_STYLE_BY_STATE.get(state):
+        return pre_activity_style
     if channel.request_count == 0 and channel.response_count == 0:
         return Colours.ARROW_IDLE
-    if state in {"open", "connected"}:
-        return Colours.ARROW_ACTIVE
-    return Colours.ARROW_IDLE
+    return _ARROW_ACTIVE_STYLE_BY_STATE.get(state, Colours.ARROW_IDLE)
+
+
+def _channel_is_method_not_allowed(channel: ChannelSnapshot | None) -> bool:
+    return channel is not None and channel.last_status_code == METHOD_NOT_ALLOWED_STATUS
 
 
 def _display_channel_arrow(arrow: str, channel: ChannelSnapshot | None) -> str:
-    if channel is None or channel.last_status_code != 405:
+    if not _channel_is_method_not_allowed(channel):
         return arrow
     return {"◀": "◁", "▶": "▷", "⇄": "⇄"}.get(arrow, arrow)
 
@@ -754,10 +669,10 @@ def _display_channel_arrow(arrow: str, channel: ChannelSnapshot | None) -> str:
 def _channel_error_entry(
     label: str,
     channel: ChannelSnapshot | None,
-) -> tuple[str, str] | None:
+) -> _ChannelErrorEntry | None:
     if channel is None:
         return None
-    if (channel.state or "").lower() != "error" or channel.last_status_code == 405:
+    if strip_casefold(channel.state or "") != "error" or _channel_is_method_not_allowed(channel):
         return None
     if not channel.last_error:
         return None
@@ -765,7 +680,7 @@ def _channel_error_entry(
     error_message = channel.last_error
     if channel.last_status_code:
         error_message = f"{error_message} ({channel.last_status_code})"
-    return label.split()[0], error_message
+    return _ChannelErrorEntry(label=label.split()[0], message=error_message)
 
 
 def _channel_label_style(
@@ -775,7 +690,7 @@ def _channel_label_style(
 ) -> str:
     if channel is None:
         return Colours.TEXT_DIM
-    if channel.last_status_code == 405 and "GET" in label:
+    if _channel_is_method_not_allowed(channel) and "GET" in label:
         return Colours.TEXT_DIM
     if arrow_style == Colours.ARROW_ERROR and "GET" in label:
         return Colours.TEXT_ERROR
@@ -801,7 +716,9 @@ def _append_channel_timeline(
     bucket_count = (
         len(channel.activity_buckets)
         if channel is not None and channel.activity_buckets
-        else channel.activity_bucket_count if channel else None
+        else channel.activity_bucket_count
+        if channel
+        else None
     )
     if not bucket_count or bucket_count <= 0:
         bucket_count = layout.default_bucket_count
@@ -811,7 +728,9 @@ def _append_channel_timeline(
         style="dim",
     )
 
-    bucket_states = channel.activity_buckets if channel is not None and channel.activity_buckets else []
+    bucket_states = (
+        channel.activity_buckets if channel is not None and channel.activity_buckets else []
+    )
     if bucket_states:
         color_map = _timeline_color_map(is_stdio=layout.is_stdio)
         for bucket_state in bucket_states:
@@ -845,8 +764,8 @@ def _append_channel_metrics(
         req = resp = notif = ping = "-".rjust(5)
         metrics_style = Colours.TEXT_DIM
     else:
-        channel_state = (channel.state or "open").lower()
-        is_shut = channel.last_status_code == 405 or channel_state in {"off", "disabled"}
+        channel_state = strip_casefold(channel.state or "open")
+        is_shut = _channel_is_method_not_allowed(channel) or channel_state in {"off", "disabled"}
         if is_shut:
             req = resp = notif = ping = "-".rjust(5)
             metrics_style = Colours.TEXT_DIM
@@ -861,7 +780,9 @@ def _append_channel_metrics(
         line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
         return
 
-    ping_style = Colours.TEXT_DEFAULT if channel is not None and channel.ping_count else Colours.TEXT_DIM
+    ping_style = (
+        Colours.TEXT_DEFAULT if channel is not None and channel.ping_count else Colours.TEXT_DIM
+    )
     line.append("  ", style="dim")
     line.append(req, style=metrics_style)
     line.append(" ", style="dim")
@@ -880,9 +801,9 @@ def _render_channel_health_row(
 ) -> None:
     line = Text(indent)
     line.append("│ ", style="dim")
-    _, state_style = _get_health_state(status)
-    line.append(SYMBOL_PING, style=state_style)
-    line.append(f" {'HEALTH':<13}", style=state_style)
+    state = _get_health_state(status)
+    line.append(SYMBOL_PING, style=state.style)
+    line.append(f" {'HEALTH':<13}", style=state.style)
 
     bucket_seconds = status.ping_activity_bucket_seconds or layout.default_bucket_seconds
     bucket_count = status.ping_activity_bucket_count or layout.default_bucket_count
@@ -920,7 +841,7 @@ def _render_single_channel_row(
     indent: str,
     *,
     layout: _ChannelSummaryLayout,
-) -> tuple[str, str] | None:
+) -> _ChannelErrorEntry | None:
     line = Text(indent)
     line.append("│ ", style="dim")
 
@@ -937,7 +858,7 @@ def _render_single_channel_row(
     return _channel_error_entry(entry.label, entry.channel)
 
 
-def _render_channel_errors(errors: list[tuple[str, str]], indent: str) -> None:
+def _render_channel_errors(errors: list[_ChannelErrorEntry], indent: str) -> None:
     if not errors:
         return
 
@@ -945,12 +866,12 @@ def _render_channel_errors(errors: list[tuple[str, str]], indent: str) -> None:
     empty_line.append("│", style="dim")
     console.console.print(empty_line)
 
-    for channel_type, error_message in errors:
+    for error in errors:
         error_line = Text(indent)
         error_line.append("│ ", style=Colours.TEXT_DIM)
         error_line.append("▲ ", style=Colours.TEXT_WARNING)
-        error_line.append(f"{channel_type}: ", style=Colours.TEXT_DEFAULT)
-        error_line.append(_truncate_detail(error_message, max_len=60), style=Colours.TEXT_ERROR)
+        error_line.append(f"{error.label}: ", style=Colours.TEXT_DEFAULT)
+        error_line.append(_truncate_detail(error.message, max_len=60), style=Colours.TEXT_ERROR)
         console.console.print(error_line)
 
 
@@ -960,7 +881,9 @@ def _render_channel_footer(
     *,
     is_stdio: bool,
 ) -> None:
-    has_timelines = any(entry.channel is not None and entry.channel.activity_buckets for entry in entries)
+    has_timelines = any(
+        entry.channel is not None and entry.channel.activity_buckets for entry in entries
+    )
     if has_timelines:
         empty_before = Text(indent)
         empty_before.append("│", style="dim")
@@ -988,7 +911,11 @@ def _render_channel_footer(
         for index, (name, color) in enumerate(legend_map):
             if index > 0:
                 footer.append(" ", style="dim")
-            symbol = SYMBOL_STDIO_ACTIVITY if is_stdio and name == "activity" else _timeline_symbol_for_state(name, is_stdio=is_stdio)
+            symbol = (
+                SYMBOL_STDIO_ACTIVITY
+                if is_stdio and name == "activity"
+                else _timeline_symbol_for_state(name, is_stdio=is_stdio)
+            )
             footer.append(symbol, style=color)
             footer.append(f" {name}", style="dim")
 
@@ -1005,7 +932,7 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     layout = _build_channel_summary_layout(status, entries)
     _render_channel_summary_header(indent, layout)
 
-    errors: list[tuple[str, str]] = []
+    errors: list[_ChannelErrorEntry] = []
     health_inserted = False
     for entry in entries:
         error = _render_single_channel_row(entry, indent, layout=layout)
@@ -1092,13 +1019,17 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
     meta_fields = [
         _build_aligned_field(
             "name",
-            _truncate_detail(status.implementation_name or status.server_name or "unknown", max_len=30),
+            _truncate_detail(
+                status.implementation_name or status.server_name or "unknown", max_len=30
+            ),
         )
     ]
 
     version_display = status.implementation_version or ""
     if version_display:
-        meta_fields.append(_build_aligned_field("version", _truncate_detail(version_display, max_len=12)))
+        meta_fields.append(
+            _build_aligned_field("version", _truncate_detail(version_display, max_len=12))
+        )
 
     for index, field in enumerate(meta_fields):
         if index:
@@ -1115,12 +1046,6 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
     session_line = Text(indent + "  ")
     session_line.append_text(_build_aligned_field("session", _format_session_id(status.session_id)))
     console.console.print(session_line)
-
-    experimental_session_line = Text(indent + "  ")
-    experimental_session_line.append_text(
-        _build_aligned_field("sessions", _format_experimental_session_status(status))
-    )
-    console.console.print(experimental_session_line)
 
     health_text = _build_health_text(status)
     if health_text is not None:
@@ -1193,6 +1118,18 @@ def _render_server_calls(status: ServerStatus, *, indent: str) -> None:
         console.console.print(reconnect_line)
 
 
+def _render_mcp_skills_hint(status: ServerStatus, *, indent: str) -> None:
+    if not status.mcp_skills_enabled:
+        return
+
+    skills_line = Text(indent + "  ")
+    skills_line.append(
+        "SEP-2640 Skills over MCP is enabled: use `/skills registry` to select them",
+        style=Colours.TEXT_SUCCESS,
+    )
+    console.console.print(skills_line)
+
+
 def _render_capability_banner(
     tokens: list[tuple[str, str]],
     *,
@@ -1236,6 +1173,7 @@ def _render_server_status_block(
     _render_server_state(status, indent=indent, template_expected=template_expected)
     _render_server_calls(status, indent=indent)
     _render_channel_summary(status, indent, total_width)
+    _render_mcp_skills_hint(status, indent=indent)
     _render_capability_banner(
         primary_caps + secondary_caps,
         indent=indent,
@@ -1254,7 +1192,7 @@ async def render_mcp_status(agent, indent: str = "") -> None:
 
     template_expected = _template_expects_server_instructions(agent)
     total_width = _console_width()
-    server_items = list(sorted(server_status_map.items()))
+    server_items = sorted(server_status_map.items())
 
     for index, (server, status) in enumerate(server_items, start=1):
         _render_server_status_block(

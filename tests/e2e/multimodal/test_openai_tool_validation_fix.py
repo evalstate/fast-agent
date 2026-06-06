@@ -73,12 +73,8 @@ async def test_parallel_tool_calls_with_mixed_content_ordering(fast_agent):
             assert len(screenshot_result.content) == 2  # Text + image content
 
             # Verify content types
-            text_contents = [
-                c for c in screenshot_result.content if isinstance(c, TextContent)
-            ]
-            image_contents = [
-                c for c in screenshot_result.content if isinstance(c, ImageContent)
-            ]
+            text_contents = [c for c in screenshot_result.content if isinstance(c, TextContent)]
+            image_contents = [c for c in screenshot_result.content if isinstance(c, ImageContent)]
 
             assert len(text_contents) >= 1, "Screenshot tool should return text content"
             assert len(image_contents) >= 1, "Screenshot tool should return image content"

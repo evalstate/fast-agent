@@ -13,15 +13,13 @@ from fast_agent.cli.command_support import ensure_context_object, get_settings_o
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.runtime.agent_setup import run_agent_request
 from fast_agent.cli.runtime.request_builders import (
-    CARD_EXTENSIONS as _CARD_EXTENSIONS,
-)
-from fast_agent.cli.runtime.request_builders import (
     DEFAULT_AGENT_CARDS_DIR as _DEFAULT_AGENT_CARDS_DIR,
 )
 from fast_agent.cli.runtime.request_builders import (
     DEFAULT_TOOL_CARDS_DIR as _DEFAULT_TOOL_CARDS_DIR,
 )
 from fast_agent.cli.runtime.request_builders import (
+    ResolvedInstructionOption,
     build_command_run_request,
     build_run_agent_kwargs,
     is_multi_model,
@@ -43,6 +41,7 @@ from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
 from fast_agent.paths import resolve_environment_paths
 
 CARD_EXTENSIONS = _CARD_EXTENSIONS
@@ -73,7 +72,7 @@ def resolve_instruction_option(
     instruction: str | None,
     model: str | None,
     mode: Literal["interactive", "serve"],
-) -> tuple[str, str]:
+) -> ResolvedInstructionOption:
     return _resolve_instruction_option(instruction, model, mode)
 
 
@@ -423,7 +422,11 @@ def go(
         if noenv:
             raise typer.BadParameter("Cannot combine --pack with --noenv.", param_hint="--pack")
 
-        settings = get_settings_or_exit(config_path) if (resolved_env_dir is None or pack_registry is None) else None
+        settings = (
+            get_settings_or_exit(config_path)
+            if (resolved_env_dir is None or pack_registry is None)
+            else None
+        )
         effective_env_dir = _resolve_effective_environment_dir(
             settings=settings,
             env_dir=resolved_env_dir,
@@ -440,7 +443,7 @@ def go(
         except card_service.CardPackLookupError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             typer.echo(f"Failed to prepare card pack: {exc}", err=True)
             raise typer.Exit(1) from exc
 

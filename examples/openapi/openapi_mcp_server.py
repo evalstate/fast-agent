@@ -114,7 +114,9 @@ def build_server(spec_text: str, base_url: str | None, server_name: str) -> Fast
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run an MCP server backed by an OpenAPI specification.")
+    parser = argparse.ArgumentParser(
+        description="Run an MCP server backed by an OpenAPI specification."
+    )
     parser.add_argument("spec", help="Path to the OpenAPI specification (YAML or JSON).")
     parser.add_argument(
         "--name",

@@ -3,7 +3,7 @@
 Children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager.
 
 Parent agent ("PMO-orchestrator") calls two child agents
-("NY-Project-Manager" and "London-Project-Manager") as tools. 
+("NY-Project-Manager" and "London-Project-Manager") as tools.
 
 Each child uses the `time` MCP server for local time and the `fetch` MCP server for a short
 news-based update on the given topics.
@@ -83,13 +83,13 @@ fast = FastAgent("Agents-as-Tools demo")
     agents=[
         "NY-Project-Manager",
         "London-Project-Manager",
-    ],  
+    ],
     # Defaults: clones start with empty history (no merge-back), no timeout, no parallel cap,
     # and collapses progress display after the first 20 instances.
     # To change behavior, pass decorator args
     max_parallel=128,
     child_timeout_sec=120,
-    max_display_instances=20
+    max_display_instances=20,
 )
 async def main() -> None:
     async with fast.run() as agent:

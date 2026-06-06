@@ -3,26 +3,40 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from shutil import get_terminal_size
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from rich.text import Text
 
+from fast_agent.commands.handlers._text_formatting import indexed_row, resolve_terminal_width
+from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_summaries import build_session_list_summary
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.session import display_session_name
+from fast_agent.session import display_session_name, format_session_agent_label
 from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.shell_notice import format_shell_notice
+from fast_agent.utils.action_normalization import normalize_action_token, parse_boolean_alias
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
+    from fast_agent.core.logging.logger import Logger
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.session import SessionEntrySummary
-    from fast_agent.types import PromptMessageExtended
+    from fast_agent.session import ResumeSessionAgentsResult, Session, SessionEntrySummary
+    from fast_agent.session.session_manager import SessionManager
 
 
 NOENV_SESSION_MESSAGE = "Session commands are disabled in --noenv mode."
+_PIN_TOGGLE_VALUES = {"", "toggle"}
+_PIN_USAGE = "Usage: /session pin [on|off|id|number]"
+
+
+@dataclass(frozen=True, slots=True)
+class _PinState:
+    desired: bool | None = None
+    error: str | None = None
 
 
 def _noenv_outcome() -> CommandOutcome:
@@ -37,18 +51,6 @@ def _append_session_metadata(line: Text, items: list[tuple[str, str]]) -> None:
         line.append(value, style=style)
 
 
-def _resolve_terminal_width() -> int:
-    try:
-        from fast_agent.ui.console import console
-
-        width = console.size.width
-    except Exception:
-        width = 0
-    if width <= 0:
-        width = get_terminal_size(fallback=(100, 20)).columns
-    return width
-
-
 def _truncate_summary(summary: str, available: int) -> str | None:
     if available <= 0:
         return None
@@ -59,39 +61,67 @@ def _truncate_summary(summary: str, available: int) -> str | None:
     return summary[: max(0, available - 1)].rstrip() + "…"
 
 
-def _resolve_pin_state(value: str | None, *, current: bool) -> tuple[bool | None, str | None]:
-    if value is None or value.strip() == "" or value.strip().lower() == "toggle":
-        return not current, None
-    normalized = value.strip().lower()
-    if normalized in {"on", "true", "yes", "enable", "enabled"}:
-        return True, None
-    if normalized in {"off", "false", "no", "disable", "disabled"}:
-        return False, None
-    return None, "Usage: /session pin [on|off|id|number]"
-
-
-def _find_last_assistant_text(history: list[PromptMessageExtended]) -> str | None:
-    return find_last_assistant_preview_text(history)
+def _resolve_pin_state(value: str | None, *, current: bool) -> _PinState:
+    normalized = normalize_action_token(value)
+    if normalized in _PIN_TOGGLE_VALUES:
+        return _PinState(desired=not current)
+    desired = parse_boolean_alias(normalized, numeric=False)
+    if desired is not None:
+        return _PinState(desired=desired)
+    return _PinState(error=_PIN_USAGE)
 
 
 def _strip_wrapping_quotes(value: str | None) -> str | None:
-    if value is None:
+    text = strip_to_none(value)
+    if text is None:
         return None
-    text = value.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
-        text = text[1:-1].strip()
-    return text or None
+        text = strip_to_none(text[1:-1]) or ""
+    return strip_to_none(text)
+
+
+def _session_for_pin(
+    manager: "SessionManager",
+    outcome: CommandOutcome,
+    *,
+    target: str | None,
+) -> "Session | None":
+    target = strip_to_none(target)
+    if target:
+        resolved = manager.resolve_session_name(target)
+        session = manager.get_session(resolved) if resolved else None
+        if session is None:
+            outcome.add_message(
+                f"Session not found: {target}",
+                channel="error",
+                right_info="session",
+            )
+        return session
+
+    session = manager.current_session
+    if session is not None:
+        return session
+
+    sessions = manager.list_sessions()
+    if sessions:
+        return manager.get_session(sessions[0].name)
+
+    outcome.add_message(
+        "No session available to pin.",
+        channel="warning",
+        right_info="session",
+    )
+    return None
 
 
 def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) -> Text:
     content = Text()
     content.append_text(Text("Sessions:", style="bold"))
     content.append("\n\n")
-    terminal_width = _resolve_terminal_width()
+    terminal_width = resolve_terminal_width()
     bullet_sep = " • "
     for entry in entries:
-        line = Text()
-        line.append(f"[{entry.index:2}] ", style="dim cyan")
+        line = indexed_row(entry.index)
         name_style = "bold yellow" if entry.is_pinned else "bright_blue bold"
         line.append(entry.display_name, style=name_style)
 
@@ -105,10 +135,9 @@ def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) ->
             line.append(entry.timestamp, style="dim")
 
         metadata_items: list[tuple[str, str]] = []
-        if entry.agent_count and entry.agent_label:
-            metadata_items.append(
-                (f"{entry.agent_count} agents: {entry.agent_label}", "dim")
-            )
+        agent_label = format_session_agent_label(entry)
+        if agent_label:
+            metadata_items.append((agent_label, "dim"))
 
         if entry.is_pinned:
             line.append(bullet_sep, style="dim")
@@ -133,11 +162,12 @@ def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) ->
     return content
 
 
-
 async def handle_create_session(
     ctx: CommandContext,
     *,
     session_name: str | None,
+    session_id: str | None = None,
+    replace_existing: bool = False,
 ) -> CommandOutcome:
     if ctx.noenv:
         return _noenv_outcome()
@@ -146,10 +176,31 @@ async def handle_create_session(
 
     manager = ctx.resolve_session_manager()
     session_name = _strip_wrapping_quotes(session_name)
-    session = manager.create_session(session_name)
+    metadata = {"title": session_name} if session_name else None
+    if session_id:
+        if replace_existing:
+            manager.delete_session(session_id)
+        session = manager.create_session_with_id(session_id, metadata=metadata)
+    else:
+        session = manager.create_session(session_name)
     label = session.info.metadata.get("title") or session.info.name
     outcome.add_message(f"Created session: {label}", channel="info", right_info="session")
     return outcome
+
+
+def apply_session_new_history_reset(
+    ctx: CommandContext,
+    outcome: CommandOutcome,
+    *,
+    logger: "Logger | None" = None,
+) -> None:
+    """Clear in-memory histories after starting a new conversation session."""
+    cleared = clear_agent_histories(ctx.agent_provider.registered_agents(), logger)
+    if cleared:
+        outcome.add_message(
+            f"Cleared agent history: {', '.join(sorted(cleared))}",
+            channel="info",
+        )
 
 
 async def handle_list_sessions(
@@ -191,44 +242,22 @@ async def handle_pin_session(
     from fast_agent.session import is_session_pinned
 
     manager = ctx.resolve_session_manager()
-    session = None
-    if target:
-        resolved = manager.resolve_session_name(target)
-        if resolved:
-            session = manager.get_session(resolved)
-        if session is None:
-            outcome.add_message(
-                f"Session not found: {target}",
-                channel="error",
-                right_info="session",
-            )
-            return outcome
-    else:
-        session = manager.current_session
-        if session is None:
-            sessions = manager.list_sessions()
-            if sessions:
-                session = manager.get_session(sessions[0].name)
-        if session is None:
-            outcome.add_message(
-                "No session available to pin.",
-                channel="warning",
-                right_info="session",
-            )
-            return outcome
+    session = _session_for_pin(manager, outcome, target=target)
+    if session is None:
+        return outcome
 
     current = is_session_pinned(session.info)
-    desired, error = _resolve_pin_state(value, current=current)
-    if desired is None:
+    pin_state = _resolve_pin_state(value, current=current)
+    if pin_state.desired is None:
         outcome.add_message(
-            error or "Usage: /session pin [on|off|id|number]",
+            pin_state.error or "Usage: /session pin [on|off|id|number]",
             channel="warning",
         )
         return outcome
 
-    session.set_pinned(desired)
+    session.set_pinned(pin_state.desired)
     label = display_session_name(session.info.name)
-    action = "Pinned" if desired else "Unpinned"
+    action = "Pinned" if pin_state.desired else "Unpinned"
     outcome.add_message(
         f"{action} session: {label}",
         channel="info",
@@ -248,6 +277,7 @@ async def handle_clear_sessions(
     outcome = CommandOutcome()
     from fast_agent.session import apply_session_window
 
+    target = strip_to_none(target)
     if not target:
         outcome.add_message(
             "Usage: /session delete <id|number|all>",
@@ -257,7 +287,7 @@ async def handle_clear_sessions(
         return outcome
 
     manager = ctx.resolve_session_manager()
-    if target.lower() == "all":
+    if normalize_action_token(target) == "all":
         all_sessions = manager.list_sessions()
         if not all_sessions:
             outcome.add_message("No sessions found.", channel="warning", right_info="session")
@@ -267,7 +297,7 @@ async def handle_clear_sessions(
             if manager.delete_session(session_info.name):
                 deleted += 1
         outcome.add_message(
-            f"Deleted {deleted} session(s).",
+            f"Deleted {format_count(deleted, 'session')}.",
             channel="info",
             right_info="session",
         )
@@ -289,6 +319,129 @@ async def handle_clear_sessions(
     return outcome
 
 
+def _add_resume_result_messages(
+    outcome: CommandOutcome,
+    result: ResumeSessionAgentsResult,
+) -> None:
+    loaded = result.loaded
+    session = result.session
+    if loaded:
+        loaded_list = ", ".join(sorted(loaded.keys()))
+        outcome.add_message(
+            f"Resumed session: {session.info.name} ({loaded_list})",
+            channel="info",
+            right_info="session",
+        )
+    else:
+        outcome.add_message(
+            f"Resumed session: {session.info.name} (no history yet)",
+            channel="warning",
+            right_info="session",
+        )
+
+    if result.missing_agents:
+        missing_list = ", ".join(sorted(result.missing_agents))
+        outcome.add_message(
+            f"Missing agents from session: {missing_list}",
+            channel="warning",
+            right_info="session",
+        )
+
+    for warning in result.warnings:
+        if warning.code != "missing-agent":
+            outcome.add_message(
+                warning.message,
+                channel="warning",
+                right_info="session",
+            )
+
+    for usage_notice in result.usage_notices:
+        outcome.add_message(
+            usage_notice,
+            channel="warning",
+            right_info="session",
+        )
+
+
+def _add_available_history_summary(
+    outcome: CommandOutcome,
+    result: ResumeSessionAgentsResult,
+) -> None:
+    if not result.missing_agents and result.loaded:
+        return
+
+    from fast_agent.session import (
+        format_history_summary,
+        summarize_session_histories,
+    )
+
+    summary = summarize_session_histories(result.session)
+    summary_text = format_history_summary(summary)
+    if summary_text:
+        outcome.add_message(
+            Text(f"Available histories: {summary_text}", style="dim"),
+            right_info="session",
+        )
+
+
+def _active_resume_agent(
+    ctx: CommandContext,
+    outcome: CommandOutcome,
+    *,
+    requested_agent_name: str,
+    active_agent_name: str,
+) -> AgentProtocol:
+    if active_agent_name == requested_agent_name:
+        return cast("AgentProtocol", ctx.agent_provider._agent(requested_agent_name))
+
+    outcome.switch_agent = active_agent_name
+    outcome.add_message(
+        f"Switched to agent: {active_agent_name}",
+        channel="info",
+        right_info="session",
+    )
+    return cast("AgentProtocol", ctx.agent_provider._agent(active_agent_name))
+
+
+def _add_shell_notice(outcome: CommandOutcome, agent_obj: AgentProtocol) -> None:
+    if isinstance(agent_obj, McpAgentProtocol) and agent_obj.shell_runtime_enabled:
+        notice = format_shell_notice(agent_obj.shell_access_modes, agent_obj.shell_runtime)
+        outcome.add_message(notice, right_info="session")
+
+
+def _ensure_usage_model(agent_obj: AgentProtocol) -> None:
+    usage = agent_obj.usage_accumulator
+    if not usage or usage.model is not None:
+        return
+
+    llm = agent_obj.llm
+    model_name = llm.model_name if llm is not None else None
+    if not model_name:
+        model_name = agent_obj.config.model
+    if model_name:
+        usage.model = model_name
+
+
+async def _display_resumed_history(
+    ctx: CommandContext,
+    outcome: CommandOutcome,
+    agent_obj: AgentProtocol,
+) -> None:
+    usage = agent_obj.usage_accumulator
+    history = list(agent_obj.message_history)
+    await ctx.io.display_history_overview(agent_obj.name, history, usage)
+
+    assistant_text = find_last_assistant_preview_text(history)
+    if assistant_text:
+        outcome.add_message(
+            Text(assistant_text),
+            title="Last assistant message",
+            right_info="session",
+            agent_name=agent_obj.name,
+            render_markdown=True,
+        )
+
+
 async def handle_resume_session(
     ctx: CommandContext,
     *,
@@ -299,13 +452,6 @@ async def handle_resume_session(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    from fast_agent.session import (
-        format_history_summary,
-        summarize_session_histories,
-    )
-
-    agent_obj = ctx.agent_provider._agent(agent_name)
-
     manager = ctx.resolve_session_manager()
     agents_map = cast("Mapping[str, AgentProtocol]", ctx.agent_provider.registered_agents())
     if not isinstance(agents_map, Mapping):
@@ -331,93 +477,19 @@ async def handle_resume_session(
             outcome.add_message("No sessions found.", channel="warning")
         return outcome
 
-    session = result.session
-    loaded = result.loaded
-    missing_agents = result.missing_agents
-    usage_notices = result.usage_notices
     active_agent_name = result.active_agent or agent_name
-    if loaded:
-        loaded_list = ", ".join(sorted(loaded.keys()))
-        outcome.add_message(
-            f"Resumed session: {session.info.name} ({loaded_list})",
-            channel="info",
-            right_info="session",
-        )
-    else:
-        outcome.add_message(
-            f"Resumed session: {session.info.name} (no history yet)",
-            channel="warning",
-            right_info="session",
-        )
+    _add_resume_result_messages(outcome, result)
+    _add_available_history_summary(outcome, result)
 
-    if missing_agents:
-        missing_list = ", ".join(sorted(missing_agents))
-        outcome.add_message(
-            f"Missing agents from session: {missing_list}",
-            channel="warning",
-            right_info="session",
-        )
-
-    for warning in result.warnings:
-        if warning.code == "missing-agent":
-            continue
-        outcome.add_message(
-            warning.message,
-            channel="warning",
-            right_info="session",
-        )
-
-    for usage_notice in usage_notices:
-        outcome.add_message(
-            usage_notice,
-            channel="warning",
-            right_info="session",
-        )
-
-    if missing_agents or not loaded:
-        summary = summarize_session_histories(session)
-        summary_text = format_history_summary(summary)
-        if summary_text:
-            outcome.add_message(
-                Text(f"Available histories: {summary_text}", style="dim"),
-                right_info="session",
-            )
-
-    if active_agent_name != agent_name:
-        outcome.switch_agent = active_agent_name
-        agent_obj = ctx.agent_provider._agent(active_agent_name)
-        outcome.add_message(
-            f"Switched to agent: {active_agent_name}",
-            channel="info",
-            right_info="session",
-        )
-
-    if isinstance(agent_obj, McpAgentProtocol) and agent_obj.shell_runtime_enabled:
-        notice = format_shell_notice(agent_obj.shell_access_modes, agent_obj.shell_runtime)
-        outcome.add_message(notice, right_info="session")
-
-    agent_obj = cast("AgentProtocol", agent_obj)
-    usage = agent_obj.usage_accumulator
-    if usage and usage.model is None:
-        llm = agent_obj.llm
-        model_name = llm.model_name if llm is not None else None
-        if not model_name:
-            model_name = agent_obj.config.model
-        if model_name:
-            usage.model = model_name
-
-    history = agent_obj.message_history
-    await ctx.io.display_history_overview(agent_obj.name, list(history), usage)
-
-    assistant_text = _find_last_assistant_text(list(history))
-    if assistant_text:
-        outcome.add_message(
-            Text(assistant_text),
-            title="Last assistant message",
-            right_info="session",
-            agent_name=agent_obj.name,
-            render_markdown=True,
-        )
+    agent_obj = _active_resume_agent(
+        ctx,
+        outcome,
+        requested_agent_name=agent_name,
+        active_agent_name=active_agent_name,
+    )
+    _add_shell_notice(outcome, agent_obj)
+    _ensure_usage_model(agent_obj)
+    await _display_resumed_history(ctx, outcome, agent_obj)
     return outcome
 
 
@@ -443,7 +515,11 @@ async def handle_title_session(
             session = manager.create_session_with_id(session_id)
     elif session is None:
         session = manager.create_session()
-    assert session is not None
+    if session is None:
+        outcome.add_message(
+            "No session available to title.", channel="warning", right_info="session"
+        )
+        return outcome
     session.set_title(title)
     outcome.add_message(f"Session title set: {title}", channel="info", right_info="session")
     return outcome
@@ -462,7 +538,9 @@ async def handle_fork_session(
     title = _strip_wrapping_quotes(title)
     forked = manager.fork_current_session(title=title)
     if forked is None:
-        outcome.add_message("No session available to fork.", channel="warning", right_info="session")
+        outcome.add_message(
+            "No session available to fork.", channel="warning", right_info="session"
+        )
         return outcome
     label = forked.info.metadata.get("title") or forked.info.name
     outcome.add_message(f"Forked session: {label}", channel="info", right_info="session")

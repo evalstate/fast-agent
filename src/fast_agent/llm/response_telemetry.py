@@ -127,9 +127,7 @@ def append_usage_channel(
     if FAST_AGENT_USAGE in channels:
         return
 
-    channels[FAST_AGENT_USAGE] = [
-        TextContent(type="text", text=json.dumps(usage_payload))
-    ]
+    channels[FAST_AGENT_USAGE] = [TextContent(type="text", text=json.dumps(usage_payload))]
     response.channels = channels
 
 

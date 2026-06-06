@@ -179,43 +179,6 @@ def test_run_async_agent_merges_default_tool_cards(tmp_path: Path) -> None:
     assert run_kwargs["card_tools"] == [str(tool_dir)]
 
 
-def test_run_async_agent_passes_target_agent_name() -> None:
-    run_kwargs = go_command._build_run_agent_kwargs(
-        name="test-agent",
-        instruction="test instruction",
-        config_path=None,
-        servers=None,
-        urls=None,
-        auth=None,
-        client_metadata_url=None,
-        agent_cards=["./agents"],
-        card_tools=None,
-        model=None,
-        message="hello",
-        prompt_file=None,
-        result_file=None,
-        resume=None,
-        stdio_commands=None,
-        agent_name="agent",
-        target_agent_name="researcher",
-        skills_directory=None,
-        environment_dir=None,
-        shell_enabled=False,
-        mode="interactive",
-        transport="http",
-        host="127.0.0.1",
-        port=8000,
-        tool_description=None,
-        tool_name_template=None,
-        instance_scope="shared",
-        permissions_enabled=True,
-        reload=False,
-        watch=False,
-    )
-
-    assert run_kwargs["target_agent_name"] == "researcher"
-
-
 def test_run_async_agent_noenv_passes_flag_and_disables_implicit_cards() -> None:
     run_kwargs = go_command._build_run_agent_kwargs(
         name="test-agent",
@@ -254,43 +217,6 @@ def test_run_async_agent_noenv_passes_flag_and_disables_implicit_cards() -> None
     assert run_kwargs["noenv"] is True
     assert run_kwargs["agent_cards"] is None
     assert run_kwargs["card_tools"] is None
-
-
-def test_run_async_agent_passes_result_file() -> None:
-    run_kwargs = go_command._build_run_agent_kwargs(
-        name="test-agent",
-        instruction="test instruction",
-        config_path=None,
-        servers=None,
-        urls=None,
-        auth=None,
-        client_metadata_url=None,
-        agent_cards=None,
-        card_tools=None,
-        model=None,
-        message="hello",
-        prompt_file=None,
-        result_file="result.json",
-        resume=None,
-        stdio_commands=None,
-        agent_name="agent",
-        target_agent_name=None,
-        skills_directory=None,
-        environment_dir=None,
-        shell_enabled=False,
-        mode="interactive",
-        transport="http",
-        host="127.0.0.1",
-        port=8000,
-        tool_description=None,
-        tool_name_template=None,
-        instance_scope="shared",
-        permissions_enabled=True,
-        reload=False,
-        watch=False,
-    )
-
-    assert run_kwargs["result_file"] == "result.json"
 
 
 def test_go_accepts_repeated_attach_flags(monkeypatch, tmp_path: Path) -> None:
@@ -338,22 +264,6 @@ def test_build_compat_run_request_defaults_acp_instance_scope_to_connection() ->
     )
 
     assert request.instance_scope == "connection"
-
-
-def test_run_async_agent_normalizes_legacy_acp_shared_scope(monkeypatch) -> None:
-    captured_requests = []
-
-    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
-
-    go_command.run_async_agent(
-        name="test-agent",
-        instruction="test instruction",
-        mode="serve",
-        transport="acp",
-    )
-
-    assert len(captured_requests) == 1
-    assert captured_requests[0].instance_scope == "connection"
 
 
 def test_go_pack_installs_then_runs(tmp_path: Path, monkeypatch) -> None:

@@ -2,6 +2,10 @@
 Unit tests for the router agent, covering models and core functionality.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
+
 import pytest
 
 from fast_agent.agents import McpAgent
@@ -14,6 +18,38 @@ from fast_agent.llm.internal.passthrough import (
     FIXED_RESPONSE_INDICATOR,
     PassthroughLLM,
 )
+from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.types import PromptMessageExtended, RequestParams
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from mcp.types import PromptMessage
+
+
+class RecordingSchemaAgent(LlmAgent):
+    def __init__(self, name: str) -> None:
+        super().__init__(AgentConfig(name=name, instruction="records schema calls"))
+        self.structured_schema_inputs: list[list[PromptMessageExtended]] = []
+        self.structured_schemas: list[dict[str, Any]] = []
+        self.structured_schema_params: list[RequestParams | None] = []
+
+    async def structured_schema(
+        self,
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[dict[str, str], PromptMessageExtended]:
+        assert isinstance(messages, list)
+        self.structured_schema_inputs.append(cast("list[PromptMessageExtended]", messages))
+        self.structured_schemas.append(schema)
+        self.structured_schema_params.append(request_params)
+        message = PromptMessageExtended(role="assistant", content=[text_content("structured")])
+        return {"value": self.name}, message
+
 
 # Model tests
 
@@ -85,3 +121,25 @@ async def test_single_agent_shortcircuit():
     assert response
     assert response.agent == "only_agent"
     assert response.confidence == "high"
+
+
+@pytest.mark.asyncio
+async def test_structured_schema_routes_to_selected_agent() -> None:
+    agent = RecordingSchemaAgent("only_agent")
+    router = RouterAgent(config=AgentConfig(name="test_router"), agents=[agent])
+    schema = {"type": "object", "properties": {"value": {"type": "string"}}}
+
+    result, message = await router.structured_schema(
+        Prompt.user("some request"),
+        schema,
+        RequestParams(use_history=False, emit_loop_progress=False),
+    )
+
+    assert result == {"value": "only_agent"}
+    assert message.all_text() == "structured"
+    assert len(agent.structured_schema_inputs) == 1
+    assert agent.structured_schema_inputs[0][0].all_text() == "some request"
+    assert agent.structured_schemas == [schema]
+    assert agent.structured_schema_params == [
+        RequestParams(use_history=False, emit_loop_progress=False)
+    ]

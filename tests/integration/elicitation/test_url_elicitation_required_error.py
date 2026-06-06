@@ -2,6 +2,8 @@
 
 import pytest
 
+from fast_agent.mcp.tool_result_metadata import url_elicitation_required_payload
+
 
 def _captured_output_text(capsys) -> str:
     captured = capsys.readouterr()
@@ -18,7 +20,7 @@ async def test_url_elicitation_required_error_displays_required_elicitations(fas
         async with fast.run() as agent:
             result = await agent["url_required_valid_agent"].call_tool("url_required_valid_tool")
             assert result.isError is True
-            payload = getattr(result, "_fast_agent_url_elicitation_required", None)
+            payload = url_elicitation_required_payload(result)
             assert payload is not None
             assert len(payload.elicitations) == 2
             assert payload.elicitations[0].elicitation_id == "valid-1"
@@ -42,7 +44,7 @@ async def test_url_elicitation_required_error_reports_malformed_data(fast_agent,
                 "url_required_malformed_tool"
             )
             assert result.isError is True
-            payload = getattr(result, "_fast_agent_url_elicitation_required", None)
+            payload = url_elicitation_required_payload(result)
             assert payload is not None
             assert len(payload.elicitations) == 0
             assert any("elicitations is empty" in issue for issue in payload.issues)

@@ -118,9 +118,7 @@ async def user_profile() -> str:
         )
         subscribe_newsletter: bool = Field(False, description="Subscribe to our newsletter?")
 
-    result = await get_context().elicit(
-        "Please provide your user profile information", UserProfile
-    )
+    result = await get_context().elicit("Please provide your user profile information", UserProfile)
 
     match result:
         case AcceptedElicitation(data=data):

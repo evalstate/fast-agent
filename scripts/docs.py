@@ -63,7 +63,9 @@ def generate() -> int:
 def social(args: list[str]) -> int:
     """Generate per-page Open Graph card PNGs using google-chrome."""
     print("Generating docs social cards...", flush=True)
-    result = subprocess.run([sys.executable, str(DOCS_DIR / "generate_social_cards.py"), *args], cwd=ROOT)
+    result = subprocess.run(
+        [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), *args], cwd=ROOT
+    )
     return result.returncode
 
 
@@ -97,7 +99,9 @@ def social_variants() -> int:
 def assets(args: list[str]) -> int:
     """Build or verify committed interactive documentation assets."""
     command = args or ["build"]
-    result = subprocess.run([sys.executable, str(ROOT / "scripts" / "docs_assets.py"), *command], cwd=ROOT)
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "docs_assets.py"), *command], cwd=ROOT
+    )
     return result.returncode
 
 

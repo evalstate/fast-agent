@@ -1,5 +1,5 @@
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
-from typing import Mapping, Sequence
 
 from mcp.types import (
     CallToolRequest,
@@ -10,7 +10,7 @@ from mcp.types import (
     Role,
     TextContent,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fast_agent.mcp.helpers.content_helpers import get_text
 
@@ -26,7 +26,7 @@ class PromptMessageExtended(BaseModel):
     """
 
     role: Role
-    content: list[ContentBlock] = []
+    content: list[ContentBlock] = Field(default_factory=list)
     tool_calls: dict[str, CallToolRequest] | None = None
     tool_results: dict[str, CallToolResult] | None = None
     channels: Mapping[str, Sequence[ContentBlock]] | None = None
@@ -40,7 +40,6 @@ class PromptMessageExtended(BaseModel):
         if self.timestamp is None:
             self.timestamp = at or datetime.now(timezone.utc)
         return self
-
 
     @classmethod
     def to_extended(cls, messages: list[PromptMessage]) -> list["PromptMessageExtended"]:
@@ -59,10 +58,9 @@ class PromptMessageExtended(BaseModel):
                     result.append(current_group)
                 current_role = msg.role
                 current_group = cls(role=msg.role, content=[msg.content])
-            else:
+            elif current_group is not None:
                 # Same role, add to current message
-                if current_group is not None:
-                    current_group.content.append(msg.content)
+                current_group.content.append(msg.content)
 
         # Add the last group
         if current_group is not None:

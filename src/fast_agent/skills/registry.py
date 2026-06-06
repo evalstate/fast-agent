@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape as escape_xml_text
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING
 
 import frontmatter
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import default_skill_paths
+from fast_agent.skills.models import SKILL_MANIFEST_FILENAME
+from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
+from fast_agent.utils.text import strip_casefold, strip_str_to_none, strip_to_none
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 logger = get_logger(__name__)
+
+SKILL_RESOURCE_DIRECTORIES = ("scripts", "references", "assets")
 
 
 @dataclass(frozen=True)
@@ -67,7 +76,7 @@ class SkillRegistry:
         manifests_by_name: dict[str, SkillManifest] = {}
         for directory in self._directories:
             for manifest in self._load_directory(directory, self._errors):
-                key = manifest.name.lower()
+                key = strip_casefold(manifest.name)
                 if key in manifests_by_name:
                     prior = manifests_by_name[key]
                     warning = (
@@ -150,7 +159,7 @@ class SkillRegistry:
         for entry in sorted(directory.iterdir()):
             if not entry.is_dir():
                 continue
-            manifest_path = entry / "SKILL.md"
+            manifest_path = entry / SKILL_MANIFEST_FILENAME
             if not manifest_path.exists():
                 continue
             manifest, error = cls._parse_manifest(manifest_path)
@@ -169,7 +178,7 @@ class SkillRegistry:
     def _parse_manifest(cls, manifest_path: Path) -> tuple[SkillManifest | None, str | None]:
         try:
             manifest_text = manifest_path.read_text(encoding="utf-8")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning(
                 "Failed to read skill manifest",
                 data={"path": str(manifest_path), "error": str(exc)},
@@ -195,7 +204,7 @@ class SkillRegistry:
     ) -> tuple[SkillManifest | None, str | None]:
         try:
             post = frontmatter.loads(manifest_text)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning(
                 "Failed to parse skill manifest",
                 data={"path": str(manifest_path), "error": str(exc)},
@@ -206,47 +215,34 @@ class SkillRegistry:
         name = metadata.get("name")
         description = metadata.get("description")
 
-        if not isinstance(name, str) or not name.strip():
+        normalized_name = strip_str_to_none(name)
+        normalized_description = strip_str_to_none(description)
+
+        if normalized_name is None:
             logger.warning("Skill manifest missing name", data={"path": str(manifest_path)})
             return None, "Missing 'name' field"
-        if not isinstance(description, str) or not description.strip():
+        if normalized_description is None:
             logger.warning("Skill manifest missing description", data={"path": str(manifest_path)})
             return None, "Missing 'description' field"
 
-        body_text = (post.content or "").strip()
-
-        # Parse optional fields per Agent Skills specification
-        license_field = metadata.get("license")
-        compatibility = metadata.get("compatibility")
-        custom_metadata = metadata.get("metadata")
-        allowed_tools_raw = metadata.get("allowed-tools")
-
-        # Parse allowed-tools as space-delimited list
-        allowed_tools: list[str] | None = None
-        if isinstance(allowed_tools_raw, str) and allowed_tools_raw.strip():
-            allowed_tools = allowed_tools_raw.split()
-
-        # Validate metadata is a dict if present
-        typed_metadata: dict[str, str] | None = None
-        if isinstance(custom_metadata, dict):
-            typed_metadata = {str(k): str(v) for k, v in custom_metadata.items()}
+        body_text = strip_to_none(post.content) or ""
 
         return SkillManifest(
-            name=name.strip(),
-            description=description.strip(),
+            name=normalized_name,
+            description=normalized_description,
             body=body_text,
             path=manifest_path,
-            license=license_field.strip() if isinstance(license_field, str) else None,
-            compatibility=compatibility.strip() if isinstance(compatibility, str) else None,
-            metadata=typed_metadata,
-            allowed_tools=allowed_tools,
+            license=_optional_str(metadata.get("license")),
+            compatibility=_optional_str(metadata.get("compatibility")),
+            metadata=_string_metadata(metadata.get("metadata")),
+            allowed_tools=_allowed_tools(metadata.get("allowed-tools")),
         ), None
 
 
 def format_skills_for_prompt(
     manifests: Sequence[SkillManifest],
     *,
-    read_tool_name: str = "read_skill",
+    read_tool_name: str = READ_SKILL_TOOL_NAME,
     include_preamble: bool = True,
 ) -> str:
     """
@@ -273,20 +269,20 @@ def format_skills_for_prompt(
     for manifest in manifests:
         skill_dir = manifest.path.parent
         lines: list[str] = ["<skill>"]
-        lines.append(f"  <name>{manifest.name}</name>")
+        lines.append(_xml_element("name", manifest.name))
 
-        description = (manifest.description or "").strip()
-        if description:
-            lines.append(f"  <description>{description}</description>")
+        description = strip_to_none(manifest.description)
+        if description is not None:
+            lines.append(_xml_element("description", description))
 
         # Use absolute path per Agent Skills specification
-        lines.append(f"  <location>{manifest.path}</location>")
-        lines.append(f"  <directory>{skill_dir}</directory>")
+        lines.append(_xml_element("location", str(manifest.path)))
+        lines.append(_xml_element("directory", str(skill_dir)))
 
-        for tag_name in ("scripts", "references", "assets"):
+        for tag_name in SKILL_RESOURCE_DIRECTORIES:
             subdir = skill_dir / tag_name
             if subdir.is_dir():
-                lines.append(f"  <{tag_name}>{subdir}</{tag_name}>")
+                lines.append(_xml_element(tag_name, str(subdir)))
 
         lines.append("</skill>")
         formatted_parts.append("\n".join(lines))
@@ -304,7 +300,7 @@ def format_skills_for_prompt(
         "skill resources.\n"
         "The <location> value is the absolute path to the skill's SKILL.md file, and "
         "<directory> is the resolved absolute path to the skill's root directory.\n"
-        "When present, <scripts>, <references>, and <assets> provide resolved absolute paths "
+        f"When present, {_skill_resource_directory_tags()} provide resolved absolute paths "
         "for standard skill resource directories.\n"
         "When a skill references relative paths, resolve them against the skill's "
         "directory (the parent of SKILL.md) and use absolute paths in tool calls.\n"
@@ -312,3 +308,29 @@ def format_skills_for_prompt(
     )
 
     return preamble + skills_xml
+
+
+def _xml_element(tag_name: str, value: str) -> str:
+    return f"  <{tag_name}>{escape_xml_text(value)}</{tag_name}>"
+
+
+def _skill_resource_directory_tags() -> str:
+    quoted_tags = [f"<{tag_name}>" for tag_name in SKILL_RESOURCE_DIRECTORIES]
+    return f"{', '.join(quoted_tags[:-1])}, and {quoted_tags[-1]}"
+
+
+def _optional_str(value: object) -> str | None:
+    return strip_str_to_none(value)
+
+
+def _allowed_tools(value: object) -> list[str] | None:
+    if not isinstance(value, str):
+        return None
+    tools = value.split()
+    return tools or None
+
+
+def _string_metadata(value: object) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    return {str(key): str(item) for key, item in value.items()}

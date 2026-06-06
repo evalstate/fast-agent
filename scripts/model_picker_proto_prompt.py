@@ -56,7 +56,9 @@ def _prompt_choice(
         if resolved is not None:
             return resolved
 
-        print_formatted_text(HTML("<ansired>Invalid choice. Try one of the suggested values.</ansired>"))
+        print_formatted_text(
+            HTML("<ansired>Invalid choice. Try one of the suggested values.</ansired>")
+        )
 
 
 def _print_provider_summary(active_text: str, provider_lines: list[str]) -> None:
@@ -82,7 +84,9 @@ def main() -> int:
     snapshot = build_snapshot(args.config)
     session: PromptSession[str] = PromptSession()
 
-    provider_options = {option.provider.config_name: option.provider.config_name for option in snapshot.providers}
+    provider_options = {
+        option.provider.config_name: option.provider.config_name for option in snapshot.providers
+    }
     if not provider_options:
         print("No providers found in model catalog.")
         return 1

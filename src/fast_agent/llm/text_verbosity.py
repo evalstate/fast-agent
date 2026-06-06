@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final, Literal, TypeAlias, cast
 
+from fast_agent.utils.text import strip_casefold
+
 TextVerbosityLevel: TypeAlias = Literal["low", "medium", "high"]
 
 TEXT_VERBOSITY_LEVELS: Final[tuple[TextVerbosityLevel, ...]] = (
@@ -26,11 +28,13 @@ class TextVerbositySpec:
     default: TextVerbosityLevel = "medium"
 
 
-def parse_text_verbosity(value: str | None) -> TextVerbosityLevel | None:
+def parse_text_verbosity(value: object) -> TextVerbosityLevel | None:
     """Parse a text verbosity value from raw input."""
     if value is None:
         return None
-    cleaned = value.strip().lower()
+    if not isinstance(value, str):
+        return None
+    cleaned = strip_casefold(value)
     if not cleaned:
         return None
     normalized = VERBOSITY_ALIASES.get(cleaned, cleaned)

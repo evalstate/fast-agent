@@ -2,21 +2,104 @@ from __future__ import annotations
 
 import pytest
 
+from fast_agent.commands.shared_command_intents import (
+    SESSION_COMMAND_COMPLETION_DESCRIPTIONS,
+    SESSION_SIMPLE_PAYLOAD_ACTIONS,
+)
 from fast_agent.ui.command_payloads import (
+    AgentCommand,
     AttachCommand,
+    CardsCommand,
+    CheckCommand,
+    ClearSessionsCommand,
+    CommandError,
     CommandPayload,
+    CreateSessionCommand,
+    ForkSessionCommand,
     HashAgentCommand,
-    HistoryShowCommand,
+    HistoryViewCommand,
+    ListPromptsCommand,
+    LoadAgentCardCommand,
     LoadHistoryCommand,
+    LoadPromptCommand,
     McpConnectCommand,
     McpListCommand,
-    McpSessionCommand,
-    ShowHistoryCommand,
+    ResumeSessionCommand,
+    SaveHistoryCommand,
+    TitleSessionCommand,
     UnknownCommand,
 )
 from fast_agent.ui.prompt import parse_special_input
+from fast_agent.ui.prompt import parser as prompt_parser
 
 type ExpectedParseResult = str | CommandPayload | dict[str, object]
+
+
+def test_session_payload_factory_table_matches_shared_simple_actions() -> None:
+    assert frozenset(prompt_parser._SESSION_PAYLOAD_FACTORIES) == SESSION_SIMPLE_PAYLOAD_ACTIONS
+
+
+def test_history_turn_error_formatters_cover_shared_error_codes() -> None:
+    assert frozenset(prompt_parser._HISTORY_TURN_ERROR_FORMATTERS) == {"missing", "invalid"}
+
+
+def test_session_completion_descriptions_cover_parser_actions() -> None:
+    assert set(SESSION_COMMAND_COMPLETION_DESCRIPTIONS) == {
+        "list",
+        "new",
+        "resume",
+        "title",
+        "fork",
+        "delete",
+        "clear",
+        "pin",
+        "export",
+    }
+
+
+def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
+    assert frozenset(prompt_parser._SIMPLE_SLASH_FACTORIES) == {
+        "help",
+        "system",
+        "usage",
+        "markdown",
+        "reload",
+        "mcpstatus",
+        "tools",
+        "prompts",
+        "exit",
+        "stop",
+    }
+    assert frozenset(prompt_parser._COMMAND_PARSERS) == {
+        "history",
+        "session",
+        "card",
+        "agent",
+        "mcp",
+        "connect",
+        "prompt",
+        "model",
+        "models",
+        "attach",
+        "check",
+        "commands",
+    }
+    assert frozenset(prompt_parser._SLASH_ACTION_FACTORIES) == {
+        "skills",
+        "cards",
+        "plugins",
+    }
+    assert frozenset(prompt_parser._SLASH_ALIAS_PARSERS) == {
+        "save_history",
+        "save",
+        "load_history",
+        "load",
+        "resume",
+        "fast",
+    }
+    assert frozenset(prompt_parser._PROMPT_SUBCOMMAND_PARSERS) == {
+        "load",
+    }
 
 
 @pytest.mark.parametrize(
@@ -33,23 +116,23 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
             id="attach-paths",
         ),
         pytest.param(
-            "/attach clear",
+            "/attach CLEAR",
             AttachCommand(paths=(), clear=True, error=None),
             id="attach-clear",
         ),
         pytest.param(
             "/history analyst",
-            ShowHistoryCommand(agent="analyst"),
+            HistoryViewCommand(agent="analyst"),
             id="history-bare-target",
         ),
         pytest.param(
             '/history "show"',
-            ShowHistoryCommand(agent="show"),
+            HistoryViewCommand(agent="show"),
             id="history-quoted-subcommand-collision",
         ),
         pytest.param(
             "/history show analyst",
-            HistoryShowCommand(agent="analyst"),
+            HistoryViewCommand(agent="analyst", view="table"),
             id="history-show-target",
         ),
         pytest.param(
@@ -61,33 +144,120 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
             id="history-load-missing-filename",
         ),
         pytest.param(
+            '/prompt load "my prompt.md"',
+            LoadPromptCommand(filename="my prompt.md", error=None),
+            id="prompt-load-quoted-path",
+        ),
+        pytest.param(
+            "/prompt Example.JSON",
+            LoadPromptCommand(filename="Example.JSON", error=None),
+            id="prompt-bare-uppercase-json-path",
+        ),
+        pytest.param(
+            '/prompt load "unterminated',
+            CommandError(message="Invalid /prompt arguments: No closing quotation"),
+            id="prompt-load-unterminated-quote",
+        ),
+        pytest.param(
             "/mcp list",
             McpListCommand(),
             id="mcp-list",
         ),
         pytest.param(
-            "/mcp session use demo sess-123",
-            McpSessionCommand(
-                action="use",
-                server_identity="demo",
-                session_id="sess-123",
-                title=None,
-                clear_all=False,
-                error=None,
+            "/card card.yml extra",
+            LoadAgentCardCommand(
+                filename="card.yml",
+                add_tool=False,
+                remove_tool=False,
+                error="Unexpected arguments: extra",
             ),
-            id="mcp-session-use",
+            id="card-rejects-extra-args",
         ),
         pytest.param(
-            "/mcp session use demo",
-            McpSessionCommand(
-                action="use",
-                server_identity=None,
-                session_id=None,
-                title=None,
-                clear_all=False,
-                error="Usage: /mcp session use <server_or_mcp_name> <session_id>",
+            "/agent @alpha --tool --rm",
+            AgentCommand(
+                agent_name="alpha",
+                add_tool=True,
+                remove_tool=True,
+                dump=False,
+                error=None,
             ),
-            id="mcp-session-use-invalid-arity",
+            id="agent-tool-remove-alias",
+        ),
+        pytest.param(
+            "/session new review",
+            CreateSessionCommand(session_name="review"),
+            id="session-new",
+        ),
+        pytest.param(
+            "/session resume sess-123",
+            ResumeSessionCommand(session_id="sess-123"),
+            id="session-resume",
+        ),
+        pytest.param(
+            '/session "resume" sess-123',
+            ResumeSessionCommand(session_id="sess-123"),
+            id="session-quoted-resume",
+        ),
+        pytest.param(
+            '/resume "sess 123"',
+            ResumeSessionCommand(session_id="sess 123"),
+            id="resume-alias-quoted-id",
+        ),
+        pytest.param(
+            "/resume sess 123",
+            ResumeSessionCommand(session_id="sess 123"),
+            id="resume-alias-unquoted-multi-token-id",
+        ),
+        pytest.param(
+            "/session title Sprint Notes",
+            TitleSessionCommand(title="Sprint Notes"),
+            id="session-title",
+        ),
+        pytest.param(
+            '/session title "unterminated',
+            CommandError(message="Invalid /session arguments: No closing quotation"),
+            id="session-title-unterminated",
+        ),
+        pytest.param(
+            "/session fork forked run",
+            ForkSessionCommand(title="forked run"),
+            id="session-fork",
+        ),
+        pytest.param(
+            "/session delete all",
+            ClearSessionsCommand(target="all"),
+            id="session-delete",
+        ),
+        pytest.param(
+            "/save notes.md",
+            SaveHistoryCommand(filename="notes.md"),
+            id="save-alias",
+        ),
+        pytest.param(
+            "/load",
+            LoadHistoryCommand(filename=None, error="Filename required for /history load"),
+            id="load-alias-missing-filename",
+        ),
+        pytest.param(
+            "/cards registry",
+            CardsCommand(action="registry", argument=None),
+            id="cards-action-alias",
+        ),
+        pytest.param(
+            "/prompts",
+            ListPromptsCommand(),
+            id="prompts-list-alias",
+        ),
+        pytest.param(
+            "/tools extra",
+            CommandError(message="Unexpected arguments for /tools: extra"),
+            id="simple-command-rejects-extra-args",
+        ),
+        pytest.param(
+            "/check models --for-model gpt-5",
+            CheckCommand(argument="models --for-model gpt-5"),
+            id="check-command",
         ),
         pytest.param(
             "/connect https://example.com/mcp",
@@ -152,6 +322,16 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
             "/does-not-exist",
             UnknownCommand(command="/does-not-exist"),
             id="unknown-command-fallback",
+        ),
+        pytest.param(
+            "/   ",
+            "",
+            id="whitespace-only-slash",
+        ),
+        pytest.param(
+            "   /   ",
+            "",
+            id="leading-whitespace-slash",
         ),
     ],
 )

@@ -166,8 +166,8 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     )
 
     assert progress == [
-        "Export: preparing codex trace for agent 'dev' from 2 message(s): "
-        "1 user, 1 assistant, 0 tool call(s), 0 tool result(s)."
+        "Export: preparing codex trace for agent 'dev' from 2 messages: "
+        "1 user, 1 assistant, 0 tool calls, 0 tool results."
     ]
     lines = (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     records = [json.loads(line) for line in lines]
@@ -226,6 +226,37 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert "timestamp" not in records[8]
     assert records[8]["payload"]["type"] == "task_complete"
     assert records[8]["payload"]["last_agent_message"] == "done"
+
+
+def test_session_trace_exporter_treats_latest_target_case_insensitively(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                request_settings=SessionRequestSettingsSnapshot(use_history=True),
+            )
+        },
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    result = exporter.export(
+        ExportRequest(
+            target="LATEST",
+            agent_name=None,
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    assert result.session_id == session_id
+    assert result.output_path == tmp_path / "trace.jsonl"
 
 
 def test_session_trace_exporter_context_window_falls_back_to_model(
@@ -357,9 +388,7 @@ def test_session_trace_exporter_preserves_raw_openai_assistant_message_items(
                                 "type": "message",
                                 "role": "assistant",
                                 "phase": "commentary",
-                                "content": [
-                                    {"type": "output_text", "text": "Checking the repo."}
-                                ],
+                                "content": [{"type": "output_text", "text": "Checking the repo."}],
                             }
                         ),
                     ),
@@ -482,8 +511,7 @@ def test_session_trace_exporter_exports_server_web_search_as_codex_call(
     web_search_calls = [
         record["payload"]
         for record in records
-        if record["type"] == "response_item"
-        and record["payload"].get("type") == "web_search_call"
+        if record["type"] == "response_item" and record["payload"].get("type") == "web_search_call"
     ]
 
     assert web_search_calls == [
@@ -550,9 +578,9 @@ def test_session_trace_exporter_uses_workspace_dir_for_default_output_path(
     _write_session_snapshot(
         session_dir,
         session_id=session_id,
-        active_agent="dev",
+        active_agent="...",
         agents={
-            "dev": SessionAgentSnapshot(
+            "...": SessionAgentSnapshot(
                 history_file="history_dev.json",
                 request_settings=SessionRequestSettingsSnapshot(service_tier="flex"),
             )
@@ -566,12 +594,12 @@ def test_session_trace_exporter_uses_workspace_dir_for_default_output_path(
     result = exporter.export(
         ExportRequest(
             target=session_dir,
-            agent_name="dev",
+            agent_name="...",
             output_path=None,
         )
     )
 
-    expected_path = workspace / f"{session_id}__dev__codex.jsonl"
+    expected_path = workspace / f"{session_id}__agent__codex.jsonl"
     assert result.output_path == expected_path
     assert result.output_path.is_file()
     assert not (other_cwd / expected_path.name).exists()
@@ -595,7 +623,7 @@ def test_session_trace_exporter_uses_message_timestamps_for_turn_date(tmp_path: 
         ),
     ]
     _write_history_with_timestamps(
-        session_dir / "history_dev.json",
+        session_dir / "history_dev.JSON",
         messages=messages,
         timestamps=[turn_started_at, turn_started_at + timedelta(seconds=5)],
     )
@@ -603,7 +631,7 @@ def test_session_trace_exporter_uses_message_timestamps_for_turn_date(tmp_path: 
         session_dir,
         session_id=session_id,
         active_agent="dev",
-        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.JSON")},
     )
 
     exporter = SessionTraceExporter(session_manager=manager)
@@ -872,8 +900,7 @@ def test_session_trace_exporter_applies_privacy_sanitizer_to_codex_text(
     assert result.redaction.by_label == {"private_person": 9}
 
     records = [
-        json.loads(line)
-        for line in result.output_path.read_text(encoding="utf-8").splitlines()
+        json.loads(line) for line in result.output_path.read_text(encoding="utf-8").splitlines()
     ]
     session_meta = records[0]["payload"]
     assert session_meta["cwd"] == "/home/Alice/work"
@@ -886,17 +913,11 @@ def test_session_trace_exporter_applies_privacy_sanitizer_to_codex_text(
     assert redactions["elapsed_seconds"] >= 0
 
     payloads = [record["payload"] for record in records]
-    developer = next(
-        payload for payload in payloads if payload.get("role") == "developer"
-    )
+    developer = next(payload for payload in payloads if payload.get("role") == "developer")
     assert developer["content"][0]["text"] == "Help <PRIVATE_PERSON> safely."
-    user_event = next(
-        payload for payload in payloads if payload.get("type") == "user_message"
-    )
+    user_event = next(payload for payload in payloads if payload.get("type") == "user_message")
     assert user_event["message"] == "hello <PRIVATE_PERSON>"
-    function_call = next(
-        payload for payload in payloads if payload.get("type") == "function_call"
-    )
+    function_call = next(payload for payload in payloads if payload.get("type") == "function_call")
     assert function_call["name"] == "lookup_Alice"
     assert function_call["call_id"] == "call_Alice"
     assert function_call["arguments"] == '{"query":"<PRIVATE_PERSON>"}'
@@ -974,6 +995,8 @@ def test_session_trace_exporter_reports_privacy_filter_progress(tmp_path: Path) 
     assert any(message.startswith("Privacy filter: sanitizing ") for message in progress)
     assert any(message.startswith("Privacy filter: overall ") for message in progress)
     assert any("100%" in message for message in progress)
+    assert all("value(s)" not in message for message in progress)
+    assert all("char(s)" not in message for message in progress)
 
 
 def test_session_trace_exporter_uploads_sanitized_trace_to_hf_dataset(

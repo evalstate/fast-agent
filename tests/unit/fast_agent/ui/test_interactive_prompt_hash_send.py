@@ -75,6 +75,61 @@ async def test_execute_hash_send_verbose_keeps_existing_status_chatter(capsys) -
 
 
 @pytest.mark.asyncio
+async def test_execute_hash_send_verbose_prints_bracketed_agent_literally(capsys) -> None:
+    prompt_ui = InteractivePrompt()
+
+    async def verbose_send(
+        message: str | PromptMessage | PromptMessageExtended,
+        agent_name: str,
+    ) -> str:
+        assert isinstance(message, str)
+        return f"{agent_name}: {message}"
+
+    execution = await prompt_ui._execute_hash_send(
+        send_func=verbose_send,
+        target_agent="[helper]",
+        message="hello",
+        quiet=False,
+        clear_progress_for_agent=lambda _agent: None,
+        clear_ctrl_c_interrupt=lambda: None,
+        handle_inflight_cancel=lambda: None,
+        last_assistant_message_cancelled=lambda _agent: False,
+    )
+
+    output = capsys.readouterr().out
+    assert execution.buffer_prefill == "[helper]: hello"
+    assert "Asking [helper]..." in output
+    assert "Response from [helper] loaded into input buffer" in output
+
+
+@pytest.mark.asyncio
+async def test_execute_hash_send_error_prints_bracketed_text_literally(capsys) -> None:
+    prompt_ui = InteractivePrompt()
+
+    async def failing_send(
+        message: str | PromptMessage | PromptMessageExtended,
+        agent_name: str,
+    ) -> str:
+        del message, agent_name
+        raise RuntimeError("boom [detail]")
+
+    execution = await prompt_ui._execute_hash_send(
+        send_func=failing_send,
+        target_agent="[helper]",
+        message="hello",
+        quiet=False,
+        clear_progress_for_agent=lambda _agent: None,
+        clear_ctrl_c_interrupt=lambda: None,
+        handle_inflight_cancel=lambda: None,
+        last_assistant_message_cancelled=lambda _agent: False,
+    )
+
+    output = capsys.readouterr().out
+    assert execution.buffer_prefill is None
+    assert "Error asking [helper]: boom [detail]" in output
+
+
+@pytest.mark.asyncio
 async def test_execute_hash_send_quiet_suppresses_real_shell_output(capsys) -> None:
     prompt_ui = InteractivePrompt()
     runtime = ShellRuntime(

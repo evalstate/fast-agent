@@ -1,6 +1,11 @@
 """Helper functions for server configuration and naming."""
 
+import re
 from typing import Any
+
+from fast_agent.utils.transports import uses_mcp_remote_transport
+
+SCRIPT_EXTENSIONS = (".py", ".js", ".ts")
 
 
 def generate_server_name(identifier: str) -> str:
@@ -22,17 +27,16 @@ def generate_server_name(identifier: str) -> str:
     """
 
     # Remove leading ./ if present
-    if identifier.startswith("./"):
-        identifier = identifier[2:]
+    identifier = identifier.removeprefix("./")
 
     # Handle npm package names with org prefix (only if no file extension)
-    has_file_ext = any(identifier.endswith(ext) for ext in [".py", ".js", ".ts"])
+    has_file_ext = identifier.endswith(SCRIPT_EXTENSIONS)
     if "/" in identifier and not has_file_ext:
         # This is likely an npm package, take the part after the last slash
         identifier = identifier.split("/")[-1]
 
     # Remove file extension for common script files
-    for ext in [".py", ".js", ".ts"]:
+    for ext in SCRIPT_EXTENSIONS:
         if identifier.endswith(ext):
             identifier = identifier[: -len(ext)]
             break
@@ -41,22 +45,9 @@ def generate_server_name(identifier: str) -> str:
     # Remove @ prefix if present
     identifier = identifier.lstrip("@")
 
-    # Replace non-alphanumeric characters with underscores
-    server_name = ""
-    for char in identifier:
-        if char.isalnum():
-            server_name += char
-        else:
-            server_name += "_"
-
-    # Clean up multiple underscores
-    while "__" in server_name:
-        server_name = server_name.replace("__", "_")
-
-    # Remove leading/trailing underscores
-    server_name = server_name.strip("_")
-
-    return server_name
+    server_name = re.sub(r"\W+", "_", identifier)
+    server_name = re.sub(r"_+", "_", server_name)
+    return server_name.strip("_")
 
 
 async def add_servers_to_config(fast_app: Any, servers: dict[str, dict[str, Any]]) -> None:
@@ -78,27 +69,27 @@ async def add_servers_to_config(fast_app: Any, servers: dict[str, dict[str, Any]
     # Initialize the app to ensure context is ready
     await fast_app.app.initialize()
 
+    context = fast_app.app.context
+    config = context.config
+
     # Initialize mcp settings if needed
-    if not hasattr(fast_app.app.context.config, "mcp"):
-        fast_app.app.context.config.mcp = MCPSettings()
+    if vars(config).get("mcp") is None:
+        config.mcp = MCPSettings()
 
     # Initialize servers dictionary if needed
-    if (
-        not hasattr(fast_app.app.context.config.mcp, "servers")
-        or fast_app.app.context.config.mcp.servers is None
-    ):
-        fast_app.app.context.config.mcp.servers = {}
+    if config.mcp.servers is None:
+        config.mcp.servers = {}
 
     # Add each server to the config (and keep the runtime registry in sync)
     for server_name, server_config in servers.items():
         # Build server settings based on transport type
-        server_settings = {"transport": server_config["transport"]}
+        server_settings: dict[str, Any] = {"transport": server_config["transport"]}
 
         # Add transport-specific settings
         if server_config["transport"] == "stdio":
             server_settings["command"] = server_config["command"]
             server_settings["args"] = server_config["args"]
-        elif server_config["transport"] in ["http", "sse"]:
+        elif uses_mcp_remote_transport(server_config["transport"]):
             server_settings["url"] = server_config["url"]
             if "headers" in server_config:
                 server_settings["headers"] = server_config["headers"]
@@ -107,10 +98,8 @@ async def add_servers_to_config(fast_app: Any, servers: dict[str, dict[str, Any]
 
         mcp_server = MCPServerSettings(**server_settings)
         # Update config model
-        fast_app.app.context.config.mcp.servers[server_name] = mcp_server
+        config.mcp.servers[server_name] = mcp_server
         # Ensure ServerRegistry sees dynamic additions even when no config file exists
-        if (
-            hasattr(fast_app.app.context, "server_registry")
-            and fast_app.app.context.server_registry is not None
-        ):
-            fast_app.app.context.server_registry.registry[server_name] = mcp_server
+        server_registry = vars(context).get("server_registry")
+        if server_registry is not None:
+            server_registry.registry[server_name] = mcp_server

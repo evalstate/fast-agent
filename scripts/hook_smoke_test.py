@@ -53,10 +53,7 @@ async def _run_hook(
     await hook_func(ctx)
     after_count = len(agent.message_history)
 
-    print(
-        "Hook executed successfully. Message history size: "
-        f"{before_count} -> {after_count}."
-    )
+    print(f"Hook executed successfully. Message history size: {before_count} -> {after_count}.")
 
     if output_path:
         save_messages(agent.message_history, str(output_path))

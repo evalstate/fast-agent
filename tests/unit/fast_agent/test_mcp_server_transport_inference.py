@@ -2,23 +2,46 @@
 
 import warnings
 
+import pytest
+
 from fast_agent.config import MCPServerSettings
 
 
-def test_transport_inference_url_only():
-    """Test that providing only a URL infers HTTP transport."""
-    config = MCPServerSettings(url="http://example.com/mcp")
-    assert config.transport == "http"
-    assert config.url == "http://example.com/mcp"
-    assert config.command is None
+@pytest.mark.parametrize(
+    ("kwargs", "expected_transport", "expected_url", "expected_command"),
+    [
+        ({"url": "http://example.com/mcp"}, "http", "http://example.com/mcp", None),
+        ({"command": "npx server"}, "stdio", None, "npx server"),
+        ({}, "stdio", None, None),
+        ({"url": ""}, "stdio", "", None),
+        ({"url": "   "}, "stdio", "   ", None),
+        ({"command": ""}, "stdio", None, ""),
+        ({"command": "   "}, "stdio", None, "   "),
+        ({"url": "", "command": ""}, "stdio", "", ""),
+        ({"url": "http://example.com/mcp", "command": ""}, "http", "http://example.com/mcp", ""),
+        ({"command": "npx server", "url": ""}, "stdio", "", "npx server"),
+        (
+            {"url": "http://example.com/mcp", "command": "   "},
+            "http",
+            "http://example.com/mcp",
+            "   ",
+        ),
+    ],
+)
+def test_transport_inference_matrix(
+    kwargs,
+    expected_transport,
+    expected_url,
+    expected_command,
+):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        config = MCPServerSettings(**kwargs)
 
-
-def test_transport_inference_command_only():
-    """Test that providing only a command keeps stdio transport."""
-    config = MCPServerSettings(command="npx server")
-    assert config.transport == "stdio"
-    assert config.command == "npx server"
-    assert config.url is None
+    assert [warning for warning in caught if warning.category is UserWarning] == []
+    assert config.transport == expected_transport
+    assert config.url == expected_url
+    assert config.command == expected_command
 
 
 def test_transport_inference_both_url_and_command():
@@ -64,76 +87,6 @@ def test_transport_inference_explicit_transport_overrides():
     config = MCPServerSettings(command="npx server", transport="http")
     assert config.transport == "http"
     assert config.command == "npx server"
-
-
-def test_transport_inference_empty_url():
-    """Test that empty URL doesn't trigger HTTP inference."""
-    config = MCPServerSettings(url="")
-    assert config.transport == "stdio"
-    assert config.url == ""
-
-    config = MCPServerSettings(url="   ")
-    assert config.transport == "stdio"
-    assert config.url == "   "
-
-
-def test_transport_inference_empty_command():
-    """Test that empty command doesn't affect inference."""
-    config = MCPServerSettings(command="")
-    assert config.transport == "stdio"
-    assert config.command == ""
-
-    config = MCPServerSettings(command="   ")
-    assert config.transport == "stdio"
-    assert config.command == "   "
-
-
-def test_transport_inference_neither_url_nor_command():
-    """Test that providing neither URL nor command keeps default stdio."""
-    config = MCPServerSettings()
-    assert config.transport == "stdio"
-    assert config.url is None
-    assert config.command is None
-
-
-def test_transport_inference_both_empty():
-    """Test behavior when both URL and command are empty."""
-    config = MCPServerSettings(url="", command="")
-    assert config.transport == "stdio"
-    assert config.url == ""
-    assert config.command == ""
-
-
-def test_transport_inference_url_with_empty_command():
-    """Test URL with empty command should infer HTTP."""
-    config = MCPServerSettings(url="http://example.com/mcp", command="")
-    assert config.transport == "http"
-    assert config.url == "http://example.com/mcp"
-    assert config.command == ""
-
-
-def test_transport_inference_command_with_empty_url():
-    """Test command with empty URL should keep stdio."""
-    config = MCPServerSettings(command="npx server", url="")
-    assert config.transport == "stdio"
-    assert config.command == "npx server"
-    assert config.url == ""
-
-
-def test_transport_inference_both_with_whitespace():
-    """Test that whitespace-only values don't trigger inference conflicts."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        config = MCPServerSettings(
-            url="http://example.com/mcp",
-            command="   ",  # Only whitespace
-        )
-
-        # Should not warn because whitespace-only command is considered empty
-        assert len(w) == 0
-        assert config.transport == "http"
-        assert config.url == "http://example.com/mcp"
-        assert config.command == "   "
 
 
 def test_transport_inference_preserves_other_fields():

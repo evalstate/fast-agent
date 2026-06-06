@@ -5,8 +5,9 @@ Handles prompt templating, variable extraction, and substitution for the prompt 
 Provides clean, testable classes for managing template substitution.
 """
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any
 
 from mcp.types import (
     ContentBlock,
@@ -14,12 +15,13 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from fast_agent.core.template_render import (
     extract_template_variables,
     render_template_text,
 )
+from fast_agent.mcp.message_roles import MESSAGE_ROLE_NAMES, MessageRole, is_message_role
 from fast_agent.mcp.prompt_serialization import multipart_messages_to_delimited_format
 from fast_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,
@@ -41,8 +43,38 @@ class PromptMetadata(BaseModel):
     file_path: Path
 
 
-# Define valid message roles for better type safety
-MessageRole = Literal["user", "assistant"]
+@dataclass(slots=True)
+class _TemplateParseState:
+    sections: list["PromptContent"] = field(default_factory=list)
+    current_role: MessageRole | None = None
+    current_content_lines: list[str] = field(default_factory=list)
+    current_resources: list[str] = field(default_factory=list)
+    preamble_lines: list[str] = field(default_factory=list)
+
+    def append_preamble_section(self) -> None:
+        preamble_text = "\n".join(self.preamble_lines).strip()
+        if preamble_text:
+            self.sections.append(PromptContent(text=preamble_text, role="user", resources=[]))
+        self.preamble_lines = []
+
+    def append_current_section(self) -> None:
+        if self.current_role is None or not self.current_content_lines:
+            return
+        self.sections.append(
+            PromptContent(
+                text="\n".join(self.current_content_lines).strip(),
+                role=self.current_role,
+                resources=self.current_resources,
+            )
+        )
+
+    def start_section(self, role: MessageRole) -> None:
+        if self.current_role is None and self.preamble_lines:
+            self.append_preamble_section()
+        self.append_current_section()
+        self.current_role = role
+        self.current_content_lines = []
+        self.current_resources = []
 
 
 class PromptContent(BaseModel):
@@ -50,23 +82,23 @@ class PromptContent(BaseModel):
 
     text: str
     role: MessageRole = "user"
-    resources: list[str] = []
+    resources: list[str] = Field(default_factory=list)
 
     @field_validator("role")
     @classmethod
     def validate_role(cls, role: str) -> MessageRole:
         """Validate that the role is a known value"""
-        if role not in ("user", "assistant"):
-            raise ValueError(f"Invalid role: {role}. Must be one of: user, assistant")
-        return cast("MessageRole", role)
+        if not is_message_role(role):
+            raise ValueError(f"Invalid role: {role}. Must be one of: {MESSAGE_ROLE_NAMES}")
+        return role
 
     def apply_substitutions(self, context: dict[str, Any]) -> "PromptContent":
         """Apply variable substitutions to the text and resources"""
 
         # Apply substitutions to resource paths
-        substituted_resources = []
-        for resource in self.resources:
-            substituted_resources.append(render_template_text(resource, context).text)
+        substituted_resources = [
+            render_template_text(resource, context).text for resource in self.resources
+        ]
 
         return PromptContent(
             text=render_template_text(self.text, context).text,
@@ -179,24 +211,14 @@ class PromptTemplate:
         multiparts: list[PromptMessageExtended] = []
         for section in content_sections:
             # Handle text content
-            content_items: list[ContentBlock] = [
-                TextContent(type="text", text=section.text)
-            ]
+            content_items: list[ContentBlock] = [TextContent(type="text", text=section.text)]
 
-            # Handle resources (if any)
-            for resource_path in section.resources:
-                # In a real implementation, you would load the resource here
-                # For now, we'll just create a placeholder
-                content_items.append(
-                    EmbeddedResource(
-                        type="resource",
-                        resource=TextResourceContents(
-                            uri=to_any_url(f"resource://fast-agent/{resource_path}"),
-                            mimeType="text/plain",
-                            text=f"Content of {resource_path}",
-                        ),
-                    )
-                )
+            # In a real implementation, resources would be loaded here. For now,
+            # create placeholders.
+            content_items.extend(
+                _placeholder_resource(resource_path, uri_prefix="resource://fast-agent/")
+                for resource_path in section.resources
+            )
 
             multiparts.append(PromptMessageExtended(role=section.role, content=content_items))
 
@@ -217,24 +239,14 @@ class PromptTemplate:
 
         for section in self._parsed_content:
             # Convert each section to a multipart message
-            content_items: list[ContentBlock] = [
-                TextContent(type="text", text=section.text)
-            ]
+            content_items: list[ContentBlock] = [TextContent(type="text", text=section.text)]
 
-            # Add any resources as embedded resources
-            for resource_path in section.resources:
-                # In a real implementation, you would determine the MIME type
-                # and load the resource appropriately. Here we'll just use a placeholder.
-                content_items.append(
-                    EmbeddedResource(
-                        type="resource",
-                        resource=TextResourceContents(
-                            uri=to_any_url(f"resource://{resource_path}"),
-                            mimeType="text/plain",
-                            text=f"Content of {resource_path}",
-                        ),
-                    )
-                )
+            # In a real implementation, resources would be loaded here. For now,
+            # create placeholders.
+            content_items.extend(
+                _placeholder_resource(resource_path, uri_prefix="resource://")
+                for resource_path in section.resources
+            )
 
             multiparts.append(PromptMessageExtended(role=section.role, content=content_items))
 
@@ -248,85 +260,62 @@ class PromptTemplate:
         Resources are now collected within their parent sections, keeping the same role.
         """
         lines = self.template_text.split("\n")
-
-        # Check if we're in simple mode (no delimiters anywhere)
         delimiter_values = set(self.delimiter_map.keys())
-        has_delimiter = any(line.strip() in delimiter_values for line in lines)
-        is_simple_mode = not has_delimiter
-
-        if is_simple_mode:
-            # Simple mode: treat the entire content as a single user message
+        if not _has_delimiter(lines, delimiter_values):
             return [PromptContent(text=self.template_text, role="user", resources=[])]
 
-        # Standard mode with delimiters
-        sections: list[PromptContent] = []
-        current_role: MessageRole | None = None
-        current_content = ""
-        current_resources = []
-        preamble_lines: list[str] = []
-
+        state = _TemplateParseState()
         i = 0
         while i < len(lines):
-            line = lines[i]
+            i = self._parse_template_line(lines, i, state)
 
-            # Check if we hit a delimiter
-            if line.strip() in self.delimiter_map:
-                role_type = self.delimiter_map[line.strip()]
+        state.append_current_section()
+        return state.sections
 
-                # If we're moving to a new user/assistant section (not resource)
-                if role_type != "resource":
-                    if current_role is None and preamble_lines:
-                        preamble_text = "\n".join(preamble_lines).strip()
-                        if preamble_text:
-                            sections.append(
-                                PromptContent(
-                                    text=preamble_text,
-                                    role="user",
-                                    resources=[],
-                                )
-                            )
-                        preamble_lines = []
-                    # Save the previous section if it exists
-                    if current_role is not None and current_content:
-                        sections.append(
-                            PromptContent(
-                                text=current_content.strip(),
-                                role=current_role,
-                                resources=current_resources,
-                            )
-                        )
+    def _parse_template_line(
+        self,
+        lines: list[str],
+        index: int,
+        state: _TemplateParseState,
+    ) -> int:
+        line = lines[index]
+        role_type = self.delimiter_map.get(line.strip())
+        if role_type == "resource":
+            return _parse_resource_delimiter(lines, index, state)
+        if is_message_role(role_type):
+            state.start_section(role_type)
+        elif state.current_role is not None:
+            state.current_content_lines.append(line)
+        else:
+            state.preamble_lines.append(line)
+        return index + 1
 
-                    # Start a new section
-                    current_role = cast("MessageRole", role_type)
-                    current_content = ""
-                    current_resources = []
 
-                # Handle resource delimiters within sections
-                elif role_type == "resource" and i + 1 < len(lines):
-                    resource_path = lines[i + 1].strip()
-                    current_resources.append(resource_path)
-                    # Skip the resource path line
-                    i += 1
+def _has_delimiter(lines: list[str], delimiter_values: set[str]) -> bool:
+    return any(line.strip() in delimiter_values for line in lines)
 
-            # If we're in a section, add to the current content
-            elif current_role is not None:
-                current_content += line + "\n"
-            else:
-                preamble_lines.append(line)
 
-            i += 1
+def _parse_resource_delimiter(
+    lines: list[str],
+    index: int,
+    state: _TemplateParseState,
+) -> int:
+    next_index = index + 1
+    if next_index < len(lines):
+        state.current_resources.append(lines[next_index].strip())
+        return next_index + 1
+    return next_index
 
-        # Add the last section if there is one
-        if current_role is not None and current_content:
-            sections.append(
-                PromptContent(
-                    text=current_content.strip(),
-                    role=current_role,
-                    resources=current_resources,
-                )
-            )
 
-        return sections
+def _placeholder_resource(resource_path: str, *, uri_prefix: str) -> EmbeddedResource:
+    return EmbeddedResource(
+        type="resource",
+        resource=TextResourceContents(
+            uri=to_any_url(f"{uri_prefix}{resource_path}"),
+            mimeType="text/plain",
+            text=f"Content of {resource_path}",
+        ),
+    )
 
 
 class PromptTemplateLoader:
@@ -353,7 +342,7 @@ class PromptTemplateLoader:
         Returns:
             A PromptTemplate object
         """
-        with open(file_path, "r", encoding="utf-8") as f:
+        with Path(file_path).open("r", encoding="utf-8") as f:
             content = f.read()
 
         return PromptTemplate(content, self.delimiter_map, template_file_path=file_path)
@@ -382,63 +371,15 @@ class PromptTemplateLoader:
             PromptMetadata with information about the template
         """
         template = self.load_from_file(file_path)
-
-        # Generate a description based on content
         lines = template.template_text.split("\n")
         delimiter_values = set(self.delimiter_map.keys())
-        has_delimiter = any(line.strip() in delimiter_values for line in lines)
-
-        # Check if we're in simple mode
-        is_simple_mode = not has_delimiter
-
-        if is_simple_mode:
-            # In simple mode, use first line as description if it seems like one
-            first_line = lines[0].strip() if lines else ""
-            if len(first_line) < 60 and "{{" not in first_line and "}}" not in first_line:
-                description = first_line
-            else:
-                description = f"Simple prompt: {file_path.stem}"
-        else:
-            # Regular mode - find text after first delimiter for the description
-            description = file_path.stem
-
-            # Look for first delimiter and role
-            first_role = None
-            first_content_index = None
-
-            for i, line in enumerate(lines):
-                stripped = line.strip()
-                if stripped in self.delimiter_map:
-                    first_role = self.delimiter_map[stripped]
-                    first_content_index = i + 1
-                    break
-
-            if first_role and first_content_index and first_content_index < len(lines):
-                # Get up to 3 non-empty lines after the delimiter for a preview
-                preview_lines = []
-                for j in range(first_content_index, min(first_content_index + 10, len(lines))):
-                    stripped = lines[j].strip()
-                    if stripped and stripped not in self.delimiter_map:
-                        preview_lines.append(stripped)
-                        if len(preview_lines) >= 3:
-                            break
-
-                if preview_lines:
-                    preview = " ".join(preview_lines)
-                    if len(preview) > 50:
-                        preview = preview[:47] + "..."
-                    # Include role in the description but not the filename
-                    description = f"[{first_role.upper()}] {preview}"
-
-        # Extract resource paths from all sections that come after RESOURCE delimiters
-        resource_paths = []
-        resource_delimiter = next(
-            (k for k, v in self.delimiter_map.items() if v == "resource"), RESOURCE_DELIMITER
+        description = _template_metadata_description(
+            lines=lines,
+            delimiter_map=self.delimiter_map,
+            delimiter_values=delimiter_values,
+            prompt_name=file_path.stem,
         )
-        for i, line in enumerate(lines):
-            if line.strip() == resource_delimiter:
-                if i + 1 < len(lines) and lines[i + 1].strip():
-                    resource_paths.append(lines[i + 1].strip())
+        resource_paths = _template_resource_paths(lines, delimiter_map=self.delimiter_map)
 
         return PromptMetadata(
             name=file_path.stem,
@@ -447,3 +388,87 @@ class PromptTemplateLoader:
             resource_paths=resource_paths,
             file_path=file_path,
         )
+
+
+def _template_metadata_description(
+    *,
+    lines: list[str],
+    delimiter_map: dict[str, str],
+    delimiter_values: set[str],
+    prompt_name: str,
+) -> str:
+    if not _has_delimiter(lines, delimiter_values):
+        return _simple_template_description(lines, prompt_name=prompt_name)
+
+    first_role, first_content_index = _first_delimited_content(delimiter_map, lines)
+    if first_role is None or first_content_index is None:
+        return prompt_name
+
+    preview = _template_preview_after_delimiter(
+        lines,
+        start_index=first_content_index,
+        delimiter_values=delimiter_values,
+    )
+    if preview is None:
+        return prompt_name
+    return f"[{first_role.upper()}] {preview}"
+
+
+def _simple_template_description(lines: list[str], *, prompt_name: str) -> str:
+    first_line = lines[0].strip() if lines else ""
+    if len(first_line) < 60 and "{{" not in first_line and "}}" not in first_line:
+        return first_line
+    return f"Simple prompt: {prompt_name}"
+
+
+def _first_delimited_content(
+    delimiter_map: dict[str, str],
+    lines: list[str],
+) -> tuple[str | None, int | None]:
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped in delimiter_map:
+            return delimiter_map[stripped], index + 1
+    return None, None
+
+
+def _template_preview_after_delimiter(
+    lines: list[str],
+    *,
+    start_index: int,
+    delimiter_values: set[str],
+) -> str | None:
+    if start_index >= len(lines):
+        return None
+
+    preview_lines: list[str] = []
+    for line in lines[start_index : start_index + 10]:
+        stripped = line.strip()
+        if stripped and stripped not in delimiter_values:
+            preview_lines.append(stripped)
+            if len(preview_lines) >= 3:
+                break
+    if not preview_lines:
+        return None
+
+    preview = " ".join(preview_lines)
+    if len(preview) > 50:
+        return preview[:47] + "..."
+    return preview
+
+
+def _template_resource_paths(
+    lines: list[str],
+    *,
+    delimiter_map: dict[str, str],
+) -> list[str]:
+    resource_delimiter = next(
+        (k for k, v in delimiter_map.items() if v == "resource"), RESOURCE_DELIMITER
+    )
+    return [
+        lines[index + 1].strip()
+        for index, line in enumerate(lines)
+        if line.strip() == resource_delimiter
+        and index + 1 < len(lines)
+        and lines[index + 1].strip()
+    ]

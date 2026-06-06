@@ -45,6 +45,7 @@ class TestInstructionBuilder:
     @pytest.mark.asyncio
     async def test_build_with_resolver(self):
         """Build should call resolver for dynamic placeholders."""
+
         async def get_weather():
             return "sunny"
 
@@ -76,6 +77,7 @@ class TestInstructionBuilder:
     @pytest.mark.asyncio
     async def test_build_with_mixed_sources(self):
         """Build should handle both static and dynamic sources."""
+
         async def get_time():
             return "3:00 PM"
 
@@ -97,6 +99,7 @@ class TestInstructionBuilder:
     @pytest.mark.asyncio
     async def test_resolver_error_returns_empty(self):
         """Failed resolver should return empty string for that placeholder."""
+
         async def failing_resolver():
             raise ValueError("Something went wrong")
 
@@ -115,21 +118,16 @@ class TestInstructionBuilder:
 
     def test_fluent_api(self):
         """set() and set_resolver() should return self for chaining."""
+
         async def resolver():
             return "x"
 
-        builder = (
-            InstructionBuilder("{{a}} {{b}}")
-            .set("a", "1")
-            .set_resolver("b", resolver)
-        )
+        builder = InstructionBuilder("{{a}} {{b}}").set("a", "1").set_resolver("b", resolver)
         assert isinstance(builder, InstructionBuilder)
 
     def test_get_placeholders(self):
         """get_placeholders should extract placeholder names."""
-        builder = InstructionBuilder(
-            "Hello {{name}}, {{greeting}}. File: {{file:test.md}}"
-        )
+        builder = InstructionBuilder("Hello {{name}}, {{greeting}}. File: {{file:test.md}}")
         placeholders = builder.get_placeholders()
         # Should not include file: patterns
         assert placeholders == {"name", "greeting"}

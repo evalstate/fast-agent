@@ -5,9 +5,12 @@ from __future__ import annotations
 import ast
 import inspect
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
+
+from pydantic_core import PydanticUndefined
 
 DOCS_ROOT = Path(__file__).resolve().parent
 GENERATED_DIR = DOCS_ROOT / "docs" / "_generated"
@@ -64,9 +67,56 @@ def _md_code(lang: str, code: str) -> str:
     return f"```{lang}\n{code.rstrip()}\n```\n"
 
 
+def _clean_signature_text(text: str) -> str:
+    return (
+        text.replace("collections.abc.Callable", "Callable")
+        .replace("collections.abc.Coroutine", "Coroutine")
+        .replace("typing.Any", "Any")
+    )
+
+
+def _wrap_workflow_return_annotation(text: str) -> str:
+    return text.replace(
+        "Callable[[Callable[~P, Coroutine[Any, Any, +R]]], Callable[~P, Coroutine[Any, Any, +R]]]",
+        "Callable[\n"
+        "    [Callable[~P, Coroutine[Any, Any, +R]]],\n"
+        "    Callable[~P, Coroutine[Any, Any, +R]],\n"
+        "]",
+    )
+
+
+def _compact_signature_defaults(sig: inspect.Signature) -> inspect.Signature:
+    params = []
+    for param in sig.parameters.values():
+        default = param.default
+        if isinstance(default, str) and ("\n" in default or len(default) > 60):
+            param = param.replace(default="...")
+        params.append(param)
+    return sig.replace(parameters=params)
+
+
 def _format_signature(name: str, func: Any) -> str:
-    sig = str(inspect.signature(func))
+    sig = _compact_signature_defaults(inspect.signature(func)).format(max_width=88)
+    sig = _wrap_workflow_return_annotation(_clean_signature_text(sig))
     return f"{name}{sig}"
+
+
+def _field_default_text(field_info: Any) -> str:
+    if field_info.default_factory is not None:
+        factory = field_info.default_factory
+        if factory is list:
+            return "`[]`"
+        if factory is dict:
+            return "`{}`"
+        name = getattr(factory, "__name__", "factory")
+        return f"`<factory: {name}>`"
+
+    default = field_info.default
+    if default is PydanticUndefined:
+        return "`required`"
+    if default is None:
+        return "`None`"
+    return f"`{default!r}`"
 
 
 def generate_workflows_reference() -> str:
@@ -116,15 +166,222 @@ def generate_request_params_reference() -> str:
     for field_name, field_info in RequestParams.model_fields.items():
         annotation = field_info.annotation
         type_str = getattr(annotation, "__name__", None) or str(annotation)
-        default = field_info.default
-        if default is None and field_info.default_factory is not None:
-            default_str = "`<factory>`"
-        else:
-            default_str = "`None`" if default is None else f"`{default!r}`"
+        default_str = _field_default_text(field_info)
 
         desc = (field_info.description or "").replace("\n", " ").strip()
         lines.append(f"| `{field_name}` | `{type_str}` | {default_str} | {desc} |\n")
 
+    return "".join(lines)
+
+
+def _signature_without_self(func: Any) -> inspect.Signature:
+    sig = _compact_signature_defaults(inspect.signature(func))
+    params = list(sig.parameters.values())
+    if params and params[0].name == "self":
+        sig = sig.replace(parameters=params[1:])
+    return sig
+
+
+def _format_method_signature(name: str, func: Any) -> str:
+    sig = _signature_without_self(func).format(max_width=88)
+    text = _clean_signature_text(sig)
+    text = re.sub(r" -> \"'([^']+)'\"", r" -> \1", text)
+    text = re.sub(r": '([^']+)'", r": \1", text)
+    text = re.sub(r" -> '([^']+)'", r" -> \1", text)
+    return f"{name}{text}"
+
+
+def generate_fastagent_harness_method_reference() -> str:
+    from fast_agent.core.fastagent import FastAgent
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py\n")
+    lines.append("-->\n\n")
+    lines.append("#### `harness()`\n\n")
+    lines.append(_md_code("python", _format_method_signature("fast.harness", FastAgent.harness)))
+    lines.append(
+        "Creates a headless `AgentHarness` for typed, session-oriented Python usage.\n"
+        "The harness uses the same initialization path as `run()` but does not enter the\n"
+        "TUI, CLI message/prompt-file modes, MCP server mode, or ACP server mode.\n"
+        "On startup, it loads AgentCards from the active environment's `agent-cards/`\n"
+        "directory when that directory exists and contains cards.\n\n"
+    )
+    lines.append("| Parameter | Type | Default | Description |\n")
+    lines.append("|-----------|------|---------|-------------|\n")
+    lines.append(
+        "| `model` | `str \\| None` | `None` | Optional global model override, similar to the CLI `--model` override |\n"
+    )
+    return "".join(lines)
+
+
+def generate_harness_reference() -> str:
+    from fast_agent.core.harness import (
+        HARNESS_SESSION_ID_MAX_LENGTH,
+        HARNESS_SESSION_ID_PATTERN,
+        AgentHarness,
+        HarnessSession,
+        HarnessSessions,
+    )
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py\n")
+    lines.append("-->\n\n")
+    lines.append("## AgentHarness Class\n\n")
+    lines.append(
+        "`AgentHarness` is an async context manager returned by `FastAgent.harness()`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            "from fast_agent import AgentHarness\n\n\nasync with fast.harness() as harness:\n    typed: AgentHarness = harness",
+        )
+    )
+    lines.append("### Properties\n\n")
+    lines.append("| Property | Type | Description |\n")
+    lines.append("|----------|------|-------------|\n")
+    lines.append("| `sessions` | `HarnessSessions` | Session manager for the running harness |\n\n")
+    lines.append("### Methods\n\n")
+    lines.append("#### `session()`\n\n")
+    lines.append(
+        _md_code(
+            "python", f"await {_format_method_signature('harness.session', AgentHarness.session)}"
+        )
+    )
+    lines.append(
+        "Returns an existing session or creates one by delegating to\n"
+        "`harness.sessions.get_or_create()`.\n\n"
+    )
+    lines.append("#### `shell()`\n\n")
+    lines.append(
+        _md_code("python", f"await {_format_method_signature('harness.shell', AgentHarness.shell)}")
+    )
+    lines.append(
+        "Runs a shell command through the harness shell executor and returns a\n"
+        "`ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is\n"
+        "programmatic shell access: it does not create a session and does not add\n"
+        "the command or output to chat history.\n\n"
+    )
+
+    lines.append("## HarnessSessions Class\n\n")
+    lines.append(
+        "Manager for harness sessions. When `session_history` is enabled, creating a\n"
+        "session also creates or loads `environment_dir/sessions/<session_id>/`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            "\n".join(
+                [
+                    'session = await harness.sessions.get("demo")',
+                    'session = await harness.sessions.create("demo")',
+                    'session = await harness.sessions.get_or_create("demo")',
+                    'await harness.sessions.delete("demo")',
+                ]
+            ),
+        )
+    )
+    lines.append("Session ID rules:\n\n")
+    lines.append('- `None` means `"default"`;\n')
+    lines.append("- strings are stripped;\n")
+    lines.append("- empty strings raise `ValueError`;\n")
+    lines.append(f"- IDs must be 1-{HARNESS_SESSION_ID_MAX_LENGTH} characters;\n")
+    lines.append("- IDs must start and end with a letter or digit;\n")
+    lines.append("- IDs may contain only letters, digits, dashes, and underscores.\n\n")
+    lines.append(
+        f"Generated from `HARNESS_SESSION_ID_PATTERN`: `{HARNESS_SESSION_ID_PATTERN.pattern}`.\n\n"
+    )
+    lines.append("| Method | Signature | Behavior |\n")
+    lines.append("|--------|-----------|----------|\n")
+    get_signature = _escape_table(_format_method_signature("get", HarnessSessions.get))
+    create_signature = _escape_table(_format_method_signature("create", HarnessSessions.create))
+    get_or_create_signature = _escape_table(
+        _format_method_signature("get_or_create", HarnessSessions.get_or_create)
+    )
+    delete_signature = _escape_table(_format_method_signature("delete", HarnessSessions.delete))
+    lines.append(
+        f"| `get` | `{get_signature}` | Return an existing session. Raises if missing. |\n"
+    )
+    lines.append(
+        f"| `create` | `{create_signature}` | Create a session. Raises if it already exists. |\n"
+    )
+    lines.append(
+        f"| `get_or_create` | `{get_or_create_signature}` | Return an existing session or create it. |\n"
+    )
+    lines.append(
+        f"| `delete` | `{delete_signature}` | Delete a session if present; missing sessions are ignored. |\n\n"
+    )
+
+    lines.append("## HarnessSession Class\n\n")
+    lines.append("A stable session backed by one owned `AgentInstance`.\n\n")
+    lines.append("### Properties\n\n")
+    lines.append("| Property | Type | Description |\n")
+    lines.append("|----------|------|-------------|\n")
+    lines.append("| `id` | `str` | Normalized session ID |\n")
+    lines.append(
+        "| `default_agent_name` | `str \\| None` | Session default agent used when calls omit `agent_name` |\n\n"
+    )
+    lines.append("### Methods\n\n")
+    session_methods = [
+        ("send", HarnessSession.send),
+        ("generate", HarnessSession.generate),
+        ("structured", HarnessSession.structured),
+        ("structured_schema", HarnessSession.structured_schema),
+        ("clear", HarnessSession.clear),
+        ("shell", HarnessSession.shell),
+        ("delete", HarnessSession.delete),
+    ]
+    lines.append(
+        _md_code(
+            "python",
+            "\n\n".join(
+                f"await {_format_method_signature(f'session.{name}', method)}"
+                for name, method in session_methods
+            ),
+        )
+    )
+    lines.append("Calls resolve their target agent in this order:\n\n")
+    lines.append("1. explicit per-call `agent_name`;\n")
+    lines.append("2. the session `default_agent_name`;\n")
+    lines.append("3. the app default agent.\n\n")
+    lines.append(
+        "`clear()` clears only the resolved target agent, not every agent in the session.\n\n"
+    )
+    lines.append(
+        "`shell()` returns `ShellExecutionResult` with `stdout`, `stderr`, and\n"
+        "`exit_code`. It does not add the command or output to chat history, but it\n"
+        "is serialized with other operations on the same `HarnessSession`.\n\n"
+    )
+    lines.append("### Session lifecycle and concurrency\n\n")
+    lines.append(
+        "- the same session ID returns the same `HarnessSession` object and the same owned\n"
+        "  `AgentInstance`;\n"
+        "- different session IDs receive isolated `AgentInstance` objects;\n"
+        "- when `session_history` is enabled, session IDs map to persisted\n"
+        "  `environment_dir/sessions/<session_id>/` directories and existing histories\n"
+        "  are hydrated on creation;\n"
+        "- deleting a session disposes its instance;\n"
+        "- deleting a session removes its persisted session folder when persistence is enabled;\n"
+        "- exiting the harness context disposes all remaining session instances;\n"
+        "- deleted `HarnessSession` objects are closed.\n\n"
+    )
+    lines.append("Concurrent operations on the same `HarnessSession` are rejected:\n\n")
+    lines.append(
+        _md_code(
+            "text",
+            "RuntimeError: Session 'support-123' is already running generate; start another session for parallel conversation branches.",
+        )
+    )
+    lines.append("Deleting an active session is also rejected:\n\n")
+    lines.append(
+        _md_code(
+            "text",
+            "RuntimeError: Session 'support-123' is running generate; wait before deleting it.",
+        )
+    )
     return "".join(lines)
 
 
@@ -229,9 +486,7 @@ def generate_tui_runtime_reference() -> str:
     for item in DOCUMENTED_ENV_VARS:
         if item.surface != "tui":
             continue
-        lines.append(
-            f"| `{item.symbol}` | `{item.value}` | {_escape_table(item.purpose)} |\n"
-        )
+        lines.append(f"| `{item.symbol}` | `{item.value}` | {_escape_table(item.purpose)} |\n")
 
     lines.append("\n#### TUI-related settings\n\n")
     lines.append("| Setting | Environment variable | Type | Default | Description |\n")
@@ -568,7 +823,9 @@ def _load_model_factory_constants(
 
         provider_names = {provider.value for provider in Provider}
         model_aliases = {
-            key: value for key, value in ModelFactory.MODEL_PRESETS.items() if isinstance(value, str)
+            key: value
+            for key, value in ModelFactory.MODEL_PRESETS.items()
+            if isinstance(value, str)
         }
         default_providers = {
             model_name: provider.value
@@ -744,6 +1001,30 @@ def generate_openai_merged_table(*, repo_root: Path) -> str:
     return table
 
 
+def generate_current_model_table(provider_name: str) -> str:
+    from fast_agent.llm.model_selection import ModelSelectionCatalog
+    from fast_agent.llm.provider_types import Provider
+
+    providers = {provider.config_name: provider for provider in Provider}
+    provider = providers[provider_name]
+
+    lines = [
+        "| Model string or alias | Resolves to / equivalent | Notes |\n",
+        "| --- | --- | --- |\n",
+    ]
+
+    for entry in ModelSelectionCatalog.list_current_entries(provider):
+        notes: list[str] = []
+        if entry.fast:
+            notes.append("Fast")
+        if entry.description:
+            notes.append(entry.description)
+        note = ", ".join(notes) if notes else "—"
+        lines.append(f"| `{entry.alias}` | `{entry.model}` | {note} |\n")
+
+    return "".join(lines)
+
+
 def main() -> int:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     repo_root = _find_fast_agent_repo()
@@ -858,8 +1139,21 @@ def main() -> int:
     try:
         if not skip_workflows:
             _write(GENERATED_DIR / "workflows_reference.md", generate_workflows_reference())
+        _write(
+            GENERATED_DIR / "fastagent_harness_method.md",
+            generate_fastagent_harness_method_reference(),
+        )
+        _write(GENERATED_DIR / "harness_reference.md", generate_harness_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
+        _write(
+            GENERATED_DIR / "current_models_responses.md", generate_current_model_table("responses")
+        )
+        _write(
+            GENERATED_DIR / "current_models_codexresponses.md",
+            generate_current_model_table("codexresponses"),
+        )
+        _write(GENERATED_DIR / "current_models_openai.md", generate_current_model_table("openai"))
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         (GENERATED_DIR / "_generation_warnings.md").unlink(missing_ok=True)
     except Exception as exc:

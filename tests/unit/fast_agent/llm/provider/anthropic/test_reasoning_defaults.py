@@ -1,16 +1,21 @@
 """Tests for Anthropic reasoning defaults and adaptive thinking behavior."""
 
 import json
+from typing import Any, cast
 
 import pytest
 from anthropic.lib._parse._transform import transform_schema
+from anthropic.types.beta import (
+    BetaMessage,
+    BetaToolUseBlock,
+    BetaUsage,
+)
 from mcp import Tool
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.provider.anthropic.beta_types import Message, ToolUseBlock, Usage
 from fast_agent.llm.provider.anthropic.llm_anthropic import (
     FINE_GRAINED_TOOL_STREAMING_BETA,
     STRUCTURED_OUTPUT_BETA,
@@ -18,7 +23,7 @@ from fast_agent.llm.provider.anthropic.llm_anthropic import (
     AnthropicLLM,
 )
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
-from fast_agent.llm.reasoning_effort import is_auto_reasoning
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, is_auto_reasoning
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -443,6 +448,26 @@ def test_json_structured_output_merges_with_adaptive_effort():
     assert args["output_config"]["format"]["type"] == "json_schema"
 
 
+def test_anthropic_effort_none_normalizes_case_and_padding_for_thinking_enabled() -> None:
+    llm = _make_llm("claude-opus-4-6")
+    llm._reasoning_effort = ReasoningEffortSetting(
+        kind="effort",
+        value=cast("Any", " NONE "),
+    )
+
+    assert not llm._is_thinking_enabled("claude-opus-4-6")
+
+
+def test_anthropic_adaptive_effort_normalizes_case_and_padding() -> None:
+    llm = _make_llm("claude-opus-4-7")
+    llm._reasoning_effort = ReasoningEffortSetting(
+        kind="effort",
+        value=cast("Any", " XHIGH "),
+    )
+
+    assert llm._resolve_adaptive_effort("claude-opus-4-7") == "xhigh"
+
+
 def test_opus_47_drops_sampling_parameters_from_request_payload() -> None:
     llm = _make_llm("claude-opus-4-7")
 
@@ -688,12 +713,12 @@ async def test_tool_use_structured_schema_response_is_finalized_without_model() 
         "properties": {"answer": {"type": "string"}},
         "required": ["answer"],
     }
-    response = Message(
+    response = BetaMessage(
         id="msg_structured",
         type="message",
         role="assistant",
         content=[
-            ToolUseBlock(
+            BetaToolUseBlock(
                 type="tool_use",
                 id="toolu_structured",
                 name=STRUCTURED_OUTPUT_TOOL_NAME,
@@ -702,7 +727,7 @@ async def test_tool_use_structured_schema_response_is_finalized_without_model() 
         ],
         model="claude-sonnet-4-6",
         stop_reason="tool_use",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     result = await llm._finalize_anthropic_response(

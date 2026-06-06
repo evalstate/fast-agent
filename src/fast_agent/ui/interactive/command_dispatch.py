@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, cast
+from functools import partial
+from typing import TYPE_CHECKING, Protocol, TypeGuard, cast
 
 from rich import print as rich_print
+from rich.text import Text
 
 from fast_agent.command_actions import (
     PluginCommandActionContext,
     PluginCommandActionRegistry,
+    PluginCommandActionResult,
+    PluginCommandActionSpec,
     PluginRuntimeFacade,
 )
+from fast_agent.command_actions.config import normalize_plugin_command_name
+from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import display as display_handlers
@@ -25,7 +32,6 @@ from fast_agent.commands.handlers import session_export as session_export_handle
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
-from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_export_help import render_session_export_help_markdown
 from fast_agent.commands.shared_command_intents import should_default_export_agent
@@ -36,9 +42,12 @@ from fast_agent.ui.command_payloads import (
     AgentCommand,
     AttachCommand,
     CardsCommand,
+    CheckCommand,
     ClearCommand,
     ClearSessionsCommand,
+    CommandError,
     CommandPayload,
+    CommandsCommand,
     CreateSessionCommand,
     ExportSessionCommand,
     ForkSessionCommand,
@@ -46,7 +55,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
-    HistoryShowCommand,
+    HistoryViewCommand,
     HistoryWebClearCommand,
     InterruptCommand,
     ListPromptsCommand,
@@ -60,7 +69,6 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
-    McpSessionCommand,
     ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
@@ -77,7 +85,6 @@ from fast_agent.ui.command_payloads import (
     SaveHistoryCommand,
     SelectPromptCommand,
     ShellCommand,
-    ShowHistoryCommand,
     ShowMarkdownCommand,
     ShowMcpStatusCommand,
     ShowSystemCommand,
@@ -92,10 +99,11 @@ from fast_agent.ui.prompt.attachment_tokens import (
     append_attachment_tokens,
     build_local_attachment_token,
     build_remote_attachment_token,
+    is_remote_attachment_reference,
     normalize_local_attachment_reference,
-    normalize_remote_attachment_reference,
     strip_local_attachment_tokens,
 )
+from fast_agent.utils.slash_commands import parse_slash_command_line
 
 from .command_context import build_command_context, emit_command_outcome
 from .mcp_connect_flow import handle_mcp_connect
@@ -110,6 +118,18 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _print_styled(message: str, style: str) -> None:
+    rich_print(Text(message, style=style))
+
+
+def _plugin_error_text(command_name: str, suffix: str, exc: Exception) -> Text:
+    message = Text("Command /", style="red")
+    message.append(command_name)
+    message.append(suffix, style="red")
+    message.append(str(exc))
+    return message
+
+
 @dataclass
 class DispatchResult:
     handled: bool = False
@@ -120,42 +140,208 @@ class DispatchResult:
     hash_send_quiet: bool = False
     shell_execute_cmd: str | None = None
     should_return: bool = False
-    return_result: str = ""
     available_agents: list[str] | None = None
     available_agents_set: set[str] | None = None
 
 
-async def _apply_model_switch_session_reset(
+@dataclass(frozen=True)
+class _PluginCommandRequest:
+    command_name: str
+    arguments: str
+    agent: "PluginCommandAgentProtocol"
+    spec: PluginCommandActionSpec
+    base_path: Path | None
+
+
+@dataclass(frozen=True)
+class _DispatchStep:
+    name: str
+    run: Callable[[], Awaitable[DispatchResult | None]]
+
+
+CommandOutcomeHandler = Callable[[CommandContext], Awaitable[CommandOutcome]]
+CommandHandlerFunction = Callable[..., Awaitable[CommandOutcome]]
+CatalogActionCommand = SkillsCommand | CardsCommand | PluginsCommand | ModelsCommand
+
+
+class _ValueCommandPayload(Protocol):
+    value: str | None
+
+
+DISPLAY_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
+    ShowUsageCommand: display_handlers.handle_show_usage,
+    ShowSystemCommand: display_handlers.handle_show_system,
+    ShowMarkdownCommand: display_handlers.handle_show_markdown,
+    ShowMcpStatusCommand: display_handlers.handle_show_mcp_status,
+}
+
+MODEL_VALUE_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
+    ModelReasoningCommand: model_handlers.handle_model_reasoning,
+    ModelTaskBudgetCommand: model_handlers.handle_model_task_budget,
+    ModelVerbosityCommand: model_handlers.handle_model_verbosity,
+    ModelFastCommand: model_handlers.handle_model_fast,
+    ModelWebSearchCommand: model_handlers.handle_model_web_search,
+    ModelXSearchCommand: model_handlers.handle_model_x_search,
+    ModelWebFetchCommand: model_handlers.handle_model_web_fetch,
+}
+
+MCP_SERVER_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
+    McpDisconnectCommand: mcp_runtime_handlers.handle_mcp_disconnect,
+    McpReconnectCommand: mcp_runtime_handlers.handle_mcp_reconnect,
+}
+
+CATALOG_LIST_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
+    ListToolsCommand: tools_handlers.handle_list_tools,
+    ListSkillsCommand: skills_handlers.handle_list_skills,
+}
+
+CATALOG_ACTION_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
+    SkillsCommand: skills_handlers.handle_skills_command,
+    CardsCommand: cards_handlers.handle_cards_command,
+    PluginsCommand: plugins_handlers.handle_plugins_command,
+    ModelsCommand: models_manager_handlers.handle_models_command,
+}
+
+
+def _without_context(
+    handler: Callable[[], Awaitable[CommandOutcome]],
+) -> CommandOutcomeHandler:
+    async def run(_context: CommandContext) -> CommandOutcome:
+        return await handler()
+
+    return run
+
+
+def _is_catalog_action_command(payload: CommandPayload) -> TypeGuard[CatalogActionCommand]:
+    return isinstance(payload, (SkillsCommand, CardsCommand, PluginsCommand, ModelsCommand))
+
+
+async def _run_command_handler(
     *,
-    context,
-    prompt_provider,
-    outcome,
-) -> None:
-    if not outcome.reset_session:
-        return
+    prompt_provider: "AgentApp",
+    agent: str,
+    handler: CommandOutcomeHandler,
+) -> CommandOutcome:
+    context = build_command_context(prompt_provider, agent)
+    outcome = await handler(context)
+    await emit_command_outcome(context, outcome)
+    return outcome
 
-    if not context.noenv:
-        outcome.add_message(
-            "Model switch starts a new session to avoid mixing histories.",
-            channel="info",
-        )
-        session_outcome = await sessions_handlers.handle_create_session(
-            context,
-            session_name=None,
-        )
-        outcome.messages.extend(session_outcome.messages)
-    else:
-        outcome.add_message(
-            "Model switch cleared in-memory history (--noenv disables session persistence).",
-            channel="info",
-        )
 
-    cleared = clear_agent_histories(prompt_provider.registered_agents())
-    if cleared:
-        outcome.add_message(
-            f"Cleared agent history: {', '.join(sorted(cleared))}",
-            channel="info",
-        )
+async def _local_attach_paths(
+    *,
+    prompt_provider: "AgentApp",
+    agent_name: str,
+    paths: tuple[str, ...],
+) -> list[str] | None:
+    if paths:
+        return list(paths)
+
+    context = build_command_context(prompt_provider, agent_name)
+    prompted_path = await context.io.prompt_text(
+        "Attach file path or HTTP(S) URL:",
+        allow_empty=False,
+    )
+    if not prompted_path:
+        return None
+    return [prompted_path]
+
+
+def _attachment_token(raw_path: str, *, shell_working_dir: "Path | None") -> str:
+    if is_remote_attachment_reference(raw_path):
+        return build_remote_attachment_token(raw_path)
+
+    attachment_path = normalize_local_attachment_reference(
+        raw_path,
+        cwd=shell_working_dir,
+    )
+    if not attachment_path.exists():
+        raise FileNotFoundError(raw_path)
+    if not attachment_path.is_file():
+        raise IsADirectoryError(raw_path)
+    return build_local_attachment_token(attachment_path)
+
+
+def _attachment_tokens(
+    paths: list[str],
+    *,
+    shell_working_dir: "Path | None",
+) -> list[str]:
+    tokens: list[str] = []
+    for raw_path in paths:
+        try:
+            tokens.append(_attachment_token(raw_path, shell_working_dir=shell_working_dir))
+        except Exception as exc:
+            _print_styled(f"Unable to attach '{raw_path}': {exc}", "red")
+    return tokens
+
+
+async def _dispatch_attach_command(
+    payload: AttachCommand,
+    *,
+    prompt_provider: "AgentApp",
+    agent_name: str,
+    buffer_prefill: str,
+    shell_working_dir: "Path | None",
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    if payload.error:
+        _print_styled(payload.error, "red")
+        return result
+
+    if payload.clear:
+        result.buffer_prefill = strip_local_attachment_tokens(buffer_prefill)
+        return result
+
+    paths = await _local_attach_paths(
+        prompt_provider=prompt_provider,
+        agent_name=agent_name,
+        paths=payload.paths,
+    )
+    if paths is None:
+        result.buffer_prefill = buffer_prefill
+        return result
+
+    tokens = _attachment_tokens(paths, shell_working_dir=shell_working_dir)
+    result.buffer_prefill = append_attachment_tokens(buffer_prefill, tokens)
+    return result
+
+
+async def _dispatch_switch_agent_command(
+    payload: SwitchAgentCommand,
+    *,
+    prompt_provider: "AgentApp",
+    available_agents_set: set[str],
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    if payload.agent_name in available_agents_set:
+        result.next_agent = payload.agent_name
+        rich_print()
+        await enhanced_prompt._display_agent_info_helper(payload.agent_name, prompt_provider)
+        return result
+
+    _print_styled(f"Agent '{payload.agent_name}' not found", "red")
+    return result
+
+
+def _dispatch_hash_agent_command(
+    payload: HashAgentCommand,
+    *,
+    available_agents_set: set[str],
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    if payload.agent_name not in available_agents_set:
+        _print_styled(f"Agent '{payload.agent_name}' not found", "red")
+        return result
+    if not payload.message:
+        prefix = "##" if payload.quiet else "#"
+        _print_styled(f"Usage: {prefix}{payload.agent_name} <message>", "yellow")
+        return result
+
+    result.hash_send_target = payload.agent_name
+    result.hash_send_message = payload.message
+    result.hash_send_quiet = payload.quiet
+    return result
 
 
 async def _dispatch_local_ui_payload(
@@ -167,83 +353,44 @@ async def _dispatch_local_ui_payload(
     buffer_prefill: str,
     shell_working_dir: Path | None = None,
 ) -> DispatchResult | None:
-    result = DispatchResult(handled=True)
     match payload:
         case InterruptCommand():
             raise KeyboardInterrupt()
-        case SwitchAgentCommand(agent_name=new_agent):
-            if new_agent in available_agents_set:
-                result.next_agent = new_agent
-                rich_print()
-                await enhanced_prompt._display_agent_info_helper(new_agent, prompt_provider)
-                return result
-            rich_print(f"[red]Agent '{new_agent}' not found[/red]")
-            return result
-        case HashAgentCommand(agent_name=target_agent, message=hash_message, quiet=quiet):
-            if target_agent not in available_agents_set:
-                rich_print(f"[red]Agent '{target_agent}' not found[/red]")
-                return result
-            if not hash_message:
-                prefix = "##" if quiet else "#"
-                rich_print(f"[yellow]Usage: {prefix}{target_agent} <message>[/yellow]")
-                return result
-            result.hash_send_target = target_agent
-            result.hash_send_message = hash_message
-            result.hash_send_quiet = quiet
-            return result
+        case SwitchAgentCommand():
+            return await _dispatch_switch_agent_command(
+                payload,
+                prompt_provider=prompt_provider,
+                available_agents_set=available_agents_set,
+            )
+        case HashAgentCommand():
+            return _dispatch_hash_agent_command(
+                payload,
+                available_agents_set=available_agents_set,
+            )
+        case AttachCommand():
+            return await _dispatch_attach_command(
+                payload,
+                prompt_provider=prompt_provider,
+                agent_name=agent_name,
+                buffer_prefill=buffer_prefill,
+                shell_working_dir=shell_working_dir,
+            )
+        case _:
+            return _dispatch_simple_local_ui_payload(payload)
+
+
+def _dispatch_simple_local_ui_payload(payload: CommandPayload) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case ShellCommand(command=shell_cmd):
             result.shell_execute_cmd = shell_cmd
-            return result
-        case AttachCommand(paths=paths, clear=clear, error=error):
-            if error:
-                rich_print(f"[red]{error}[/red]")
-                return result
-
-            if clear:
-                result.buffer_prefill = strip_local_attachment_tokens(buffer_prefill)
-                return result
-
-            resolved_paths = list(paths)
-            if not resolved_paths:
-                context = build_command_context(prompt_provider, agent_name)
-                prompted_path = await context.io.prompt_text(
-                    "Attach file path or HTTP(S) URL:",
-                    allow_empty=False,
-                )
-                if not prompted_path:
-                    result.buffer_prefill = buffer_prefill
-                    return result
-                resolved_paths = [prompted_path]
-
-            tokens: list[str] = []
-            for raw_path in resolved_paths:
-                try:
-                    if raw_path.strip().lower().startswith(("http://", "https://")):
-                        token = build_remote_attachment_token(
-                            normalize_remote_attachment_reference(raw_path)
-                        )
-                    else:
-                        attachment_path = normalize_local_attachment_reference(
-                            raw_path,
-                            cwd=shell_working_dir,
-                        )
-                        if not attachment_path.exists():
-                            raise FileNotFoundError(raw_path)
-                        if not attachment_path.is_file():
-                            raise IsADirectoryError(raw_path)
-                        token = build_local_attachment_token(attachment_path)
-                except Exception as exc:
-                    rich_print(f"[red]Unable to attach '{raw_path}': {exc}[/red]")
-                    continue
-                tokens.append(token)
-
-            result.buffer_prefill = append_attachment_tokens(buffer_prefill, tokens)
-            return result
         case UnknownCommand(command=command):
-            rich_print(f"[red]Command not found: {command}[/red]")
-            return result
+            _print_styled(f"Command not found: {command}", "red")
+        case CommandError(message=message):
+            _print_styled(message, "red")
         case _:
             return None
+    return result
 
 
 async def _dispatch_prompt_payload(
@@ -252,35 +399,43 @@ async def _dispatch_prompt_payload(
     prompt_provider: "AgentApp",
     agent: str,
 ) -> DispatchResult | None:
+    handler = _prompt_handler(payload, agent=agent)
+    if handler is None:
+        return None
+
+    outcome = await _run_command_handler(
+        prompt_provider=prompt_provider,
+        agent=agent,
+        handler=handler,
+    )
     result = DispatchResult(handled=True)
+    if isinstance(payload, (SelectPromptCommand, LoadPromptCommand)):
+        result.buffer_prefill = outcome.buffer_prefill
+    return result
+
+
+def _prompt_handler(
+    payload: CommandPayload,
+    *,
+    agent: str,
+) -> CommandOutcomeHandler | None:
     match payload:
         case ListPromptsCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await prompt_handlers.handle_list_prompts(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
+            return partial(prompt_handlers.handle_list_prompts, agent_name=agent)
         case SelectPromptCommand(prompt_name=prompt_name, prompt_index=prompt_index):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await prompt_handlers.handle_select_prompt(
-                context,
+            return partial(
+                prompt_handlers.handle_select_prompt,
                 agent_name=agent,
                 requested_name=prompt_name,
                 prompt_index=prompt_index,
             )
-            await emit_command_outcome(context, outcome)
-            result.buffer_prefill = outcome.buffer_prefill
-            return result
         case LoadPromptCommand(filename=filename, error=error):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await prompt_handlers.handle_load_prompt(
-                context,
+            return partial(
+                prompt_handlers.handle_load_prompt,
                 agent_name=agent,
                 filename=filename,
                 error=error,
             )
-            await emit_command_outcome(context, outcome)
-            result.buffer_prefill = outcome.buffer_prefill
-            return result
         case _:
             return None
 
@@ -291,60 +446,45 @@ async def _dispatch_catalog_payload(
     prompt_provider: "AgentApp",
     agent: str,
 ) -> DispatchResult | None:
-    result = DispatchResult(handled=True)
-    match payload:
-        case ListToolsCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await tools_handlers.handle_list_tools(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ListSkillsCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await skills_handlers.handle_list_skills(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
-        case SkillsCommand(action=action, argument=argument):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await skills_handlers.handle_skills_command(
-                context,
-                agent_name=agent,
-                action=action,
-                argument=argument,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case CardsCommand(action=action, argument=argument):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await cards_handlers.handle_cards_command(
-                context,
-                agent_name=agent,
-                action=action,
-                argument=argument,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case PluginsCommand(action=action, argument=argument):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await plugins_handlers.handle_plugins_command(
-                context,
-                agent_name=agent,
-                action=action,
-                argument=argument,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ModelsCommand(action=action, argument=argument):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await models_manager_handlers.handle_models_command(
-                context,
-                agent_name=agent,
-                action=action,
-                argument=argument,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case _:
-            return None
+    handler = _catalog_handler(payload, agent=agent)
+    if handler is None:
+        return None
+
+    await _run_command_handler(
+        prompt_provider=prompt_provider,
+        agent=agent,
+        handler=handler,
+    )
+    return DispatchResult(handled=True)
+
+
+def _catalog_handler(
+    payload: CommandPayload,
+    *,
+    agent: str,
+) -> CommandOutcomeHandler | None:
+    list_handler = CATALOG_LIST_COMMAND_HANDLERS.get(type(payload))
+    if list_handler is not None:
+        return partial(list_handler, agent_name=agent)
+
+    if not _is_catalog_action_command(payload):
+        return None
+
+    action_handler = CATALOG_ACTION_COMMAND_HANDLERS[type(payload)]
+    if isinstance(payload, ModelsCommand):
+        return partial(
+            action_handler,
+            agent_name=agent,
+            action=payload.action,
+            argument=payload.argument,
+            command_name=payload.command_name,
+        )
+    return partial(
+        action_handler,
+        agent_name=agent,
+        action=payload.action,
+        argument=payload.argument,
+    )
 
 
 async def _dispatch_display_payload(
@@ -353,30 +493,212 @@ async def _dispatch_display_payload(
     prompt_provider: "AgentApp",
     agent: str,
 ) -> DispatchResult | None:
-    result = DispatchResult(handled=True)
+    if isinstance(payload, CheckCommand):
+        await _run_command_handler(
+            prompt_provider=prompt_provider,
+            agent=agent,
+            handler=partial(
+                display_handlers.handle_check,
+                agent_name=agent,
+                argument=payload.argument,
+            ),
+        )
+        return DispatchResult(handled=True)
+
+    if isinstance(payload, CommandsCommand):
+        await _run_command_handler(
+            prompt_provider=prompt_provider,
+            agent=agent,
+            handler=partial(
+                display_handlers.handle_commands,
+                agent_name=agent,
+                argument=payload.argument,
+            ),
+        )
+        return DispatchResult(handled=True)
+
+    handler = DISPLAY_COMMAND_HANDLERS.get(type(payload))
+    if handler is None:
+        return None
+
+    await _run_command_handler(
+        prompt_provider=prompt_provider,
+        agent=agent,
+        handler=partial(handler, agent_name=agent),
+    )
+    return DispatchResult(handled=True)
+
+
+def _history_command_target_agent(payload: CommandPayload) -> str | None:
+    if isinstance(
+        payload,
+        (HistoryViewCommand, HistoryFixCommand, HistoryWebClearCommand, ClearCommand),
+    ):
+        return payload.agent
+    return None
+
+
+def _history_handler(
+    payload: CommandPayload,
+    *,
+    agent: str,
+) -> CommandOutcomeHandler | None:
     match payload:
-        case ShowUsageCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await display_handlers.handle_show_usage(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ShowSystemCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await display_handlers.handle_show_system(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ShowMarkdownCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await display_handlers.handle_show_markdown(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ShowMcpStatusCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await display_handlers.handle_show_mcp_status(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
+        case HistoryViewCommand(view="overview", agent=target_agent):
+            handler = partial(
+                history_handlers.handle_show_history,
+                agent_name=agent,
+                target_agent=target_agent,
+            )
+        case SaveHistoryCommand(filename=filename):
+            handler = partial(
+                history_handlers.handle_history_save,
+                agent_name=agent,
+                filename=filename,
+                send_func=None,
+            )
+        case LoadHistoryCommand(filename=filename, error=error):
+            handler = partial(
+                history_handlers.handle_history_load,
+                agent_name=agent,
+                filename=filename,
+                error=error,
+            )
+        case HistoryRewindCommand(turn_index=turn_index, error=error):
+            handler = partial(
+                history_handlers.handle_history_rewind,
+                agent_name=agent,
+                turn_index=turn_index,
+                error=error,
+            )
+        case HistoryReviewCommand(turn_index=turn_index, error=error):
+            handler = partial(
+                history_handlers.handle_history_review,
+                agent_name=agent,
+                turn_index=turn_index,
+                error=error,
+            )
+        case HistoryFixCommand(agent=target_agent):
+            handler = partial(
+                history_handlers.handle_history_fix,
+                agent_name=agent,
+                target_agent=target_agent,
+            )
+        case HistoryWebClearCommand(agent=target_agent):
+            handler = partial(
+                history_handlers.handle_history_webclear,
+                agent_name=agent,
+                target_agent=target_agent,
+            )
+        case ClearCommand(kind="clear_last", agent=target_agent):
+            handler = partial(
+                history_handlers.handle_history_clear_last,
+                agent_name=agent,
+                target_agent=target_agent,
+            )
+        case ClearCommand(kind="clear_history", agent=target_agent):
+            handler = partial(
+                history_handlers.handle_history_clear_all,
+                agent_name=agent,
+                target_agent=target_agent,
+            )
         case _:
+            handler = None
+    return handler
+
+
+def _history_target_missing(
+    owner: "InteractivePrompt",
+    *,
+    prompt_provider: "AgentApp",
+    payload: CommandPayload,
+) -> bool:
+    target_agent = _history_command_target_agent(payload)
+    return bool(target_agent and owner._get_agent_or_warn(prompt_provider, target_agent) is None)
+
+
+def _dispatch_history_show_command(
+    owner: "InteractivePrompt",
+    payload: HistoryViewCommand,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    target_name = payload.agent or agent
+    target = owner._get_history_agent_or_warn(prompt_provider, target_name)
+    if target is None:
+        return result
+
+    history = list(target.message_history)
+    usage = target.usage_accumulator
+    display_history_show(target_name, history, usage)
+    return result
+
+
+async def _dispatch_mcp_connect_command(
+    payload: McpConnectCommand,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    if payload.error:
+        _print_styled(payload.error, "red")
+        return result
+    if payload.request is None:
+        rich_print("[red]Connection target is required[/red]")
+        return result
+
+    context = build_command_context(prompt_provider, agent)
+    outcome = await handle_mcp_connect(
+        context=context,
+        prompt_provider=prompt_provider,
+        agent=agent,
+        request=payload.request,
+    )
+    if outcome is not None:
+        await emit_command_outcome(context, outcome)
+    return result
+
+
+def _mcp_server_command_error(server_name: str | None, error: str | None) -> str | None:
+    if error:
+        return error
+    if not server_name:
+        return "Server name is required"
+    return None
+
+
+def _mcp_handler(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> CommandOutcomeHandler | None:
+    if isinstance(payload, (McpDisconnectCommand, McpReconnectCommand)):
+        if message := _mcp_server_command_error(payload.server_name, payload.error):
+            _print_styled(message, "red")
             return None
+        return partial(
+            MCP_SERVER_COMMAND_HANDLERS[type(payload)],
+            manager=prompt_provider,
+            agent_name=agent,
+            server_name=cast("str", payload.server_name),
+        )
+
+    match payload:
+        case McpListCommand():
+            handler = _without_context(
+                partial(
+                    mcp_runtime_handlers.handle_mcp_list,
+                    manager=prompt_provider,
+                    agent_name=agent,
+                )
+            )
+        case _:
+            handler = None
+    return handler
 
 
 async def _dispatch_history_payload(
@@ -388,113 +710,31 @@ async def _dispatch_history_payload(
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
-        case ShowHistoryCommand(agent=target_agent):
-            if target_agent and owner._get_agent_or_warn(prompt_provider, target_agent) is None:
-                return result
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_show_history(
-                context,
-                agent_name=agent,
-                target_agent=target_agent,
+        case HistoryViewCommand(view="table"):
+            return _dispatch_history_show_command(
+                owner,
+                payload,
+                prompt_provider=prompt_provider,
+                agent=agent,
             )
-            await emit_command_outcome(context, outcome)
-            return result
-        case HistoryShowCommand(agent=target_agent):
-            target_name = target_agent or agent
-            target = owner._get_history_agent_or_warn(prompt_provider, target_name)
-            if target is None:
-                return result
-            history = list(target.message_history)
-            usage = target.usage_accumulator
-            display_history_show(target_name, history, usage)
-            return result
-        case SaveHistoryCommand(filename=filename):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_history_save(
-                context,
-                agent_name=agent,
-                filename=filename,
-                send_func=None,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case LoadHistoryCommand(filename=filename, error=error):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_history_load(
-                context,
-                agent_name=agent,
-                filename=filename,
-                error=error,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case HistoryRewindCommand(turn_index=turn_index, error=error):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_history_rewind(
-                context,
-                agent_name=agent,
-                turn_index=turn_index,
-                error=error,
-            )
-            await emit_command_outcome(context, outcome)
-            result.buffer_prefill = outcome.buffer_prefill
-            return result
-        case HistoryReviewCommand(turn_index=turn_index, error=error):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_history_review(
-                context,
-                agent_name=agent,
-                turn_index=turn_index,
-                error=error,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case HistoryFixCommand(agent=target_agent):
-            if target_agent and owner._get_agent_or_warn(prompt_provider, target_agent) is None:
-                return result
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_history_fix(
-                context,
-                agent_name=agent,
-                target_agent=target_agent,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case HistoryWebClearCommand(agent=target_agent):
-            if target_agent and owner._get_agent_or_warn(prompt_provider, target_agent) is None:
-                return result
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_history_webclear(
-                context,
-                agent_name=agent,
-                target_agent=target_agent,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ClearCommand(kind="clear_last", agent=target_agent):
-            if target_agent and owner._get_agent_or_warn(prompt_provider, target_agent) is None:
-                return result
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_history_clear_last(
-                context,
-                agent_name=agent,
-                target_agent=target_agent,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ClearCommand(kind="clear_history", agent=target_agent):
-            if target_agent and owner._get_agent_or_warn(prompt_provider, target_agent) is None:
-                return result
-            context = build_command_context(prompt_provider, agent)
-            outcome = await history_handlers.handle_history_clear_all(
-                context,
-                agent_name=agent,
-                target_agent=target_agent,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
         case _:
-            return None
+            handler = _history_handler(payload, agent=agent)
+            if handler is None:
+                return None
+            if _history_target_missing(
+                owner,
+                prompt_provider=prompt_provider,
+                payload=payload,
+            ):
+                return result
+            outcome = await _run_command_handler(
+                prompt_provider=prompt_provider,
+                agent=agent,
+                handler=handler,
+            )
+            if isinstance(payload, HistoryRewindCommand):
+                result.buffer_prefill = outcome.buffer_prefill
+            return result
 
 
 async def _dispatch_mcp_payload(
@@ -505,84 +745,35 @@ async def _dispatch_mcp_payload(
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
-        case McpListCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await mcp_runtime_handlers.handle_mcp_list(
-                context,
-                manager=prompt_provider,
-                agent_name=agent,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case McpConnectCommand(request=request, error=error):
-            context = build_command_context(prompt_provider, agent)
-            if error:
-                rich_print(f"[red]{error}[/red]")
-                return result
-            if request is None:
-                rich_print("[red]Connection target is required[/red]")
-                return result
-
-            outcome = await handle_mcp_connect(
-                context=context,
+        case McpConnectCommand():
+            return await _dispatch_mcp_connect_command(
+                payload,
                 prompt_provider=prompt_provider,
                 agent=agent,
-                request=request,
             )
-            if outcome is not None:
-                await emit_command_outcome(context, outcome)
-            return result
-        case McpDisconnectCommand(server_name=server_name, error=error):
-            context = build_command_context(prompt_provider, agent)
-            if error or not server_name:
-                rich_print(f"[red]{error or 'Server name is required'}[/red]")
-                return result
-            outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
-                context,
-                manager=prompt_provider,
-                agent_name=agent,
-                server_name=server_name,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case McpReconnectCommand(server_name=server_name, error=error):
-            context = build_command_context(prompt_provider, agent)
-            if error or not server_name:
-                rich_print(f"[red]{error or 'Server name is required'}[/red]")
-                return result
-            outcome = await mcp_runtime_handlers.handle_mcp_reconnect(
-                context,
-                manager=prompt_provider,
-                agent_name=agent,
-                server_name=server_name,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case McpSessionCommand(
-            action=action,
-            server_identity=server_identity,
-            session_id=session_id,
-            title=title,
-            clear_all=clear_all,
-            error=error,
-        ):
-            context = build_command_context(prompt_provider, agent)
-            if error:
-                rich_print(f"[red]{error}[/red]")
-                return result
-            outcome = await mcp_runtime_handlers.handle_mcp_session(
-                context,
-                agent_name=agent,
-                action=action,
-                server_identity=server_identity,
-                session_id=session_id,
-                title=title,
-                clear_all=clear_all,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
         case _:
-            return None
+            handler = _mcp_handler(
+                payload,
+                prompt_provider=prompt_provider,
+                agent=agent,
+            )
+            if handler is None:
+                if isinstance(
+                    payload,
+                    (
+                        McpListCommand,
+                        McpDisconnectCommand,
+                        McpReconnectCommand,
+                    ),
+                ):
+                    return result
+                return None
+            await _run_command_handler(
+                prompt_provider=prompt_provider,
+                agent=agent,
+                handler=handler,
+            )
+            return result
 
 
 async def _dispatch_model_payload(
@@ -592,86 +783,164 @@ async def _dispatch_model_payload(
     agent: str,
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
+    handler = _model_handler(payload, agent=agent)
+    if handler is not None:
+        await _run_command_handler(
+            prompt_provider=prompt_provider,
+            agent=agent,
+            handler=handler,
+        )
+        return result
+
+    if not isinstance(payload, ModelSwitchCommand):
+        return None
+
+    context = build_command_context(prompt_provider, agent)
+    outcome = await model_handlers.handle_model_switch(
+        context,
+        agent_name=agent,
+        value=payload.value,
+    )
+    await model_handlers.apply_model_switch_session_reset(context, outcome)
+    await emit_command_outcome(context, outcome)
+    return result
+
+
+def _model_handler(
+    payload: CommandPayload,
+    *,
+    agent: str,
+) -> CommandOutcomeHandler | None:
+    handler = MODEL_VALUE_COMMAND_HANDLERS.get(type(payload))
+    if handler is None:
+        return None
+
+    value_payload = cast("_ValueCommandPayload", payload)
+    return partial(handler, agent_name=agent, value=value_payload.value)
+
+
+async def _dispatch_create_session_command(
+    payload: CreateSessionCommand,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    context = build_command_context(prompt_provider, agent)
+    outcome = await sessions_handlers.handle_create_session(
+        context,
+        session_name=payload.session_name,
+    )
+    sessions_handlers.apply_session_new_history_reset(context, outcome)
+    await emit_command_outcome(context, outcome)
+    return result
+
+
+def _session_handler(
+    payload: CommandPayload,
+    *,
+    agent: str,
+) -> CommandOutcomeHandler | None:
     match payload:
-        case ModelReasoningCommand(value=value):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await model_handlers.handle_model_reasoning(
-                context,
-                agent_name=agent,
+        case ListSessionsCommand(show_help=show_help):
+            handler = partial(
+                sessions_handlers.handle_list_sessions,
+                show_help=show_help,
+            )
+        case ClearSessionsCommand(target=target):
+            handler = partial(
+                sessions_handlers.handle_clear_sessions,
+                target=target,
+            )
+        case PinSessionCommand(value=value, target=target):
+            handler = partial(
+                sessions_handlers.handle_pin_session,
                 value=value,
+                target=target,
             )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ModelTaskBudgetCommand(value=value):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await model_handlers.handle_model_task_budget(
-                context,
+        case ResumeSessionCommand(session_id=session_id):
+            handler = partial(
+                sessions_handlers.handle_resume_session,
                 agent_name=agent,
-                value=value,
+                session_id=session_id,
             )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ModelVerbosityCommand(value=value):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await model_handlers.handle_model_verbosity(
-                context,
-                agent_name=agent,
-                value=value,
+        case TitleSessionCommand(title=title):
+            handler = partial(
+                sessions_handlers.handle_title_session,
+                title=title,
             )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ModelFastCommand(value=value):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await model_handlers.handle_model_fast(
-                context,
-                agent_name=agent,
-                value=value,
+        case ForkSessionCommand(title=title):
+            handler = partial(
+                sessions_handlers.handle_fork_session,
+                title=title,
             )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ModelWebSearchCommand(value=value):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await model_handlers.handle_model_web_search(
-                context,
-                agent_name=agent,
-                value=value,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ModelXSearchCommand(value=value):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await model_handlers.handle_model_x_search(
-                context,
-                agent_name=agent,
-                value=value,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ModelWebFetchCommand(value=value):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await model_handlers.handle_model_web_fetch(
-                context,
-                agent_name=agent,
-                value=value,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case ModelSwitchCommand(value=value):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await model_handlers.handle_model_switch(
-                context,
-                agent_name=agent,
-                value=value,
-            )
-            await _apply_model_switch_session_reset(
-                context=context,
-                prompt_provider=prompt_provider,
-                outcome=outcome,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
         case _:
-            return None
+            handler = None
+    return handler
+
+
+def _active_session_id_or_empty(context: CommandContext, target: str | None) -> str | None:
+    if context.noenv:
+        return None
+
+    manager = context.resolve_session_manager()
+    current_session = manager.current_session
+    current_session_id = current_session.info.name if current_session is not None else None
+    if target is None and current_session_id is None:
+        return ""
+    return current_session_id
+
+
+async def _dispatch_session_export_command(
+    payload: ExportSessionCommand,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    context = build_command_context(prompt_provider, agent)
+    if payload.show_help:
+        outcome = CommandOutcome()
+        outcome.add_message(render_session_export_help_markdown(), render_markdown=True)
+        await emit_command_outcome(context, outcome)
+        return result
+
+    current_session_id = _active_session_id_or_empty(context, payload.target)
+    if current_session_id == "":
+        outcome = CommandOutcome()
+        outcome.add_message(
+            "No active session to export.",
+            channel="error",
+            right_info="session",
+        )
+        await emit_command_outcome(context, outcome)
+        return result
+
+    resolved_agent_name = payload.agent_name
+    if resolved_agent_name is None and should_default_export_agent(
+        payload.target,
+        current_session_id=current_session_id,
+    ):
+        resolved_agent_name = agent
+
+    outcome = await session_export_handlers.handle_session_export(
+        context,
+        target=payload.target,
+        agent_name=resolved_agent_name,
+        output_path=payload.output_path,
+        hf_dataset=payload.hf_dataset,
+        hf_dataset_path=payload.hf_dataset_path,
+        privacy_filter=payload.privacy_filter,
+        privacy_filter_path=payload.privacy_filter_path,
+        download_privacy_filter=payload.download_privacy_filter,
+        privacy_filter_device=payload.privacy_filter_device,
+        privacy_filter_variant=payload.privacy_filter_variant,
+        show_redactions=payload.show_redactions,
+        current_session_id=current_session_id,
+        error=payload.error,
+    )
+    await emit_command_outcome(context, outcome)
+    return result
 
 
 async def _dispatch_session_payload(
@@ -682,111 +951,30 @@ async def _dispatch_session_payload(
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
-        case CreateSessionCommand(session_name=session_name):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await sessions_handlers.handle_create_session(context, session_name=session_name)
-            cleared = clear_agent_histories(prompt_provider.registered_agents())
-            if cleared:
-                outcome.add_message(f"Cleared agent history: {', '.join(sorted(cleared))}", channel="info")
-            await emit_command_outcome(context, outcome)
-            return result
-        case ListSessionsCommand(show_help=show_help):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await sessions_handlers.handle_list_sessions(context, show_help=show_help)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ClearSessionsCommand(target=target):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await sessions_handlers.handle_clear_sessions(context, target=target)
-            await emit_command_outcome(context, outcome)
-            return result
-        case PinSessionCommand(value=value, target=target):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await sessions_handlers.handle_pin_session(context, value=value, target=target)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ResumeSessionCommand(session_id=session_id):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await sessions_handlers.handle_resume_session(
-                context,
-                agent_name=agent,
-                session_id=session_id,
+        case CreateSessionCommand():
+            return await _dispatch_create_session_command(
+                payload,
+                prompt_provider=prompt_provider,
+                agent=agent,
             )
-            await emit_command_outcome(context, outcome)
-            if outcome.switch_agent:
+        case ExportSessionCommand():
+            return await _dispatch_session_export_command(
+                payload,
+                prompt_provider=prompt_provider,
+                agent=agent,
+            )
+        case _:
+            handler = _session_handler(payload, agent=agent)
+            if handler is None:
+                return None
+            outcome = await _run_command_handler(
+                prompt_provider=prompt_provider,
+                agent=agent,
+                handler=handler,
+            )
+            if isinstance(payload, ResumeSessionCommand) and outcome.switch_agent:
                 result.next_agent = outcome.switch_agent
             return result
-        case TitleSessionCommand(title=title):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await sessions_handlers.handle_title_session(context, title=title)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ForkSessionCommand(title=title):
-            context = build_command_context(prompt_provider, agent)
-            outcome = await sessions_handlers.handle_fork_session(context, title=title)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ExportSessionCommand(
-            target=target,
-            agent_name=agent_name,
-            output_path=output_path,
-            hf_dataset=hf_dataset,
-            hf_dataset_path=hf_dataset_path,
-            privacy_filter=privacy_filter,
-            privacy_filter_path=privacy_filter_path,
-            download_privacy_filter=download_privacy_filter,
-            privacy_filter_device=privacy_filter_device,
-            privacy_filter_variant=privacy_filter_variant,
-            show_redactions=show_redactions,
-            show_help=show_help,
-            error=error,
-        ):
-            context = build_command_context(prompt_provider, agent)
-            if show_help:
-                outcome = CommandOutcome()
-                outcome.add_message(render_session_export_help_markdown(), render_markdown=True)
-                await emit_command_outcome(context, outcome)
-                return result
-            current_session_id = None
-            if not context.noenv:
-                manager = context.resolve_session_manager()
-                current_session = manager.current_session
-                current_session_id = current_session.info.name if current_session is not None else None
-                if target is None and current_session_id is None:
-                    outcome = CommandOutcome()
-                    outcome.add_message(
-                        "No active session to export.",
-                        channel="error",
-                        right_info="session",
-                    )
-                    await emit_command_outcome(context, outcome)
-                    return result
-            resolved_agent_name = agent_name
-            if resolved_agent_name is None and should_default_export_agent(
-                target,
-                current_session_id=current_session_id,
-            ):
-                resolved_agent_name = agent
-            outcome = await session_export_handlers.handle_session_export(
-                context,
-                target=target,
-                agent_name=resolved_agent_name,
-                output_path=output_path,
-                hf_dataset=hf_dataset,
-                hf_dataset_path=hf_dataset_path,
-                privacy_filter=privacy_filter,
-                privacy_filter_path=privacy_filter_path,
-                download_privacy_filter=download_privacy_filter,
-                privacy_filter_device=privacy_filter_device,
-                privacy_filter_variant=privacy_filter_variant,
-                show_redactions=show_redactions,
-                current_session_id=current_session_id,
-                error=error,
-            )
-            await emit_command_outcome(context, outcome)
-            return result
-        case _:
-            return None
 
 
 def _refresh_available_agents(
@@ -812,7 +1000,7 @@ def _apply_refresh_preferences(
 ) -> str | None:
     refresh_result = prompt_provider.latest_refresh_result()
     for warning in refresh_result.warnings:
-        rich_print(f"[yellow]{warning}[/yellow]")
+        rich_print(Text(warning, style="yellow"))
     preferred_agent = refresh_result.active_agent
     if preferred_agent and preferred_agent in next_available_agents_set:
         return preferred_agent
@@ -821,6 +1009,23 @@ def _apply_refresh_preferences(
     if next_available_agents:
         return next_available_agents[0]
     return None
+
+
+def _refresh_dispatch_agents(
+    result: DispatchResult,
+    *,
+    owner: "InteractivePrompt",
+    prompt_provider: "AgentApp",
+    merge_pinned_agents: Callable[[list[str]], list[str]],
+) -> tuple[list[str], set[str]]:
+    next_available_agents, next_available_agents_set = _refresh_available_agents(
+        owner,
+        prompt_provider,
+        merge_pinned_agents,
+    )
+    result.available_agents = next_available_agents
+    result.available_agents_set = next_available_agents_set
+    return next_available_agents, next_available_agents_set
 
 
 async def _dispatch_agent_card_payload(
@@ -840,7 +1045,7 @@ async def _dispatch_agent_card_payload(
             error=error,
         ):
             if error:
-                rich_print(f"[red]{error}[/red]")
+                _print_styled(error, "red")
                 return result
             context = build_command_context(prompt_provider, agent)
             outcome = await agent_card_handlers.handle_card_load(
@@ -853,13 +1058,12 @@ async def _dispatch_agent_card_payload(
             )
             await emit_command_outcome(context, outcome)
             if outcome.requires_refresh:
-                next_available_agents, next_available_agents_set = _refresh_available_agents(
-                    owner,
-                    prompt_provider,
-                    merge_pinned_agents,
+                next_available_agents, next_available_agents_set = _refresh_dispatch_agents(
+                    result,
+                    owner=owner,
+                    prompt_provider=prompt_provider,
+                    merge_pinned_agents=merge_pinned_agents,
                 )
-                result.available_agents = next_available_agents
-                result.available_agents_set = next_available_agents_set
                 if agent not in next_available_agents_set:
                     if next_available_agents:
                         result.next_agent = next_available_agents[0]
@@ -875,7 +1079,7 @@ async def _dispatch_agent_card_payload(
             error=error,
         ):
             if error:
-                rich_print(f"[red]{error}[/red]")
+                _print_styled(error, "red")
                 return result
             context = build_command_context(prompt_provider, agent)
             outcome = await agent_card_handlers.handle_agent_command(
@@ -905,16 +1109,18 @@ async def _dispatch_reload_payload(
     match payload:
         case ReloadAgentsCommand():
             context = build_command_context(prompt_provider, agent)
-            outcome = await agent_card_handlers.handle_reload_agents(context, manager=prompt_provider)
+            outcome = await agent_card_handlers.handle_reload_agents(
+                context,
+                manager=prompt_provider,
+            )
             await emit_command_outcome(context, outcome)
             if outcome.requires_refresh:
-                next_available_agents, next_available_agents_set = _refresh_available_agents(
-                    owner,
-                    prompt_provider,
-                    merge_pinned_agents,
+                next_available_agents, next_available_agents_set = _refresh_dispatch_agents(
+                    result,
+                    owner=owner,
+                    prompt_provider=prompt_provider,
+                    merge_pinned_agents=merge_pinned_agents,
                 )
-                result.available_agents = next_available_agents
-                result.available_agents_set = next_available_agents_set
                 next_agent = _apply_refresh_preferences(
                     prompt_provider=prompt_provider,
                     current_agent=agent,
@@ -931,6 +1137,16 @@ async def _dispatch_reload_payload(
             return None
 
 
+async def _first_dispatch_result(
+    dispatchers: Sequence[_DispatchStep],
+) -> DispatchResult | None:
+    for dispatcher in dispatchers:
+        result = await dispatcher.run()
+        if result is not None:
+            return result
+    return None
+
+
 async def dispatch_command_payload(
     owner: "InteractivePrompt",
     payload: CommandPayload,
@@ -945,107 +1161,279 @@ async def dispatch_command_payload(
 ) -> DispatchResult:
     del available_agents
 
-    plugin_result = await _dispatch_plugin_command_payload(
+    result = await _first_dispatch_result(
+        (
+            _DispatchStep(
+                name="plugin command fallback",
+                run=lambda: _dispatch_plugin_command_payload(
+                    owner,
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                    available_agents_set=available_agents_set,
+                    merge_pinned_agents=merge_pinned_agents,
+                    shell_working_dir=shell_working_dir,
+                ),
+            ),
+            _DispatchStep(
+                name="local UI command",
+                run=lambda: _dispatch_local_ui_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    available_agents_set=available_agents_set,
+                    agent_name=agent,
+                    buffer_prefill=buffer_prefill,
+                    shell_working_dir=shell_working_dir,
+                ),
+            ),
+            _DispatchStep(
+                name="prompt command",
+                run=lambda: _dispatch_prompt_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                ),
+            ),
+            _DispatchStep(
+                name="catalog command",
+                run=lambda: _dispatch_catalog_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                ),
+            ),
+            _DispatchStep(
+                name="display command",
+                run=lambda: _dispatch_display_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                ),
+            ),
+            _DispatchStep(
+                name="history command",
+                run=lambda: _dispatch_history_payload(
+                    owner,
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                ),
+            ),
+            _DispatchStep(
+                name="mcp command",
+                run=lambda: _dispatch_mcp_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                ),
+            ),
+            _DispatchStep(
+                name="model command",
+                run=lambda: _dispatch_model_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                ),
+            ),
+            _DispatchStep(
+                name="session command",
+                run=lambda: _dispatch_session_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                ),
+            ),
+            _DispatchStep(
+                name="agent/card command",
+                run=lambda: _dispatch_agent_card_payload(
+                    owner,
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                    merge_pinned_agents=merge_pinned_agents,
+                ),
+            ),
+            _DispatchStep(
+                name="reload command",
+                run=lambda: _dispatch_reload_payload(
+                    owner,
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                    merge_pinned_agents=merge_pinned_agents,
+                ),
+            ),
+        )
+    )
+    return result or DispatchResult(handled=False)
+
+
+def _parse_unknown_plugin_command(payload: UnknownCommand) -> tuple[str, str] | None:
+    parsed = parse_slash_command_line(payload.command)
+    if parsed is None:
+        return None
+
+    command_name, arguments = parsed
+    command_name = normalize_plugin_command_name(command_name)
+    if not command_name:
+        return None
+    return command_name, arguments
+
+
+def _resolve_plugin_command_spec(
+    *,
+    current_agent: "PluginCommandAgentProtocol",
+    prompt_provider: "AgentApp",
+    command_name: str,
+) -> tuple[PluginCommandActionSpec, Path | None] | None:
+    agent_commands = current_agent.config.commands
+    if agent_commands is not None:
+        spec = agent_commands.get(command_name)
+        if spec is not None:
+            base_path = None
+            if current_agent.config.source_path is not None:
+                base_path = current_agent.config.source_path.parent
+            return spec, base_path
+
+    if prompt_provider.plugin_commands is None:
+        return None
+
+    spec = prompt_provider.plugin_commands.get(command_name)
+    if spec is None:
+        return None
+    return spec, prompt_provider.plugin_command_base_path
+
+
+def _plugin_command_request(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> _PluginCommandRequest | None:
+    if not isinstance(payload, UnknownCommand):
+        return None
+
+    parsed_command = _parse_unknown_plugin_command(payload)
+    if parsed_command is None:
+        return None
+    command_name, arguments = parsed_command
+
+    current_agent = prompt_provider.get_agent(agent)
+    if current_agent is None:
+        return None
+    plugin_agent = cast("PluginCommandAgentProtocol", current_agent)
+
+    resolved_command = _resolve_plugin_command_spec(
+        current_agent=plugin_agent,
+        prompt_provider=prompt_provider,
+        command_name=command_name,
+    )
+    if resolved_command is None:
+        return None
+    spec, base_path = resolved_command
+    return _PluginCommandRequest(
+        command_name=command_name,
+        arguments=arguments,
+        agent=plugin_agent,
+        spec=spec,
+        base_path=base_path,
+    )
+
+
+def _plugin_runtime_facade(
+    prompt_provider: "AgentApp",
+    *,
+    current_agent_name: str,
+) -> PluginRuntimeFacade:
+    return PluginRuntimeFacade(
+        current_agent_name=current_agent_name,
+        attach_mcp_server_callback=prompt_provider.attach_mcp_server,
+        detach_mcp_server_callback=prompt_provider.detach_mcp_server,
+        list_attached_mcp_servers_callback=prompt_provider.list_attached_mcp_servers,
+        list_configured_detached_mcp_servers_callback=(
+            prompt_provider.list_configured_detached_mcp_servers
+        ),
+    )
+
+
+def _plugin_command_context(
+    *,
+    command_name: str,
+    arguments: str,
+    current_agent: "PluginCommandAgentProtocol",
+    context: CommandContext,
+    prompt_provider: "AgentApp",
+    shell_working_dir: Path | None,
+) -> PluginCommandActionContext:
+    return PluginCommandActionContext(
+        command_name=command_name,
+        arguments=arguments,
+        agent=cast("PluginCommandAgentProtocol", current_agent),
+        settings=context.settings,
+        session_cwd=shell_working_dir,
+        runtime=_plugin_runtime_facade(
+            prompt_provider,
+            current_agent_name=current_agent.name,
+        ),
+        is_tui=True,
+    )
+
+
+async def _execute_plugin_command_action(
+    *,
+    command_name: str,
+    spec: PluginCommandActionSpec,
+    base_path: Path | None,
+    plugin_context: PluginCommandActionContext,
+) -> PluginCommandActionResult | None:
+    registry = PluginCommandActionRegistry.from_specs(
+        {command_name: spec},
+        base_path=base_path,
+    )
+    return await registry.execute(command_name, plugin_context)
+
+
+def _plugin_action_outcome(
+    action_result: PluginCommandActionResult | None,
+) -> CommandOutcome:
+    if action_result is None:
+        return CommandOutcome()
+
+    outcome = CommandOutcome(
+        buffer_prefill=action_result.buffer_prefill,
+        switch_agent=action_result.switch_agent,
+        requires_refresh=action_result.refresh_agents,
+    )
+    if action_result.markdown:
+        outcome.add_message(action_result.markdown, render_markdown=True)
+    elif action_result.message:
+        outcome.add_message(action_result.message)
+    return outcome
+
+
+def _plugin_dispatch_result(outcome: CommandOutcome) -> DispatchResult:
+    return DispatchResult(
+        handled=True,
+        buffer_prefill=outcome.buffer_prefill,
+        next_agent=outcome.switch_agent,
+    )
+
+
+def _refresh_plugin_dispatch_agents(
+    result: DispatchResult,
+    *,
+    owner: "InteractivePrompt",
+    prompt_provider: "AgentApp",
+    merge_pinned_agents: Callable[[list[str]], list[str]],
+) -> set[str]:
+    next_available_agents, next_available_agents_set = _refresh_available_agents(
         owner,
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-        available_agents_set=available_agents_set,
-        merge_pinned_agents=merge_pinned_agents,
-        shell_working_dir=shell_working_dir,
+        prompt_provider,
+        merge_pinned_agents,
     )
-    if plugin_result is not None:
-        return plugin_result
-
-    local_result = await _dispatch_local_ui_payload(
-        payload,
-        prompt_provider=prompt_provider,
-        available_agents_set=available_agents_set,
-        agent_name=agent,
-        buffer_prefill=buffer_prefill,
-        shell_working_dir=shell_working_dir,
-    )
-    if local_result is not None:
-        return local_result
-
-    prompt_result = await _dispatch_prompt_payload(
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-    )
-    if prompt_result is not None:
-        return prompt_result
-
-    catalog_result = await _dispatch_catalog_payload(
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-    )
-    if catalog_result is not None:
-        return catalog_result
-
-    display_result = await _dispatch_display_payload(
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-    )
-    if display_result is not None:
-        return display_result
-
-    history_result = await _dispatch_history_payload(
-        owner,
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-    )
-    if history_result is not None:
-        return history_result
-
-    mcp_result = await _dispatch_mcp_payload(
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-    )
-    if mcp_result is not None:
-        return mcp_result
-
-    model_result = await _dispatch_model_payload(
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-    )
-    if model_result is not None:
-        return model_result
-
-    session_result = await _dispatch_session_payload(
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-    )
-    if session_result is not None:
-        return session_result
-
-    agent_card_result = await _dispatch_agent_card_payload(
-        owner,
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-        merge_pinned_agents=merge_pinned_agents,
-    )
-    if agent_card_result is not None:
-        return agent_card_result
-
-    reload_result = await _dispatch_reload_payload(
-        owner,
-        payload,
-        prompt_provider=prompt_provider,
-        agent=agent,
-        merge_pinned_agents=merge_pinned_agents,
-    )
-    if reload_result is not None:
-        return reload_result
-
-    return DispatchResult(handled=False)
+    result.available_agents = next_available_agents
+    result.available_agents_set = next_available_agents_set
+    return next_available_agents_set
 
 
 async def _dispatch_plugin_command_payload(
@@ -1058,104 +1446,59 @@ async def _dispatch_plugin_command_payload(
     merge_pinned_agents: Callable[[list[str]], list[str]],
     shell_working_dir: Path | None,
 ) -> DispatchResult | None:
-    if not isinstance(payload, UnknownCommand):
-        return None
-
-    command_line = payload.command.strip()
-    if not command_line.startswith("/"):
-        return None
-
-    command_name, _, arguments = command_line[1:].partition(" ")
-    command_name = command_name.strip()
-    arguments = arguments.lstrip()
-    if not command_name:
-        return None
-
-    current_agent = prompt_provider.get_agent(agent)
-    if current_agent is None:
-        return None
-
-    spec = None
-    base_path = None
-    agent_commands = current_agent.config.commands
-    if agent_commands is not None:
-        spec = agent_commands.get(command_name)
-        if spec is not None and current_agent.config.source_path is not None:
-            base_path = current_agent.config.source_path.parent
-
-    if spec is None and prompt_provider.plugin_commands is not None:
-        spec = prompt_provider.plugin_commands.get(command_name)
-        base_path = prompt_provider.plugin_command_base_path
-
-    if spec is None:
+    request = _plugin_command_request(
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
+    if request is None:
         return None
 
     try:
-        registry = PluginCommandActionRegistry.from_specs(
-            {command_name: spec},
-            base_path=base_path,
-        )
         context = build_command_context(prompt_provider, agent)
-        plugin_context = PluginCommandActionContext(
-            command_name=command_name,
-            arguments=arguments,
-            agent=cast("PluginCommandAgentProtocol", current_agent),
-            settings=context.settings,
-            session_cwd=shell_working_dir,
-            runtime=PluginRuntimeFacade(
-                current_agent_name=current_agent.name,
-                attach_mcp_server_callback=prompt_provider.attach_mcp_server,
-                detach_mcp_server_callback=prompt_provider.detach_mcp_server,
-                list_attached_mcp_servers_callback=prompt_provider.list_attached_mcp_servers,
-                list_configured_detached_mcp_servers_callback=(
-                    prompt_provider.list_configured_detached_mcp_servers
-                ),
-            ),
-            is_tui=True,
+        plugin_context = _plugin_command_context(
+            command_name=request.command_name,
+            arguments=request.arguments,
+            current_agent=request.agent,
+            context=context,
+            prompt_provider=prompt_provider,
+            shell_working_dir=shell_working_dir,
         )
-        action_result = await registry.execute(command_name, plugin_context)
+        action_result = await _execute_plugin_command_action(
+            command_name=request.command_name,
+            spec=request.spec,
+            base_path=request.base_path,
+            plugin_context=plugin_context,
+        )
     except AgentConfigError as exc:
-        logger.warning("Failed to load plugin command action", command=command_name, error=str(exc))
-        rich_print(f"[red]Command /{command_name} failed to load:[/red] {exc}")
+        logger.warning(
+            "Failed to load plugin command action",
+            command=request.command_name,
+            error=str(exc),
+        )
+        rich_print(_plugin_error_text(request.command_name, " failed to load: ", exc))
         return DispatchResult(handled=True)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Plugin command action failed", command=command_name)
-        rich_print(f"[red]Command /{command_name} failed:[/red] {exc}")
+    except Exception as exc:
+        logger.exception("Plugin command action failed", command=request.command_name)
+        rich_print(_plugin_error_text(request.command_name, " failed: ", exc))
         return DispatchResult(handled=True)
 
-    if action_result is None:
-        return DispatchResult(handled=True)
-
-    outcome = CommandOutcome(
-        buffer_prefill=action_result.buffer_prefill,
-        switch_agent=action_result.switch_agent,
-        requires_refresh=action_result.refresh_agents,
-    )
-    if action_result.markdown:
-        outcome.add_message(action_result.markdown, render_markdown=True)
-    elif action_result.message:
-        outcome.add_message(action_result.message)
-
+    outcome = _plugin_action_outcome(action_result)
     await emit_command_outcome(context, outcome)
-
-    result = DispatchResult(
-        handled=True,
-        buffer_prefill=outcome.buffer_prefill,
-        next_agent=outcome.switch_agent,
-    )
+    result = _plugin_dispatch_result(outcome)
 
     if outcome.requires_refresh:
-        next_available_agents, next_available_agents_set = _refresh_available_agents(
-            owner,
-            prompt_provider,
-            merge_pinned_agents,
+        available_agents_set = _refresh_plugin_dispatch_agents(
+            result,
+            owner=owner,
+            prompt_provider=prompt_provider,
+            merge_pinned_agents=merge_pinned_agents,
         )
-        result.available_agents = next_available_agents
-        result.available_agents_set = next_available_agents_set
-        available_agents_set = next_available_agents_set
 
     if result.next_agent is not None and result.next_agent not in available_agents_set:
-        rich_print(f"[red]Unknown agent:[/red] {result.next_agent}")
+        message = Text("Unknown agent: ", style="red")
+        message.append(result.next_agent)
+        rich_print(message)
         result.next_agent = None
 
     return result

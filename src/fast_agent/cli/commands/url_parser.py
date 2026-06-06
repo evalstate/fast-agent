@@ -5,10 +5,13 @@ Provides functions to parse URLs and determine MCP server configurations.
 
 import hashlib
 import re
+from ipaddress import ip_address
 from typing import Literal
 from urllib.parse import urlparse
 
 from fast_agent.mcp.hf_auth import TokenProvider, add_hf_auth_header
+from fast_agent.utils.action_normalization import normalize_action_token
+from fast_agent.utils.text import strip_to_none
 
 
 def _normalize_auth_token(auth_token: str) -> str:
@@ -19,9 +22,9 @@ def _normalize_auth_token(auth_token: str) -> str:
     prefixes like ``Bearer Bearer <token>``.
     """
 
-    normalized = auth_token.strip()
-    if normalized.lower().startswith("bearer "):
-        normalized = normalized[7:].strip()
+    normalized = strip_to_none(auth_token) or ""
+    if normalize_action_token(normalized).startswith("bearer "):
+        normalized = strip_to_none(normalized[7:]) or ""
     if not normalized:
         raise ValueError("Auth token cannot be empty")
     return normalized
@@ -68,11 +71,7 @@ def parse_server_url(
         transport_type = "sse"
 
     parsed_url_text = url
-    if (
-        transport_type == "http"
-        and not parsed_url.query
-        and not normalized_path.endswith("/mcp")
-    ):
+    if transport_type == "http" and not parsed_url.query and not normalized_path.endswith("/mcp"):
         fallback_path = "/mcp" if not normalized_path else f"{normalized_path}/mcp"
         parsed_url_text = parsed_url._replace(path=fallback_path).geturl()
 
@@ -94,8 +93,8 @@ def generate_server_name(url: str) -> str:
     """
     parsed_url = urlparse(url)
 
-    # Extract hostname and port
-    hostname, _, port_str = parsed_url.netloc.partition(":")
+    hostname = parsed_url.hostname or ""
+    port_str = str(parsed_url.port) if parsed_url.port is not None else ""
 
     # Clean the hostname for use in a server name
     # Replace non-alphanumeric characters with underscores
@@ -105,7 +104,7 @@ def generate_server_name(url: str) -> str:
         clean_hostname = clean_hostname[:9] + clean_hostname[-5:]
 
     # If it's localhost or an IP, add a more unique identifier
-    if clean_hostname in ("localhost", "127_0_0_1") or re.match(r"^(\d+_){3}\d+$", clean_hostname):
+    if hostname == "localhost" or _is_ip_address(hostname):
         # Use the path as part of the name for uniqueness
         path = parsed_url.path.strip("/")
         path = re.sub(r"[^a-zA-Z0-9]", "_", path)
@@ -115,12 +114,20 @@ def generate_server_name(url: str) -> str:
 
         if path:
             return f"{clean_hostname}{port}_{path[:20]}"  # Limit path length
-        else:
-            # Use a hash if no path for uniqueness
-            url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
-            return f"{clean_hostname}{port}_{url_hash}"
+
+        # Use a hash if no path for uniqueness
+        url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+        return f"{clean_hostname}{port}_{url_hash}"
 
     return clean_hostname
+
+
+def _is_ip_address(hostname: str) -> bool:
+    try:
+        ip_address(hostname)
+    except ValueError:
+        return False
+    return True
 
 
 def parse_server_urls(
@@ -147,8 +154,7 @@ def parse_server_urls(
     if not urls_param:
         return []
 
-    # Split by comma and strip whitespace
-    url_list = [url.strip() for url in urls_param.split(",")]
+    url_list = [strip_to_none(url) or "" for url in urls_param.split(",")]
 
     # Prepare headers if auth token is provided
     headers = None

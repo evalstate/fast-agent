@@ -6,6 +6,8 @@ import sys
 
 from rich import print
 
+from fast_agent.core.exceptions import FastAgentError
+
 
 def handle_error(e: Exception, error_type: str, suggestion: str | None = None) -> None:
     """
@@ -17,10 +19,15 @@ def handle_error(e: Exception, error_type: str, suggestion: str | None = None) -
         suggestion: Optional suggestion message to display
     """
     print(f"\n[bold red]{error_type}:", file=sys.stderr)
-    print(getattr(e, "message", str(e)), file=sys.stderr)
-    if hasattr(e, "details") and e.details:
+    if isinstance(e, FastAgentError):
+        print(e.message, file=sys.stderr)
+        details = e.details
+    else:
+        print(str(e), file=sys.stderr)
+        details = ""
+    if details:
         print("\nDetails:", file=sys.stderr)
-        print(e.details, file=sys.stderr)
+        print(details, file=sys.stderr)
     if suggestion:
         print(f"\n{suggestion}", file=sys.stderr)
         print(file=sys.stderr)

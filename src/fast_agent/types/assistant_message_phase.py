@@ -1,8 +1,6 @@
 """Assistant message phase metadata aligned with the OpenAI Responses SDK."""
 
-from typing import Final, TypeGuard
-
-from typing_extensions import Literal
+from typing import Final, Literal, TypeGuard
 
 # Stainless does not currently export a standalone alias for the shared `phase`
 # field, so we mirror the SDK's EasyInputMessage / ResponseOutputMessage literal.

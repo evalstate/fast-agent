@@ -14,32 +14,18 @@ def test_apply_patch_cli_add_and_update() -> None:
         file_name = "cli_test.txt"
         absolute_path = tmp_path / file_name
 
-        add_patch = (
-            "*** Begin Patch\n"
-            f"*** Add File: {file_name}\n"
-            "+hello\n"
-            "*** End Patch"
-        )
+        add_patch = f"*** Begin Patch\n*** Add File: {file_name}\n+hello\n*** End Patch"
         add_result = _run_cli(add_patch, tmp_path)
         assert add_result.returncode == 0
-        assert add_result.stdout == (
-            f"Success. Updated the following files:\nA {file_name}\n"
-        )
+        assert add_result.stdout == (f"Success. Updated the following files:\nA {file_name}\n")
         assert absolute_path.read_text(encoding="utf-8", newline="") == "hello\n"
 
         update_patch = (
-            "*** Begin Patch\n"
-            f"*** Update File: {file_name}\n"
-            "@@\n"
-            "-hello\n"
-            "+world\n"
-            "*** End Patch"
+            f"*** Begin Patch\n*** Update File: {file_name}\n@@\n-hello\n+world\n*** End Patch"
         )
         update_result = _run_cli(update_patch, tmp_path)
         assert update_result.returncode == 0
-        assert update_result.stdout == (
-            f"Success. Updated the following files:\nM {file_name}\n"
-        )
+        assert update_result.stdout == (f"Success. Updated the following files:\nM {file_name}\n")
         assert absolute_path.read_text(encoding="utf-8", newline="") == "world\n"
 
 
@@ -50,32 +36,18 @@ def test_apply_patch_cli_stdin_add_and_update() -> None:
         file_name = "cli_test_stdin.txt"
         absolute_path = tmp_path / file_name
 
-        add_patch = (
-            "*** Begin Patch\n"
-            f"*** Add File: {file_name}\n"
-            "+hello\n"
-            "*** End Patch"
-        )
+        add_patch = f"*** Begin Patch\n*** Add File: {file_name}\n+hello\n*** End Patch"
         add_result = _run_cli(None, tmp_path, stdin_patch=add_patch)
         assert add_result.returncode == 0
-        assert add_result.stdout == (
-            f"Success. Updated the following files:\nA {file_name}\n"
-        )
+        assert add_result.stdout == (f"Success. Updated the following files:\nA {file_name}\n")
         assert absolute_path.read_text(encoding="utf-8", newline="") == "hello\n"
 
         update_patch = (
-            "*** Begin Patch\n"
-            f"*** Update File: {file_name}\n"
-            "@@\n"
-            "-hello\n"
-            "+world\n"
-            "*** End Patch"
+            f"*** Begin Patch\n*** Update File: {file_name}\n@@\n-hello\n+world\n*** End Patch"
         )
         update_result = _run_cli(None, tmp_path, stdin_patch=update_patch)
         assert update_result.returncode == 0
-        assert update_result.stdout == (
-            f"Success. Updated the following files:\nM {file_name}\n"
-        )
+        assert update_result.stdout == (f"Success. Updated the following files:\nM {file_name}\n")
         assert absolute_path.read_text(encoding="utf-8", newline="") == "world\n"
 
 
@@ -104,10 +76,7 @@ def test_apply_patch_cli_applies_multiple_operations() -> None:
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 0
         assert result.stdout == (
-            "Success. Updated the following files:\n"
-            "A nested/new.txt\n"
-            "M modify.txt\n"
-            "D delete.txt\n"
+            "Success. Updated the following files:\nA nested/new.txt\nM modify.txt\nD delete.txt\n"
         )
 
         assert (tmp_path / "nested/new.txt").read_text(encoding="utf-8", newline="") == (
@@ -122,9 +91,7 @@ def test_apply_patch_cli_applies_multiple_chunks() -> None:
     with TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         target_path = tmp_path / "multi.txt"
-        target_path.write_text(
-            "line1\nline2\nline3\nline4\n", encoding="utf-8", newline=""
-        )
+        target_path.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8", newline="")
 
         patch = (
             "*** Begin Patch\n"
@@ -168,9 +135,7 @@ def test_apply_patch_cli_moves_file_to_new_directory() -> None:
 
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 0
-        assert result.stdout == (
-            "Success. Updated the following files:\nM renamed/dir/name.txt\n"
-        )
+        assert result.stdout == ("Success. Updated the following files:\nM renamed/dir/name.txt\n")
         assert not original_path.exists()
         assert new_path.read_text(encoding="utf-8", newline="") == "new content\n"
 
@@ -191,12 +156,7 @@ def test_apply_patch_cli_reports_missing_context() -> None:
         target_path.write_text("line1\nline2\n", encoding="utf-8", newline="")
 
         patch = (
-            "*** Begin Patch\n"
-            "*** Update File: modify.txt\n"
-            "@@\n"
-            "-missing\n"
-            "+changed\n"
-            "*** End Patch"
+            "*** Begin Patch\n*** Update File: modify.txt\n@@\n-missing\n+changed\n*** End Patch"
         )
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 1
@@ -266,9 +226,7 @@ def test_apply_patch_cli_move_overwrites_existing_destination() -> None:
 
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 0
-        assert result.stdout == (
-            "Success. Updated the following files:\nM renamed/dir/name.txt\n"
-        )
+        assert result.stdout == ("Success. Updated the following files:\nM renamed/dir/name.txt\n")
         assert not original_path.exists()
         assert destination.read_text(encoding="utf-8", newline="") == "new\n"
 
@@ -280,12 +238,7 @@ def test_apply_patch_cli_add_overwrites_existing_file() -> None:
         path = tmp_path / "duplicate.txt"
         path.write_text("old content\n", encoding="utf-8", newline="")
 
-        patch = (
-            "*** Begin Patch\n"
-            "*** Add File: duplicate.txt\n"
-            "+new content\n"
-            "*** End Patch"
-        )
+        patch = "*** Begin Patch\n*** Add File: duplicate.txt\n+new content\n*** End Patch"
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 0
         assert result.stdout == "Success. Updated the following files:\nA duplicate.txt\n"
@@ -337,9 +290,7 @@ def test_apply_patch_cli_updates_file_appends_trailing_newline() -> None:
 
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 0
-        assert result.stdout == (
-            "Success. Updated the following files:\nM no_newline.txt\n"
-        )
+        assert result.stdout == ("Success. Updated the following files:\nM no_newline.txt\n")
         contents = target_path.read_text(encoding="utf-8", newline="")
         assert contents.endswith("\n")
         assert contents == "first line\nsecond line\n"

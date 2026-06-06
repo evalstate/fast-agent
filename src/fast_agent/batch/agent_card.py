@@ -77,6 +77,7 @@ def override_selected_agent_model(fast: FastAgent, target_name: str, model: str)
         raise ValueError(f"Agent '{target_name}' is missing AgentConfig")
     config.model = model
 
+
 def _agent_config(fast: FastAgent, name: str) -> AgentConfig | None:
     agent_data = fast.agents.get(name)
     if agent_data is None:
@@ -105,6 +106,4 @@ def _reject_human_input_agents(fast: FastAgent, loaded_names: list[str]) -> None
     ]
     if human_input_names:
         names = ", ".join(human_input_names)
-        raise ValueError(
-            f"AgentCard batch mode does not support human_input agents: {names}."
-        )
+        raise ValueError(f"AgentCard batch mode does not support human_input agents: {names}.")

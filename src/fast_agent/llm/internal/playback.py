@@ -1,4 +1,4 @@
-from typing import Any, Type
+from typing import Any
 
 from mcp import Tool
 
@@ -42,7 +42,7 @@ class PlaybackLLM(PassthroughLLM):
         while self._current_index < len(self._messages):
             message = self._messages[self._current_index]
             self._current_index += 1
-            if "assistant" != message.role:
+            if message.role != "assistant":
                 continue
 
             return message
@@ -63,9 +63,11 @@ class PlaybackLLM(PassthroughLLM):
         1. First call: store messages for playback and return "HISTORY LOADED"
         2. Subsequent calls: return the next assistant message
         """
+        del request_params, tools
+
         # If this is the first call (initialization) or we're loading a prompt template
         # with multiple messages (comes from apply_prompt)
-        if -1 == self._current_index:
+        if self._current_index == -1:
             if len(messages) > 1:
                 self._messages = list(messages)
             else:
@@ -103,14 +105,15 @@ class PlaybackLLM(PassthroughLLM):
     async def structured(
         self,
         messages: list[PromptMessageExtended],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Handle structured requests by returning the next assistant message.
         """
+        del messages, request_params
 
-        if -1 == self._current_index:
+        if self._current_index == -1:
             raise ModelConfigError("Use generate() to load playback history")
 
         return self._structured_from_multipart(

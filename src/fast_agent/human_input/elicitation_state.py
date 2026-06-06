@@ -1,7 +1,6 @@
 """Simple state management for elicitation Cancel All functionality."""
 
 
-
 class ElicitationState:
     """Manages global state for elicitation requests, including disabled servers."""
 

@@ -135,10 +135,7 @@ def _write_pack_requiring_plugin(pack_dir: Path, plugin_name: str) -> None:
 def _write_local_plugin(plugin_dir: Path, plugin_name: str) -> None:
     plugin_dir.mkdir(parents=True, exist_ok=True)
     (plugin_dir / "plugin.yaml").write_text(
-        "schema_version: 1\n"
-        f"name: {plugin_name}\n"
-        "description: Local test plugin\n"
-        "commands: {}\n",
+        f"schema_version: 1\nname: {plugin_name}\ndescription: Local test plugin\ncommands: {{}}\n",
         encoding="utf-8",
     )
 
@@ -150,8 +147,7 @@ def test_required_plugin_sync_skips_registry_fetch_when_already_installed(
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_paths.root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_paths.root.as_posix()}'\n",
         encoding="utf-8",
     )
     pack_dir = env_paths.card_packs / "alpha"
@@ -161,7 +157,9 @@ def test_required_plugin_sync_skips_registry_fetch_when_already_installed(
     def _fail_fetch(_url: str):
         raise AssertionError("registry fetch should not run for installed required plugins")
 
-    monkeypatch.setattr(service.plugin_ops, "fetch_marketplace_plugins_with_source_sync", _fail_fetch)
+    monkeypatch.setattr(
+        service.plugin_ops, "fetch_marketplace_plugins_with_source_sync", _fail_fetch
+    )
 
     old_settings = get_settings()
     get_settings(config_path=str(config_path))
@@ -185,8 +183,7 @@ async def test_required_plugin_async_skips_registry_fetch_when_already_installed
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_paths.root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_paths.root.as_posix()}'\n",
         encoding="utf-8",
     )
     pack_dir = env_paths.card_packs / "alpha"

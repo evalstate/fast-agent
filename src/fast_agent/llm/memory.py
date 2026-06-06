@@ -112,8 +112,7 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         # call this for API message construction.
         if include_completion_history:
             return self.prompt_messages + self.history
-        else:
-            return self.prompt_messages.copy()
+        return self.prompt_messages.copy()
 
     def clear(self, clear_prompts: bool = False) -> None:
         """

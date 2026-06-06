@@ -4,19 +4,40 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from fast_agent.context import get_current_context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.session import extract_session_title, get_session_manager
-from fast_agent.session.identity import SessionSaveContext, resolve_session_for_save
+from fast_agent.session.identity import (
+    SessionSaveContext,
+    SessionStoreScope,
+    normalize_session_store_scope,
+    resolve_session_for_save,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.hooks.hook_context import HookContext
-    from fast_agent.interfaces import AgentProtocol
+    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LlmAgentProtocol
+    from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.session.session_manager import Session
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
+
+
+@runtime_checkable
+class _AttachedMcpServerProvider(Protocol):
+    def list_attached_mcp_servers(self) -> list[str]: ...
+
+
+@runtime_checkable
+class _AgentBackedToolProvider(Protocol):
+    @property
+    def agent_backed_tools(self) -> Mapping[str, "LlmAgentProtocol"]: ...
 
 
 @dataclass
@@ -26,8 +47,55 @@ class _SessionHistoryAgentProxy:
     agent: AgentProtocol
     message_history: list["PromptMessageExtended"]
 
-    def __getattr__(self, name: str) -> object:
-        return getattr(self.agent, name)
+    @property
+    def name(self) -> str:
+        return self.agent.name
+
+    @property
+    def config(self) -> "AgentConfig":
+        return self.agent.config
+
+    @property
+    def instruction(self) -> str:
+        return self.agent.instruction
+
+    @property
+    def llm(self) -> "FastAgentLLMProtocol | None":
+        return self.agent.llm
+
+    @property
+    def usage_accumulator(self) -> "UsageAccumulator | None":
+        return self.agent.usage_accumulator
+
+    def list_attached_mcp_servers(self) -> list[str]:
+        if isinstance(self.agent, _AttachedMcpServerProvider):
+            return self.agent.list_attached_mcp_servers()
+        return []
+
+    @property
+    def agent_backed_tools(self) -> Mapping[str, "LlmAgentProtocol"]:
+        if isinstance(self.agent, _AgentBackedToolProvider):
+            return self.agent.agent_backed_tools
+        return {}
+
+
+class _SessionInfoUpdateCapable(Protocol):
+    async def send_session_info_update(
+        self,
+        *,
+        title: str | None | object = ...,
+        updated_at: str | None | object = ...,
+    ) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _SessionHistoryContext:
+    acp_session_id: str | None = None
+    session_cwd: Path | None = None
+    session_store_scope: SessionStoreScope = "workspace"
+    session_store_cwd: Path | None = None
+    resolved_prompts: dict[str, str] | None = None
+    acp_context: _SessionInfoUpdateCapable | None = None
 
 
 async def save_session_history(ctx: "HookContext") -> None:
@@ -48,27 +116,7 @@ async def save_session_history(ctx: "HookContext") -> None:
         agent=cast("AgentProtocol", ctx.agent),
         message_history=ctx.message_history,
     )
-    acp_session_id: str | None = None
-    session_cwd: Path | None = None
-    session_store_scope: Literal["workspace", "app"] = "workspace"
-    session_store_cwd: Path | None = None
-    resolved_prompts: dict[str, str] | None = None
-    agent_context = ctx.context
-    acp_context = agent_context.acp if agent_context else None
-    if acp_context is not None:
-        acp_session_id = acp_context.session_id
-        raw_session_cwd = acp_context.session_cwd
-        if raw_session_cwd:
-            session_cwd = Path(str(raw_session_cwd)).expanduser().resolve()
-        raw_session_store_scope = acp_context.session_store_scope
-        if raw_session_store_scope == "app":
-            session_store_scope = "app"
-        elif raw_session_store_scope == "workspace":
-            session_store_scope = "workspace"
-        raw_session_store_cwd = acp_context.session_store_cwd
-        if raw_session_store_cwd:
-            session_store_cwd = Path(str(raw_session_store_cwd)).expanduser().resolve()
-        resolved_prompts = acp_context.resolved_instructions_snapshot() or None
+    session_context = _session_history_context(ctx)
 
     metadata: dict[str, object] = {"agent_name": ctx.agent_name}
     model_name = agent_config.model
@@ -78,10 +126,10 @@ async def save_session_history(ctx: "HookContext") -> None:
         current_session=None,
         get_manager=lambda cwd: get_session_manager(cwd=cwd),
         context=SessionSaveContext(
-            acp_session_id=acp_session_id,
-            session_cwd=session_cwd,
-            session_store_scope=session_store_scope,
-            session_store_cwd=session_store_cwd,
+            acp_session_id=session_context.acp_session_id,
+            session_cwd=session_context.session_cwd,
+            session_store_scope=session_context.session_store_scope,
+            session_store_cwd=session_context.session_store_cwd,
         ),
         seed_metadata=metadata,
     )
@@ -95,7 +143,7 @@ async def save_session_history(ctx: "HookContext") -> None:
             cast("AgentProtocol", history_agent),
             agent_registry=ctx.agent_registry,
             identity=identity,
-            resolved_prompts=resolved_prompts,
+            resolved_prompts=session_context.resolved_prompts,
         )
     except Exception as exc:
         logger.warning(
@@ -104,20 +152,50 @@ async def save_session_history(ctx: "HookContext") -> None:
         )
         return
 
+    await _send_session_info_update(
+        acp_context=session_context.acp_context,
+        session=session,
+        previous_title=previous_title,
+    )
+
+
+def _session_history_context(ctx: "HookContext") -> _SessionHistoryContext:
+    agent_context = ctx.context
+    acp_context = agent_context.acp if agent_context else None
+    if acp_context is None:
+        return _SessionHistoryContext()
+
+    return _SessionHistoryContext(
+        acp_session_id=acp_context.session_id,
+        session_cwd=_resolved_path(acp_context.session_cwd),
+        session_store_scope=normalize_session_store_scope(acp_context.session_store_scope),
+        session_store_cwd=_resolved_path(acp_context.session_store_cwd),
+        resolved_prompts=acp_context.resolved_instructions_snapshot() or None,
+        acp_context=acp_context,
+    )
+
+
+def _resolved_path(raw_path: object | None) -> Path | None:
+    if not raw_path:
+        return None
+    return Path(str(raw_path)).expanduser().resolve()
+
+
+async def _send_session_info_update(
+    *,
+    acp_context: _SessionInfoUpdateCapable | None,
+    session: "Session | None",
+    previous_title: str | None,
+) -> None:
     if acp_context is None or session is None:
         return
-
     try:
         new_title = extract_session_title(session.info.metadata)
+        updated_at = session.info.last_activity.isoformat()
         if new_title != previous_title:
-            await acp_context.send_session_info_update(
-                title=new_title,
-                updated_at=session.info.last_activity.isoformat(),
-            )
-        else:
-            await acp_context.send_session_info_update(
-                updated_at=session.info.last_activity.isoformat(),
-            )
+            await acp_context.send_session_info_update(title=new_title, updated_at=updated_at)
+            return
+        await acp_context.send_session_info_update(updated_at=updated_at)
     except Exception as exc:
         logger.warning(
             "Failed to send ACP session info update",

@@ -1,6 +1,8 @@
 from copy import deepcopy
 from typing import Any
 
+from fast_agent.utils.text import strip_casefold
+
 _STRUCTURAL_SCHEMA_KEYS = frozenset(
     {
         "$ref",
@@ -21,21 +23,20 @@ _STRUCTURAL_SCHEMA_KEYS = frozenset(
 )
 
 _STRICT_DEFAULT_MODELS = frozenset({"kimi25", "kimi-2.5", "kimi26", "kimi-2.6"})
+_JSON_SCHEMA_TYPE_BY_PYTHON_TYPE = (
+    (bool, "boolean"),
+    (int, "integer"),
+    (float, "number"),
+    (str, "string"),
+    (list, "array"),
+    (dict, "object"),
+)
 
 
 def _infer_json_schema_type(value: Any) -> str | None:
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, int):
-        return "integer"
-    if isinstance(value, float):
-        return "number"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, list):
-        return "array"
-    if isinstance(value, dict):
-        return "object"
+    for python_type, schema_type in _JSON_SCHEMA_TYPE_BY_PYTHON_TYPE:
+        if isinstance(value, python_type):
+            return schema_type
     return None
 
 
@@ -90,7 +91,7 @@ def should_strip_tool_schema_defaults(model_name: str | None) -> bool:
     if not model_name:
         return False
 
-    normalized = model_name.strip().lower()
+    normalized = strip_casefold(model_name)
     return (
         normalized in _STRICT_DEFAULT_MODELS
         or "kimi-k2.5" in normalized

@@ -5,11 +5,15 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from fast_agent.acp.command_io import ACPCommandIO
 from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.commands.session_summaries import FULL_SESSION_USAGE
 from fast_agent.commands.shared_command_intents import parse_session_command_intent
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -148,6 +152,136 @@ async def test_render_session_list_uses_app_session_store_when_configured(
 
     assert "# sessions" in output
     assert manager_calls == [None]
+
+
+@pytest.mark.asyncio
+async def test_handle_session_unknown_action_returns_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+
+    class _Manager:
+        current_session = None
+
+        def list_sessions(self) -> list[object]:
+            return []
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    output = await session_slash_handlers.handle_session(handler, "unknown-subcommand")
+
+    assert "# session" in output
+    assert "Unknown /session action: unknown-subcommand" in output
+    assert FULL_SESSION_USAGE in output
+
+
+@pytest.mark.asyncio
+async def test_handle_session_blank_arguments_default_to_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    class _Manager:
+        current_session = None
+
+        def list_sessions(self) -> list[object]:
+            return []
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+
+    output = await session_slash_handlers.handle_session(handler, "   ")
+
+    assert "# sessions" in output
+
+
+@pytest.mark.asyncio
+async def test_handle_session_new_uses_acp_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    calls: list[tuple[str, str | None, dict[str, str] | None]] = []
+
+    class _Manager:
+        def delete_session(self, name: str) -> bool:
+            calls.append(("delete", name, None))
+            return True
+
+        def create_session_with_id(self, session_id: str, metadata: dict | None = None):
+            calls.append(("create_with_id", session_id, metadata))
+            return SimpleNamespace(info=SimpleNamespace(metadata=metadata or {}, name=session_id))
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+    handler = SlashCommandHandler(
+        session_id="acp-session-1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    output = await session_slash_handlers.handle_session_new(handler, "Fresh start")
+
+    assert calls == [
+        ("delete", "acp-session-1", None),
+        ("create_with_id", "acp-session-1", {"title": "Fresh start"}),
+    ]
+    assert "Created session: Fresh start" in output
+
+
+@pytest.mark.asyncio
+async def test_format_outcome_includes_captured_history_overview() -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+    io = ACPCommandIO()
+    await io.display_history_overview(
+        "main",
+        [
+            PromptMessageExtended(role="user", content=[text_content("hello")]),
+            PromptMessageExtended(role="assistant", content=[text_content("hi")]),
+        ],
+    )
+
+    output = handler._format_outcome_as_markdown(
+        CommandOutcome(),
+        "# session resume",
+        io=io,
+    )
+
+    assert "# session resume" in output
+    assert "# conversation history" in output
+    assert "Messages: 2 (user: 1, assistant: 1)" in output
 
 
 @pytest.mark.asyncio
@@ -316,7 +450,9 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
         ),
     )
 
-    await session_slash_handlers.handle_session_export(handler, parse_session_command_intent("export"))
+    await session_slash_handlers.handle_session_export(
+        handler, parse_session_command_intent("export")
+    )
 
     assert captured == {
         "target": None,

@@ -2,11 +2,11 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, DEFAULT_STREAMING_TIMEOUT
 
@@ -19,23 +19,44 @@ else:
 ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
 ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
 StructuredToolPolicy: TypeAlias = Literal["auto", "always", "defer", "no_tools"]
+RESPONSE_MODE_VALUES: tuple[ResponseMode, ...] = ("inherit", "postprocess", "passthrough")
+TOOL_RESULT_MODE_VALUES: tuple[ToolResultMode, ...] = (
+    "postprocess",
+    "passthrough",
+    "selectable",
+)
+_RESPONSE_MODE_TOOL_RESULT_MODES: dict[ResponseMode, ToolResultMode | None] = {
+    "inherit": None,
+    "postprocess": "postprocess",
+    "passthrough": "passthrough",
+}
+_TOOL_RESULT_MODES_ALLOWING_RESPONSE_MODE: frozenset[ToolResultMode] = frozenset(("selectable",))
+_PASSTHROUGH_TOOL_RESULT_MODES: frozenset[ToolResultMode] = frozenset(("passthrough",))
+STRUCTURED_TOOL_POLICY_VALUES: tuple[StructuredToolPolicy, ...] = (
+    "auto",
+    "always",
+    "defer",
+    "no_tools",
+)
+
+
+def is_structured_tool_policy(value: object) -> TypeGuard[StructuredToolPolicy]:
+    return value in STRUCTURED_TOOL_POLICY_VALUES
 
 
 def response_mode_to_tool_result_mode(response_mode: ResponseMode) -> ToolResultMode | None:
     """Map a per-call response override to a concrete tool result mode."""
-    if response_mode == "inherit":
-        return None
-    return response_mode
+    return _RESPONSE_MODE_TOOL_RESULT_MODES[response_mode]
 
 
 def tool_result_mode_allows_response_mode(tool_result_mode: ToolResultMode) -> bool:
     """Return whether a tool should expose a per-call response mode switch."""
-    return tool_result_mode == "selectable"
+    return tool_result_mode in _TOOL_RESULT_MODES_ALLOWING_RESPONSE_MODE
 
 
 def tool_result_mode_is_passthrough(tool_result_mode: ToolResultMode) -> bool:
     """Return whether the effective tool handling should bypass postprocessing."""
-    return tool_result_mode == "passthrough"
+    return tool_result_mode in _PASSTHROUGH_TOOL_RESULT_MODES
 
 
 class BatchRequestContext(BaseModel):
@@ -50,7 +71,7 @@ class RequestParams(CreateMessageRequestParams):
     Parameters to configure the FastAgentLLM 'generate' requests.
     """
 
-    messages: list[SamplingMessage] = Field(exclude=True, default=[])
+    messages: list[SamplingMessage] = Field(exclude=True, default_factory=list)
     """
     Ignored. 'messages' are removed from CreateMessageRequestParams 
     to avoid confusion with the 'message' parameter on 'generate' method.
@@ -186,3 +207,22 @@ class RequestParams(CreateMessageRequestParams):
 
     service_tier: Literal["fast", "flex"] | None = None
     """Responses-family service tier override (fast/priority or flex)."""
+
+    @field_validator(
+        "maxTokens",
+        "max_iterations",
+        "streaming_timeout",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "presence_penalty",
+        "frequency_penalty",
+        "repetition_penalty",
+        mode="before",
+    )
+    @classmethod
+    def _reject_bool_numeric_values(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("Numeric request parameters must not be boolean values.")
+        return value

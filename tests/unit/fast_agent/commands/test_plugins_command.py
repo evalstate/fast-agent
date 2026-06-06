@@ -110,8 +110,7 @@ def _write_plugin(
         encoding="utf-8",
     )
     (plugin_root / "commands.py").write_text(
-        "async def run(ctx):\n"
-        f"    return {message!r}\n",
+        f"async def run(ctx):\n    return {message!r}\n",
         encoding="utf-8",
     )
 
@@ -278,8 +277,7 @@ def test_plugins_add_enables_and_loads_commands(tmp_path: Path) -> None:
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -362,8 +360,7 @@ def test_plugins_load_enabled_by_manifest_name_when_directory_differs(tmp_path: 
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -412,8 +409,7 @@ def test_plugins_local_repo_ref_installs_requested_revision(tmp_path: Path) -> N
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -508,8 +504,7 @@ def test_plugins_update_reinstalls_managed_plugin(tmp_path: Path) -> None:
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -561,9 +556,7 @@ def test_plugin_global_install_defaults_to_user_fast_agent_home(
 
     assert result.exit_code == 0, result.output
     assert (user_home / ".fast-agent" / "plugins" / "finder" / "plugin.yaml").exists()
-    assert "finder" in (user_home / ".fast-agent" / "fast-agent.yaml").read_text(
-        encoding="utf-8"
-    )
+    assert "finder" in (user_home / ".fast-agent" / "fast-agent.yaml").read_text(encoding="utf-8")
 
 
 def test_card_pack_schema_v2_installs_required_plugins(tmp_path: Path) -> None:
@@ -633,8 +626,7 @@ def test_card_pack_required_plugin_uses_selected_card_registry(tmp_path: Path) -
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -669,8 +661,7 @@ def test_card_pack_install_rolls_back_when_required_plugin_missing(tmp_path: Pat
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -759,8 +750,7 @@ def test_card_pack_required_plugin_uses_marketplace_source_not_pack_source_url(
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -801,8 +791,7 @@ def test_card_pack_update_required_plugin_uses_pack_source_registry(tmp_path: Pa
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 

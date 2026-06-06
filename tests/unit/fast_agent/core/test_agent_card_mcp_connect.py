@@ -127,7 +127,9 @@ async def test_sync_agent_card_mcp_connect_registers_runtime_server(tmp_path: Pa
         assert server_cfg.command == "npx"
         assert server_cfg.args == ["@foo/bar"]
 
-        registry_cfg = context.server_registry.registry.get("bar") if context.server_registry else None
+        registry_cfg = (
+            context.server_registry.registry.get("bar") if context.server_registry else None
+        )
         assert registry_cfg is not None
         assert registry_cfg.command == "npx"
     finally:
@@ -170,7 +172,9 @@ async def test_sync_agent_card_mcp_connect_applies_auth_overrides(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_sync_agent_card_provider_mcp_connect_normalizes_provider_target(tmp_path: Path) -> None:
+async def test_sync_agent_card_provider_mcp_connect_normalizes_provider_target(
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("", encoding="utf-8")
 

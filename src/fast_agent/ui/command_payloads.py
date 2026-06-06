@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from typing import Literal, TypeGuard
 
-from fast_agent.mcp.connect_targets import ParsedMcpConnectRequest, render_normalized_target
+from fast_agent.mcp.connect_targets import (
+    McpConnectMode,
+    ParsedMcpConnectRequest,
+    render_normalized_target,
+)
 
 
 class CommandBase:
@@ -28,7 +32,16 @@ class ShowMcpStatusCommand(CommandBase):
     kind: Literal["show_mcp_status"] = "show_mcp_status"
 
 
-McpConnectMode = Literal["url", "npx", "uvx", "stdio"]
+@dataclass(frozen=True, slots=True)
+class CheckCommand(CommandBase):
+    argument: str | None = None
+    kind: Literal["check"] = "check"
+
+
+@dataclass(frozen=True, slots=True)
+class CommandsCommand(CommandBase):
+    argument: str | None = None
+    kind: Literal["commands"] = "commands"
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,20 +118,6 @@ class McpReconnectCommand(CommandBase):
     kind: Literal["mcp_reconnect"] = "mcp_reconnect"
 
 
-McpSessionAction = Literal["jar", "new", "use", "clear", "list"]
-
-
-@dataclass(frozen=True, slots=True)
-class McpSessionCommand(CommandBase):
-    action: McpSessionAction
-    server_identity: str | None
-    session_id: str | None
-    title: str | None
-    clear_all: bool
-    error: str | None
-    kind: Literal["mcp_session"] = "mcp_session"
-
-
 @dataclass(frozen=True, slots=True)
 class ListToolsCommand(CommandBase):
     kind: Literal["list_tools"] = "list_tools"
@@ -135,15 +134,10 @@ class ListSkillsCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
-class ShowHistoryCommand(CommandBase):
+class HistoryViewCommand(CommandBase):
     agent: str | None
-    kind: Literal["show_history"] = "show_history"
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryShowCommand(CommandBase):
-    agent: str | None
-    kind: Literal["history_show"] = "history_show"
+    view: Literal["overview", "table"] = "overview"
+    kind: Literal["history_view"] = "history_view"
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +171,7 @@ class PluginsCommand(CommandBase):
 class ModelsCommand(CommandBase):
     action: str
     argument: str | None
+    command_name: Literal["model", "models"] = "model"
     kind: Literal["models_command"] = "models_command"
 
 
@@ -417,21 +412,27 @@ class UnknownCommand(CommandBase):
     kind: Literal["unknown_command"] = "unknown_command"
 
 
+@dataclass(frozen=True, slots=True)
+class CommandError(CommandBase):
+    message: str
+    kind: Literal["command_error"] = "command_error"
+
+
 CommandPayload = (
     ShowUsageCommand
     | ShowSystemCommand
     | ShowMarkdownCommand
     | ShowMcpStatusCommand
+    | CheckCommand
+    | CommandsCommand
     | McpListCommand
     | McpConnectCommand
     | McpDisconnectCommand
     | McpReconnectCommand
-    | McpSessionCommand
     | ListToolsCommand
     | ListPromptsCommand
     | ListSkillsCommand
-    | ShowHistoryCommand
-    | HistoryShowCommand
+    | HistoryViewCommand
     | ClearCommand
     | SkillsCommand
     | CardsCommand
@@ -470,6 +471,7 @@ CommandPayload = (
     | ModelWebFetchCommand
     | ModelSwitchCommand
     | InterruptCommand
+    | CommandError
     | UnknownCommand
 )
 

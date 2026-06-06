@@ -84,7 +84,9 @@ WEATHER_TOOL = Tool(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Harvest real provider traces for replay fixtures.")
+    parser = argparse.ArgumentParser(
+        description="Harvest real provider traces for replay fixtures."
+    )
     parser.add_argument(
         "--config",
         type=Path,

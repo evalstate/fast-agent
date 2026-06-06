@@ -43,9 +43,7 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 SAMPLE_DRIVE = "1J3ubtdkmFuWDjfW3_qT2Fhsdn2pbtv-8"
 
 if not PROJECT_ID or not LOCATION:
-    raise ValueError(
-        "Missing google.vertex_ai.project_id/location in fast-agent.secrets.yaml"
-    )
+    raise ValueError("Missing google.vertex_ai.project_id/location in fast-agent.secrets.yaml")
 
 
 def _drive_folder_name(folder_id: str) -> str:
@@ -88,9 +86,7 @@ def _create_and_import_corpus(
     )
     rag_corpus = rag.create_corpus(
         display_name=display_name,
-        backend_config=rag.RagVectorDbConfig(
-            rag_embedding_model_config=embedding_model_config
-        ),
+        backend_config=rag.RagVectorDbConfig(rag_embedding_model_config=embedding_model_config),
     )
     rag.import_files(
         rag_corpus.name,

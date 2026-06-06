@@ -3,19 +3,43 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Mapping
+from pathlib import PureWindowsPath
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 
+from fast_agent.patch.errors import ParseError
 from fast_agent.patch.parser import (
     BEGIN_PATCH_MARKER,
     END_PATCH_MARKER,
     ParseMode,
     parse_patch_text,
 )
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.tool_names import is_shell_execution_tool_name
 
 DEFAULT_PATCH_PREVIEW_MAX_LINES = 120
-_SHELL_TOOL_ALIASES = frozenset({"execute", "bash", "shell"})
+_PREVIEW_STRIPPED_PREFIX_STYLES = (
+    ("apply_patch preview:", "bold white"),
+    ("*** ", "cyan"),
+    ("@@", "yellow"),
+    ("+", "green"),
+    ("-", "red"),
+)
+_PREVIEW_EXACT_LINE_STYLES = {
+    "other args:": "bold magenta",
+}
+_SHELL_SYNTAX_LANGUAGES = {
+    "pwsh": "powershell",
+    "powershell": "powershell",
+    "cmd": "batch",
+}
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+type JsonObject = dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -34,18 +58,20 @@ class ApplyPatchPreview:
     operation_counts: dict[str, int]
 
 
-def normalize_tool_name(tool_name: str | None) -> str:
-    if not tool_name:
-        return ""
-    normalized = tool_name.lower()
-    for sep in ("/", ".", ":"):
-        if sep in normalized:
-            normalized = normalized.rsplit(sep, 1)[-1]
-    return normalized
-
-
 def is_shell_execution_tool(tool_name: str | None) -> bool:
-    return normalize_tool_name(tool_name) in _SHELL_TOOL_ALIASES
+    return is_shell_execution_tool_name(tool_name)
+
+
+def _normalize_shell_executable(value: str | None) -> str:
+    if not value:
+        return ""
+    normalized = strip_casefold(value).strip("'\"")
+    if not normalized:
+        return ""
+    name = PureWindowsPath(normalized).name
+    if name.endswith(".exe"):
+        return name[:-4]
+    return name
 
 
 def shell_syntax_language(
@@ -53,25 +79,27 @@ def shell_syntax_language(
     *,
     shell_path: str | None = None,
 ) -> str:
-    normalized = normalize_tool_name(shell_name)
-    if not normalized and shell_path:
-        normalized = normalize_tool_name(shell_path)
+    normalized = _normalize_shell_executable(shell_name)
+    if not normalized:
+        normalized = _normalize_shell_executable(shell_path)
 
-    if normalized in {"pwsh", "powershell"}:
-        return "powershell"
-    if normalized == "cmd":
-        return "batch"
-    return "bash"
+    return _SHELL_SYNTAX_LANGUAGES.get(normalized, "bash")
 
 
-def extract_apply_patch_text(command: str) -> str | None:
+def _apply_patch_begin_index(command: str) -> int | None:
     if not command or not re.search(r"\bapply_patch\b", command):
         return None
 
     begin_index = command.find(BEGIN_PATCH_MARKER)
     if begin_index < 0:
         return None
+    return begin_index
 
+
+def extract_apply_patch_text(command: str) -> str | None:
+    begin_index = _apply_patch_begin_index(command)
+    if begin_index is None:
+        return None
     end_index = command.find(END_PATCH_MARKER, begin_index)
     if end_index < 0:
         return None
@@ -81,11 +109,8 @@ def extract_apply_patch_text(command: str) -> str | None:
 
 
 def extract_partial_apply_patch_text(command: str) -> str | None:
-    if not command or not re.search(r"\bapply_patch\b", command):
-        return None
-
-    begin_index = command.find(BEGIN_PATCH_MARKER)
-    if begin_index < 0:
+    begin_index = _apply_patch_begin_index(command)
+    if begin_index is None:
         return None
 
     end_index = command.find(END_PATCH_MARKER, begin_index)
@@ -97,17 +122,13 @@ def extract_partial_apply_patch_text(command: str) -> str | None:
     return patch_text or None
 
 
-def _summary_noun(count: int, noun: str) -> str:
-    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
-
-
 def summarize_patch(patch_text: str) -> PatchSummary | None:
     if not patch_text:
         return None
 
     try:
         parsed = parse_patch_text(patch_text, ParseMode.LENIENT)
-    except Exception:
+    except ParseError:
         return None
 
     operation_counts = {"add": 0, "update": 0, "delete": 0}
@@ -118,11 +139,13 @@ def summarize_patch(patch_text: str) -> PatchSummary | None:
 
     file_count = len(file_paths)
     operations = ", ".join(
-        _summary_noun(operation_counts[k], k) for k in ("add", "update", "delete") if operation_counts[k]
+        format_count(operation_counts[k], k)
+        for k in ("add", "update", "delete")
+        if operation_counts[k]
     )
     if not operations:
         operations = "no operations"
-    summary = f"apply_patch preview: {_summary_noun(file_count, 'file')} ({operations})"
+    summary = f"apply_patch preview: {format_count(file_count, 'file')} ({operations})"
 
     return PatchSummary(
         file_count=file_count,
@@ -138,24 +161,24 @@ def render_patch_preview(patch_text: str, max_lines: int | None = None) -> str:
 
     if max_lines <= 0:
         omitted = len(lines)
-        return f"(+{omitted} more lines)"
+        return f"(+{format_count(omitted, 'more line')})"
 
     visible = lines[:max_lines]
     omitted = len(lines) - max_lines
-    visible.append(f"(+{omitted} more lines)")
+    visible.append(f"(+{format_count(omitted, 'more line')})")
     return "\n".join(visible)
 
 
-def extract_non_command_args(tool_args: Mapping[str, Any]) -> dict[str, Any]:
+def extract_non_command_args(tool_args: Mapping[str, object]) -> JsonObject:
     return {key: value for key, value in tool_args.items() if key != "command"}
 
 
-def _append_other_args(parts: list[str], other_args: Mapping[str, Any] | None) -> None:
+def _append_other_args(parts: list[str], other_args: Mapping[str, object] | None) -> None:
     if not other_args:
         return
     try:
         other_args_text = json.dumps(other_args, indent=2, ensure_ascii=True, sort_keys=True)
-    except Exception:
+    except (TypeError, ValueError):
         other_args_text = str(dict(other_args))
     parts.append("other args:")
     parts.append(other_args_text)
@@ -164,7 +187,7 @@ def _append_other_args(parts: list[str], other_args: Mapping[str, Any] | None) -
 def format_apply_patch_preview(
     preview: ApplyPatchPreview,
     *,
-    other_args: Mapping[str, Any] | None = None,
+    other_args: Mapping[str, object] | None = None,
 ) -> str:
     parts: list[str] = [preview.summary, preview.rendered_patch]
     _append_other_args(parts, other_args)
@@ -174,7 +197,7 @@ def format_apply_patch_preview(
 def format_partial_apply_patch_preview(
     patch_text: str,
     *,
-    other_args: Mapping[str, Any] | None = None,
+    other_args: Mapping[str, object] | None = None,
     max_lines: int | None = DEFAULT_PATCH_PREVIEW_MAX_LINES,
 ) -> str:
     preview = build_apply_patch_preview_from_input(patch_text, max_lines=max_lines)
@@ -194,19 +217,18 @@ def _preview_line_style(line: str) -> str | None:
     if not raw:
         return None
     stripped = raw.lstrip()
-    if stripped.startswith("apply_patch preview:"):
-        return "bold white"
-    if stripped == "other args:":
-        return "bold magenta"
-    if stripped.startswith("*** "):
-        return "cyan"
-    if stripped.startswith("@@"):
-        return "yellow"
-    if stripped.startswith("+"):
-        return "green"
-    if stripped.startswith("-"):
-        return "red"
-    if stripped.startswith("(+") and stripped.endswith("more lines)"):
+
+    exact_style = _PREVIEW_EXACT_LINE_STYLES.get(stripped)
+    if exact_style is not None:
+        return exact_style
+
+    for prefix, style in _PREVIEW_STRIPPED_PREFIX_STYLES:
+        if stripped.startswith(prefix):
+            return style
+
+    if stripped.startswith("(+") and (
+        stripped.endswith("more line)") or stripped.endswith("more lines)")
+    ):
         return "dim"
     if raw.startswith(" "):
         return "dim"
@@ -223,7 +245,6 @@ def style_apply_patch_preview_text(
         style = _preview_line_style(line)
         styled.append(line, style=style or default_style)
     return styled
-
 
 
 def build_apply_patch_preview_from_input(
@@ -247,6 +268,7 @@ def build_apply_patch_preview_from_input(
         operation_counts=patch_summary.operation_counts,
     )
 
+
 def build_apply_patch_preview(
     command: str,
     *,
@@ -262,7 +284,7 @@ def build_apply_patch_preview(
 def build_partial_apply_patch_preview(
     command: str,
     *,
-    other_args: Mapping[str, Any] | None = None,
+    other_args: Mapping[str, object] | None = None,
     max_lines: int | None = DEFAULT_PATCH_PREVIEW_MAX_LINES,
 ) -> str | None:
     patch_text = extract_partial_apply_patch_text(command)

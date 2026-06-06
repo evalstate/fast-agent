@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from fast_agent.ui.console import console as shared_console
+from fast_agent.utils.count_display import format_count
 
 app = typer.Typer(
     help="Create fast-agent quickstarts",
@@ -25,6 +26,39 @@ BASE_EXAMPLES_DIR = files("fast_agent").joinpath("resources").joinpath("examples
 
 # Subdirectories to copy for toad-cards quickstart (used by hf-inference-acp too)
 TOAD_CARDS_SUBDIRS = ["agent-cards", "tool-cards", "skills", "shared", "hooks"]
+
+_NEXT_STEP_MESSAGES: dict[str, tuple[str, ...]] = {
+    "workflow": (
+        "1. Review chaining.py for the basic workflow example",
+        "2. Check other examples:",
+        "   - parallel.py: Run agents in parallel",
+        "   - router.py: Route requests between agents",
+        "   - evaluator.py: Add evaluation capabilities",
+        "   - human_input.py: Incorporate human feedback",
+        "3. Run an example with: uv run <example>.py",
+        "4. Try a different model with --model=<model>, or update the agent config",
+    ),
+    "researcher": (
+        "1. Set up the Brave MCP Server (get an API key from https://brave.com/search/api/)",
+        "2. Try `uv run researcher.py` for the basic version",
+        "3. Try `uv run researcher-eval.py` for the eval/optimize version",
+    ),
+    "data-analysis": (
+        "1. Run uv `analysis.py` to perform data analysis and visualization",
+        "2. The dataset is available in the mount-point directory:",
+        "   - mount-point/WA_Fn-UseC_-HR-Employee-Attrition.csv",
+        "On Windows platforms, please edit the fast-agent.yaml and adjust the volume mount point.",
+    ),
+    "state-transfer": (
+        "Check [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for quick start walkthroughs",
+    ),
+    "elicitations": (
+        "1. Go to the `elicitations` subdirectory (cd elicitations)",
+        "2. Try the forms demo: uv run forms_demo.py",
+        "3. Run the game character creator: uv run game_character.py",
+        "Check [cyan][link=https://fast-agent.ai/mcp/elicitations/]https://fast-agent.ai/mcp/elicitations/[/link][/cyan] for more details",
+    ),
+}
 
 
 @dataclass
@@ -148,6 +182,13 @@ _EXAMPLE_CONFIGS = {
 }
 
 
+def _files_summary(info: ExampleConfig) -> str:
+    summary = format_count(len(info.files), "file")
+    if info.mount_point_files:
+        summary += f"\n+ {format_count(len(info.mount_point_files), 'data file')}"
+    return summary
+
+
 def _development_mode_fallback(example_info: ExampleConfig) -> Path:
     """Fallback function for development mode."""
     package_dir = Path(__file__).parent.parent.parent.parent.parent
@@ -160,7 +201,7 @@ def _development_mode_fallback(example_info: ExampleConfig) -> Path:
 def copy_example_files(example_type: str, target_dir: Path, force: bool = False) -> list[str]:
     """Copy example files from resources to target directory."""
     # Determine if we should create a subdirectory for this example type
-    example_info = _EXAMPLE_CONFIGS.get(example_type, None)
+    example_info = _EXAMPLE_CONFIGS.get(example_type)
     if example_info is None:
         console.print(f"Example type '{example_type}' not found.")
         return []
@@ -213,69 +254,111 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
         return _copy_files_from_source(example_type, example_info, source_path, target_dir, force)
 
 
+def _relative_created_path(
+    *,
+    example_type: str,
+    filename: str,
+    target: Path,
+    target_dir: Path,
+) -> str:
+    try:
+        return str(target.relative_to(target_dir.parent))
+    except ValueError:
+        return f"{example_type}/{filename}"
+
+
+def _copy_example_file(
+    *,
+    source: Path,
+    target: Path,
+    display_name: str,
+    created_path: str,
+    force: bool,
+) -> str | None:
+    try:
+        if not source.exists():
+            console.print(f"[red]Error: Source file not found: {source}[/red]")
+            return None
+
+        if target.exists() and not force:
+            console.print(f"[yellow]Skipping[/yellow] {display_name} (already exists)")
+            return None
+
+        shutil.copy2(source, target)
+        console.print(f"[green]Created[/green] {created_path}")
+        return created_path
+
+    except Exception as e:
+        console.print(f"[red]Error copying {display_name}: {e!s}[/red]")
+        return None
+
+
+def _copy_regular_example_files(
+    example_type: str,
+    example_info: ExampleConfig,
+    source_dir: Path,
+    target_dir: Path,
+    force: bool,
+) -> list[str]:
+    created: list[str] = []
+    for filename in example_info.files:
+        target = target_dir / filename
+        copied = _copy_example_file(
+            source=source_dir / filename,
+            target=target,
+            display_name=filename,
+            created_path=_relative_created_path(
+                example_type=example_type,
+                filename=filename,
+                target=target,
+                target_dir=target_dir,
+            ),
+            force=force,
+        )
+        if copied is not None:
+            created.append(copied)
+    return created
+
+
+def _copy_mount_point_files(
+    example_type: str,
+    example_info: ExampleConfig,
+    source_dir: Path,
+    target_dir: Path,
+    force: bool,
+) -> list[str]:
+    mount_point_files = example_info.mount_point_files or []
+    if not mount_point_files:
+        return []
+
+    mount_point_dir = target_dir / "mount-point"
+    if not mount_point_dir.exists():
+        mount_point_dir.mkdir(parents=True)
+        console.print(f"Created mount-point directory: {mount_point_dir}")
+
+    created: list[str] = []
+    for filename in mount_point_files:
+        display_name = f"mount-point/{filename}"
+        copied = _copy_example_file(
+            source=source_dir / "mount-point" / filename,
+            target=mount_point_dir / filename,
+            display_name=display_name,
+            created_path=f"{example_type}/{display_name}",
+            force=force,
+        )
+        if copied is not None:
+            created.append(copied)
+    return created
+
+
 def _copy_files_from_source(
     example_type: str, example_info: ExampleConfig, source_dir: Path, target_dir: Path, force: bool
 ) -> list[str]:
     """Helper function to copy files from a source directory."""
-    created = []
-    for filename in example_info.files:
-        source = source_dir / filename
-        target = target_dir / filename
-
-        try:
-            if not source.exists():
-                console.print(f"[red]Error: Source file not found: {source}[/red]")
-                continue
-
-            if target.exists() and not force:
-                console.print(f"[yellow]Skipping[/yellow] {filename} (already exists)")
-                continue
-
-            shutil.copy2(source, target)
-            try:
-                # This can fail in test environments where the target is not relative to target_dir.parent
-                rel_path = str(target.relative_to(target_dir.parent))
-            except ValueError:
-                # Fallback to just the filename
-                rel_path = f"{example_type}/{filename}"
-
-            created.append(rel_path)
-            console.print(f"[green]Created[/green] {rel_path}")
-
-        except Exception as e:
-            console.print(f"[red]Error copying {filename}: {str(e)}[/red]")
-
-    # Copy mount-point files if any
-    mount_point_files = example_info.mount_point_files or []
-    if mount_point_files:
-        mount_point_dir = target_dir / "mount-point"
-
-        # Create mount-point directory if needed
-        if not mount_point_dir.exists():
-            mount_point_dir.mkdir(parents=True)
-            console.print(f"Created mount-point directory: {mount_point_dir}")
-
-        for filename in mount_point_files:
-            source = source_dir / "mount-point" / filename
-            target = mount_point_dir / filename
-
-            try:
-                if not source.exists():
-                    console.print(f"[red]Error: Source file not found: {source}[/red]")
-                    continue
-
-                if target.exists() and not force:
-                    console.print(
-                        f"[yellow]Skipping[/yellow] mount-point/{filename} (already exists)"
-                    )
-                    continue
-
-                shutil.copy2(source, target)
-                created.append(f"{example_type}/mount-point/{filename}")
-                console.print(f"[green]Created[/green] mount-point/{filename}")
-
-            except Exception as e:
-                console.print(f"[red]Error copying mount-point/{filename}: {str(e)}[/red]")
+    created = _copy_regular_example_files(example_type, example_info, source_dir, target_dir, force)
+    created.extend(
+        _copy_mount_point_files(example_type, example_info, source_dir, target_dir, force)
+    )
 
     return created
 
@@ -317,13 +400,7 @@ def show_overview() -> None:
     table.add_column("Files")
 
     for name, info in _EXAMPLE_CONFIGS.items():
-        # Just show file count instead of listing all files
-        file_count = len(info.files)
-        files_summary = f"{file_count} files"
-        mount_files = info.mount_point_files
-        if mount_files:
-            files_summary += f"\n+ {len(mount_files)} data files"
-        table.add_row(f"[green]{name}[/green]", info.description, files_summary)
+        table.add_row(f"[green]{name}[/green]", info.description, _files_summary(info))
 
     console.print(table)
 
@@ -341,7 +418,7 @@ def show_overview() -> None:
 @app.command()
 def workflow(
     directory: Path = typer.Argument(
-        Path("."),
+        Path(),
         help="Directory where workflow examples will be created",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
@@ -359,7 +436,7 @@ def workflow(
 @app.command()
 def researcher(
     directory: Path = typer.Argument(
-        Path("."),
+        Path(),
         help="Directory where researcher examples will be created (in 'researcher' subdirectory)",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
@@ -377,7 +454,7 @@ def researcher(
 @app.command()
 def data_analysis(
     directory: Path = typer.Argument(
-        Path("."),
+        Path(),
         help="Directory where data analysis examples will be created (creates 'data-analysis' subdirectory with mount-point)",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
@@ -395,7 +472,7 @@ def data_analysis(
 @app.command()
 def state_transfer(
     directory: Path = typer.Argument(
-        Path("."),
+        Path(),
         help="Directory where state transfer examples will be created (in 'state-transfer' subdirectory)",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
@@ -413,7 +490,7 @@ def state_transfer(
 @app.command()
 def elicitations(
     directory: Path = typer.Argument(
-        Path("."),
+        Path(),
         help="Directory where elicitation examples will be created (in 'elicitations' subdirectory)",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
@@ -437,42 +514,8 @@ def _show_completion_message(example_type: str, created: list[str]) -> None:
             console.print(f"  - {f}")
 
         console.print("\n[bold]Next Steps:[/bold]")
-        if example_type == "workflow":
-            console.print("1. Review chaining.py for the basic workflow example")
-            console.print("2. Check other examples:")
-            console.print("   - parallel.py: Run agents in parallel")
-            console.print("   - router.py: Route requests between agents")
-            console.print("   - evaluator.py: Add evaluation capabilities")
-            console.print("   - human_input.py: Incorporate human feedback")
-            console.print("3. Run an example with: uv run <example>.py")
-            console.print(
-                "4. Try a different model with --model=<model>, or update the agent config"
-            )
-
-        elif example_type == "researcher":
-            console.print(
-                "1. Set up the Brave MCP Server (get an API key from https://brave.com/search/api/)"
-            )
-            console.print("2. Try `uv run researcher.py` for the basic version")
-            console.print("3. Try `uv run researcher-eval.py` for the eval/optimize version")
-        elif example_type == "data-analysis":
-            console.print("1. Run uv `analysis.py` to perform data analysis and visualization")
-            console.print("2. The dataset is available in the mount-point directory:")
-            console.print("   - mount-point/WA_Fn-UseC_-HR-Employee-Attrition.csv")
-            console.print(
-                "On Windows platforms, please edit the fast-agent.yaml and adjust the volume mount point."
-            )
-        elif example_type == "state-transfer":
-            console.print(
-                "Check [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for quick start walkthroughs"
-            )
-        elif example_type == "elicitations":
-            console.print("1. Go to the `elicitations` subdirectory (cd elicitations)")
-            console.print("2. Try the forms demo: uv run forms_demo.py")
-            console.print("3. Run the game character creator: uv run game_character.py")
-            console.print(
-                "Check [cyan][link=https://fast-agent.ai/mcp/elicitations/]https://fast-agent.ai/mcp/elicitations/[/link][/cyan] for more details"
-            )
+        for line in _NEXT_STEP_MESSAGES.get(example_type, ()):
+            console.print(line)
     else:
         console.print("\n[yellow]No files were created.[/yellow]")
 
@@ -480,7 +523,7 @@ def _show_completion_message(example_type: str, created: list[str]) -> None:
 @app.command(name="tensorzero", help="Create the TensorZero integration example project.")
 def tensorzero(
     directory: Path = typer.Argument(
-        Path("."),
+        Path(),
         help="Directory where the 'tensorzero' project folder will be created.",
     ),
     force: bool = typer.Option(
@@ -558,7 +601,7 @@ def tensorzero(
 @app.command(name="toad-cards")
 def toad_cards(
     directory: Path = typer.Argument(
-        Path("."),
+        Path(),
         help="Directory where .fast-agent will be created (defaults to current directory)",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
@@ -658,7 +701,7 @@ def _show_toad_cards_completion_message(created: list[str]) -> None:
     """Show completion message for toad-cards command."""
     if created:
         console.print("\n[green]Toad cards setup completed successfully![/green]")
-        console.print(f"\nCreated {len(created)} files in .fast-agent/")
+        console.print(f"\nCreated {format_count(len(created), 'file')} in .fast-agent/")
         console.print("\n[bold]Directory structure:[/bold]")
         console.print("  .fast-agent/")
         console.print("  ├── agent-cards/          # Agent card definitions")
@@ -677,9 +720,7 @@ def _show_toad_cards_completion_message(created: list[str]) -> None:
 
 @app.command(name="t0", help="Alias for the TensorZero quickstart.", hidden=True)
 def t0_alias(
-    directory: Path = typer.Argument(
-        Path("."), help="Directory for the 'tensorzero' project folder."
-    ),
+    directory: Path = typer.Argument(Path(), help="Directory for the 'tensorzero' project folder."),
     force: bool = typer.Option(False, "--force", "-f", help="Force overwrite"),
 ):
     """Alias for the `tensorzero` command."""

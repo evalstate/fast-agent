@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.commands.handlers import history as history_handlers
+from fast_agent.utils.action_normalization import normalize_action_token
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
@@ -12,21 +13,22 @@ if TYPE_CHECKING:
 
 
 async def handle_clear(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    normalized = (arguments or "").strip().lower()
-    if normalized == "last":
-        return await handle_clear_last(handler)
-    return await handle_clear_all(handler)
+    normalized = normalize_action_token(arguments)
+    if not normalized:
+        return await handle_clear_all(handler)
+    if normalized != "last":
+        return "Usage: /clear [last]"
+    return await handle_clear_last(handler)
 
 
 async def handle_clear_all(handler: "SlashCommandHandler") -> str:
     heading = "# clear conversation"
-    agent, error = handler._get_current_agent_or_error(
+    _, error = handler._get_current_agent_or_error(
         heading,
         missing_template=f"Unable to locate agent '{handler.current_agent_name}' for this session.",
     )
     if error:
         return error
-    assert agent is not None
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
@@ -39,13 +41,12 @@ async def handle_clear_all(handler: "SlashCommandHandler") -> str:
 
 async def handle_clear_last(handler: "SlashCommandHandler") -> str:
     heading = "# clear last conversation turn"
-    agent, error = handler._get_current_agent_or_error(
+    _, error = handler._get_current_agent_or_error(
         heading,
         missing_template=f"Unable to locate agent '{handler.current_agent_name}' for this session.",
     )
     if error:
         return error
-    assert agent is not None
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)

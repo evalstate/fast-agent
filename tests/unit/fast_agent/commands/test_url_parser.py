@@ -76,9 +76,21 @@ class TestUrlParser:
         assert name.startswith("192_168_1_1_")
         assert "api_mcp" in name or len(name.split("_")) > 4
 
+        # IPv6 loopback with port
+        name = generate_server_name("http://[::1]:8080/mcp")
+        assert name == "__1_8080_mcp"
+
         # Long domain name
         name = generate_server_name("http://very.long.domain.name:14432/api/someendpoint/mcp")
         assert "very_long_name" == name
+
+    def test_parse_server_url_supports_ipv6_hosts(self):
+        """IPv6 URLs should keep a meaningful server name and default MCP path."""
+        server_name, transport, url = parse_server_url("http://[2001:db8::1]:8080/api")
+
+        assert server_name == "2001_db8__1_8080_api_mcp"
+        assert transport == "http"
+        assert url == "http://[2001:db8::1]:8080/api/mcp"
 
     def test_parse_server_urls(self):
         """Test parsing multiple URLs."""
@@ -107,6 +119,10 @@ class TestUrlParser:
         # Empty input
         assert parse_server_urls("") == []
 
+    def test_parse_server_urls_rejects_empty_comma_segments(self):
+        with pytest.raises(ValueError, match="URL cannot be empty"):
+            parse_server_urls("http://example.com/mcp, ")
+
     def test_parse_server_urls_with_auth(self):
         """Test parsing URLs with authentication token."""
         urls = "http://example.com/mcp,https://api.test.com/sse"
@@ -131,6 +147,12 @@ class TestUrlParser:
         for server_name, transport, url, headers in result:
             assert headers is not None
             assert headers == {"Authorization": "Bearer test_token_123"}
+
+    def test_parse_server_urls_with_auth_normalizes_spaced_bearer_prefix(self):
+        urls = "http://example.com/mcp"
+        result = parse_server_urls(urls, " bEaReR   test_token_123 ")
+
+        assert result[0][3] == {"Authorization": "Bearer test_token_123"}
 
     def test_generate_server_configs(self):
         """Test generating server configurations from parsed URLs."""
@@ -164,7 +186,7 @@ class TestUrlParser:
         assert len(configs) == 2
 
         # Check both configs have headers
-        for server_name, config in configs.items():
+        for config in configs.values():
             assert "headers" in config
             assert config["headers"] == auth_headers
 

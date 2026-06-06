@@ -10,30 +10,49 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.ui import history_actions
 
 
+class _CaptureDisplay:
+    events: list[str] = []
+    tool_call_metadata: list[dict[str, object] | None] = []
+    tool_calls: list[dict[str, object]] = []
+
+    def __init__(self, config=None) -> None:
+        del config
+
+    def show_user_message(self, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+
+    async def show_assistant_message(self, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        self.events.append("assistant")
+
+    def show_tool_call(self, *args: Any, **kwargs: Any) -> None:
+        del args
+        self.events.append("tool_call")
+        self.tool_call_metadata.append(kwargs.get("metadata"))
+        self.tool_calls.append(
+            {
+                "tool_name": kwargs.get("tool_name"),
+                "tool_args": kwargs.get("tool_args"),
+                "tool_call_id": kwargs.get("tool_call_id"),
+            }
+        )
+
+    def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        self.events.append("tool_result")
+
+
+def _capture_history_display(monkeypatch) -> type[_CaptureDisplay]:
+    _CaptureDisplay.events = []
+    _CaptureDisplay.tool_call_metadata = []
+    _CaptureDisplay.tool_calls = []
+    monkeypatch.setattr("fast_agent.ui.console_display.ConsoleDisplay", _CaptureDisplay)
+    return _CaptureDisplay
+
+
 @pytest.mark.asyncio
 async def test_display_history_turn_shows_provider_tools_before_assistant(monkeypatch) -> None:
-    events: list[str] = []
-
-    class _CaptureDisplay:
-        def __init__(self, config=None) -> None:
-            del config
-
-        def show_user_message(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-
-        async def show_assistant_message(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            events.append("assistant")
-
-        def show_tool_call(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            events.append("tool_call")
-
-        def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            events.append("tool_result")
-
-    monkeypatch.setattr("fast_agent.ui.console_display.ConsoleDisplay", _CaptureDisplay)
+    display = _capture_history_display(monkeypatch)
 
     turn = [
         PromptMessageExtended(
@@ -60,35 +79,14 @@ async def test_display_history_turn_shows_provider_tools_before_assistant(monkey
 
     await history_actions.display_history_turn("demo", turn, config=None)
 
-    assert events == ["tool_call", "tool_result", "assistant"]
+    assert display.events == ["tool_call", "tool_result", "assistant"]
 
 
 @pytest.mark.asyncio
 async def test_display_history_turn_skips_empty_assistant_for_tool_only_remote_turn(
     monkeypatch,
 ) -> None:
-    events: list[str] = []
-
-    class _CaptureDisplay:
-        def __init__(self, config=None) -> None:
-            del config
-
-        def show_user_message(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-
-        async def show_assistant_message(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            events.append("assistant")
-
-        def show_tool_call(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            events.append("tool_call")
-
-        def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            events.append("tool_result")
-
-    monkeypatch.setattr("fast_agent.ui.console_display.ConsoleDisplay", _CaptureDisplay)
+    display = _capture_history_display(monkeypatch)
 
     turn = [
         PromptMessageExtended(
@@ -111,31 +109,12 @@ async def test_display_history_turn_skips_empty_assistant_for_tool_only_remote_t
 
     await history_actions.display_history_turn("demo", turn, config=None)
 
-    assert events == ["tool_call", "tool_result"]
+    assert display.events == ["tool_call", "tool_result"]
 
 
 @pytest.mark.asyncio
 async def test_display_history_turn_passes_stored_tool_metadata(monkeypatch) -> None:
-    seen_metadata: list[dict[str, object] | None] = []
-
-    class _CaptureDisplay:
-        def __init__(self, config=None) -> None:
-            del config
-
-        def show_user_message(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-
-        async def show_assistant_message(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-
-        def show_tool_call(self, *args: Any, **kwargs: Any) -> None:
-            del args
-            seen_metadata.append(kwargs.get("metadata"))
-
-        def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-
-    monkeypatch.setattr("fast_agent.ui.console_display.ConsoleDisplay", _CaptureDisplay)
+    display = _capture_history_display(monkeypatch)
 
     turn = [
         PromptMessageExtended(
@@ -168,4 +147,13 @@ async def test_display_history_turn_passes_stored_tool_metadata(monkeypatch) -> 
 
     await history_actions.display_history_turn("demo", turn, config=None)
 
-    assert seen_metadata == [{"variant": "code", "code_arg": "code", "language": "python"}]
+    assert display.tool_call_metadata == [
+        {"variant": "code", "code_arg": "code", "language": "python"}
+    ]
+    assert display.tool_calls == [
+        {
+            "tool_name": "run_query",
+            "tool_args": {"code": "print(1)"},
+            "tool_call_id": "call_1",
+        }
+    ]

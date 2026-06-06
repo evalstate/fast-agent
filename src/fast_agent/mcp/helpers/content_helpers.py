@@ -4,10 +4,8 @@ Helper functions for working with content objects (Fast Agent namespace).
 """
 
 import json
-from typing import TYPE_CHECKING, Protocol, Sequence, TypeGuard, Union, cast
-
-if TYPE_CHECKING:
-    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Protocol, TypeGuard, Union, cast
 
 from mcp.types import (
     BlobResourceContents,
@@ -21,7 +19,11 @@ from mcp.types import (
     TextResourceContents,
 )
 
-type ContentWithTextResource = ContentBlock | TextResourceContents
+from fast_agent.utils.text import strip_casefold
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+
 
 class ToolResultWarningLogger(Protocol):
     """Minimal logger interface used for best-effort tool result warnings."""
@@ -29,7 +31,7 @@ class ToolResultWarningLogger(Protocol):
     def warning(self, message: str, **data: object) -> None: ...
 
 
-def get_text(content: ContentWithTextResource) -> str | None:
+def get_text(content: object) -> str | None:
     """Extract text content from a content object if available."""
     if isinstance(content, TextContent):
         return content.text
@@ -37,9 +39,8 @@ def get_text(content: ContentWithTextResource) -> str | None:
     if isinstance(content, TextResourceContents):
         return content.text
 
-    if isinstance(content, EmbeddedResource):
-        if isinstance(content.resource, TextResourceContents):
-            return content.resource.text
+    if isinstance(content, EmbeddedResource) and isinstance(content.resource, TextResourceContents):
+        return content.resource.text
 
     if isinstance(content, ResourceLink):
         name = content.name or "unknown"
@@ -59,19 +60,18 @@ def get_text(content: ContentWithTextResource) -> str | None:
     return None
 
 
-def get_image_data(content: ContentBlock) -> str | None:
+def get_image_data(content: object) -> str | None:
     """Extract image data from a content object if available."""
     if isinstance(content, ImageContent):
         return content.data
 
-    if isinstance(content, EmbeddedResource):
-        if isinstance(content.resource, BlobResourceContents):
-            return content.resource.blob
+    if isinstance(content, EmbeddedResource) and isinstance(content.resource, BlobResourceContents):
+        return content.resource.blob
 
     return None
 
 
-def get_resource_uri(content: ContentBlock) -> str | None:
+def get_resource_uri(content: object) -> str | None:
     """Extract resource URI from an EmbeddedResource if available."""
     if isinstance(content, EmbeddedResource):
         return str(content.resource.uri)
@@ -128,8 +128,7 @@ def split_thinking_content(message: str) -> tuple[str | None, str]:
                 )
                 main_content = remaining
         return (thinking_content, main_content)
-    else:
-        return (None, message)
+    return (None, message)
 
 
 def text_content(text: str) -> TextContent:
@@ -151,9 +150,7 @@ def canonicalize_tool_result_content_for_llm(
     """
 
     raw_content = getattr(result, "content", None)
-    content = (
-        cast("list[ContentBlock]", list(raw_content)) if isinstance(raw_content, list) else []
-    )
+    content = cast("list[ContentBlock]", list(raw_content)) if isinstance(raw_content, list) else []
 
     structured_content = getattr(result, "structuredContent", None)
     if structured_content is None:
@@ -204,9 +201,9 @@ def _infer_mime_type(url: str, default: str = "application/octet-stream") -> str
     from fast_agent.mcp.mime_utils import guess_mime_type, normalize_mime_type
 
     # Special case: YouTube URLs (Google has native support)
-    parsed = urlparse(url.lower())
+    parsed = urlparse(url)
     youtube_hosts = ("youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com")
-    if parsed.netloc in youtube_hosts:
+    if strip_casefold(parsed.netloc) in youtube_hosts:
         return "video/mp4"
 
     mime = guess_mime_type(url)
@@ -223,7 +220,7 @@ def _infer_mime_type(url: str, default: str = "application/octet-stream") -> str
         if normalized:
             return normalized
 
-    return mime
+    return default
 
 
 def _extract_name_from_url(url: str) -> str:

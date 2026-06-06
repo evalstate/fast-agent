@@ -1,17 +1,21 @@
 import json
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from json import JSONDecodeError
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Union, cast
+from typing import TYPE_CHECKING, Any, Protocol, Union, cast, runtime_checkable
 
 from mcp.types import CallToolResult, ContentBlock
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
 from rich.markup import escape as escape_markup
 from rich.panel import Panel
+from rich.protocol import is_renderable
+from rich.syntax import Syntax
 from rich.text import Text
 
-from fast_agent.config import LoggerSettings, Settings
+from fast_agent.config import LoggerSettings, TerminalImageSettings
 from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, REASONING
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.model_display_name import resolve_llm_display_name, resolve_model_display_name
@@ -23,6 +27,7 @@ from fast_agent.ui.display_suppression import (
     display_tools_enabled,
 )
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
+from fast_agent.ui.markdown_renderables import build_markdown_renderable
 from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
@@ -42,8 +47,13 @@ from fast_agent.ui.streaming import (
 from fast_agent.ui.streaming import (
     StreamingMessageHandle as _StreamingMessageHandle,
 )
+from fast_agent.ui.streaming_preferences import (
+    StreamingPreferences,
+    resolve_streaming_preferences,
+)
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.ui.tool_display import ToolDisplay
+from fast_agent.utils.count_display import format_count
 from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
@@ -61,6 +71,31 @@ HOOK_INDICATOR_GLYPH = "◆"
 PHASE_LABELS = {"final_answer": "Final Answer:", "commentary": "Commentary"}
 
 
+@runtime_checkable
+class _LoggerConfig(Protocol):
+    logger: object | None
+
+
+@runtime_checkable
+class _TextPayloadBlock(Protocol):
+    text: object
+
+
+@dataclass(frozen=True, slots=True)
+class ParallelAgentDisplayResult:
+    name: str
+    model: str
+    content: str
+    tokens: int
+    tool_calls: int
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAIPhaseSection:
+    phase: str | None
+    text: str
+
+
 class ConsoleDisplay:
     """
     Handles displaying formatted messages, tool calls, and results to the console.
@@ -71,7 +106,7 @@ class ConsoleDisplay:
 
     def __init__(
         self,
-        config: Settings | None = None,
+        config: Any | None = None,
         *,
         code_word_wrap: bool | None = None,
         render_fences_with_syntax: bool | None = None,
@@ -85,47 +120,70 @@ class ConsoleDisplay:
         """
         self.config = config
         self._logger_settings = self._resolve_logger_settings(config)
-        if self.config and not getattr(self.config, "logger", None):
-            # Ensure callers passing in a bare namespace still get sane defaults
-            try:
-                setattr(self.config, "logger", self._logger_settings)
-            except Exception:
-                pass
-        self._markup = getattr(self._logger_settings, "enable_markup", True)
+        self._sync_logger_settings()
+        self._markup = self._logger_settings.enable_markup
         self._escape_xml = True
         self._code_word_wrap = (
-            getattr(self._logger_settings, "code_word_wrap", True)
-            if code_word_wrap is None
-            else code_word_wrap
+            self._logger_settings.code_word_wrap if code_word_wrap is None else code_word_wrap
         )
         self._render_fences_with_syntax = (
-            getattr(self._logger_settings, "render_fences_with_syntax", True)
+            self._logger_settings.render_fences_with_syntax
             if render_fences_with_syntax is None
             else render_fences_with_syntax
         )
-        self._code_style = (
-            getattr(self._logger_settings, "code_theme", DEFAULT_CODE_THEME)
-            if code_theme is None
-            else code_theme
-        )
+        self._code_style = self._logger_settings.code_theme if code_theme is None else code_theme
         self._apply_console_theme()
         self._style = A3MessageStyle()
         self._tool_display = ToolDisplay(self)
 
     @staticmethod
-    def _resolve_logger_settings(config: Settings | None) -> LoggerSettings:
+    def _resolve_logger_settings(config: Any | None) -> LoggerSettings:
         """Provide a logger settings object even when callers omit it."""
-        logger_settings = getattr(config, "logger", None) if config else None
-        return logger_settings if logger_settings is not None else LoggerSettings()
+        if config is None:
+            return LoggerSettings()
+        if isinstance(config, Mapping):
+            logger_settings = config.get("logger")
+        elif isinstance(config, _LoggerConfig):
+            logger_settings = config.logger
+        else:
+            return LoggerSettings()
+        if logger_settings is None:
+            return LoggerSettings()
+        if isinstance(logger_settings, LoggerSettings):
+            return logger_settings
+        if isinstance(logger_settings, Mapping):
+            return LoggerSettings.model_validate(logger_settings)
+        return LoggerSettings.model_validate(logger_settings, from_attributes=True)
+
+    @property
+    def logger_settings(self) -> LoggerSettings:
+        return self._logger_settings
+
+    def update_logger_settings(self, logger_settings: LoggerSettings) -> None:
+        """Replace display logger settings and keep the backing config in sync."""
+        self._logger_settings = logger_settings
+        self._markup = logger_settings.enable_markup
+        self._sync_logger_settings()
+
+    def _sync_logger_settings(self) -> None:
+        if self.config is None:
+            return
+        if isinstance(self.config, MutableMapping):
+            self.config["logger"] = self._logger_settings
+            return
+        try:
+            self.config.logger = self._logger_settings
+        except AttributeError:
+            return
 
     def _apply_console_theme(self) -> None:
-        theme_file = getattr(self._logger_settings, "theme_file", None)
+        theme_file = self._logger_settings.theme_file
         if theme_file is None and self.config is None:
             return
 
         base_dir: Path | None = None
 
-        theme_config_file = getattr(self._logger_settings, "_theme_file_config_path", None)
+        theme_config_file = self._logger_settings._theme_file_config_path
         config_file = theme_config_file or (
             getattr(self.config, "_config_file", None) if self.config else None
         )
@@ -142,7 +200,7 @@ class ConsoleDisplay:
             )
 
     def _truncate_text(self, text: str, *, truncate: bool) -> str:
-        if truncate and self.config and self.config.logger.truncate_tools and len(text) > 360:
+        if truncate and self._logger_settings.truncate_tools and len(text) > 360:
             return text[:360] + "..."
         return text
 
@@ -161,7 +219,7 @@ class ConsoleDisplay:
     def _print_pretty(self, content: object, *, truncate: bool, style: str | None) -> None:
         from rich.pretty import Pretty
 
-        if truncate and self.config and self.config.logger.truncate_tools:
+        if truncate and self._logger_settings.truncate_tools:
             pretty_obj = Pretty(content, max_length=10, max_string=50)
         else:
             pretty_obj = Pretty(content)
@@ -185,11 +243,22 @@ class ConsoleDisplay:
 
     @property
     def apply_patch_preview_max_lines(self) -> int | None:
-        return getattr(self._logger_settings, "apply_patch_preview_max_lines", 120)
+        return self._logger_settings.apply_patch_preview_max_lines
+
+    @property
+    def show_tools_enabled(self) -> bool:
+        return self._logger_settings.show_tools
+
+    @property
+    def terminal_image_settings(self) -> TerminalImageSettings:
+        return self._logger_settings.terminal_images
 
     @property
     def style(self) -> A3MessageStyle:
         return self._style
+
+    def _chat_output_enabled(self) -> bool:
+        return display_chat_enabled() and self._logger_settings.show_chat
 
     def show_status_message(self, content: Text) -> None:
         """Display a status message without a header."""
@@ -200,11 +269,9 @@ class ConsoleDisplay:
 
     def show_stream_reprint_banner(self, *, label: str | None = None) -> None:
         """Display a bright banner before reprinting a streamed final response."""
-        if not display_chat_enabled():
+        if not self._chat_output_enabled():
             return
-        if self.config and not self.config.logger.show_chat:
-            return
-        if self.config and not getattr(self.config.logger, "stream_reprint_banner", True):
+        if not self._logger_settings.stream_reprint_banner:
             return
         console.ensure_blocking_console()
         for line in self._style.stream_reprint_banner(
@@ -213,28 +280,9 @@ class ConsoleDisplay:
         ):
             console.console.print(line, markup=self._markup)
 
-    def resolve_streaming_preferences(self) -> tuple[bool, str]:
+    def resolve_streaming_preferences(self) -> StreamingPreferences:
         """Return whether streaming is enabled plus the active mode."""
-        if not self.config:
-            return True, "markdown"
-
-        logger_settings = getattr(self.config, "logger", None)
-        if not logger_settings:
-            return True, "markdown"
-
-        streaming_mode = getattr(logger_settings, "streaming", "markdown")
-        if streaming_mode not in {"markdown", "plain", "none"}:
-            streaming_mode = "markdown"
-
-        # Legacy compatibility: allow streaming_plain_text override
-        if streaming_mode == "markdown" and getattr(logger_settings, "streaming_plain_text", False):
-            streaming_mode = "plain"
-
-        show_chat = bool(getattr(logger_settings, "show_chat", True))
-        streaming_display = bool(getattr(logger_settings, "streaming_display", True))
-
-        enabled = show_chat and streaming_display and streaming_mode != "none"
-        return enabled, streaming_mode
+        return resolve_streaming_preferences(self._logger_settings)
 
     @staticmethod
     def _looks_like_markdown(text: str) -> bool:
@@ -313,7 +361,6 @@ class ConsoleDisplay:
 
         line = self._style.shell_exit_line(
             exit_code,
-            console.console.size.width,
             detail,
         )
         console.console.print()
@@ -361,7 +408,7 @@ class ConsoleDisplay:
             left += f" [{block_color}]{HOOK_INDICATOR_GLYPH}[/{block_color}]"
         if name:
             name_color = block_color if not is_error else "red"
-            left += f" [{name_color}]{name}[/{name_color}]"
+            left += f" [{name_color}]{escape_markup(name)}[/{name_color}]"
         return left
 
     def display_message(
@@ -402,52 +449,24 @@ class ConsoleDisplay:
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
             header_rule_fill: Whether to extend the header with a dim rule to the right edge
         """
-        # Ensure Rich writes to a blocking TTY when stdout/stderr was
-        # flipped to non-blocking by the event loop (e.g. uvloop).
         console.ensure_blocking_console()
 
-        # Get configuration for this message type
-        config = MESSAGE_CONFIGS[message_type]
-
-        # Override colors for error states
-        if is_error and message_type == MessageType.TOOL_RESULT:
-            block_color = "red"
-        else:
-            block_color = config["block_color"]
-
-        # Build the left side of the header
-        arrow = config["arrow"]
-        arrow_style = config["arrow_style"]
-        left = self.build_header_left(
-            block_color=block_color,
-            arrow=arrow,
-            arrow_style=arrow_style,
+        left_header = self._message_header_left(
+            message_type=message_type,
             name=name,
             is_error=is_error,
             show_hook_indicator=show_hook_indicator,
         )
-
-        # Create combined separator and status line
-        self._create_combined_separator_status(left, right_info, rule_fill=header_rule_fill)
-        is_empty_content = False
-        if isinstance(content, str):
-            is_empty_content = content == ""
-        elif isinstance(content, Text):
-            is_empty_content = content.plain == ""
-
-        skip_empty_content = is_empty_content and (
+        self._create_combined_separator_status(
+            left_header,
+            right_info,
+            rule_fill=header_rule_fill,
+        )
+        skip_empty_content = self._is_empty_message_content(content) and (
             additional_message is not None or pre_content is not None
         )
 
-        # Display the content
-        if pre_content:
-            if isinstance(pre_content, Text):
-                if pre_content.plain:
-                    console.console.print(pre_content, markup=self._markup)
-            else:
-                console.console.print(pre_content, markup=self._markup)
-            if not skip_empty_content:
-                console.console.print()
+        self._print_pre_content(pre_content, skip_empty_content=skip_empty_content)
 
         if not skip_empty_content:
             self._display_content(
@@ -472,6 +491,346 @@ class ConsoleDisplay:
             max_item_length=max_item_length,
         )
 
+    @staticmethod
+    def _message_block_color(message_type: MessageType, *, is_error: bool) -> str:
+        if is_error and message_type == MessageType.TOOL_RESULT:
+            return "red"
+        return MESSAGE_CONFIGS[message_type]["block_color"]
+
+    def _message_header_left(
+        self,
+        *,
+        message_type: MessageType,
+        name: str | None,
+        is_error: bool,
+        show_hook_indicator: bool,
+    ) -> str:
+        config = MESSAGE_CONFIGS[message_type]
+        return self.build_header_left(
+            block_color=self._message_block_color(message_type, is_error=is_error),
+            arrow=config["arrow"],
+            arrow_style=config["arrow_style"],
+            name=name,
+            is_error=is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
+
+    @staticmethod
+    def _is_empty_message_content(content: Any) -> bool:
+        if isinstance(content, str):
+            return content == ""
+        if isinstance(content, Text):
+            return content.plain == ""
+        return False
+
+    def _print_pre_content(
+        self,
+        pre_content: Text | Group | None,
+        *,
+        skip_empty_content: bool,
+    ) -> None:
+        if not pre_content:
+            return
+        if not isinstance(pre_content, Text) or pre_content.plain:
+            console.console.print(pre_content, markup=self._markup)
+        if not skip_empty_content:
+            console.console.print()
+
+    @staticmethod
+    def _user_message_turn_info(
+        *,
+        chat_turn: int,
+        total_turns: int | None,
+        turn_range: tuple[int, int] | None,
+        part_count: int | None,
+    ) -> str:
+        if part_count and part_count > 1:
+            turn_number = turn_range[0] if turn_range else chat_turn
+            return f"turn {turn_number}" if turn_number > 0 else ""
+
+        if turn_range:
+            turn_start, turn_end = turn_range
+            if turn_start == turn_end:
+                turn_info = f"turn {turn_start}"
+            else:
+                turn_info = f"turn {turn_start}-{turn_end}"
+            return f"{turn_info} ({total_turns})" if total_turns else turn_info
+
+        if chat_turn <= 0:
+            return ""
+        return f"turn {chat_turn} ({total_turns})" if total_turns else f"turn {chat_turn}"
+
+    @classmethod
+    def _user_message_right_info(
+        cls,
+        *,
+        chat_turn: int,
+        total_turns: int | None,
+        turn_range: tuple[int, int] | None,
+        part_count: int | None,
+    ) -> str:
+        right_parts: list[str] = []
+        turn_info = cls._user_message_turn_info(
+            chat_turn=chat_turn,
+            total_turns=total_turns,
+            turn_range=turn_range,
+            part_count=part_count,
+        )
+        if turn_info:
+            right_parts.append(turn_info)
+        if part_count and part_count > 1:
+            right_parts.append(f"({part_count} parts)")
+        return f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
+
+    @staticmethod
+    def _attachment_pre_content(attachments: list[str] | None) -> Text | None:
+        if not attachments:
+            return None
+        attachment_text = Text()
+        attachment_text.append("🔗 ", style="dim")
+        attachment_text.append(", ".join(attachments), style="dim blue")
+        return attachment_text
+
+    def _image_preview_pre_content(
+        self,
+        image_previews: list["ImageRenderItem"] | None,
+    ) -> Group | None:
+        if not image_previews:
+            return None
+        terminal_images = self._logger_settings.terminal_images
+        if not terminal_images.enabled or terminal_images.backend == "none":
+            return None
+
+        from fast_agent.ui.terminal_images import render_image_items
+
+        rendered_previews = render_image_items(terminal_images, image_previews)
+        if rendered_previews is None:
+            return None
+        return Group(rendered_previews)
+
+    def _user_message_pre_content(
+        self,
+        *,
+        attachments: list[str] | None,
+        image_previews: list["ImageRenderItem"] | None,
+    ) -> Text | Group | None:
+        pre_content_parts: list[Text | Group] = []
+        attachment_content = self._attachment_pre_content(attachments)
+        if attachment_content is not None:
+            pre_content_parts.append(attachment_content)
+
+        image_content = self._image_preview_pre_content(image_previews)
+        if image_content is not None:
+            pre_content_parts.append(image_content)
+
+        if len(pre_content_parts) == 1:
+            return pre_content_parts[0]
+        if pre_content_parts:
+            return Group(*pre_content_parts)
+        return None
+
+    @staticmethod
+    def _content_display_style(
+        *,
+        is_error: bool,
+        message_type: MessageType | None,
+    ) -> str | None:
+        if is_error:
+            return "dim red"
+        if message_type in (MessageType.USER, MessageType.ASSISTANT, MessageType.SYSTEM):
+            return None
+        return "dim"
+
+    def _print_markdown_text(self, content: str) -> None:
+        console.console.print(
+            build_markdown_renderable(
+                content,
+                code_theme=self.code_style,
+                escape_xml=self._escape_xml,
+                render_fences_with_syntax=self.render_fences_with_syntax,
+                code_word_wrap=self.code_word_wrap,
+            ),
+            markup=self._markup,
+        )
+
+    @staticmethod
+    def _looks_like_xml_content(content: str) -> bool:
+        import re
+
+        xml_pattern = r"^<[a-zA-Z_][a-zA-Z0-9_-]*[^>]*>"
+        return bool(re.match(xml_pattern, content.strip())) and content.count("<") > 5
+
+    @staticmethod
+    def _has_substantial_xml(content: str) -> bool:
+        import re
+
+        xml_probe = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", content)
+        return xml_probe.count("<") > 5 and xml_probe.count(">") > 5
+
+    def _display_forced_markdown_string(
+        self,
+        content: str,
+        *,
+        truncate: bool,
+        style: str | None,
+        render_markdown: bool,
+    ) -> None:
+        try:
+            json_obj = json.loads(content)
+            self._print_pretty(json_obj, truncate=truncate, style=style)
+        except (JSONDecodeError, TypeError, ValueError):
+            if render_markdown:
+                self._print_markdown_text(content)
+            else:
+                self._print_plain_text(content, truncate=truncate, style=style)
+
+    def _display_string_content(
+        self,
+        content: str,
+        *,
+        truncate: bool,
+        style: str | None,
+        check_markdown_markers: bool,
+        render_markdown: bool | None,
+    ) -> None:
+        if render_markdown is not None:
+            self._display_forced_markdown_string(
+                content,
+                truncate=truncate,
+                style=style,
+                render_markdown=render_markdown,
+            )
+            return
+
+        try:
+            json_obj = json.loads(content)
+            self._print_pretty(json_obj, truncate=truncate, style=style)
+            return
+        except (JSONDecodeError, TypeError, ValueError):
+            pass
+
+        if self._looks_like_xml_content(content):
+            console.console.print(
+                Syntax(
+                    content,
+                    "xml",
+                    theme=self.code_style,
+                    line_numbers=False,
+                    word_wrap=self.code_word_wrap,
+                ),
+                markup=self._markup,
+            )
+            return
+
+        if check_markdown_markers:
+            if self._looks_like_markdown(content):
+                self._print_markdown_text(content)
+            else:
+                self._print_plain_text(content, truncate=truncate, style=style)
+            return
+
+        if self._looks_like_markdown(content) and not self._has_substantial_xml(content):
+            self._print_markdown_text(content)
+            return
+
+        self._print_plain_text(content, truncate=truncate, style=style)
+
+    def _display_forced_markdown_text(
+        self,
+        content: Text,
+        *,
+        truncate: bool,
+        style: str | None,
+        render_markdown: bool,
+    ) -> None:
+        plain_text = content.plain
+        try:
+            json_obj = json.loads(plain_text)
+            self._print_pretty(json_obj, truncate=truncate, style=style)
+        except (JSONDecodeError, TypeError, ValueError):
+            if render_markdown:
+                prepared_content = prepare_markdown_content(plain_text, self._escape_xml)
+                console.console.print(
+                    Markdown(prepared_content, code_theme=self.code_style),
+                    markup=self._markup,
+                )
+            else:
+                console.console.print(content, markup=self._markup)
+
+    def _display_text_markdown_with_spans(self, content: Text) -> None:
+        plain_text = content.plain
+        markdown_end = content._spans[0].end if content._spans else len(plain_text)
+        markdown_part = plain_text[:markdown_end]
+        if not self._looks_like_markdown(markdown_part):
+            console.console.print(content, markup=self._markup)
+            return
+
+        self._print_markdown_text(markdown_part)
+        if markdown_end >= len(plain_text):
+            return
+
+        remaining_text = Text()
+        for span in content._spans:
+            if span.start >= markdown_end:
+                segment_text = plain_text[span.start : span.end]
+                remaining_text.append(segment_text, style=span.style)
+        if remaining_text.plain:
+            console.console.print(remaining_text, markup=self._markup)
+
+    def _display_text_content(
+        self,
+        content: Text,
+        *,
+        truncate: bool,
+        style: str | None,
+        render_markdown: bool | None,
+    ) -> None:
+        if render_markdown is not None:
+            self._display_forced_markdown_text(
+                content,
+                truncate=truncate,
+                style=style,
+                render_markdown=render_markdown,
+            )
+            return
+
+        plain_text = content.plain
+        if not self._looks_like_markdown(plain_text):
+            console.console.print(content, markup=self._markup)
+            return
+
+        if len(content._spans) > 1:
+            self._display_text_markdown_with_spans(content)
+        else:
+            self._print_markdown_text(plain_text)
+
+    def _display_content_blocks(
+        self,
+        content: list[Any],
+        *,
+        truncate: bool,
+        style: str | None,
+    ) -> None:
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        if len(content) == 1 and is_text_content(content[0]):
+            text_content = get_text(content[0])
+            if text_content:
+                self._print_plain_text(text_content, truncate=truncate, style=style)
+            elif style:
+                console.console.print("(empty text)", style=style, markup=self._markup)
+            else:
+                console.console.print("(empty text)", markup=self._markup)
+            return
+
+        from fast_agent.mcp.prompt_render import render_content_blocks
+
+        self._print_plain_text(
+            render_content_blocks(cast("list[ContentBlock]", content)),
+            truncate=truncate,
+            style=style,
+        )
+
     def _display_content(
         self,
         content: Any,
@@ -492,213 +851,28 @@ class ConsoleDisplay:
             check_markdown_markers: If True, only use markdown rendering when markers are present
             render_markdown: If set, force markdown rendering (True) or plain rendering (False)
         """
-        import json
-        import re
+        style = self._content_display_style(is_error=is_error, message_type=message_type)
 
-        from rich.protocol import is_renderable
-        from rich.syntax import Syntax
-
-        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
-        from fast_agent.ui.markdown_renderables import build_markdown_renderable
-
-        # Determine the style based on message type
-        # USER, ASSISTANT, and SYSTEM messages should display in normal style
-        # TOOL_CALL and TOOL_RESULT should be dimmed
-        if is_error:
-            style = "dim red"
-        elif message_type in [MessageType.USER, MessageType.ASSISTANT, MessageType.SYSTEM]:
-            style = None  # No style means default/normal white
-        else:
-            style = "dim"
-
-        # Handle different content types
         if isinstance(content, str):
-            if render_markdown is not None:
-                try:
-                    json_obj = json.loads(content)
-                    self._print_pretty(json_obj, truncate=truncate, style=style)
-                    return
-                except (JSONDecodeError, TypeError, ValueError):
-                    if render_markdown:
-                        console.console.print(
-                            build_markdown_renderable(
-                                content,
-                                code_theme=self.code_style,
-                                escape_xml=self._escape_xml,
-                                render_fences_with_syntax=self.render_fences_with_syntax,
-                                code_word_wrap=self.code_word_wrap,
-                            ),
-                            markup=self._markup,
-                        )
-                    else:
-                        self._print_plain_text(content, truncate=truncate, style=style)
-                    return
-            # Try to detect and handle different string formats
-            try:
-                # Try as JSON first
-                json_obj = json.loads(content)
-                self._print_pretty(json_obj, truncate=truncate, style=style)
-            except (JSONDecodeError, TypeError, ValueError):
-                # Check if content appears to be primarily XML
-                xml_pattern = r"^<[a-zA-Z_][a-zA-Z0-9_-]*[^>]*>"
-                is_xml_content = (
-                    bool(re.match(xml_pattern, content.strip())) and content.count("<") > 5
-                )
-
-                if is_xml_content:
-                    # Display XML content with syntax highlighting for better readability
-                    syntax = Syntax(
-                        content,
-                        "xml",
-                        theme=self.code_style,
-                        line_numbers=False,
-                        word_wrap=self.code_word_wrap,
-                    )
-                    console.console.print(syntax, markup=self._markup)
-                elif check_markdown_markers:
-                    # Check for markdown markers before deciding to use markdown rendering
-                    if self._looks_like_markdown(content):
-                        # Has markdown markers - render as markdown with escaping
-                        console.console.print(
-                            build_markdown_renderable(
-                                content,
-                                code_theme=self.code_style,
-                                escape_xml=self._escape_xml,
-                                render_fences_with_syntax=self.render_fences_with_syntax,
-                                code_word_wrap=self.code_word_wrap,
-                            ),
-                            markup=self._markup,
-                        )
-                    else:
-                        # Plain text - display as-is
-                        self._print_plain_text(content, truncate=truncate, style=style)
-                else:
-                    # Check if content has substantial XML (mixed content)
-                    # If so, skip markdown rendering as it turns XML into an unreadable blob.
-                    # Ignore markdown autolinks like <https://...>.
-                    xml_probe = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", content)
-                    has_substantial_xml = xml_probe.count("<") > 5 and xml_probe.count(">") > 5
-
-                    # Check if it looks like markdown
-                    if self._looks_like_markdown(content) and not has_substantial_xml:
-                        # Escape HTML/XML tags while preserving code blocks
-                        console.console.print(
-                            build_markdown_renderable(
-                                content,
-                                code_theme=self.code_style,
-                                escape_xml=self._escape_xml,
-                                render_fences_with_syntax=self.render_fences_with_syntax,
-                                code_word_wrap=self.code_word_wrap,
-                            ),
-                            markup=self._markup,
-                        )
-                    else:
-                        # Plain text (or mixed markdown+XML content)
-                        self._print_plain_text(content, truncate=truncate, style=style)
+            self._display_string_content(
+                content,
+                truncate=truncate,
+                style=style,
+                check_markdown_markers=check_markdown_markers,
+                render_markdown=render_markdown,
+            )
         elif isinstance(content, Text):
-            if render_markdown is not None:
-                plain_text = content.plain
-                try:
-                    json_obj = json.loads(plain_text)
-                    self._print_pretty(json_obj, truncate=truncate, style=style)
-                    return
-                except (JSONDecodeError, TypeError, ValueError):
-                    if render_markdown:
-                        prepared_content = prepare_markdown_content(plain_text, self._escape_xml)
-                        md = Markdown(prepared_content, code_theme=self.code_style)
-                        console.console.print(md, markup=self._markup)
-                    else:
-                        console.console.print(content, markup=self._markup)
-                    return
-            # Rich Text object - check if it contains markdown
-            plain_text = content.plain
-
-            # Check if the plain text contains markdown markers
-            if self._looks_like_markdown(plain_text):
-                # Split the Text object into segments
-                # We need to handle the main content (which may have markdown)
-                # and any styled segments that were appended
-
-                # If the Text object has multiple spans with different styles,
-                # we need to be careful about how we render them
-                if len(content._spans) > 1:
-                    # Complex case: Text has multiple styled segments
-                    # We'll render the first part as markdown if it contains markers
-                    # and append other styled parts separately
-
-                    # Find where the markdown content ends (usually the first span)
-                    markdown_end = content._spans[0].end if content._spans else len(plain_text)
-                    markdown_part = plain_text[:markdown_end]
-
-                    # Check if the first part has markdown
-                    if self._looks_like_markdown(markdown_part):
-                        # Render markdown part
-                        console.console.print(
-                            build_markdown_renderable(
-                                markdown_part,
-                                code_theme=self.code_style,
-                                escape_xml=self._escape_xml,
-                                render_fences_with_syntax=self.render_fences_with_syntax,
-                                code_word_wrap=self.code_word_wrap,
-                            ),
-                            markup=self._markup,
-                        )
-
-                        # Then render any additional styled segments
-                        if markdown_end < len(plain_text):
-                            remaining_text = Text()
-                            for span in content._spans:
-                                if span.start >= markdown_end:
-                                    segment_text = plain_text[span.start : span.end]
-                                    remaining_text.append(segment_text, style=span.style)
-                            if remaining_text.plain:
-                                console.console.print(remaining_text, markup=self._markup)
-                    else:
-                        # No markdown in first part, just print the whole Text object
-                        console.console.print(content, markup=self._markup)
-                else:
-                    # Simple case: entire text should be rendered as markdown
-                    console.console.print(
-                        build_markdown_renderable(
-                            plain_text,
-                            code_theme=self.code_style,
-                            escape_xml=self._escape_xml,
-                            render_fences_with_syntax=self.render_fences_with_syntax,
-                            code_word_wrap=self.code_word_wrap,
-                        ),
-                        markup=self._markup,
-                    )
-            else:
-                # No markdown markers, print as regular Rich Text
-                console.console.print(content, markup=self._markup)
-        elif isinstance(content, Group):
-            console.console.print(content, markup=self._markup)
-        elif is_renderable(content):
+            self._display_text_content(
+                content,
+                truncate=truncate,
+                style=style,
+                render_markdown=render_markdown,
+            )
+        elif isinstance(content, Group) or is_renderable(content):
             console.console.print(content, markup=self._markup)
         elif isinstance(content, list):
-            # Handle content blocks (for tool results)
-            if len(content) == 1 and is_text_content(content[0]):
-                # Single text block - display directly
-                text_content = get_text(content[0])
-                if text_content:
-                    self._print_plain_text(text_content, truncate=truncate, style=style)
-                else:
-                    # Apply style only if specified
-                    if style:
-                        console.console.print("(empty text)", style=style, markup=self._markup)
-                    else:
-                        console.console.print("(empty text)", markup=self._markup)
-            else:
-                # Multiple blocks or non-text content
-                from fast_agent.mcp.prompt_render import render_content_blocks
-
-                self._print_plain_text(
-                    render_content_blocks(cast("list[ContentBlock]", content)),
-                    truncate=truncate,
-                    style=style,
-                )
+            self._display_content_blocks(content, truncate=truncate, style=style)
         else:
-            # Any other type - use Pretty
             self._print_pretty(content, truncate=truncate, style=style)
 
     def _render_bottom_metadata(
@@ -899,78 +1073,94 @@ class ConsoleDisplay:
             code_word_wrap=self.code_word_wrap,
         )
 
-    def _extract_openai_phase_content(
-        self,
-        message: "PromptMessageExtended",
-    ) -> str | Group | None:
+    @staticmethod
+    def _openai_phase_raw_blocks(message: "PromptMessageExtended") -> list[Any]:
         channels = message.channels or {}
-        raw_blocks = (
-            channels.get(OPENAI_ASSISTANT_MESSAGE_ITEMS) if isinstance(channels, Mapping) else None
+        if not isinstance(channels, Mapping):
+            return []
+        raw_blocks = channels.get(OPENAI_ASSISTANT_MESSAGE_ITEMS)
+        return raw_blocks if isinstance(raw_blocks, list) else []
+
+    @staticmethod
+    def _openai_phase_payload(raw_text: object) -> Mapping[str, Any] | None:
+        if not isinstance(raw_text, str) or not raw_text:
+            return None
+        try:
+            payload = json.loads(raw_text)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(payload, Mapping) or payload.get("type") != "message":
+            return None
+        return payload
+
+    @staticmethod
+    def _openai_phase_text(content: object) -> str:
+        if not isinstance(content, list):
+            return ""
+
+        text_segments: list[str] = []
+        for part in content:
+            if not isinstance(part, Mapping):
+                continue
+            mapped_part = cast("Mapping[str, Any]", part)
+            part_type = mapped_part.get("type")
+            part_text = mapped_part.get("text")
+            if part_type in {"output_text", "text"} and isinstance(part_text, str):
+                text_segments.append(part_text)
+        return "".join(text_segments).strip()
+
+    @classmethod
+    def _openai_phase_section_from_block(cls, block: Any) -> OpenAIPhaseSection | None:
+        if not isinstance(block, _TextPayloadBlock):
+            return None
+        payload = cls._openai_phase_payload(block.text)
+        if payload is None:
+            return None
+
+        section_text = cls._openai_phase_text(payload.get("content"))
+        if not section_text:
+            return None
+
+        return OpenAIPhaseSection(
+            phase=coerce_assistant_message_phase(payload.get("phase")),
+            text=section_text,
         )
-        if not raw_blocks:
-            return None
 
-        sections: list[str | Group | Text] = []
-        saw_phase = False
-
+    @classmethod
+    def _openai_phase_sections(
+        cls,
+        message: "PromptMessageExtended",
+    ) -> list[OpenAIPhaseSection]:
+        raw_blocks = cls._openai_phase_raw_blocks(message)
+        sections: list[OpenAIPhaseSection] = []
         for block in raw_blocks:
-            raw_text = getattr(block, "text", None)
-            if not isinstance(raw_text, str) or not raw_text:
-                continue
+            section = cls._openai_phase_section_from_block(block)
+            if section is not None:
+                sections.append(section)
+        return sections
 
-            try:
-                payload = json.loads(raw_text)
-            except (TypeError, ValueError):
-                continue
+    def _render_openai_phase_section(
+        self,
+        section: OpenAIPhaseSection,
+    ) -> str | Group | Text:
+        if section.phase is None:
+            return section.text
 
-            if not isinstance(payload, Mapping) or payload.get("type") != "message":
-                continue
+        phase_label = PHASE_LABELS.get(section.phase, section.phase)
+        label = Text()
+        label.append("▎", style="green")
+        label.append(phase_label, style="green")
+        if self._looks_like_markdown(section.text):
+            return Group(label, self._render_markdown_body(section.text))
 
-            phase = coerce_assistant_message_phase(payload.get("phase"))
-            content = payload.get("content")
-            if not isinstance(content, list):
-                continue
+        label.append(" ")
+        label.append(section.text)
+        return label
 
-            text_segments: list[str] = []
-            for part in content:
-                if not isinstance(part, Mapping):
-                    continue
-                part_type = part.get("type")
-                part_text = part.get("text")
-                if (
-                    part_type in {"output_text", "text"}
-                    and isinstance(part_text, str)
-                    and part_text
-                ):
-                    text_segments.append(part_text)
-
-            section_text = "".join(text_segments).strip()
-            if not section_text:
-                continue
-
-            if phase is not None:
-                saw_phase = True
-                phase_label = PHASE_LABELS.get(phase, phase)
-                label = Text()
-                label.append("▎", style="green")
-                label.append(phase_label, style="green")
-                if self._looks_like_markdown(section_text):
-                    sections.append(
-                        Group(
-                            label,
-                            self._render_markdown_body(section_text),
-                        )
-                    )
-                else:
-                    label.append(" ")
-                    label.append(section_text)
-                    sections.append(label)
-            else:
-                sections.append(section_text)
-
-        if not sections or not saw_phase:
-            return None
-
+    @staticmethod
+    def _combine_openai_phase_renderables(
+        sections: list[str | Group | Text],
+    ) -> str | Group:
         if all(isinstance(section, str) for section in sections):
             return "\n\n".join(section for section in sections if isinstance(section, str))
 
@@ -980,6 +1170,17 @@ class ConsoleDisplay:
                 renderables.append(Text("\n"))
             renderables.append(section)
         return Group(*renderables)
+
+    def _extract_openai_phase_content(
+        self,
+        message: "PromptMessageExtended",
+    ) -> str | Group | None:
+        sections = self._openai_phase_sections(message)
+        if not sections or not any(section.phase is not None for section in sections):
+            return None
+
+        rendered_sections = [self._render_openai_phase_section(section) for section in sections]
+        return self._combine_openai_phase_renderables(rendered_sections)
 
     async def show_assistant_message(
         self,
@@ -1011,9 +1212,7 @@ class ConsoleDisplay:
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
             show_reprint_banner: Whether to emit the bright reprint banner for this message
         """
-        if not display_chat_enabled():
-            return
-        if self.config and not self.config.logger.show_chat:
+        if not self._chat_output_enabled():
             return
 
         # Extract text from PromptMessageExtended if needed
@@ -1035,9 +1234,12 @@ class ConsoleDisplay:
                 self._extract_reasoning_content(message_text),
                 pre_content,
             )
-            from fast_agent.ui.terminal_images import render_assistant_images
+            from fast_agent.ui.terminal_images import render_assistant_images_for_settings
 
-            post_content = render_assistant_images(self.config, message_text)
+            post_content = render_assistant_images_for_settings(
+                self.terminal_image_settings,
+                message_text,
+            )
         else:
             display_text = message_text
 
@@ -1096,7 +1298,7 @@ class ConsoleDisplay:
         message_text: Union[str, Text, "PromptMessageExtended"],
     ) -> None:
         """Display mermaid links extracted from assistant text payload."""
-        if not display_chat_enabled():
+        if not self._chat_output_enabled():
             return
         from fast_agent.types import PromptMessageExtended
 
@@ -1125,12 +1327,12 @@ class ConsoleDisplay:
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
     ) -> Iterator[StreamingHandle]:
         """Create a streaming context for assistant messages."""
-        if not display_chat_enabled():
+        if not self._chat_output_enabled():
             yield _NullStreamingHandle()
             return
-        streaming_enabled, streaming_mode = self.resolve_streaming_preferences()
+        streaming_preferences = self.resolve_streaming_preferences()
 
-        if not streaming_enabled:
+        if not streaming_preferences.enabled:
             yield _NullStreamingHandle()
             return
 
@@ -1154,7 +1356,7 @@ class ConsoleDisplay:
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
         # Determine renderer based on streaming mode
-        use_plain_text = streaming_mode == "plain"
+        use_plain_text = streaming_preferences.mode == "plain"
 
         handle = _StreamingMessageHandle(
             display=self,
@@ -1203,9 +1405,7 @@ class ConsoleDisplay:
 
     async def show_mcp_ui_links(self, links: list[UILink]) -> None:
         """Display MCP-UI links beneath the chat like mermaid links."""
-        if not display_chat_enabled():
-            return
-        if self.config and not self.config.logger.show_chat:
+        if not self._chat_output_enabled():
             return
 
         if not links:
@@ -1241,10 +1441,11 @@ class ConsoleDisplay:
             message: The server's message explaining why navigation is needed
             url: The URL the server wants the user to navigate to
             server_name: Name of the MCP server making the request
-            agent_name: Optional name of the agent (for future use)
+            agent_name: Optional name of the agent
             elicitation_id: Optional URL elicitation ID
         """
-        if self.config and not self.config.logger.show_chat:
+        del agent_name
+        if not self._chat_output_enabled():
             return
 
         from urllib.parse import urlparse
@@ -1305,80 +1506,26 @@ class ConsoleDisplay:
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a user message in the new visual style."""
-        if not display_chat_enabled():
-            return
-        if self.config and not self.config.logger.show_chat:
+        if not self._chat_output_enabled():
             return
 
         _ = model
-
-        # Build right side with turn info and parts
-        right_parts: list[str] = []
-
-        turn_info = ""
-        if part_count and part_count > 1:
-            turn_number = 0
-            if turn_range:
-                turn_number = turn_range[0]
-            elif chat_turn > 0:
-                turn_number = chat_turn
-            if turn_number > 0:
-                turn_info = f"turn {turn_number}"
-        elif turn_range:
-            turn_start, turn_end = turn_range
-            if total_turns:
-                if turn_start == turn_end:
-                    turn_info = f"turn {turn_start} ({total_turns})"
-                else:
-                    turn_info = f"turn {turn_start}-{turn_end} ({total_turns})"
-            elif turn_start == turn_end:
-                turn_info = f"turn {turn_start}"
-            else:
-                turn_info = f"turn {turn_start}-{turn_end}"
-        elif chat_turn > 0:
-            if total_turns:
-                turn_info = f"turn {chat_turn} ({total_turns})"
-            else:
-                turn_info = f"turn {chat_turn}"
-
-        if turn_info:
-            right_parts.append(turn_info)
-
-        if part_count and part_count > 1:
-            right_parts.append(f"({part_count} parts)")
-
-        right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
-
-        # Build attachment indicator and local image previews as pre_content.
-        pre_content_parts: list[Text | Group] = []
-        if attachments:
-            attachment_text = Text()
-            attachment_text.append("🔗 ", style="dim")
-            attachment_text.append(", ".join(attachments), style="dim blue")
-            pre_content_parts.append(attachment_text)
-
-        if image_previews and self.config:
-            terminal_images = self.config.logger.terminal_images
-            if terminal_images.enabled and terminal_images.backend != "none":
-                from fast_agent.ui.terminal_images import render_image_items
-
-                rendered_previews = render_image_items(terminal_images, image_previews)
-                if rendered_previews is not None:
-                    pre_content_parts.append(Group(rendered_previews))
-
-        pre_content: Text | Group | None = None
-        if len(pre_content_parts) == 1:
-            pre_content = pre_content_parts[0]
-        elif pre_content_parts:
-            pre_content = Group(*pre_content_parts)
 
         self.display_message(
             content=message,
             message_type=MessageType.USER,
             name=name,
-            right_info=right_info,
+            right_info=self._user_message_right_info(
+                chat_turn=chat_turn,
+                total_turns=total_turns,
+                turn_range=turn_range,
+                part_count=part_count,
+            ),
             truncate_content=False,  # User messages typically shouldn't be truncated
-            pre_content=pre_content,
+            pre_content=self._user_message_pre_content(
+                attachments=attachments,
+                image_previews=image_previews,
+            ),
             show_hook_indicator=show_hook_indicator,
             header_rule_fill=True,
         )
@@ -1390,14 +1537,13 @@ class ConsoleDisplay:
         server_count: int = 0,
     ) -> None:
         """Display the system prompt in a formatted panel."""
-        if self.config and not self.config.logger.show_chat:
+        if not self._chat_output_enabled():
             return
 
         # Build right side info
         right_parts = []
         if server_count > 0:
-            server_word = "server" if server_count == 1 else "servers"
-            right_parts.append(f"{server_count} MCP {server_word}")
+            right_parts.append(f"{format_count(server_count, 'MCP server')}")
 
         right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 
@@ -1431,7 +1577,7 @@ class ConsoleDisplay:
             highlight_server: Optional server name to highlight
             arguments: Optional dictionary of arguments passed to the prompt template
         """
-        if self.config and not self.config.logger.show_tools:
+        if not self._logger_settings.show_tools:
             return
 
         # Build the server list with highlighting
@@ -1443,7 +1589,7 @@ class ConsoleDisplay:
 
         # Create content text
         content = Text()
-        messages_phrase = f"Loaded {message_count} message{'s' if message_count != 1 else ''}"
+        messages_phrase = f"Loaded {format_count(message_count, 'message')}"
         content.append(f"{messages_phrase} from template ", style="cyan italic")
         content.append(f"'{prompt_name}'", style="cyan bold italic")
 
@@ -1476,119 +1622,117 @@ class ConsoleDisplay:
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
-    def show_parallel_results(self, parallel_agent) -> None:
-        """Display parallel agent results in a clean, organized format.
+    @staticmethod
+    def _parallel_fan_out_agents(parallel_agent: Any) -> list[Any]:
+        if parallel_agent is None:
+            return []
+        try:
+            return list(parallel_agent.fan_out_agents)
+        except AttributeError:
+            return []
 
-        Args:
-            parallel_agent: The parallel agent containing fan_out_agents with results
-        """
+    @staticmethod
+    def _parallel_agent_usage(agent: Any) -> tuple[int, int]:
+        accumulator = agent.usage_accumulator
+        if not accumulator:
+            return 0, 0
+        summary = accumulator.get_summary()
+        tokens = summary.get("cumulative_input_tokens", 0) + summary.get(
+            "cumulative_output_tokens", 0
+        )
+        return tokens, summary.get("cumulative_tool_calls", 0)
 
-        from rich.text import Text
+    @classmethod
+    def _parallel_agent_result(cls, agent: Any) -> ParallelAgentDisplayResult | None:
+        message_history = agent.message_history
+        if not message_history:
+            return None
 
-        if self.config and not self.config.logger.show_chat:
+        model = "unknown"
+        if agent.llm:
+            model = resolve_llm_display_name(agent.llm) or "unknown"
+
+        tokens, tool_calls = cls._parallel_agent_usage(agent)
+        return ParallelAgentDisplayResult(
+            name=agent.name,
+            model=model,
+            content=message_history[-1].last_text(),
+            tokens=tokens,
+            tool_calls=tool_calls,
+        )
+
+    @classmethod
+    def _parallel_agent_results(cls, parallel_agent: Any) -> list[ParallelAgentDisplayResult]:
+        results: list[ParallelAgentDisplayResult] = []
+        for agent in cls._parallel_fan_out_agents(parallel_agent):
+            result = cls._parallel_agent_result(agent)
+            if result is not None:
+                results.append(result)
+        return results
+
+    @staticmethod
+    def _parallel_result_usage_label(result: ParallelAgentDisplayResult) -> str:
+        right_parts: list[str] = []
+        if result.tokens > 0:
+            right_parts.append(f"{result.tokens:,} tokens")
+        if result.tool_calls > 0:
+            right_parts.append(format_count(result.tool_calls, "tool"))
+        return " • ".join(right_parts) if right_parts else "no usage data"
+
+    def _show_parallel_result_header(self, result: ParallelAgentDisplayResult) -> None:
+        left_text = Text()
+        left_text.append("▎", style="green")
+        left_text.append(" ")
+        left_text.append(result.model, style="bold green")
+        right_text = Text(self._parallel_result_usage_label(result), style="dim")
+        padding = max(1, console.console.size.width - left_text.cell_len - right_text.cell_len)
+        console.console.print(Text.assemble(left_text, " " * padding, right_text))
+        console.console.print()
+
+    def _show_parallel_result(self, result: ParallelAgentDisplayResult, *, index: int) -> None:
+        if index > 0:
+            console.console.print()
+            console.console.print("─" * console.console.size.width, style="dim")
+            console.console.print()
+
+        self._show_parallel_result_header(result)
+        self._display_content(
+            result.content,
+            truncate=False,
+            is_error=False,
+            message_type=MessageType.ASSISTANT,
+            check_markdown_markers=True,
+        )
+
+    @staticmethod
+    def _parallel_summary_text(agent_results: list[ParallelAgentDisplayResult]) -> str:
+        total_tokens = sum(result.tokens for result in agent_results)
+        total_tools = sum(result.tool_calls for result in agent_results)
+
+        summary_parts = [format_count(len(agent_results), "model")]
+        if total_tokens > 0:
+            summary_parts.append(f"{total_tokens:,} tokens")
+        if total_tools > 0:
+            summary_parts.append(format_count(total_tools, "tool"))
+        return " • ".join(summary_parts)
+
+    def show_parallel_results(self, parallel_agent: Any) -> None:
+        """Display parallel agent results in a clean, organized format."""
+        if not self._chat_output_enabled():
             return
 
-        if not parallel_agent or not hasattr(parallel_agent, "fan_out_agents"):
-            return
-
-        # Collect results and agent information
-        agent_results = []
-
-        for agent in parallel_agent.fan_out_agents:
-            # Get the last response text from this agent
-            message_history = agent.message_history
-            if not message_history:
-                continue
-
-            last_message = message_history[-1]
-            content = last_message.last_text()
-
-            # Get model name
-            model = "unknown"
-            if agent.llm:
-                model = resolve_llm_display_name(agent.llm) or "unknown"
-
-            # Get usage information
-            tokens = 0
-            tool_calls = 0
-            if hasattr(agent, "usage_accumulator") and agent.usage_accumulator:
-                summary = agent.usage_accumulator.get_summary()
-                tokens = summary.get("cumulative_input_tokens", 0) + summary.get(
-                    "cumulative_output_tokens", 0
-                )
-                tool_calls = summary.get("cumulative_tool_calls", 0)
-
-            agent_results.append(
-                {
-                    "name": agent.name,
-                    "model": model,
-                    "content": content,
-                    "tokens": tokens,
-                    "tool_calls": tool_calls,
-                }
-            )
-
+        agent_results = self._parallel_agent_results(parallel_agent)
         if not agent_results:
             return
 
-        # Display header
         console.console.print()
         console.console.print("[dim]Parallel execution complete[/dim]")
         console.console.print()
 
-        # Display results for each agent
-        for i, result in enumerate(agent_results):
-            if i > 0:
-                # Simple full-width separator
-                console.console.print()
-                console.console.print("─" * console.console.size.width, style="dim")
-                console.console.print()
+        for index, result in enumerate(agent_results):
+            self._show_parallel_result(result, index=index)
 
-            # Two column header: model name (green) + usage info (dim)
-            left = f"[green]▎[/green] [bold green]{result['model']}[/bold green]"
-
-            # Build right side with tokens and tool calls if available
-            right_parts = []
-            if result["tokens"] > 0:
-                right_parts.append(f"{result['tokens']:,} tokens")
-            if result["tool_calls"] > 0:
-                right_parts.append(f"{result['tool_calls']} tools")
-
-            right = f"[dim]{' • '.join(right_parts) if right_parts else 'no usage data'}[/dim]"
-
-            # Calculate padding to right-align usage info
-            width = console.console.size.width
-            left_text = Text.from_markup(left)
-            right_text = Text.from_markup(right)
-            padding = max(1, width - left_text.cell_len - right_text.cell_len)
-
-            console.console.print(left + " " * padding + right, markup=self._markup)
-            console.console.print()
-
-            # Display content based on its type (check for markdown markers in parallel results)
-            content = result["content"]
-            # Use _display_content with assistant message type so content isn't dimmed
-            self._display_content(
-                content,
-                truncate=False,
-                is_error=False,
-                message_type=MessageType.ASSISTANT,
-                check_markdown_markers=True,
-            )
-
-        # Summary
         console.console.print()
         console.console.print("─" * console.console.size.width, style="dim")
-
-        total_tokens = sum(result["tokens"] for result in agent_results)
-        total_tools = sum(result["tool_calls"] for result in agent_results)
-
-        summary_parts = [f"{len(agent_results)} models"]
-        if total_tokens > 0:
-            summary_parts.append(f"{total_tokens:,} tokens")
-        if total_tools > 0:
-            summary_parts.append(f"{total_tools} tools")
-
-        summary_text = " • ".join(summary_parts)
-        console.console.print(f"[dim]{summary_text}[/dim]")
+        console.console.print(Text(self._parallel_summary_text(agent_results), style="dim"))
         console.console.print()

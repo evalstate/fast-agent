@@ -18,13 +18,20 @@ ToolSource = Literal[
     "provider_managed",
 ]
 
+SHELL_TOOL_SOURCE: Final[ToolSource] = "shell"
+ACP_TERMINAL_TOOL_SOURCE: Final[ToolSource] = "acp_terminal"
+ACP_FILESYSTEM_TOOL_SOURCE: Final[ToolSource] = "acp_filesystem"
+SKILL_TOOL_SOURCE: Final[ToolSource] = "skill"
+MCP_TOOL_SOURCE: Final[ToolSource] = "mcp"
+PROVIDER_MANAGED_TOOL_SOURCE: Final[ToolSource] = "provider_managed"
+
 TOOL_SOURCE_LABELS: Final[dict[ToolSource, str]] = {
-    "shell": "Shell",
-    "acp_terminal": "Shell",
-    "acp_filesystem": "ACP Filesystem",
-    "skill": "Skill",
-    "mcp": "MCP",
-    "provider_managed": "Provider Managed",
+    SHELL_TOOL_SOURCE: "Shell",
+    ACP_TERMINAL_TOOL_SOURCE: "Shell",
+    ACP_FILESYSTEM_TOOL_SOURCE: "ACP Filesystem",
+    SKILL_TOOL_SOURCE: "Skill",
+    MCP_TOOL_SOURCE: "MCP",
+    PROVIDER_MANAGED_TOOL_SOURCE: "Provider Managed",
 }
 
 

@@ -3,7 +3,18 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from fast_agent.config import Settings, load_yaml_mapping
+from fast_agent.config import MCPServerSettings, MCPSettings, Settings, load_yaml_mapping
+
+
+def test_default_mcp_settings_are_per_settings_instance() -> None:
+    first = Settings()
+    second = Settings()
+
+    assert first.mcp is not None
+    assert second.mcp is not None
+    first.mcp.servers["demo"] = MCPServerSettings(name="demo", transport="stdio", command="echo")
+
+    assert second.mcp.servers == {}
 
 
 def test_config_mcp_target_shorthand_url_expansion() -> None:
@@ -70,6 +81,13 @@ def test_config_mcp_target_shorthand_keeps_legacy_canonical_shape() -> None:
     assert filesystem.transport == "stdio"
     assert filesystem.command == "npx"
     assert filesystem.args == ["@modelcontextprotocol/server-filesystem"]
+
+
+def test_mcp_server_settings_rejects_boolean_max_missed_pings() -> None:
+    assert MCPServerSettings.model_validate({"max_missed_pings": "3"}).max_missed_pings == 3
+
+    with pytest.raises(TypeError, match="max_missed_pings must be an integer"):
+        MCPServerSettings.model_validate({"max_missed_pings": True})
 
 
 def test_config_mcp_target_shorthand_rejects_embedded_cli_flags() -> None:
@@ -309,6 +327,21 @@ def test_targets_list_shorthand_with_access_token_keeps_synthesized_authorizatio
     assert demo.url == "https://demo.hf.space/mcp"
     assert demo.access_token == "secret-token"
     assert demo.headers == {"Authorization": "Bearer secret-token"}
+
+
+def test_resolved_target_serialization_filters_padded_synthesized_authorization_header() -> None:
+    resolved_settings = MCPServerSettings.model_construct(
+        name="demo",
+        transport="http",
+        url="https://demo.hf.space/mcp",
+        management="client",
+        access_token="secret-token",
+        headers={" Authorization ": "Bearer secret-token"},
+    )
+
+    payload = MCPSettings._serialize_resolved_target_settings(resolved_settings)
+
+    assert payload["headers"] is None
 
 
 def test_access_token_conflicts_with_explicit_authorization_header() -> None:

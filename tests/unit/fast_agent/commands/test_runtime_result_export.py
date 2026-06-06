@@ -18,15 +18,16 @@ from fast_agent.cli.runtime.agent_setup import (
     _apply_shell_cwd_policy_preflight,
     _build_fan_out_result_paths,
     _build_result_file_with_suffix,
+    _cli_attachment_token,
     _export_result_histories,
     _find_last_assistant_text,
     _resume_session_if_requested,
     _run_single_agent_cli_flow,
-    _sanitize_result_suffix,
     _select_loaded_card_agent,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
+from fast_agent.config import Settings, ShellSettings
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import ResumeSessionAgentsResult
@@ -254,11 +255,6 @@ def test_run_request_closes_loop_when_cleanup_is_interrupted(
     assert fake_loop.closed is True
 
 
-def test_sanitize_result_suffix() -> None:
-    assert _sanitize_result_suffix("openai/gpt-4o") == "openai_gpt-4o"
-    assert _sanitize_result_suffix("  model name  ") == "model_name"
-
-
 def test_build_fan_out_result_paths_disambiguates_collisions() -> None:
     exports = _build_fan_out_result_paths(
         "foo.json",
@@ -310,6 +306,27 @@ def test_find_last_assistant_text_falls_back_to_pending_tool_summary() -> None:
     ]
 
     assert _find_last_assistant_text(history) == "Pending tool call: read_text_file"
+
+
+def test_find_last_assistant_text_counts_unnamed_pending_tools() -> None:
+    history = [
+        PromptMessageExtended(
+            role="assistant",
+            tool_calls={
+                "call-1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="", arguments={}),
+                ),
+                "call-2": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="", arguments={}),
+                ),
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+    ]
+
+    assert _find_last_assistant_text(history) == "Pending 2 tool calls"
 
 
 def test_find_last_assistant_text_prefers_text_over_pending_tool_summary() -> None:
@@ -428,6 +445,12 @@ async def test_run_single_agent_cli_flow_message_attaches_files(
     assert sent.first_text() == "summarize"
     assert len(sent.content) == 2
     assert capsys.readouterr().out.strip() == "done"
+
+
+def test_cli_attachment_token_normalizes_remote_scheme_case() -> None:
+    assert _cli_attachment_token("HTTPS://example.com/report.pdf").startswith(
+        "^url:HTTPS://example.com/report.pdf"
+    )
 
 
 @pytest.mark.asyncio
@@ -688,6 +711,7 @@ async def test_resume_session_interactive_queues_markdown_preview(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
+
     async def _resume_session_agents_async(*args, **kwargs):
         del args, kwargs
         return ResumeSessionAgentsResult(
@@ -720,6 +744,67 @@ async def test_resume_session_interactive_queues_markdown_preview(
 
 
 @pytest.mark.asyncio
+async def test_resume_session_preview_fallback_preserves_loaded_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _make_request(result_file=None, message=None, prompt_file=None)
+    request.resume = "latest"
+
+    beta_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="beta preview")],
+    )
+    alpha_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="alpha preview")],
+    )
+    beta = _DummyAgent("beta")
+    beta.message_history = [beta_message]
+    alpha = _DummyAgent("alpha")
+    alpha.message_history = [alpha_message]
+
+    app = _DummyAgentApp(["alpha", "beta", "default"], default_agent="default")
+    app._agents["alpha"] = alpha
+    app._agents["beta"] = beta
+
+    session = SimpleNamespace(
+        info=SimpleNamespace(
+            name="session-ordered",
+            last_activity=datetime(2026, 2, 26, 12, 0, 0),
+        )
+    )
+
+    async def _resume_session_agents_async(*args, **kwargs):
+        del args, kwargs
+        return ResumeSessionAgentsResult(
+            session=cast("Any", session),
+            loaded={
+                "beta": Path("history_beta.json"),
+                "alpha": Path("history_alpha.json"),
+            },
+            missing_agents=[],
+        )
+
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    markdown_notices: list[tuple[str, dict[str, str | None]]] = []
+
+    def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
+        markdown_notices.append((text, kwargs))
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
+    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        _capture_markdown_notice,
+    )
+
+    await _resume_session_if_requested(app, request)
+
+    assert markdown_notices
+    assert markdown_notices[0][0] == "beta preview"
+
+
+@pytest.mark.asyncio
 async def test_resume_session_interactive_handles_usage_notices_from_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -741,6 +826,7 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
+
     async def _resume_session_agents_async(*args, **kwargs):
         del args, kwargs
         return ResumeSessionAgentsResult(
@@ -796,6 +882,7 @@ async def test_resume_session_applies_hydrated_active_agent_to_request(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
+
     async def _resume_session_agents_async(*args, **kwargs):
         del args, kwargs
         return ResumeSessionAgentsResult(
@@ -967,9 +1054,7 @@ def test_apply_shell_cwd_policy_preflight_interactive_honors_error_policy(
         },
         app=SimpleNamespace(
             context=SimpleNamespace(
-                config=SimpleNamespace(
-                    shell_execution=SimpleNamespace(missing_cwd_policy="error")
-                )
+                config=Settings(shell_execution=ShellSettings(missing_cwd_policy="error"))
             )
         ),
     )
@@ -1006,9 +1091,7 @@ def test_apply_shell_cwd_policy_preflight_interactive_honors_warn_policy(
         },
         app=SimpleNamespace(
             context=SimpleNamespace(
-                config=SimpleNamespace(
-                    shell_execution=SimpleNamespace(missing_cwd_policy="warn")
-                )
+                config=Settings(shell_execution=ShellSettings(missing_cwd_policy="warn"))
             )
         ),
     )
@@ -1039,9 +1122,7 @@ def test_apply_shell_cwd_policy_preflight_interactive_honors_create_policy(
         },
         app=SimpleNamespace(
             context=SimpleNamespace(
-                config=SimpleNamespace(
-                    shell_execution=SimpleNamespace(missing_cwd_policy="create")
-                )
+                config=Settings(shell_execution=ShellSettings(missing_cwd_policy="create"))
             )
         ),
     )
@@ -1074,9 +1155,7 @@ def test_apply_shell_cwd_policy_preflight_interactive_create_errors_on_remaining
         },
         app=SimpleNamespace(
             context=SimpleNamespace(
-                config=SimpleNamespace(
-                    shell_execution=SimpleNamespace(missing_cwd_policy="create")
-                )
+                config=Settings(shell_execution=ShellSettings(missing_cwd_policy="create"))
             )
         ),
     )

@@ -59,8 +59,6 @@ async def test_task_done_called_on_happy_path() -> None:
         assert bus._queue is not None
         await asyncio.wait_for(bus._queue.join(), timeout=2.0)
     except asyncio.TimeoutError:
-        pytest.fail(
-            "queue.join() timed out — task_done() is likely missing on the happy path"
-        )
+        pytest.fail("queue.join() timed out — task_done() is likely missing on the happy path")
 
     await bus.stop()

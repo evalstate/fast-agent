@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import shlex
 import sys
-from typing import TYPE_CHECKING, Any, Final, Literal, cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Final, Literal
 from urllib.parse import urlparse
 
 import typer
@@ -17,7 +17,11 @@ from fast_agent.constants import (
     DEFAULT_SERVE_AGENT_TYPE,
     SMART_AGENT_INSTRUCTION,
 )
+from fast_agent.core.agent_card_paths import is_agent_card_path
+from fast_agent.llm.request_params import is_structured_tool_policy
 from fast_agent.paths import resolve_environment_paths
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.commandline import split_commandline
 
 from .run_request import (
     AgentRunRequest,
@@ -32,11 +36,27 @@ if TYPE_CHECKING:
 
     from fast_agent.llm.request_params import StructuredToolPolicy
 
-CARD_EXTENSIONS: Final[frozenset[str]] = frozenset({".md", ".markdown", ".yaml", ".yml"})
-
 DEFAULT_ENV_PATHS = resolve_environment_paths()
 DEFAULT_AGENT_CARDS_DIR: Final[Path] = DEFAULT_ENV_PATHS.agent_cards
 DEFAULT_TOOL_CARDS_DIR: Final[Path] = DEFAULT_ENV_PATHS.tool_cards
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedInstructionOption:
+    instruction: str
+    agent_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class UrlServerMerge:
+    url_servers: dict[str, UrlServerConfig] | None
+    server_list: list[str] | None
+
+
+@dataclass(frozen=True, slots=True)
+class StdioServerMerge:
+    stdio_servers: dict[str, StdioServerConfig] | None
+    server_list: list[str] | None
 
 
 def is_multi_model(model: str | None) -> bool:
@@ -79,20 +99,14 @@ def merge_card_sources(
     sources: list[str] | None,
     default_dir: Path,
 ) -> list[str] | None:
-    merged: list[str] = []
-    seen: set[str] = set()
-
     if sources:
-        for entry in sources:
-            if entry not in seen:
-                merged.append(entry)
-                seen.add(entry)
-        return merged
+        return unique_preserve_order(sources)
+
+    merged: list[str] = []
 
     if default_dir.is_dir():
         has_cards = any(
-            entry.is_file() and entry.suffix.lower() in CARD_EXTENSIONS
-            for entry in default_dir.iterdir()
+            entry.is_file() and is_agent_card_path(entry) for entry in default_dir.iterdir()
         )
         if has_cards:
             merged.append(str(default_dir))
@@ -105,13 +119,7 @@ def normalize_explicit_card_sources(sources: list[str] | None) -> list[str] | No
     if not sources:
         return None
 
-    merged: list[str] = []
-    seen: set[str] = set()
-    for entry in sources:
-        if entry not in seen:
-            merged.append(entry)
-            seen.add(entry)
-    return merged or None
+    return unique_preserve_order(sources) or None
 
 
 def validate_noenv_conflicts(
@@ -180,7 +188,7 @@ def validate_json_schema_inputs(
             param_hint="--schema-model",
         )
     if structured_tool_policy is not None:
-        if structured_tool_policy not in {"auto", "always", "defer", "no_tools"}:
+        if not is_structured_tool_policy(structured_tool_policy):
             raise typer.BadParameter(
                 "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'",
                 param_hint="--structured-tool-policy",
@@ -195,7 +203,7 @@ def validate_json_schema_inputs(
                 "--structured-tool-policy requires --json-schema.",
                 param_hint="--structured-tool-policy",
             )
-        resolved_policy = cast("StructuredToolPolicy", structured_tool_policy)
+        resolved_policy = structured_tool_policy
     else:
         resolved_policy = None
     if json_schema is None and schema_model is None:
@@ -252,7 +260,7 @@ def resolve_instruction_option(
     mode: Literal["interactive", "serve"],
     *,
     force_smart: bool = False,
-) -> tuple[str, str]:
+) -> ResolvedInstructionOption:
     """Resolve the instruction option (file or URL) to text and inferred agent name."""
     resolved_instruction = resolve_default_instruction(model, mode, force_smart=force_smart)
     agent_name = "agent"
@@ -272,7 +280,10 @@ def resolve_instruction_option(
             typer.echo(f"Error loading instruction from {instruction}: {exc}", err=True)
             raise typer.Exit(1) from exc
 
-    return resolved_instruction, agent_name
+    return ResolvedInstructionOption(
+        instruction=resolved_instruction,
+        agent_name=agent_name,
+    )
 
 
 def collect_stdio_commands(npx: str | None, uvx: str | None, stdio: str | None) -> list[str]:
@@ -312,7 +323,7 @@ def _merge_url_servers(
     urls: str | None,
     auth: str | None,
     client_metadata_url: str | None,
-) -> tuple[dict[str, UrlServerConfig] | None, list[str] | None]:
+) -> UrlServerMerge:
     url_servers: dict[str, UrlServerConfig] | None = None
 
     if urls:
@@ -330,8 +341,7 @@ def _merge_url_servers(
             headers = server_config.get("headers")
             if isinstance(headers, dict):
                 normalized_config["headers"] = {
-                    str(key): str(value)
-                    for key, value in headers.items()
+                    str(key): str(value) for key, value in headers.items()
                 }
             if client_metadata_url:
                 normalized_config["auth"] = {
@@ -345,21 +355,21 @@ def _merge_url_servers(
         elif url_servers and server_list:
             server_list.extend(list(url_servers.keys()))
 
-    return url_servers, server_list
+    return UrlServerMerge(url_servers=url_servers, server_list=server_list)
 
 
 def _merge_stdio_servers(
     server_list: list[str] | None,
     stdio_commands: list[str] | None,
-) -> tuple[dict[str, StdioServerConfig] | None, list[str] | None]:
+) -> StdioServerMerge:
     if not stdio_commands:
-        return None, server_list
+        return StdioServerMerge(stdio_servers=None, server_list=server_list)
 
     stdio_servers: dict[str, StdioServerConfig] = {}
 
     for i, stdio_cmd in enumerate(stdio_commands):
         try:
-            parsed_command = shlex.split(stdio_cmd)
+            parsed_command = split_commandline(stdio_cmd, syntax="posix")
         except ValueError as exc:
             print(f"Error parsing stdio command '{stdio_cmd}': {exc}", file=sys.stderr)
             continue
@@ -397,7 +407,7 @@ def _merge_stdio_servers(
         else:
             server_list.append(server_name)
 
-    return stdio_servers, server_list
+    return StdioServerMerge(stdio_servers=stdio_servers, server_list=server_list)
 
 
 def build_agent_run_request(
@@ -465,13 +475,17 @@ def build_agent_run_request(
 
     server_list = servers.split(",") if servers else None
 
-    url_servers, server_list = _merge_url_servers(
+    url_merge = _merge_url_servers(
         server_list,
         urls,
         auth,
         client_metadata_url,
     )
-    stdio_servers, server_list = _merge_stdio_servers(server_list, stdio_commands)
+    url_servers = url_merge.url_servers
+    server_list = url_merge.server_list
+    stdio_merge = _merge_stdio_servers(server_list, stdio_commands)
+    stdio_servers = stdio_merge.stdio_servers
+    server_list = stdio_merge.server_list
 
     if environment_dir:
         env_paths = resolve_environment_paths(override=environment_dir)
@@ -614,7 +628,7 @@ def build_command_run_request(
     validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
 
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
-    resolved_instruction, inferred_agent_name = resolve_instruction_option(
+    resolved_instruction = resolve_instruction_option(
         instruction_option,
         model,
         mode,
@@ -623,7 +637,7 @@ def build_command_run_request(
 
     return build_agent_run_request(
         name=name,
-        instruction=resolved_instruction,
+        instruction=resolved_instruction.instruction,
         config_path=config_path,
         servers=servers,
         urls=urls,
@@ -641,7 +655,7 @@ def build_command_run_request(
         result_file=result_file,
         resume=resume,
         stdio_commands=stdio_commands,
-        agent_name=inferred_agent_name,
+        agent_name=resolved_instruction.agent_name,
         target_agent_name=target_agent_name,
         skills_directory=skills_directory,
         environment_dir=environment_dir,

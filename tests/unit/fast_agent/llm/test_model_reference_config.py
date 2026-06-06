@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
 import yaml
 
 from fast_agent.config import Settings
@@ -56,6 +59,17 @@ def test_set_reference_dry_run_does_not_mutate_target_file(tmp_path) -> None:
     assert result.changes[0].old is None
     assert result.changes[0].new == "claude-haiku-4-5"
     assert result.target_path.exists() is False
+
+
+def test_resolve_target_path_rejects_unknown_target(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+    service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
+    invalid_target: Any = "other"
+
+    with pytest.raises(ValueError, match="target must be 'env' or 'project'"):
+        service._resolve_target_path(invalid_target)
 
 
 def test_set_reference_writes_env_target_and_creates_config_file(tmp_path) -> None:
@@ -141,6 +155,7 @@ def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None
                 "system": {
                     "fast": "project-fast",
                     "code": "project-code",
+                    "review": "project-review",
                 }
             }
         },
@@ -171,3 +186,28 @@ def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None
 
     assert references["system"]["fast"] == "env-fast"
     assert references["system"]["code"] == "secret-code"
+    assert references["system"]["review"] == "project-review"
+
+
+def test_list_references_tolerant_skips_invalid_reference_names(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+    _write_yaml(
+        workspace / "fast-agent.yaml",
+        {
+            "model_references": {
+                "system": {
+                    "fast": "claude-haiku-4-5",
+                    "bad.key": "gpt-4.1-mini",
+                },
+                "bad.namespace": {
+                    "fast": "gpt-4.1-mini",
+                },
+            }
+        },
+    )
+
+    service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
+
+    assert service.list_references_tolerant() == {"system": {"fast": "claude-haiku-4-5"}}

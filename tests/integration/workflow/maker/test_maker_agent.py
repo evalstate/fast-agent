@@ -86,9 +86,7 @@ async def test_max_samples_fallback(fast_agent):
             # Set k=10 so we need 10 identical samples to converge
             # But we'll only get 10 samples total, so margin will be 10 (all same)
             # This tests that we get a result even at the limit
-            await agent.worker._llm.generate(
-                [Prompt.user(f"{FIXED_RESPONSE_INDICATOR}consistent")]
-            )
+            await agent.worker._llm.generate([Prompt.user(f"{FIXED_RESPONSE_INDICATOR}consistent")])
 
             result = await agent.voter.send("Choose")
 
@@ -227,9 +225,7 @@ async def test_single_response_wins_immediately(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             # Single response should win with k=1
-            await agent.worker._llm.generate(
-                [Prompt.user(f"{FIXED_RESPONSE_INDICATOR}winner")]
-            )
+            await agent.worker._llm.generate([Prompt.user(f"{FIXED_RESPONSE_INDICATOR}winner")])
 
             result = await agent.voter.send("Quick test")
 

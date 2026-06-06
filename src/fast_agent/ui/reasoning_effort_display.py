@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
+from fast_agent.llm.reasoning_effort import is_auto_reasoning
 from fast_agent.ui.gauge_glyph_palette import (
     MAX_GAUGE_LEVEL,
     STANDALONE_GAUGE_GLYPHS,
     GaugeGlyphPalette,
+    GaugeState,
+    render_gauge_state,
 )
+from fast_agent.utils.numeric import positive_int_or_none, sorted_unique_positive_ints
 
 if TYPE_CHECKING:
     from fast_agent.llm.reasoning_effort import (
@@ -21,6 +25,7 @@ FULL_BLOCK = STANDALONE_GAUGE_GLYPHS.full_block
 INACTIVE_COLOR = "ansibrightblack"
 AUTO_COLOR = "ansiblue"
 MAX_LEVEL = MAX_GAUGE_LEVEL
+
 
 EFFORT_LEVEL_MAPPING = {
     "none": 0,
@@ -52,30 +57,53 @@ EFFORT_ORDER_MAPPING = {
     "max": 6,
 }
 
+EffortScaleKey: TypeAlias = tuple[str, str, str, str]
+_EFFORT_SCALE_LEVELS = {
+    ("none", "low", "medium", "high"): {
+        "none": 0,
+        "low": 2,
+        "medium": 3,
+        "high": 4,
+    },
+    ("minimal", "low", "medium", "high"): {
+        "minimal": 1,
+        "low": 2,
+        "medium": 3,
+        "high": 4,
+    },
+}
+_EFFORT_SCALE_COLORS = {
+    ("none", "low", "medium", "high"): {
+        "none": INACTIVE_COLOR,
+        "low": "ansigreen",
+        "medium": "ansiyellow",
+        "high": "ansired",
+    },
+    ("minimal", "low", "medium", "high"): {
+        "minimal": "ansigreen",
+        "low": "ansigreen",
+        "medium": "ansiyellow",
+        "high": "ansired",
+    },
+}
 
-def _uses_none_low_medium_high_scale(spec: ReasoningEffortSpec) -> bool:
-    return spec.allowed_efforts == ["none", "low", "medium", "high"]
 
-
-def _uses_minimal_low_medium_high_scale(spec: ReasoningEffortSpec) -> bool:
-    return spec.allowed_efforts == ["minimal", "low", "medium", "high"]
+def _effort_scale_key(spec: ReasoningEffortSpec) -> EffortScaleKey | None:
+    allowed_efforts = spec.allowed_efforts or []
+    if len(allowed_efforts) != 4:
+        return None
+    key: EffortScaleKey = (
+        allowed_efforts[0],
+        allowed_efforts[1],
+        allowed_efforts[2],
+        allowed_efforts[3],
+    )
+    return key if key in _EFFORT_SCALE_LEVELS else None
 
 
 def _effort_to_level(value: str, spec: ReasoningEffortSpec | None = None) -> int:
-    if spec is not None and _uses_none_low_medium_high_scale(spec):
-        return {
-            "none": 0,
-            "low": 2,
-            "medium": 3,
-            "high": 4,
-        }.get(value, 0)
-    if spec is not None and _uses_minimal_low_medium_high_scale(spec):
-        return {
-            "minimal": 1,
-            "low": 2,
-            "medium": 3,
-            "high": 4,
-        }.get(value, 0)
+    if spec is not None and (scale_key := _effort_scale_key(spec)):
+        return _EFFORT_SCALE_LEVELS[scale_key].get(value, 0)
     return EFFORT_LEVEL_MAPPING.get(value, 0)
 
 
@@ -89,29 +117,21 @@ def _is_spec_highest_effort(value: str, spec: ReasoningEffortSpec) -> bool:
 
 
 def _effort_color(value: str, spec: ReasoningEffortSpec) -> str:
-    if _uses_none_low_medium_high_scale(spec):
-        return {
-            "none": INACTIVE_COLOR,
-            "low": "ansigreen",
-            "medium": "ansiyellow",
-            "high": "ansired",
-        }.get(value, "ansiyellow")
-    if _uses_minimal_low_medium_high_scale(spec):
-        return {
-            "minimal": "ansigreen",
-            "low": "ansigreen",
-            "medium": "ansiyellow",
-            "high": "ansired",
-        }.get(value, "ansiyellow")
+    if scale_key := _effort_scale_key(spec):
+        return _EFFORT_SCALE_COLORS[scale_key].get(value, "ansiyellow")
     if value == "xhigh" and _is_spec_highest_effort(value, spec):
         return "ansired"
     return EFFORT_COLOR_MAPPING.get(value, "ansiyellow")
 
 
+def _positive_budget_presets(spec: ReasoningEffortSpec) -> list[int]:
+    return sorted_unique_positive_ints(spec.budget_presets or [])
+
+
 def _budget_to_level(value: int, spec: ReasoningEffortSpec) -> int:
     if value <= 0:
         return 0
-    presets = sorted({preset for preset in (spec.budget_presets or []) if preset > 0})
+    presets = _positive_budget_presets(spec)
     if presets:
         low_threshold = presets[0]
         high_threshold = presets[-1]
@@ -123,7 +143,7 @@ def _budget_to_level(value: int, spec: ReasoningEffortSpec) -> int:
         ratio = min(max(ratio, 0.0), 1.0)
         return min(
             MAX_LEVEL,
-            2 + int(round(ratio * (MAX_LEVEL - 2))),
+            2 + round(ratio * (MAX_LEVEL - 2)),
         )
     min_budget = spec.min_budget_tokens
     max_budget = spec.max_budget_tokens
@@ -132,16 +152,79 @@ def _budget_to_level(value: int, spec: ReasoningEffortSpec) -> int:
 
     ratio = (value - min_budget) / (max_budget - min_budget)
     ratio = min(max(ratio, 0.0), 1.0)
-    return max(1, min(MAX_LEVEL, 1 + int(math.floor(ratio * (MAX_LEVEL - 1)))))
+    return max(1, min(MAX_LEVEL, 1 + math.floor(ratio * (MAX_LEVEL - 1))))
 
 
 def _budget_color(value: int, spec: ReasoningEffortSpec, level: int) -> str:
-    presets = sorted({preset for preset in (spec.budget_presets or []) if preset > 0})
+    presets = _positive_budget_presets(spec)
     if presets and value >= presets[-1]:
         return "ansired"
     if level <= 3:
         return "ansigreen"
     return "ansiyellow"
+
+
+def _budget_value(setting: ReasoningEffortSetting) -> int | None:
+    return positive_int_or_none(setting.value)
+
+
+def _inactive_state() -> GaugeState:
+    return GaugeState(level=0, color=INACTIVE_COLOR)
+
+
+def _toggle_reasoning_gauge_state(setting: ReasoningEffortSetting) -> GaugeState:
+    enabled = bool(setting.value)
+    color = "ansigreen" if enabled else INACTIVE_COLOR
+    return GaugeState(level=MAX_LEVEL if enabled else 0, color=color)
+
+
+def _effort_reasoning_gauge_state(
+    setting: ReasoningEffortSetting,
+    spec: ReasoningEffortSpec,
+) -> GaugeState:
+    effort_value = str(setting.value)
+    level = _effort_to_level(effort_value, spec)
+    if level <= 0:
+        return _inactive_state()
+    return GaugeState(level=level, color=_effort_color(effort_value, spec))
+
+
+def _budget_reasoning_gauge_state(
+    setting: ReasoningEffortSetting,
+    spec: ReasoningEffortSpec,
+) -> GaugeState:
+    budget_value = _budget_value(setting)
+    if budget_value is None:
+        return _inactive_state()
+    level = _budget_to_level(budget_value, spec)
+    if level <= 0:
+        return _inactive_state()
+    return GaugeState(
+        level=level,
+        color=_budget_color(budget_value, spec, level),
+    )
+
+
+def _reasoning_gauge_state(
+    setting: ReasoningEffortSetting | None,
+    spec: ReasoningEffortSpec,
+) -> GaugeState:
+    effective = setting or spec.default
+    # "auto" means the provider chooses: show as blue full block.
+    if is_auto_reasoning(setting) or is_auto_reasoning(effective):
+        return GaugeState(level=MAX_LEVEL, color=AUTO_COLOR)
+    if effective is None:
+        return _inactive_state()
+
+    match effective.kind:
+        case "toggle":
+            return _toggle_reasoning_gauge_state(effective)
+        case "effort":
+            return _effort_reasoning_gauge_state(effective, spec)
+        case "budget":
+            return _budget_reasoning_gauge_state(effective, spec)
+
+    return _inactive_state()
 
 
 def render_reasoning_effort_gauge(
@@ -150,37 +233,12 @@ def render_reasoning_effort_gauge(
     *,
     glyph_palette: GaugeGlyphPalette = STANDALONE_GAUGE_GLYPHS,
 ) -> str | None:
-    from fast_agent.llm.reasoning_effort import is_auto_reasoning
-
     if spec is None:
         return None
 
-    effective = setting or spec.default
-    # "auto" means the provider chooses — show as blue full block.
-    if is_auto_reasoning(setting) or is_auto_reasoning(effective):
-        return f"<style bg='{AUTO_COLOR}'>{glyph_palette.full_block}</style>"
-    if effective is None:
-        level = 0
-    elif effective.kind == "toggle":
-        level = 0 if not effective.value else MAX_LEVEL
-    elif effective.kind == "effort":
-        effort_value = str(effective.value)
-        level = _effort_to_level(effort_value, spec)
-    elif effective.kind == "budget":
-        level = _budget_to_level(int(effective.value), spec)
-    else:
-        level = 0
-
-    if level <= 0:
-        return f"<style bg='{INACTIVE_COLOR}'>{glyph_palette.full_block}</style>"
-
-    char = glyph_palette.char_for_level(level)
-    if effective is None:
-        color = INACTIVE_COLOR
-    elif effective.kind == "effort":
-        color = _effort_color(effort_value, spec)
-    elif effective.kind == "toggle":
-        color = "ansigreen" if effective.value else INACTIVE_COLOR
-    else:
-        color = _budget_color(int(effective.value), spec, level)
-    return f"<style bg='{color}'>{char}</style>"
+    state = _reasoning_gauge_state(setting, spec)
+    return render_gauge_state(
+        state,
+        glyph_palette=glyph_palette,
+        inactive_color=INACTIVE_COLOR,
+    )

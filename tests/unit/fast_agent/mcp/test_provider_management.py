@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
 import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -9,7 +15,13 @@ from fast_agent.mcp.provider_management import (
     build_openai_provider_managed_mcp_tools,
     build_provider_managed_mcp_state,
     get_openai_connector_ids,
+    has_authorization_header,
+    normalize_access_token,
+    normalize_client_managed_url_server,
+    normalize_provider_managed_url_server,
     provider_managed_base_url,
+    split_managed_server_names,
+    validate_provider_managed_server_settings,
 )
 
 
@@ -92,6 +104,94 @@ def test_provider_managed_base_url_strips_endpoint_suffixes() -> None:
     assert provider_managed_base_url("https://example.com/sse") == "https://example.com"
 
 
+def test_normalize_access_token_strips_bearer_prefix_case_insensitively() -> None:
+    assert normalize_access_token("  BEARER token-123  ") == "token-123"
+
+
+def test_has_authorization_header_normalizes_header_names() -> None:
+    assert has_authorization_header({" Authorization ": "Bearer user-token"})
+
+
+def test_split_managed_server_names_returns_named_groups() -> None:
+    split = split_managed_server_names(
+        ("local", "stripe", "missing"),
+        {
+            "local": MCPServerSettings(
+                name="local",
+                command="python",
+                args=["server.py"],
+            ),
+            "stripe": MCPServerSettings(
+                name="stripe",
+                management="provider",
+                transport="http",
+                url="https://mcp.stripe.com",
+                access_token="token-123",
+            ),
+        },
+    )
+
+    assert split.client_managed == ["local", "missing"]
+    assert split.provider_managed == ["stripe"]
+
+
+def test_validate_provider_managed_server_settings_reports_shared_constraints() -> None:
+    settings = MCPServerSettings.model_construct(
+        name="gmail",
+        management="provider",
+        connector_id="connector_gmail",
+        command="python",
+        args=["server.py"],
+        env={"TOKEN": "secret"},
+        transport="http",
+        _fields_set={"connector_id", "command", "args", "env", "transport"},
+    )
+
+    validation = validate_provider_managed_server_settings(settings)
+
+    assert validation.has_exactly_one_source()
+    assert validation.invalid_fields == ("args", "command", "env", "transport")
+    assert validation.missing_connector_access_token is True
+
+
+def test_normalize_client_managed_url_server_returns_named_result() -> None:
+    normalized = normalize_client_managed_url_server(
+        transport="http",
+        url="https://example.com/api",
+        headers={"X-Trace": "trace-1"},
+        access_token="token-123",
+    )
+
+    assert normalized.url == "https://example.com/api/mcp"
+    assert normalized.headers == {
+        "X-Trace": "trace-1",
+        "Authorization": "Bearer token-123",
+    }
+
+
+@pytest.mark.parametrize(
+    "helper",
+    (
+        lambda value: normalize_client_managed_url_server(
+            transport="http",
+            url=value,
+            headers=None,
+            access_token=None,
+        ),
+        lambda value: normalize_provider_managed_url_server(
+            transport="http",
+            url=value,
+        ),
+        provider_managed_base_url,
+    ),
+)
+def test_provider_management_url_helpers_reject_non_string_urls(
+    helper: "Callable[[Any], object]",
+) -> None:
+    with pytest.raises(TypeError, match="url must be a string"):
+        helper(cast("Any", 123))
+
+
 def test_build_anthropic_provider_mcp_payload() -> None:
     config = AgentConfig(
         name="billing",
@@ -113,9 +213,9 @@ def test_build_anthropic_provider_mcp_payload() -> None:
         agent_config=config,
         server_settings_by_name=settings,
     )
-    mcp_servers, tools = build_anthropic_provider_managed_mcp_payload(state)
+    payload = build_anthropic_provider_managed_mcp_payload(state)
 
-    assert mcp_servers == [
+    assert payload.servers == [
         {
             "type": "url",
             "name": "stripe",
@@ -123,7 +223,7 @@ def test_build_anthropic_provider_mcp_payload() -> None:
             "authorization_token": "token-123",
         }
     ]
-    assert tools == [
+    assert payload.tools == [
         {
             "type": "mcp_toolset",
             "mcp_server_name": "stripe",

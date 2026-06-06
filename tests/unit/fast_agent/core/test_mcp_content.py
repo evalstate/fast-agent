@@ -17,6 +17,7 @@ from fast_agent.mcp.mcp_content import (
     MCPPrompt,
     MCPText,
     User,
+    create_message,
 )
 
 
@@ -183,6 +184,12 @@ def test_prompt_function():
         assert len(messages) == 2
         assert all(msg["role"] == "user" for msg in messages)
         assert all(isinstance(msg["content"], EmbeddedResource) for msg in messages)
+
+        # Empty resource results are already handled and should not fall back
+        # to a stringified object prompt.
+        messages = MCPPrompt(ReadResourceResult(contents=[]))
+        assert messages == []
+        assert create_message(ReadResourceResult(contents=[])) == {}
 
         # Test with direct TextContent
         text_content = TextContent(type="text", text="Direct text content")

@@ -60,9 +60,7 @@ def test_resolve_home_uses_legacy_env_and_default(
     assert default_home == FastAgentHome((tmp_path / ".fast-agent").resolve(), "default")
 
 
-def test_noenv_disables_home_resolution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_noenv_disables_home_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FAST_AGENT_HOME", "ignored")
     monkeypatch.setenv("ENVIRONMENT_DIR", "ignored")
 

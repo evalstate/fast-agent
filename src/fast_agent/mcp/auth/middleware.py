@@ -3,6 +3,10 @@
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 
+def _header_name_matches(name: bytes, expected: bytes) -> bool:
+    return name.lower() == expected
+
+
 class HFAuthHeaderMiddleware:
     """
     Middleware that copies X-HF-Authorization to Authorization header.
@@ -23,14 +27,14 @@ class HFAuthHeaderMiddleware:
         headers = scope.get("headers", [])
 
         # Check if Authorization header already exists
-        has_auth = any(k.lower() == b"authorization" for k, _ in headers)
+        has_auth = any(_header_name_matches(k, b"authorization") for k, _ in headers)
 
         # If no Authorization but X-HF-Authorization exists, copy it
         if not has_auth:
             for key, value in headers:
-                if key.lower() == b"x-hf-authorization":
+                if _header_name_matches(key, b"x-hf-authorization"):
                     # Add as Authorization header
-                    new_headers = list(headers) + [(b"authorization", value)]
+                    new_headers = [*list(headers), (b"authorization", value)]
                     scope = dict(scope, headers=new_headers)
                     break
 

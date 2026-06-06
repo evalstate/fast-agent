@@ -59,6 +59,8 @@ The `FastAgent` class provides several decorators for creating agents and workfl
 
 See [Defining Agents](../agents/defining/) for detailed usage of these decorators.
 
+--8<-- "docs/docs/_generated/workflows_reference.md"
+
 ### Methods
 
 #### `run()`
@@ -69,6 +71,8 @@ async with fast.run() as agent:
 ```
 
 An async context manager that initializes all registered agents and returns an `AgentApp` instance that can be used to interact with the agents.
+
+--8<-- "docs/docs/_generated/fastagent_harness_method.md"
 
 #### `start_server()`
 
@@ -107,6 +111,8 @@ is_server_mode = await fast.main()
 ```
 
 Helper method for checking if the legacy `--server` flag was requested (deprecated). Server mode is also triggered by `--transport` when running from the CLI, but that check happens in `run()`.
+
+--8<-- "docs/docs/_generated/harness_reference.md"
 
 ## AgentApp Class
 

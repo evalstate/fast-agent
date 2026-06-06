@@ -67,9 +67,7 @@ def _render_setup_check_markdown(
     lines = ["# check", ""]
 
     lines.append("## Runtime")
-    lines.append(
-        f"- **hf-inference-acp**: `{hf_inference_acp_version or 'unknown'}`"
-    )
+    lines.append(f"- **hf-inference-acp**: `{hf_inference_acp_version or 'unknown'}`")
     lines.append(f"- **fast-agent-mcp**: `{fast_agent_version or 'unknown'}`")
     if huggingface_hub_version:
         lines.append(f"- **huggingface_hub**: `{huggingface_hub_version}`")
@@ -648,11 +646,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
                 return
             try:
                 content: (
-                    list[
-                        ContentToolCallContent
-                        | FileEditToolCallContent
-                        | TerminalToolCallContent
-                    ]
+                    list[ContentToolCallContent | FileEditToolCallContent | TerminalToolCallContent]
                     | None
                 ) = [tool_content(text_block(message))] if message else None
                 await self.acp.send_session_update(

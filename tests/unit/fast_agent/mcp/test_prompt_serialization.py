@@ -14,6 +14,7 @@ from fast_agent.mcp.prompt_serialization import (
     from_json,
     load_messages,
     multipart_messages_to_delimited_format,
+    save_messages,
     to_get_prompt_result_json,
     to_json,
 )
@@ -242,3 +243,18 @@ class TestPromptSerialization:
             load_messages(str(bad_path))
 
         assert "Failed to parse JSON prompt file" in str(exc_info.value)
+
+    def test_uppercase_json_suffix_uses_json_serialization(self, tmp_path):
+        prompt_path = tmp_path / "PROMPT.JSON"
+        messages = [
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="Hello.")],
+            )
+        ]
+
+        save_messages(messages, str(prompt_path))
+
+        saved = prompt_path.read_text(encoding="utf-8")
+        assert '"messages"' in saved
+        assert load_messages(str(prompt_path))[0].first_text() == "Hello."

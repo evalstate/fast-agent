@@ -2,19 +2,151 @@
 Predefined elicitation handlers for different use cases.
 """
 
-import json
-from typing import TYPE_CHECKING, Any, cast
+from __future__ import annotations
 
-from mcp.shared.context import RequestContext
-from mcp.types import ElicitRequestParams, ElicitResult, ErrorData
+import json
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from mcp.types import (
+    ElicitRequestFormParams,
+    ElicitRequestParams,
+    ElicitRequestURLParams,
+    ElicitResult,
+    ErrorData,
+)
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from mcp import ClientSession
+    from mcp.shared.context import RequestContext
+
+    from fast_agent.human_input.types import HumanInputResponse
+    from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+
+ElicitationContent = dict[str, str | int | float | bool | list[str] | None]
 
 logger = get_logger(__name__)
+_BOOLEAN_RESPONSE_VALUES = {
+    "yes": True,
+    "y": True,
+    "true": True,
+    "1": True,
+    "no": False,
+    "n": False,
+    "false": False,
+    "0": False,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _ElicitationContextInfo:
+    agent_name: str
+    server_name: str
+    server_info: dict[str, str] | None
+    session: MCPAgentClientSession | None
+
+
+def _required_schema_fields(requested_schema: dict[str, Any]) -> list[str]:
+    required = requested_schema.get("required", [])
+    if not isinstance(required, list):
+        return []
+    return [field for field in required if isinstance(field, str)]
+
+
+def _validate_required_fields(
+    content: ElicitationContent,
+    requested_schema: dict[str, Any],
+) -> bool:
+    for field in _required_schema_fields(requested_schema):
+        if field not in content:
+            logger.warning(f"Missing required field '{field}' in elicitation response")
+            return False
+    return True
+
+
+def _parse_boolean_response(response_data: str) -> bool | None:
+    return _BOOLEAN_RESPONSE_VALUES.get(strip_casefold(response_data))
+
+
+def _parse_integer_response(response_data: str) -> int | None:
+    try:
+        return int(response_data)
+    except ValueError:
+        return None
+
+
+def _parse_number_response(response_data: str) -> float | None:
+    try:
+        return float(response_data)
+    except ValueError:
+        return None
+
+
+_SCALAR_FIELD_PARSERS: dict[str, Callable[[str], str | int | float | bool | None]] = {
+    "boolean": _parse_boolean_response,
+    "integer": _parse_integer_response,
+    "number": _parse_number_response,
+}
+
+
+def _parse_single_field_value(
+    response_data: str,
+    field_type: object,
+) -> str | int | float | bool | None:
+    parser = _SCALAR_FIELD_PARSERS.get(field_type) if isinstance(field_type, str) else None
+    if parser is not None:
+        return parser(response_data)
+    return response_data
+
+
+def _parse_single_field_response(
+    response_data: str,
+    requested_schema: dict[str, Any],
+) -> ElicitationContent | None:
+    properties = requested_schema.get("properties", {})
+    if not isinstance(properties, dict) or len(properties) != 1:
+        logger.warning("Text response provided for multi-field schema")
+        return None
+
+    field_name = next(iter(properties))
+    if not isinstance(field_name, str):
+        return None
+    field_def = properties[field_name]
+    field_type = field_def.get("type") if isinstance(field_def, dict) else None
+    value = _parse_single_field_value(response_data, field_type)
+    if value is None and field_type in _SCALAR_FIELD_PARSERS:
+        return None
+
+    return {field_name: value}
+
+
+def _parse_elicitation_content(
+    response: "HumanInputResponse",
+    requested_schema: dict[str, Any] | None,
+) -> ElicitationContent | None:
+    response_data = response.response.strip()
+    if requested_schema is None:
+        return {"response": response_data}
+
+    try:
+        loaded = json.loads(response_data)
+    except json.JSONDecodeError:
+        content = _parse_single_field_response(response_data, requested_schema)
+    else:
+        if not isinstance(loaded, dict):
+            logger.warning("JSON elicitation response must be an object")
+            return None
+        content = loaded
+
+    if content is None or not _validate_required_fields(content, requested_schema):
+        return None
+    return content
 
 
 async def auto_cancel_elicitation_handler(
@@ -26,8 +158,138 @@ async def auto_cancel_elicitation_handler(
     Useful for production deployments where you want to advertise elicitation
     capability but automatically decline all requests.
     """
+    del context
     logger.info(f"Auto-cancelling elicitation request: {params.message}")
     return ElicitResult(action="cancel")
+
+
+def _mcp_agent_session(
+    context: RequestContext["ClientSession", Any],
+) -> MCPAgentClientSession | None:
+    from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+
+    session = context.session
+    if isinstance(session, MCPAgentClientSession):
+        return session
+    return None
+
+
+def _elicitation_context_info(
+    context: RequestContext["ClientSession", Any],
+) -> _ElicitationContextInfo:
+    server_config = get_server_config(context)
+    session = _mcp_agent_session(context)
+    server_name = server_config.name if server_config and server_config.name else "Unknown Server"
+    server_info = (
+        {"command": server_config.command} if server_config and server_config.command else None
+    )
+    agent_name = session.agent_name if session and session.agent_name else "Unknown Agent"
+    return _ElicitationContextInfo(
+        agent_name=agent_name,
+        server_name=server_name,
+        server_info=server_info,
+        session=session,
+    )
+
+
+def _handle_url_elicitation(
+    params: ElicitRequestURLParams,
+    context_info: _ElicitationContextInfo,
+) -> ElicitResult:
+    url = str(params.url)
+    elicitation_id = str(params.elicitationId) if params.elicitationId is not None else None
+    logger.info(
+        f"URL elicitation from {context_info.server_name}: {url} (elicitationId={elicitation_id})"
+    )
+
+    queued = False
+    if context_info.session is not None:
+        queued = context_info.session.queue_url_elicitation_for_active_request(
+            message=params.message,
+            url=url,
+            elicitation_id=elicitation_id,
+        )
+
+    if not queued:
+        from fast_agent.ui.console_display import ConsoleDisplay
+
+        display = ConsoleDisplay()
+        display.show_url_elicitation(
+            message=params.message,
+            url=url,
+            server_name=context_info.server_name or "Unknown Server",
+            agent_name=context_info.agent_name,
+            elicitation_id=elicitation_id,
+        )
+
+    return ElicitResult(action="accept")
+
+
+def _form_human_input_request(
+    params: ElicitRequestFormParams,
+    context_info: _ElicitationContextInfo,
+):
+    from fast_agent.human_input.types import HumanInputRequest
+
+    requested_schema = params.requestedSchema
+    return HumanInputRequest(
+        prompt=params.message,
+        description=f"Schema: {requested_schema}" if requested_schema else None,
+        request_id=f"elicit_{id(params)}",
+        metadata={
+            "agent_name": context_info.agent_name,
+            "server_name": context_info.server_name,
+            "elicitation": True,
+            "requested_schema": requested_schema,
+        },
+    )
+
+
+def _disable_server_elicitation(server_name: str) -> None:
+    logger.warning(
+        f"User requested to disable elicitation for server: {server_name} — disabling for session"
+    )
+    try:
+        from fast_agent.human_input.elicitation_state import elicitation_state
+
+        elicitation_state.disable_server(server_name)
+    except Exception:
+        # Do not fail the flow if state update fails.
+        pass
+
+
+def _special_elicitation_action(response_data: str, server_name: str) -> ElicitResult | None:
+    if response_data == "__DECLINED__":
+        return ElicitResult(action="decline")
+    if response_data == "__CANCELLED__":
+        return ElicitResult(action="cancel")
+    if response_data == "__DISABLE_SERVER__":
+        _disable_server_elicitation(server_name)
+        return ElicitResult(action="cancel")
+    return None
+
+
+async def _handle_form_elicitation(
+    params: ElicitRequestFormParams,
+    context_info: _ElicitationContextInfo,
+) -> ElicitResult:
+    from fast_agent.human_input.elicitation_handler import elicitation_input_callback
+
+    response = await elicitation_input_callback(
+        request=_form_human_input_request(params, context_info),
+        agent_name=context_info.agent_name,
+        server_name=context_info.server_name,
+        server_info=context_info.server_info,
+    )
+
+    response_data = response.response.strip()
+    if special_result := _special_elicitation_action(response_data, context_info.server_name):
+        return special_result
+
+    content = _parse_elicitation_content(response, params.requestedSchema)
+    if content is None:
+        return ElicitResult(action="decline")
+    return ElicitResult(action="accept", content=content)
 
 
 async def forms_elicitation_handler(
@@ -40,172 +302,11 @@ async def forms_elicitation_handler(
     For URL mode: Displays the URL inline for out-of-band user interaction.
     """
     logger.info(f"Eliciting response for params: {params}")
-
-    # Get server config for additional context
-    server_config = get_server_config(context)
-    server_name = server_config.name if server_config else "Unknown Server"
-    server_info = (
-        {"command": server_config.command} if server_config and server_config.command else None
-    )
-
-    # Get agent name - try multiple sources in order of preference
-    agent_name: str | None = None
-
-    # 1. Check if we have an MCPAgentClientSession in the context
-    from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-
-    if hasattr(context, "session") and isinstance(context.session, MCPAgentClientSession):
-        agent_name = context.session.agent_name
-
-    # 2. If no agent name yet, use a sensible default
-    if not agent_name:
-        agent_name = "Unknown Agent"
-
-    # Detect URL mode - params will have 'url' attribute for ElicitRequestURLParams
-    url_value = getattr(params, "url", None)
-    if url_value:
-        # URL elicitation - display URL and return accept
-        # The user interaction happens out-of-band (in browser, etc.)
-        url: str = str(url_value)  # Ensure it's a string
-        message = params.message
-        elicitation_id = getattr(params, "elicitationId", None)
-
-        logger.info(
-            f"URL elicitation from {server_name}: {url} (elicitationId={elicitation_id})"
-        )
-
-        queued = False
-        if hasattr(context, "session") and isinstance(context.session, MCPAgentClientSession):
-            queued = context.session.queue_url_elicitation_for_active_request(
-                message=message,
-                url=url,
-                elicitation_id=(str(elicitation_id) if elicitation_id is not None else None),
-            )
-
-        if not queued:
-            from fast_agent.ui.console_display import ConsoleDisplay
-
-            display = ConsoleDisplay()
-            display.show_url_elicitation(
-                message=message,
-                url=url,
-                server_name=server_name or "Unknown Server",
-                agent_name=agent_name,
-                elicitation_id=(str(elicitation_id) if elicitation_id is not None else None),
-            )
-
-        # Per MCP spec: return accept to indicate user has been shown the URL
-        # The actual interaction (OAuth, payment, etc.) happens out-of-band
-        return ElicitResult(action="accept")
-
-    # Form mode - use interactive form UI
-    # Note: requestedSchema is only present on ElicitRequestFormParams, not ElicitRequestURLParams
-    from fast_agent.human_input.elicitation_handler import elicitation_input_callback
-    from fast_agent.human_input.types import HumanInputRequest
-
-    requested_schema = getattr(params, "requestedSchema", None)
-    request = HumanInputRequest(
-        prompt=params.message,
-        description=f"Schema: {requested_schema}" if requested_schema else None,
-        request_id=f"elicit_{id(params)}",
-        metadata={
-            "agent_name": agent_name,
-            "server_name": server_name,
-            "elicitation": True,
-            "requested_schema": requested_schema,
-        },
-    )
+    context_info = _elicitation_context_info(context)
+    if isinstance(params, ElicitRequestURLParams):
+        return _handle_url_elicitation(params, context_info)
 
     try:
-        # Call the enhanced elicitation handler
-        response = await elicitation_input_callback(
-            request=request,
-            agent_name=agent_name,
-            server_name=server_name,
-            server_info=server_info,
-        )
-
-        # Check for special action responses
-        response_data = response.response.strip()
-
-        # Handle special responses
-        if response_data == "__DECLINED__":
-            return ElicitResult(action="decline")
-        elif response_data == "__CANCELLED__":
-            return ElicitResult(action="cancel")
-        elif response_data == "__DISABLE_SERVER__":
-            # Respect user's request: disable elicitation for this server for this session
-            logger.warning(
-                f"User requested to disable elicitation for server: {server_name} — disabling for session"
-            )
-            try:
-                from fast_agent.human_input.elicitation_state import elicitation_state
-
-                if server_name is not None:
-                    elicitation_state.disable_server(server_name)
-            except Exception:
-                # Do not fail the flow if state update fails
-                pass
-            return ElicitResult(action="cancel")
-
-        # Parse response based on schema if provided
-        if requested_schema:
-            # Check if the response is already JSON (from our form)
-            try:
-                # Try to parse as JSON first (from schema-driven form)
-                content = json.loads(response_data)
-                # Validate that all required fields are present
-                required_fields = requested_schema.get("required", [])
-                for field in required_fields:
-                    if field not in content:
-                        logger.warning(f"Missing required field '{field}' in elicitation response")
-                        return ElicitResult(action="decline")
-            except json.JSONDecodeError:
-                # Not JSON, try to handle as simple text response
-                # This is a fallback for simple schemas or text-based responses
-                properties = requested_schema.get("properties", {})
-                if len(properties) == 1:
-                    # Single field schema - try to parse based on type
-                    field_name = next(iter(properties))
-                    field_def = properties[field_name]
-                    field_type = field_def.get("type")
-
-                    if field_type == "boolean":
-                        # Parse boolean values
-                        if response_data.lower() in ["yes", "y", "true", "1"]:
-                            content = {field_name: True}
-                        elif response_data.lower() in ["no", "n", "false", "0"]:
-                            content = {field_name: False}
-                        else:
-                            return ElicitResult(action="decline")
-                    elif field_type == "string":
-                        content = {field_name: response_data}
-                    elif field_type in ["number", "integer"]:
-                        try:
-                            value = (
-                                int(response_data)
-                                if field_type == "integer"
-                                else float(response_data)
-                            )
-                            content = {field_name: value}
-                        except ValueError:
-                            return ElicitResult(action="decline")
-                    else:
-                        # Unknown type, just pass as string
-                        content = {field_name: response_data}
-                else:
-                    # Multiple fields but text response - can't parse reliably
-                    logger.warning("Text response provided for multi-field schema")
-                    return ElicitResult(action="decline")
-        else:
-            # No schema, just return the raw response
-            content = {"response": response_data}
-
-        # Return the response wrapped in ElicitResult with accept action
-        return ElicitResult(
-            action="accept",
-            content=cast("dict[str, str | int | float | list[str] | None] | None", content),
-        )
+        return await _handle_form_elicitation(params, context_info)
     except (KeyboardInterrupt, EOFError, TimeoutError):
-        # User cancelled or timeout
         return ElicitResult(action="cancel")

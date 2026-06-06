@@ -2,24 +2,42 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from pydantic import ValidationError
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.commands.model_capabilities import resolve_model_info, resolve_resolved_model
 from fast_agent.commands.protocols import (
     HfDisplayInfoProvider,
     ParallelAgentProtocol,
     WarningAwareAgent,
 )
+from fast_agent.commands.summary_utils import JsonObject, json_object, optional_string
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.llm.model_display_name import resolve_llm_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
+from fast_agent.utils.collections import unique_preserve_order
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.numeric import (
+    finite_number_or_none,
+    nonnegative_int_or_none,
+    positive_int_or_none,
+)
+from fast_agent.utils.text import strip_to_none
+
+MODEL_CAPABILITY_LABELS = ("Text", "Document", "Vision")
+DEFAULT_ERROR_SUMMARY_LIMIT = 3
+DEFAULT_WARNING_SUMMARY_LIMIT = 5
+ERROR_BLOCK_PREVIEW_LENGTH = 60
 
 if TYPE_CHECKING:
     from fast_agent.core.fastagent import AgentInstance
-    from fast_agent.interfaces import AgentProtocol
+    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
 
 
 @dataclass(slots=True)
@@ -28,9 +46,9 @@ class ClientInfoSummary:
     version: str | None = None
     title: str | None = None
     protocol_version: str | None = None
-    filesystem_caps: dict[str, Any] = field(default_factory=dict)
+    filesystem_caps: JsonObject = field(default_factory=dict)
     terminal: str | None = None
-    meta_caps: dict[str, Any] = field(default_factory=dict)
+    meta_caps: JsonObject = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -55,6 +73,12 @@ class ParallelModelSummary:
 class ToolUsageSummary:
     name: str
     count: int
+
+
+@dataclass(slots=True)
+class TokenEstimate:
+    tokens: int
+    characters: int
 
 
 @dataclass(slots=True)
@@ -108,8 +132,8 @@ class PermissionsSummary:
 
 def _collect_client_info(
     *,
-    client_info: dict | None,
-    client_capabilities: dict | None,
+    client_info: Mapping[str, object] | None,
+    client_capabilities: Mapping[str, object] | None,
     protocol_version: str | None,
 ) -> ClientInfoSummary | None:
     if not client_info and not client_capabilities and not protocol_version:
@@ -117,22 +141,50 @@ def _collect_client_info(
 
     summary = ClientInfoSummary(protocol_version=protocol_version)
     if client_info:
-        summary.name = client_info.get("name")
-        summary.version = client_info.get("version")
-        summary.title = client_info.get("title")
+        summary.name = optional_string(client_info.get("name"))
+        summary.version = optional_string(client_info.get("version"))
+        summary.title = optional_string(client_info.get("title"))
 
     if client_capabilities:
-        fs_caps = client_capabilities.get("fs")
-        if isinstance(fs_caps, dict):
-            summary.filesystem_caps = dict(fs_caps)
+        summary.filesystem_caps = json_object(client_capabilities.get("fs"))
         terminal = client_capabilities.get("terminal")
         if terminal is not None:
-            summary.terminal = str(terminal)
-        meta_caps = client_capabilities.get("_meta")
-        if isinstance(meta_caps, dict):
-            summary.meta_caps = dict(meta_caps)
+            summary.terminal = optional_string(str(terminal))
+        summary.meta_caps = json_object(client_capabilities.get("_meta"))
 
     return summary
+
+
+def _resolve_model_info_from_llm(llm: "FastAgentLLMProtocol | None") -> ModelInfo | None:
+    model_info = resolve_model_info(llm)
+    if model_info is not None or llm is None:
+        return model_info
+
+    resolved_model = resolve_resolved_model(llm)
+    if resolved_model is None:
+        return None
+    return ModelInfo.from_resolved_model(resolved_model)
+
+
+def _model_capability_labels(model_info: ModelInfo) -> list[str]:
+    return [
+        label
+        for supported, label in zip(
+            model_info.tdv_flags,
+            MODEL_CAPABILITY_LABELS,
+            strict=True,
+        )
+        if supported
+    ]
+
+
+def _hf_provider_display(llm: "FastAgentLLMProtocol | None") -> str | None:
+    if not isinstance(llm, HfDisplayInfoProvider):
+        return None
+    provider = llm.get_hf_display_info().get("provider")
+    if isinstance(provider, str) and provider:
+        return provider
+    return "auto-routing"
 
 
 def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
@@ -143,32 +195,20 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
     context_window = None
     capabilities: list[str] = []
 
-    resolved_model = agent.llm.resolved_model if agent.llm else None
-    model_info = ModelInfo.from_llm(agent.llm) if agent.llm else None
-    if model_info is None and resolved_model is not None:
-        model_info = ModelInfo.from_resolved_model(resolved_model)
+    resolved_model = resolve_resolved_model(agent.llm)
+    model_info = _resolve_model_info_from_llm(agent.llm)
     if model_info:
         model_name = model_info.name
         provider = str(model_info.provider.value)
         provider_display = model_info.provider.display_name
         context_window = model_info.context_window
-        supports_text, supports_document_indicator, supports_vision = model_info.tdv_flags
-        if supports_text:
-            capabilities.append("Text")
-        if supports_document_indicator:
-            capabilities.append("Document")
-        if supports_vision:
-            capabilities.append("Vision")
+        capabilities = _model_capability_labels(model_info)
     if resolved_model:
         model_name = resolve_llm_display_name(agent.llm) or resolved_model.wire_model_name
         if model_name != resolved_model.wire_model_name:
             wire_model_name = resolved_model.wire_model_name
 
-    hf_provider = None
-    if agent.llm and isinstance(agent.llm, HfDisplayInfoProvider):
-        hf_info = agent.llm.get_hf_display_info()
-        if hf_info:
-            hf_provider = hf_info.get("provider", "auto-routing")
+    hf_provider = _hf_provider_display(agent.llm)
 
     return AgentModelSummary(
         agent_name=agent.name,
@@ -183,9 +223,9 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
 
 
 def _build_parallel_model_summary(agent: ParallelAgentProtocol) -> ParallelModelSummary:
-    fan_out_agents = []
-    for fan_out_agent in agent.fan_out_agents or []:
-        fan_out_agents.append(_build_agent_model_summary(fan_out_agent))
+    fan_out_agents = [
+        _build_agent_model_summary(fan_out_agent) for fan_out_agent in agent.fan_out_agents or []
+    ]
 
     fan_in_agent = None
     if agent.fan_in_agent:
@@ -200,41 +240,53 @@ def _build_parallel_model_summary(agent: ParallelAgentProtocol) -> ParallelModel
 def _context_usage_line(summary: ConversationSummary, agent: "AgentProtocol") -> str:
     usage = agent.usage_accumulator
     if usage:
-        window = usage.context_window_size
-        tokens = usage.current_context_tokens
-        pct = usage.context_usage_percentage
-        if window and pct is not None:
-            return (
-                "Context Used: "
-                f"{min(pct, 100.0):.1f}% (~{tokens:,} tokens of {window:,})"
-            )
-        if tokens:
-            return f"Context Used: ~{tokens:,} tokens (window unknown)"
+        usage_line = _usage_accumulator_context_line(
+            window=usage.context_window_size,
+            tokens=usage.current_context_tokens,
+            percentage=usage.context_usage_percentage,
+        )
+        if usage_line is not None:
+            return usage_line
 
-    token_count, char_count = _estimate_tokens(summary, agent)
+    estimate = _estimate_tokens(summary, agent)
 
-    model_info = ModelInfo.from_llm(agent.llm) if agent.llm else None
-    if model_info is None and agent.llm is not None:
-        model_info = ModelInfo.from_resolved_model(agent.llm.resolved_model)
+    model_info = _resolve_model_info_from_llm(agent.llm)
     if model_info and model_info.context_window:
         percentage = (
-            (token_count / model_info.context_window) * 100
+            (estimate.tokens / model_info.context_window) * 100
             if model_info.context_window
             else 0.0
         )
         percentage = min(percentage, 100.0)
         return (
             "Context Used: "
-            f"{percentage:.1f}% (~{token_count:,} tokens of {model_info.context_window:,})"
+            f"{percentage:.1f}% (~{estimate.tokens:,} tokens of {model_info.context_window:,})"
         )
 
-    token_text = f"~{token_count:,} tokens" if token_count else "~0 tokens"
-    return f"Context Used: {char_count:,} chars ({token_text} est.)"
+    token_text = f"~{estimate.tokens:,} tokens" if estimate.tokens else "~0 tokens"
+    return f"Context Used: {estimate.characters:,} chars ({token_text} est.)"
 
 
-def _estimate_tokens(
-    summary: ConversationSummary, agent: "AgentProtocol"
-) -> tuple[int, int]:
+def _usage_accumulator_context_line(
+    *,
+    window: object,
+    tokens: object,
+    percentage: object,
+) -> str | None:
+    parsed_window = positive_int_or_none(window)
+    parsed_tokens = nonnegative_int_or_none(tokens)
+    parsed_percentage = finite_number_or_none(percentage)
+    if parsed_window is not None and parsed_tokens is not None and parsed_percentage is not None:
+        safe_percentage = min(max(parsed_percentage, 0.0), 100.0)
+        return (
+            f"Context Used: {safe_percentage:.1f}% (~{parsed_tokens:,} tokens of {parsed_window:,})"
+        )
+    if parsed_tokens is not None and parsed_tokens > 0:
+        return f"Context Used: ~{parsed_tokens:,} tokens (window unknown)"
+    return None
+
+
+def _estimate_tokens(summary: ConversationSummary, agent: "AgentProtocol") -> TokenEstimate:
     text_parts: list[str] = []
     for message in summary.messages:
         for content in message.content:
@@ -245,7 +297,7 @@ def _estimate_tokens(
     combined = "\n".join(text_parts)
     char_count = len(combined)
     if not combined:
-        return 0, 0
+        return TokenEstimate(tokens=0, characters=0)
 
     model_name = None
     llm = agent.llm
@@ -253,7 +305,7 @@ def _estimate_tokens(
         model_name = llm.model_name
 
     token_count = _count_tokens_with_tiktoken(combined, model_name)
-    return token_count, char_count
+    return TokenEstimate(tokens=token_count, characters=char_count)
 
 
 def _count_tokens_with_tiktoken(text: str, model_name: str | None) -> int:
@@ -266,8 +318,44 @@ def _count_tokens_with_tiktoken(text: str, model_name: str | None) -> int:
             encoding = tiktoken.get_encoding("cl100k_base")
 
         return len(encoding.encode(text))
-    except Exception:
+    except (ImportError, KeyError, ValueError):
         return max(1, (len(text) + 3) // 4)
+
+
+def _empty_conversation_stats(
+    *,
+    agent_name: str,
+    context_usage_line: str,
+) -> ConversationStatsSummary:
+    return ConversationStatsSummary(
+        agent_name=agent_name,
+        turns=0,
+        message_count=0,
+        user_message_count=0,
+        assistant_message_count=0,
+        tool_calls=0,
+        tool_successes=0,
+        tool_errors=0,
+        context_usage_line=context_usage_line,
+    )
+
+
+def _tool_usage_breakdown(summary: ConversationSummary) -> list[ToolUsageSummary]:
+    return [
+        ToolUsageSummary(name=tool_name, count=count)
+        for tool_name, count in sorted(
+            summary.tool_call_map.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    ]
+
+
+def _positive_milliseconds_to_seconds(milliseconds: int | float) -> float | None:
+    positive_milliseconds = finite_number_or_none(milliseconds)
+    if positive_milliseconds is None or positive_milliseconds <= 0:
+        return None
+    return positive_milliseconds / 1000
 
 
 def build_conversation_stats_summary(
@@ -276,71 +364,58 @@ def build_conversation_stats_summary(
     fallback_agent_name: str,
 ) -> ConversationStatsSummary:
     if not agent:
-        return ConversationStatsSummary(
+        return _empty_conversation_stats(
             agent_name=fallback_agent_name,
-            turns=0,
-            message_count=0,
-            user_message_count=0,
-            assistant_message_count=0,
-            tool_calls=0,
-            tool_successes=0,
-            tool_errors=0,
             context_usage_line="Context Used: 0%",
         )
 
     try:
         summary = ConversationSummary(messages=agent.message_history)
-        turns = min(summary.user_message_count, summary.assistant_message_count)
-        context_usage = _context_usage_line(summary, agent)
-        tool_breakdown = [
-            ToolUsageSummary(name=tool_name, count=count)
-            for tool_name, count in sorted(
-                summary.tool_call_map.items(),
-                key=lambda item: item[1],
-                reverse=True,
-            )
-        ]
-
-        total_time = None
-        if summary.total_elapsed_time_ms > 0:
-            total_time = summary.total_elapsed_time_ms / 1000
-
-        runtime = None
-        if summary.conversation_span_ms > 0:
-            runtime = summary.conversation_span_ms / 1000
-
-        return ConversationStatsSummary(
+    except (AttributeError, TypeError, ValueError, ValidationError) as exc:
+        return _empty_conversation_stats(
             agent_name=agent.name,
-            turns=turns,
-            message_count=summary.message_count,
-            user_message_count=summary.user_message_count,
-            assistant_message_count=summary.assistant_message_count,
-            tool_calls=summary.tool_calls,
-            tool_successes=summary.tool_successes,
-            tool_errors=summary.tool_errors,
-            context_usage_line=context_usage,
-            total_llm_time_seconds=total_time,
-            conversation_runtime_seconds=runtime,
-            tool_breakdown=tool_breakdown,
-        )
-    except Exception as exc:  # noqa: BLE001
-        return ConversationStatsSummary(
-            agent_name=agent.name,
-            turns=0,
-            message_count=0,
-            user_message_count=0,
-            assistant_message_count=0,
-            tool_calls=0,
-            tool_successes=0,
-            tool_errors=0,
             context_usage_line=f"Context Used: error ({exc})",
         )
+
+    turns = min(summary.user_message_count, summary.assistant_message_count)
+    context_usage = _context_usage_line(summary, agent)
+
+    return ConversationStatsSummary(
+        agent_name=agent.name,
+        turns=turns,
+        message_count=summary.message_count,
+        user_message_count=summary.user_message_count,
+        assistant_message_count=summary.assistant_message_count,
+        tool_calls=summary.tool_calls,
+        tool_successes=summary.tool_successes,
+        tool_errors=summary.tool_errors,
+        context_usage_line=context_usage,
+        total_llm_time_seconds=_positive_milliseconds_to_seconds(summary.total_elapsed_time_ms),
+        conversation_runtime_seconds=_positive_milliseconds_to_seconds(
+            summary.conversation_span_ms
+        ),
+        tool_breakdown=_tool_usage_breakdown(summary),
+    )
+
+
+def _error_block_summary(block: object) -> str | None:
+    text = get_text(block)
+    if text:
+        return strip_to_none(text.replace("\n", " "))
+
+    block_str = str(block)
+    if len(block_str) > ERROR_BLOCK_PREVIEW_LENGTH:
+        return (
+            f"{block_str[:ERROR_BLOCK_PREVIEW_LENGTH]}... "
+            f"({format_count(len(block_str), 'character')})"
+        )
+    return block_str
 
 
 def build_error_handling_summary(
     agent: "AgentProtocol | None",
     *,
-    max_entries: int = 3,
+    max_entries: int = DEFAULT_ERROR_SUMMARY_LIMIT,
 ) -> ErrorHandlingSummary:
     channel_label = f"Error Channel: {FAST_AGENT_ERROR_CHANNEL}"
     if not agent:
@@ -356,17 +431,9 @@ def build_error_handling_summary(
             continue
 
         for block in channel_blocks:
-            text = get_text(block)
-            if text:
-                cleaned = text.replace("\n", " ").strip()
-                if cleaned:
-                    recent_entries.append(cleaned)
-            else:
-                block_str = str(block)
-                if len(block_str) > 60:
-                    recent_entries.append(f"{block_str[:60]}... ({len(block_str)} characters)")
-                else:
-                    recent_entries.append(block_str)
+            summary = _error_block_summary(block)
+            if summary:
+                recent_entries.append(summary)
             if len(recent_entries) >= max_entries:
                 break
         if len(recent_entries) >= max_entries:
@@ -379,64 +446,58 @@ def build_warning_summary(
     agent: "AgentProtocol | None",
     *,
     instance: "AgentInstance | None",
-    max_entries: int = 5,
+    max_entries: int = DEFAULT_WARNING_SUMMARY_LIMIT,
 ) -> list[str]:
     warnings: list[str] = []
 
     if instance is not None:
-        warnings_attr = instance.app.card_collision_warnings
-        if isinstance(warnings_attr, list):
-            warnings.extend(str(item) for item in warnings_attr)
-        elif isinstance(warnings_attr, tuple):
-            warnings.extend(str(item) for item in warnings_attr)
-        elif warnings_attr:
-            from collections.abc import Iterable
-
-            if isinstance(warnings_attr, Iterable) and not isinstance(
-                warnings_attr, (str, bytes)
-            ):
-                warnings.extend(str(item) for item in warnings_attr)
-            else:
-                warnings.append(str(warnings_attr))
+        warnings.extend(_instance_card_collision_warnings(instance))
 
     if isinstance(agent, WarningAwareAgent):
         warnings.extend(agent.warnings)
         if agent.skill_registry:
             warnings.extend(agent.skill_registry.warnings)
 
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for warning in warnings:
-        message = str(warning).strip()
-        if message and message not in seen:
-            cleaned.append(message)
-            seen.add(message)
+    return _normalize_warning_summary(warnings, max_entries=max_entries)
+
+
+def _instance_card_collision_warnings(instance: "AgentInstance") -> list[str]:
+    warnings_attr = instance.app.card_collision_warnings
+    if isinstance(warnings_attr, Iterable) and not isinstance(warnings_attr, (str, bytes)):
+        return [str(item) for item in warnings_attr]
+    if warnings_attr:
+        return [str(warnings_attr)]
+    return []
+
+
+def _normalize_warning_summary(warnings: Iterable[object], *, max_entries: int) -> list[str]:
+    cleaned = unique_preserve_order(
+        message for warning in warnings if (message := strip_to_none(str(warning)))
+    )
 
     if not cleaned:
         return []
 
     trimmed = cleaned[:max_entries]
     if len(cleaned) > max_entries:
-        trimmed.append(f"... ({len(cleaned) - max_entries} more)")
+        trimmed.append(f"... ({format_count(len(cleaned) - max_entries, 'more warning')})")
     return trimmed
 
 
 def _resolve_model_source(agent: "AgentProtocol | None") -> str | None:
-    if agent is None or agent.context is None:
+    if agent is None or agent.context is None or agent.context.config is None:
         return None
 
-    source = getattr(agent.context.config, "model_source", None)
-    if isinstance(source, str) and source.strip():
-        return source.strip()
-    return None
+    source = agent.context.config.model_source
+    return optional_string(source)
 
 
 def build_status_summary(
     *,
     fast_agent_version: str,
     agent: "AgentProtocol | None",
-    client_info: dict | None,
-    client_capabilities: dict | None,
+    client_info: Mapping[str, object] | None,
+    client_capabilities: Mapping[str, object] | None,
     protocol_version: str | None,
     uptime_seconds: float,
     instance: "AgentInstance | None",

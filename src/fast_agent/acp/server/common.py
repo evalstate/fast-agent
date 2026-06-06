@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Literal
 
 from fast_agent.types import LlmStopReason
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
+from fast_agent.utils.numeric import nonnegative_int_or_none
 
 if TYPE_CHECKING:
     from acp.schema import StopReason
@@ -13,7 +14,7 @@ else:
 
 
 def coerce_registry_version(value: object) -> int:
-    return value if isinstance(value, int) else 0
+    return nonnegative_int_or_none(value) or 0
 
 
 END_TURN: StopReason = "end_turn"

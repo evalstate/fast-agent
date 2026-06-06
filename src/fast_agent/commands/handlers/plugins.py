@@ -3,16 +3,48 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from rich.text import Text
 
-from fast_agent.commands.handlers._marketplace_argument_parsing import parse_update_argument
-from fast_agent.commands.handlers._text_formatting import append_heading, append_wrapped_text
-from fast_agent.commands.results import CommandMessage, CommandOutcome
+from fast_agent.commands.command_catalog import (
+    command_usage_lines,
+    format_unknown_command_action,
+    normalize_command_action,
+)
+from fast_agent.commands.handlers._marketplace_argument_parsing import (
+    optional_selector,
+    parse_add_argument,
+    parse_update_argument,
+    resolve_registry_argument,
+)
+from fast_agent.commands.handlers._text_formatting import (
+    append_detail_line,
+    append_heading,
+    append_indexed_current_line,
+    append_indexed_name_line,
+    append_revision_line,
+    append_status_line,
+    append_warning_line,
+    append_wrapped_text,
+    format_display_path,
+    update_status_text,
+)
+from fast_agent.commands.handlers.shared import (
+    add_info_messages,
+    prompt_selection_after_message,
+    unique_selection_options,
+)
+from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import get_settings
 from fast_agent.home import PREFERRED_CONFIG_FILENAME
+from fast_agent.marketplace.formatting import (
+    format_installed_revision_display,
+    format_source_provenance,
+)
+from fast_agent.marketplace.update_status import is_update_applied
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.plugins.configuration import (
     disable_plugin_in_config,
@@ -32,9 +64,13 @@ from fast_agent.plugins.operations import (
     select_plugin_by_name_or_index,
     select_plugin_updates,
 )
-from fast_agent.plugins.provenance import format_installed_at_display, format_revision_short
+from fast_agent.plugins.provenance import format_revision_short
+from fast_agent.utils.action_normalization import is_help_flag
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fast_agent.command_actions.models import PluginCommandActionSpec
     from fast_agent.commands.context import CommandContext
     from fast_agent.plugins.models import (
@@ -54,24 +90,6 @@ class _PluginCommandProvider(Protocol):
     ) -> None: ...
 
 
-def _plugins_usage_lines() -> list[str]:
-    return [
-        "Usage: /plugins [list|available|add|remove|update|registry|help] [args]",
-        "",
-        "Examples:",
-        "- /plugins available",
-        "- /plugins add <number|name>",
-        "- /plugins remove <number|name>",
-        "- /plugins update all --yes",
-        "- /plugins registry",
-    ]
-
-
-def _is_help_flag(value: str | None) -> bool:
-    token = (value or "").strip().lower()
-    return token in {"help", "--help", "-h"}
-
-
 def _config_path_for_settings(ctx: CommandContext) -> Path:
     settings = ctx.resolve_settings()
     if settings._config_file:
@@ -83,21 +101,16 @@ def _format_plugin_keys(entry: LocalPlugin) -> str:
     if entry.manifest is None:
         return "-"
     labels = [
-        f"{name}: {spec.key}"
+        f"{name}: {key}"
         for name, spec in entry.manifest.commands.items()
-        if spec.key is not None and spec.key.strip()
+        if (key := strip_to_none(spec.key)) is not None
     ]
     return ", ".join(labels) if labels else "-"
 
 
 def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) -> Text:
     content = Text()
-    try:
-        display_dir = plugins_dir.relative_to(Path.cwd())
-    except ValueError:
-        display_dir = plugins_dir
-
-    append_heading(content, f"Plugins in {display_dir}:")
+    append_heading(content, f"Plugins in {format_display_path(plugins_dir)}:")
     if not plugins:
         content.append_text(Text("No plugins installed.", style="yellow"))
         content.append("\n")
@@ -105,18 +118,10 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
         return content
 
     for entry in plugins:
-        row = Text()
-        row.append(f"[{entry.index:2}] ", style="dim cyan")
-        row.append(entry.name, style="bright_blue bold")
-        content.append_text(row)
-        content.append("\n")
+        append_indexed_name_line(content, entry.index, entry.name)
 
-        try:
-            source_display = entry.plugin_dir.relative_to(Path.cwd())
-        except ValueError:
-            source_display = entry.plugin_dir
         content.append("     ", style="dim")
-        content.append(f"source: {source_display}", style="dim green")
+        content.append(f"source: {format_display_path(entry.plugin_dir)}", style="dim green")
         content.append("\n")
 
         if entry.manifest is None:
@@ -136,9 +141,7 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
 
         if entry.source is None:
             provenance = (
-                f"invalid metadata: {entry.metadata_error}"
-                if entry.metadata_error
-                else "unmanaged"
+                f"invalid metadata: {entry.metadata_error}" if entry.metadata_error else "unmanaged"
             )
             content.append("     ", style="dim")
             content.append(f"provenance: {provenance}", style="dim")
@@ -146,15 +149,13 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
             continue
 
         source = entry.source
-        ref_label = f"@{source.repo_ref}" if source.repo_ref else ""
-        provenance = f"{source.repo_url}{ref_label} ({source.repo_path})"
+        provenance = format_source_provenance(source.repo_url, source.repo_ref, source.repo_path)
         content.append("     ", style="dim")
         content.append(f"provenance: {provenance}", style="dim")
         content.append("\n")
         content.append("     ", style="dim")
         content.append(
-            f"installed: {format_installed_at_display(source.installed_at)} "
-            f"revision: {format_revision_short(source.installed_revision)}",
+            f"installed: {format_installed_revision_display(source.installed_at, source.installed_revision)}",
             style="dim",
         )
         content.append("\n\n")
@@ -177,11 +178,7 @@ def _format_marketplace_plugins(plugins: Sequence[MarketplacePlugin], *, source:
             current_bundle = entry.bundle_name
             append_heading(content, entry.bundle_name)
 
-        row = Text()
-        row.append(f"[{index:2}] ", style="dim cyan")
-        row.append(entry.name, style="bright_blue bold")
-        content.append_text(row)
-        content.append("\n")
+        append_indexed_name_line(content, index, entry.name)
 
         if entry.description:
             append_wrapped_text(content, entry.description, indent="     ")
@@ -194,95 +191,89 @@ def _format_marketplace_plugins(plugins: Sequence[MarketplacePlugin], *, source:
     return content
 
 
-def _format_install_result(plugin_name: str, install_path: Path, config_path: Path) -> Text:
-    try:
-        display_path = install_path.relative_to(Path.cwd())
-    except ValueError:
-        display_path = install_path
-    try:
-        display_config = config_path.relative_to(Path.cwd())
-    except ValueError:
-        display_config = config_path
+def _add_empty_plugins_registry_warning(
+    outcome: CommandOutcome, url: str, *, agent_name: str
+) -> None:
+    content = Text()
+    content.append_text(
+        Text("No plugins found in the registry; registry unchanged.", style="yellow")
+    )
+    content.append("\n")
+    content.append_text(Text(f"Registry: {url}", style="dim"))
+    outcome.add_message(
+        content,
+        channel="warning",
+        right_info="plugins",
+        agent_name=agent_name,
+    )
 
+
+def _plugin_selection_options(plugins: Sequence[MarketplacePlugin]) -> list[str]:
+    return unique_selection_options(
+        option for entry in plugins for option in (entry.name, entry.install_dir_name)
+    )
+
+
+def _local_plugin_selection_options(plugins: Sequence[LocalPlugin]) -> list[str]:
+    return unique_selection_options(
+        option for entry in plugins for option in (entry.name, entry.plugin_dir.name)
+    )
+
+
+def _format_install_result(plugin_name: str, install_path: Path, config_path: Path) -> Text:
     content = Text()
     content.append(f"Installed plugin: {plugin_name}", style="green")
     content.append("\n")
-    content.append(f"location: {display_path}", style="dim green")
+    content.append(f"location: {format_display_path(install_path)}", style="dim green")
     content.append("\n")
-    content.append(f"enabled in: {display_config}", style="dim green")
+    content.append(f"enabled in: {format_display_path(config_path)}", style="dim green")
     return content
+
+
+def _add_plugin_install_guidance(
+    outcome: CommandOutcome,
+    *,
+    agent_name: str,
+) -> None:
+    add_info_messages(
+        outcome,
+        ("Install with `/plugins add <number|name>`.",),
+        right_info="plugins",
+        agent_name=agent_name,
+    )
 
 
 def _format_update_results(updates: Sequence[PluginUpdateInfo], *, title: str) -> Text:
     content = Text()
     append_heading(content, title)
     if not updates:
-        content.append_text(Text("No managed plugins found.", style="yellow"))
+        append_warning_line(content, "No managed plugins found.")
         return content
 
-    status_labels: dict[str, str] = {
-        "up_to_date": "already up to date",
-        "update_available": "update available",
-        "updated": "updated",
-        "unmanaged": "unmanaged",
-        "invalid_metadata": "invalid metadata",
-        "invalid_local_plugin": "invalid local plugin",
-        "unknown_revision": "unknown revision",
-        "source_unreachable": "source unreachable",
-        "source_ref_missing": "source ref missing",
-        "source_path_missing": "source path missing",
-        "skipped_dirty": "skipped (local modifications)",
-    }
-    detail_statuses = {
-        "invalid_metadata",
-        "invalid_local_plugin",
-        "unknown_revision",
-        "source_unreachable",
-        "source_ref_missing",
-        "source_path_missing",
-        "skipped_dirty",
-    }
-
     for update in updates:
-        row = Text()
-        row.append(f"[{update.index:2}] ", style="dim cyan")
-        row.append(update.name, style="bright_blue bold")
-        content.append_text(row)
+        append_indexed_name_line(content, update.index, update.name)
+
+        append_detail_line(
+            content,
+            "source",
+            format_display_path(update.plugin_dir),
+            value_style="dim green",
+        )
+
+        append_revision_line(
+            content,
+            update.current_revision,
+            update.available_revision,
+            format_revision=format_revision_short,
+        )
+
+        status = update_status_text(
+            update.status,
+            detail=update.detail,
+        )
+
+        append_status_line(content, status)
         content.append("\n")
-
-        try:
-            source_display = update.plugin_dir.relative_to(Path.cwd())
-        except ValueError:
-            source_display = update.plugin_dir
-        content.append("  - ", style="dim")
-        content.append(f"source: {source_display}", style="dim green")
-        content.append("\n")
-
-        if update.current_revision or update.available_revision:
-            content.append("  - ", style="dim")
-            content.append(
-                "revision: "
-                f"{format_revision_short(update.current_revision)} -> "
-                f"{format_revision_short(update.available_revision)}",
-                style="dim",
-            )
-            content.append("\n")
-
-        status = status_labels.get(update.status, update.status.replace("_", " "))
-        if update.status in detail_statuses and update.detail:
-            status = f"{status}: {update.detail}"
-        style = None
-        if update.status in {"up_to_date", "updated"}:
-            style = "green"
-        elif update.status == "update_available":
-            style = "bold bright_yellow"
-        elif update.status != "unmanaged":
-            style = "yellow"
-
-        content.append("  - ", style="dim")
-        content.append("status: ", style="dim")
-        content.append(status, style=style)
-        content.append("\n\n")
 
     return content
 
@@ -309,7 +300,7 @@ async def handle_list_plugins(ctx: CommandContext, *, agent_name: str) -> Comman
 def handle_plugins_help(*, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     outcome.add_message(
-        "\n".join(_plugins_usage_lines()),
+        "\n".join(command_usage_lines("plugins")),
         right_info="plugins",
         agent_name=agent_name,
     )
@@ -325,7 +316,7 @@ async def handle_list_marketplace_plugins(
     marketplace_url = get_marketplace_url(ctx.resolve_settings())
     try:
         plugins, source = await fetch_marketplace_plugins_with_source(marketplace_url)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to load marketplace: {exc}", channel="error")
         return outcome
 
@@ -338,13 +329,39 @@ async def handle_list_marketplace_plugins(
         right_info="plugins",
         agent_name=agent_name,
     )
-    outcome.add_message(
-        "Install with `/plugins add <number|name>`.",
-        channel="info",
+    _add_plugin_install_guidance(outcome, agent_name=agent_name)
+    return outcome
+
+
+async def _select_plugin_for_add(
+    ctx: CommandContext,
+    outcome: CommandOutcome,
+    *,
+    plugins: Sequence[MarketplacePlugin],
+    source: str,
+    agent_name: str,
+    argument: str | None,
+    interactive: bool,
+) -> str | None:
+    selection = optional_selector(argument)
+    if selection:
+        return selection
+
+    content = _format_marketplace_plugins(plugins, source=source)
+    if not interactive:
+        outcome.add_message(content, right_info="plugins", agent_name=agent_name)
+        _add_plugin_install_guidance(outcome, agent_name=agent_name)
+        return None
+
+    return await prompt_selection_after_message(
+        ctx,
+        content=content,
         right_info="plugins",
         agent_name=agent_name,
+        prompt="Install plugin by number or name (empty to cancel): ",
+        options=_plugin_selection_options(plugins),
+        allow_cancel=True,
     )
-    return outcome
 
 
 async def handle_add_plugin(
@@ -355,14 +372,18 @@ async def handle_add_plugin(
     interactive: bool = True,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
+    parsed = parse_add_argument(argument, allow_skills_dir=False, allow_force=False)
+    if parsed.error is not None:
+        outcome.add_message(parsed.error, channel="warning")
+        return outcome
     settings = ctx.resolve_settings()
     env_paths = resolve_environment_paths(settings)
     config_path = _config_path_for_settings(ctx)
-    marketplace_url = get_marketplace_url(settings)
+    marketplace_url = parsed.registry or get_marketplace_url(settings)
 
     try:
         plugins, source = await fetch_marketplace_plugins_with_source(marketplace_url)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to load marketplace: {exc}", channel="error")
         return outcome
 
@@ -370,36 +391,24 @@ async def handle_add_plugin(
         outcome.add_message("No plugins found in the marketplace.", channel="warning")
         return outcome
 
-    selection = argument
-    if not selection:
-        content = _format_marketplace_plugins(plugins, source=source)
-        if not interactive:
-            outcome.add_message(content, right_info="plugins", agent_name=agent_name)
-            outcome.add_message(
-                "Install with `/plugins add <number|name>`.",
-                channel="info",
-                right_info="plugins",
-                agent_name=agent_name,
-            )
-            return outcome
-
-        await ctx.io.emit(
-            CommandMessage(text=content, right_info="plugins", agent_name=agent_name)
-        )
-        selection = await ctx.io.prompt_selection(
-            "Install plugin by number or name (empty to cancel): ",
-            options=[entry.name for entry in plugins],
-            allow_cancel=True,
-        )
-        if selection is None:
-            return outcome
+    selection = await _select_plugin_for_add(
+        ctx,
+        outcome,
+        plugins=plugins,
+        source=source,
+        agent_name=agent_name,
+        argument=parsed.selector,
+        interactive=interactive,
+    )
+    if selection is None:
+        return outcome
 
     selected = select_plugin_by_name_or_index(plugins, selection)
     if selected is None:
         outcome.add_message(f"Plugin not found: {selection}", channel="error")
-        outcome.add_message(
-            "Run `/plugins available` to browse plugins.",
-            channel="info",
+        add_info_messages(
+            outcome,
+            ("Run `/plugins available` to browse plugins.",),
             right_info="plugins",
             agent_name=agent_name,
         )
@@ -414,7 +423,7 @@ async def handle_add_plugin(
         manifest = load_plugin_manifest(install_path)
         enable_plugin_in_config(config_path, manifest.name)
         _refresh_provider_plugins(ctx, config_path)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to install plugin: {exc}", channel="error")
         return outcome
 
@@ -443,25 +452,26 @@ async def handle_remove_plugin(
         outcome.add_message("No local plugins to remove.", channel="warning")
         return outcome
 
-    selection = argument
+    selection = optional_selector(argument)
     if not selection:
         content = _format_local_plugins(plugins_dir=env_paths.plugins, plugins=plugins)
         if not interactive:
             outcome.add_message(content, right_info="plugins", agent_name=agent_name)
-            outcome.add_message(
-                "Remove with `/plugins remove <number|name>`.",
-                channel="info",
+            add_info_messages(
+                outcome,
+                ("Remove with `/plugins remove <number|name>`.",),
                 right_info="plugins",
                 agent_name=agent_name,
             )
             return outcome
 
-        await ctx.io.emit(
-            CommandMessage(text=content, right_info="plugins", agent_name=agent_name)
-        )
-        selection = await ctx.io.prompt_selection(
-            "Remove plugin by number or name (empty to cancel): ",
-            options=[entry.name for entry in plugins],
+        selection = await prompt_selection_after_message(
+            ctx,
+            content=content,
+            right_info="plugins",
+            agent_name=agent_name,
+            prompt="Remove plugin by number or name (empty to cancel): ",
+            options=_local_plugin_selection_options(plugins),
             allow_cancel=True,
         )
         if selection is None:
@@ -476,13 +486,13 @@ async def handle_remove_plugin(
         remove_local_plugin(selected.plugin_dir, destination_root=env_paths.plugins)
         disable_plugin_in_config(config_path, selected.name)
         _refresh_provider_plugins(ctx, config_path)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to remove plugin: {exc}", channel="error")
         return outcome
 
-    outcome.add_message(
-        f"Removed plugin: {selected.name}",
-        channel="info",
+    add_info_messages(
+        outcome,
+        (f"Removed plugin: {selected.name}",),
         right_info="plugins",
         agent_name=agent_name,
     )
@@ -497,34 +507,34 @@ async def handle_update_plugin(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    selector, force, yes, parse_error = parse_update_argument(argument)
-    if parse_error:
-        outcome.add_message(parse_error, channel="error")
+    parsed = parse_update_argument(argument)
+    if parsed.error:
+        outcome.add_message(parsed.error, channel="error")
         return outcome
 
     env_paths = resolve_environment_paths(ctx.resolve_settings())
     updates = await asyncio.to_thread(check_plugin_updates, destination_root=env_paths.plugins)
 
-    if selector is None:
+    if parsed.selector is None:
         outcome.add_message(
             _format_update_results(updates, title="Plugin update check:"),
             right_info="plugins",
             agent_name=agent_name,
         )
-        outcome.add_message(
-            "Apply with `/plugins update <number|name|all> [--force] [--yes]`.",
-            channel="info",
+        add_info_messages(
+            outcome,
+            ("Apply with `/plugins update <number|name|all> [--force] [--yes]`.",),
             right_info="plugins",
             agent_name=agent_name,
         )
         return outcome
 
-    selected = select_plugin_updates(updates, selector)
+    selected = select_plugin_updates(updates, parsed.selector)
     if not selected:
-        outcome.add_message(f"Plugin not found: {selector}", channel="error")
+        outcome.add_message(f"Plugin not found: {parsed.selector}", channel="error")
         return outcome
 
-    if len(selected) > 1 and not yes:
+    if len(selected) > 1 and not parsed.yes:
         outcome.add_message(
             _format_update_results(selected, title="Update plan:"),
             right_info="plugins",
@@ -538,13 +548,13 @@ async def handle_update_plugin(
         )
         return outcome
 
-    applied = await asyncio.to_thread(apply_plugin_updates, selected, force=force)
+    applied = await asyncio.to_thread(apply_plugin_updates, selected, force=parsed.force)
     outcome.add_message(
         _format_update_results(applied, title="Plugin update results:"),
         right_info="plugins",
         agent_name=agent_name,
     )
-    if any(update.status == "updated" for update in applied):
+    if any(is_update_applied(update.status) for update in applied):
         _refresh_provider_plugins(ctx, _config_path_for_settings(ctx))
     return outcome
 
@@ -559,41 +569,33 @@ async def handle_set_plugins_registry(
     settings = ctx.resolve_settings()
     configured_urls = resolve_registries(settings)
 
-    if not argument:
+    registry_arg = optional_selector(argument)
+    if registry_arg is None:
         current = get_marketplace_url(settings)
         content = Text()
         for index, url in enumerate(configured_urls, 1):
-            row = Text()
-            row.append(f"[{index:2}] ", style="dim cyan")
-            row.append(url, style="bright_blue bold")
-            if url == current:
-                row.append(" • ", style="dim")
-                row.append("current", style="dim green")
-            content.append_text(row)
-            content.append("\n")
+            append_indexed_current_line(content, index, url, is_current=url == current)
         content.append("\n")
         content.append_text(Text("Usage: /plugins registry <number|url|path>", style="dim"))
         outcome.add_message(content, right_info="plugins", agent_name=agent_name)
         return outcome
 
-    arg = argument.strip()
-    if arg.isdigit():
-        index = int(arg)
-        if 1 <= index <= len(configured_urls):
-            url = configured_urls[index - 1]
-        else:
-            outcome.add_message(
-                f"Invalid registry number. Use 1-{len(configured_urls)}.",
-                channel="warning",
-            )
-            return outcome
-    else:
-        url = arg
+    resolved = resolve_registry_argument(registry_arg, configured_urls)
+    if resolved.warning is not None:
+        outcome.add_message(resolved.warning, channel="warning")
+        return outcome
+    if resolved.url is None:
+        return outcome
+    url = resolved.url
 
     try:
         plugins, resolved_url = await fetch_marketplace_plugins_with_source(url)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         outcome.add_message(f"Failed to load registry: {exc}", channel="error")
+        return outcome
+
+    if not plugins:
+        _add_empty_plugins_registry_warning(outcome, url, agent_name=agent_name)
         return outcome
 
     plugins_settings = settings.plugins
@@ -610,6 +612,74 @@ async def handle_set_plugins_registry(
     return outcome
 
 
+type _PluginsActionHandler = Callable[
+    ["CommandContext", str, str | None],
+    Awaitable[CommandOutcome],
+]
+
+
+async def _handle_plugins_list_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    _argument: str | None,
+) -> CommandOutcome:
+    return await handle_list_plugins(ctx, agent_name=agent_name)
+
+
+async def _handle_plugins_available_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    _argument: str | None,
+) -> CommandOutcome:
+    return await handle_list_marketplace_plugins(ctx, agent_name=agent_name)
+
+
+async def _handle_plugins_add_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    return await handle_add_plugin(ctx, agent_name=agent_name, argument=argument)
+
+
+async def _handle_plugins_remove_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    return await handle_remove_plugin(ctx, agent_name=agent_name, argument=argument)
+
+
+async def _handle_plugins_update_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    return await handle_update_plugin(ctx, agent_name=agent_name, argument=argument)
+
+
+async def _handle_plugins_registry_action(
+    ctx: "CommandContext",
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    return await handle_set_plugins_registry(
+        ctx,
+        argument=argument,
+        agent_name=agent_name,
+    )
+
+
+_PLUGINS_ACTION_HANDLERS: dict[str, _PluginsActionHandler] = {
+    "list": _handle_plugins_list_action,
+    "available": _handle_plugins_available_action,
+    "add": _handle_plugins_add_action,
+    "remove": _handle_plugins_remove_action,
+    "update": _handle_plugins_update_action,
+    "registry": _handle_plugins_registry_action,
+}
+
+
 async def handle_plugins_command(
     ctx: CommandContext,
     *,
@@ -617,42 +687,25 @@ async def handle_plugins_command(
     action: str | None,
     argument: str | None,
 ) -> CommandOutcome:
-    normalized = str(action or "list").lower()
+    normalized = normalize_command_action("plugins", action)
 
-    if _is_help_flag(action) or _is_help_flag(argument):
+    if is_help_flag(action) or is_help_flag(argument):
         return handle_plugins_help(agent_name=agent_name)
-    if normalized == "help":
-        return handle_plugins_help(agent_name=agent_name)
-    if normalized in {"list", ""}:
-        return await handle_list_plugins(ctx, agent_name=agent_name)
-    if normalized in {"available", "marketplace", "browse"}:
-        return await handle_list_marketplace_plugins(ctx, agent_name=agent_name)
-    if normalized in {"add", "install"}:
-        return await handle_add_plugin(ctx, agent_name=agent_name, argument=argument)
-    if normalized in {"remove", "rm", "delete", "uninstall"}:
-        return await handle_remove_plugin(ctx, agent_name=agent_name, argument=argument)
-    if normalized in {"update", "refresh", "upgrade"}:
-        return await handle_update_plugin(ctx, agent_name=agent_name, argument=argument)
-    if normalized in {"registry", "source"}:
-        return await handle_set_plugins_registry(
-            ctx,
-            argument=argument,
-            agent_name=agent_name,
-        )
+
+    handler = _PLUGINS_ACTION_HANDLERS.get(normalized)
+    if handler is not None:
+        return await handler(ctx, agent_name, argument)
 
     outcome = CommandOutcome()
     outcome.add_message(
-        (
-            f"Unknown /plugins action: {normalized}. "
-            "Use list/available/add/remove/update/registry/help."
-        ),
+        format_unknown_command_action("plugins", normalized),
         channel="warning",
         right_info="plugins",
         agent_name=agent_name,
     )
-    outcome.add_message(
-        "\n".join(_plugins_usage_lines()),
-        channel="info",
+    add_info_messages(
+        outcome,
+        ("\n".join(command_usage_lines("plugins")),),
         right_info="plugins",
         agent_name=agent_name,
     )

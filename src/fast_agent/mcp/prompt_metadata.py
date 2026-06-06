@@ -6,13 +6,18 @@ _NAMESPACED_NAME_KEY = "fast_agent.namespaced_name"
 _ARGUMENTS_KEY = "fast_agent.arguments"
 
 
+def _prompt_meta(result: GetPromptResult) -> dict[str, Any]:
+    meta = result.meta
+    return dict(meta) if isinstance(meta, dict) else {}
+
+
 def with_prompt_metadata(
     result: GetPromptResult,
     *,
     namespaced_name: str,
     arguments: dict[str, str] | None = None,
 ) -> GetPromptResult:
-    meta: dict[str, Any] = dict(result.meta or {})
+    meta = _prompt_meta(result)
     meta[_NAMESPACED_NAME_KEY] = namespaced_name
     if arguments:
         meta[_ARGUMENTS_KEY] = arguments
@@ -20,12 +25,12 @@ def with_prompt_metadata(
 
 
 def prompt_display_name(result: GetPromptResult, fallback: str) -> str:
-    value = (result.meta or {}).get(_NAMESPACED_NAME_KEY)
+    value = _prompt_meta(result).get(_NAMESPACED_NAME_KEY)
     return value if isinstance(value, str) else fallback
 
 
 def prompt_arguments(result: GetPromptResult) -> dict[str, str] | None:
-    value = (result.meta or {}).get(_ARGUMENTS_KEY)
+    value = _prompt_meta(result).get(_ARGUMENTS_KEY)
     if not isinstance(value, dict):
         return None
     arguments: dict[str, str] = {}

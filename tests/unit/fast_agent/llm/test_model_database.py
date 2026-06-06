@@ -112,6 +112,24 @@ def test_model_database_default_provider_lookup():
     assert ModelDatabase.get_default_provider("unknown-model") is None
 
 
+def test_model_database_default_provider_lookup_uses_alias_normalization() -> None:
+    assert ModelDatabase.get_default_provider("sonnet") == Provider.ANTHROPIC
+    assert ModelDatabase.get_default_provider("gpt-oss") == Provider.HUGGINGFACE
+    assert ModelDatabase.get_default_provider("codexspark") == Provider.CODEX_RESPONSES
+
+
+def test_model_database_default_provider_prefers_exact_slash_catalog_key() -> None:
+    params = ModelDatabase.get_model_params("openai/gpt-oss-120b")
+    assert params is not None
+    assert ModelDatabase.get_default_provider("openai/gpt-oss-120b") == params.default_provider
+
+
+def test_model_database_provider_qualified_aliases_keep_capabilities() -> None:
+    assert ModelDatabase.get_max_output_tokens(
+        "anthropic-vertex.sonnet"
+    ) == ModelDatabase.get_max_output_tokens("sonnet")
+
+
 def test_anthropic_catalog_keeps_current_and_vertex_legacy_models() -> None:
     assert ModelDatabase.get_model_params("claude-opus-4-7") is not None
     assert ModelDatabase.get_model_params("claude-opus-4-6") is not None
@@ -152,9 +170,7 @@ def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
 
     assert {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash"} <= gemini_models
     assert not {
-        model
-        for model in gemini_models
-        if model.startswith("gemini-2.5-") and "preview" in model
+        model for model in gemini_models if model.startswith("gemini-2.5-") and "preview" in model
     }
 
 
@@ -221,30 +237,28 @@ def test_huggingface_kimi25_uses_schema_mode() -> None:
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
-    assert ModelDatabase.get_anthropic_web_search_version("claude-opus-4-6") == "web_search_20260209"
+    assert (
+        ModelDatabase.get_anthropic_web_search_version("claude-opus-4-6") == "web_search_20260209"
+    )
     assert ModelDatabase.get_anthropic_web_fetch_version("claude-opus-4-6") == "web_fetch_20260209"
     assert ModelDatabase.get_anthropic_required_betas("claude-opus-4-6") == (
         "code-execution-web-tools-2026-02-09",
     )
 
     assert (
-        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-6")
-        == "web_search_20260209"
+        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-6") == "web_search_20260209"
     )
     assert (
-        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-6")
-        == "web_fetch_20260209"
+        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-6") == "web_fetch_20260209"
     )
 
 
 def test_model_database_anthropic_web_tool_versions_for_non_46_models():
     assert (
-        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-5")
-        == "web_search_20250305"
+        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-5") == "web_search_20250305"
     )
     assert (
-        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-5")
-        == "web_fetch_20250910"
+        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-5") == "web_fetch_20250910"
     )
     assert ModelDatabase.get_anthropic_required_betas("claude-sonnet-4-5") is None
 
@@ -349,6 +363,15 @@ def test_model_database_tokenizes():
     assert "image/jpeg" in qwen_tokenizes
 
 
+def test_model_database_tokenizes_returns_copy() -> None:
+    tokenizes = ModelDatabase.get_tokenizes("claude-sonnet-4-0")
+    assert tokenizes is not None
+
+    tokenizes.append("application/x-test")
+
+    assert "application/x-test" not in (ModelDatabase.get_tokenizes("claude-sonnet-4-0") or [])
+
+
 def test_model_database_supports_mime_basic():
     """Test MIME support lookups with normalization and aliases."""
     # Known multimodal model supports images and pdf
@@ -363,6 +386,17 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime(
         "gpt-4o",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+    assert not ModelDatabase.supports_mime(
+        "gpt-4o",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        provider=Provider.OPENAI,
+    )
+    assert ModelDatabase.supports_mime("gpt-4o", "document/pdf", provider=Provider.OPENAI)
+    assert not ModelDatabase.supports_mime(
+        "deepseek-chat",
+        "document/pdf",
+        provider=Provider.OPENAI,
     )
 
     # Text-only models should not support images
@@ -531,14 +565,8 @@ def test_model_database_response_websocket_provider_support() -> None:
         ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.CODEX_RESPONSES)
         is True
     )
-    assert (
-        ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES)
-        is True
-    )
-    assert (
-        ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.RESPONSES)
-        is True
-    )
+    assert ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES) is True
+    assert ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.RESPONSES) is True
     assert (
         ModelDatabase.supports_response_websocket_provider(
             "gpt-5.3-codex-spark", Provider.CODEX_RESPONSES
@@ -623,7 +651,7 @@ def test_openai_llm_normalizes_repeated_roles():
     assert isinstance(llm, OpenAILLM)
 
     assert llm._normalize_role("assistantassistant") == "assistant"
-    assert llm._normalize_role("assistantASSISTANTassistant") == "assistant"
+    assert llm._normalize_role(" assistantASSISTANTassistant ") == "assistant"
     assert llm._normalize_role("user") == "user"
     assert llm._normalize_role(None) == "assistant"
 
@@ -762,6 +790,17 @@ def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_enabled()
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_chat_template_kwargs_helper_preserves_existing_values() -> None:
+    extra_body: dict[str, object] = {"chat_template_kwargs": {"temperature": 0.2}}
+
+    HuggingFaceLLM._set_chat_template_kwarg(extra_body, "enable_thinking", False)
+
+    assert extra_body["chat_template_kwargs"] == {
+        "temperature": 0.2,
+        "enable_thinking": False,
+    }
 
 
 def test_huggingface_qwen35_default_reasoning_emits_chat_template_kwargs_enabled():

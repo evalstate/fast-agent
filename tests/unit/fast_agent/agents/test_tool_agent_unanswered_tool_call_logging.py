@@ -50,12 +50,6 @@ def _seed_pending_tool_call(agent: ToolAgent) -> None:
     ]
 
 
-
-
-
-
-
-
 @pytest.mark.asyncio
 async def test_unanswered_tool_call_auto_heals_on_new_turn():
     agent = ToolAgent(AgentConfig("test-agent"))

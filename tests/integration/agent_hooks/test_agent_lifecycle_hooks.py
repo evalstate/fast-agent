@@ -63,7 +63,7 @@ async def test_agent_lifecycle_hooks_for_detached_clones(fast_agent, tmp_path: P
     parent_card = tmp_path / "agent_parent_lifecycle.md"
 
     hook_file.write_text(
-        f'''
+        f"""
 import json
 from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
 
@@ -76,11 +76,11 @@ async def record_lifecycle(ctx: AgentLifecycleContext) -> None:
     }}
     with open(marker_path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload) + "\\n")
-'''
+"""
     )
 
     child_card.write_text(
-        '''---
+        """---
 name: child_lifecycle
 model: passthrough
 type: agent
@@ -89,18 +89,18 @@ lifecycle_hooks:
   on_start: lifecycle_hooks_test.py:record_lifecycle
   on_shutdown: lifecycle_hooks_test.py:record_lifecycle
 ---
-'''
+"""
     )
 
     parent_card.write_text(
-        '''---
+        """---
 name: parent_lifecycle
 model: passthrough
 type: agent
 agents: [child_lifecycle]
 instruction: Parent agent that calls child.
 ---
-'''
+"""
     )
 
     try:
@@ -124,7 +124,7 @@ instruction: Parent agent that calls child.
             if line.strip()
         ]
         # Filter for clone events (named with [N] suffix from AgentsAsToolsAgent)
-        clone_pattern = re.compile(r'\[\d+\]$')
+        clone_pattern = re.compile(r"\[\d+\]$")
         clone_events = [event for event in events if clone_pattern.search(event["agent_name"])]
 
         agent_ids = {event["agent_id"] for event in clone_events}
@@ -132,9 +132,7 @@ instruction: Parent agent that calls child.
 
         for agent_id in agent_ids:
             hook_types = [
-                event["hook_type"]
-                for event in clone_events
-                if event["agent_id"] == agent_id
+                event["hook_type"] for event in clone_events if event["agent_id"] == agent_id
             ]
             assert hook_types.count("on_start") == 1
             assert hook_types.count("on_shutdown") == 1

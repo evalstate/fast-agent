@@ -19,9 +19,11 @@ from fast_agent.cli.display import (
     DetailDisplayRow,
     UpdateDisplayRow,
     format_display_path,
+    indexed_table,
     print_detail_section,
     print_hint,
     print_update_table,
+    print_warning,
 )
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.skills.command_support import SKILLS_ADD_HINT_CLI, filter_marketplace_skills
@@ -174,7 +176,7 @@ def _print_local_skills(*, managed_directory_override: Path | None = None) -> No
         console.print(f"[bold bright_white]{directory_label}[/bold bright_white]")
 
         if not manifests:
-            console.print("[yellow]No skills found in this directory.[/yellow]")
+            print_warning(console, "No skills found in this directory.")
             continue
 
         _print_skill_table(manifests, show_index=False)
@@ -201,14 +203,10 @@ def _print_marketplace_skills(
     )
 
     if not marketplace:
-        console.print("[yellow]No skills found in the marketplace.[/yellow]")
+        print_warning(console, "No skills found in the marketplace.")
         return
 
-    table = Table(show_header=True, box=None)
-    table.add_column("#", justify="right", style="dim", header_style="bold bright_white")
-    table.add_column("Name", style="cyan", header_style="bold bright_white")
-    table.add_column("Bundle", style="white", header_style="bold bright_white")
-    table.add_column("Description", style="dim", header_style="bold bright_white")
+    table = indexed_table(("Name", "cyan"), ("Bundle", "white"), ("Description", "dim"))
 
     for index, entry in enumerate(marketplace, 1):
         table.add_row(
@@ -237,7 +235,7 @@ def _print_managed_skill_selection(*, managed_directory: Path) -> None:
         SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
     )
     if not manifests:
-        console.print("[yellow]No local skills found in the managed directory.[/yellow]")
+        print_warning(console, "No local skills found in the managed directory.")
         return
 
     _print_skill_table(manifests, show_index=True)
@@ -261,7 +259,7 @@ def _print_updates(
     )
 
     if not updates:
-        console.print("[yellow]No managed skills found.[/yellow]")
+        print_warning(console, "No managed skills found.")
         return
     print_update_table(
         console,
@@ -288,9 +286,8 @@ def _load_marketplace(
 ) -> tuple[list[MarketplaceSkill], str]:
     marketplace_input = _resolve_registry_input(ctx, registry)
     try:
-        scan_result = asyncio.run(fetch_marketplace_skills_with_source(marketplace_input))
-        return scan_result
-    except Exception as exc:  # noqa: BLE001
+        return asyncio.run(fetch_marketplace_skills_with_source(marketplace_input))
+    except Exception as exc:
         typer.echo(f"Failed to load marketplace: {exc}", err=True)
         raise typer.Exit(1) from exc
 
@@ -392,7 +389,7 @@ def skills_add(
             selector,
             destination_root=managed_directory,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Failed to install skill: {exc}", err=True)
         raise typer.Exit(1) from exc
 
@@ -429,7 +426,7 @@ def skills_remove(
         SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
     )
     if not manifests:
-        console.print("[yellow]No local skills to remove.[/yellow]")
+        print_warning(console, "No local skills to remove.")
         raise typer.Exit(0)
 
     if not selector:
@@ -444,7 +441,7 @@ def skills_remove(
 
     try:
         removed = remove_skill(managed_directory, selector)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Failed to remove skill: {exc}", err=True)
         raise typer.Exit(1) from exc
 

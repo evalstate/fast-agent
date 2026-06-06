@@ -9,7 +9,7 @@ from fast_agent.constants import (
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
 from fast_agent.types import PromptMessageExtended
-from fast_agent.ui.enhanced_prompt import (
+from fast_agent.ui.prompt.alert_flags import (
     _extract_alert_flags_from_alert,
     _extract_alert_flags_from_meta,
     _resolve_alert_flags_from_history,
@@ -49,6 +49,12 @@ def test_extract_alert_flags_from_alert_uses_category_fallback() -> None:
     assert _extract_alert_flags_from_alert(blocks) == {"D"}
 
 
+def test_extract_alert_flags_from_alert_ignores_non_object_json() -> None:
+    blocks = [TextContent(type="text", text='["not", "an", "object"]')]
+
+    assert _extract_alert_flags_from_alert(blocks) == set()
+
+
 def test_extract_alert_flags_from_meta_remains_backward_compatible() -> None:
     blocks = [
         _json_text_block(
@@ -60,6 +66,7 @@ def test_extract_alert_flags_from_meta_remains_backward_compatible() -> None:
     ]
 
     assert _extract_alert_flags_from_meta(blocks) == {"V"}
+
 
 def _message_with_channels(
     *,
@@ -101,6 +108,38 @@ def test_resolve_alert_flags_prefers_new_alert_channel_over_legacy_meta() -> Non
     ]
 
     assert _resolve_alert_flags_from_history(messages) == {"V"}
+
+
+def test_resolve_alert_flags_uses_per_message_legacy_fallback() -> None:
+    messages = [
+        _message_with_channels(
+            channels={
+                FAST_AGENT_REMOVED_METADATA_CHANNEL: [
+                    _json_text_block(
+                        {
+                            "type": "fast-agent-removed",
+                            "category": "document",
+                        }
+                    )
+                ],
+            }
+        ),
+        _message_with_channels(
+            channels={
+                FAST_AGENT_ALERT_CHANNEL: [
+                    _json_text_block(
+                        {
+                            "type": "unsupported_content_removed",
+                            "flags": ["V"],
+                            "handled": True,
+                        }
+                    )
+                ],
+            }
+        ),
+    ]
+
+    assert _resolve_alert_flags_from_history(messages) == {"D", "V"}
 
 
 def test_resolve_alert_flags_falls_back_to_legacy_meta_when_alert_missing() -> None:
@@ -155,4 +194,3 @@ def test_resolve_alert_flags_handles_mixed_categories() -> None:
     ]
 
     assert _resolve_alert_flags_from_history(messages) == {"V", "D"}
-

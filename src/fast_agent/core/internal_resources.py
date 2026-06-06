@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence, cast
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from importlib.abc import Traversable
 
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.utils.text import strip_str_to_none, strip_to_none
 
 _SHARED_DIR = Path("resources") / "shared"
 _MANIFEST_FILENAME = "internal_resources_manifest.json"
@@ -63,8 +65,8 @@ def _resources_by_uri() -> dict[str, InternalResource]:
 
 def get_internal_resource(uri: str) -> InternalResource:
     """Resolve an internal resource by URI."""
-    normalized = uri.strip()
-    if not normalized:
+    normalized = strip_to_none(uri)
+    if normalized is None:
         raise AgentConfigError(
             "Invalid internal resource URI",
             "URI must not be empty.",
@@ -121,7 +123,8 @@ def _parse_manifest_entry(index: int, entry: object) -> InternalResource:
     source = _require_source_path(typed_entry, index)
 
     mime_type = typed_entry.get("mime_type", "text/markdown")
-    if not isinstance(mime_type, str) or not mime_type.strip():
+    normalized_mime_type = strip_str_to_none(mime_type)
+    if normalized_mime_type is None:
         raise AgentConfigError(
             "Invalid internal resources manifest entry",
             f"Entry at index {index} has invalid 'mime_type'.",
@@ -133,7 +136,11 @@ def _parse_manifest_entry(index: int, entry: object) -> InternalResource:
         tags = ()
     elif isinstance(tags_raw, list) and all(isinstance(tag, str) for tag in tags_raw):
         tag_values = cast("list[str]", tags_raw)
-        tags = tuple(tag.strip() for tag in tag_values if tag.strip())
+        tags = tuple(
+            normalized_tag
+            for tag in tag_values
+            if (normalized_tag := strip_to_none(tag)) is not None
+        )
     else:
         raise AgentConfigError(
             "Invalid internal resources manifest entry",
@@ -152,19 +159,20 @@ def _parse_manifest_entry(index: int, entry: object) -> InternalResource:
         description=description,
         why=why,
         source=source,
-        mime_type=mime_type.strip(),
+        mime_type=normalized_mime_type,
         tags=tags,
     )
 
 
 def _require_str(entry: dict[str, object], key: str, index: int) -> str:
     value = entry.get(key)
-    if not isinstance(value, str) or not value.strip():
+    normalized = strip_str_to_none(value)
+    if normalized is None:
         raise AgentConfigError(
             "Invalid internal resources manifest entry",
             f"Entry at index {index} is missing non-empty '{key}'.",
         )
-    return value.strip()
+    return normalized
 
 
 def _require_source_path(entry: dict[str, object], index: int) -> str:
@@ -183,8 +191,8 @@ def _load_manifest_payload() -> object:
     if source_manifest.is_file():
         return json.loads(source_manifest.read_text(encoding="utf-8"))
 
-    packaged_manifest = files("fast_agent").joinpath("resources").joinpath("shared").joinpath(
-        _MANIFEST_FILENAME
+    packaged_manifest = (
+        files("fast_agent").joinpath("resources").joinpath("shared").joinpath(_MANIFEST_FILENAME)
     )
     if packaged_manifest.is_file():
         return json.loads(packaged_manifest.read_text(encoding="utf-8"))

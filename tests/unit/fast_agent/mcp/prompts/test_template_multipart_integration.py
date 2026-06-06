@@ -51,16 +51,15 @@ Here are some key points about {{topic}}:
         assert multiparts[0].role == "user"
         assert len(multiparts[0].content) == 1
         assert _text(multiparts[0].content[0]).type == "text"
-        assert "Hello, I'm trying to learn about {{topic}}." in _text(
-            multiparts[0].content[0]
-        ).text
+        assert "Hello, I'm trying to learn about {{topic}}." in _text(multiparts[0].content[0]).text
 
         assert multiparts[1].role == "assistant"
         assert len(multiparts[1].content) == 1
         assert _text(multiparts[1].content[0]).type == "text"
-        assert "I'd be happy to help you learn about {{topic}}!" in _text(
-            multiparts[1].content[0]
-        ).text
+        assert (
+            "I'd be happy to help you learn about {{topic}}!"
+            in _text(multiparts[1].content[0]).text
+        )
 
     def test_template_with_substitutions_to_extended(self):
         """Test applying substitutions to a template and converting to extended."""
@@ -194,20 +193,14 @@ Hi there! I'm here to help with your test.
         assert loaded_messages[0].role == "user"
         assert len(loaded_messages[0].content) == 1
         assert _text(loaded_messages[0].content[0]).type == "text"
-        assert "Can you explain quantum physics?" in _text(
-            loaded_messages[0].content[0]
-        ).text
+        assert "Can you explain quantum physics?" in _text(loaded_messages[0].content[0]).text
 
         # Check assistant message
         assert loaded_messages[1].role == "assistant"
         assert len(loaded_messages[1].content) == 1
         assert _text(loaded_messages[1].content[0]).type == "text"
-        assert "Quantum physics is fascinating" in _text(
-            loaded_messages[1].content[0]
-        ).text
-        assert "behavior of matter" in _text(
-            loaded_messages[1].content[0]
-        ).text.lower()
+        assert "Quantum physics is fascinating" in _text(loaded_messages[1].content[0]).text
+        assert "behavior of matter" in _text(loaded_messages[1].content[0]).text.lower()
 
     def test_template_loader_integration(self, temp_delimited_file):
         """Test integration with PromptTemplateLoader."""

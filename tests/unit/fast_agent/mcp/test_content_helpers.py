@@ -5,8 +5,12 @@ import base64
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.mcp.helpers.content_helpers import (
+    audio_link,
     canonicalize_tool_result_content_for_llm,
+    image_link,
+    resource_link,
     tool_result_text_for_llm,
+    video_link,
 )
 
 
@@ -18,7 +22,9 @@ class _LoggerSpy:
         self.warning_calls.append((message, data))
 
 
-def test_canonicalize_tool_result_content_preserves_original_content_without_structured_content() -> None:
+def test_canonicalize_tool_result_content_preserves_original_content_without_structured_content() -> (
+    None
+):
     image_data = base64.b64encode(b"fake-image").decode("utf-8")
     text_block = TextContent(type="text", text="hello")
     image_block = ImageContent(type="image", data=image_data, mimeType="image/jpeg")
@@ -31,7 +37,9 @@ def test_canonicalize_tool_result_content_preserves_original_content_without_str
     assert canonical[1] is image_block
 
 
-def test_canonicalize_tool_result_content_prefers_structured_content_and_preserves_non_text() -> None:
+def test_canonicalize_tool_result_content_prefers_structured_content_and_preserves_non_text() -> (
+    None
+):
     image_data = base64.b64encode(b"fake-image").decode("utf-8")
     image_block = ImageContent(type="image", data=image_data, mimeType="image/jpeg")
     result = CallToolResult(
@@ -77,3 +85,15 @@ def test_tool_result_text_for_llm_uses_structured_content_json() -> None:
     text = tool_result_text_for_llm(result)
 
     assert text == '{"a":1,"b":2}'
+
+
+def test_typed_resource_links_use_default_mime_for_unknown_urls() -> None:
+    assert image_link("https://example.com/image").mimeType == "image/jpeg"
+    assert video_link("https://example.com/video").mimeType == "video/mp4"
+    assert audio_link("https://example.com/audio").mimeType == "audio/mpeg"
+
+
+def test_resource_link_mime_inference_preserves_query_value_case() -> None:
+    link = resource_link("https://example.com/download?format=image%2FPNG")
+
+    assert link.mimeType == "image/png"

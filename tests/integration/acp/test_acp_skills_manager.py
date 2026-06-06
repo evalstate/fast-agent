@@ -14,6 +14,7 @@ from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.config import get_settings
 from fast_agent.skills import SKILLS_DEFAULT
+from fast_agent.utils.markdown import escape_markdown_text
 
 if TYPE_CHECKING:
     from fast_agent.core.fastagent import AgentInstance
@@ -165,7 +166,7 @@ skills:
 
         response = await handler.execute_command("skills", "")
         assert "test-skill" in response
-        assert "MAGIC_SKILL" in response
+        assert escape_markdown_text("MAGIC_SKILL") in response
         assert skill_dir.as_posix() in response
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
@@ -223,7 +224,7 @@ skills:
 
         response = await handler.execute_command("skills", "add")
         assert "test-skill" in response
-        assert "MAGIC_SKILL" in response
+        assert escape_markdown_text("MAGIC_SKILL") in response
         assert repo_root.as_posix() in response
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
@@ -281,7 +282,7 @@ skills:
 
         response = await handler.execute_command("skills", "available")
         assert "test-skill" in response
-        assert "MAGIC_SKILL" in response
+        assert escape_markdown_text("MAGIC_SKILL") in response
         assert repo_root.as_posix() in response
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
@@ -341,7 +342,7 @@ skills:
 
         response = await handler.execute_command("skills", "remove")
         assert "test-skill" in response
-        assert "MAGIC_SKILL" in response
+        assert escape_markdown_text("MAGIC_SKILL") in response
         assert manager_dir.as_posix() in response
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
@@ -388,17 +389,20 @@ async def test_skills_add_remove_refreshes_system_prompt(tmp_path: Path) -> None
     get_settings(config_path=str(config_path))
     try:
         agent = SkillAgent(name="test-agent")
+        agent.set_instruction_context({"workspaceRoot": "/workspace"})
         instance = StubAgentInstance(agents={"test-agent": agent})
         handler = _handler(instance, "test-agent")
 
         response = await handler.execute_command("skills", "add test-skill")
         assert "Installed" in response
+        assert agent.instruction_context["workspaceRoot"] == "/workspace"
 
         status = await handler.execute_command("status", "system")
         assert "MAGIC_SKILL" in status
 
         response = await handler.execute_command("skills", "remove test-skill")
         assert "Removed" in response
+        assert agent.instruction_context["workspaceRoot"] == "/workspace"
 
         status = await handler.execute_command("status", "system")
         assert "MAGIC_SKILL" not in status
@@ -443,7 +447,7 @@ async def test_skills_registry_updates_marketplace_url(tmp_path: Path) -> None:
             "skills", f"registry {marketplace_path.as_posix()}"
         )
         assert "Registry set to" in response
-        assert marketplace_path.as_posix() in response
+        assert escape_markdown_text(marketplace_path.as_posix()) in response
         # Active registry is updated
         assert get_settings().skills.marketplace_url == marketplace_path.as_posix()
         # Configured list is preserved
@@ -488,9 +492,8 @@ async def test_skills_registry_numbered_selection(tmp_path: Path) -> None:
 
         # Show registry list
         response = await handler.execute_command("skills", "registry")
-        assert "Configured registries:" in response
-        assert "[1]" in response
-        assert "[2]" in response
+        assert "\\[ 1\\]" in response
+        assert "\\[ 2\\]" in response
 
         # Select by number
         response = await handler.execute_command("skills", "registry 2")
