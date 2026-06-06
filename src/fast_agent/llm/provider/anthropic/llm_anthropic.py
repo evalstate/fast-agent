@@ -17,6 +17,30 @@ from anthropic import (
     transform_schema,
 )
 from anthropic.lib.streaming import BetaAsyncMessageStream
+from anthropic.types.beta import (
+    BetaContentBlockParam,
+    BetaInputJSONDelta,
+    BetaMCPToolResultBlock,
+    BetaMCPToolUseBlock,
+    BetaMessage,
+    BetaMessageParam,
+    BetaRawContentBlockDeltaEvent,
+    BetaRawContentBlockStartEvent,
+    BetaRawContentBlockStopEvent,
+    BetaRawMessageDeltaEvent,
+    BetaRedactedThinkingBlock,
+    BetaServerToolUseBlock,
+    BetaSignatureDelta,
+    BetaTextBlock,
+    BetaTextBlockParam,
+    BetaTextDelta,
+    BetaThinkingBlock,
+    BetaThinkingDelta,
+    BetaToolParam,
+    BetaToolUseBlock,
+    BetaToolUseBlockParam,
+    BetaUsage,
+)
 from mcp import Tool
 from mcp.types import (
     BlobResourceContents,
@@ -51,29 +75,6 @@ from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
-)
-from fast_agent.llm.provider.anthropic.beta_types import (
-    InputJSONDelta,
-    MCPToolResultBlock,
-    MCPToolUseBlock,
-    Message,
-    MessageParam,
-    RawContentBlockDeltaEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
-    RawMessageDeltaEvent,
-    RedactedThinkingBlock,
-    ServerToolUseBlock,
-    SignatureDelta,
-    TextBlock,
-    TextBlockParam,
-    TextDelta,
-    ThinkingBlock,
-    ThinkingDelta,
-    ToolParam,
-    ToolUseBlock,
-    ToolUseBlockParam,
-    Usage,
 )
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
@@ -136,7 +137,7 @@ STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
 STREAM_CAPTURE_DIR = Path("stream-debug")
 
 # Type alias for system field - can be string or list of text blocks with cache control
-SystemParam = Union[str, list[TextBlockParam]]
+SystemParam = Union[str, list[BetaTextBlockParam]]
 CacheTTL = Literal["5m", "1h"]
 
 logger = get_logger(__name__)
@@ -165,8 +166,8 @@ class _AnthropicToolInputBuffer:
 class _AnthropicCompletionRequest:
     client: Any
     params: RequestParams
-    messages: list[MessageParam]
-    message_param: MessageParam
+    messages: list[BetaMessageParam]
+    message_param: BetaMessageParam
 
 
 @dataclass(slots=True)
@@ -346,7 +347,7 @@ def _start_fallback_stream_span(model: str) -> Span:
 
 def _finalize_fallback_stream_span(
     span: Span,
-    response: Message | None,
+    response: BetaMessage | None,
     had_error: bool,
 ) -> None:
     if not span.is_recording():
@@ -448,7 +449,7 @@ def _transform_anthropic_schema(schema: type[BaseModel] | dict[str, Any]) -> dic
     return transform_schema(schema)
 
 
-class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
+class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
     CONVERSATION_CACHE_WALK_DISTANCE = 6
     MAX_CONVERSATION_CACHE_BLOCKS = 2
     # Anthropic-specific parameter exclusions
@@ -1056,10 +1057,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         tools: list[Tool] | None = None,
         structured_mode: StructuredOutputMode | None = None,
         auto_tool_use_fallback: bool = False,
-    ) -> list[ToolParam]:
+    ) -> list[BetaToolParam]:
         """Prepare tools based on whether we're in structured output mode."""
         regular_tools = [
-            ToolParam(
+            BetaToolParam(
                 name=tool.name,
                 description=tool.description or "",
                 input_schema=tool.inputSchema,
@@ -1086,7 +1087,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             else:
                 schema = cast("dict[str, object]", _transform_anthropic_schema({"type": "object"}))
             return [
-                ToolParam(
+                BetaToolParam(
                     name=STRUCTURED_OUTPUT_TOOL_NAME,
                     description="Return the response in the required JSON format",
                     input_schema=schema,
@@ -1097,7 +1098,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return regular_tools
         return regular_tools
 
-    def _prepare_web_tools(self, model: str) -> tuple[list[ToolParam], tuple[str, ...]]:
+    def _prepare_web_tools(self, model: str) -> tuple[list[BetaToolParam], tuple[str, ...]]:
         if not self.supports_web_tools():
             return [], ()
 
@@ -1181,7 +1182,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # Convert string to list format with cache control
             if isinstance(system_content, str):
                 base_args["system"] = [
-                    TextBlockParam(
+                    BetaTextBlockParam(
                         type="text",
                         text=system_content,
                         cache_control={"type": "ephemeral", "ttl": cache_ttl},
@@ -1200,7 +1201,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return 0
 
     @staticmethod
-    def _apply_cache_control_to_message(message: MessageParam, ttl: CacheTTL = "5m") -> bool:
+    def _apply_cache_control_to_message(message: BetaMessageParam, ttl: CacheTTL = "5m") -> bool:
         """Apply cache control to the last content block of a message."""
         if not is_str_object_dict(message) or "content" not in message:
             return False
@@ -1228,7 +1229,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         """
         return any(tool.name == STRUCTURED_OUTPUT_TOOL_NAME for tool in tool_uses)
 
-    def _build_tool_calls_dict(self, tool_uses: list[ToolUseBlock]) -> dict[str, CallToolRequest]:
+    def _build_tool_calls_dict(self, tool_uses: list[BetaToolUseBlock]) -> dict[str, CallToolRequest]:
         """
         Convert Anthropic tool use blocks into our CallToolRequest.
 
@@ -1252,9 +1253,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     async def _handle_structured_output_response(
         self,
-        tool_use_block: ToolUseBlock,
+        tool_use_block: BetaToolUseBlock,
         structured_model: type[ModelT] | None,
-        messages: list[MessageParam],
+        messages: list[BetaMessageParam],
     ) -> tuple[LlmStopReason, list[ContentBlock]]:
         """
         Handle a structured output tool response from Anthropic.
@@ -1292,8 +1293,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _start_client_tool_stream(
         self,
-        content_block: ToolUseBlock,
-        event: RawContentBlockStartEvent,
+        content_block: BetaToolUseBlock,
+        event: BetaRawContentBlockStartEvent,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
@@ -1325,8 +1326,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _start_server_tool_stream(
         self,
-        content_block: ServerToolUseBlock,
-        event: RawContentBlockStartEvent,
+        content_block: BetaServerToolUseBlock,
+        event: BetaRawContentBlockStartEvent,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
@@ -1368,8 +1369,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _start_mcp_tool_stream(
         self,
-        content_block: MCPToolUseBlock,
-        event: RawContentBlockStartEvent,
+        content_block: BetaMCPToolUseBlock,
+        event: BetaRawContentBlockStartEvent,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
@@ -1416,8 +1417,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _handle_mcp_tool_result_start(
         self,
-        content_block: MCPToolResultBlock,
-        event: RawContentBlockStartEvent,
+        content_block: BetaMCPToolResultBlock,
+        event: BetaRawContentBlockStartEvent,
         state: _AnthropicStreamState,
     ) -> None:
         raw_tool_name, server_name = state.provider_tool_names.get(
@@ -1459,25 +1460,25 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _handle_anthropic_content_block_start(
         self,
-        event: RawContentBlockStartEvent,
+        event: BetaRawContentBlockStartEvent,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
         content_block = event.content_block
-        if isinstance(content_block, (ThinkingBlock, RedactedThinkingBlock)):
+        if isinstance(content_block, (BetaThinkingBlock, BetaRedactedThinkingBlock)):
             state.thinking_indices.add(event.index)
-        elif isinstance(content_block, ToolUseBlock):
+        elif isinstance(content_block, BetaToolUseBlock):
             self._start_client_tool_stream(content_block, event, model, state)
-        elif isinstance(content_block, ServerToolUseBlock):
+        elif isinstance(content_block, BetaServerToolUseBlock):
             self._start_server_tool_stream(content_block, event, model, state)
-        elif isinstance(content_block, MCPToolUseBlock):
+        elif isinstance(content_block, BetaMCPToolUseBlock):
             self._start_mcp_tool_stream(content_block, event, model, state)
-        elif isinstance(content_block, MCPToolResultBlock):
+        elif isinstance(content_block, BetaMCPToolResultBlock):
             self._handle_mcp_tool_result_start(content_block, event, state)
 
     def _handle_thinking_delta(
         self,
-        delta: ThinkingDelta,
+        delta: BetaThinkingDelta,
         state: _AnthropicStreamState,
     ) -> None:
         if not delta.thinking:
@@ -1487,8 +1488,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _handle_input_json_delta(
         self,
-        event: RawContentBlockDeltaEvent,
-        delta: InputJSONDelta,
+        event: BetaRawContentBlockDeltaEvent,
+        delta: BetaInputJSONDelta,
         state: _AnthropicStreamState,
     ) -> None:
         tool_state = state.tool_tracker.resolve_open(index=event.index)
@@ -1521,8 +1522,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _handle_text_delta(
         self,
-        event: RawContentBlockDeltaEvent,
-        delta: TextDelta,
+        event: BetaRawContentBlockDeltaEvent,
+        delta: BetaTextDelta,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
@@ -1542,23 +1543,23 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _handle_anthropic_content_block_delta(
         self,
-        event: RawContentBlockDeltaEvent,
+        event: BetaRawContentBlockDeltaEvent,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
         delta = event.delta
-        if isinstance(delta, ThinkingDelta):
+        if isinstance(delta, BetaThinkingDelta):
             self._handle_thinking_delta(delta, state)
-        elif isinstance(delta, SignatureDelta):
+        elif isinstance(delta, BetaSignatureDelta):
             return
-        elif isinstance(delta, InputJSONDelta):
+        elif isinstance(delta, BetaInputJSONDelta):
             self._handle_input_json_delta(event, delta, state)
-        elif isinstance(delta, TextDelta):
+        elif isinstance(delta, BetaTextDelta):
             self._handle_text_delta(event, delta, model, state)
 
     def _stop_client_tool_stream(
         self,
-        event: RawContentBlockStopEvent,
+        event: BetaRawContentBlockStopEvent,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
@@ -1602,7 +1603,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _server_tool_stop_details(
         self,
-        event: RawContentBlockStopEvent,
+        event: BetaRawContentBlockStopEvent,
         default_tool_name: str,
     ) -> tuple[str, str | None, Any | None]:
         content_block = getattr(event, "content_block", None)
@@ -1634,14 +1635,14 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if isinstance(raw_server_name, str) and isinstance(raw_tool_name, str):
                 server_name = raw_server_name
                 tool_name = f"{raw_server_name}/{raw_tool_name}"
-        elif isinstance(content_block, ServerToolUseBlock):
+        elif isinstance(content_block, BetaServerToolUseBlock):
             tool_name = content_block.name
 
         return tool_name, server_name, raw_input
 
     def _stop_server_tool_stream(
         self,
-        event: RawContentBlockStopEvent,
+        event: BetaRawContentBlockStopEvent,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
@@ -1699,7 +1700,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _handle_anthropic_content_block_stop(
         self,
-        event: RawContentBlockStopEvent,
+        event: BetaRawContentBlockStopEvent,
         model: str,
         state: _AnthropicStreamState,
     ) -> None:
@@ -1717,7 +1718,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _handle_anthropic_message_delta(
         self,
-        event: RawMessageDeltaEvent,
+        event: BetaRawMessageDeltaEvent,
         model: str,
     ) -> None:
         if not event.usage.output_tokens:
@@ -1759,7 +1760,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         stream: BetaAsyncMessageStream,
         model: str,
         state: _AnthropicStreamState,
-    ) -> Message:
+    ) -> BetaMessage:
         try:
             return await stream.get_final_message()
         except Exception as error:
@@ -1784,7 +1785,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     f"model={model} chunks={len(state.streamed_text_segments)}"
                 )
 
-            return Message.model_construct(
+            return BetaMessage.model_construct(
                 id="msg_stream_fallback",
                 type="message",
                 role="assistant",
@@ -1799,7 +1800,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         stream: BetaAsyncMessageStream,
         model: str,
         capture_filename: Path | None = None,
-    ) -> tuple[Message, list[str], list[str]]:
+    ) -> tuple[BetaMessage, list[str], list[str]]:
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         state = _AnthropicStreamState()
@@ -1810,13 +1811,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             async for event in stream:
                 _save_stream_chunk(capture_filename, event)
 
-                if isinstance(event, RawContentBlockStartEvent):
+                if isinstance(event, BetaRawContentBlockStartEvent):
                     self._handle_anthropic_content_block_start(event, model, state)
-                elif isinstance(event, RawContentBlockDeltaEvent):
+                elif isinstance(event, BetaRawContentBlockDeltaEvent):
                     self._handle_anthropic_content_block_delta(event, model, state)
-                elif isinstance(event, RawContentBlockStopEvent):
+                elif isinstance(event, BetaRawContentBlockStopEvent):
                     self._handle_anthropic_content_block_stop(event, model, state)
-                elif isinstance(event, RawMessageDeltaEvent) and event.usage.output_tokens:
+                elif isinstance(event, BetaRawMessageDeltaEvent) and event.usage.output_tokens:
                     self._handle_anthropic_message_delta(event, model)
 
             self._raise_for_incomplete_anthropic_tools(model, state)
@@ -1844,19 +1845,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     def _build_request_messages(
         self,
         params: RequestParams,
-        message_param: MessageParam,
-        pre_messages: list[MessageParam] | None = None,
+        message_param: BetaMessageParam,
+        pre_messages: list[BetaMessageParam] | None = None,
         history: list[PromptMessageExtended] | None = None,
-    ) -> list[MessageParam]:
+    ) -> list[BetaMessageParam]:
         """
         Build the list of Anthropic message parameters for the next request.
 
         Ensures that the current user message is only included once when history
         is enabled, which prevents duplicate tool_result blocks from being sent.
         """
-        messages: list[MessageParam] = list(pre_messages) if pre_messages else []
+        messages: list[BetaMessageParam] = list(pre_messages) if pre_messages else []
 
-        history_messages: list[MessageParam] = []
+        history_messages: list[BetaMessageParam] = []
         if params.use_history and history:
             history_messages = self._convert_to_provider_format(history)
             messages.extend(history_messages)
@@ -1921,11 +1922,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self,
         *,
         model: str,
-        messages: list[MessageParam],
+        messages: list[BetaMessageParam],
         params: RequestParams,
         history: list[PromptMessageExtended] | None,
         current_extended: PromptMessageExtended | None,
-        request_tools: list[ToolParam],
+        request_tools: list[BetaToolParam],
         structured_mode: StructuredOutputMode | None,
         structured_model: type[ModelT] | None,
         structured_schema: dict[str, Any] | None = None,
@@ -2013,7 +2014,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         model: str,
         structured_mode: StructuredOutputMode | None,
         thinking_enabled: bool,
-        request_tools: list[ToolParam],
+        request_tools: list[BetaToolParam],
         web_tool_betas: Sequence[str],
         provider_mcp_enabled: bool = False,
     ) -> list[str]:
@@ -2044,7 +2045,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self,
         *,
         arguments: dict[str, Any],
-        messages: list[MessageParam],
+        messages: list[BetaMessageParam],
         params: RequestParams,
         cache_mode: str,
         history: list[PromptMessageExtended] | None,
@@ -2077,10 +2078,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         arguments: dict[str, Any],
         model: str,
         capture_filename: Path | None,
-    ) -> tuple[Message, list[str], list[str]]:
+    ) -> tuple[BetaMessage, list[str], list[str]]:
         otel_span: Span | None = None
         otel_span_error = False
-        response: Message | None = None
+        response: BetaMessage | None = None
 
         try:
             stream_method = _maybe_unwrap_otel_beta_stream(anthropic.beta.messages.stream)
@@ -2129,12 +2130,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _anthropic_response_text_blocks(
         self,
-        response: Message,
+        response: BetaMessage,
         model: str,
     ) -> list[ContentBlock]:
         response_content_blocks: list[ContentBlock] = []
         for index, content_block in enumerate(response.content or []):
-            if not isinstance(content_block, TextBlock):
+            if not isinstance(content_block, BetaTextBlock):
                 continue
             text_value = content_block.text
             if not isinstance(text_value, str):
@@ -2179,11 +2180,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     async def _anthropic_stop_result(
         self,
-        response: Message,
+        response: BetaMessage,
         structured_mode: StructuredOutputMode | None,
         structured_model: type[ModelT] | None,
         structured_schema: dict[str, Any] | None,
-        messages: list[MessageParam],
+        messages: list[BetaMessageParam],
     ) -> _AnthropicStopResult:
         match response.stop_reason:
             case "stop_sequence":
@@ -2206,13 +2207,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     async def _anthropic_tool_stop_result(
         self,
-        response: Message,
+        response: BetaMessage,
         structured_mode: StructuredOutputMode | None,
         structured_model: type[ModelT] | None,
         structured_schema: dict[str, Any] | None,
-        messages: list[MessageParam],
+        messages: list[BetaMessageParam],
     ) -> _AnthropicStopResult:
-        tool_uses = [content for content in response.content if isinstance(content, ToolUseBlock)]
+        tool_uses = [content for content in response.content if isinstance(content, BetaToolUseBlock)]
         if not tool_uses:
             return _AnthropicStopResult(LlmStopReason.END_TURN)
 
@@ -2247,7 +2248,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     @staticmethod
     def _anthropic_reasoning_channel(
-        response: Message,
+        response: BetaMessage,
         thinking_segments: list[str],
     ) -> dict[str, list[Any]] | None:
         if thinking_segments:
@@ -2256,23 +2257,23 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         thinking_texts = [
             block.thinking
             for block in response.content or []
-            if isinstance(block, ThinkingBlock) and block.thinking
+            if isinstance(block, BetaThinkingBlock) and block.thinking
         ]
         if not thinking_texts:
             return None
         return {REASONING: [TextContent(type="text", text="".join(thinking_texts))]}
 
     @staticmethod
-    def _raw_anthropic_thinking_blocks(response: Message) -> list[ThinkingBlock | RedactedThinkingBlock]:
+    def _raw_anthropic_thinking_blocks(response: BetaMessage) -> list[BetaThinkingBlock | BetaRedactedThinkingBlock]:
         return [
             block
             for block in response.content or []
-            if isinstance(block, (ThinkingBlock, RedactedThinkingBlock))
+            if isinstance(block, (BetaThinkingBlock, BetaRedactedThinkingBlock))
         ]
 
     @staticmethod
     def _serialized_thinking_blocks(
-        raw_thinking_blocks: list[ThinkingBlock | RedactedThinkingBlock],
+        raw_thinking_blocks: list[BetaThinkingBlock | BetaRedactedThinkingBlock],
     ) -> list[TextContent]:
         serialized_blocks: list[TextContent] = []
         for block in raw_thinking_blocks:
@@ -2280,16 +2281,16 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 payload: dict[str, Any] = block.model_dump()
             except Exception:
                 payload = {"type": block.type}
-                if isinstance(block, ThinkingBlock):
+                if isinstance(block, BetaThinkingBlock):
                     payload["thinking"] = block.thinking
                     payload["signature"] = block.signature
-                elif isinstance(block, RedactedThinkingBlock):
+                elif isinstance(block, BetaRedactedThinkingBlock):
                     payload["data"] = block.data
             serialized_blocks.append(TextContent(type="text", text=json.dumps(payload)))
         return serialized_blocks
 
     @staticmethod
-    def _anthropic_provider_payloads(response: Message) -> _AnthropicProviderPayloads:
+    def _anthropic_provider_payloads(response: BetaMessage) -> _AnthropicProviderPayloads:
         payloads = _AnthropicProviderPayloads()
         for block in response.content or []:
             payload = serialize_anthropic_block_payload(block)
@@ -2308,7 +2309,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if payload is not None and is_server_tool_trace_payload(payload):
                 payloads.server_tools.append(TextContent(type="text", text=json.dumps(payload)))
 
-            if isinstance(block, TextBlock) and block.citations:
+            if isinstance(block, BetaTextBlock) and block.citations:
                 extracted = extract_citation_payloads(block.citations)
                 payloads.citations.extend(
                     TextContent(type="text", text=json.dumps(citation_payload))
@@ -2318,7 +2319,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _anthropic_response_channels(
         self,
-        response: Message,
+        response: BetaMessage,
         model: str,
         thinking_segments: list[str],
         tool_calls: dict[str, CallToolRequest] | None,
@@ -2367,9 +2368,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     async def _finalize_anthropic_response(
         self,
         *,
-        response: Message,
+        response: BetaMessage,
         model: str,
-        messages: list[MessageParam],
+        messages: list[BetaMessageParam],
         thinking_segments: list[str],
         streamed_text_segments: list[str],
         structured_mode: StructuredOutputMode | None,
@@ -2409,9 +2410,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     async def _prepare_anthropic_completion_request(
         self,
         anthropic: Any,
-        message_param: MessageParam,
+        message_param: BetaMessageParam,
         request_params: RequestParams | None,
-        pre_messages: list[MessageParam] | None,
+        pre_messages: list[BetaMessageParam] | None,
         history: list[PromptMessageExtended] | None,
         current_extended: PromptMessageExtended | None,
     ) -> _AnthropicCompletionRequest:
@@ -2471,7 +2472,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         structured_model: type[ModelT] | None,
         structured: _AnthropicStructuredMode,
         tools: list[Tool] | None,
-    ) -> tuple[list[ToolParam], list[str], Any]:
+    ) -> tuple[list[BetaToolParam], list[str], Any]:
         available_tools = await self._prepare_tools(
             model,
             structured_model,
@@ -2486,10 +2487,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             self.provider_managed_mcp_state
         )
         if provider_mcp_payload.tools:
-            request_tools.extend(cast("list[ToolParam]", provider_mcp_payload.tools))
+            request_tools.extend(cast("list[BetaToolParam]", provider_mcp_payload.tools))
         return request_tools, list(web_tool_betas), provider_mcp_payload
 
-    def _track_anthropic_usage(self, response: Message, model: str) -> None:
+    def _track_anthropic_usage(self, response: BetaMessage, model: str) -> None:
         if not response.usage:
             return
         try:
@@ -2509,7 +2510,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         structured_model: type[ModelT] | None = None,
         structured_schema: dict[str, Any] | None = None,
         tools: list[Tool] | None = None,
-        pre_messages: list[MessageParam] | None = None,
+        pre_messages: list[BetaMessageParam] | None = None,
         history: list[PromptMessageExtended] | None = None,
         current_extended: PromptMessageExtended | None = None,
     ) -> PromptMessageExtended:
@@ -2707,7 +2708,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Provider-specific structured output implementation.
-        Note: Message history is managed by base class and converted via
+        Note: BetaMessage history is managed by base class and converted via
         _convert_to_provider_format() on each call.
         """
         request_params = self.get_request_params(request_params)
@@ -2760,26 +2761,26 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
-    ) -> list[MessageParam]:
+    ) -> list[BetaMessageParam]:
         """
-        Convert PromptMessageExtended list to Anthropic MessageParam format.
+        Convert PromptMessageExtended list to Anthropic BetaMessageParam format.
         This is called fresh on every API call from _convert_to_provider_format().
 
         Args:
             messages: List of PromptMessageExtended objects
 
         Returns:
-            List of Anthropic MessageParam objects
+            List of Anthropic BetaMessageParam objects
         """
         return [AnthropicConverter.convert_to_anthropic(msg) for msg in messages]
 
     @classmethod
-    def convert_message_to_message_param(cls, message: Message, **kwargs) -> MessageParam:
+    def convert_message_to_message_param(cls, message: BetaMessage, **kwargs) -> BetaMessageParam:
         """Convert a response object to an input parameter object to allow LLM calls to be chained."""
-        content = []
+        content: list[BetaContentBlockParam] = []
 
         for content_block in message.content:
-            if isinstance(content_block, TextBlock):
+            if isinstance(content_block, BetaTextBlock):
                 text_value = getattr(content_block, "text", None)
                 if not isinstance(text_value, str):
                     logger.warning(
@@ -2787,28 +2788,28 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         data={"text_type": type(text_value).__name__},
                     )
                     continue
-                content.append(TextBlockParam(type="text", text=text_value))
-            elif isinstance(content_block, ToolUseBlock):
+                content.append(BetaTextBlockParam(type="text", text=text_value))
+            elif isinstance(content_block, BetaToolUseBlock):
                 content.append(
-                    ToolUseBlockParam(
+                    BetaToolUseBlockParam(
                         type="tool_use",
                         name=content_block.name,
                         input=content_block.input,
                         id=content_block.id,
                     )
                 )
-            elif isinstance(content_block, ServerToolUseBlock):
+            elif isinstance(content_block, BetaServerToolUseBlock):
                 payload = serialize_anthropic_block_payload(content_block)
                 if payload is not None and is_server_tool_trace_payload(payload):
-                    content.append(payload)
+                    content.append(cast("BetaContentBlockParam", payload))
             else:
                 payload = serialize_anthropic_block_payload(content_block)
                 if payload is not None and is_server_tool_trace_payload(payload):
-                    content.append(payload)
+                    content.append(cast("BetaContentBlockParam", payload))
 
-        return MessageParam(role="assistant", content=content, **kwargs)
+        return BetaMessageParam(role="assistant", content=content, **kwargs)
 
-    def _show_usage(self, raw_usage: Usage, turn_usage: TurnUsage) -> None:
+    def _show_usage(self, raw_usage: BetaUsage, turn_usage: TurnUsage) -> None:
         """This is a debug routine, leaving in for convenience"""
         # Print raw usage for debugging
         print(f"\n=== USAGE DEBUG ({turn_usage.model}) ===")

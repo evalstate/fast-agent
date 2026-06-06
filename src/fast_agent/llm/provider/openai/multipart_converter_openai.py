@@ -14,6 +14,9 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from mcp.types import (
+    ContentBlock as MCPContentBlock,
+)
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
@@ -570,8 +573,8 @@ class OpenAIConverter:
             )
 
         # Separate text and non-text content
-        text_content = []
-        non_text_content = []
+        text_content: list[MCPContentBlock] = []
+        non_text_content: list[MCPContentBlock] = []
 
         for item in canonical_content:
             if isinstance(item, TextContent):

@@ -172,10 +172,13 @@ def select_skill_by_name_or_index(
     entries: Iterable[MarketplaceSkill],
     selector: str,
 ) -> MarketplaceSkill | None:
+    def names(entry: MarketplaceSkill) -> list[str]:
+        return [entry.name, entry.install_dir_name]
+
     return select_one_by_name_or_index(
         entries,
         selector,
-        names=lambda entry: (entry.name, entry.install_dir_name),
+        names=names,
     )
 
 
@@ -183,7 +186,10 @@ def select_manifest_by_name_or_index(
     manifests: Iterable[SkillManifest],
     selector: str,
 ) -> SkillManifest | None:
-    return select_one_by_name_or_index(manifests, selector, names=lambda manifest: (manifest.name,))
+    def names(manifest: SkillManifest) -> list[str]:
+        return [manifest.name]
+
+    return select_one_by_name_or_index(manifests, selector, names=names)
 
 
 def reload_skill_manifests(

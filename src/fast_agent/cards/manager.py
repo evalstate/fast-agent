@@ -461,16 +461,22 @@ def list_local_card_packs(*, environment_paths: EnvironmentPaths) -> list[LocalC
 def select_card_pack_by_name_or_index(
     entries: Iterable[MarketplaceCardPack], selector: str
 ) -> MarketplaceCardPack | None:
-    return select_one_by_name_or_index(entries, selector, names=lambda entry: (entry.name,))
+    def names(entry: MarketplaceCardPack) -> list[str]:
+        return [entry.name]
+
+    return select_one_by_name_or_index(entries, selector, names=names)
 
 
 def select_installed_card_pack_by_name_or_index(
     entries: Iterable[LocalCardPack], selector: str
 ) -> LocalCardPack | None:
+    def names(entry: LocalCardPack) -> list[str]:
+        return [entry.name, entry.pack_dir.name]
+
     return select_one_by_name_or_index(
         entries,
         selector,
-        names=lambda entry: (entry.name, entry.pack_dir.name),
+        names=names,
     )
 
 

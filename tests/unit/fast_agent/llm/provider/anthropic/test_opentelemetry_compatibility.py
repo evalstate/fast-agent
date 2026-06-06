@@ -9,17 +9,17 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaUsage
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
-from fast_agent.llm.provider.anthropic.beta_types import Message, TextBlock, Usage
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 
 
 class MockStreamManager:
     """Mock stream manager that simulates Anthropic's stream interface."""
 
-    def __init__(self, final_message: Message):
+    def __init__(self, final_message: BetaMessage):
         self._entered = False
         self._exited = False
         self._final_message = final_message
@@ -37,7 +37,7 @@ class MockStreamManager:
         return
         yield  # Make this a generator
 
-    async def get_final_message(self) -> Message:
+    async def get_final_message(self) -> BetaMessage:
         """Return the mock final message."""
         return self._final_message
 
@@ -53,16 +53,16 @@ class TestOpenTelemetryCompatibility:
         llm = AnthropicLLM(context=ctx)
         return llm
 
-    def _create_mock_message(self, text: str = "Hello from AI") -> Message:
+    def _create_mock_message(self, text: str = "Hello from AI") -> BetaMessage:
         """Create a mock Anthropic message."""
-        return Message(
+        return BetaMessage(
             id="msg_123",
             type="message",
             role="assistant",
-            content=[TextBlock(type="text", text=text)],
+            content=[BetaTextBlock(type="text", text=text)],
             model="claude-3-5-sonnet-20241022",
             stop_reason="end_turn",
-            usage=Usage(input_tokens=10, output_tokens=20),
+            usage=BetaUsage(input_tokens=10, output_tokens=20),
         )
 
     @pytest.mark.asyncio

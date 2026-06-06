@@ -1,12 +1,12 @@
 import types
 
 import pytest
+from anthropic.types.beta import BetaToolParam
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.llm.provider.anthropic.beta_types import ToolParam
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
 from fast_agent.llm.provider.anthropic.vertex_config import (
@@ -183,7 +183,7 @@ def test_vertex_beta_support_is_selective() -> None:
         model="claude-sonnet-4-5",
         long_context=True,
     )
-    request_tools = [ToolParam(name="demo", description="", input_schema={})]
+    request_tools = [BetaToolParam(name="demo", description="", input_schema={})]
 
     beta_flags = llm._resolve_anthropic_beta_flags(
         model="claude-sonnet-4-5",

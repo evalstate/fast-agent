@@ -14,7 +14,7 @@ from fast_agent.utils.collections import unique_preserve_order
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from fast_agent.llm.provider.anthropic.beta_types import ToolParam
+    from anthropic.types.beta import BetaToolParam
 
 
 @runtime_checkable
@@ -144,13 +144,13 @@ def build_web_tool_params(
     search_version: str | None,
     fetch_version: str | None,
     required_betas: tuple[str, ...] | None,
-) -> tuple[list["ToolParam"], tuple[str, ...]]:
-    tools: list["ToolParam"] = []
+) -> tuple[list["BetaToolParam"], tuple[str, ...]]:
+    tools: list["BetaToolParam"] = []
 
     if resolved_tools.search_enabled and search_version:
         tools.append(
             cast(
-                "ToolParam",
+                "BetaToolParam",
                 _web_search_payload(resolved_tools.search_settings, search_version),
             )
         )
@@ -158,7 +158,7 @@ def build_web_tool_params(
     if resolved_tools.fetch_enabled and fetch_version:
         tools.append(
             cast(
-                "ToolParam",
+                "BetaToolParam",
                 _web_fetch_payload(resolved_tools.fetch_settings, fetch_version),
             )
         )

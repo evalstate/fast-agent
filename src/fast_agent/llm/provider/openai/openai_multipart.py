@@ -8,9 +8,12 @@ from collections.abc import Mapping
 from typing import Any, Literal, Union
 
 from mcp.types import (
+    AudioContent,
     BlobResourceContents,
+    ContentBlock,
     EmbeddedResource,
     ImageContent,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
@@ -147,12 +150,15 @@ def _resource_part_to_content(mapping: dict[str, Any] | None) -> TextContent | I
 
 def _content_part_to_mcp_content(
     part: object,
-) -> TextContent | ImageContent | EmbeddedResource | object | None:
+) -> ContentBlock | None:
     mapping = _part_mapping(part)
     part_type = _part_value(part, mapping, "type")
 
     if part_type == "text":
-        return _text_part_to_content(part, mapping)
+        text_content = _text_part_to_content(part, mapping)
+        if isinstance(text_content, (TextContent, ImageContent, AudioContent, ResourceLink, EmbeddedResource)):
+            return text_content
+        return None
     if part_type == "image_url":
         return _image_url_part_to_content(part, mapping)
     if part_type == "resource":
@@ -188,7 +194,7 @@ def _openai_message_to_extended(
     """Convert a single OpenAI message to PromptMessageExtended."""
     role, content = _message_role_and_content(message)
 
-    mcp_contents = []
+    mcp_contents: list[ContentBlock] = []
 
     if isinstance(content, str):
         mcp_contents.append(TextContent(type="text", text=content))
