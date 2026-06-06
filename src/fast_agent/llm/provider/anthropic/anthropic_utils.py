@@ -29,6 +29,8 @@ def anthropic_message_param_to_prompt_message_multipart(
         A PromptMessageExtended representation
     """
     role = message_param["role"]
+    if role == "system":
+        raise ValueError("Anthropic system messages cannot be converted to PromptMessageExtended")
     content = message_param["content"]
 
     # Handle string content (user messages can be simple strings)

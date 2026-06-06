@@ -1,17 +1,20 @@
 from typing import Any
 
-try:
-    from azure.identity import (  # ty: ignore[unresolved-import]
-        DefaultAzureCredential as _DefaultAzureCredential,
-    )
-except ImportError:
-    _DefaultAzureCredential = None
-
 from openai import AsyncAzureOpenAI, AsyncOpenAI, AuthenticationError
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
+
+_DefaultAzureCredential: type[Any] | None
+try:
+    from azure.identity import (
+        DefaultAzureCredential as _ImportedDefaultAzureCredential,
+    )
+except ImportError:
+    _DefaultAzureCredential = None
+else:
+    _DefaultAzureCredential = _ImportedDefaultAzureCredential
 
 DefaultAzureCredential: type[Any] | None = _DefaultAzureCredential
 
