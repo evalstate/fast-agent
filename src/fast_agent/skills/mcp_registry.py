@@ -139,10 +139,11 @@ async def scan_mcp_skill_registry(
         if not isinstance(url, str) or not url.strip():
             logger.warning("MCP skill entry missing url", data={"server": server_name})
             continue
-        if url.lower().startswith("file://"):
+        source_url = url.strip()
+        if source_url.lower().startswith("file://"):
             logger.warning(
                 "Rejecting file:// MCP skill URL",
-                data={"server": server_name, "url": url},
+                data={"server": server_name, "url": source_url},
             )
             continue
         if not isinstance(digest, str) or not _is_valid_sha256_digest(digest):
@@ -156,7 +157,7 @@ async def scan_mcp_skill_registry(
             McpRegistrySkill(
                 name=name.strip(),
                 description=description.strip() if isinstance(description, str) else None,
-                source_url=_resolve_entry_url(url.strip()),
+                source_url=_resolve_entry_url(source_url),
                 server_name=server_name,
                 digest=digest.strip(),
                 artifact_type=artifact_type,

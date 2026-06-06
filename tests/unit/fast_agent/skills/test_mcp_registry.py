@@ -157,6 +157,29 @@ async def test_scan_mcp_skill_registry_reads_verified_skill_entries() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scan_mcp_skill_registry_rejects_padded_file_urls() -> None:
+    index = json.dumps(
+        {
+            "skills": [
+                {
+                    "type": "skill-md",
+                    "name": "local",
+                    "description": "Local skill",
+                    "url": " file:///tmp/SKILL.md",
+                    "digest": "sha256:" + "0" * 64,
+                }
+            ]
+        }
+    )
+    aggregator = _Aggregator(capabilities=_skills_capabilities(), responses={INDEX_URI: index})
+
+    registry = await scan_mcp_skill_registry(aggregator, "hf")
+
+    assert registry is not None
+    assert registry.skills == []
+
+
+@pytest.mark.asyncio
 async def test_scan_mcp_skill_registry_skips_entries_without_sha256() -> None:
     index = json.dumps(
         {

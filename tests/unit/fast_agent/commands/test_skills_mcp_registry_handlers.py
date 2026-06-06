@@ -86,6 +86,16 @@ async def test_skills_registry_lists_mcp_servers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_skills_registry_uses_current_agent_for_mcp_servers() -> None:
+    settings = Settings()
+    outcome = await handle_set_skills_registry(_ctx(settings), agent_name=None, argument=None)
+
+    rendered = "\n".join(_plain(message.text) for message in outcome.messages)
+    assert "MCP registries:" in rendered
+    assert "mcp-server hf@1.2.3" in rendered
+
+
+@pytest.mark.asyncio
 async def test_skills_registry_can_select_mcp_server_by_name() -> None:
     settings = Settings()
     ctx = _ctx(settings)

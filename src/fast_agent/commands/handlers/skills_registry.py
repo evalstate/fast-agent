@@ -165,7 +165,7 @@ async def handle_set_skills_registry(
         for url in resolve_skill_registries(settings)
         if mcp_registry_server_name(url) is None
     ]
-    mcp_registries = await _list_mcp_skill_registries(ctx, agent_name=agent_name)
+    mcp_registries = await _list_mcp_skill_registries(ctx, agent_name=active_agent_name)
 
     registry_arg = optional_selector(argument)
     if registry_arg is None:
