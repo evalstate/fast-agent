@@ -464,9 +464,7 @@ class ToolStreamState:
             return build_apply_patch_preview_from_input(
                 stripped_text,
                 max_lines=self.apply_patch_preview_max_lines,
-            ) is not None or (
-                stripped_text.lstrip().startswith("*** Begin Patch")
-            )
+            ) is not None or (stripped_text.lstrip().startswith("*** Begin Patch"))
 
         if not is_shell_execution_tool(tool_name):
             return False
@@ -490,12 +488,16 @@ class ToolStreamState:
             )
 
         extracted = extract_partial_json_string_field(self.raw_text, field_name="command")
-        return extracted is not None and bool(extracted.value) and (
-            build_partial_apply_patch_preview(
-                extracted.value,
-                max_lines=self.apply_patch_preview_max_lines,
+        return (
+            extracted is not None
+            and bool(extracted.value)
+            and (
+                build_partial_apply_patch_preview(
+                    extracted.value,
+                    max_lines=self.apply_patch_preview_max_lines,
+                )
+                is not None
             )
-            is not None
         )
 
     def render_text(self, *, prefix: str, pretty: bool) -> str:

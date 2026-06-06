@@ -95,9 +95,7 @@ async def test_execute_returns_task_exceptions() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_timeout_returns_timeout_error() -> None:
-    executor = AsyncioExecutor(
-        ExecutorConfig(timeout_seconds=timedelta(milliseconds=10))
-    )
+    executor = AsyncioExecutor(ExecutorConfig(timeout_seconds=timedelta(milliseconds=10)))
 
     results = await executor.execute(asyncio.sleep(1))
 

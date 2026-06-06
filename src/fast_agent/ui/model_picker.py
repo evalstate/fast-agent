@@ -426,10 +426,7 @@ class _SplitListPicker:
             availability = self._provider_availability_label(option)
             provider_name = self._provider_display_name_for_option(option)
             count_label = provider_option_count_label(option)
-            text = (
-                f"{cursor}{provider_name:<16} "
-                f"[{availability}] ({count_label})\n"
-            )
+            text = f"{cursor}{provider_name:<16} [{availability}] ({count_label})\n"
             fragments.append((line_style, text))
         return fragments
 

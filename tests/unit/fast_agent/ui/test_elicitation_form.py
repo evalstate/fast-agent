@@ -157,7 +157,7 @@ def test_format_validator_reports_format_specific_messages(
     format_type: str,
     invalid_value: str,
     message: str,
-    ) -> None:
+) -> None:
     validator = FormatValidator(format_type)
 
     with pytest.raises(ValidationError) as exc_info:

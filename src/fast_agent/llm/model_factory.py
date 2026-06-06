@@ -91,11 +91,7 @@ SUPPORTED_MODEL_QUERY_KEYS = frozenset(
         *_STRUCTURED_TOOL_QUERY_KEYS,
         *_WEB_TOOL_QUERY_KEYS,
         *_TASK_BUDGET_QUERY_KEYS,
-        *(
-            key
-            for key_group in _SAMPLING_QUERY_KEYS.values()
-            for key in key_group
-        ),
+        *(key for key_group in _SAMPLING_QUERY_KEYS.values() for key in key_group),
     )
 )
 _PROVIDER_CLASS_PATHS: dict[Provider, tuple[str, str]] = {
@@ -192,6 +188,7 @@ class ModelQueryOverrides:
 
     def with_defaults(self, defaults: Self) -> "ModelQueryOverrides":
         """Return a copy with unset values filled from defaults."""
+
         def coalesce[T](value: T | None, default: T | None) -> T | None:
             return value if value is not None else default
 
@@ -453,9 +450,7 @@ def _parse_web_tool_queries(
 
 def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool:
     if _has_query_key(query_params, "context"):
-        normalized_value = strip_casefold(
-            _collect_query_values(query_params, ("context",))[-1]
-        )
+        normalized_value = strip_casefold(_collect_query_values(query_params, ("context",))[-1])
         if normalized_value == "1m":
             return True
         raise ModelConfigError(
@@ -513,9 +508,7 @@ def _parse_query_overrides(
     model_spec: str,
 ) -> ModelQueryOverrides:
     _raise_for_unsupported_query_keys(query_params, model_spec)
-    task_budget_tokens, task_budget_configured = _parse_task_budget_query(
-        query_params, model_spec
-    )
+    task_budget_tokens, task_budget_configured = _parse_task_budget_query(query_params, model_spec)
     web_tool_overrides = _parse_web_tool_queries(query_params, model_spec)
 
     return ModelQueryOverrides(

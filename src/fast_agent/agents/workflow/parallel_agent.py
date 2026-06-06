@@ -99,8 +99,7 @@ class ParallelAgent(LlmAgent):
 
         # Format each agent's response
         formatted.extend(
-            f'<fastagent:response agent="{agent.name}">\n'
-            f"{response}\n</fastagent:response>"
+            f'<fastagent:response agent="{agent.name}">\n{response}\n</fastagent:response>'
             for agent, response in zip(self.fan_out_agents, responses, strict=True)
         )
         return "\n\n".join(formatted)

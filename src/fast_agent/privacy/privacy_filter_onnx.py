@@ -298,9 +298,7 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
                     f"to load. {PRIVACY_EXTRA_INSTALL_MESSAGE}"
                 )
             )
-            raise SessionExportPrivacyFilterError(
-                message
-            ) from exc
+            raise SessionExportPrivacyFilterError(message) from exc
 
         # Only try to preload CUDA / cuDNN DLLs when CUDA is actually in play.
         # On CPU-only "auto" runs this avoids spurious ORT warnings about

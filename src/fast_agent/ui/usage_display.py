@@ -204,9 +204,7 @@ def _format_usage_row(row: _UsageDisplayRow, agent_width: int, subdued_colors: b
     return f"{line}[dim]{model:<25}[/dim]"
 
 
-def _format_total_row(
-    usage_data: _UsageDisplayData, agent_width: int, subdued_colors: bool
-) -> str:
+def _format_total_row(usage_data: _UsageDisplayData, agent_width: int, subdued_colors: bool) -> str:
     if subdued_colors:
         return (
             f"[bold dim]{'TOTAL':<{agent_width}} "

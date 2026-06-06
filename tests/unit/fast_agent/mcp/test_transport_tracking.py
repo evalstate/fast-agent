@@ -31,9 +31,7 @@ def test_transport_message_counts_are_tallied_by_channel() -> None:
         ChannelEvent(
             channel="post-json",
             event_type="message",
-            message=JSONRPCMessage(
-                JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call")
-            ),
+            message=JSONRPCMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call")),
         )
     )
     metrics.record_event(
@@ -47,9 +45,7 @@ def test_transport_message_counts_are_tallied_by_channel() -> None:
         ChannelEvent(
             channel="resumption",
             event_type="message",
-            message=JSONRPCMessage(
-                JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/read")
-            ),
+            message=JSONRPCMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/read")),
         )
     )
     metrics.record_event(
@@ -182,9 +178,7 @@ def test_response_channel_ignores_requests_until_response_arrives() -> None:
         ChannelEvent(
             channel="post-json",
             event_type="message",
-            message=JSONRPCMessage(
-                JSONRPCRequest(jsonrpc="2.0", id=42, method="tools/call")
-            ),
+            message=JSONRPCMessage(JSONRPCRequest(jsonrpc="2.0", id=42, method="tools/call")),
         )
     )
 

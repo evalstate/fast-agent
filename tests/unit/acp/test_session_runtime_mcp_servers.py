@@ -164,8 +164,12 @@ async def test_finalize_session_schedules_available_commands_after_restored_agen
         scheduled_agents.append(slash_handler.current_agent_name)
         awaitable.close()
 
-    monkeypatch.setattr(server, "_send_available_commands_update", fake_send_available_commands_update)
-    monkeypatch.setattr(server._session_runtime, "_create_background_task", fake_create_background_task)
+    monkeypatch.setattr(
+        server, "_send_available_commands_update", fake_send_available_commands_update
+    )
+    monkeypatch.setattr(
+        server._session_runtime, "_create_background_task", fake_create_background_task
+    )
 
     modes = await server._session_runtime._finalize_session_instance_state(
         session_state,
@@ -690,7 +694,9 @@ async def test_attach_session_mcp_server_uses_runtime_manager_error_for_non_mcp_
         lambda instance: [("helper", cast("Any", instance.agents["helper"]))],
     )
 
-    with pytest.raises(RuntimeError, match="Agent 'default' does not support MCP server management"):
+    with pytest.raises(
+        RuntimeError, match="Agent 'default' does not support MCP server management"
+    ):
         await server._attach_mcp_server_for_session(
             session_state,
             agent_name="default",
@@ -889,8 +895,12 @@ async def test_initialize_session_state_injects_terminal_runtime_via_public_shel
     async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
         return None
 
-    monkeypatch.setattr(server, "_send_available_commands_update", fake_send_available_commands_update)
-    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay)
+    monkeypatch.setattr(
+        server, "_send_available_commands_update", fake_send_available_commands_update
+    )
+    monkeypatch.setattr(
+        server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay
+    )
 
     session_state, _ = await server._initialize_session_state(
         "session-1",
@@ -926,8 +936,12 @@ async def test_initialize_session_state_skips_terminal_runtime_when_local_shell_
     async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
         return None
 
-    monkeypatch.setattr(server, "_send_available_commands_update", fake_send_available_commands_update)
-    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay)
+    monkeypatch.setattr(
+        server, "_send_available_commands_update", fake_send_available_commands_update
+    )
+    monkeypatch.setattr(
+        server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay
+    )
 
     session_state, _ = await server._initialize_session_state(
         "session-1",

@@ -406,9 +406,7 @@ async def test_write_text_file_denial_sends_preview_without_read_or_write() -> N
             {"path": "target.txt", "content_length": 3},
         )
     ]
-    assert tool_handler.denials == [
-        ("write_text_file", "acp_filesystem", "tool-1", "denied")
-    ]
+    assert tool_handler.denials == [("write_text_file", "acp_filesystem", "tool-1", "denied")]
 
 
 @pytest.mark.asyncio
@@ -463,9 +461,7 @@ async def test_read_text_file_denial_skips_read_and_notifies_tool_handler() -> N
             {"path": "target.txt"},
         )
     ]
-    assert tool_handler.denials == [
-        ("read_text_file", "acp_filesystem", "tool-1", "denied")
-    ]
+    assert tool_handler.denials == [("read_text_file", "acp_filesystem", "tool-1", "denied")]
 
 
 @pytest.mark.asyncio

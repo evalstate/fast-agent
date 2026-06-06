@@ -14,9 +14,7 @@ fast = FastAgent("Structured content preview demo")
 
 
 @fast.agent(
-    instruction=(
-        "Use the passthrough model to invoke the requested tool exactly as provided."
-    ),
+    instruction=("Use the passthrough model to invoke the requested tool exactly as provided."),
     servers=["structured_preview"],
 )
 async def main() -> None:

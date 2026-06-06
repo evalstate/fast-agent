@@ -195,14 +195,11 @@ def _terminal_env_params(env: Any) -> list[dict[str, str]]:
             raise ValueError("Error: 'env' argument must contain string keys and values")
         return [{"name": name, "value": value} for name, value in env.items()]
 
-    if (
-        isinstance(env, list)
-        and all(
-            isinstance(item, dict)
-            and isinstance(item.get("name"), str)
-            and isinstance(item.get("value"), str)
-            for item in env
-        )
+    if isinstance(env, list) and all(
+        isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and isinstance(item.get("value"), str)
+        for item in env
     ):
         return [{"name": item["name"], "value": item["value"]} for item in env]
 
@@ -438,7 +435,9 @@ class ACPTerminalRuntime:
                 with suppress(Exception):
                     await self._release_terminal(terminal_id)
 
-            await self._notify_tool_complete(tool_call_id, success=False, content=None, error=str(e))
+            await self._notify_tool_complete(
+                tool_call_id, success=False, content=None, error=str(e)
+            )
             return _error_result(f"Terminal execution error: {e}")
 
     async def _permission_error(

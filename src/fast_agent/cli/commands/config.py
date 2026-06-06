@@ -121,11 +121,7 @@ def _overlay_section_updates(
         return updates
 
     baseline_values = baseline.model_dump(mode="python")
-    return {
-        key: value
-        for key, value in updates.items()
-        if baseline_values.get(key) != value
-    }
+    return {key: value for key, value in updates.items() if baseline_values.get(key) != value}
 
 
 def _replace_config_section(

@@ -919,7 +919,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if not text_parts:
             return parts
 
-        cited_text = self._apply_citations("".join(part.text for part in text_parts), grounding_metadata)
+        cited_text = self._apply_citations(
+            "".join(part.text for part in text_parts), grounding_metadata
+        )
         new_parts: list[ContentBlock | CallToolRequestParams] = []
         replaced = False
         for part in parts:
@@ -1457,7 +1459,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 if citation_string:
                     text = text[:end_index] + citation_string + text[end_index:]
         except Exception as e:
-            self.logger.warning(f"Failed to process Google Search grounding metadata citations: {e}")
+            self.logger.warning(
+                f"Failed to process Google Search grounding metadata citations: {e}"
+            )
 
         return text
 

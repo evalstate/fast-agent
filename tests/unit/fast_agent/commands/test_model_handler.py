@@ -60,9 +60,7 @@ class _StubIO:
     async def prompt_text(self, prompt: str, *, default=None, allow_empty=True):
         return default
 
-    async def prompt_selection(
-        self, prompt: str, *, options, allow_cancel=False, default=None
-    ):
+    async def prompt_selection(self, prompt: str, *, options, allow_cancel=False, default=None):
         return default
 
     async def prompt_model_selection(
@@ -78,7 +76,9 @@ class _StubIO:
     async def prompt_argument(self, arg_name: str, *, description=None, required=True):
         return None
 
-    async def display_history_turn(self, agent_name: str, turn, *, turn_index=None, total_turns=None):
+    async def display_history_turn(
+        self, agent_name: str, turn, *, turn_index=None, total_turns=None
+    ):
         return None
 
     async def display_history_overview(self, agent_name: str, history, usage=None):
@@ -407,9 +407,7 @@ async def test_model_reasoning_includes_transport_details_for_configurable_model
 
     assert "Model transports: sse, websocket." in text_messages
     assert "Configured transport: websocket." in text_messages
-    assert (
-        "Active transport: sse (websocket fallback was used for this turn)." in text_messages
-    )
+    assert "Active transport: sse (websocket fallback was used for this turn)." in text_messages
 
 
 @pytest.mark.asyncio
@@ -685,7 +683,10 @@ async def test_model_fast_rejects_invalid_value() -> None:
     outcome = await handle_model_fast(ctx, agent_name="test", value="maybe")
     text_messages = [str(m.text) for m in outcome.messages]
 
-    assert "Invalid service tier value 'maybe'. Allowed values: on, off, flex, status." in text_messages
+    assert (
+        "Invalid service tier value 'maybe'. Allowed values: on, off, flex, status."
+        in text_messages
+    )
 
 
 @pytest.mark.asyncio
@@ -931,4 +932,7 @@ async def test_model_task_budget_rejects_values_below_minimum() -> None:
     outcome = await handle_model_task_budget(ctx, agent_name="test", value="10k")
 
     assert llm.task_budget_tokens is None
-    assert any("Task budget must be at least 20,000 tokens." in str(message.text) for message in outcome.messages)
+    assert any(
+        "Task budget must be at least 20,000 tokens." in str(message.text)
+        for message in outcome.messages
+    )

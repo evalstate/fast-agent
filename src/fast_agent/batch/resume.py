@@ -37,7 +37,9 @@ def load_completed_ids(path: Path) -> set[CanonicalBatchId]:
             try:
                 record = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSONL in existing output at line {line_number}: {exc}") from exc
+                raise ValueError(
+                    f"Invalid JSONL in existing output at line {line_number}: {exc}"
+                ) from exc
             if not isinstance(record, dict):
                 raise ValueError(f"Invalid existing output at line {line_number}: expected object")
             if record.get("ok") is True and "id" in record:

@@ -124,20 +124,14 @@ class ConsoleDisplay:
         self._markup = self._logger_settings.enable_markup
         self._escape_xml = True
         self._code_word_wrap = (
-            self._logger_settings.code_word_wrap
-            if code_word_wrap is None
-            else code_word_wrap
+            self._logger_settings.code_word_wrap if code_word_wrap is None else code_word_wrap
         )
         self._render_fences_with_syntax = (
             self._logger_settings.render_fences_with_syntax
             if render_fences_with_syntax is None
             else render_fences_with_syntax
         )
-        self._code_style = (
-            self._logger_settings.code_theme
-            if code_theme is None
-            else code_theme
-        )
+        self._code_style = self._logger_settings.code_theme if code_theme is None else code_theme
         self._apply_console_theme()
         self._style = A3MessageStyle()
         self._tool_display = ToolDisplay(self)
@@ -1185,9 +1179,7 @@ class ConsoleDisplay:
         if not sections or not any(section.phase is not None for section in sections):
             return None
 
-        rendered_sections = [
-            self._render_openai_phase_section(section) for section in sections
-        ]
+        rendered_sections = [self._render_openai_phase_section(section) for section in sections]
         return self._combine_openai_phase_renderables(rendered_sections)
 
     async def show_assistant_message(

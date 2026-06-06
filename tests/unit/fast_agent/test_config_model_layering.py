@@ -129,8 +129,9 @@ def test_logger_numeric_controls_reject_boolean_values(field_name: str) -> None:
 
 def test_logger_apply_patch_preview_max_lines_rejects_boolean_values() -> None:
     assert (
-        LoggerSettings.model_validate({"apply_patch_preview_max_lines": "12"})
-        .apply_patch_preview_max_lines
+        LoggerSettings.model_validate(
+            {"apply_patch_preview_max_lines": "12"}
+        ).apply_patch_preview_max_lines
         == 12
     )
 

@@ -41,15 +41,11 @@ def test_normalize_card_type_handles_padded_mixed_case_values() -> None:
 
 def test_instruction_texts_normalizes_instruction_and_body() -> None:
     assert _instruction_texts("  {{file: docs/a.md }}  ", "   ") == ["{{file: docs/a.md }}"]
-    assert _instruction_texts(None, "  Use {{file: docs/b.md }}  ") == [
-        "Use {{file: docs/b.md }}"
-    ]
+    assert _instruction_texts(None, "  Use {{file: docs/b.md }}  ") == ["Use {{file: docs/b.md }}"]
 
 
 def test_iter_file_placeholders_normalizes_values() -> None:
-    assert list(_iter_file_placeholders("{{file: docs/a.md }} {{file:   }}")) == [
-        "docs/a.md"
-    ]
+    assert list(_iter_file_placeholders("{{file: docs/a.md }} {{file:   }}")) == ["docs/a.md"]
 
 
 def test_markdown_has_frontmatter_normalizes_first_non_empty_line(tmp_path: Path) -> None:
@@ -62,10 +58,12 @@ def test_markdown_has_frontmatter_normalizes_first_non_empty_line(tmp_path: Path
 def test_scan_agent_card_path_for_file(tmp_path: Path) -> None:
     card_path = tmp_path / "agent.yaml"
     card_path.write_text(
-        "\n".join([
-            "name: solo_agent",
-            "model: gpt-4.1",
-        ]),
+        "\n".join(
+            [
+                "name: solo_agent",
+                "model: gpt-4.1",
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -78,10 +76,12 @@ def test_scan_agent_card_path_for_file(tmp_path: Path) -> None:
 def test_scan_agent_card_path_for_directory(tmp_path: Path) -> None:
     card_path = tmp_path / "agent.yaml"
     card_path.write_text(
-        "\n".join([
-            "name: dir_agent",
-            "model: gpt-4.1",
-        ]),
+        "\n".join(
+            [
+                "name: dir_agent",
+                "model: gpt-4.1",
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -135,12 +135,8 @@ def test_scan_agent_cards_reports_dependency_cycle(tmp_path: Path) -> None:
     results = scan_agent_card_directory(tmp_path)
     errors_by_name = {entry.name: entry.errors for entry in results}
 
-    assert any(
-        "Circular dependency detected" in err for err in errors_by_name.get("agent_a", [])
-    )
-    assert any(
-        "Circular dependency detected" in err for err in errors_by_name.get("agent_b", [])
-    )
+    assert any("Circular dependency detected" in err for err in errors_by_name.get("agent_a", []))
+    assert any("Circular dependency detected" in err for err in errors_by_name.get("agent_b", []))
 
 
 def test_scan_agent_cards_allows_acyclic_dependencies(tmp_path: Path) -> None:
@@ -189,7 +185,7 @@ def test_scan_agent_cards_reports_unparseable_mcp_connect_entry(tmp_path: Path) 
             [
                 "name: mcp_agent",
                 "mcp_connect:",
-                "  - target: \"npx 'unterminated\"",
+                '  - target: "npx \'unterminated"',
             ]
         ),
         encoding="utf-8",

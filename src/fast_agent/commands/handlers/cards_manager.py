@@ -147,7 +147,9 @@ def _add_empty_cards_registry_warning(outcome: CommandOutcome, url: str) -> None
     outcome.add_message(content, channel="warning", right_info="cards")
 
 
-def _format_install_result(*, pack_name: str, install_path: Path, installed_files: Sequence[str]) -> Text:
+def _format_install_result(
+    *, pack_name: str, install_path: Path, installed_files: Sequence[str]
+) -> Text:
     content = Text()
     content.append(f"Installed card pack: {pack_name}", style="green")
     content.append("\n")
@@ -228,9 +230,7 @@ def _publish_failure_warning(result: CardPackPublishResult) -> str | None:
     if not card_service.is_card_pack_publish_failure(result.status):
         return None
     if result.patch_path is not None:
-        return (
-            "Push was rejected. Share the generated patch with a maintainer or open a PR from your branch."
-        )
+        return "Push was rejected. Share the generated patch with a maintainer or open a PR from your branch."
     return "Publish failed after committing locally. Push manually or ask a maintainer with write access."
 
 

@@ -210,6 +210,4 @@ def test_list_references_tolerant_skips_invalid_reference_names(tmp_path) -> Non
 
     service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
 
-    assert service.list_references_tolerant() == {
-        "system": {"fast": "claude-haiku-4-5"}
-    }
+    assert service.list_references_tolerant() == {"system": {"fast": "claude-haiku-4-5"}}

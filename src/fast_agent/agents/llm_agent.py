@@ -162,8 +162,7 @@ class LlmAgent(LlmDecorator):
     def has_after_llm_call_hook(self) -> bool:
         """Return True if an after_llm_call hook is configured."""
         return (
-            self.tool_runner_hooks is not None
-            and self.tool_runner_hooks.after_llm_call is not None
+            self.tool_runner_hooks is not None and self.tool_runner_hooks.after_llm_call is not None
         )
 
     @property
@@ -461,9 +460,7 @@ class LlmAgent(LlmDecorator):
             else 0
         )
         citation_blocks = (
-            len(channels.get(ANTHROPIC_CITATIONS_CHANNEL, []))
-            if isinstance(channels, dict)
-            else 0
+            len(channels.get(ANTHROPIC_CITATIONS_CHANNEL, [])) if isinstance(channels, dict) else 0
         )
         print(
             "[webdebug]"
@@ -681,9 +678,7 @@ class LlmAgent(LlmDecorator):
             hidden_issue_count = len(issues) - 3
             if hidden_issue_count > 0:
                 hidden_label = format_count(hidden_issue_count, "more issue")
-                console.console.print(
-                    f"[dim yellow]  - ... and {hidden_label}[/dim yellow]"
-                )
+                console.console.print(f"[dim yellow]  - ... and {hidden_label}[/dim yellow]")
 
             if not elicitations:
                 console.console.print(
@@ -807,9 +802,7 @@ class LlmAgent(LlmDecorator):
             if message.role != "user":
                 break
             trailing_users.append(message)
-        self._display_user_messages(
-            list(reversed(trailing_users)), request_params=request_params
-        )
+        self._display_user_messages(list(reversed(trailing_users)), request_params=request_params)
 
     async def generate_impl(
         self,
@@ -874,12 +867,15 @@ class LlmAgent(LlmDecorator):
                     await stream_handle.wait_for_drain()
                     self._maybe_close_streaming_for_tool_calls(result)
                     stream_scrolled = stream_handle.has_scrolled()
-                    preserve_streamed_frame = self._can_preserve_streamed_final_frame(
-                        message=result,
-                        summary_text=summary_text,
-                        streaming_mode=streaming_preferences.mode,
-                        stream_handle=stream_handle,
-                    ) and stream_handle.preserve_final_frame()
+                    preserve_streamed_frame = (
+                        self._can_preserve_streamed_final_frame(
+                            message=result,
+                            summary_text=summary_text,
+                            streaming_mode=streaming_preferences.mode,
+                            stream_handle=stream_handle,
+                        )
+                        and stream_handle.preserve_final_frame()
+                    )
                     stream_handle.finalize(result)
                 finally:
                     write_interactive_trace(
@@ -935,9 +931,7 @@ class LlmAgent(LlmDecorator):
             self._active_stream_handle = None
         return True
 
-    def _maybe_close_streaming_for_tool_calls(
-        self, message: PromptMessageExtended
-    ) -> None:
+    def _maybe_close_streaming_for_tool_calls(self, message: PromptMessageExtended) -> None:
         tool_calls = message.tool_calls
         if not tool_calls or len(tool_calls) <= 1:
             logger.debug(
@@ -955,9 +949,7 @@ class LlmAgent(LlmDecorator):
             subagent_call_count=subagent_calls,
         )
         if subagent_calls > 1:
-            self.close_active_streaming_display(
-                reason="parallel subagent tool calls"
-            )
+            self.close_active_streaming_display(reason="parallel subagent tool calls")
 
     async def structured_impl(
         self,

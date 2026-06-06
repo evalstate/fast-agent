@@ -178,9 +178,7 @@ def _token_display_for_server_row(row: AuthServerRow, *, backend_usable: bool) -
     return "[dim]✗[/dim]"
 
 
-def _print_configured_servers_status(
-    rows: list[AuthServerRow], *, backend_usable: bool
-) -> None:
+def _print_configured_servers_status(rows: list[AuthServerRow], *, backend_usable: bool) -> None:
     if not rows:
         return
 
@@ -247,8 +245,7 @@ def _print_codex_oauth_status() -> None:
 def _echo_missing_login_target() -> None:
     typer.echo("Provide a server name or identity URL to log in.")
     typer.echo(
-        "Example: `fast-agent auth login my-server` "
-        "or `fast-agent auth login https://example.com`."
+        "Example: `fast-agent auth login my-server` or `fast-agent auth login https://example.com`."
     )
     typer.echo("Run `fast-agent auth login --help` for more details.")
 
@@ -487,10 +484,7 @@ def codexplan() -> None:
             detail = "No usable keyring backend was detected."
         else:
             detail = f"Keyring backend '{keyring_status.name}' is not writable."
-        typer.echo(
-            "Keyring backend not writable; cannot store Codex OAuth tokens. "
-            f"{detail}"
-        )
+        typer.echo(f"Keyring backend not writable; cannot store Codex OAuth tokens. {detail}")
         raise typer.Exit(1)
 
     status = get_codex_token_status()
@@ -521,8 +515,7 @@ def codex_clear() -> None:
         raise typer.Exit(1)
     if not status.writable:
         typer.echo(
-            "Keyring backend not writable; deletion may fail. "
-            f"Detected backend '{status.name}'."
+            f"Keyring backend not writable; deletion may fail. Detected backend '{status.name}'."
         )
 
     if not typer.confirm("Remove Codex OAuth tokens from keyring?", default=False):

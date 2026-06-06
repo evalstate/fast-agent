@@ -215,9 +215,7 @@ def _extend_name_or_signature_completions(
     if completions:
         results.extend(completions)
     elif not argument:
-        results.extend(
-            _signature_hints(signature_kind, empty_arg_list=empty_arg_list)
-        )
+        results.extend(_signature_hints(signature_kind, empty_arg_list=empty_arg_list))
     return results
 
 
@@ -397,9 +395,7 @@ def _catalog_subcommands(
     subcommands: dict[str, str] = {action.action: action.help for action in spec.actions}
     if include_aliases:
         for action in spec.actions:
-            subcommands.update(
-                {alias: f"alias for {action.action}" for alias in action.aliases}
-            )
+            subcommands.update({alias: f"alias for {action.action}" for alias in action.aliases})
     return subcommands
 
 
@@ -719,8 +715,8 @@ def _session_export_completions(
 def _session_export_option_completions(partial: str) -> list[Completion] | None:
     tokens = partial.split()
     current_token = tokens[-1] if tokens and not partial.endswith(" ") else ""
-    previous_token = tokens[-1] if partial.endswith(" ") and tokens else (
-        tokens[-2] if len(tokens) >= 2 else ""
+    previous_token = (
+        tokens[-1] if partial.endswith(" ") and tokens else (tokens[-2] if len(tokens) >= 2 else "")
     )
 
     option_details = build_session_export_action_detail()["options"]

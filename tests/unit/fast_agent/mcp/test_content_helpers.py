@@ -22,7 +22,9 @@ class _LoggerSpy:
         self.warning_calls.append((message, data))
 
 
-def test_canonicalize_tool_result_content_preserves_original_content_without_structured_content() -> None:
+def test_canonicalize_tool_result_content_preserves_original_content_without_structured_content() -> (
+    None
+):
     image_data = base64.b64encode(b"fake-image").decode("utf-8")
     text_block = TextContent(type="text", text="hello")
     image_block = ImageContent(type="image", data=image_data, mimeType="image/jpeg")
@@ -35,7 +37,9 @@ def test_canonicalize_tool_result_content_preserves_original_content_without_str
     assert canonical[1] is image_block
 
 
-def test_canonicalize_tool_result_content_prefers_structured_content_and_preserves_non_text() -> None:
+def test_canonicalize_tool_result_content_prefers_structured_content_and_preserves_non_text() -> (
+    None
+):
     image_data = base64.b64encode(b"fake-image").decode("utf-8")
     image_block = ImageContent(type="image", data=image_data, mimeType="image/jpeg")
     result = CallToolResult(

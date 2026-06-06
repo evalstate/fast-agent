@@ -101,9 +101,7 @@ def test_direct_source_wraps_git_root_mismatch(
 
 
 def test_github_skill_url_is_direct_source():
-    assert is_direct_skill_source(
-        "https://GitHub.com/org/repo/blob/main/skills/example/Skill.MD"
-    )
+    assert is_direct_skill_source("https://GitHub.com/org/repo/blob/main/skills/example/Skill.MD")
     assert is_direct_skill_source("https://github.com/org/repo/tree/main/skills/example")
     assert is_direct_skill_source(
         "https://RAW.githubusercontent.com/org/repo/feature/demo/skills/example/Skill.MD"

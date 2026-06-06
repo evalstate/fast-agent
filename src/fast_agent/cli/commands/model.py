@@ -102,6 +102,7 @@ class ModelReferencePickerIO(Protocol):
         items: tuple[ModelReferenceSetupItem, ...],
     ) -> str | None: ...
 
+
 app = typer.Typer(help="Interactive model reference setup.", add_completion=False)
 llamacpp_app = typer.Typer(
     help="Discover llama.cpp models, preview overlays, and import local runtime overlays.",
@@ -386,10 +387,7 @@ async def _select_model_setup_token_from_prompt(
             right_info="model",
         )
     )
-    option_labels = {
-        str(index): item.token
-        for index, item in enumerate(items, start=1)
-    }
+    option_labels = {str(index): item.token for index, item in enumerate(items, start=1)}
     selection = await io.prompt_selection(
         "Reference to configure (number or 'custom'):",
         options=[*option_labels.keys(), "custom"],
@@ -1118,7 +1116,9 @@ def _build_llamacpp_overlay_name(
 
     for overlay in registry.overlays:
         manifest = overlay.manifest
-        if overlay.name != generated_candidate and not overlay.name.startswith(f"{generated_candidate}-"):
+        if overlay.name != generated_candidate and not overlay.name.startswith(
+            f"{generated_candidate}-"
+        ):
             continue
         if manifest.provider != Provider.OPENRESPONSES:
             continue
@@ -1243,9 +1243,7 @@ async def _run_llamacpp_import(
     if selection is None:
         return None
     if dry_run and selection.action != "generate_overlay":
-        raise typer.BadParameter(
-            "Start-now actions are not available together with --dry-run."
-        )
+        raise typer.BadParameter("Start-now actions are not available together with --dry-run.")
     model_id = selection.model_id
 
     discovered_model = await interrogate_llamacpp_model(
@@ -1322,9 +1320,7 @@ def _emit_llamacpp_import_summary(
             typer.echo(f"Context window: {context_window} (runtime /props)")
         elif context_source == "catalog":
             typer.echo(f"Context window: {context_window} (catalog fallback; /props reported none)")
-    typer.echo(
-        f'Use it now: fast-agent go --model {result.overlay_name} --message "hello"'
-    )
+    typer.echo(f'Use it now: fast-agent go --model {result.overlay_name} --message "hello"')
     if include_sampling_defaults and any(
         value is not None
         for value in (
@@ -1717,7 +1713,9 @@ def _model_presets_provider_filter(raw_provider: str | None) -> Provider | None:
     try:
         return Provider(provider_name)
     except ValueError as exc:
-        raise typer.BadParameter(f"Unknown provider: {raw_provider}", param_hint="--provider") from exc
+        raise typer.BadParameter(
+            f"Unknown provider: {raw_provider}", param_hint="--provider"
+        ) from exc
 
 
 def _model_presets_key_status(
@@ -2026,12 +2024,8 @@ def model_llamacpp_list(
 
     env = _inherit_llamacpp_group_option(ctx, option_name="env", value=env)
     url = _inherit_llamacpp_group_url(ctx, url=url)
-    api_key_env = _inherit_llamacpp_group_option(
-        ctx, option_name="api_key_env", value=api_key_env
-    )
-    secret_ref = _inherit_llamacpp_group_option(
-        ctx, option_name="secret_ref", value=secret_ref
-    )
+    api_key_env = _inherit_llamacpp_group_option(ctx, option_name="api_key_env", value=api_key_env)
+    secret_ref = _inherit_llamacpp_group_option(ctx, option_name="secret_ref", value=secret_ref)
     try:
         command_context = _resolve_llamacpp_command_context(
             ctx=ctx,
@@ -2078,12 +2072,8 @@ def model_llamacpp_preview(
     env = _inherit_llamacpp_group_option(ctx, option_name="env", value=env)
     url = _inherit_llamacpp_group_url(ctx, url=url)
     auth = _inherit_llamacpp_group_option(ctx, option_name="auth", value=auth)
-    api_key_env = _inherit_llamacpp_group_option(
-        ctx, option_name="api_key_env", value=api_key_env
-    )
-    secret_ref = _inherit_llamacpp_group_option(
-        ctx, option_name="secret_ref", value=secret_ref
-    )
+    api_key_env = _inherit_llamacpp_group_option(ctx, option_name="api_key_env", value=api_key_env)
+    secret_ref = _inherit_llamacpp_group_option(ctx, option_name="secret_ref", value=secret_ref)
     name = _inherit_llamacpp_group_option(ctx, option_name="name", value=name)
     include_sampling_defaults = _inherit_llamacpp_group_bool_option(
         ctx,
@@ -2146,12 +2136,8 @@ def model_llamacpp_import(
     env = _inherit_llamacpp_group_option(ctx, option_name="env", value=env)
     url = _inherit_llamacpp_group_url(ctx, url=url)
     auth = _inherit_llamacpp_group_option(ctx, option_name="auth", value=auth)
-    api_key_env = _inherit_llamacpp_group_option(
-        ctx, option_name="api_key_env", value=api_key_env
-    )
-    secret_ref = _inherit_llamacpp_group_option(
-        ctx, option_name="secret_ref", value=secret_ref
-    )
+    api_key_env = _inherit_llamacpp_group_option(ctx, option_name="api_key_env", value=api_key_env)
+    secret_ref = _inherit_llamacpp_group_option(ctx, option_name="secret_ref", value=secret_ref)
     name = _inherit_llamacpp_group_option(ctx, option_name="name", value=name)
     include_sampling_defaults = _inherit_llamacpp_group_bool_option(
         ctx,

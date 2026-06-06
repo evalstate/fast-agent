@@ -222,9 +222,7 @@ class ResolvedModelSpec:
 
         return kwargs
 
-    def build_model_info(
-        self, *, context_window_override: int | None = None
-    ) -> "ModelInfo | None":
+    def build_model_info(self, *, context_window_override: int | None = None) -> "ModelInfo | None":
         """Return effective model info for UI/reporting."""
         from fast_agent.llm.model_info import ModelInfo
 

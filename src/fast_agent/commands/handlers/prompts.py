@@ -461,9 +461,7 @@ async def _get_all_prompts(
     return all_prompts
 
 
-async def _list_prompt_servers(
-    ctx: CommandContext, *, agent_name: str | None = None
-) -> object:
+async def _list_prompt_servers(ctx: CommandContext, *, agent_name: str | None = None) -> object:
     with suppress(Exception):
         return await ctx.agent_provider.list_prompts(namespace=None, agent_name=agent_name)
     return {}

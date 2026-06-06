@@ -33,9 +33,7 @@ class TestCIMDConfigValidation:
 
     def test_valid_cimd_url(self):
         """A valid HTTPS URL with non-root path should be accepted."""
-        auth = MCPServerAuthSettings(
-            client_metadata_url="https://example.com/client.json"
-        )
+        auth = MCPServerAuthSettings(client_metadata_url="https://example.com/client.json")
         assert auth.client_metadata_url == "https://example.com/client.json"
 
     def test_valid_cimd_url_with_path(self):
@@ -48,25 +46,19 @@ class TestCIMDConfigValidation:
     def test_cimd_url_rejects_http(self):
         """HTTP URLs should be rejected (must be HTTPS)."""
         with pytest.raises(ValidationError) as exc_info:
-            MCPServerAuthSettings(
-                client_metadata_url="http://example.com/client.json"
-            )
+            MCPServerAuthSettings(client_metadata_url="http://example.com/client.json")
         assert "client_metadata_url must use HTTPS scheme" in str(exc_info.value)
 
     def test_cimd_url_rejects_root_path(self):
         """URLs with root path (/) should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            MCPServerAuthSettings(
-                client_metadata_url="https://example.com/"
-            )
+            MCPServerAuthSettings(client_metadata_url="https://example.com/")
         assert "client_metadata_url must have a non-root pathname" in str(exc_info.value)
 
     def test_cimd_url_rejects_no_path(self):
         """URLs with no path should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            MCPServerAuthSettings(
-                client_metadata_url="https://example.com"
-            )
+            MCPServerAuthSettings(client_metadata_url="https://example.com")
         assert "client_metadata_url must have a non-root pathname" in str(exc_info.value)
 
     def test_cimd_url_none_by_default(self):
@@ -91,9 +83,7 @@ class TestCIMDOAuthProvider:
             MockOAuthClientProvider,
         )
 
-        auth = MCPServerAuthSettings(
-            client_metadata_url="https://example.com/client.json"
-        )
+        auth = MCPServerAuthSettings(client_metadata_url="https://example.com/client.json")
         config = MCPServerSettings(
             name="test",
             transport="http",
@@ -126,7 +116,9 @@ class TestCIMDOAuthProvider:
 
         build_oauth_provider(config)
 
-        assert captured_kwargs.get("client_metadata_url") == "https://fast-agent.ai/oauth/client.json"
+        assert (
+            captured_kwargs.get("client_metadata_url") == "https://fast-agent.ai/oauth/client.json"
+        )
 
     @pytest.mark.parametrize("env_value", ["", "   "])
     def test_build_oauth_provider_can_disable_default_cimd_with_env(self, monkeypatch, env_value):
@@ -166,9 +158,7 @@ class TestCIMDOAuthProvider:
             MockOAuthClientProvider,
         )
 
-        auth = MCPServerAuthSettings(
-            client_metadata_url="https://example.com/client.json"
-        )
+        auth = MCPServerAuthSettings(client_metadata_url="https://example.com/client.json")
         config = MCPServerSettings(
             name="test",
             transport="sse",
@@ -182,9 +172,7 @@ class TestCIMDOAuthProvider:
 
     def test_build_oauth_provider_stdio_ignores_cimd(self):
         """build_oauth_provider should return None for stdio transport (no OAuth)."""
-        auth = MCPServerAuthSettings(
-            client_metadata_url="https://example.com/client.json"
-        )
+        auth = MCPServerAuthSettings(client_metadata_url="https://example.com/client.json")
         config = MCPServerSettings(
             name="test",
             transport="stdio",
@@ -199,8 +187,7 @@ class TestCIMDOAuthProvider:
     def test_build_oauth_provider_oauth_disabled_ignores_cimd(self):
         """build_oauth_provider should return None when OAuth is disabled."""
         auth = MCPServerAuthSettings(
-            oauth=False,
-            client_metadata_url="https://example.com/client.json"
+            oauth=False, client_metadata_url="https://example.com/client.json"
         )
         config = MCPServerSettings(
             name="test",

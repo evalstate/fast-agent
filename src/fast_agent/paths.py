@@ -82,9 +82,8 @@ def resolve_environment_dir(
         if settings._fast_agent_noenv:
             raise ValueError("fast-agent home is disabled for these settings")
         configured_environment_dir = settings.environment_dir
-        if (
-            configured_environment_dir is not None
-            and not _is_ambient_legacy_environment_dir(configured_environment_dir)
+        if configured_environment_dir is not None and not _is_ambient_legacy_environment_dir(
+            configured_environment_dir
         ):
             environment_dir = configured_environment_dir
             env_path = Path(environment_dir).expanduser()

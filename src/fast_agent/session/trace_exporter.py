@@ -280,10 +280,7 @@ class SessionTraceExporter:
             if request.privacy_filter:
                 format_suffix = f"{format_suffix}-privacy"
             agent_filename = sanitize_filename_component(resolved.agent_name, fallback="agent")
-            filename = (
-                f"{resolved.session_id}__{agent_filename}__"
-                f"{format_suffix}.jsonl"
-            )
+            filename = f"{resolved.session_id}__{agent_filename}__{format_suffix}.jsonl"
             return (workspace_dir / filename).resolve()
         output_path = output_path.expanduser()
         if not output_path.is_absolute():

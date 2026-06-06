@@ -20,11 +20,7 @@ from fast_agent.commands.tool_summaries import provider_tool_status_label
 def _format_args(args: list[str] | None) -> str | None:
     if not args:
         return None
-    normalized_args = [
-        arg
-        for value in args
-        if (arg := optional_string(value)) is not None
-    ]
+    normalized_args = [arg for value in args if (arg := optional_string(value)) is not None]
     if not normalized_args:
         return None
     return ", ".join(markdown_code_span(arg) for arg in normalized_args)

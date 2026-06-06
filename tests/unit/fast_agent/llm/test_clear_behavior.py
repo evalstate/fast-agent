@@ -17,9 +17,7 @@ def _make_template_prompt(text: str) -> GetPromptResult:
 
 
 def _make_user_message(text: str) -> PromptMessageExtended:
-    return PromptMessageExtended(
-        role="user", content=[TextContent(type="text", text=text)]
-    )
+    return PromptMessageExtended(role="user", content=[TextContent(type="text", text=text)])
 
 
 @pytest.mark.asyncio

@@ -368,9 +368,7 @@ class AsyncEventBus:
 
         task.cancel()
         should_await = (
-            self._is_task_on_current_loop(task)
-            if same_loop_task is None
-            else same_loop_task
+            self._is_task_on_current_loop(task) if same_loop_task is None else same_loop_task
         )
         if should_await:
             try:

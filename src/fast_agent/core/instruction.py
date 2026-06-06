@@ -83,19 +83,13 @@ def _load_internal_resource(resource_id: str) -> str:
 
     # Source checkout fallback for local development/testing.
     source_resource_path = (
-        Path(__file__).resolve().parents[3]
-        / "resources"
-        / "shared"
-        / f"{normalized_id}.md"
+        Path(__file__).resolve().parents[3] / "resources" / "shared" / f"{normalized_id}.md"
     )
     if source_resource_path.is_file():
         return source_resource_path.read_text(encoding="utf-8")
 
     resource_path = (
-        files("fast_agent")
-        .joinpath("resources")
-        .joinpath("shared")
-        .joinpath(f"{normalized_id}.md")
+        files("fast_agent").joinpath("resources").joinpath("shared").joinpath(f"{normalized_id}.md")
     )
     if resource_path.is_file():
         return resource_path.read_text(encoding="utf-8")
@@ -382,9 +376,7 @@ class InstructionBuilder:
             Set of placeholder names (without braces)
         """
         # Match {{name}} but not special patterns
-        pattern = re.compile(
-            r"(?<!\\)\{\{(?!url:|file:|file_silent:|internal:)([^}]+)\}\}"
-        )
+        pattern = re.compile(r"(?<!\\)\{\{(?!url:|file:|file_silent:|internal:)([^}]+)\}\}")
         return set(pattern.findall(self._template))
 
     def get_unresolved_placeholders(self) -> StringSet:
@@ -395,7 +387,9 @@ class InstructionBuilder:
             Set of placeholder names without sources
         """
         all_placeholders = self.get_placeholders()
-        registered = set(self._static.keys()) | set(self._resolvers.keys()) | set(self._BUILTINS.keys())
+        registered = (
+            set(self._static.keys()) | set(self._resolvers.keys()) | set(self._BUILTINS.keys())
+        )
         return all_placeholders - registered
 
     def copy(self) -> "InstructionBuilder":

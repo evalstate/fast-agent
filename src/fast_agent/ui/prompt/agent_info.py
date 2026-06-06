@@ -134,9 +134,7 @@ async def _resource_counts_for_agent(agent: AgentProtocol) -> AgentResourceCount
     try:
         resources_dict = await agent.list_resources()
         resource_count = (
-            sum(len(resources) for resources in resources_dict.values())
-            if resources_dict
-            else 0
+            sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
         )
     except Exception:
         resource_count = None
@@ -164,9 +162,7 @@ async def _mcp_resource_counts_for_agent(agent: McpAgentProtocol) -> AgentResour
     try:
         resources_dict = await agent.aggregator.list_resources()
         resource_count = (
-            sum(len(resources) for resources in resources_dict.values())
-            if resources_dict
-            else 0
+            sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
         )
     except Exception:
         resource_count = None
@@ -297,7 +293,9 @@ def _child_agents_for_display(agent: AgentProtocol) -> list[AgentProtocol]:
     return collect_tool_children(agent)
 
 
-async def _display_parallel_children(parallel_agent: ParallelAgent, agent_provider: "AgentApp") -> None:
+async def _display_parallel_children(
+    parallel_agent: ParallelAgent, agent_provider: "AgentApp"
+) -> None:
     children = _child_agents_for_display(parallel_agent)
     await _display_child_agents(children, agent_provider)
 
@@ -313,9 +311,7 @@ async def _display_tool_children(
     await _display_child_agents(tool_children, agent_provider)
 
 
-async def _display_child_agents(
-    children: list[AgentProtocol], agent_provider: "AgentApp"
-) -> None:
+async def _display_child_agents(children: list[AgentProtocol], agent_provider: "AgentApp") -> None:
     for index, child_agent in enumerate(children):
         prefix = "└─" if index == len(children) - 1 else "├─"
         await _display_child_agent_info(child_agent, prefix, agent_provider)

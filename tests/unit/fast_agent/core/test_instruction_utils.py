@@ -115,8 +115,7 @@ class StubMcpAgent(StubAgent):
 
 def test_format_client_info_ignores_blank_title_and_trims_version() -> None:
     assert (
-        _format_client_info({"title": "   ", "name": " zed ", "version": " 1.2.3 "})
-        == "zed 1.2.3"
+        _format_client_info({"title": "   ", "name": " zed ", "version": " 1.2.3 "}) == "zed 1.2.3"
     )
 
 

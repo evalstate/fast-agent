@@ -31,6 +31,8 @@ from fast_agent.tools.tool_sources import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import pytest
 
 
@@ -54,12 +56,12 @@ class _AgentStub:
     def __init__(
         self,
         *,
-        card_tool_names=(),
-        smart_tool_names=(),
+        card_tool_names: Iterable[str] = (),
+        smart_tool_names: Iterable[str] = (),
         agent_backed_tools: dict[str, object] | None = None,
     ) -> None:
-        self._card_tool_names = set(card_tool_names)
-        self._smart_tool_names = set(smart_tool_names)
+        self._card_tool_names: set[str] = set(card_tool_names)
+        self._smart_tool_names: set[str] = set(smart_tool_names)
         self._agent_backed_tools = agent_backed_tools or {}
 
     @property
@@ -71,7 +73,7 @@ class _AgentStub:
         return self._smart_tool_names
 
     @smart_tool_names.setter
-    def smart_tool_names(self, value) -> None:
+    def smart_tool_names(self, value: Iterable[str]) -> None:
         self._smart_tool_names = set(value)
 
     @property

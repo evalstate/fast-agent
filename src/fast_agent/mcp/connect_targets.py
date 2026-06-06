@@ -155,9 +155,7 @@ def _build_url_target_flag_error(*, source_path: str, flag: str) -> str:
 def _validate_timeout(value: str) -> float:
     timeout_seconds = float(value)
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
-        raise ValueError(
-            "Invalid value for --timeout: expected a finite number greater than 0"
-    )
+        raise ValueError("Invalid value for --timeout: expected a finite number greater than 0")
     return timeout_seconds
 
 
@@ -351,9 +349,7 @@ def _connect_option_already_set(token: str, options: _ConnectOptionState) -> boo
 
 def _duplicate_connect_option_error(token: str) -> ValueError:
     flag = connect_flag_name(token) or token
-    return ValueError(
-        f"Duplicate MCP connect flag {flag}; use -- before server-owned arguments."
-    )
+    return ValueError(f"Duplicate MCP connect flag {flag}; use -- before server-owned arguments.")
 
 
 def infer_connect_mode_from_tokens(tokens: Sequence[str]) -> McpConnectMode:
@@ -490,9 +486,7 @@ def normalize_connect_target_text(
 
 
 def infer_server_name(target: str | NormalizedMcpTarget) -> str:
-    normalized_target = (
-        normalize_connect_target_text(target) if isinstance(target, str) else target
-    )
+    normalized_target = normalize_connect_target_text(target) if isinstance(target, str) else target
     if normalized_target.server_name:
         return normalized_target.server_name
 
@@ -741,9 +735,7 @@ def _connect_config_overrides(
         ("auth", dict(auth) if auth is not None else None),
         ("reconnect_on_disconnect", reconnect_on_disconnect),
     )
-    overrides: dict[str, Any] = {
-        key: value for key, value in optional_values if value is not None
-    }
+    overrides: dict[str, Any] = {key: value for key, value in optional_values if value is not None}
     if args is not None:
         overrides["args"] = list(args)
     return overrides

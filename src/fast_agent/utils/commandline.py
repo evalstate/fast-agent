@@ -12,14 +12,12 @@ import mslex
 from fast_agent.utils.action_normalization import normalize_action_token
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 CommandLineSyntax = Literal["auto", "posix", "windows"]
 ResolvedCommandLineSyntax = Literal["posix", "windows"]
 
-_SUPPORTED_SYNTAXES: frozenset[ResolvedCommandLineSyntax] = frozenset(
-    ("posix", "windows")
-)
+_SUPPORTED_SYNTAXES: frozenset[ResolvedCommandLineSyntax] = frozenset(("posix", "windows"))
 _AUTO_SYNTAX_BY_OS_NAME: dict[str, ResolvedCommandLineSyntax] = {"nt": "windows"}
 _DEFAULT_AUTO_SYNTAX: ResolvedCommandLineSyntax = "posix"
 _SPLITTERS: dict[ResolvedCommandLineSyntax, Callable[[str], list[str]]] = {
@@ -129,7 +127,7 @@ def quote_commandline_token(
 
 def _run_syntax_operation[InputT, OutputT](
     syntax: CommandLineSyntax,
-    operations: dict[ResolvedCommandLineSyntax, Callable[[InputT], OutputT]],
+    operations: Mapping[ResolvedCommandLineSyntax, Callable[[InputT], OutputT]],
     value: InputT,
 ) -> OutputT:
     resolved = resolve_commandline_syntax(syntax)

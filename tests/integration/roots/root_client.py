@@ -31,7 +31,9 @@ async def main():
     # Connect to the server via stdio
     async with stdio_client(server_params) as (read_stream, write_stream):
         # Create a client session
-        async with ClientSession(read_stream, write_stream, list_roots_callback=list_roots_callback) as session:
+        async with ClientSession(
+            read_stream, write_stream, list_roots_callback=list_roots_callback
+        ) as session:
             # Initialize the session
             await session.initialize()
 

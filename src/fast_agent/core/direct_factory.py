@@ -66,7 +66,9 @@ if TYPE_CHECKING:
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]
 AgentConfigDict = Mapping[str, AgentCardData | dict[str, Any]]
-AgentTypeBuilder = Callable[[str, Mapping[str, Any], "AgentBuildContext", AgentDict], Awaitable[None]]
+AgentTypeBuilder = Callable[
+    [str, Mapping[str, Any], "AgentBuildContext", AgentDict], Awaitable[None]
+]
 
 
 @dataclass(frozen=True)
@@ -128,6 +130,7 @@ def _ensure_basic_only_agents(agents_dict: AgentConfigDict) -> None:
                 "Smart tool only supports 'agent' cards",
                 f"Card '{name}' has unsupported type '{agent_type}'",
             )
+
 
 def _load_configured_function_tools(
     config: AgentConfig,
@@ -335,8 +338,6 @@ def _attach_child_agents_as_tools(
         skip_missing=True,
     ):
         agent.add_agent_tool(child_agent)
-
-
 
 
 async def _finalize_agent(
@@ -570,7 +571,6 @@ class AgentCreatorProtocol(Protocol):
     ) -> AgentDict: ...
 
 
-
 def get_model_factory(
     context,
     model: str | None = None,
@@ -797,11 +797,7 @@ async def _create_custom_agent(
     if child_names:
         _attach_child_agents_as_tools(agent, name, child_names, build_ctx.active_agents)
 
-    if (
-        config.tool_hooks
-        or config.trim_tool_history
-        or build_ctx.session_history_enabled
-    ):
+    if config.tool_hooks or config.trim_tool_history or build_ctx.session_history_enabled:
         _apply_tool_hooks(
             agent,
             config,

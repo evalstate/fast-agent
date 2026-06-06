@@ -45,7 +45,7 @@ def test_render_pyproject_uses_python_requirement_helper(monkeypatch: MonkeyPatc
     monkeypatch.setattr(setup, "_python_requires", lambda: ">=3.14")
 
     rendered = setup._render_pyproject(
-        "requires-python = \"{{python_requires}}\"\ndependencies = [{{fast_agent_dep}}]\n"
+        'requires-python = "{{python_requires}}"\ndependencies = [{{fast_agent_dep}}]\n'
     )
 
     assert 'requires-python = ">=3.14"' in rendered

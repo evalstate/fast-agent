@@ -143,7 +143,9 @@ class EvaluatorOptimizerAgent(LlmAgent):
             ) as step:
                 response = await self.generator_agent.generate(messages, forward_params)
                 best_response = response
-                await step.finish(True, text=f"{self.generator_agent.name} generated initial response")
+                await step.finish(
+                    True, text=f"{self.generator_agent.name} generated initial response"
+                )
 
             # Refinement loop
             while True:
@@ -199,7 +201,10 @@ class EvaluatorOptimizerAgent(LlmAgent):
                 logger.debug(f"Evaluation result: {evaluation_result.rating}")
 
                 # Track best response based on rating
-                if QUALITY_RATING_VALUES[evaluation_result.rating] > QUALITY_RATING_VALUES[best_rating]:
+                if (
+                    QUALITY_RATING_VALUES[evaluation_result.rating]
+                    > QUALITY_RATING_VALUES[best_rating]
+                ):
                     best_rating = evaluation_result.rating
                     best_response = response
                     logger.debug(f"New best response (rating: {best_rating})")
@@ -325,7 +330,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
             Formatted evaluation prompt
         """
         return f"""
-{self.refinement_instruction or 'You are an expert evaluator for content quality.'}
+{self.refinement_instruction or "You are an expert evaluator for content quality."}
 Your task is to evaluate a response against the user's original request.
 Evaluate the response for iteration {iteration + 1} and provide feedback on its quality and areas for improvement.
 
@@ -372,7 +377,7 @@ Evaluate the response for iteration {iteration + 1} and provide feedback on its 
 
         return f"""
 You are tasked with improving your previous response.
-{self.refinement_instruction or 'You are an expert evaluator for content quality.'}
+{self.refinement_instruction or "You are an expert evaluator for content quality."}
 This is iteration {iteration + 1} of the refinement process.
 
 Your goal is to address all feedback points while maintaining accuracy and relevance to the original request.

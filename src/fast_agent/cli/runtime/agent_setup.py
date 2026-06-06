@@ -207,7 +207,6 @@ def _agent_config_defines_startup_model(
     return strip_to_none(resolved_model) is not None
 
 
-
 def _resolve_model_without_hardcoded_default(
     *,
     model: str | None,
@@ -744,7 +743,9 @@ def _emit_resume_notice(
     if interactive_notice:
         queue_startup_notice(notice)
     else:
-        typer.echo(plain_notice if plain_notice is not None else _plain_resume_notice(notice), err=True)
+        typer.echo(
+            plain_notice if plain_notice is not None else _plain_resume_notice(notice), err=True
+        )
 
 
 def _emit_resume_not_found_notice(
@@ -780,7 +781,9 @@ def _emit_resume_status_notices(
         queue_startup_notice=queue_startup_notice,
         plain_notice=f"Resumed session {session.info.name} ({session_time})",
     )
-    _emit_missing_resume_agents_notice(result.missing_agents, interactive_notice, queue_startup_notice)
+    _emit_missing_resume_agents_notice(
+        result.missing_agents, interactive_notice, queue_startup_notice
+    )
     _emit_resume_warnings(result.warnings, interactive_notice, queue_startup_notice)
     _emit_resume_usage_notices(result.usage_notices, interactive_notice, queue_startup_notice)
 
@@ -1176,7 +1179,9 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             request.message,
             request.attachments,
         )
-        response = await _run_one_shot_payload(agent_obj, prompt_payload, request, structured_source)
+        response = await _run_one_shot_payload(
+            agent_obj, prompt_payload, request, structured_source
+        )
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
             request,
@@ -1194,7 +1199,9 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             prompt,
             request.attachments,
         )
-        response = await _run_one_shot_payload(agent_obj, prompt_payload, request, structured_source)
+        response = await _run_one_shot_payload(
+            agent_obj, prompt_payload, request, structured_source
+        )
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
             request,
@@ -1402,10 +1409,7 @@ def _apply_fast_args(
 
 async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) -> None:
     if not (
-        request.noenv
-        or request.shell_runtime
-        or request.no_shell
-        or request.prefer_local_shell
+        request.noenv or request.shell_runtime or request.no_shell or request.prefer_local_shell
     ):
         return
 

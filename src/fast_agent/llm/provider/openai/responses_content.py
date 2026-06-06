@@ -190,9 +190,7 @@ class ResponsesContentMixin:
         item["tools"] = list(tools)
         return item
 
-    def _extract_mcp_list_tools_items(
-        self, msg: PromptMessageExtended
-    ) -> list[dict[str, Any]]:
+    def _extract_mcp_list_tools_items(self, msg: PromptMessageExtended) -> list[dict[str, Any]]:
         if not msg.channels:
             return []
 
@@ -210,9 +208,7 @@ class ResponsesContentMixin:
             items.append(dict(payload))
         return items
 
-    def _extract_assistant_message_items(
-        self, msg: PromptMessageExtended
-    ) -> list[dict[str, Any]]:
+    def _extract_assistant_message_items(self, msg: PromptMessageExtended) -> list[dict[str, Any]]:
         if msg.role != "assistant" or not msg.channels:
             return []
 
@@ -357,9 +353,7 @@ class ResponsesContentMixin:
         return input_part
 
     @staticmethod
-    def _uri_to_input_part(
-        resource_uri: str, *, mime_type: str | None
-    ) -> dict[str, Any]:
+    def _uri_to_input_part(resource_uri: str, *, mime_type: str | None) -> dict[str, Any]:
         if mime_type and is_image_mime_type(mime_type):
             return {"type": "input_image", "image_url": resource_uri}
         return {"type": "input_file", "file_url": resource_uri}
@@ -485,7 +479,9 @@ class ResponsesContentMixin:
                 parts.append({"type": text_type, "text": f"[Resource]({resource_uri})"})
                 continue
 
-            parts.append({"type": text_type, "text": f"[Unsupported content: {type(item).__name__}]"})
+            parts.append(
+                {"type": text_type, "text": f"[Unsupported content: {type(item).__name__}]"}
+            )
 
         return parts
 
@@ -533,9 +529,7 @@ class ResponsesContentMixin:
             )
         return items
 
-    def _convert_tool_results(
-        self, tool_results: dict[str, Any]
-    ) -> list[dict[str, Any]]:
+    def _convert_tool_results(self, tool_results: dict[str, Any]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for index, (tool_use_id, result) in enumerate(tool_results.items()):
             resolved_tool_use_id = tool_use_id or f"tool_{index}"
@@ -590,9 +584,7 @@ class ResponsesContentMixin:
             if part.get("type") == "input_text" and (text := part.get("text"))
         )
 
-    def _tool_result_item_to_part(
-        self, item: ContentBlock
-    ) -> tuple[dict[str, Any], bool]:
+    def _tool_result_item_to_part(self, item: ContentBlock) -> tuple[dict[str, Any], bool]:
         text_part = self._tool_result_item_to_text_part(item)
         if text_part is not None:
             return text_part, False
@@ -611,9 +603,7 @@ class ResponsesContentMixin:
             return None
         return self._content_to_input_text_part(item)
 
-    def _tool_result_item_to_attachment_part(
-        self, item: ContentBlock
-    ) -> dict[str, Any] | None:
+    def _tool_result_item_to_attachment_part(self, item: ContentBlock) -> dict[str, Any] | None:
         if not (is_image_content(item) or is_resource_content(item) or is_resource_link(item)):
             return None
         return self._content_to_input_part(item)

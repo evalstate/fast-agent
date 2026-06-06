@@ -30,9 +30,7 @@ _RESPONSE_MODE_TOOL_RESULT_MODES: dict[ResponseMode, ToolResultMode | None] = {
     "postprocess": "postprocess",
     "passthrough": "passthrough",
 }
-_TOOL_RESULT_MODES_ALLOWING_RESPONSE_MODE: frozenset[ToolResultMode] = frozenset(
-    ("selectable",)
-)
+_TOOL_RESULT_MODES_ALLOWING_RESPONSE_MODE: frozenset[ToolResultMode] = frozenset(("selectable",))
 _PASSTHROUGH_TOOL_RESULT_MODES: frozenset[ToolResultMode] = frozenset(("passthrough",))
 STRUCTURED_TOOL_POLICY_VALUES: tuple[StructuredToolPolicy, ...] = (
     "auto",

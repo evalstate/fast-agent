@@ -61,10 +61,13 @@ def test_format_update_status_text_uses_shared_labels_and_detail_rules() -> None
         == "update available: content changed"
     )
     assert format_update_status_text("updated", detail="ignored") == "updated"
-    assert format_update_status_text(
-        "invalid_local_skill",
-        detail="missing description",
-    ) == "invalid local skill: missing description"
+    assert (
+        format_update_status_text(
+            "invalid_local_skill",
+            detail="missing description",
+        )
+        == "invalid local skill: missing description"
+    )
     assert (
         format_update_status_text("ownership_conflict", detail="owned by another pack")
         == "ownership conflict: owned by another pack"

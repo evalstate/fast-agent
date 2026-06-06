@@ -119,9 +119,7 @@ def test_effort_none_low_medium_high_scale_uses_full_dynamic_range() -> None:
         == "<style bg='ansigreen'>⣤</style>"
     )
     assert (
-        render_reasoning_effort_gauge(
-            ReasoningEffortSetting(kind="effort", value="medium"), spec
-        )
+        render_reasoning_effort_gauge(ReasoningEffortSetting(kind="effort", value="medium"), spec)
         == "<style bg='ansiyellow'>⣶</style>"
     )
     assert (
@@ -138,9 +136,7 @@ def test_effort_minimal_low_medium_high_scale_uses_full_dynamic_range() -> None:
     )
 
     assert (
-        render_reasoning_effort_gauge(
-            ReasoningEffortSetting(kind="effort", value="minimal"), spec
-        )
+        render_reasoning_effort_gauge(ReasoningEffortSetting(kind="effort", value="minimal"), spec)
         == "<style bg='ansigreen'>⣀</style>"
     )
     assert (
@@ -148,9 +144,7 @@ def test_effort_minimal_low_medium_high_scale_uses_full_dynamic_range() -> None:
         == "<style bg='ansigreen'>⣤</style>"
     )
     assert (
-        render_reasoning_effort_gauge(
-            ReasoningEffortSetting(kind="effort", value="medium"), spec
-        )
+        render_reasoning_effort_gauge(ReasoningEffortSetting(kind="effort", value="medium"), spec)
         == "<style bg='ansiyellow'>⣶</style>"
     )
     assert (

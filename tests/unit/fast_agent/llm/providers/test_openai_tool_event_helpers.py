@@ -54,9 +54,7 @@ def test_responses_tool_name_uses_mcp_tool_name_fallback() -> None:
 def test_responses_tool_name_ignores_non_string_sdk_name_values() -> None:
     assert responses_tool_name(SimpleNamespace(type="function_call", name=123)) == "tool"
     assert (
-        responses_tool_name(
-            SimpleNamespace(type="mcp_call", server_label="stripe", name=123)
-        )
+        responses_tool_name(SimpleNamespace(type="mcp_call", server_label="stripe", name=123))
         == "stripe/mcp_call"
     )
 

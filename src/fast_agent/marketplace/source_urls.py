@@ -182,10 +182,7 @@ def candidate_marketplace_urls(url: str) -> list[str]:
 
 def _github_marketplace_candidates(org: str, repo: str, ref: str, base_path: str) -> list[str]:
     suffixes = _marketplace_path_candidates(base_path)
-    return [
-        f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{suffix}"
-        for suffix in suffixes
-    ]
+    return [f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{suffix}" for suffix in suffixes]
 
 
 def _marketplace_path_candidates(base_path: str) -> list[str]:

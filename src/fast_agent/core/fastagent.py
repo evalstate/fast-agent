@@ -458,9 +458,7 @@ class FastAgent(DecoratorMixin):
             "_loaded_fast_agent_home_source",
             None,
         )
-        instance_settings._fast_agent_noenv = bool(
-            getattr(self, "_loaded_fast_agent_noenv", False)
-        )
+        instance_settings._fast_agent_noenv = bool(getattr(self, "_loaded_fast_agent_noenv", False))
 
     def _stop_progress_display_if_quiet(self) -> None:
         if not self._programmatic_quiet:
@@ -590,10 +588,14 @@ class FastAgent(DecoratorMixin):
             return self.load_agents_from_url(source)
 
         root = (
-            materialize_text_source(source, label="AgentCard source")
-            if parsed.scheme == "file"
-            else Path(path)
-        ).expanduser().resolve()
+            (
+                materialize_text_source(source, label="AgentCard source")
+                if parsed.scheme == "file"
+                else Path(path)
+            )
+            .expanduser()
+            .resolve()
+        )
         changed = self._load_agent_cards_from_root(root, incremental=False)
         if changed:
             self._agent_registry_version += 1
@@ -651,7 +653,9 @@ class FastAgent(DecoratorMixin):
         ]
         if missing:
             missing_list = ", ".join(missing)
-            raise AgentConfigError(f"{plural_label(len(missing), 'Agent')} not found: {missing_list}")
+            raise AgentConfigError(
+                f"{plural_label(len(missing), 'Agent')} not found: {missing_list}"
+            )
 
         existing = list(parent_data.get("child_agents") or [])
         added: list[str] = []
@@ -1900,9 +1904,7 @@ class FastAgent(DecoratorMixin):
                     continue
             elif not (
                 allow_unchanged_empty and current_len == 0 and files_mtime == last_mtime
-            ) and (
-                files_mtime <= last_mtime or (last_len is not None and current_len != last_len)
-            ):
+            ) and (files_mtime <= last_mtime or (last_len is not None and current_len != last_len)):
                 continue
 
             messages: list[PromptMessageExtended] = []

@@ -71,11 +71,7 @@ def parse_server_url(
         transport_type = "sse"
 
     parsed_url_text = url
-    if (
-        transport_type == "http"
-        and not parsed_url.query
-        and not normalized_path.endswith("/mcp")
-    ):
+    if transport_type == "http" and not parsed_url.query and not normalized_path.endswith("/mcp"):
         fallback_path = "/mcp" if not normalized_path else f"{normalized_path}/mcp"
         parsed_url_text = parsed_url._replace(path=fallback_path).geturl()
 

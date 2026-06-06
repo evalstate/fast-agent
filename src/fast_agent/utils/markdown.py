@@ -6,12 +6,8 @@ import re
 
 from fast_agent.utils.text import strip_to_none
 
-_MARKDOWN_TEXT_ESCAPES = str.maketrans(
-    {char: f"\\{char}" for char in r"\[]*_`"}
-)
-_MARKDOWN_TABLE_CELL_ESCAPES = str.maketrans(
-    {char: f"\\{char}" for char in r"\[]*`|"}
-)
+_MARKDOWN_TEXT_ESCAPES = str.maketrans({char: f"\\{char}" for char in r"\[]*_`"})
+_MARKDOWN_TABLE_CELL_ESCAPES = str.maketrans({char: f"\\{char}" for char in r"\[]*`|"})
 _BACKTICK_RUN_PATTERN = re.compile(r"`+")
 
 

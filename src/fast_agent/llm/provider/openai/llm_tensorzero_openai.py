@@ -126,9 +126,7 @@ class TensorZeroOpenAILLM(OpenAILLM):
 
     def _tensorzero_extra_body(self, arguments: dict[str, Any]) -> dict[str, Any]:
         extra_body_raw = arguments.get("extra_body", {})
-        extra_body: dict[str, Any] = (
-            extra_body_raw if isinstance(extra_body_raw, dict) else {}
-        )
+        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
         if self._t0_episode_id:
             extra_body["tensorzero::episode_id"] = str(self._t0_episode_id)
             self.logger.debug(f"Added tensorzero::episode_id: {self._t0_episode_id}")

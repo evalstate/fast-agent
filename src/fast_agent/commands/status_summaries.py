@@ -224,8 +224,7 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
 
 def _build_parallel_model_summary(agent: ParallelAgentProtocol) -> ParallelModelSummary:
     fan_out_agents = [
-        _build_agent_model_summary(fan_out_agent)
-        for fan_out_agent in agent.fan_out_agents or []
+        _build_agent_model_summary(fan_out_agent) for fan_out_agent in agent.fan_out_agents or []
     ]
 
     fan_in_agent = None
@@ -280,17 +279,14 @@ def _usage_accumulator_context_line(
     if parsed_window is not None and parsed_tokens is not None and parsed_percentage is not None:
         safe_percentage = min(max(parsed_percentage, 0.0), 100.0)
         return (
-            "Context Used: "
-            f"{safe_percentage:.1f}% (~{parsed_tokens:,} tokens of {parsed_window:,})"
+            f"Context Used: {safe_percentage:.1f}% (~{parsed_tokens:,} tokens of {parsed_window:,})"
         )
     if parsed_tokens is not None and parsed_tokens > 0:
         return f"Context Used: ~{parsed_tokens:,} tokens (window unknown)"
     return None
 
 
-def _estimate_tokens(
-    summary: ConversationSummary, agent: "AgentProtocol"
-) -> TokenEstimate:
+def _estimate_tokens(summary: ConversationSummary, agent: "AgentProtocol") -> TokenEstimate:
     text_parts: list[str] = []
     for message in summary.messages:
         for content in message.content:
@@ -394,9 +390,7 @@ def build_conversation_stats_summary(
         tool_successes=summary.tool_successes,
         tool_errors=summary.tool_errors,
         context_usage_line=context_usage,
-        total_llm_time_seconds=_positive_milliseconds_to_seconds(
-            summary.total_elapsed_time_ms
-        ),
+        total_llm_time_seconds=_positive_milliseconds_to_seconds(summary.total_elapsed_time_ms),
         conversation_runtime_seconds=_positive_milliseconds_to_seconds(
             summary.conversation_span_ms
         ),

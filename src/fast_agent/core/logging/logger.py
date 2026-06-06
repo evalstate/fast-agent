@@ -34,7 +34,9 @@ class ExceptionDetails:
     exc_tb: Any
 
 
-def _exception_details_from_tuple(exc_info: tuple[object, object, object]) -> ExceptionDetails | None:
+def _exception_details_from_tuple(
+    exc_info: tuple[object, object, object],
+) -> ExceptionDetails | None:
     maybe_type, maybe_value, maybe_tb = exc_info
     if not (
         isinstance(maybe_type, type)

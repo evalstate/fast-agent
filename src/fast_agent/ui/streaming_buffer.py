@@ -409,7 +409,11 @@ class StreamBuffer:
         return tables
 
     def _preserve_code_block_context(
-        self, original_text: str, truncated_text: str, truncation_pos: int, code_blocks: list[CodeBlock]
+        self,
+        original_text: str,
+        truncated_text: str,
+        truncation_pos: int,
+        code_blocks: list[CodeBlock],
     ) -> str:
         """Prepend code block opening fence if truncation removed it.
 
@@ -478,9 +482,9 @@ class StreamBuffer:
                 # Check if we removed the header (header is at start of table)
                 # If truncation happened after the header, we need to restore it
                 lines = original_text.split("\n")
-                table_start_line = sum(
-                    1 for line in original_text[:table.start_pos].split("\n")
-                ) - 1
+                table_start_line = (
+                    sum(1 for line in original_text[: table.start_pos].split("\n")) - 1
+                )
 
                 # Find where the data rows start (after separator)
                 # Header lines include header row + separator
@@ -562,8 +566,7 @@ class StreamBuffer:
     def _estimate_display_counts(self, lines: list[str], terminal_width: int) -> list[int]:
         """Estimate how many terminal rows each logical line will occupy."""
         return [
-            max(1, ceil(len(line.expandtabs()) / terminal_width)) if line else 1
-            for line in lines
+            max(1, ceil(len(line.expandtabs()) / terminal_width)) if line else 1 for line in lines
         ]
 
     def estimate_display_lines(self, text: str, terminal_width: int) -> int:

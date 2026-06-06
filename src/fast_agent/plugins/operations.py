@@ -107,10 +107,13 @@ def select_plugin_by_name_or_index(
     entries: Sequence[MarketplacePlugin],
     selector: str,
 ) -> MarketplacePlugin | None:
+    def names(entry: MarketplacePlugin) -> list[str]:
+        return [entry.name, entry.install_dir_name]
+
     return select_one_by_name_or_index(
         entries,
         selector,
-        names=lambda entry: (entry.name, entry.install_dir_name),
+        names=names,
     )
 
 
@@ -118,10 +121,13 @@ def select_local_plugin_by_name_or_index(
     entries: Sequence[LocalPlugin],
     selector: str,
 ) -> LocalPlugin | None:
+    def names(entry: LocalPlugin) -> list[str]:
+        return [entry.name, entry.plugin_dir.name]
+
     return select_one_by_name_or_index(
         entries,
         selector,
-        names=lambda entry: (entry.name, entry.plugin_dir.name),
+        names=names,
     )
 
 
@@ -651,6 +657,7 @@ def _copy_plugin_from_source(
             commit=commit,
             path_oid=path_oid,
         )
+
 
 def _copy_plugin_source(source_dir: Path, install_dir: Path) -> None:
     _validate_plugin_source_dir(source_dir)

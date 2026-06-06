@@ -33,6 +33,4 @@ def test_serialize_for_trace_recurses_model_dump_payloads() -> None:
 def test_serialize_for_trace_falls_back_for_broken_model_dump() -> None:
     serialized = _serialize_for_trace(_BrokenDumpable())
 
-    assert serialized.startswith(
-        "<test_stream_capture._BrokenDumpable object"
-    )
+    assert serialized.startswith("<test_stream_capture._BrokenDumpable object")

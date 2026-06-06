@@ -35,7 +35,6 @@ from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName, EventTy
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
-
     from anyio.abc import ObjectReceiveStream, ObjectSendStream
 
 logger = logging.getLogger(__name__)
@@ -389,7 +388,9 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             )  # pragma: no cover
             return
 
-        delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        delay_ms = (
+            retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        )
         await self._sleep_before_reconnect(delay_ms)
 
         headers = self._prepare_headers()

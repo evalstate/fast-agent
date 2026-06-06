@@ -62,9 +62,7 @@ def test_resolve_tool_use_name_uses_mapped_name():
     )
     tool_name_mapping = {"my_tool": "my-tool"}
 
-    resolved = BedrockLLM._resolve_tool_use_name(
-        "call_1_my-tool", tool_list, tool_name_mapping
-    )
+    resolved = BedrockLLM._resolve_tool_use_name("call_1_my-tool", tool_list, tool_name_mapping)
 
     assert resolved == "my_tool"
 
@@ -138,7 +136,10 @@ def test_generate_simplified_schema_handles_modern_union_annotations() -> None:
     assert '"name": "string"' in schema_text
     assert '"count": "integer"' in schema_text
     assert '"tags": [\n    "string"\n  ]' in schema_text
-    assert '"statuses": [\n    "string (must be one of: \\"ready\\", \\"blocked\\")"\n  ]' in schema_text
+    assert (
+        '"statuses": [\n    "string (must be one of: \\"ready\\", \\"blocked\\")"\n  ]'
+        in schema_text
+    )
     assert '"details": {' in schema_text
     assert '"summary": "string"' in schema_text
 
@@ -190,9 +191,7 @@ def test_bedrock_nova_inference_config_normalizes_model_name() -> None:
         "temperature": 0.2,
         "topP": 1.0,
     }
-    assert converse_args["additionalModelRequestFields"] == {
-        "inferenceConfig": {"topK": 1}
-    }
+    assert converse_args["additionalModelRequestFields"] == {"inferenceConfig": {"topK": 1}}
 
 
 @pytest.mark.asyncio

@@ -30,11 +30,7 @@ async def test_acp_watch_allows_prompt_reload(tmp_path: Path) -> None:
     agents_dir.mkdir()
     card_path = agents_dir / "watcher.md"
     card_path.write_text(
-        "---\n"
-        "type: agent\n"
-        "name: watcher\n"
-        "---\n"
-        "Echo test.\n",
+        "---\ntype: agent\nname: watcher\n---\nEcho test.\n",
         encoding="utf-8",
     )
 
@@ -78,11 +74,7 @@ async def test_acp_watch_allows_prompt_reload(tmp_path: Path) -> None:
         assert prompt_response.stop_reason == END_TURN
 
         card_path.write_text(
-            "---\n"
-            "type: agent\n"
-            "name: watcher\n"
-            "---\n"
-            "Echo test updated.\n",
+            "---\ntype: agent\nname: watcher\n---\nEcho test updated.\n",
             encoding="utf-8",
         )
         await asyncio.sleep(0.25)

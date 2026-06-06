@@ -82,9 +82,7 @@ class _SkillsOverrideHandler:
 
 
 def test_acp_skills_handlers_cover_catalog_actions() -> None:
-    assert set(skills_handler_module._SKILLS_ACTION_HANDLERS) == set(
-        command_action_names("skills")
-    )
+    assert set(skills_handler_module._SKILLS_ACTION_HANDLERS) == set(command_action_names("skills"))
 
 
 def test_skills_override_section_preserves_first_source_order(tmp_path: Path) -> None:

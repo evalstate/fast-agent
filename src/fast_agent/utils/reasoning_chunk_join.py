@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 _SENTENCE_PUNCTUATION = ".!?;:"
-_MARKDOWN_PREFIXES = "\"`*[#-"
+_MARKDOWN_PREFIXES = '"`*[#-'
 ReasoningDeltaNormalizer = Callable[[str | None, str], str]
 
 

@@ -237,9 +237,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 _TOOLBAR_DIAGNOSTICS_ENABLED = env_flag("FAST_AGENT_TOOLBAR_DIAGNOSTICS")
-_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS = _env_float(
-    "FAST_AGENT_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS", 50.0
-)
+_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS = _env_float("FAST_AGENT_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS", 50.0)
 
 
 def set_last_copyable_output(output: str) -> None:
@@ -776,19 +774,13 @@ def _build_cycle_callbacks(
     agent_provider: "AgentApp | None",
 ) -> InputCycleCallbacks:
     def on_cycle_service_tier() -> None:
-        _cycle_service_tier(
-            _cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider)
-        )
+        _cycle_service_tier(_cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider))
 
     def on_cycle_reasoning() -> None:
-        _cycle_reasoning(
-            _cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider)
-        )
+        _cycle_reasoning(_cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider))
 
     def on_cycle_verbosity() -> None:
-        _cycle_verbosity(
-            _cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider)
-        )
+        _cycle_verbosity(_cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider))
 
     def on_cycle_web_search() -> None:
         _cycle_binary_model_toggle(
@@ -1117,8 +1109,7 @@ def _show_hf_display_info(active_agent: object) -> None:
     model = hf_info.get("model", "unknown")
     provider = hf_info.get("provider", "auto-routing")
     rich_print(
-        "[dim]HuggingFace: "
-        f"{escape_markup(str(model))} via {escape_markup(str(provider))}[/dim]"
+        f"[dim]HuggingFace: {escape_markup(str(model))} via {escape_markup(str(provider))}[/dim]"
     )
 
 
@@ -1418,9 +1409,7 @@ async def get_argument_input(
 
     # Show description if available
     if description:
-        rich_print(
-            f"  [dim]{escape_markup(arg_name)}: {escape_markup(description)}[/dim]"
-        )
+        rich_print(f"  [dim]{escape_markup(arg_name)}: {escape_markup(description)}[/dim]")
 
     prompt_text = HTML(
         f"Enter value for <ansibrightcyan>{escape_html(arg_name)}</ansibrightcyan> "

@@ -118,9 +118,7 @@ def validate_incomplete_tool_entries(
     if not incomplete_entries:
         return
 
-    incomplete_tools = [
-        f"{entry.tool_name}:{entry.tool_use_id}" for entry in incomplete_entries
-    ]
+    incomplete_tools = [f"{entry.tool_name}:{entry.tool_use_id}" for entry in incomplete_entries]
     response_status = getattr(final_response, "status", None)
     log_method = logger.warning if response_status == "incomplete" else logger.error
     log_method(

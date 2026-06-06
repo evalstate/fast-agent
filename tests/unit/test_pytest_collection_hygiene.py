@@ -12,10 +12,6 @@ def test_pytest_test_module_basenames_are_unique() -> None:
     for path in tests_root.rglob("test_*.py"):
         paths_by_name[path.name].append(path.relative_to(tests_root))
 
-    duplicates = {
-        name: sorted(paths)
-        for name, paths in paths_by_name.items()
-        if len(paths) > 1
-    }
+    duplicates = {name: sorted(paths) for name, paths in paths_by_name.items() if len(paths) > 1}
 
     assert duplicates == {}

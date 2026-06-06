@@ -361,10 +361,13 @@ def _clean_relative_path(value: str | None) -> str | None:
 def _is_invalid_relative_path(value: str | None) -> bool:
     if not value:
         return False
-    return marketplace_provenance_io.normalize_relative_repo_path(
-        value,
-        allow_current_dir=True,
-    ) is None
+    return (
+        marketplace_provenance_io.normalize_relative_repo_path(
+            value,
+            allow_current_dir=True,
+        )
+        is None
+    )
 
 
 def _skill_scoped_source_path(source_path: str, name: str | None) -> str:

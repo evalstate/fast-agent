@@ -472,7 +472,9 @@ async def test_reload_agents_rehydrates_saved_session_not_unsaved_live_history(
 
             await app.refresh_if_needed()
             updated_agent = app["watcher"]
-            assert [message.all_text() for message in updated_agent.message_history] == ["saved turn"]
+            assert [message.all_text() for message in updated_agent.message_history] == [
+                "saved turn"
+            ]
             assert updated_agent.instruction.strip() == "Return ok updated."
     finally:
         reset_session_manager()

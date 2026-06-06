@@ -182,12 +182,17 @@ def test_format_missing_installed_files_detail_uses_singular_label() -> None:
 
 
 def test_format_missing_installed_files_detail_uses_plural_label_and_preview_limit() -> None:
-    assert manager._format_missing_installed_files_detail([
-        "one.md",
-        "two.md",
-        "three.md",
-        "four.md",
-    ]) == "missing installed files in environment: one.md, two.md, three.md, ..."
+    assert (
+        manager._format_missing_installed_files_detail(
+            [
+                "one.md",
+                "two.md",
+                "three.md",
+                "four.md",
+            ]
+        )
+        == "missing installed files in environment: one.md, two.md, three.md, ..."
+    )
 
 
 def test_install_rejects_manifest_path_traversal(tmp_path) -> None:
@@ -248,7 +253,7 @@ def test_install_maps_legacy_pack_config_to_preferred_filename(tmp_path) -> None
     _init_repo(repo)
     _write_pack(repo, pack_subdir="packs/codex", pack_name="codex", files=["fastagent.config.yaml"])
     (repo / "packs" / "codex" / "fastagent.config.yaml").write_text(
-        "default_model: \"$system.default\"\n",
+        'default_model: "$system.default"\n',
         encoding="utf-8",
     )
     _commit_all(repo, "initial")
@@ -274,7 +279,7 @@ def test_install_legacy_pack_config_merges_existing_preferred_config(tmp_path) -
     _init_repo(repo)
     _write_pack(repo, pack_subdir="packs/codex", pack_name="codex", files=["fastagent.config.yaml"])
     (repo / "packs" / "codex" / "fastagent.config.yaml").write_text(
-        "default_model: \"$system.default\"\n"
+        'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
         "    fast: codexspark\n"
@@ -286,9 +291,7 @@ def test_install_legacy_pack_config_merges_existing_preferred_config(tmp_path) -
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     env_paths.root.mkdir(parents=True, exist_ok=True)
     (env_paths.root / "fast-agent.yaml").write_text(
-        "model_references:\n"
-        "  system:\n"
-        "    last_used: gpt-4.1-mini\n",
+        "model_references:\n  system:\n    last_used: gpt-4.1-mini\n",
         encoding="utf-8",
     )
 
@@ -314,7 +317,7 @@ def test_install_merges_unmanaged_env_config_when_it_only_preserves_last_used(tm
     _init_repo(repo)
     _write_pack(repo, pack_subdir="packs/codex", pack_name="codex", files=["fastagent.config.yaml"])
     (repo / "packs" / "codex" / "fastagent.config.yaml").write_text(
-        "default_model: \"$system.default\"\n"
+        'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
         "    fast: codexspark\n"
@@ -330,9 +333,7 @@ def test_install_merges_unmanaged_env_config_when_it_only_preserves_last_used(tm
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     env_paths.root.mkdir(parents=True, exist_ok=True)
     (env_paths.root / "fastagent.config.yaml").write_text(
-        "model_references:\n"
-        "  system:\n"
-        "    last_used: gpt-4.1-mini\n",
+        "model_references:\n  system:\n    last_used: gpt-4.1-mini\n",
         encoding="utf-8",
     )
 
@@ -353,12 +354,14 @@ def test_install_merges_unmanaged_env_config_when_it_only_preserves_last_used(tm
     assert saved["mcp"]["targets"][0]["name"] == "openai"
 
 
-def test_install_rejects_unmanaged_env_config_when_it_contains_more_than_last_used(tmp_path) -> None:
+def test_install_rejects_unmanaged_env_config_when_it_contains_more_than_last_used(
+    tmp_path,
+) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
     _write_pack(repo, pack_subdir="packs/codex", pack_name="codex", files=["fastagent.config.yaml"])
     (repo / "packs" / "codex" / "fastagent.config.yaml").write_text(
-        "default_model: \"$system.default\"\n",
+        'default_model: "$system.default"\n',
         encoding="utf-8",
     )
     _commit_all(repo, "initial")
@@ -366,10 +369,7 @@ def test_install_rejects_unmanaged_env_config_when_it_contains_more_than_last_us
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     env_paths.root.mkdir(parents=True, exist_ok=True)
     (env_paths.root / "fastagent.config.yaml").write_text(
-        "default_model: keep-me\n"
-        "model_references:\n"
-        "  system:\n"
-        "    last_used: gpt-4.1-mini\n",
+        "default_model: keep-me\nmodel_references:\n  system:\n    last_used: gpt-4.1-mini\n",
         encoding="utf-8",
     )
 

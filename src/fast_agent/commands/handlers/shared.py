@@ -88,11 +88,7 @@ def add_info_messages(
 def unique_selection_options(options: "Iterable[str]") -> list[str]:
     """Return non-empty selection options, preserving first spelling case-insensitively."""
     return unique_preserve_order(
-        (
-            normalized
-            for option in options
-            if (normalized := strip_to_none(option)) is not None
-        ),
+        (normalized for option in options if (normalized := strip_to_none(option)) is not None),
         key=str.casefold,
     )
 

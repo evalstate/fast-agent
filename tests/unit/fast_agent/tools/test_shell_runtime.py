@@ -239,10 +239,7 @@ async def test_shell_executor_strips_runtime_home_in_noenv(tmp_path: Path) -> No
     executor = LocalShellExecutor(logger=logging.getLogger(__name__), config=settings)
 
     result = await executor.execute_shell(
-        (
-            f"{sys.executable} -c "
-            "\"import os; print(os.environ.get('ENVIRONMENT_DIR', 'missing'))\""
-        ),
+        (f"{sys.executable} -c \"import os; print(os.environ.get('ENVIRONMENT_DIR', 'missing'))\""),
         cwd=tmp_path,
     )
 
@@ -349,7 +346,7 @@ async def test_set_working_directory_updates_execute_shell_cwd(tmp_path: Path) -
 
     runtime.set_working_directory(updated_dir)
     result = await runtime.execute_shell(
-        f"{sys.executable} -c \"import pathlib; print(pathlib.Path.cwd())\""
+        f'{sys.executable} -c "import pathlib; print(pathlib.Path.cwd())"'
     )
 
     assert result.exit_code == 0
@@ -677,10 +674,7 @@ async def test_execute_live_display_truncates_with_head_and_tail_windows() -> No
         config=Settings(shell_execution=ShellSettings(output_display_lines=6, show_bash=True)),
     )
 
-    command = (
-        f'"{sys.executable}" -c "for i in range(1, 11): '
-        "print('out-{0:02d}'.format(i))\""
-    )
+    command = f'"{sys.executable}" -c "for i in range(1, 11): print(\'out-{{0:02d}}\'.format(i))"'
 
     with console.console.capture() as capture:
         result = await runtime.execute({"command": command})
@@ -748,7 +742,9 @@ async def test_execute_progress_only_mode_suppresses_live_console_output() -> No
 
 
 @pytest.mark.asyncio
-async def test_execute_emits_shell_lifecycle_progress_events(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_execute_emits_shell_lifecycle_progress_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logger = RecordingFastLogger()
     runtime = ShellRuntime(
         activation_reason="test",

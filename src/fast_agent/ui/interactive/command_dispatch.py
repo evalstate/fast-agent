@@ -167,6 +167,7 @@ CatalogActionCommand = SkillsCommand | CardsCommand | PluginsCommand | ModelsCom
 class _ValueCommandPayload(Protocol):
     value: str | None
 
+
 DISPLAY_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
     ShowUsageCommand: display_handlers.handle_show_usage,
     ShowSystemCommand: display_handlers.handle_show_system,
@@ -269,9 +270,7 @@ def _attachment_tokens(
     tokens: list[str] = []
     for raw_path in paths:
         try:
-            tokens.append(
-                _attachment_token(raw_path, shell_working_dir=shell_working_dir)
-            )
+            tokens.append(_attachment_token(raw_path, shell_working_dir=shell_working_dir))
         except Exception as exc:
             _print_styled(f"Unable to attach '{raw_path}': {exc}", "red")
     return tokens
@@ -615,10 +614,7 @@ def _history_target_missing(
     payload: CommandPayload,
 ) -> bool:
     target_agent = _history_command_target_agent(payload)
-    return bool(
-        target_agent
-        and owner._get_agent_or_warn(prompt_provider, target_agent) is None
-    )
+    return bool(target_agent and owner._get_agent_or_warn(prompt_provider, target_agent) is None)
 
 
 def _dispatch_history_show_command(

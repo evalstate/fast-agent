@@ -54,11 +54,7 @@ def _write_skill(repo: Path, *, name: str, body: str) -> None:
     skill_dir = repo / "skills" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
-        "---\n"
-        f"name: {name}\n"
-        "description: Test skill\n"
-        "---\n\n"
-        f"{body}\n",
+        f"---\nname: {name}\ndescription: Test skill\n---\n\n{body}\n",
         encoding="utf-8",
     )
 
@@ -67,10 +63,7 @@ def _write_invalid_skill(repo: Path, *, name: str, body: str) -> None:
     skill_dir = repo / "skills" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
-        "---\n"
-        f"name: {name}\n"
-        "---\n\n"
-        f"{body}\n",
+        f"---\nname: {name}\n---\n\n{body}\n",
         encoding="utf-8",
     )
 
@@ -79,11 +72,7 @@ def _write_bundle_skill(repo: Path, *, bundle: str, name: str, body: str) -> Non
     skill_dir = repo / bundle / "skills" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
-        "---\n"
-        f"name: {name}\n"
-        "description: Test skill\n"
-        "---\n\n"
-        f"{body}\n",
+        f"---\nname: {name}\ndescription: Test skill\n---\n\n{body}\n",
         encoding="utf-8",
     )
 
@@ -276,9 +265,7 @@ def test_apply_unknown_revision_skill_update_is_noop(tmp_path: Path) -> None:
 
     assert len(applied) == 1
     assert applied[0].status == "unknown_revision"
-    assert "dirty working tree" in (managed_dir / "alpha" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    assert "dirty working tree" in (managed_dir / "alpha" / "SKILL.md").read_text(encoding="utf-8")
 
 
 def test_dirty_local_bundle_update_selects_requested_skill(tmp_path: Path) -> None:

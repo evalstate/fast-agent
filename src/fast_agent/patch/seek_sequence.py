@@ -56,17 +56,11 @@ def _first_matching_index(
 
 
 def _matches_trim_end(lines: list[str], pattern: list[str], index: int) -> bool:
-    return all(
-        lines[index + offset].rstrip() == pat.rstrip()
-        for offset, pat in enumerate(pattern)
-    )
+    return all(lines[index + offset].rstrip() == pat.rstrip() for offset, pat in enumerate(pattern))
 
 
 def _matches_trim(lines: list[str], pattern: list[str], index: int) -> bool:
-    return all(
-        lines[index + offset].strip() == pat.strip()
-        for offset, pat in enumerate(pattern)
-    )
+    return all(lines[index + offset].strip() == pat.strip() for offset, pat in enumerate(pattern))
 
 
 def _matches_normalized(lines: list[str], pattern: list[str], index: int) -> bool:
@@ -87,13 +81,13 @@ def _normalise(value: str) -> str:
         "\u2212": "-",
         "\u2018": "'",
         "\u2019": "'",
-        "\u201A": "'",
-        "\u201B": "'",
-        "\u201C": '"',
-        "\u201D": '"',
-        "\u201E": '"',
-        "\u201F": '"',
-        "\u00A0": " ",
+        "\u201a": "'",
+        "\u201b": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\u201f": '"',
+        "\u00a0": " ",
         "\u2002": " ",
         "\u2003": " ",
         "\u2004": " ",
@@ -102,9 +96,9 @@ def _normalise(value: str) -> str:
         "\u2007": " ",
         "\u2008": " ",
         "\u2009": " ",
-        "\u200A": " ",
-        "\u202F": " ",
-        "\u205F": " ",
+        "\u200a": " ",
+        "\u202f": " ",
+        "\u205f": " ",
         "\u3000": " ",
     }
     return "".join(mapping.get(ch, ch) for ch in value.strip())

@@ -194,7 +194,9 @@ class ACPServerSessionRuntime:
             server_name: replace(server_state)
             for server_name, server_state in session_state.session_mcp_servers.items()
         }
-        for server_name, server_state in session_state.agent_mcp_servers.get(agent_name, {}).items():
+        for server_name, server_state in session_state.agent_mcp_servers.get(
+            agent_name, {}
+        ).items():
             effective[server_name] = SessionMCPServerState(
                 server_name=server_name,
                 server_config=ACPServerSessionRuntime._resolve_server_config(
@@ -308,11 +310,15 @@ class ACPServerSessionRuntime:
         mcp_agents = self._mcp_capable_agents(instance)
         if not mcp_agents:
             if session_state.session_mcp_servers or session_state.agent_mcp_servers:
-                raise RuntimeError("ACP session requested MCP servers but no MCP-capable agents exist.")
+                raise RuntimeError(
+                    "ACP session requested MCP servers but no MCP-capable agents exist."
+                )
             return
 
         for agent_name, _agent in mcp_agents:
-            effective_states = self._effective_session_mcp_servers_for_agent(session_state, agent_name)
+            effective_states = self._effective_session_mcp_servers_for_agent(
+                session_state, agent_name
+            )
             for server_state in effective_states.values():
                 if not server_state.attached:
                     await self._detach_server_from_agent(
@@ -356,9 +362,9 @@ class ACPServerSessionRuntime:
         options: MCPAttachOptions | None = None,
     ) -> MCPAttachResult:
         instance = session_state.instance
-        existing_state = self._effective_session_mcp_servers_for_agent(session_state, agent_name).get(
-            server_name
-        )
+        existing_state = self._effective_session_mcp_servers_for_agent(
+            session_state, agent_name
+        ).get(server_name)
         effective_config = self._resolve_server_config(
             server_config,
             existing_state,
@@ -404,9 +410,9 @@ class ACPServerSessionRuntime:
         server_name: str,
     ) -> MCPDetachResult:
         instance = session_state.instance
-        existing_state = self._effective_session_mcp_servers_for_agent(session_state, agent_name).get(
-            server_name
-        )
+        existing_state = self._effective_session_mcp_servers_for_agent(
+            session_state, agent_name
+        ).get(server_name)
         result = await self._detach_server_from_agent(
             instance,
             agent_name=agent_name,
@@ -680,7 +686,11 @@ class ACPServerSessionRuntime:
         if workflow_telemetry and isinstance(agent, WorkflowTelemetryCapable):
             agent.workflow_telemetry = workflow_telemetry
 
-        if bind_plan_telemetry and isinstance(agent, PlanTelemetryCapable) and self._host._connection:
+        if (
+            bind_plan_telemetry
+            and isinstance(agent, PlanTelemetryCapable)
+            and self._host._connection
+        ):
             agent.plan_telemetry = ACPPlanTelemetryProvider(
                 self._host._connection,
                 session_id,
@@ -1178,8 +1188,7 @@ class ACPServerSessionRuntime:
             bind_tool_handler=initialization.tool_handler_created,
             bind_permission_handler=initialization.permission_handler_created,
             bind_runtimes=(
-                initialization.terminal_runtime_created
-                or initialization.filesystem_runtime_created
+                initialization.terminal_runtime_created or initialization.filesystem_runtime_created
             ),
             register_stream_listeners=initialization.tool_handler_created,
         )

@@ -170,7 +170,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         return None
 
     def _make_sampling_callback(self) -> "SamplingFnT | None":
-        if (self.server_config and self.server_config.sampling) or self._should_enable_auto_sampling():
+        if (
+            self.server_config and self.server_config.sampling
+        ) or self._should_enable_auto_sampling():
             return cast("SamplingFnT", sample)
         return None
 
@@ -590,13 +592,21 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         # Forward non-progress server notifications to the aggregator callback.
         # Progress updates already flow through the request progress callback path.
-        _cb = getattr(self._aggregator, "server_notification_callback", None) if self._aggregator else None
+        _cb = (
+            getattr(self._aggregator, "server_notification_callback", None)
+            if self._aggregator
+            else None
+        )
         if _cb and not isinstance(notification.root, ProgressNotification):
             asyncio.create_task(self._handle_server_notification(notification))
 
     async def _handle_server_notification(self, notification: ServerNotification) -> None:
         """Forward server notifications to the registered callback."""
-        _cb = getattr(self._aggregator, "server_notification_callback", None) if self._aggregator else None
+        _cb = (
+            getattr(self._aggregator, "server_notification_callback", None)
+            if self._aggregator
+            else None
+        )
         if not _cb:
             return
         try:
@@ -677,7 +687,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         supplied_meta = meta.model_dump() if isinstance(meta, RequestParams.Meta) else meta
         if supplied_meta:
-            params = ReadResourceRequestParams(uri=uri_obj, _meta=RequestParams.Meta(**supplied_meta))
+            params = ReadResourceRequestParams(
+                uri=uri_obj, _meta=RequestParams.Meta(**supplied_meta)
+            )
 
         request = ReadResourceRequest(method="resources/read", params=params)
         return await self.send_request(ClientRequest(request), ReadResourceResult)

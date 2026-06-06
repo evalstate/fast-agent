@@ -67,6 +67,7 @@ def build_apply_patch_tool() -> Tool:
         },
     )
 
+
 def is_apply_patch_tool_name(tool_name: str | None) -> bool:
     return matches_tool_name(tool_name, APPLY_PATCH_TOOL_NAME)
 

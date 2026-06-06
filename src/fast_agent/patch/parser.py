@@ -124,11 +124,7 @@ def _check_patch_boundaries_lenient(
         raise original_error
     first = lines[0]
     last = lines[-1]
-    if (
-        first in {"<<EOF", "<<'EOF'", '<<"EOF"'}
-        and last.endswith("EOF")
-        and len(lines) >= 4
-    ):
+    if first in {"<<EOF", "<<'EOF'", '<<"EOF"'} and last.endswith("EOF") and len(lines) >= 4:
         inner_lines = lines[1:-1]
         _check_patch_boundaries_strict(inner_lines)
         return inner_lines
@@ -302,10 +298,7 @@ def _parse_change_context(
         return None, 0
 
     raise InvalidHunkError(
-        message=(
-            "Expected update hunk to start with a @@ context marker, got: "
-            f"'{lines[0]}'"
-        ),
+        message=(f"Expected update hunk to start with a @@ context marker, got: '{lines[0]}'"),
         line_number=line_number,
     )
 
@@ -365,7 +358,6 @@ def _apply_update_chunk_line(chunk: UpdateFileChunk, line: str) -> bool:
         chunk.old_lines.append(content)
         return True
     return False
-
 
 
 def _strip_prefix(value: str, prefix: str) -> str | None:

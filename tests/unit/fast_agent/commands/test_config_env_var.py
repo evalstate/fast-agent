@@ -163,6 +163,7 @@ def test_env_var_in_mcp_server_settings(temp_config_files):
     ):
         # Test that env var resolution happens and transport inference works
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)  # Ignore the transport inference warning
             settings = get_settings(str(config_file))

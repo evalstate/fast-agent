@@ -67,6 +67,7 @@ def test_extract_alert_flags_from_meta_remains_backward_compatible() -> None:
 
     assert _extract_alert_flags_from_meta(blocks) == {"V"}
 
+
 def _message_with_channels(
     *,
     role: Literal["user", "assistant"] = "user",

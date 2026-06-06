@@ -67,7 +67,11 @@ def _coerce_progress_action(raw_action: object) -> "ProgressAction | None":
     from fast_agent.event_progress import ProgressAction
 
     with suppress(Exception):
-        return raw_action if isinstance(raw_action, ProgressAction) else ProgressAction(str(raw_action))
+        return (
+            raw_action
+            if isinstance(raw_action, ProgressAction)
+            else ProgressAction(str(raw_action))
+        )
     return None
 
 
@@ -115,7 +119,9 @@ def _mcp_progress_details(
 def _llm_progress_details(event_data: dict[str, Any], tool_context: str) -> str:
     model = _optional_text(event_data.get("model", ""))
     chat_turn = event_data.get("chat_turn")
-    details = model if chat_turn is None else _append_details(model, f"turn {chat_turn}", separator=" ")
+    details = (
+        model if chat_turn is None else _append_details(model, f"turn {chat_turn}", separator=" ")
+    )
 
     if tool_context:
         return _append_details(details, tool_context, separator=" • ")

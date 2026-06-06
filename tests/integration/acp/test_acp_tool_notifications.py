@@ -49,6 +49,7 @@ def _get_session_update_type(update: Any) -> str | None:
         return str(result) if result is not None else None
     return None
 
+
 @pytest.mark.integration
 async def test_acp_tool_call_notifications(
     acp_tool_notifications: tuple[ClientSideConnection, TestClient, InitializeResponse],
@@ -56,9 +57,10 @@ async def test_acp_tool_call_notifications(
     """Test that tool calls generate appropriate ACP notifications."""
     connection, client, init_response = acp_tool_notifications
 
-    assert getattr(init_response, "protocol_version", None) == 1 or getattr(
-        init_response, "protocolVersion", None
-    ) == 1
+    assert (
+        getattr(init_response, "protocol_version", None) == 1
+        or getattr(init_response, "protocolVersion", None) == 1
+    )
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
@@ -69,7 +71,9 @@ async def test_acp_tool_call_notifications(
     # Using the ***CALL_TOOL directive that the passthrough model supports
     tool_name = create_namespaced_name("progress_test", "progress_task")
     prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 3}}'
-    prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    prompt_response = await connection.prompt(
+        session_id=session_id, prompt=[text_block(prompt_text)]
+    )
     assert _get_stop_reason(prompt_response) == END_TURN
 
     # Wait for notifications
@@ -169,11 +173,7 @@ async def test_acp_tool_kinds_inferred(
 
     # Find the initial tool_call notification
     tool_call_notif = next(
-        (
-            n
-            for n in client.notifications
-            if _get_session_update_type(n["update"]) == "tool_call"
-        ),
+        (n for n in client.notifications if _get_session_update_type(n["update"]) == "tool_call"),
         None,
     )
 

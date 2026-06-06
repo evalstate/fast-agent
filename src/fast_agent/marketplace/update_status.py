@@ -23,12 +23,15 @@ CommonMarketplaceUpdateStatus: TypeAlias = Literal[
     "integrity_error",
 ]
 
-MarketplaceUpdateStatus: TypeAlias = CommonMarketplaceUpdateStatus | Literal[
-    "invalid_local_skill",
-    "invalid_local_plugin",
-    "invalid_local_pack",
-    "ownership_conflict",
-]
+MarketplaceUpdateStatus: TypeAlias = (
+    CommonMarketplaceUpdateStatus
+    | Literal[
+        "invalid_local_skill",
+        "invalid_local_plugin",
+        "invalid_local_pack",
+        "ownership_conflict",
+    ]
+)
 
 ALL_MARKETPLACE_UPDATE_STATUSES: tuple[MarketplaceUpdateStatus, ...] = (
     "up_to_date",
@@ -48,9 +51,7 @@ ALL_MARKETPLACE_UPDATE_STATUSES: tuple[MarketplaceUpdateStatus, ...] = (
     "ownership_conflict",
 )
 
-APPLICABLE_UPDATE_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset(
-    {"update_available"}
-)
+APPLICABLE_UPDATE_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset({"update_available"})
 APPLIED_UPDATE_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset({"updated"})
 COMMON_UPDATE_STATUS_LABELS: dict[MarketplaceUpdateStatus, str] = {
     "up_to_date": "already up to date",

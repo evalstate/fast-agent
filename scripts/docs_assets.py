@@ -61,7 +61,9 @@ def _model_picker_scenario() -> TerminalCastScenario:
         output=ASSETS / "models" / "model-picker.cast",
         cols=int(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_COLS", "96")),
         rows=int(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_ROWS", "21")),
-        idle_time_limit=float(os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_IDLE_TIME_LIMIT", "1.3")),
+        idle_time_limit=float(
+            os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_IDLE_TIME_LIMIT", "1.3")
+        ),
         prompt="",
         shell_command=command,
     )

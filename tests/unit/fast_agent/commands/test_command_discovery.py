@@ -53,7 +53,10 @@ def test_render_commands_json_action_detail_has_schema_version() -> None:
 
     assert '"schema_version": "1"' in rendered
     assert '"kind": "command_action_detail"' in rendered
-    assert '"/skills add [<number|name|github-url|path>] [--registry url] [--skills-dir path]"' in rendered
+    assert (
+        '"/skills add [<number|name|github-url|path>] [--registry url] [--skills-dir path]"'
+        in rendered
+    )
     assert '"name": "--skills-dir"' in rendered
 
 

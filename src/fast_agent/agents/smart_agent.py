@@ -109,6 +109,7 @@ logger = get_logger(__name__)
 
 _INTERNAL_RESOURCE_SERVER = "internal"
 
+
 class SmartSlashOutcomeHandler(Protocol):
     async def __call__(
         self,

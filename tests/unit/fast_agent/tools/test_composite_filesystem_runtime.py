@@ -105,9 +105,7 @@ async def test_composite_runtime_does_not_fallback_for_acp_owned_read_write() ->
     result = await runtime.call_tool("write_text_file", {"path": "x", "content": "y"})
 
     assert result.isError is True
-    assert fatal_tool_error(result) == (
-        "Error: unsupported filesystem tool 'write_text_file'"
-    )
+    assert fatal_tool_error(result) == ("Error: unsupported filesystem tool 'write_text_file'")
     assert primary.calls == []
     assert fallback.calls == []
 

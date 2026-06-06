@@ -4,15 +4,13 @@ from fast_agent.llm.model_database import ModelDatabase
 def test_model_database_normalizes_reasoning_query() -> None:
     assert ModelDatabase.get_max_output_tokens(
         "gpt-5-mini?reasoning=low"
-    ) == ModelDatabase.get_max_output_tokens(
-        "gpt-5-mini"
-    )
+    ) == ModelDatabase.get_max_output_tokens("gpt-5-mini")
 
 
 def test_model_database_normalizes_provider_prefix_dot() -> None:
-    assert ModelDatabase.get_max_output_tokens("openai.gpt-4.1") == ModelDatabase.get_max_output_tokens(
-        "gpt-4.1"
-    )
+    assert ModelDatabase.get_max_output_tokens(
+        "openai.gpt-4.1"
+    ) == ModelDatabase.get_max_output_tokens("gpt-4.1")
 
 
 def test_model_database_normalizes_case_and_whitespace() -> None:
@@ -21,9 +19,9 @@ def test_model_database_normalizes_case_and_whitespace() -> None:
 
 
 def test_model_database_normalizes_provider_prefix_slash() -> None:
-    assert ModelDatabase.get_max_output_tokens("openai/gpt-4.1") == ModelDatabase.get_max_output_tokens(
-        "gpt-4.1"
-    )
+    assert ModelDatabase.get_max_output_tokens(
+        "openai/gpt-4.1"
+    ) == ModelDatabase.get_max_output_tokens("gpt-4.1")
 
 
 def test_model_database_normalizes_aliases() -> None:
@@ -49,12 +47,12 @@ def test_model_database_strips_hf_routing_suffix() -> None:
 
 def test_model_database_preserves_known_slash_keys() -> None:
     # Some model ids are canonical slash paths (e.g. HF model repos).
-    assert ModelDatabase.get_max_output_tokens("openai/gpt-oss-20b") == ModelDatabase.get_max_output_tokens(
-        "hf.openai/gpt-oss-20b"
-    )
+    assert ModelDatabase.get_max_output_tokens(
+        "openai/gpt-oss-20b"
+    ) == ModelDatabase.get_max_output_tokens("hf.openai/gpt-oss-20b")
 
 
 def test_model_database_normalizes_temperature_query() -> None:
-    assert ModelDatabase.get_max_output_tokens("gpt-5?temperature=0.2") == ModelDatabase.get_max_output_tokens(
-        "gpt-5"
-    )
+    assert ModelDatabase.get_max_output_tokens(
+        "gpt-5?temperature=0.2"
+    ) == ModelDatabase.get_max_output_tokens("gpt-5")

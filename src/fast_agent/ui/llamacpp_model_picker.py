@@ -89,9 +89,7 @@ class _LlamaCppModelPicker:
     def __init__(
         self,
         models: tuple[LlamaCppModelListing, ...],
-        runtime_context_loader: Callable[
-            [str], Awaitable[LlamaCppModelPickerContext | int | None]
-        ]
+        runtime_context_loader: Callable[[str], Awaitable[LlamaCppModelPickerContext | int | None]]
         | None = None,
     ) -> None:
         if not models:
@@ -420,7 +418,9 @@ class _LlamaCppModelPicker:
     def _render_details(self) -> StyleFragments:
         model = self.current_model
         action = self.current_action
-        training_context = self._training_context_label(self._training_context_for_model(model)).replace(
+        training_context = self._training_context_label(
+            self._training_context_for_model(model)
+        ).replace(
             "train ",
             "",
         )

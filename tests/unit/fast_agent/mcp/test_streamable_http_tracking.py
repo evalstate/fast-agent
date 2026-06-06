@@ -86,7 +86,9 @@ class _ScriptedTransport(ChannelTrackingStreamableHTTPTransport):
         mode = self._script[self.open_calls]
         self.open_calls += 1
         if mode == "stop":
-            return _ScriptedSSEConnection(mode, on_complete=lambda: setattr(self, "session_id", None))
+            return _ScriptedSSEConnection(
+                mode, on_complete=lambda: setattr(self, "session_id", None)
+            )
         return _ScriptedSSEConnection(mode)
 
     async def _sleep_before_reconnect(self, delay_ms: int) -> None:
@@ -116,7 +118,9 @@ def _capture_transport_logger(caplog):
         target_logger.setLevel(original_level)
 
 
-async def test_terminate_session_accepts_202_without_warning(caplog, _capture_transport_logger) -> None:
+async def test_terminate_session_accepts_202_without_warning(
+    caplog, _capture_transport_logger
+) -> None:
     transport = _transport()
 
     await transport.terminate_session(cast("httpx.AsyncClient", _Client(202)))
@@ -134,7 +138,9 @@ async def test_terminate_session_logs_warning_for_unexpected_status(
     assert "Session termination failed: 500" in caplog.text
 
 
-async def test_terminate_session_logs_warning_on_exception(caplog, _capture_transport_logger) -> None:
+async def test_terminate_session_logs_warning_on_exception(
+    caplog, _capture_transport_logger
+) -> None:
     transport = _transport()
 
     await transport.terminate_session(cast("httpx.AsyncClient", _FailingClient()))

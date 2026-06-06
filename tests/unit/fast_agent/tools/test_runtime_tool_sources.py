@@ -173,12 +173,12 @@ async def test_acp_filesystem_denied_write_has_no_filesystem_or_diff_side_effect
     assert connection.update_calls == 1
     assert tool_handler.ensured == [
         (
-                "tool-use-1",
-                "write_text_file",
-                ACP_FILESYSTEM_TOOL_SOURCE,
-                {"path": "secret.txt", "content_length": 11},
-            ),
-        ]
+            "tool-use-1",
+            "write_text_file",
+            ACP_FILESYSTEM_TOOL_SOURCE,
+            {"path": "secret.txt", "content_length": 11},
+        ),
+    ]
     assert tool_handler.denied == [
         ("write_text_file", ACP_FILESYSTEM_TOOL_SOURCE, "tool-use-1", "no")
     ]

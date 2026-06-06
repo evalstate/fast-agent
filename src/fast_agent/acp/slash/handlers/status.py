@@ -66,7 +66,9 @@ async def handle_status(handler: "SlashCommandHandler", arguments: str | None = 
         agent=agent,
         client_info=handler.client_info,
         client_capabilities=handler.client_capabilities,
-        protocol_version=str(handler.protocol_version) if handler.protocol_version is not None else None,
+        protocol_version=str(handler.protocol_version)
+        if handler.protocol_version is not None
+        else None,
         uptime_seconds=uptime_seconds,
         instance=handler.instance,
     )

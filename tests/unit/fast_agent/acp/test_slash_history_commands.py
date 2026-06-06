@@ -144,8 +144,7 @@ async def test_handle_history_unknown_action_includes_webclear_when_available(
     assert "Unknown /history action: bogus" in output
     assert (
         "Usage: /history "
-        "[show|detail <turn>|save|load|clear [last]|rewind <turn>|fix|webclear] [args]"
-        in output
+        "[show|detail <turn>|save|load|clear [last]|rewind <turn>|fix|webclear] [args]" in output
     )
 
 

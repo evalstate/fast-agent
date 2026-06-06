@@ -389,7 +389,9 @@ def test_attr_object_view_model_dump_recurses_nested_mappings() -> None:
     assert json.loads(json.dumps(dumped)) == dumped
 
 
-def _build_ws_arguments(input_items: list[dict[str, Any]], *, temperature: float = 0.0) -> dict[str, Any]:
+def _build_ws_arguments(
+    input_items: list[dict[str, Any]], *, temperature: float = 0.0
+) -> dict[str, Any]:
     return {
         "model": "gpt-5.3-codex",
         "input": input_items,
@@ -422,7 +424,6 @@ def _build_reasoning_item(reasoning_id: str) -> dict[str, Any]:
     }
 
 
-
 def _build_custom_tool_call(call_id: str, input_text: str) -> dict[str, Any]:
     return {
         "type": "custom_tool_call",
@@ -443,7 +444,9 @@ def _build_tool_result(call_id: str, output: str) -> dict[str, Any]:
 def test_stateless_planner_always_create() -> None:
     planner = StatelessResponsesWsPlanner()
     first = planner.plan(_build_ws_arguments([_build_input_message("one")]))
-    second = planner.plan(_build_ws_arguments([_build_input_message("one"), _build_input_message("two")]))
+    second = planner.plan(
+        _build_ws_arguments([_build_input_message("one"), _build_input_message("two")])
+    )
     assert first.event_type == RESPONSES_CREATE_EVENT_TYPE
     assert second.event_type == RESPONSES_CREATE_EVENT_TYPE
 
@@ -491,8 +494,6 @@ def test_continuation_planner_strips_replayed_assistant_items_from_incremental_i
         _build_tool_result("call_1", "ok"),
         _build_input_message("two"),
     ]
-
-
 
 
 def test_continuation_planner_strips_replayed_custom_tool_calls_from_incremental_input() -> None:
@@ -553,7 +554,9 @@ def test_continuation_planner_equal_or_shorter_input_forces_create() -> None:
     baseline = _build_ws_arguments([_build_input_message("one"), _build_input_message("two")])
     planner.commit(baseline, planner.plan(baseline), {"id": "resp_1"})
 
-    equal = planner.plan(_build_ws_arguments([_build_input_message("one"), _build_input_message("two")]))
+    equal = planner.plan(
+        _build_ws_arguments([_build_input_message("one"), _build_input_message("two")])
+    )
     shorter = planner.plan(_build_ws_arguments([_build_input_message("one")]))
 
     assert equal.event_type == RESPONSES_CREATE_EVENT_TYPE
@@ -655,7 +658,9 @@ def test_resolve_responses_ws_url() -> None:
     assert resolve_responses_ws_url("https://chatgpt.com/backend-api/codex") == (
         "wss://chatgpt.com/backend-api/codex/responses"
     )
-    assert resolve_responses_ws_url("http://localhost:8080/v1") == "ws://localhost:8080/v1/responses"
+    assert (
+        resolve_responses_ws_url("http://localhost:8080/v1") == "ws://localhost:8080/v1/responses"
+    )
     assert resolve_responses_ws_url("https://api.openai.com/v1/responses") == (
         "wss://api.openai.com/v1/responses"
     )
@@ -1079,7 +1084,9 @@ class _TransportHarness(ResponsesLLM):
 
 class _ConnectionLifecycleHarness(ResponsesLLM):
     def __init__(self) -> None:
-        super().__init__(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket")
+        super().__init__(
+            provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket"
+        )
         connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
         self._release_manager = _ReleaseTrackingConnectionManager(connection)
         self._ws_connections = self._release_manager
@@ -1163,8 +1170,12 @@ class _TimeoutLifecycleHarness(_ConnectionLifecycleHarness):
 
 class _ContinuationConnectionLifecycleHarness(CodexResponsesLLM):
     def __init__(self) -> None:
-        super().__init__(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket")
-        self.connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+        super().__init__(
+            provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket"
+        )
+        self.connection = ManagedWebSocketConnection(
+            session=_FakeSession(), websocket=_FakeWebSocket()
+        )
         self._release_manager = _ReleaseTrackingConnectionManager(self.connection)
         self._ws_connections = self._release_manager
         self._capturing_logger = _CapturingLogger()
@@ -1523,7 +1534,9 @@ async def test_websocket_completion_ws_rolls_back_planner_on_timeout() -> None:
 async def test_temporary_connection_has_isolated_planner_state() -> None:
     harness = _ContinuationConnectionLifecycleHarness()
     reusable_connection = harness.connection
-    temporary_connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+    temporary_connection = ManagedWebSocketConnection(
+        session=_FakeSession(), websocket=_FakeWebSocket()
+    )
     manager = _PlannedAcquireConnectionManager(
         [(temporary_connection, False), (reusable_connection, True)]
     )
@@ -1856,12 +1869,10 @@ async def test_websocket_reestablish_debug_status_includes_diagnostics() -> None
     assert streamed_summary == []
     assert normalized_input == _ws_input_items("hello")
     assert not any(
-        "WS reconnecting" in message
-        for message in harness._capturing_display.status_messages
+        "WS reconnecting" in message for message in harness._capturing_display.status_messages
     )
     assert not any(
-        "WebSocket reconnected" in message
-        for message in harness._capturing_display.status_messages
+        "WebSocket reconnected" in message for message in harness._capturing_display.status_messages
     )
 
 
@@ -1876,8 +1887,12 @@ async def test_websocket_reestablish_debug_status_includes_diagnostics() -> None
 async def test_websocket_retries_on_recoverable_server_error_codes(error_code: str) -> None:
     harness = _ContinuationConnectionLifecycleHarness()
     harness._ws_debug_inline = True
-    first_connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
-    second_connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+    first_connection = ManagedWebSocketConnection(
+        session=_FakeSession(), websocket=_FakeWebSocket()
+    )
+    second_connection = ManagedWebSocketConnection(
+        session=_FakeSession(), websocket=_FakeWebSocket()
+    )
     manager = _PlannedAcquireConnectionManager(
         planned_connections=[
             (first_connection, False),
@@ -1911,10 +1926,8 @@ async def test_websocket_retries_on_recoverable_server_error_codes(error_code: s
     assert second_payload["type"] == RESPONSES_CREATE_EVENT_TYPE
     assert "previous_response_id" not in second_payload
     assert not any(
-        "WS reconnecting" in message
-        for message in harness._capturing_display.status_messages
+        "WS reconnecting" in message for message in harness._capturing_display.status_messages
     )
     assert not any(
-        "WebSocket reconnected" in message
-        for message in harness._capturing_display.status_messages
+        "WebSocket reconnected" in message for message in harness._capturing_display.status_messages
     )

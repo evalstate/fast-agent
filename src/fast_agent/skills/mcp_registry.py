@@ -241,9 +241,7 @@ def select_mcp_registry_skill(
     return None
 
 
-async def _server_version(
-    aggregator: McpSkillRegistryStatusClient, server_name: str
-) -> str | None:
+async def _server_version(aggregator: McpSkillRegistryStatusClient, server_name: str) -> str | None:
     status_map = await aggregator.collect_server_status()
     status = status_map.get(server_name)
     if status is None:

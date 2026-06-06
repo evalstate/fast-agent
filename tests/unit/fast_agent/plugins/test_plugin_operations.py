@@ -82,8 +82,7 @@ def _write_plugin(repo: Path) -> None:
         encoding="utf-8",
     )
     (plugin_dir / "commands.py").write_text(
-        "async def find(ctx):\n"
-        "    return 'found'\n",
+        "async def find(ctx):\n    return 'found'\n",
         encoding="utf-8",
     )
 
@@ -178,8 +177,7 @@ def test_plugin_install_from_manifest_path_tracks_whole_plugin_directory(
     assert read_result.source.installed_path_oid is not None
 
     (repo / "plugins" / "finder" / "commands.py").write_text(
-        "async def find(ctx):\n"
-        "    return 'updated'\n",
+        "async def find(ctx):\n    return 'updated'\n",
         encoding="utf-8",
     )
     _commit_all(repo, "update command")
@@ -246,8 +244,7 @@ def test_apply_plugin_update_refreshes_stale_source_state(tmp_path: Path) -> Non
     install_dir = install_marketplace_plugin_sync(plugins[0], destination_root=destination_root)
 
     (repo / "plugins" / "finder" / "commands.py").write_text(
-        "async def find(ctx):\n"
-        "    return 'updated'\n",
+        "async def find(ctx):\n    return 'updated'\n",
         encoding="utf-8",
     )
     _commit_all(repo, "update plugin")

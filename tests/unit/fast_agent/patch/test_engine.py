@@ -19,15 +19,7 @@ def test_update_file_hunk_modifies_content() -> None:
         path = Path(tmp) / "update.txt"
         path.write_text("foo\nbar\n", encoding="utf-8", newline="")
 
-        patch = (
-            "*** Begin Patch\n"
-            f"*** Update File: {path}\n"
-            "@@\n"
-            " foo\n"
-            "-bar\n"
-            "+baz\n"
-            "*** End Patch"
-        )
+        patch = f"*** Begin Patch\n*** Update File: {path}\n@@\n foo\n-bar\n+baz\n*** End Patch"
 
         stdout, stderr = _run_patch(patch)
 
@@ -66,13 +58,7 @@ def test_update_file_end_of_file_anchor() -> None:
         path.write_text("a\nb\nc\n", encoding="utf-8", newline="")
 
         patch = (
-            "*** Begin Patch\n"
-            f"*** Update File: {path}\n"
-            "@@\n"
-            " c\n"
-            "+d\n"
-            "*** End of File\n"
-            "*** End Patch"
+            f"*** Begin Patch\n*** Update File: {path}\n@@\n c\n+d\n*** End of File\n*** End Patch"
         )
 
         stdout, stderr = _run_patch(patch)
@@ -87,14 +73,7 @@ def test_update_file_change_context_disambiguates() -> None:
         path = Path(tmp) / "context.txt"
         path.write_text("header\nfoo\nold\nfoo\nold\n", encoding="utf-8", newline="")
 
-        patch = (
-            "*** Begin Patch\n"
-            f"*** Update File: {path}\n"
-            "@@ foo\n"
-            "-old\n"
-            "+new\n"
-            "*** End Patch"
-        )
+        patch = f"*** Begin Patch\n*** Update File: {path}\n@@ foo\n-old\n+new\n*** End Patch"
 
         stdout, stderr = _run_patch(patch)
 

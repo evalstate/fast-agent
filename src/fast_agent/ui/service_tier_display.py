@@ -29,9 +29,7 @@ def _normalize_allowed_tiers(
         return DEFAULT_SERVICE_TIERS
 
     return tuple(
-        tier
-        for tier in unique_preserve_order(allowed_tiers)
-        if tier in SUPPORTED_SERVICE_TIERS
+        tier for tier in unique_preserve_order(allowed_tiers) if tier in SUPPORTED_SERVICE_TIERS
     )
 
 

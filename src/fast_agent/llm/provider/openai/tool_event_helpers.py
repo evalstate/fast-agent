@@ -252,9 +252,7 @@ def tool_stream_log_record(
     fallback: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     message = (
-        _TOOL_STREAM_FALLBACK_LOG_MESSAGE
-        if fallback
-        else _TOOL_STREAM_LOG_MESSAGE[event_type]
+        _TOOL_STREAM_FALLBACK_LOG_MESSAGE if fallback else _TOOL_STREAM_LOG_MESSAGE[event_type]
     )
     data: dict[str, Any] = {
         "progress_action": ProgressAction.CALLING_TOOL,

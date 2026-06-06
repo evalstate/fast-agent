@@ -491,7 +491,9 @@ class AgentHarness:
         agent_cards_dir = resolve_environment_paths(settings).agent_cards
         if not agent_cards_dir.is_dir():
             return
-        if not any(entry.is_file() and is_agent_card_path(entry) for entry in agent_cards_dir.iterdir()):
+        if not any(
+            entry.is_file() and is_agent_card_path(entry) for entry in agent_cards_dir.iterdir()
+        ):
             return
         self._fast_agent.load_agents(agent_cards_dir)
 

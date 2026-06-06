@@ -171,9 +171,7 @@ def _print_publish_result(result: card_manager.CardPackPublishResult) -> None:
             )
         )
     if result.patch_path is not None:
-        rows.append(
-            DetailDisplayRow(label="patch", value=format_display_path(result.patch_path))
-        )
+        rows.append(DetailDisplayRow(label="patch", value=format_display_path(result.patch_path)))
     if result.retained_temp_dir is not None:
         rows.append(
             DetailDisplayRow(
@@ -479,7 +477,7 @@ def cards_publish(
         print_hint(
             console,
             "Publish with: fast-agent cards publish <number|name> "
-            "[--no-push] [--message ...] [--temp-dir <path>] [--keep-temp]"
+            "[--no-push] [--message ...] [--temp-dir <path>] [--keep-temp]",
         )
         raise typer.Exit(0)
 

@@ -39,8 +39,7 @@ def test_normalize_marketplace_url_strips_outer_whitespace_for_github_blob() -> 
     )
 
     assert normalized == (
-        "https://raw.githubusercontent.com/example/skills/"
-        "main/skills/alpha/marketplace.json"
+        "https://raw.githubusercontent.com/example/skills/main/skills/alpha/marketplace.json"
     )
 
 
@@ -153,17 +152,23 @@ def test_explicit_entry_source_url_excludes_context_source_url() -> None:
         "url": "https://github.com/example/skills",
     }
 
-    assert source_urls.explicit_entry_source_url(
-        {"source_url": "https://example.com/marketplace.json"},
-        "source_url",
-        default_source_url="https://example.com/marketplace.json",
-    ) is None
-    assert source_urls.explicit_entry_source_url(
-        payload,
-        "source_url",
-        "url",
-        default_source_url="https://example.com/marketplace.json",
-    ) == "https://github.com/example/skills"
+    assert (
+        source_urls.explicit_entry_source_url(
+            {"source_url": "https://example.com/marketplace.json"},
+            "source_url",
+            default_source_url="https://example.com/marketplace.json",
+        )
+        is None
+    )
+    assert (
+        source_urls.explicit_entry_source_url(
+            payload,
+            "source_url",
+            "url",
+            default_source_url="https://example.com/marketplace.json",
+        )
+        == "https://github.com/example/skills"
+    )
 
 
 def test_marketplace_repo_fields_normalizes_github_tree_repo_url() -> None:
@@ -339,9 +344,7 @@ def test_parse_github_url_preserves_slash_branch_before_common_path_prefix() -> 
 
 
 def test_parse_github_url_preserves_anchor_named_slash_branch() -> None:
-    parsed = source_urls.parse_github_url(
-        "https://github.com/org/repo/tree/feature/skills/foo"
-    )
+    parsed = source_urls.parse_github_url("https://github.com/org/repo/tree/feature/skills/foo")
 
     assert parsed is not None
     assert parsed.repo_url == "https://github.com/org/repo"
@@ -358,5 +361,3 @@ def test_parse_raw_github_url_preserves_slash_branch_for_marketplace_path() -> N
     assert parsed.repo_url == "https://github.com/example/skills"
     assert parsed.repo_ref == "release/candidate"
     assert parsed.repo_path == ".claude-plugin/marketplace.json"
-
-

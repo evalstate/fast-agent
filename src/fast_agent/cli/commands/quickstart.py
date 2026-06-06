@@ -356,7 +356,9 @@ def _copy_files_from_source(
 ) -> list[str]:
     """Helper function to copy files from a source directory."""
     created = _copy_regular_example_files(example_type, example_info, source_dir, target_dir, force)
-    created.extend(_copy_mount_point_files(example_type, example_info, source_dir, target_dir, force))
+    created.extend(
+        _copy_mount_point_files(example_type, example_info, source_dir, target_dir, force)
+    )
 
     return created
 
@@ -718,9 +720,7 @@ def _show_toad_cards_completion_message(created: list[str]) -> None:
 
 @app.command(name="t0", help="Alias for the TensorZero quickstart.", hidden=True)
 def t0_alias(
-    directory: Path = typer.Argument(
-        Path(), help="Directory for the 'tensorzero' project folder."
-    ),
+    directory: Path = typer.Argument(Path(), help="Directory for the 'tensorzero' project folder."),
     force: bool = typer.Option(False, "--force", "-f", help="Force overwrite"),
 ):
     """Alias for the `tensorzero` command."""

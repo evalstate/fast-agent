@@ -271,8 +271,7 @@ class TransportChannelMetrics:
             ActivityState.NONE: 1,
         }
         self._history: dict[ChannelName, deque[tuple[int, ActivityState]]] = {
-            channel: deque(maxlen=self._history_bucket_count)
-            for channel in TRACKED_CHANNEL_NAMES
+            channel: deque(maxlen=self._history_bucket_count) for channel in TRACKED_CHANNEL_NAMES
         }
 
     def record_event(self, event: ChannelEvent) -> None:
@@ -360,9 +359,7 @@ class TransportChannelMetrics:
             self._get_last_event_at = now
             # Record 405 as "disabled" in timeline, not "error"
             timeline_state = (
-                ActivityState.DISABLED
-                if event.status_code == 405
-                else ActivityState.ERROR
+                ActivityState.DISABLED if event.status_code == 405 else ActivityState.ERROR
             )
             self._record_history("get", timeline_state, now)
 
@@ -670,9 +667,7 @@ class TransportChannelMetrics:
             return None
 
         post_mode_counts: dict[str, int] = {
-            mode: stats.messages
-            for mode, stats in self._post_mode_stats.items()
-            if stats.messages
+            mode: stats.messages for mode, stats in self._post_mode_stats.items() if stats.messages
         }
         return ChannelSnapshot(
             message_count=self._post_count,

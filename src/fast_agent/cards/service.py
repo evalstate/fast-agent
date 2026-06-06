@@ -447,10 +447,7 @@ def apply_update_plan(
             environment_paths=environment_paths,
             plugin_registry=plugin_registry,
         )
-    readmes = [
-        _build_readme_record(update.name, update.pack_dir)
-        for update in updated
-    ]
+    readmes = [_build_readme_record(update.name, update.pack_dir) for update in updated]
     return CardPackUpdateResult(applied=applied, readmes=readmes)
 
 

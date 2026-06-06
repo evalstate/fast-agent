@@ -22,8 +22,7 @@ if TYPE_CHECKING:
 def test_load_plugin_command_action_function_accepts_async_handler(tmp_path: Path) -> None:
     module_path = tmp_path / "commands.py"
     module_path.write_text(
-        "async def run(ctx):\n"
-        "    return 'ok'\n",
+        "async def run(ctx):\n    return 'ok'\n",
         encoding="utf-8",
     )
 
@@ -35,8 +34,7 @@ def test_load_plugin_command_action_function_accepts_async_handler(tmp_path: Pat
 def test_load_plugin_command_action_function_rejects_sync_handler(tmp_path: Path) -> None:
     module_path = tmp_path / "commands.py"
     module_path.write_text(
-        "def run(ctx):\n"
-        "    return 'ok'\n",
+        "def run(ctx):\n    return 'ok'\n",
         encoding="utf-8",
     )
 
@@ -93,8 +91,7 @@ async def test_load_plugin_command_action_function_registers_module_during_impor
 async def test_registry_executes_and_normalizes_string_result(tmp_path: Path) -> None:
     module_path = tmp_path / "commands.py"
     module_path.write_text(
-        "async def greet(ctx):\n"
-        "    return f'hello {ctx.arguments}'\n",
+        "async def greet(ctx):\n    return f'hello {ctx.arguments}'\n",
         encoding="utf-8",
     )
     registry = PluginCommandActionRegistry.from_specs(

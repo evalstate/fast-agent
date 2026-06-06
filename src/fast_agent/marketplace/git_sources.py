@@ -240,9 +240,7 @@ def _validate_tar_member_path(member: tarfile.TarInfo, destination_root: Path) -
     try:
         target.relative_to(destination_root)
     except ValueError as exc:
-        raise tarfile.TarError(
-            f"Archive member escapes destination: {member.name}"
-        ) from exc
+        raise tarfile.TarError(f"Archive member escapes destination: {member.name}") from exc
 
 
 def _missing_ref_revision(repo_ref: str, status: StatusT) -> SourceRevision[StatusT]:

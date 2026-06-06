@@ -87,7 +87,6 @@ def to_get_prompt_result(
     return GetPromptResult(messages=flat_messages)
 
 
-
 def to_get_prompt_result_json(messages: list[PromptMessageExtended]) -> str:
     """
     Convert PromptMessageExtended objects to MCP-compatible GetPromptResult JSON.
@@ -288,9 +287,7 @@ class _DelimitedParseState:
 
     def flush_text(self) -> None:
         if self.collecting_text and self.text_lines:
-            self.text_contents.append(
-                TextContent(type="text", text="\n".join(self.text_lines))
-            )
+            self.text_contents.append(TextContent(type="text", text="\n".join(self.text_lines)))
         self.collecting_text = False
         self.text_lines.clear()
 

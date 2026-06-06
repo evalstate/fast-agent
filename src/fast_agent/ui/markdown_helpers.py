@@ -61,9 +61,7 @@ def _protected_markdown_ranges(
             protected_ranges.append(_line_map_to_range(lines, token.map))
 
         if token.type == "code_inline":
-            protected_ranges.extend(
-                _inline_code_ranges(content, token.content, protected_ranges)
-            )
+            protected_ranges.extend(_inline_code_ranges(content, token.content, protected_ranges))
 
     incomplete_fence_range = _incomplete_fence_range(content, protected_ranges)
     if incomplete_fence_range is not None:

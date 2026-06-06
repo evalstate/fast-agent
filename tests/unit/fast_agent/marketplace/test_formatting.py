@@ -18,10 +18,7 @@ def test_format_revision_short_for_named_revision() -> None:
 
 
 def test_format_installed_at_display_with_z_suffix() -> None:
-    assert (
-        formatting.format_installed_at_display("2026-02-25T01:02:03Z")
-        == "2026-02-25 01:02:03"
-    )
+    assert formatting.format_installed_at_display("2026-02-25T01:02:03Z") == "2026-02-25 01:02:03"
 
 
 def test_format_installed_at_display_strips_invalid_timestamp_fallback() -> None:

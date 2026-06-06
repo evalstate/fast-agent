@@ -19,7 +19,10 @@ def test_normalize_reasoning_delta_inserts_space_after_sentence_break() -> None:
         emitted += delta
         last_char = emitted[-1] if emitted else None
 
-    assert emitted == "approach. Specifying session retrieval format Selecting session retrieval method"
+    assert (
+        emitted
+        == "approach. Specifying session retrieval format Selecting session retrieval method"
+    )
 
 
 def test_normalize_reasoning_delta_inserts_space_before_single_word_sentence_start() -> None:
@@ -30,11 +33,15 @@ def test_normalize_reasoning_delta_inserts_space_before_markdown_after_sentence_
     assert join_reasoning_segments(["done.", "`next` step"]) == "done. `next` step"
 
 
-def test_normalize_reasoning_delta_inserts_space_before_markdown_list_after_sentence_break() -> None:
+def test_normalize_reasoning_delta_inserts_space_before_markdown_list_after_sentence_break() -> (
+    None
+):
     assert join_reasoning_segments(["done.", "- next step"]) == "done. - next step"
 
 
-def test_normalize_reasoning_delta_inserts_space_before_markdown_heading_after_sentence_break() -> None:
+def test_normalize_reasoning_delta_inserts_space_before_markdown_heading_after_sentence_break() -> (
+    None
+):
     assert join_reasoning_segments(["done.", "# Next step"]) == "done. # Next step"
 
 

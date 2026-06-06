@@ -4,7 +4,6 @@ These tests verify that custom headers can be configured via settings
 and are correctly passed to the OpenAI client.
 """
 
-
 from fast_agent.config import (
     AzureSettings,
     DeepSeekSettings,

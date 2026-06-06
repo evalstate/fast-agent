@@ -82,8 +82,6 @@ def collect_agent_card_files(directory: Path) -> list[Path]:
     ]
 
 
-
-
 def collect_agent_card_names(sources: Iterable[str]) -> set[str]:
     """Collect AgentCard names from local files or directories.
 
@@ -229,8 +227,7 @@ def _validate_instruction_file_placeholders(
             resolved_path = (Path.cwd() / file_path).resolve()
             if not resolved_path.exists():
                 errors.append(
-                    "Instruction file not found "
-                    f"({{{{file:{file_path_str}}}}} -> {resolved_path})"
+                    f"Instruction file not found ({{{{file:{file_path_str}}}}} -> {resolved_path})"
                 )
 
 
@@ -270,9 +267,7 @@ def _scan_single_agent_card_file(card_path: Path) -> _ScannedCardDetails:
 
     required_fields = REQUIRED_FIELDS_BY_TYPE[type_key]
     errors.extend(
-        f"Missing required field '{field}'"
-        for field in required_fields
-        if raw.get(field) is None
+        f"Missing required field '{field}'" for field in required_fields if raw.get(field) is None
     )
 
     servers = _ensure_str_list(raw.get("servers"), "servers", errors)
@@ -452,7 +447,9 @@ def find_loaded_agent_issues(
         for name in sorted(remaining):
             agent_data = agents[name]
             source_path = str(agent_data.get("source_path") or name)
-            missing = sorted(dep for dep in _loaded_agent_dependencies(agent_data) if dep not in available)
+            missing = sorted(
+                dep for dep in _loaded_agent_dependencies(agent_data) if dep not in available
+            )
             if missing:
                 issues.append(
                     LoadedAgentIssue(

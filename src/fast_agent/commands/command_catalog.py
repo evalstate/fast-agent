@@ -319,7 +319,9 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                     ),
                 ),
                 options=(
-                    CommandOptionSpec(name="--no-push", summary="Commit locally but skip git push."),
+                    CommandOptionSpec(
+                        name="--no-push", summary="Commit locally but skip git push."
+                    ),
                     CommandOptionSpec(
                         name="--message",
                         aliases=("-m",),
@@ -612,15 +614,12 @@ _COMMAND_SPECS_BY_NAME: Final[dict[str, CommandSpec]] = {
 }
 _COMMAND_ACTION_SPECS_BY_NAME: Final[dict[str, dict[str, CommandActionSpec]]] = {
     spec.command: {
-        name: action
-        for action in spec.actions
-        for name in (action.action, *action.aliases)
+        name: action for action in spec.actions for name in (action.action, *action.aliases)
     }
     for spec in COMMAND_SPECS
 }
 _COMMAND_ACTION_CANDIDATES_BY_NAME: Final[dict[str, tuple[str, ...]]] = {
-    command: tuple(actions)
-    for command, actions in _COMMAND_ACTION_SPECS_BY_NAME.items()
+    command: tuple(actions) for command, actions in _COMMAND_ACTION_SPECS_BY_NAME.items()
 }
 _COMMAND_ACTION_CANONICAL_BY_CANDIDATE: Final[dict[str, dict[str, str]]] = {
     command: {candidate: action.action for candidate, action in actions.items()}

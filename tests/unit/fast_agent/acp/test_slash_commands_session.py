@@ -233,9 +233,7 @@ async def test_handle_session_new_uses_acp_session_id(
 
         def create_session_with_id(self, session_id: str, metadata: dict | None = None):
             calls.append(("create_with_id", session_id, metadata))
-            return SimpleNamespace(
-                info=SimpleNamespace(metadata=metadata or {}, name=session_id)
-            )
+            return SimpleNamespace(info=SimpleNamespace(metadata=metadata or {}, name=session_id))
 
     monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
     handler = SlashCommandHandler(
@@ -452,7 +450,9 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
         ),
     )
 
-    await session_slash_handlers.handle_session_export(handler, parse_session_command_intent("export"))
+    await session_slash_handlers.handle_session_export(
+        handler, parse_session_command_intent("export")
+    )
 
     assert captured == {
         "target": None,

@@ -19,10 +19,7 @@ def test_auth_status_reports_invalid_settings_yaml_without_traceback(tmp_path: P
     env_root.mkdir(parents=True)
     config_path = env_root / "fastagent.config.yaml"
     config_path.write_text(
-        "mcp:\n"
-        "  targets:\n"
-        "    - name: openai\n"
-        "        target: https://developers.openai.com/mcp\n",
+        "mcp:\n  targets:\n    - name: openai\n        target: https://developers.openai.com/mcp\n",
         encoding="utf-8",
     )
 

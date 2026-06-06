@@ -232,6 +232,7 @@ def tool_use_requests_file_read_access(
     read_tool_name: str | None = None,
 ) -> bool:
     """Return True when this TOOL_USE turn only requests read_text_file calls."""
+
     def _is_read_tool(tool_name: str) -> bool:
         if read_tool_name and matches_tool_name(tool_name, read_tool_name):
             return True

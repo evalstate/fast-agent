@@ -36,9 +36,7 @@ def render_gauge_state(
     inactive_color: str,
 ) -> str:
     glyph = (
-        glyph_palette.full_block
-        if state.level <= 0
-        else glyph_palette.char_for_level(state.level)
+        glyph_palette.full_block if state.level <= 0 else glyph_palette.char_for_level(state.level)
     )
     color = inactive_color if state.level <= 0 else state.color
     return render_glyph_indicator(glyph=glyph, color=color)

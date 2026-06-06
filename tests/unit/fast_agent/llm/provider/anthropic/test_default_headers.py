@@ -16,12 +16,12 @@ class TestDefaultHeaders:
             "Ocp-Apim-Subscription-Key": "test-key-123",
             "X-Custom-Header": "custom-value",
         }
-        
+
         settings = AnthropicSettings(
             api_key="test-api-key",
             default_headers=custom_headers,
         )
-        
+
         assert settings.default_headers is not None
         assert settings.default_headers == custom_headers
         assert settings.default_headers["Ocp-Apim-Subscription-Key"] == "test-key-123"
@@ -32,19 +32,19 @@ class TestDefaultHeaders:
         custom_headers = {
             "Ocp-Apim-Subscription-Key": "test-key-456",
         }
-        
+
         settings = Settings()
         settings.anthropic = AnthropicSettings(
             api_key="test-api-key",
             default_headers=custom_headers,
         )
-        
+
         ctx = Context()
         ctx.config = settings
-        
+
         llm = AnthropicLLM(context=ctx)
         retrieved_headers = llm._default_headers()
-        
+
         assert retrieved_headers is not None
         assert retrieved_headers == custom_headers
         assert retrieved_headers["Ocp-Apim-Subscription-Key"] == "test-key-456"
@@ -53,13 +53,13 @@ class TestDefaultHeaders:
         """Test that when no headers are configured, None is returned."""
         settings = Settings()
         settings.anthropic = AnthropicSettings(api_key="test-api-key")
-        
+
         ctx = Context()
         ctx.config = settings
-        
+
         llm = AnthropicLLM(context=ctx)
         retrieved_headers = llm._default_headers()
-        
+
         assert retrieved_headers is None
 
     def test_empty_default_headers(self):
@@ -68,7 +68,7 @@ class TestDefaultHeaders:
             api_key="test-api-key",
             default_headers={},
         )
-        
+
         assert settings.default_headers == {}
 
     def test_default_headers_from_yaml(self):
@@ -82,9 +82,9 @@ anthropic:
     "X-Custom-Header": "custom-value"
 """
         config_dict = yaml.safe_load(yaml_config)
-        
+
         settings = AnthropicSettings(**config_dict["anthropic"])
-        
+
         assert settings.api_key == "dummy"
         assert settings.base_url == "https://llm-api.amd.com/Anthropic"
         assert settings.default_headers is not None
@@ -104,9 +104,9 @@ anthropic:
     "X-Tenant-ID": "tenant-abc"
 """
         config_dict = yaml.safe_load(yaml_config)
-        
+
         settings = AnthropicSettings(**config_dict["anthropic"])
-        
+
         assert settings.default_headers is not None
         assert len(settings.default_headers) == 4
         assert settings.default_headers["Authorization"] == "Bearer custom-token"

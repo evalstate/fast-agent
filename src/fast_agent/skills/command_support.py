@@ -53,11 +53,7 @@ def marketplace_search_tokens(query: str) -> list[str]:
         tokens = split_commandline(query, syntax="posix")
     except ValueError:
         tokens = query.split()
-    return [
-        normalized
-        for token in tokens
-        if (normalized := normalize_action_token(token))
-    ]
+    return [normalized for token in tokens if (normalized := normalize_action_token(token))]
 
 
 def parse_skills_slash_options(argument: str | None) -> SkillsSlashOptions:
@@ -78,11 +74,15 @@ def parse_skills_slash_options(argument: str | None) -> SkillsSlashOptions:
         if value_option.next_index != index:
             if value_option.name == "registry":
                 if registry is not None:
-                    return SkillsSlashOptions(error=f"Duplicate option: {value_option.display_name}")
+                    return SkillsSlashOptions(
+                        error=f"Duplicate option: {value_option.display_name}"
+                    )
                 registry = value_option.value
             elif value_option.name == "skills_dir":
                 if skills_dir is not None:
-                    return SkillsSlashOptions(error=f"Duplicate option: {value_option.display_name}")
+                    return SkillsSlashOptions(
+                        error=f"Duplicate option: {value_option.display_name}"
+                    )
                 skills_dir = value_option.value
             index = value_option.next_index
             continue

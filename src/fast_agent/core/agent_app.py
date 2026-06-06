@@ -473,7 +473,9 @@ class AgentApp:
         """Attach an MCP server to a running MCP agent."""
         if not self._attach_mcp_server_callback:
             raise RuntimeError("Runtime MCP server attachment is not available.")
-        return await self._attach_mcp_server_callback(agent_name, server_name, server_config, options)
+        return await self._attach_mcp_server_callback(
+            agent_name, server_name, server_config, options
+        )
 
     async def detach_mcp_server(self, agent_name: str, server_name: str) -> "MCPDetachResult":
         """Detach an MCP server from a running MCP agent."""

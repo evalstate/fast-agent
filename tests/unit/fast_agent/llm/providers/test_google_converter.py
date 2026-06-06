@@ -121,40 +121,35 @@ def test_convert_from_google_content_list_handles_missing_content_parts():
 
 def test_convert_video_resource():
     converter = GoogleConverter()
-    
+
     # Create a mock video resource
     video_bytes = b"fake_video_bytes"
     encoded_video = base64.b64encode(video_bytes).decode("utf-8")
-    
+
     resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///path/to/video.mp4"),
-            mimeType="video/mp4",
-            blob=encoded_video
-        )
+            uri=AnyUrl("file:///path/to/video.mp4"), mimeType="video/mp4", blob=encoded_video
+        ),
     )
-    
+
     # Wrap in PromptMessageExtended
-    message = PromptMessageExtended(
-        role="user",
-        content=[resource]
-    )
-    
+    message = PromptMessageExtended(role="user", content=[resource])
+
     # Convert - pass as a list!
     contents = converter.convert_to_google_content([message])
-    
+
     # Verify
     assert isinstance(contents, list)
     assert len(contents) == 1
     content = contents[0]
-    
+
     assert isinstance(content, types.Content)
     parts = content.parts
     assert parts is not None
     assert len(parts) == 1
     part = parts[0]
-    
+
     # Check if it's an inline data part
     assert part.inline_data is not None
     assert part.inline_data.mime_type == "video/mp4"
@@ -163,42 +158,37 @@ def test_convert_video_resource():
 
 def test_convert_mixed_content_video_text():
     converter = GoogleConverter()
-    
+
     # Video resource
     video_bytes = b"video_data"
     encoded_video = base64.b64encode(video_bytes).decode("utf-8")
     video_resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///video.mp4"),
-            mimeType="video/mp4",
-            blob=encoded_video
-        )
+            uri=AnyUrl("file:///video.mp4"), mimeType="video/mp4", blob=encoded_video
+        ),
     )
-    
+
     # Text content
     text_content = TextContent(type="text", text="Describe this video")
-    
+
     # Mixed message
-    message = PromptMessageExtended(
-        role="user",
-        content=[video_resource, text_content]
-    )
-    
+    message = PromptMessageExtended(role="user", content=[video_resource, text_content])
+
     # Convert - pass as a list!
     contents = converter.convert_to_google_content([message])
-    
+
     # Verify
     assert len(contents) == 1
     content = contents[0]
     parts = content.parts
     assert parts is not None
     assert len(parts) == 2
-    
+
     # First part should be video
     assert parts[0].inline_data is not None
     assert parts[0].inline_data.mime_type == "video/mp4"
-    
+
     # Second part should be text
     assert parts[1].text == "Describe this video"
 
@@ -239,18 +229,15 @@ def test_convert_youtube_url_video():
         resource=TextResourceContents(
             uri=AnyUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
             mimeType="video/mp4",
-            text="YouTube video"
-        )
+            text="YouTube video",
+        ),
     )
-    
-    message = PromptMessageExtended(
-        role="user",
-        content=[youtube_resource]
-    )
-    
+
+    message = PromptMessageExtended(role="user", content=[youtube_resource])
+
     # Convert - pass as a list!
     contents = converter.convert_to_google_content([message])
-    
+
     # Verify
     assert len(contents) == 1
     content = contents[0]
@@ -258,7 +245,7 @@ def test_convert_youtube_url_video():
     assert parts is not None
     assert len(parts) == 1
     part = parts[0]
-    
+
     # Should use file_data for YouTube URLs
     assert part.file_data is not None
     assert part.file_data.file_uri == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -519,10 +506,12 @@ def test_convert_multiple_function_results_into_single_content():
     result1 = CallToolResult(content=[TextContent(type="text", text="Output 1")], isError=False)
     result2 = CallToolResult(content=[TextContent(type="text", text="Output 2")], isError=False)
 
-    contents = converter.convert_function_results_to_google([
-        ("tool_one", "id_1", result1),
-        ("tool_two", "id_2", result2),
-    ])
+    contents = converter.convert_function_results_to_google(
+        [
+            ("tool_one", "id_1", result1),
+            ("tool_two", "id_2", result2),
+        ]
+    )
 
     assert isinstance(contents, list)
     assert len(contents) == 1

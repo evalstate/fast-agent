@@ -22,7 +22,9 @@ def test_env_flag_uses_default_when_missing(monkeypatch: pytest.MonkeyPatch) -> 
     assert env_flag("FAST_AGENT_TEST_FLAG", default=True)
 
 
-def test_optional_env_flag_distinguishes_missing_from_false(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_optional_env_flag_distinguishes_missing_from_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("FAST_AGENT_TEST_FLAG", raising=False)
     assert optional_env_flag("FAST_AGENT_TEST_FLAG") is None
 

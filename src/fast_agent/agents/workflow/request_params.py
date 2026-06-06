@@ -32,9 +32,7 @@ def child_request_params(request_params: RequestParams | None) -> RequestParams 
         delegated["emit_loop_progress"] = request_params.emit_loop_progress
     if "tool_result_mode" in explicit_fields:
         delegated["tool_result_mode"] = request_params.tool_result_mode
-    _copy_explicit_non_none(
-        delegated, "mcp_metadata", request_params.mcp_metadata, explicit_fields
-    )
+    _copy_explicit_non_none(delegated, "mcp_metadata", request_params.mcp_metadata, explicit_fields)
     _copy_explicit_non_none(
         delegated, "batch_context", request_params.batch_context, explicit_fields
     )

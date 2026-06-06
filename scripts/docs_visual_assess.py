@@ -61,7 +61,9 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=DOCS_DIR / "visual-assessments")
     parser.add_argument("--run-id", default="latest")
     parser.add_argument("--vision", action="store_true", help="run the optional vision judge")
-    parser.add_argument("--dry-run", action="store_true", help="write prompt/card without calling a model")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="write prompt/card without calling a model"
+    )
     parser.add_argument("--model", default="gpt-5.5", help="vision judge model id or alias")
     parser.add_argument("--fast-agent-env", type=Path, default=ROOT / ".cdx")
     parser.add_argument("--timeout", type=int, default=300)
@@ -170,14 +172,9 @@ def inspect_screenshot(path: Path) -> tuple[Metrics, list[Issue]]:
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             header_pixels = list(header_sample.getdata())
-        blue_header_ratio = (
-            sum(
-                1
-                for r, g, b in header_pixels
-                if b > r + 8 and g > r + 4 and 24 < (r + g + b) / 3 < 210
-            )
-            / len(header_pixels)
-        )
+        blue_header_ratio = sum(
+            1 for r, g, b in header_pixels if b > r + 8 and g > r + 4 and 24 < (r + g + b) / 3 < 210
+        ) / len(header_pixels)
 
     expected_size = EXPECTED_SIZES.get(path.name)
     if expected_size is not None and (width, height) != expected_size:

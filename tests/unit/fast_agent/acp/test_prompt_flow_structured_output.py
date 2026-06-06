@@ -56,9 +56,7 @@ class EmptyStructuredAgent:
 class FakePromptFlowHost(ACPPromptFlowHost):
     def __init__(self, agent: EmptyStructuredAgent) -> None:
         instance = cast("AgentInstance", SimpleNamespace(agents={"main": agent}))
-        self._live_sessions = ACPLiveSessionRegistry(
-            sessions={"session-1": instance}
-        )
+        self._live_sessions = ACPLiveSessionRegistry(sessions={"session-1": instance})
         self._session_lock = asyncio.Lock()
         self._connection = None
         self.primary_agent_name = "main"

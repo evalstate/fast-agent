@@ -133,9 +133,7 @@ def test_render_attachment_indicator_formats_supported_indicator() -> None:
         DraftAttachmentSummary(count=1, mime_types=("image/png",), any_questionable=False)
     )
 
-    assert indicator == (
-        f"<style bg='{ATTACHMENT_SUPPORTED_COLOR}'> {ATTACHMENT_GLYPH}1</style>"
-    )
+    assert indicator == (f"<style bg='{ATTACHMENT_SUPPORTED_COLOR}'> {ATTACHMENT_GLYPH}1</style>")
 
 
 def test_render_attachment_indicator_compacts_double_digit_counts() -> None:
@@ -143,9 +141,7 @@ def test_render_attachment_indicator_compacts_double_digit_counts() -> None:
         DraftAttachmentSummary(count=10, mime_types=("image/png",), any_questionable=False)
     )
 
-    assert indicator == (
-        f"<style bg='{ATTACHMENT_SUPPORTED_COLOR}'> {ATTACHMENT_GLYPH}+</style>"
-    )
+    assert indicator == (f"<style bg='{ATTACHMENT_SUPPORTED_COLOR}'> {ATTACHMENT_GLYPH}+</style>")
 
 
 def test_render_attachment_indicator_formats_idle_indicator() -> None:

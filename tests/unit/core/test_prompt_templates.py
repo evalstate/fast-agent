@@ -1,4 +1,3 @@
-
 import os
 
 from fast_agent.core.prompt_templates import enrich_with_environment_context
@@ -82,6 +81,7 @@ This is the skill body content.
     original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
     original_fast_agent_home = os.environ.pop("FAST_AGENT_HOME", None)
     import fast_agent.config as config_module
+
     original_settings = getattr(config_module, "_settings", None)
     config_module._settings = None
     try:
@@ -131,9 +131,7 @@ description: Custom skill from override
     client_info = {"name": "test-client"}
 
     # Use the override
-    enrich_with_environment_context(
-        context, str(tmp_path), client_info, "custom-skills"
-    )
+    enrich_with_environment_context(context, str(tmp_path), client_info, "custom-skills")
 
     # Should have custom skill, not default
     assert "agentSkills" in context

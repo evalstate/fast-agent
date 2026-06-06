@@ -147,10 +147,7 @@ def _sanitize_schema_list(
     root: dict[str, Any],
     options: _SchemaSanitizeOptions,
 ) -> list[Any]:
-    return [
-        _sanitize_structured_output_schema_node(item, root, options)
-        for item in values
-    ]
+    return [_sanitize_structured_output_schema_node(item, root, options) for item in values]
 
 
 def _sanitize_schema_mapping(

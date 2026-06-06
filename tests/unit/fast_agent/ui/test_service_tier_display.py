@@ -63,10 +63,13 @@ def test_cycle_service_tier_deduplicates_allowed_tiers() -> None:
 def test_cycle_service_tier_ignores_unsupported_allowed_tiers() -> None:
     allowed_tiers = ("unsupported", "flex", "fast")
 
-    assert cycle_service_tier(
-        None,
-        allowed_tiers=cast("tuple[ServiceTierValue, ...]", allowed_tiers),
-    ) == "flex"
+    assert (
+        cycle_service_tier(
+            None,
+            allowed_tiers=cast("tuple[ServiceTierValue, ...]", allowed_tiers),
+        )
+        == "flex"
+    )
 
 
 def test_cycle_service_tier_returns_none_when_allowed_tiers_is_empty() -> None:

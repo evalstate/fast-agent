@@ -90,8 +90,7 @@ def test_skills_add_list_remove_via_cli(tmp_path: Path) -> None:
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -223,9 +222,7 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
     _write_skill(managed_dir, "env-skill", description="ENV_SKILL")
     (env_root / "fastagent.config.yaml").parent.mkdir(parents=True, exist_ok=True)
     (env_root / "fastagent.config.yaml").write_text(
-        "default_model: passthrough\n"
-        "skills:\n"
-        f"  directories: ['{managed_dir.as_posix()}']\n",
+        f"default_model: passthrough\nskills:\n  directories: ['{managed_dir.as_posix()}']\n",
         encoding="utf-8",
     )
 
@@ -258,9 +255,7 @@ def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> No
     _write_skill(managed_dir, "env-skill", description="ENV_SKILL")
     (env_root / "fastagent.config.yaml").parent.mkdir(parents=True, exist_ok=True)
     (env_root / "fastagent.config.yaml").write_text(
-        "default_model: passthrough\n"
-        "skills:\n"
-        f"  directories: ['{managed_dir.as_posix()}']\n",
+        f"default_model: passthrough\nskills:\n  directories: ['{managed_dir.as_posix()}']\n",
         encoding="utf-8",
     )
 

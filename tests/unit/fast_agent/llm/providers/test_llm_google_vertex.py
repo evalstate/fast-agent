@@ -49,10 +49,7 @@ def test_vertex_cfg_accepts_model_object_and_expands_model_names() -> None:
     assert location == "loc"
 
     resolved = llm._resolve_model_name("gemini-2.5-flash")
-    assert (
-        resolved
-        == "projects/proj/locations/loc/publishers/google/models/gemini-2.5-flash"
-    )
+    assert resolved == "projects/proj/locations/loc/publishers/google/models/gemini-2.5-flash"
 
 
 def test_vertex_cfg_accepts_dict_and_provider_key_manager_allows_adc() -> None:
@@ -78,9 +75,7 @@ def test_vertex_cfg_accepts_dict_and_provider_key_manager_allows_adc() -> None:
 
     resolved = llm._resolve_model_name("gemini-3-flash-preview")
     assert resolved.endswith("gemini-3-flash-preview")
-    assert resolved.startswith(
-        "projects/proj/locations/europe-west4/publishers/google/models/"
-    )
+    assert resolved.startswith("projects/proj/locations/europe-west4/publishers/google/models/")
 
     # When Vertex is enabled, no API key should be required (ADC path).
     assert ProviderKeyManager.get_api_key("google", config) == ""
@@ -153,9 +148,7 @@ def test_initialize_google_client_prefers_vertex_with_dict_config(monkeypatch) -
         def __init__(self, **kwargs):
             called["kwargs"] = kwargs
 
-    monkeypatch.setattr(
-        "fast_agent.llm.provider.google.llm_google_native.genai.Client", FakeClient
-    )
+    monkeypatch.setattr("fast_agent.llm.provider.google.llm_google_native.genai.Client", FakeClient)
 
     client = llm._initialize_google_client()
 
@@ -284,8 +277,7 @@ async def test_structured_model_path_passes_pydantic_model_to_google_sdk() -> No
                                 "parts": [
                                     {
                                         "text": (
-                                            '{"name":"Ada","count":3,'
-                                            '"tags":{"role":"engineer"}}'
+                                            '{"name":"Ada","count":3,"tags":{"role":"engineer"}}'
                                         )
                                     }
                                 ],

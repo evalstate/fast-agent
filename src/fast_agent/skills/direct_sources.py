@@ -131,7 +131,10 @@ def _resolve_local_source(path: Path, *, source_url: str) -> DirectSkillSource:
         raise DirectSkillSourceError(f"Direct skill source not found: {source_path}")
 
     manifest_path = source_path / SKILL_MANIFEST_FILENAME if source_path.is_dir() else source_path
-    if strip_casefold(manifest_path.name) != SKILL_MANIFEST_FILENAME_LOWER or not manifest_path.is_file():
+    if (
+        strip_casefold(manifest_path.name) != SKILL_MANIFEST_FILENAME_LOWER
+        or not manifest_path.is_file()
+    ):
         raise DirectSkillSourceError("Direct skill source must be a SKILL.md file or directory.")
 
     try:
@@ -216,11 +219,7 @@ def _looks_like_skill_path(path: str, *, is_file: bool) -> bool:
 
 
 def _is_path_like(value: str) -> bool:
-    return (
-        value.startswith((".", "/", "~"))
-        or "/" in value
-        or "\\" in value
-    )
+    return value.startswith((".", "/", "~")) or "/" in value or "\\" in value
 
 
 def _skill_manifest_repo_path(repo_path: str) -> str:

@@ -222,7 +222,7 @@ async def test_generate_impl_preserves_streamed_frame_with_reasoning_channel() -
         role="assistant",
         content=[TextContent(type="text", text="answer")],
         stop_reason=LlmStopReason.END_TURN,
-        channels={REASONING: [TextContent(type="text", text="thought")]} ,
+        channels={REASONING: [TextContent(type="text", text="thought")]},
     )
     agent = _StreamingHarnessAgent(handle=handle, response=response)
 

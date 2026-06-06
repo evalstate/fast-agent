@@ -112,9 +112,7 @@ class ACPFilesystemRuntime:
         self._permission_handler = permission_handler
 
         self._read_tool = set_tool_source(build_read_text_file_tool(), ACP_FILESYSTEM_TOOL_SOURCE)
-        self._write_tool = set_tool_source(
-            build_write_text_file_tool(), ACP_FILESYSTEM_TOOL_SOURCE
-        )
+        self._write_tool = set_tool_source(build_write_text_file_tool(), ACP_FILESYSTEM_TOOL_SOURCE)
         self._tool_specs: tuple[FilesystemToolSpec, ...] = (
             FilesystemToolSpec(
                 name=READ_TEXT_FILE_TOOL_NAME,

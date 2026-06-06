@@ -14,6 +14,9 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from mcp.types import (
+    ContentBlock as MCPContentBlock,
+)
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
@@ -51,7 +54,9 @@ ContentBlock = dict[str, Any]
 OpenAIMessage = dict[str, Any]
 McpResourceContents = BlobResourceContents | TextResourceContents
 type OpenAITextExtractableBlock = (
-    ChatCompletionContentPartParam | ContentArrayOfContentPart | ChatCompletionContentPartTextParam
+    ChatCompletionContentPartParam
+    | ContentArrayOfContentPart
+    | ChatCompletionContentPartTextParam
     | Mapping[str, Any]
 )
 type OpenAITextExtractableContent = str | Iterable[OpenAITextExtractableBlock] | None
@@ -469,9 +474,7 @@ class OpenAIConverter:
             return None
 
         file_text = (
-            f'<fastagent:file title="{title}" mimetype="{mime_type}">\n'
-            f"{text}\n"
-            f"</fastagent:file>"
+            f'<fastagent:file title="{title}" mimetype="{mime_type}">\n{text}\n</fastagent:file>'
         )
         return {"type": "text", "text": file_text}
 
@@ -496,11 +499,7 @@ class OpenAIConverter:
     ) -> ContentBlock:
         from fast_agent.mcp.resource_utils import extract_title_from_uri
 
-        filename = (
-            resource.name
-            or extract_title_from_uri(resource.uri)
-            or "document"
-        )
+        filename = resource.name or extract_title_from_uri(resource.uri) or "document"
         return OpenAIConverter._build_file_part(
             filename,
             file_url=uri_str,
@@ -539,7 +538,10 @@ class OpenAIConverter:
         tool_result: CallToolResult,
         tool_call_id: str,
         concatenate_text_blocks: bool = False,
-    ) -> Union[ChatCompletionMessageParam, tuple[ChatCompletionMessageParam, list[ChatCompletionMessageParam]]]:
+    ) -> Union[
+        ChatCompletionMessageParam,
+        tuple[ChatCompletionMessageParam, list[ChatCompletionMessageParam]],
+    ]:
         """
         Convert a CallToolResult to an OpenAI tool message.
 
@@ -570,8 +572,8 @@ class OpenAIConverter:
             )
 
         # Separate text and non-text content
-        text_content = []
-        non_text_content = []
+        text_content: list[MCPContentBlock] = []
+        non_text_content: list[MCPContentBlock] = []
 
         for item in canonical_content:
             if isinstance(item, TextContent):

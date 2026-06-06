@@ -182,9 +182,9 @@ def _load_turn_records(session_dir: Path) -> list[TurnUsageRecord]:
                 continue
             turn_payload = _as_dict(usage_payload.get("turn")) or {}
             cache_usage = _as_dict(turn_payload.get("cache_usage")) or {}
-            diag_payload = _extract_text_payload(
-                channels.get("fast-agent-provider-diagnostics")
-            ) or {}
+            diag_payload = (
+                _extract_text_payload(channels.get("fast-agent-provider-diagnostics")) or {}
+            )
 
             records.append(
                 TurnUsageRecord(
@@ -202,9 +202,7 @@ def _load_turn_records(session_dir: Path) -> list[TurnUsageRecord]:
                         else None
                     ),
                     input_tokens=_get_int(turn_payload.get("input_tokens")),
-                    effective_input_tokens=_get_int(
-                        turn_payload.get("effective_input_tokens")
-                    ),
+                    effective_input_tokens=_get_int(turn_payload.get("effective_input_tokens")),
                     output_tokens=_get_int(turn_payload.get("output_tokens")),
                     total_tokens=_get_int(turn_payload.get("total_tokens")),
                     reasoning_tokens=_get_int(turn_payload.get("reasoning_tokens")),
@@ -281,9 +279,7 @@ def _print_table(headers: list[str], rows: list[list[str]]) -> None:
         max(len(headers[index]), *(len(row[index]) for row in rows))
         for index in range(len(headers))
     ]
-    header_line = "  ".join(
-        header.ljust(widths[index]) for index, header in enumerate(headers)
-    )
+    header_line = "  ".join(header.ljust(widths[index]) for index, header in enumerate(headers))
     separator_line = "  ".join("-" * width for width in widths)
     print(header_line)
     print(separator_line)
@@ -370,9 +366,7 @@ def main() -> int:
         accounting = _compute_accounting_stats(records)
         fresh_count = sum(1 for record in records if record.turn_outcome == "fresh")
         reused_count = sum(1 for record in records if record.turn_outcome == "reused")
-        reconnected_count = sum(
-            1 for record in records if record.turn_outcome == "reconnected"
-        )
+        reconnected_count = sum(1 for record in records if record.turn_outcome == "reconnected")
         top_field = field_stats[0] if field_stats else None
         overview_rows.append(
             [
@@ -401,9 +395,7 @@ def main() -> int:
                     )
                 ),
                 _avg_or_dash(_group_values(records, outcome="fresh", field_name="output_tokens")),
-                _avg_or_dash(
-                    _group_values(records, outcome="reused", field_name="input_tokens")
-                ),
+                _avg_or_dash(_group_values(records, outcome="reused", field_name="input_tokens")),
                 _avg_or_dash(
                     _group_values(
                         records,
@@ -411,9 +403,7 @@ def main() -> int:
                         field_name="effective_input_tokens",
                     )
                 ),
-                _avg_or_dash(
-                    _group_values(records, outcome="reused", field_name="output_tokens")
-                ),
+                _avg_or_dash(_group_values(records, outcome="reused", field_name="output_tokens")),
                 _avg_or_dash(
                     _group_values(records, outcome="reused", field_name="cache_hit_tokens")
                 ),

@@ -157,9 +157,9 @@ async def test_cards_add_and_remove(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_cards_registry_numbered_selection(tmp_path: Path) -> None:
     marketplace1 = tmp_path / "marketplace1.json"
-    marketplace1.write_text("{\"entries\": []}", encoding="utf-8")
+    marketplace1.write_text('{"entries": []}', encoding="utf-8")
     marketplace2 = tmp_path / "marketplace2.json"
-    marketplace2.write_text("{\"entries\": []}", encoding="utf-8")
+    marketplace2.write_text('{"entries": []}', encoding="utf-8")
 
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(

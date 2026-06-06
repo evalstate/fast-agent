@@ -62,10 +62,7 @@ async def test_skybridge_invalid_mime_generates_warning(fast_agent):
             assert config.ui_resources, "Expected to discover the ui:// resource"
             resource = config.ui_resources[0]
             assert resource.is_skybridge is False
-            assert (
-                resource.warning
-                == "served as 'text/html' instead of 'text/html+skybridge'"
-            )
+            assert resource.warning == "served as 'text/html' instead of 'text/html+skybridge'"
 
             assert config.tools, "Expected to capture the tool metadata"
             tool = config.tools[0]
@@ -104,9 +101,7 @@ async def test_skybridge_missing_resource_warns_and_flags_tools(fast_agent):
             assert any(
                 "references missing Skybridge resource" in warning for warning in config.warnings
             )
-            assert any(
-                "no tools expose them" in warning.lower() for warning in config.warnings
-            )
+            assert any("no tools expose them" in warning.lower() for warning in config.warnings)
 
             assert config.tools, "Expected to capture tool metadata"
             tool = config.tools[0]

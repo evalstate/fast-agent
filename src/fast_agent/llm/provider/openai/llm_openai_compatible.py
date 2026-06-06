@@ -58,9 +58,7 @@ IMPORTANT RULES:
         json_mode = self._structured_json_mode(request_params)
         if json_mode == "schema" and not request_params.response_format:
             return request_params.model_copy(
-                update={
-                    "response_format": self.schema_to_response_format(structured_schema)
-                }
+                update={"response_format": self.schema_to_response_format(structured_schema)}
             ), True
         if json_mode == "object" and not request_params.response_format:
             return request_params.model_copy(
@@ -77,9 +75,7 @@ IMPORTANT RULES:
         if not messages or messages[-1].role != "user":
             return messages, prepared_params
 
-        instructions = self._build_structured_prompt_instruction_from_schema(
-            structured_schema
-        )
+        instructions = self._build_structured_prompt_instruction_from_schema(structured_schema)
         if not instructions:
             return messages, prepared_params
 

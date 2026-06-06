@@ -29,7 +29,9 @@ class _FakeResponsesClient:
 
 class _LocalWsCodexResponsesLLM(CodexResponsesLLM):
     def __init__(self, base_url: str) -> None:
-        super().__init__(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket")
+        super().__init__(
+            provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket"
+        )
         self._local_base_url = base_url
 
     def _base_url(self) -> str | None:

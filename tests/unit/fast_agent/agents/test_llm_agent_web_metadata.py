@@ -293,15 +293,11 @@ async def test_show_assistant_message_replays_provider_mcp_tools() -> None:
     assert [item["tool_name"] for item in capture_display.tool_calls] == [
         "huggingface_mcp/hf_whoami"
     ]
-    assert [item["type_label"] for item in capture_display.tool_calls] == [
-        "remote tool call"
-    ]
+    assert [item["type_label"] for item in capture_display.tool_calls] == ["remote tool call"]
     assert [item["tool_name"] for item in capture_display.tool_results] == [
         "huggingface_mcp/hf_whoami"
     ]
-    assert [item["type_label"] for item in capture_display.tool_results] == [
-        "remote tool result"
-    ]
+    assert [item["type_label"] for item in capture_display.tool_results] == ["remote tool result"]
 
 
 @pytest.mark.unit
@@ -357,9 +353,7 @@ async def test_show_assistant_message_replays_x_search_internal_calls() -> None:
         "query": "from:rachelnabors harness",
         "limit": "5",
     }
-    assert capture_display.tool_calls[1]["tool_args"] == {
-        "post_id": "2050165558214066579"
-    }
+    assert capture_display.tool_calls[1]["tool_args"] == {"post_id": "2050165558214066579"}
 
 
 @pytest.mark.unit
@@ -472,7 +466,9 @@ async def test_show_assistant_message_appends_websocket_indicator_to_model() -> 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_show_assistant_message_places_websocket_indicator_before_context_percentage() -> None:
+async def test_show_assistant_message_places_websocket_indicator_before_context_percentage() -> (
+    None
+):
     agent = LlmAgent(AgentConfig("websocket-indicator-context"))
     capture_display = _CaptureDisplay()
     agent.display = capture_display

@@ -123,7 +123,7 @@ def _mcp_usage_text(heading: str) -> str:
         "- /mcp list\n"
         "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
         "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
-        "  Example: /mcp connect \"C:\\Program Files\\Tool\\tool.exe\" --flag\n"
+        '  Example: /mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag\n'
         "- /mcp disconnect <server_name>\n"
         "- /mcp reconnect <server_name>"
     )
@@ -232,8 +232,7 @@ async def _start_connect_tool_call(
         title=tool_call_title,
         status="in_progress",
         message=(
-            f"{display_target}\n"
-            "Open this tool call to view OAuth links and live connection status."
+            f"{display_target}\nOpen this tool call to view OAuth links and live connection status."
         ),
     )
 

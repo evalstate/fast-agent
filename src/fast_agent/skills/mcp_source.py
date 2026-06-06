@@ -51,8 +51,7 @@ class McpSkillSource:
         return [
             skill
             for skill in self._registry.skills
-            if query_lower in skill.name.lower()
-            or query_lower in (skill.description or "").lower()
+            if query_lower in skill.name.lower() or query_lower in (skill.description or "").lower()
         ]
 
     async def select_skill(self, selector: str) -> SkillCatalogEntry | None:

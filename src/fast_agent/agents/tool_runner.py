@@ -124,9 +124,9 @@ class ToolRunnerHooks:
     after_llm_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
     before_tool_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
     after_tool_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
-    after_turn_complete: (
-        Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None
-    ) = None
+    after_turn_complete: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = (
+        None
+    )
 
 
 class ToolRunner:
@@ -451,9 +451,7 @@ class ToolRunner:
 
         pending_request = ToolRunner._pending_tool_request_at_history_end(history)
         if pending_request is not None:
-            interrupted_tool_message = ToolRunner._build_interrupted_tool_result(
-                pending_request
-            )
+            interrupted_tool_message = ToolRunner._build_interrupted_tool_result(pending_request)
             updated_history = [*history, interrupted_tool_message]
             agent.load_message_history(updated_history)
             return HistoryRollbackState(
@@ -526,9 +524,7 @@ class ToolRunner:
                     with self._defer_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL):
                         await self._hooks.before_tool_call(self, self._pending_tool_request)
                 finally:
-                    self._flush_deferred_hook_status_messages(
-                        _HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL
-                    )
+                    self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL)
             hook_phase = "run_tools"
             tool_message = await self._agent.run_tools(
                 self._pending_tool_request, request_params=self._request_params

@@ -29,9 +29,7 @@ class _Agent:
 
 
 def test_acp_mcp_handlers_cover_shared_top_level_actions() -> None:
-    assert set(mcp_handler_module._MCP_COMMAND_HANDLERS) | {"connect"} == set(
-        MCP_TOP_LEVEL_ACTIONS
-    )
+    assert set(mcp_handler_module._MCP_COMMAND_HANDLERS) | {"connect"} == set(MCP_TOP_LEVEL_ACTIONS)
 
 
 def test_mcp_connect_tool_call_title_preserves_quoted_target_token() -> None:

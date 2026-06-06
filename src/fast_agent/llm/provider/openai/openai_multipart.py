@@ -8,9 +8,12 @@ from collections.abc import Mapping
 from typing import Any, Literal, Union
 
 from mcp.types import (
+    AudioContent,
     BlobResourceContents,
+    ContentBlock,
     EmbeddedResource,
     ImageContent,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
@@ -37,9 +40,7 @@ def _message_role_and_content(
     if isinstance(message, ChatCompletionMessage):
         return _coerce_extended_role(message.role), message.content
     if isinstance(message, dict):
-        return _coerce_extended_role(message.get("role", "assistant")), message.get(
-            "content", ""
-        )
+        return _coerce_extended_role(message.get("role", "assistant")), message.get("content", "")
 
     return _coerce_extended_role(getattr(message, "role", "assistant")), getattr(
         message, "content", ""
@@ -52,7 +53,9 @@ def _part_mapping(part: object) -> dict[str, Any] | None:
     return {str(key): value for key, value in part.items()}
 
 
-def _part_value(part: object, mapping: dict[str, Any] | None, key: str, default: object = None) -> object:
+def _part_value(
+    part: object, mapping: dict[str, Any] | None, key: str, default: object = None
+) -> object:
     if mapping is not None:
         return mapping.get(key, default)
     return getattr(part, key, default)
@@ -75,9 +78,7 @@ def _text_part_to_content(part: object, mapping: dict[str, Any] | None) -> TextC
     return TextContent(type="text", text=text)
 
 
-def _image_url_part_to_content(
-    part: object, mapping: dict[str, Any] | None
-) -> ImageContent | None:
+def _image_url_part_to_content(part: object, mapping: dict[str, Any] | None) -> ImageContent | None:
     image_url = _part_value(part, mapping, "image_url")
     if not image_url:
         return None
@@ -130,7 +131,9 @@ def _blob_resource_to_content(resource: dict[str, Any]) -> ImageContent | Embedd
     )
 
 
-def _resource_part_to_content(mapping: dict[str, Any] | None) -> TextContent | ImageContent | EmbeddedResource | None:
+def _resource_part_to_content(
+    mapping: dict[str, Any] | None,
+) -> TextContent | ImageContent | EmbeddedResource | None:
     if mapping is None:
         return None
 
@@ -147,12 +150,17 @@ def _resource_part_to_content(mapping: dict[str, Any] | None) -> TextContent | I
 
 def _content_part_to_mcp_content(
     part: object,
-) -> TextContent | ImageContent | EmbeddedResource | object | None:
+) -> ContentBlock | None:
     mapping = _part_mapping(part)
     part_type = _part_value(part, mapping, "type")
 
     if part_type == "text":
-        return _text_part_to_content(part, mapping)
+        text_content = _text_part_to_content(part, mapping)
+        if isinstance(
+            text_content, (TextContent, ImageContent, AudioContent, ResourceLink, EmbeddedResource)
+        ):
+            return text_content
+        return None
     if part_type == "image_url":
         return _image_url_part_to_content(part, mapping)
     if part_type == "resource":
@@ -188,7 +196,7 @@ def _openai_message_to_extended(
     """Convert a single OpenAI message to PromptMessageExtended."""
     role, content = _message_role_and_content(message)
 
-    mcp_contents = []
+    mcp_contents: list[ContentBlock] = []
 
     if isinstance(content, str):
         mcp_contents.append(TextContent(type="text", text=content))

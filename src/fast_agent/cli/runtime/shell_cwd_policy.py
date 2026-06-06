@@ -240,11 +240,7 @@ def format_shell_cwd_issues(issues: Sequence[ShellCwdIssue]) -> list[str]:
 
     lines = ["Invalid shell working directories detected:"]
     for issue in issues:
-        reason = (
-            "does not exist"
-            if issue.kind == "missing"
-            else "is not a directory"
-        )
+        reason = "does not exist" if issue.kind == "missing" else "is not a directory"
         lines.append(
             " - "
             f"{issue.agent_name}: cwd={issue.configured_path} "

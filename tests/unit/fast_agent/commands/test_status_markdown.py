@@ -680,9 +680,7 @@ def test_build_warning_summary_formats_truncated_warning_count() -> None:
 
 
 def test_instance_card_collision_warnings_normalizes_supported_shapes() -> None:
-    iterable_instance = SimpleNamespace(
-        app=SimpleNamespace(card_collision_warnings=["one", 2])
-    )
+    iterable_instance = SimpleNamespace(app=SimpleNamespace(card_collision_warnings=["one", 2]))
     scalar_instance = SimpleNamespace(app=SimpleNamespace(card_collision_warnings="one"))
     empty_instance = SimpleNamespace(app=SimpleNamespace(card_collision_warnings=None))
 

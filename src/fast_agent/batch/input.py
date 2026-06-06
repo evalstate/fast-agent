@@ -328,7 +328,9 @@ def count_parquet_input_rows(source: str | Path) -> int:
         if _is_parquet_suffix(urlparse(resolved).path):
             if _is_remote_http_source(resolved):
                 return _count_parquet_records([resolved])
-            with tempfile.NamedTemporaryFile(suffix=".parquet", prefix="fast-agent-batch-") as temp_file:
+            with tempfile.NamedTemporaryFile(
+                suffix=".parquet", prefix="fast-agent-batch-"
+            ) as temp_file:
                 with fs.open(resolved, "rb") as source_handle:
                     shutil.copyfileobj(source_handle, temp_file)
                 temp_file.flush()
@@ -354,7 +356,9 @@ def _resolve_hf_input_source(source: str, filesystem: HfInputFileSystem) -> str:
     if dataset_source.has_query:
         parquet_urls = _list_hf_dataset_parquet_urls(source)
         if parquet_urls:
-            return parquet_urls[0] if len(parquet_urls) == 1 else _parquet_sources_token(parquet_urls)
+            return (
+                parquet_urls[0] if len(parquet_urls) == 1 else _parquet_sources_token(parquet_urls)
+            )
         raise ValueError(f"Hugging Face dataset input {source} has no matching parquet files")
 
     try:
@@ -586,13 +590,17 @@ def _read_parquet_records_with_duckdb_cli(
             "install the DuckDB CLI, or install fast-agent-mcp[batch-parquet]."
         )
     if sql is not None:
-        rows = _run_duckdb_cli_json(_normalize_user_sql(sql), setup_queries=[_parquet_view_query(sources)])
+        rows = _run_duckdb_cli_json(
+            _normalize_user_sql(sql), setup_queries=[_parquet_view_query(sources)]
+        )
     else:
         rows = _run_duckdb_cli_json(_parquet_query(sources, offset=offset, limit=limit))
     return rows
 
 
-def _run_duckdb_cli_json(query: str, *, setup_queries: list[str] | None = None) -> list[dict[str, Any]]:
+def _run_duckdb_cli_json(
+    query: str, *, setup_queries: list[str] | None = None
+) -> list[dict[str, Any]]:
     duckdb_binary = shutil.which("duckdb")
     if duckdb_binary is None:
         raise ValueError(

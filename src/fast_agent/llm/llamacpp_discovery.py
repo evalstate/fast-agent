@@ -49,11 +49,7 @@ class LlamaCppServerEndpoints:
 
     def models_urls(self) -> tuple[str, ...]:
         """Return candidate model-listing URLs in preferred order."""
-        return _dedupe_urls(
-            (
-                _join_url(self.request_base_url, "/models"),
-            )
-        )
+        return _dedupe_urls((_join_url(self.request_base_url, "/models"),))
 
     def props_urls(self, *, model_id: str | None = None) -> tuple[str, ...]:
         """Return candidate props URLs in preferred order."""
@@ -526,7 +522,9 @@ def _parse_models_payload(payload: object) -> tuple[tuple[LlamaCppModelListing, 
                 model_id=model_id,
                 owned_by=_normalize_text(parsed.owned_by),
                 training_context_window=(
-                    positive_int_or_none(parsed.meta.n_ctx_train) if parsed.meta is not None else None
+                    positive_int_or_none(parsed.meta.n_ctx_train)
+                    if parsed.meta is not None
+                    else None
                 ),
                 child_server_url=_child_server_url_from_status(status),
             )
@@ -738,8 +736,4 @@ def _picker_label(discovered_model: LlamaCppDiscoveredModel) -> str:
 def _string_keyed_payload(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         return {}
-    return {
-        key: value
-        for key, value in payload.items()
-        if isinstance(key, str)
-    }
+    return {key: value for key, value in payload.items() if isinstance(key, str)}

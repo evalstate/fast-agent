@@ -216,9 +216,7 @@ def _template_var_aliases(template_vars: Sequence[str]) -> dict[str, str]:
         if not candidate or candidate in used_names:
             candidate = f"{candidate or 'template_var'}_{index}"
         while (
-            candidate in used_names
-            or keyword.iskeyword(candidate)
-            or not candidate.isidentifier()
+            candidate in used_names or keyword.iskeyword(candidate) or not candidate.isidentifier()
         ):
             candidate = f"{candidate}_{index}"
         aliases[var_name] = candidate
@@ -442,7 +440,9 @@ def parse_args():
         default="0.0.0.0",
         help="Host to bind to for HTTP transport (default: 0.0.0.0)",
     )
-    parser.add_argument("--test", type=str, help="Test a specific prompt without starting the server")
+    parser.add_argument(
+        "--test", type=str, help="Test a specific prompt without starting the server"
+    )
     return parser.parse_args()
 
 

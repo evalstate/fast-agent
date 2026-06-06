@@ -49,9 +49,7 @@ def render_session_list_markdown(
 
     lines.extend(
         _format_session_entry(entry, entry_summary)
-        for entry, entry_summary in zip(
-            summary.entries, summary.entry_summaries, strict=False
-        )
+        for entry, entry_summary in zip(summary.entries, summary.entry_summaries, strict=False)
     )
     lines.extend(["", summary.usage])
     return "\n".join(lines)

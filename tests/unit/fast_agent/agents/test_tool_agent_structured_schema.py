@@ -139,7 +139,9 @@ async def test_deferred_structured_schema_finalizes_when_no_tool_is_called() -> 
     assert llm.call_count == 2
     assert llm.tool_counts == [1, 0]
     assert any("no tool needed" in text for text in llm.messages[1])
-    assert any("Now produce the final answer as structured JSON" in text for text in llm.messages[1])
+    assert any(
+        "Now produce the final answer as structured JSON" in text for text in llm.messages[1]
+    )
 
 
 @pytest.mark.unit

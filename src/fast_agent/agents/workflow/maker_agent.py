@@ -82,13 +82,9 @@ class MakerResult(BaseModel):
         default_factory=dict, description="Vote counts per unique response"
     )
     total_samples: int = Field(default=0, description="Total samples drawn")
-    discarded_samples: int = Field(
-        default=0, description="Samples discarded due to red-flags"
-    )
+    discarded_samples: int = Field(default=0, description="Samples discarded due to red-flags")
     margin: int = Field(default=0, description="Winning margin achieved")
-    converged: bool = Field(
-        default=False, description="Whether k-margin consensus was achieved"
-    )
+    converged: bool = Field(default=False, description="Whether k-margin consensus was achieved")
 
 
 class MakerAgent(LlmAgent):
@@ -284,9 +280,7 @@ class MakerAgent(LlmAgent):
                         "current_votes": dict(votes),
                     },
                 ) as step:
-                    response = await self.worker_agent.generate(
-                        messages, forward_params
-                    )
+                    response = await self.worker_agent.generate(messages, forward_params)
                     response_text = response.last_text() or ""
                     total_samples += 1
 
@@ -312,9 +306,7 @@ class MakerAgent(LlmAgent):
                 winner_key = self._check_winner(votes)
                 if winner_key:
                     sorted_votes = sorted(votes.values(), reverse=True)
-                    margin = sorted_votes[0] - (
-                        sorted_votes[1] if len(sorted_votes) > 1 else 0
-                    )
+                    margin = sorted_votes[0] - (sorted_votes[1] if len(sorted_votes) > 1 else 0)
 
                     self.last_result = MakerResult(
                         winner=winner_key,
@@ -346,9 +338,7 @@ class MakerAgent(LlmAgent):
 
             winner_key = max(votes, key=lambda x: votes[x])
             sorted_votes = sorted(votes.values(), reverse=True)
-            margin = sorted_votes[0] - (
-                sorted_votes[1] if len(sorted_votes) > 1 else 0
-            )
+            margin = sorted_votes[0] - (sorted_votes[1] if len(sorted_votes) > 1 else 0)
 
             self.last_result = MakerResult(
                 winner=winner_key,

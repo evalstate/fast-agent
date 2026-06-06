@@ -846,9 +846,7 @@ class ToolDisplay:
         structured_content: object,
         resource_uri: str | None,
     ) -> None:
-        resource_label = (
-            f"app resource: {resource_uri}" if resource_uri else "app resource"
-        )
+        resource_label = f"app resource: {resource_uri}" if resource_uri else "app resource"
         resource_text = Text(resource_label, style="magenta")
         line = self._display.style.metadata_line(resource_text)
         console.console.print(line, markup=self._markup)
@@ -1090,18 +1088,14 @@ class ToolDisplay:
         if shell_path:
             bottom_items.append(str(shell_path))
 
-        working_dir_display = metadata.get("working_dir_display") or metadata.get(
-            "working_dir"
-        )
+        working_dir_display = metadata.get("working_dir_display") or metadata.get("working_dir")
         if working_dir_display:
             bottom_items.append(f"cwd: {working_dir_display}")
 
         timeout_seconds = metadata.get("timeout_seconds")
         warning_interval = metadata.get("warning_interval_seconds")
         if timeout_seconds and warning_interval:
-            bottom_items.append(
-                f"timeout: {timeout_seconds}s, warning every {warning_interval}s"
-            )
+            bottom_items.append(f"timeout: {timeout_seconds}s, warning every {warning_interval}s")
         return bottom_items
 
     def _shell_tool_call_right_info(

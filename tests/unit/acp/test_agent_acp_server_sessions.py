@@ -44,10 +44,7 @@ class _Agent:
 
 
 def _build_instance(agent_names: list[str]) -> AgentInstance:
-    agents = {
-        name: cast("AgentProtocol", _Agent())
-        for name in agent_names
-    }
+    agents = {name: cast("AgentProtocol", _Agent()) for name in agent_names}
     return AgentInstance(
         app=AgentApp(agents),
         agents=agents,
@@ -658,7 +655,9 @@ async def test_load_session_prefers_workspace_duplicate_session_across_stores(
         return session_state, SessionModeState(available_modes=[], current_mode_id="main")
 
     class _Manager:
-        def __init__(self, label: str, last_activity: datetime, *, metadata: dict[str, Any]) -> None:
+        def __init__(
+            self, label: str, last_activity: datetime, *, metadata: dict[str, Any]
+        ) -> None:
             self.label = label
             self.base_dir = workspace / f"{label}-sessions"
             self.workspace_dir = workspace
@@ -667,7 +666,7 @@ async def test_load_session_prefers_workspace_duplicate_session_across_stores(
                 info=SimpleNamespace(
                     metadata=metadata,
                     last_activity=last_activity,
-                )
+                ),
             )
 
         def resolve_session_name(self, name: str) -> str:
@@ -1093,8 +1092,7 @@ async def test_load_session_skips_workspace_duplicate_when_cwd_mismatches(
         def get_session(self, name: str) -> Any:
             assert name == "s-1"
             return SimpleNamespace(
-                label="app",
-                info=SimpleNamespace(metadata={"cwd": str(workspace.resolve())})
+                label="app", info=SimpleNamespace(metadata={"cwd": str(workspace.resolve())})
             )
 
         def load_session(self, name: str) -> Any:

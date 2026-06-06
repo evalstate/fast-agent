@@ -70,7 +70,9 @@ def _active_model_lines(
         wire_model_name = model.wire_model_name
         context_window = _context_window_display(model.context_window)
         if model.capabilities:
-            capabilities = f"Capabilities: {', '.join(_markdown_value(item) for item in model.capabilities)}"
+            capabilities = (
+                f"Capabilities: {', '.join(_markdown_value(item) for item in model.capabilities)}"
+            )
 
     return [
         "## Active Model",
@@ -97,7 +99,9 @@ def _append_client_info_lines(lines: list[str], client: "ClientInfoSummary") -> 
     lines.extend(["## Client Information", ""])
     if client.name:
         if client.title:
-            lines.append(f"Client: {_markdown_value(client.title)} ({_markdown_value(client.name)})")
+            lines.append(
+                f"Client: {_markdown_value(client.title)} ({_markdown_value(client.name)})"
+            )
         else:
             lines.append(f"Client: {_markdown_value(client.name)}")
     if client.version:
@@ -150,7 +154,9 @@ def _append_conversation_stats_lines(
     if stats.tool_breakdown:
         lines.append("")
         lines.append("### Tool Usage Breakdown")
-        lines.extend(f"  - {_markdown_value(entry.name)}: {entry.count}" for entry in stats.tool_breakdown)
+        lines.extend(
+            f"  - {_markdown_value(entry.name)}: {entry.count}" for entry in stats.tool_breakdown
+        )
 
 
 def _append_error_handling_lines(
@@ -176,9 +182,7 @@ def _append_warning_lines(lines: list[str], warnings: list[str]) -> None:
 
 def render_status_markdown(summary: "StatusSummary", *, heading: str) -> str:
     lines = [markdown_heading(heading), "", "## Version"]
-    lines.append(
-        f"fast-agent-mcp: {summary.fast_agent_version} - https://fast-agent.ai/"
-    )
+    lines.append(f"fast-agent-mcp: {summary.fast_agent_version} - https://fast-agent.ai/")
     lines.append("")
 
     if summary.client_info:
@@ -228,9 +232,7 @@ def render_system_prompt_markdown(
         lines.append("No system prompt available for this agent.")
         return "\n".join(lines)
 
-    lines.extend(
-        [f"**Agent:** {_markdown_value(summary.agent_name)}", "", summary.system_prompt]
-    )
+    lines.extend([f"**Agent:** {_markdown_value(summary.agent_name)}", "", summary.system_prompt])
     return "\n".join(lines)
 
 

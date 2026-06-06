@@ -27,11 +27,7 @@ def test_extract_apply_patch_text_from_direct_argument() -> None:
 
 def test_extract_apply_patch_text_from_heredoc() -> None:
     command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Delete File: old.txt\n"
-        "*** End Patch\n"
-        "PATCH"
+        "apply_patch <<'PATCH'\n*** Begin Patch\n*** Delete File: old.txt\n*** End Patch\nPATCH"
     )
 
     patch_text = extract_apply_patch_text(command)
@@ -42,7 +38,7 @@ def test_extract_apply_patch_text_from_heredoc() -> None:
 
 def test_extract_apply_patch_text_with_shell_wrapper() -> None:
     command = (
-        "bash -lc \"set -e\n"
+        'bash -lc "set -e\n'
         "apply_patch <<'EOF'\n"
         "*** Begin Patch\n"
         "*** Update File: foo.py\n"
@@ -50,7 +46,7 @@ def test_extract_apply_patch_text_with_shell_wrapper() -> None:
         "-old\n"
         "+new\n"
         "*** End Patch\n"
-        "EOF\""
+        'EOF"'
     )
 
     patch_text = extract_apply_patch_text(command)
@@ -64,14 +60,7 @@ def test_extract_apply_patch_text_returns_none_when_markers_missing() -> None:
 
 
 def test_extract_partial_apply_patch_text_returns_tail_without_end_marker() -> None:
-    command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Update File: foo.py\n"
-        "@@\n"
-        "-old\n"
-        "+new"
-    )
+    command = "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: foo.py\n@@\n-old\n+new"
 
     patch_text = extract_partial_apply_patch_text(command)
 
@@ -102,11 +91,7 @@ def test_summarize_patch_counts_operations() -> None:
 
 
 def test_summarize_patch_returns_none_for_invalid_patch() -> None:
-    patch_text = (
-        "*** Begin Patch\n"
-        "*** Frobnicate File: bad.txt\n"
-        "*** End Patch"
-    )
+    patch_text = "*** Begin Patch\n*** Frobnicate File: bad.txt\n*** End Patch"
 
     assert summarize_patch(patch_text) is None
     assert build_apply_patch_preview(f"apply_patch '{patch_text}'") is None
@@ -270,13 +255,7 @@ def test_style_apply_patch_preview_text_handles_leading_spaces() -> None:
 
 
 def test_style_apply_patch_preview_text_dims_context_lines_by_default() -> None:
-    text = (
-        "apply_patch preview: 1 file (1 update)\n"
-        "*** Begin Patch\n"
-        "@@\n"
-        " context\n"
-        "*** End Patch\n"
-    )
+    text = "apply_patch preview: 1 file (1 update)\n*** Begin Patch\n@@\n context\n*** End Patch\n"
 
     styled = style_apply_patch_preview_text(text)
     context_start = text.index(" context")

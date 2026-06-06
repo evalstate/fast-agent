@@ -668,7 +668,9 @@ def _capture_agent_snapshots(
             agent=agent,
             compatibility_snapshot=compatibility_agents.get(agent_name),
             existing_snapshot=existing_agents.get(agent_name),
-            resolved_prompt=resolved_prompts.get(agent_name) if resolved_prompts is not None else None,
+            resolved_prompt=resolved_prompts.get(agent_name)
+            if resolved_prompts is not None
+            else None,
         )
     return snapshots
 
@@ -901,9 +903,7 @@ def _normalize_json_value(
     if isinstance(value, list):
         normalized_list: list[JsonValue] = []
         for index, item in enumerate(value):
-            normalized_item = _normalize_json_value(
-                item, session_id, f"{field_name}[{index}]"
-            )
+            normalized_item = _normalize_json_value(item, session_id, f"{field_name}[{index}]")
             if not normalized_item.keep:
                 return _NormalizedJsonValue(keep=False, value=None)
             normalized_list.append(normalized_item.value)

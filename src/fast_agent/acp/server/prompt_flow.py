@@ -42,6 +42,8 @@ logger = get_logger(__name__)
 HUGGINGFACE_META_KEY: Final[str] = "co.huggingface"
 STRUCTURED_OUTPUT_KEY: Final[str] = "structuredOutput"
 STRUCTURED_OUTPUT_MODE_BEST_EFFORT: Final[str] = "bestEffort"
+
+
 def _is_fatal_tool_error_text(response_text: str) -> bool:
     return (
         "unsupported ACP filesystem tool" in response_text
@@ -641,9 +643,7 @@ class ACPPromptFlow:
             async def after_llm_call(_runner: Any, message: Any) -> None:
                 if message.stop_reason != LlmStopReason.TOOL_USE:
                     return
-                await self._host._send_status_line_update(
-                    session_id, agent, turn_start_index
-                )
+                await self._host._send_status_line_update(session_id, agent, turn_start_index)
 
             status_hook = ToolRunnerHooks(after_llm_call=after_llm_call)
             try:

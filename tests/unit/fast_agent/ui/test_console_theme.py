@@ -44,15 +44,13 @@ def test_console_display_ignores_legacy_theme_when_env_config_is_selected(
         encoding="utf-8",
     )
     (tmp_path / "fastagent.config.yaml").write_text(
-        "logger:\n"
-        "  theme_file: themes/yellow.ini\n",
+        "logger:\n  theme_file: themes/yellow.ini\n",
         encoding="utf-8",
     )
     env_dir = tmp_path / ".fast-agent"
     env_dir.mkdir()
     (env_dir / "fastagent.config.yaml").write_text(
-        "logger:\n"
-        "  show_tools: false\n",
+        "logger:\n  show_tools: false\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -81,7 +79,9 @@ def test_console_display_without_theme_file_restores_default_theme() -> None:
         console.configure_console_theme(theme_file)
         assert console.console.get_style("markdown.h3") == Style.parse("bold bright_cyan")
         assert console.console.get_style("markdown.block_quote") == Style.parse("bright_blue")
-        assert console.console.get_style("markdown.code") == Style.parse("bold bright_green on black")
+        assert console.console.get_style("markdown.code") == Style.parse(
+            "bold bright_green on black"
+        )
 
         ConsoleDisplay(config=Settings(logger=LoggerSettings()))
 

@@ -317,8 +317,7 @@ class TuiCommandIO(CommandIO):
 
     async def _warn_concrete_model_required(self) -> None:
         await self._emit_model_selection_warning(
-            "Selected provider requires a concrete model ID. "
-            "Choose a listed model or cancel."
+            "Selected provider requires a concrete model ID. Choose a listed model or cancel."
         )
 
     async def prompt_model_selection(

@@ -298,9 +298,7 @@ class ShellRuntime:
         defer_display_to_tool_result: bool,
     ) -> _ShellDisplayState:
         use_live_shell_display = (
-            self._show_bash_output
-            and not defer_display_to_tool_result
-            and display_tools_enabled()
+            self._show_bash_output and not defer_display_to_tool_result and display_tools_enabled()
         )
         display_line_limit = self._output_display_lines
         state = _ShellDisplayState(
@@ -591,7 +589,9 @@ class ShellRuntime:
             self._display.show_shell_exit_code(
                 shell_result.exit_code,
                 no_output=not output_state.had_stream_output,
-                output_line_count=output_state.output_line_count if output_state.had_stream_output else None,
+                output_line_count=output_state.output_line_count
+                if output_state.had_stream_output
+                else None,
                 tool_call_id=tool_use_id if show_tool_call_id else None,
             )
 
@@ -681,7 +681,7 @@ class ShellRuntime:
                     cwd=None,
                     env=None,
                     timeout=None,
-                    defer_display_to_tool_result=defer_display_to_tool_result
+                    defer_display_to_tool_result=defer_display_to_tool_result,
                 )
                 result, completion_details = self._build_shell_result(
                     execution=runtime_execution.execution,

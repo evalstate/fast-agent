@@ -280,9 +280,9 @@ class CommandContext:
         return self.settings or get_settings()
 
     def active_skill_source(self, agent_name: str) -> str | None:
-        return self.skill_source_overrides.get(
-            agent_name
-        ) or _SESSION_SKILL_SOURCE_OVERRIDES.get(self._skill_source_override_key(agent_name))
+        return self.skill_source_overrides.get(agent_name) or _SESSION_SKILL_SOURCE_OVERRIDES.get(
+            self._skill_source_override_key(agent_name)
+        )
 
     def set_active_skill_source(self, agent_name: str, source: str) -> None:
         self.skill_source_overrides[agent_name] = source

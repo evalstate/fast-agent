@@ -6,14 +6,14 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from anthropic.types.beta import (
+    BetaMessage,
+    BetaRawContentBlockDeltaEvent,
+    BetaRawContentBlockStartEvent,
+    BetaRawContentBlockStopEvent,
+)
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.llm.provider.anthropic.beta_types import (
-    Message,
-    RawContentBlockDeltaEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
-)
 from fast_agent.llm.provider.anthropic.llm_anthropic import (
     AnthropicLLM,
     _is_beta_text_block_validation_error,
@@ -73,7 +73,7 @@ class _SyntheticAnthropicStream:
         self,
         events: list[Any],
         *,
-        final_message: Message | None = None,
+        final_message: BetaMessage | None = None,
         final_error: Exception | None = None,
     ) -> None:
         self._events = events
@@ -92,7 +92,7 @@ class _SyntheticAnthropicStream:
         self._index += 1
         return event
 
-    async def get_final_message(self) -> Message:
+    async def get_final_message(self) -> BetaMessage:
         if self._final_error is not None:
             raise self._final_error
         if self._final_message is None:
@@ -100,9 +100,9 @@ class _SyntheticAnthropicStream:
         return self._final_message
 
 
-def _anthropic_message(*, text: str = "", stop_reason: str = "end_turn") -> Message:
+def _anthropic_message(*, text: str = "", stop_reason: str = "end_turn") -> BetaMessage:
     content = [{"type": "text", "text": text}] if text else []
-    return Message.model_validate(
+    return BetaMessage.model_validate(
         {
             "id": "msg_1",
             "type": "message",
@@ -152,7 +152,7 @@ async def test_anthropic_server_tool_start_stop_without_delta() -> None:
     harness = _AnthropicReplayHarness()
     stream = _SyntheticAnthropicStream(
         [
-            RawContentBlockStartEvent.model_validate(
+            BetaRawContentBlockStartEvent.model_validate(
                 {
                     "type": "content_block_start",
                     "index": 2,
@@ -165,7 +165,7 @@ async def test_anthropic_server_tool_start_stop_without_delta() -> None:
                     },
                 }
             ),
-            RawContentBlockStopEvent.model_validate(
+            BetaRawContentBlockStopEvent.model_validate(
                 {
                     "type": "content_block_stop",
                     "index": 2,
@@ -224,7 +224,7 @@ async def test_anthropic_incomplete_tool_call_uses_shared_error_message() -> Non
     harness = _AnthropicReplayHarness()
     stream = _SyntheticAnthropicStream(
         [
-            RawContentBlockStartEvent.model_validate(
+            BetaRawContentBlockStartEvent.model_validate(
                 {
                     "type": "content_block_start",
                     "index": 2,
@@ -255,7 +255,7 @@ async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
     harness = _AnthropicReplayHarness()
     stream = _SyntheticAnthropicStream(
         [
-            RawContentBlockStartEvent.model_validate(
+            BetaRawContentBlockStartEvent.model_validate(
                 {
                     "type": "content_block_start",
                     "index": 2,
@@ -268,7 +268,7 @@ async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
                     },
                 }
             ),
-            RawContentBlockStopEvent.model_validate(
+            BetaRawContentBlockStopEvent.model_validate(
                 {
                     "type": "content_block_stop",
                     "index": 2,
@@ -355,7 +355,7 @@ async def test_anthropic_stream_validation_fallback_uses_streamed_text() -> None
     harness = _AnthropicReplayHarness()
     stream = _SyntheticAnthropicStream(
         [
-            RawContentBlockDeltaEvent.model_validate(
+            BetaRawContentBlockDeltaEvent.model_validate(
                 {
                     "type": "content_block_delta",
                     "index": 7,

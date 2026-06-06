@@ -409,8 +409,7 @@ async def _emit_connect_oauth_event(
     oauth_progress_messages = {
         "wait_start": event.message or "Waiting for OAuth callback (startup timer paused)…",
         "wait_end": event.message or "OAuth callback wait complete.",
-        "callback_received": event.message
-        or "OAuth callback received. Completing token exchange…",
+        "callback_received": event.message or "OAuth callback received. Completing token exchange…",
     }
     if event.event_type in oauth_progress_messages:
         await _emit_connect_progress(on_progress, oauth_progress_messages[event.event_type])
@@ -659,11 +658,7 @@ async def _add_connect_success_messages(
             "mcp_connect_details": message_text,
         },
     )
-    summary = (
-        _format_refreshed_summary(counts)
-        if reconnected
-        else _format_added_summary(counts)
-    )
+    summary = _format_refreshed_summary(counts) if reconnected else _format_added_summary(counts)
     outcome.add_message(summary, right_info="mcp", agent_name=agent_name)
     await _emit_connect_progress(on_progress, f"{action} MCP server '{server_name}'.")
 

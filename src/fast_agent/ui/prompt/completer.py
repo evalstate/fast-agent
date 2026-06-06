@@ -468,7 +468,9 @@ class AgentCompleter(Completer):
             return entry.is_file()
 
         def _prompt_meta(entry: Path) -> str:
-            return "JSON prompt" if _path_has_suffix(entry, JSON_FILE_SUFFIXES) else "Prompt template"
+            return (
+                "JSON prompt" if _path_has_suffix(entry, JSON_FILE_SUFFIXES) else "Prompt template"
+            )
 
         yield from self._iter_file_completions(
             partial,
@@ -533,11 +535,7 @@ class AgentCompleter(Completer):
         if current:
             turns.append(current)
 
-        return [
-            first
-            for turn in turns
-            if (first := self._first_user_prompt(turn)) is not None
-        ]
+        return [first for turn in turns if (first := self._first_user_prompt(turn)) is not None]
 
     def _current_history_agent(self) -> CompleterHistoryAgent | None:
         if not self.agent_provider or not self.current_agent:
@@ -752,8 +750,7 @@ class AgentCompleter(Completer):
                 index=index,
                 name=manifest.name,
                 is_managed=(
-                    read_installed_skill_source(Path(manifest.path).parent).source
-                    is not None
+                    read_installed_skill_source(Path(manifest.path).parent).source is not None
                 ),
                 local_meta="local skill",
                 managed_meta="managed skill",
@@ -1252,8 +1249,7 @@ class AgentCompleter(Completer):
         }
 
         return [
-            (server_name, server_targets.get(server_name))
-            for server_name in sorted(configured)
+            (server_name, server_targets.get(server_name)) for server_name in sorted(configured)
         ]
 
     def _complete_configured_mcp_servers(self, partial: str):
@@ -1318,10 +1314,7 @@ class AgentCompleter(Completer):
                 target_count=target_count,
                 partial=partial,
             )
-        if (
-            connect_flag_name(partial) is not None
-            or partial.startswith("--")
-        ):
+        if connect_flag_name(partial) is not None or partial.startswith("--"):
             return McpConnectCompletionState(
                 context="flag",
                 target_count=target_count,
@@ -1775,12 +1768,8 @@ class AgentCompleter(Completer):
         if cached is not None:
             return list(cached)
 
-        server_names = (
-            self._run_async_completion(self._list_connected_resource_servers) or []
-        )
-        server_names = list(
-            dict.fromkeys([*server_names, FILE_MENTION_SERVER, URL_MENTION_SERVER])
-        )
+        server_names = self._run_async_completion(self._list_connected_resource_servers) or []
+        server_names = list(dict.fromkeys([*server_names, FILE_MENTION_SERVER, URL_MENTION_SERVER]))
         completions = [
             Completion(
                 f"{server_name}:",
@@ -1825,15 +1814,10 @@ class AgentCompleter(Completer):
 
         server_name = context.server_name
         resources = (
-            self._run_async_completion(
-                lambda: self._list_server_resource_uris(server_name)
-            )
-            or []
+            self._run_async_completion(lambda: self._list_server_resource_uris(server_name)) or []
         )
         templates = (
-            self._run_async_completion(
-                lambda: self._list_server_resource_templates(server_name)
-            )
+            self._run_async_completion(lambda: self._list_server_resource_templates(server_name))
             or []
         )
 
@@ -1855,8 +1839,7 @@ class AgentCompleter(Completer):
                 display_meta="resource template",
             )
             for template in templates
-            if not context.partial
-            or starts_with_casefold(template.uriTemplate, context.partial)
+            if not context.partial or starts_with_casefold(template.uriTemplate, context.partial)
         )
 
         self._completion_cache_put(cache_key, completions)
@@ -1935,9 +1918,7 @@ class AgentCompleter(Completer):
         self._completion_cache_put(cache_key, completions)
         return completions
 
-    def _server_scoped_mention_completions(
-        self, context: _MentionContext
-    ) -> list[Completion]:
+    def _server_scoped_mention_completions(self, context: _MentionContext) -> list[Completion]:
         if context.server_name is None:
             return []
 

@@ -142,9 +142,7 @@ async def test_skills_available_uses_selected_mcp_registry() -> None:
     ctx = _ctx(settings)
     await handle_set_skills_registry(ctx, agent_name="main", argument="hf")
 
-    outcome = await handle_list_marketplace_skills(
-        ctx, agent_name="main", query=None
-    )
+    outcome = await handle_list_marketplace_skills(ctx, agent_name="main", query=None)
 
     rendered = "\n".join(_plain(message.text) for message in outcome.messages)
     assert "MCP skills from mcp-server hf@1.2.3" in rendered

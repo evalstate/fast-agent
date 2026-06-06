@@ -26,4 +26,3 @@ def build_a3_section_header(
 
 
 __all__ = ["build_a3_section_header"]
-

@@ -32,6 +32,7 @@ HOOK_KIND_LABELS: dict[HookKind, str] = {
     "agent_shutdown": "agent shutdown",
 }
 
+
 @runtime_checkable
 class HookDisplayAgent(Protocol):
     @property

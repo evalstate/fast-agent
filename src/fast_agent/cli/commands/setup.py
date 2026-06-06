@@ -82,9 +82,7 @@ def _ensure_config_dir(config_path: Path) -> None:
     if config_path.exists():
         return
 
-    should_create = Confirm.ask(
-        f"Directory {config_path} does not exist. Create it?", default=True
-    )
+    should_create = Confirm.ask(f"Directory {config_path} does not exist. Create it?", default=True)
     if not should_create:
         raise typer.Abort()
     config_path.mkdir(parents=True)
@@ -167,9 +165,7 @@ def _print_secrets_next_steps(created: list[str]) -> None:
     console.print(
         "1. Add your API keys to fast-agent.secrets.yaml, or set environment variables. Use [cyan]fast-agent check[/cyan] to verify."
     )
-    console.print(
-        "2. Keep fast-agent.secrets.yaml secure and never commit it to version control"
-    )
+    console.print("2. Keep fast-agent.secrets.yaml secure and never commit it to version control")
     console.print(
         "3. Update fast-agent.yaml to set a default model (currently system default is 'gpt-5-mini?reasoning=low')"
     )

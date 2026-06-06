@@ -26,7 +26,9 @@ def test_codex_oauth_source_display_wraps_label_in_success_style() -> None:
 def test_codex_oauth_expiry_display_formats_present_and_expired_tokens() -> None:
     timestamp = datetime(2026, 6, 2, 13, 45).timestamp()
 
-    assert codex_oauth_expiry_display({"expires_at": timestamp}) == "[green]2026-06-02 13:45[/green]"
+    assert (
+        codex_oauth_expiry_display({"expires_at": timestamp}) == "[green]2026-06-02 13:45[/green]"
+    )
     assert (
         codex_oauth_expiry_display({"expires_at": timestamp, "expired": True})
         == "[red]expired 2026-06-02 13:45[/red]"

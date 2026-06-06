@@ -241,10 +241,13 @@ def test_format_user_auth_skip_oauth_message_uses_singular_header_count() -> Non
 
 
 def test_format_user_auth_skip_oauth_message_uses_plural_header_count() -> None:
-    assert _format_user_auth_skip_oauth_message(
-        "docs",
-        {"Authorization", "X-HF-Authorization"},
-    ) == "docs: Using user-specified 2 auth headers; skipping OAuth provider."
+    assert (
+        _format_user_auth_skip_oauth_message(
+            "docs",
+            {"Authorization", "X-HF-Authorization"},
+        )
+        == "docs: Using user-specified 2 auth headers; skipping OAuth provider."
+    )
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 # Valid hook types that can be specified in tool_hooks config.
 VALID_HOOK_TYPES = frozenset(field.name for field in fields(ToolRunnerHooks))
 
+
 # Type alias for hook functions that accept HookContext
 class HookFunction(Protocol):
     __name__: str
@@ -195,5 +196,7 @@ def load_tool_runner_hooks(
         return None
 
     return ToolRunnerHooks(**hooks_kwargs)
+
+
 # Logger for hook execution errors
 logger = get_logger(__name__)

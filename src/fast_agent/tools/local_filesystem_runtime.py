@@ -119,9 +119,7 @@ def _parse_attach_media_arguments(
             for field_name in _ATTACH_MEDIA_OPTIONAL_STRING_FIELDS
         }
     except ValueError as exc:
-        return _ParsedAttachMediaArguments(
-            error=_text_result(str(exc), is_error=True)
-        )
+        return _ParsedAttachMediaArguments(error=_text_result(str(exc), is_error=True))
 
     return _ParsedAttachMediaArguments(
         arguments=_AttachMediaArguments(source=source_value, **optional_values)
@@ -265,9 +263,8 @@ class LocalFilesystemRuntime:
     def _model_uses_google_media_payloads(self) -> bool:
         if self._model_info is None:
             return False
-        return (
-            self._model_info.provider is Provider.GOOGLE
-            or "gemini" in strip_casefold(self._model_info.name or "")
+        return self._model_info.provider is Provider.GOOGLE or "gemini" in strip_casefold(
+            self._model_info.name or ""
         )
 
     def set_working_directory(self, working_directory: Path | None) -> None:

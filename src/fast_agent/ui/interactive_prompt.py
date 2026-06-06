@@ -187,10 +187,7 @@ class PromptLoopRuntimeState:
 
 
 def _turn_preparation_ready(turn_preparation: PromptTurnPreparation) -> bool:
-    return (
-        not turn_preparation.should_continue
-        and turn_preparation.agent_state is not None
-    )
+    return not turn_preparation.should_continue and turn_preparation.agent_state is not None
 
 
 def _input_phase_ready(input_phase: PromptInputPhase) -> bool:
@@ -424,9 +421,7 @@ class InteractivePrompt:
             available_agents_set=next_available_agents_set,
         )
 
-    def _describe_cancelled_history_state(
-        self, history_state: HistoryRollbackState | None
-    ) -> str:
+    def _describe_cancelled_history_state(self, history_state: HistoryRollbackState | None) -> str:
         if history_state is None:
             return "History reconciliation completed."
 
@@ -468,7 +463,10 @@ class InteractivePrompt:
         except Exception:
             agent_obj = None
 
-        if not isinstance(agent_obj, TurnCancellationStateCapable) or not agent_obj.last_turn_cancelled:
+        if (
+            not isinstance(agent_obj, TurnCancellationStateCapable)
+            or not agent_obj.last_turn_cancelled
+        ):
             return
 
         _clear_current_task_cancellation_requests()
@@ -648,7 +646,9 @@ class InteractivePrompt:
             return
         runtime_agents, issues = issue_context
 
-        rich_print(f"[yellow]Shell cwd startup check:[/yellow] {format_count(len(issues), 'issue')} found.")
+        rich_print(
+            f"[yellow]Shell cwd startup check:[/yellow] {format_count(len(issues), 'issue')} found."
+        )
 
         if not await self._confirm_shell_cwd_creation():
             return
@@ -1233,11 +1233,9 @@ class InteractivePrompt:
                 current_result=result,
                 runtime_state=runtime_state,
             )
-            result, buffer_prefill, pending_handled = (
-                self._apply_pending_execution_result(
-                    pending_result=pending_result,
-                    buffer_prefill=buffer_prefill,
-                )
+            result, buffer_prefill, pending_handled = self._apply_pending_execution_result(
+                pending_result=pending_result,
+                buffer_prefill=buffer_prefill,
             )
             if pending_handled:
                 continue

@@ -89,7 +89,11 @@ def _session_environment_override(
     if env_override is not None:
         return env_override
 
-    if explicit_cwd and settings.environment_dir is None and settings._fast_agent_home_source == "default":
+    if (
+        explicit_cwd
+        and settings.environment_dir is None
+        and settings._fast_agent_home_source == "default"
+    ):
         return DEFAULT_ENVIRONMENT_DIR
 
     return None
@@ -106,7 +110,6 @@ def is_session_pinned(info: "SessionInfo") -> bool:
     """Return True if the session is marked as pinned."""
     value = info.metadata.get("pinned") if isinstance(info.metadata, dict) else None
     return value is True
-
 
 
 def _sanitize_component(name: str, limit: int = 100) -> str:
@@ -135,9 +138,7 @@ def _normalize_explicit_session_id(session_id: str | None) -> str | None:
     return requested_id
 
 
-def _first_user_preview(
-    messages: list["PromptMessageExtended"], limit: int = 240
-) -> str | None:
+def _first_user_preview(messages: list["PromptMessageExtended"], limit: int = 240) -> str | None:
     for message in messages:
         if message.role != "user":
             continue
@@ -278,7 +279,6 @@ class Session:
         self.directory = directory
         self._manager = manager
         self._dirty = False
-
 
     async def save_history(
         self,
@@ -838,7 +838,9 @@ class SessionManager:
         from fast_agent.session.hydrator import SessionHydrator
 
         session_name = self._resolve_session_name(name)
-        session = self.load_latest_session() if session_name is None else self.load_session(session_name)
+        session = (
+            self.load_latest_session() if session_name is None else self.load_session(session_name)
+        )
         if session is None:
             return None
 
@@ -868,8 +870,8 @@ class SessionManager:
                 )
             )
         raise RuntimeError(
-            'SessionManager._hydrate_session_agents() cannot be used from an async context; '
-            'use _hydrate_session_agents_async() instead.'
+            "SessionManager._hydrate_session_agents() cannot be used from an async context; "
+            "use _hydrate_session_agents_async() instead."
         )
 
     def resume_session(
@@ -952,8 +954,8 @@ class SessionManager:
                 )
             )
         raise RuntimeError(
-            'SessionManager.resume_session_agents() cannot be used from an async context; '
-            'use resume_session_agents_async() instead.'
+            "SessionManager.resume_session_agents() cannot be used from an async context; "
+            "use resume_session_agents_async() instead."
         )
 
     def fork_current_session(self, title: str | None = None) -> Session | None:
@@ -1035,8 +1037,7 @@ class SessionManager:
         matches = [
             session.name
             for session in sessions
-            if session.name.endswith(f"-{session_name}")
-            and SESSION_ID_PATTERN.match(session.name)
+            if session.name.endswith(f"-{session_name}") and SESSION_ID_PATTERN.match(session.name)
         ]
         if len(matches) == 1:
             return matches[0]
@@ -1062,7 +1063,9 @@ class SessionManager:
     def _generate_session_id(self) -> str:
         """Generate a secure session identifier."""
         timestamp = datetime.now().strftime(SESSION_TIMESTAMP_FORMAT)
-        random_suffix = "".join(secrets.choice(SESSION_ID_ALPHABET) for _ in range(SESSION_ID_LENGTH))
+        random_suffix = "".join(
+            secrets.choice(SESSION_ID_ALPHABET) for _ in range(SESSION_ID_LENGTH)
+        )
         return f"{timestamp}-{random_suffix}"
 
     def _copy_history_file(self, src_path: pathlib.Path, dest_dir: pathlib.Path) -> str:

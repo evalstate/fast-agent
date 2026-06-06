@@ -142,9 +142,7 @@ def _parse_skills_action(arguments: str | None) -> tuple[str, str]:
     return "unknown", requested_action
 
 
-async def _handle_skills_help_action(
-    _handler: "SlashCommandHandler", _remainder: str
-) -> str:
+async def _handle_skills_help_action(_handler: "SlashCommandHandler", _remainder: str) -> str:
     return _skills_usage_text()
 
 
@@ -157,9 +155,7 @@ async def _handle_skills_list_action(handler: "SlashCommandHandler", remainder: 
     return handle_skills_list(handler, skills_dir=parsed.skills_dir)
 
 
-async def _handle_skills_available_action(
-    handler: "SlashCommandHandler", remainder: str
-) -> str:
+async def _handle_skills_available_action(handler: "SlashCommandHandler", remainder: str) -> str:
     parsed = parse_skills_slash_options(remainder)
     if parsed.error:
         return f"# skills available\n\n{parsed.error}"
@@ -176,9 +172,7 @@ async def _handle_skills_search_action(handler: "SlashCommandHandler", remainder
     return await handle_skills_available(handler, query=query, registry=parsed.registry)
 
 
-async def _handle_unknown_skills_action(
-    _handler: "SlashCommandHandler", remainder: str
-) -> str:
+async def _handle_unknown_skills_action(_handler: "SlashCommandHandler", remainder: str) -> str:
     return format_unknown_command_action("skills", remainder)
 
 

@@ -45,9 +45,7 @@ def _tool_use_message_with_names(*tool_names: str) -> PromptMessageExtended:
         content=[],
         stop_reason=LlmStopReason.TOOL_USE,
         tool_calls={
-            str(index): CallToolRequest(
-                params=CallToolRequestParams(name=tool_name, arguments={})
-            )
+            str(index): CallToolRequest(params=CallToolRequestParams(name=tool_name, arguments={}))
             for index, tool_name in enumerate(tool_names, start=1)
         },
     )

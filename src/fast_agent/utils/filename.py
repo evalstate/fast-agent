@@ -24,9 +24,7 @@ def _is_safe_filename_component_char(char: str) -> bool:
 
 
 def _replace_unsafe_filename_component_chars(value: str) -> str:
-    return "".join(
-        char if _is_safe_filename_component_char(char) else "_" for char in value
-    )
+    return "".join(char if _is_safe_filename_component_char(char) else "_" for char in value)
 
 
 def _clean_sanitized_filename(value: str) -> str:

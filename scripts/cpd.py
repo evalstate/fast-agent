@@ -176,10 +176,14 @@ def run_cpd(
     cmd = [
         str(pmd_bin),
         "cpd",
-        "--language", "python",
-        "--minimum-tokens", str(min_tokens),
-        "--dir", str(src_dir),
-        "--format", output_format,
+        "--language",
+        "python",
+        "--minimum-tokens",
+        str(min_tokens),
+        "--dir",
+        str(src_dir),
+        "--format",
+        output_format,
     ]
     for excluded_path in excluded_paths:
         cmd.extend(["--exclude", str(excluded_path)])
@@ -190,9 +194,7 @@ def run_cpd(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Detect duplicated code in fast-agent source"
-    )
+    parser = argparse.ArgumentParser(description="Detect duplicated code in fast-agent source")
     parser.add_argument(
         "--min-tokens",
         type=int,

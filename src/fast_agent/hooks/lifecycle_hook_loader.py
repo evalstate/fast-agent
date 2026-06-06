@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
 
+
 class LifecycleHookFunction(Protocol):
     __name__: str
 

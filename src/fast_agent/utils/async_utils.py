@@ -146,9 +146,7 @@ def ensure_event_loop() -> asyncio.AbstractEventLoop:
         return loop
 
 
-def run_sync(
-    func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
-) -> T | None:
+def run_sync(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T | None:
     """
     Run an async callable from sync code using the shared loop policy.
 

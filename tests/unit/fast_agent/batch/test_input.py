@@ -325,8 +325,7 @@ def test_user_sql_accepts_cte_select_query():
 
 def test_user_sql_accepts_multiple_cte_select_query():
     query = (
-        "WITH first AS (SELECT * FROM input), "
-        "second AS (SELECT * FROM first) SELECT * FROM second"
+        "WITH first AS (SELECT * FROM input), second AS (SELECT * FROM first) SELECT * FROM second"
     )
 
     assert _normalize_user_sql(query) == query

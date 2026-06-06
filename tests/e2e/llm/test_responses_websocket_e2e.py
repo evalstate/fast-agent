@@ -158,7 +158,9 @@ class _ReuseProbeFactory:
 
 
 @pytest_asyncio.fixture
-async def websocket_reuse_probe_agent(model_name: str) -> tuple[LlmAgent, _ReuseProbeCodexResponsesLLM]:
+async def websocket_reuse_probe_agent(
+    model_name: str,
+) -> tuple[LlmAgent, _ReuseProbeCodexResponsesLLM]:
     model_spec = _resolve_codex_websocket_model(model_name)
     model_config = ModelFactory.parse_model_string(model_spec)
     config_path = Path(__file__).parent / "fastagent.config.yaml"

@@ -81,7 +81,9 @@ def tool_activities_for_message(
 
     tool_results = getattr(message, "tool_results", None) or {}
     for tool_use_id, result in tool_results.items():
-        tool_name = tool_name_lookup.get(tool_use_id, tool_use_id) if tool_name_lookup else tool_use_id
+        tool_name = (
+            tool_name_lookup.get(tool_use_id, tool_use_id) if tool_name_lookup else tool_use_id
+        )
         activities.append(
             ToolActivity(
                 kind="result",
@@ -348,9 +350,10 @@ def _is_mcp_payload(payload: Mapping[str, Any]) -> bool:
 def _is_remote_activity_payload(payload: Mapping[str, Any]) -> bool:
     if _is_mcp_payload(payload):
         return True
-    return payload.get("type") == "server_tool_use" and payload.get(
-        "provider_tool_type"
-    ) == "x_search_call"
+    return (
+        payload.get("type") == "server_tool_use"
+        and payload.get("provider_tool_type") == "x_search_call"
+    )
 
 
 def _arguments_from_payload(payload: Mapping[str, Any]) -> dict[str, Any]:

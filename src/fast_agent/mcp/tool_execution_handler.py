@@ -146,6 +146,7 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     ) -> str:
         """Generate a simple UUID for tracking."""
         import uuid
+
         return str(uuid.uuid4())
 
     async def on_tool_progress(
@@ -188,4 +189,5 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     ) -> str:
         """No-op - generates a simple UUID."""
         import uuid
+
         return str(uuid.uuid4())

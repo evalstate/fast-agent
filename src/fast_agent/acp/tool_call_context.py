@@ -55,9 +55,7 @@ def acp_tool_call_context(
     current = _acp_tool_call_context.get() or ACPToolCallContext()
     merged = ACPToolCallContext(
         parent_tool_call_id=(
-            parent_tool_call_id
-            if parent_tool_call_id is not None
-            else current.parent_tool_call_id
+            parent_tool_call_id if parent_tool_call_id is not None else current.parent_tool_call_id
         ),
     )
     token = _acp_tool_call_context.set(merged)

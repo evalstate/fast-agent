@@ -299,9 +299,7 @@ def _build_history_bar(
     bar = Text(" history |", style="dim")
     for entry in recent:
         color = _get_role_color(entry.role, is_error=entry.is_error)
-        bar.append_text(
-            _shade_block(entry.chars, non_text=entry.non_text, color=color)
-        )
+        bar.append_text(_shade_block(entry.chars, non_text=entry.non_text, color=color))
     remaining = width - len(recent)
     if remaining > 0:
         bar.append("░" * remaining, style=Colours.TIMELINE_EMPTY)

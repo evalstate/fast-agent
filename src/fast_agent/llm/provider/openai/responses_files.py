@@ -144,15 +144,11 @@ class ResponsesFileMixin:
         file_url: str,
         filename: str | None,
     ) -> dict[str, Any] | None:
-        data_bytes, resolved_filename, mime_type = self._file_bytes_from_url(
-            file_url, filename
-        )
+        data_bytes, resolved_filename, mime_type = self._file_bytes_from_url(file_url, filename)
         if data_bytes is None:
             return None
 
-        file_id = await self._upload_file_bytes(
-            client, data_bytes, resolved_filename, mime_type
-        )
+        file_id = await self._upload_file_bytes(client, data_bytes, resolved_filename, mime_type)
         return {"type": "input_file", "file_id": file_id}
 
     async def _normalize_input_file_part(

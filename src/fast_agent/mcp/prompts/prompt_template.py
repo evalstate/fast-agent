@@ -54,9 +54,7 @@ class _TemplateParseState:
     def append_preamble_section(self) -> None:
         preamble_text = "\n".join(self.preamble_lines).strip()
         if preamble_text:
-            self.sections.append(
-                PromptContent(text=preamble_text, role="user", resources=[])
-            )
+            self.sections.append(PromptContent(text=preamble_text, role="user", resources=[]))
         self.preamble_lines = []
 
     def append_current_section(self) -> None:
@@ -213,9 +211,7 @@ class PromptTemplate:
         multiparts: list[PromptMessageExtended] = []
         for section in content_sections:
             # Handle text content
-            content_items: list[ContentBlock] = [
-                TextContent(type="text", text=section.text)
-            ]
+            content_items: list[ContentBlock] = [TextContent(type="text", text=section.text)]
 
             # In a real implementation, resources would be loaded here. For now,
             # create placeholders.
@@ -243,9 +239,7 @@ class PromptTemplate:
 
         for section in self._parsed_content:
             # Convert each section to a multipart message
-            content_items: list[ContentBlock] = [
-                TextContent(type="text", text=section.text)
-            ]
+            content_items: list[ContentBlock] = [TextContent(type="text", text=section.text)]
 
             # In a real implementation, resources would be loaded here. For now,
             # create placeholders.

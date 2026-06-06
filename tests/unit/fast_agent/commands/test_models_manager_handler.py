@@ -46,7 +46,9 @@ class _StubAgentProvider:
         visible = self.visible_agent_names()
         return visible[0] if visible else next(iter(self._agents), None)
 
-    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> dict[str, str]:
+    async def list_prompts(
+        self, namespace: str | None, agent_name: str | None = None
+    ) -> dict[str, str]:
         del namespace, agent_name
         return {}
 
@@ -540,7 +542,9 @@ async def test_models_doctor_dedupes_repeated_alias_missing_note(tmp_path: Path)
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    expected_note = "No model_references are configured. Add a model_references section in fast-agent.yaml."
+    expected_note = (
+        "No model_references are configured. Add a model_references section in fast-agent.yaml."
+    )
     assert rendered.count(expected_note) == 1
 
 
@@ -948,9 +952,10 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     saved = _read_yaml(env_dir / "fast-agent.yaml")
     assert saved["model_references"]["system"]["fast"] == "gpt-4.1-mini"
     assert io.emitted_messages
-    assert _message_text(io.emitted_messages[0]).find(
-        str((env_dir / "fast-agent.yaml").resolve())
-    ) != -1
+    assert (
+        _message_text(io.emitted_messages[0]).find(str((env_dir / "fast-agent.yaml").resolve()))
+        != -1
+    )
 
     rendered = str(outcome.messages[0].text)
     assert "old: claude-sonnet-4-5" in rendered
@@ -1138,9 +1143,7 @@ def test_models_references_parser_rejects_empty_positionals() -> None:
 
 
 def test_models_references_parser_strips_quoted_positionals() -> None:
-    parsed = models_manager._parse_references_arguments(
-        'set " $system.fast " " claude-haiku-4-5 "'
-    )
+    parsed = models_manager._parse_references_arguments('set " $system.fast " " claude-haiku-4-5 "')
 
     assert parsed.error is None
     assert parsed.mutation is not None

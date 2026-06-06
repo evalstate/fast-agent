@@ -69,8 +69,7 @@ def parse_url_elicitation_required_data(data: object) -> ParsedURLElicitationErr
 
     if not isinstance(raw_elicitations, list):
         issues.append(
-            "error.data.elicitations must be a list, "
-            f"got {type(raw_elicitations).__name__}"
+            f"error.data.elicitations must be a list, got {type(raw_elicitations).__name__}"
         )
         return ParsedURLElicitationErrorData(elicitations=elicitations, issues=issues)
 

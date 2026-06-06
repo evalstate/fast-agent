@@ -424,7 +424,9 @@ def _ensure_default_flags(raw: dict[str, Any], name: str, path: Path) -> tuple[b
     return default, tool_only
 
 
-def _apply_request_params_defaults(config: AgentConfig, request_params: RequestParams | None) -> None:
+def _apply_request_params_defaults(
+    config: AgentConfig, request_params: RequestParams | None
+) -> None:
     if request_params is None:
         return
     config.default_request_params = request_params
@@ -680,7 +682,9 @@ _CARD_TYPE_DATA_HANDLERS: dict[CardType, CardTypeDataHandler] = {
 }
 
 
-def _ensure_plugin_commands(raw_commands: Any, path: Path) -> dict[str, PluginCommandActionSpec] | None:
+def _ensure_plugin_commands(
+    raw_commands: Any, path: Path
+) -> dict[str, PluginCommandActionSpec] | None:
     return parse_plugin_command_action_specs(raw_commands, source=str(path))
 
 
@@ -967,9 +971,7 @@ def _agents_as_tools_options(raw: dict[str, Any], path: Path) -> dict[str, Any]:
     max_display_instances = raw.get("max_display_instances")
 
     if history_source is not None:
-        options["history_source"] = _ensure_optional_str(
-            history_source, "history_source", path
-        )
+        options["history_source"] = _ensure_optional_str(history_source, "history_source", path)
     if history_merge_target is not None:
         options["history_merge_target"] = _ensure_optional_str(
             history_merge_target, "history_merge_target", path
@@ -977,9 +979,7 @@ def _agents_as_tools_options(raw: dict[str, Any], path: Path) -> dict[str, Any]:
     if max_parallel is not None:
         options["max_parallel"] = _ensure_int(max_parallel, "max_parallel", path)
     if child_timeout_sec is not None:
-        options["child_timeout_sec"] = _ensure_float(
-            child_timeout_sec, "child_timeout_sec", path
-        )
+        options["child_timeout_sec"] = _ensure_float(child_timeout_sec, "child_timeout_sec", path)
     if max_display_instances is not None:
         options["max_display_instances"] = _ensure_int(
             max_display_instances, "max_display_instances", path
@@ -1031,9 +1031,7 @@ def dump_agent_to_path(
     as_yaml: bool = False,
     message_paths: list[Path] | None = None,
 ) -> None:
-    payload = dump_agent_to_string(
-        name, agent_data, as_yaml=as_yaml, message_paths=message_paths
-    )
+    payload = dump_agent_to_string(name, agent_data, as_yaml=as_yaml, message_paths=message_paths)
     output_path = output_path.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(payload, encoding="utf-8")

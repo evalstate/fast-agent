@@ -357,6 +357,7 @@ async def test_metadata_clears_when_supported_content_only():
     )
     assert not meta_blocks
 
+
 @pytest.mark.asyncio
 async def test_history_persists_alert_channel_but_strips_removed_metadata():
     decorator, _ = make_decorator("passthrough")

@@ -398,9 +398,7 @@ def build_history_rows(history: Sequence["PromptMessageExtended"]) -> list[Histo
                 preview=preview,
                 details=_combine_detail_sections(detail_sections),
                 non_text=(
-                    row_non_text
-                    or tool_result_rows.has_non_text
-                    or provider_rows.has_non_text
+                    row_non_text or tool_result_rows.has_non_text or provider_rows.has_non_text
                 ),
                 has_tool_request=has_tool_request,
                 hide_summary=hide_in_summary,

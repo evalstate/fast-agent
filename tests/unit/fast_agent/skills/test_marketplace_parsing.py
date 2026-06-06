@@ -444,15 +444,15 @@ def test_parse_marketplace_payload_rejects_traversal_plugin_source_path() -> Non
 def test_parse_marketplace_payload_does_not_label_unexpanded_plugin_as_bundle() -> None:
     payload = {
         "plugins": [
-                {
-                    "name": "session-investigator",
-                    "description": "Investigate sessions",
-                    "source": {
-                        "source": "github",
-                        "repo": "example/skills",
-                        "path": "skills/session-investigator",
-                    },
-                }
+            {
+                "name": "session-investigator",
+                "description": "Investigate sessions",
+                "source": {
+                    "source": "github",
+                    "repo": "example/skills",
+                    "path": "skills/session-investigator",
+                },
+            }
         ],
     }
 

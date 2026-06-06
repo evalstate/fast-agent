@@ -388,9 +388,7 @@ def test_session_trace_exporter_preserves_raw_openai_assistant_message_items(
                                 "type": "message",
                                 "role": "assistant",
                                 "phase": "commentary",
-                                "content": [
-                                    {"type": "output_text", "text": "Checking the repo."}
-                                ],
+                                "content": [{"type": "output_text", "text": "Checking the repo."}],
                             }
                         ),
                     ),
@@ -513,8 +511,7 @@ def test_session_trace_exporter_exports_server_web_search_as_codex_call(
     web_search_calls = [
         record["payload"]
         for record in records
-        if record["type"] == "response_item"
-        and record["payload"].get("type") == "web_search_call"
+        if record["type"] == "response_item" and record["payload"].get("type") == "web_search_call"
     ]
 
     assert web_search_calls == [
@@ -903,8 +900,7 @@ def test_session_trace_exporter_applies_privacy_sanitizer_to_codex_text(
     assert result.redaction.by_label == {"private_person": 9}
 
     records = [
-        json.loads(line)
-        for line in result.output_path.read_text(encoding="utf-8").splitlines()
+        json.loads(line) for line in result.output_path.read_text(encoding="utf-8").splitlines()
     ]
     session_meta = records[0]["payload"]
     assert session_meta["cwd"] == "/home/Alice/work"
@@ -917,17 +913,11 @@ def test_session_trace_exporter_applies_privacy_sanitizer_to_codex_text(
     assert redactions["elapsed_seconds"] >= 0
 
     payloads = [record["payload"] for record in records]
-    developer = next(
-        payload for payload in payloads if payload.get("role") == "developer"
-    )
+    developer = next(payload for payload in payloads if payload.get("role") == "developer")
     assert developer["content"][0]["text"] == "Help <PRIVATE_PERSON> safely."
-    user_event = next(
-        payload for payload in payloads if payload.get("type") == "user_message"
-    )
+    user_event = next(payload for payload in payloads if payload.get("type") == "user_message")
     assert user_event["message"] == "hello <PRIVATE_PERSON>"
-    function_call = next(
-        payload for payload in payloads if payload.get("type") == "function_call"
-    )
+    function_call = next(payload for payload in payloads if payload.get("type") == "function_call")
     assert function_call["name"] == "lookup_Alice"
     assert function_call["call_id"] == "call_Alice"
     assert function_call["arguments"] == '{"query":"<PRIVATE_PERSON>"}'

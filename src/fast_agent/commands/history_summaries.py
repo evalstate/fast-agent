@@ -406,9 +406,7 @@ def _record_message_timing_bounds(
 
     start_time = _coerce_float(timing_payload.get("start_time"))
     end_time = _coerce_float(timing_payload.get("end_time"))
-    if start_time is not None and (
-        metrics.first_start is None or start_time < metrics.first_start
-    ):
+    if start_time is not None and (metrics.first_start is None or start_time < metrics.first_start):
         metrics.first_start = start_time
     if end_time is not None and (metrics.last_end is None or end_time > metrics.last_end):
         metrics.last_end = end_time

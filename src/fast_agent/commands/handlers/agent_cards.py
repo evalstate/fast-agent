@@ -33,9 +33,13 @@ class AgentCardManager(Protocol):
 
     async def dump_agent_card(self, agent_name: str) -> str: ...
 
-    async def attach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]: ...
+    async def attach_agent_tools(
+        self, parent_agent: str, child_agents: Sequence[str]
+    ) -> list[str]: ...
 
-    async def detach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]: ...
+    async def detach_agent_tools(
+        self, parent_agent: str, child_agents: Sequence[str]
+    ) -> list[str]: ...
 
     async def reload_agents(self) -> bool: ...
 
@@ -183,9 +187,7 @@ def _add_agent_tool_change_message(
     outcome.add_message(f"No agent tools {action_label}.", channel="warning")
 
 
-def _add_card_load_success_message(
-    outcome: CommandOutcome, loaded_names: Sequence[str]
-) -> None:
+def _add_card_load_success_message(outcome: CommandOutcome, loaded_names: Sequence[str]) -> None:
     if loaded_names:
         outcome.add_message(
             f"Loaded {_format_agent_card_names(loaded_names)}",

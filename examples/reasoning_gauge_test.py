@@ -36,7 +36,7 @@ def gauge_single(lvl: int, max_lvl: int = 4) -> str:
 def gauge_stair2(lvl: int, max_lvl: int = 4) -> str:
     """Staircase - inactive = bright_black braille."""
     active_color = get_color(lvl)
-    
+
     parts = []
     for i in range(1, max_lvl + 1):
         char = BRAILLE_HEIGHTS.get(i, "⣿")
@@ -44,21 +44,21 @@ def gauge_stair2(lvl: int, max_lvl: int = 4) -> str:
             parts.append(f"<style bg='{active_color}'>{char}</style>")
         else:
             parts.append(f"<style bg='{INACTIVE}'>{char}</style>")
-    
+
     return "".join(parts)
 
 
 def gauge_block2(lvl: int, max_lvl: int = 4) -> str:
     """Full blocks - inactive = bright_black braille."""
     active_color = get_color(lvl)
-    
+
     parts = []
     for i in range(1, max_lvl + 1):
         if i <= lvl:
             parts.append(f"<style bg='{active_color}'>{FULL}</style>")
         else:
             parts.append(f"<style bg='{INACTIVE}'>{FULL}</style>")
-    
+
     return "".join(parts)
 
 
@@ -72,9 +72,9 @@ def get_toolbar():
 
 
 def main():
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Reasoning Gauge Options")
-    print("="*70)
+    print("=" * 70)
     print("""
 Comparing:
 
@@ -86,19 +86,21 @@ Active: green → yellow → red
 
 Commands: +/- (level), q (quit)
 """)
-    
-    style = Style.from_dict({
-        "bottom-toolbar": "#ansiblack bg:#ansigray",
-    })
-    
+
+    style = Style.from_dict(
+        {
+            "bottom-toolbar": "#ansiblack bg:#ansigray",
+        }
+    )
+
     session = PromptSession(
         bottom_toolbar=get_toolbar,
         style=style,
         erase_when_done=False,
     )
-    
+
     global level
-    
+
     while True:
         try:
             text = session.prompt("> ").strip().lower()
@@ -110,7 +112,7 @@ Commands: +/- (level), q (quit)
                 level = max(level - 1, 0)
         except (KeyboardInterrupt, EOFError):
             break
-    
+
     print("Done!")
 
 

@@ -110,7 +110,7 @@ async def test_tool_streaming_survives_cumulative_content() -> None:
                         tool_calls=[
                             StubToolCallDelta(
                                 index=0,
-                                function=StubFunction(arguments="\"x\": 1}"),
+                                function=StubFunction(arguments='"x": 1}'),
                             )
                         ],
                     )

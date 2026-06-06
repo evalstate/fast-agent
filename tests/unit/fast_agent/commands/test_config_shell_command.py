@@ -108,10 +108,18 @@ def test_normalize_shell_updates_uses_write_text_file_mode() -> None:
 
 
 def test_shell_settings_write_text_file_mode_accepts_yaml_boolean_values() -> None:
-    assert ShellSettings.model_validate({"write_text_file_mode": False}).write_text_file_mode == "off"
+    assert (
+        ShellSettings.model_validate({"write_text_file_mode": False}).write_text_file_mode == "off"
+    )
     assert ShellSettings.model_validate({"write_text_file_mode": True}).write_text_file_mode == "on"
-    assert ShellSettings.model_validate({"write_text_file_mode": "enable"}).write_text_file_mode == "on"
-    assert ShellSettings.model_validate({"write_text_file_mode": "disable"}).write_text_file_mode == "off"
+    assert (
+        ShellSettings.model_validate({"write_text_file_mode": "enable"}).write_text_file_mode
+        == "on"
+    )
+    assert (
+        ShellSettings.model_validate({"write_text_file_mode": "disable"}).write_text_file_mode
+        == "off"
+    )
 
 
 def test_shell_settings_accepts_deprecated_attach_resource_config_name() -> None:
