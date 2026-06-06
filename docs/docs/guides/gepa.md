@@ -393,11 +393,23 @@ you need production-safe outputs:
 
 ## Card packs
 
-No GEPA starter card pack is bundled in this repository, but the
-[`gepa-demo`](https://github.com/fast-agent-ai/card-packs/tree/main/packs/gepa-demo)
-pack in the external `fast-agent-ai/card-packs` registry is intended to provide
-a small runnable example. It includes one batch evaluator demo and one artifact
+The default fast-agent card-pack registry includes
+[`gepa-demo`](https://github.com/fast-agent-ai/card-packs/tree/main/packs/gepa-demo),
+a small runnable starter pack with one batch evaluator demo and one artifact
 evaluator demo.
+
+Install and open the helper agent:
+
+```bash
+fast-agent go --pack gepa-demo
+```
+
+Then smoke-test the two evaluator shapes without external model calls:
+
+```bash
+uv run .fast-agent/scripts/gepa-run.py --evaluate-only
+uv run .fast-agent/scripts/gepa-artifact-run.py --evaluate-only
+```
 
 If you create or ship a GEPA card pack, keep its AgentCards and scripts aligned
 with this guide:
