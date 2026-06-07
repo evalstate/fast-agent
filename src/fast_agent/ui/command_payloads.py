@@ -33,6 +33,14 @@ class ShowMcpStatusCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class A2ACommand(CommandBase):
+    action: str
+    argument: str | None
+    error: str | None = None
+    kind: Literal["a2a_command"] = "a2a_command"
+
+
+@dataclass(frozen=True, slots=True)
 class CheckCommand(CommandBase):
     argument: str | None = None
     kind: Literal["check"] = "check"
@@ -423,6 +431,7 @@ CommandPayload = (
     | ShowSystemCommand
     | ShowMarkdownCommand
     | ShowMcpStatusCommand
+    | A2ACommand
     | CheckCommand
     | CommandsCommand
     | McpListCommand

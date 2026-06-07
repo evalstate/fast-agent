@@ -51,6 +51,7 @@ from fast_agent.core.model_resolution import (
     resolve_model_spec,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -123,6 +124,10 @@ R = TypeVar("R")
 class _ServerOperationRecovery(Generic[R]):
     result: R | None
     success: bool
+
+    def __iter__(self):
+        yield self.result
+        yield self.success
 
 
 @dataclass(frozen=True, slots=True)
@@ -463,6 +468,20 @@ class MCPAggregator(ContextDependent):
         if server_registry is None:
             raise RuntimeError("Context is missing server registry for MCP connections")
         return cast("ServerRegistryProtocol", server_registry)
+
+    def _should_use_request_scoped_connection(self, server_name: str) -> bool:
+        """Use a fresh MCP transport when auth.forward depends on request context."""
+        if not request_bearer_token.get():
+            return False
+        try:
+            config = self._require_server_registry().get_server_config(server_name)
+        except Exception:
+            return False
+        return (
+            config is not None
+            and config.auth is not None
+            and config.auth.forward == "huggingface"
+        )
 
     def _require_connection_manager(self) -> MCPConnectionManager:
         if self._persistent_connection_manager is None:
@@ -2023,7 +2042,9 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         try_execute: Callable[[ClientSession], Awaitable[R]],
     ) -> R:
-        if self.connection_persistence:
+        if self.connection_persistence and not self._should_use_request_scoped_connection(
+            server_name
+        ):
             return await self._execute_persistent_server_operation(server_name, try_execute)
         return await self._execute_temporary_server_operation(server_name, try_execute)
 
@@ -2102,6 +2123,7 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         try_execute: Callable,
         error_factory: Callable[[str], R] | None,
+        _exc: Exception | None = None,
     ) -> _ServerOperationRecovery[R]:
         from fast_agent.ui import console
 

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.a2a.config import A2AAgentConfig
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.tools.function_tool_config import FunctionToolSpec
 
@@ -45,3 +46,4 @@ class AgentCardData(TypedDict, total=False):
     red_flag_max_length: int | None
     agent_class: type | None
     cls: type | None
+    a2a: A2AAgentConfig

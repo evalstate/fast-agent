@@ -17,6 +17,7 @@ CardType = Literal[
     "orchestrator",
     "iterative_planner",
     "MAKER",
+    "a2a",
 ]
 
 CARD_TYPE_TO_AGENT_TYPE: dict[CardType, AgentType] = {
@@ -29,6 +30,7 @@ CARD_TYPE_TO_AGENT_TYPE: dict[CardType, AgentType] = {
     "orchestrator": AgentType.ORCHESTRATOR,
     "iterative_planner": AgentType.ITERATIVE_PLANNER,
     "MAKER": AgentType.MAKER,
+    "a2a": AgentType.A2A,
 }
 
 AGENT_TYPE_TO_CARD_TYPE: dict[str, CardType] = {
@@ -143,6 +145,18 @@ ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
         "red_flag_max_length",
         "messages",
     },
+    "a2a": {
+        *COMMON_CARD_FIELDS,
+        "url",
+        "transport",
+        "streaming",
+        "polling",
+        "accepted_output_modes",
+        "headers",
+        "auth",
+        "relative_card_path",
+        "request_timeout_seconds",
+    },
 }
 
 REQUIRED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
@@ -155,6 +169,7 @@ REQUIRED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
     "orchestrator": {"agents"},
     "iterative_planner": {"agents"},
     "MAKER": {"worker"},
+    "a2a": {"url"},
 }
 
 DEFAULT_USE_HISTORY_BY_TYPE: dict[CardType, bool] = {
@@ -167,6 +182,7 @@ DEFAULT_USE_HISTORY_BY_TYPE: dict[CardType, bool] = {
     "orchestrator": False,
     "iterative_planner": False,
     "MAKER": True,
+    "a2a": True,
 }
 
 MCP_CONNECT_ALLOWED_KEYS = frozenset(

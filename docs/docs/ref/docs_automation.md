@@ -63,12 +63,17 @@ uv run scripts/docs.py cast-build skills-direct-install
 uv run scripts/docs.py cast-build skills-slash-commands
 uv run scripts/docs.py cast-build skills-over-mcp
 uv run scripts/docs.py cast-build hf-image-generation
+uv run scripts/docs.py cast-check
 ```
 
 The `tui-shell` scenario records `fast-agent` starting with shell access and a visible model
 selection, sends a short prompt, then runs `! git status` from inside the TUI. Recording requires
 `asciinema` and `tmux`; normal docs builds only need the committed `.cast` files and the vendored
-player assets. `cast-build` is an alias for recording a named cast.
+player assets. `cast-build` is an alias for recording a named cast. `cast-check` verifies the
+committed player support files, all embedded `.cast` references, and the internal recording index.
+That index is committed at `docs/docs/assets/asciinema-index.json`; use it to review which terminal
+recordings are present, where each one is embedded, the cast dimensions/timing, and the command that
+regenerates it.
 The `model-picker` scenario records `fast-agent go` opening the startup model picker, then navigates
 the provider/model lists with arrow keys.
 The skills scenarios record direct install and update-check flows from a temporary local git
@@ -79,6 +84,18 @@ MCP-backed registry, searches the registry, and installs a SHA256-verified skill
 The `hf-image-generation` scenario records the Hugging Face dynamic Space flow with halfcell
 terminal-image rendering so the generated image is captured as ordinary terminal cells. It is more
 service-dependent than the other casts; use it when intentionally refreshing the image-viewer demo.
+
+A2A recordings are managed by the A2A docs pipeline because the deterministic recordings share the
+fake A2A server and generated snippets:
+
+```bash
+uv run scripts/a2a_docs_pipeline.py record
+uv run scripts/a2a_docs_pipeline.py record-real-llm
+```
+
+`record` refreshes the deterministic A2A casts as a batch and updates the shared asciinema index.
+`record-real-llm` refreshes the optional provider-backed cast and requires `HF_TOKEN` and
+`OPENAI_API_KEY`.
 
 By default, cast recordings stop by killing the tmux session after the final demonstrated action,
 so the user-facing recording does not show a trailing `/exit`. Set

@@ -1,0 +1,9 @@
+file response
+[report.pdf](https://example.com/report.pdf) (application/pdf)
+```json
+{
+  "ok": true,
+  "source": "fake-a2a-server"
+}
+```
+[note.txt: 3 bytes text/plain]

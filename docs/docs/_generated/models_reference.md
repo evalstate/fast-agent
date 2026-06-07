@@ -28,11 +28,11 @@
 | `opus47` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus47.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `opus` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `codexspark` | `codexresponses` | Text | `json` (schema) | — | — | — |
-| `deepseek-chat` | `deepseek` | Text | `json` (schema) | — | — | — |
+| `deepseek-chat` | `deepseek` | Text | `json` (object) | — | — | — |
 | `deepseek-reasoner` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek-reasoner.high` | — | — |
 | `deepseek.deepseek-ai/deepseek-v3.1` | `deepseek` | Text | `json` (schema) | — | — | — |
-| `deepseek4flash` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek4flash.high` | — | — |
-| `deepseek` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek.high` | — | — |
+| `deepseek4flash` | `deepseek` | Text | `json` (object) | effort: `high`, `max`, `off`<br>Example: `deepseek4flash.high` | — | — |
+| `deepseek` | `deepseek` | Text | `json` (object) | effort: `high`, `max`, `off`<br>Example: `deepseek.high` | — | — |
 | `passthrough` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `playback` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `silent` | `fast-agent` | Text | `json` (schema) | — | — | — |

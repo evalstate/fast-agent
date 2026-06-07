@@ -294,9 +294,12 @@ class FastAgent(DecoratorMixin):
         parser.add_argument("--server", action="store_true", help="Run as an MCP server")
         parser.add_argument(
             "--transport",
-            choices=["http", "stdio", "acp"],
+            choices=["http", "stdio", "acp", "a2a"],
             default=None,
-            help="Transport protocol to use when running as a server (http, stdio, or acp)",
+            help=(
+                "Transport protocol to use when running as a server "
+                "(http, stdio, acp, or a2a)"
+            ),
         )
         parser.add_argument(
             "--port",
@@ -2399,7 +2402,7 @@ class FastAgent(DecoratorMixin):
     def _print_server_startup(self, output_stream: Any) -> None:
         print(f"Starting fast-agent  '{self.name}' in server mode", file=output_stream)
         print(f"Transport: {self.args.transport}", file=output_stream)
-        if self.args.transport == "http":
+        if self.args.transport in {"http", "a2a"}:
             print(f"Listening on {self.args.host}:{self.args.port}", file=output_stream)
         print("Press Ctrl+C to stop", file=output_stream)
 
@@ -2482,6 +2485,28 @@ class FastAgent(DecoratorMixin):
             port=self.args.port,
         )
 
+    async def _run_a2a_server(
+        self,
+        state: ManagedRunState,
+        callbacks: RuntimeCallbacks,
+    ) -> None:
+        from fast_agent.a2a import AgentA2AServer
+
+        server_description = getattr(self.args, "server_description", None)
+        server_name = getattr(self.args, "server_name", None)
+        instance_scope = getattr(self.args, "instance_scope", "shared")
+        a2a_server = AgentA2AServer(
+            primary_instance=state.primary_instance,
+            create_instance=callbacks.create_instance,
+            dispose_instance=callbacks.dispose_instance,
+            server_name=server_name or f"{self.name}",
+            server_description=server_description,
+            host=self.args.host,
+            port=self.args.port,
+            instance_scope=instance_scope,
+        )
+        await a2a_server.run_async(host=self.args.host, port=self.args.port)
+
     async def _handle_server_mode(
         self,
         state: ManagedRunState,
@@ -2501,6 +2526,8 @@ class FastAgent(DecoratorMixin):
 
             if settings.transport == "acp":
                 await self._run_acp_server(state, callbacks)
+            elif settings.transport == "a2a":
+                await self._run_a2a_server(state, callbacks)
             else:
                 await self._run_mcp_server(state, callbacks)
         except KeyboardInterrupt:
@@ -3001,12 +3028,12 @@ class FastAgent(DecoratorMixin):
         tool_name_template: str | None = None,
     ) -> None:
         """
-        Start the application as an MCP server.
-        This method initializes agents and exposes them through an MCP server.
+        Start the application as an MCP, ACP, or A2A server.
+        This method initializes agents and exposes them through the selected server transport.
         It is a blocking method that runs until the server is stopped.
 
         Args:
-            transport: Transport protocol to use ("http" or "stdio")
+            transport: Transport protocol to use ("http", "stdio", "acp", or "a2a")
             host: Host address for the server when using HTTP
             port: Port for the server when using HTTP
             server_name: Optional custom name for the MCP server

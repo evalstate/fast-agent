@@ -34,6 +34,7 @@ class AgentType(StrEnum):
     CHAIN = auto()
     ITERATIVE_PLANNER = auto()
     MAKER = auto()
+    A2A = auto()
 
 
 SkillConfig: TypeAlias = (

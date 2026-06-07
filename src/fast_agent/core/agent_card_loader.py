@@ -12,6 +12,7 @@ from typing import Any, cast
 import frontmatter
 import yaml
 
+from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.agents.agent_types import (
     AgentConfig,
     AgentType,
@@ -20,7 +21,7 @@ from fast_agent.agents.agent_types import (
     MCPConnectTarget,
 )
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
-from fast_agent.config import MCPServerSettings, resolve_env_vars
+from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, resolve_env_vars
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_paths import (
     is_agent_card_path,
@@ -493,6 +494,7 @@ def _build_agent_data(
         trim_tool_history=trim_tool_history,
         mcp_connect=mcp_connect,
         source_path=path,
+        agent_type=agent_type,
     )
 
     _apply_request_params_defaults(config, request_params)
@@ -669,6 +671,40 @@ def _apply_maker_data(
     agent_data["red_flag_max_length"] = red_flag
 
 
+def _apply_a2a_data(
+    raw: dict[str, Any],
+    path: Path,
+    agent_data: AgentCardData,
+    instruction: str,
+) -> None:
+    del instruction
+    transport = raw.get("transport")
+    if transport is not None:
+        transport = _ensure_a2a_transport(transport, path)
+    auth = raw.get("auth")
+    if auth is not None and not isinstance(auth, dict):
+        raise AgentConfigError(f"'auth' must be a mapping in {path}")
+    agent_data["a2a"] = A2AAgentConfig(
+        url=_ensure_str(raw.get("url"), "url", path),
+        transport=transport,
+        streaming=_ensure_bool(raw.get("streaming"), "streaming", path, default=True),
+        polling=_ensure_bool(raw.get("polling"), "polling", path, default=False),
+        accepted_output_modes=_ensure_str_list(
+            raw.get("accepted_output_modes", []), "accepted_output_modes", path
+        ),
+        headers=_ensure_headers_map(raw.get("headers"), "headers", path) or {},
+        auth=MCPServerAuthSettings.model_validate(auth) if auth is not None else None,
+        relative_card_path=_ensure_optional_str(
+            raw.get("relative_card_path"), "relative_card_path", path
+        ),
+        request_timeout_seconds=(
+            _ensure_float(raw.get("request_timeout_seconds"), "request_timeout_seconds", path)
+            if raw.get("request_timeout_seconds") is not None
+            else 120.0
+        ),
+    )
+
+
 _CARD_TYPE_DATA_HANDLERS: dict[CardType, CardTypeDataHandler] = {
     "agent": _apply_basic_agent_data,
     "smart": _apply_basic_agent_data,
@@ -679,6 +715,7 @@ _CARD_TYPE_DATA_HANDLERS: dict[CardType, CardTypeDataHandler] = {
     "orchestrator": _apply_orchestrator_data,
     "iterative_planner": _apply_iterative_planner_data,
     "MAKER": _apply_maker_data,
+    "a2a": _apply_a2a_data,
 }
 
 
@@ -715,6 +752,13 @@ def _ensure_optional_str(value: Any, field: str, path: Path) -> str | None:
     if normalized is None:
         raise AgentConfigError(f"'{field}' must be a non-empty string in {path}")
     return normalized
+
+
+def _ensure_a2a_transport(value: Any, path: Path) -> str:
+    transport = _ensure_str(value, "transport", path)
+    if transport not in {"JSONRPC", "HTTP+JSON"}:
+        raise AgentConfigError(f"'transport' must be one of JSONRPC, HTTP+JSON in {path}")
+    return transport
 
 
 def _ensure_str_list(value: Any, field: str, path: Path) -> list[str]:
@@ -1375,6 +1419,36 @@ def _serialize_maker_fields(
         card["red_flag_max_length"] = red_flag
 
 
+def _serialize_a2a_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    a2a_config = agent_data.get("a2a")
+    if not isinstance(a2a_config, A2AAgentConfig):
+        raise AgentConfigError("A2A agent is missing A2A configuration")
+
+    card["url"] = a2a_config.url
+    if a2a_config.transport:
+        card["transport"] = a2a_config.transport
+    if not a2a_config.streaming:
+        card["streaming"] = False
+    if a2a_config.polling:
+        card["polling"] = True
+    if a2a_config.accepted_output_modes:
+        card["accepted_output_modes"] = list(a2a_config.accepted_output_modes)
+    if a2a_config.headers:
+        card["headers"] = dict(a2a_config.headers)
+    if a2a_config.auth is not None:
+        auth = a2a_config.auth.model_dump(mode="python", exclude_none=True, exclude_defaults=True)
+        auth["oauth"] = a2a_config.auth.oauth
+        card["auth"] = auth
+    if a2a_config.relative_card_path:
+        card["relative_card_path"] = a2a_config.relative_card_path
+    if a2a_config.request_timeout_seconds != 120.0:
+        card["request_timeout_seconds"] = a2a_config.request_timeout_seconds
+
+
 _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
     "agent": _serialize_agent_like_fields,
     "smart": _serialize_agent_like_fields,
@@ -1385,6 +1459,7 @@ _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
     "orchestrator": _serialize_orchestrator_fields,
     "iterative_planner": _serialize_iterative_planner_fields,
     "MAKER": _serialize_maker_fields,
+    "a2a": _serialize_a2a_fields,
 }
 
 

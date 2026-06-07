@@ -37,6 +37,7 @@ from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.home import build_child_environment
+from fast_agent.mcp.hf_auth import add_forwarded_hf_auth_header
 from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
@@ -82,6 +83,11 @@ class PreparedHttpAuth:
     headers: dict[str, str]
     oauth_provider: Union["OAuthClientProvider", None]
     user_auth_keys: set[str]
+
+    def __iter__(self):
+        yield self.headers
+        yield self.oauth_provider
+        yield self.user_auth_keys
 
 
 def _format_ping_shutdown_error(missed: int, exc: Exception) -> str:
@@ -146,6 +152,24 @@ def _prepare_headers_and_auth(
     auth_header_keys = {"authorization", "x-hf-authorization"}
     user_provided_auth_keys = {key for key in headers if strip_casefold(key) in auth_header_keys}
 
+    if (
+        server_config.auth is not None
+        and server_config.auth.forward == "huggingface"
+        and server_config.url
+        and not user_provided_auth_keys
+    ):
+        headers = add_forwarded_hf_auth_header(server_config.url, headers) or {}
+        user_provided_auth_keys = {
+            key for key in headers if strip_casefold(key) in auth_header_keys
+        }
+
+    if server_config.auth is not None and server_config.auth.forward == "huggingface":
+        return PreparedHttpAuth(
+            headers=headers,
+            oauth_provider=None,
+            user_auth_keys=user_provided_auth_keys,
+        )
+
     force_oauth = oauth_mode == "force" or (oauth_mode is None and trigger_oauth is True)
     auto_oauth = oauth_mode == "auto"
     oauth_requested = force_oauth or auto_oauth
@@ -197,6 +221,8 @@ def _resolve_oauth_mode(
     if trigger_oauth is False:
         return "disabled"
     auth_config = server_config.auth
+    if auth_config is not None and auth_config.forward == "huggingface":
+        return "disabled"
     if auth_config is not None and auth_config.oauth is False:
         return "disabled"
     if trigger_oauth is True:

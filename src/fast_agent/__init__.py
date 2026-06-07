@@ -1,47 +1,49 @@
 """fast-agent - An MCP native agent application framework"""
 
+import importlib
 from typing import TYPE_CHECKING
 
-from fast_agent.config import (
-    AnthropicSettings,
-    AzureSettings,
-    BedrockSettings,
-    DeepSeekSettings,
-    GenericSettings,
-    GoogleSettings,
-    GroqSettings,
-    HuggingFaceSettings,
-    LoggerSettings,
-    MCPElicitationSettings,
-    MCPRootSettings,
-    MCPSamplingSettings,
-    MCPServerAuthSettings,
-    MCPServerSettings,
-    MCPSettings,
-    OpenAISettings,
-    OpenRouterSettings,
-    OpenTelemetrySettings,
-    Settings,
-    SkillsSettings,
-    TensorZeroSettings,
-    XAISettings,
-)
-from fast_agent.types import (
-    ConversationSummary,
-    LlmStopReason,
-    PromptMessageExtended,
-    RequestParams,
-    ResourceLink,
-    audio_link,
-    extract_first,
-    extract_last,
-    find_matches,
-    image_link,
-    resource_link,
-    search_messages,
-    text_content,
-    video_link,
-)
+_CONFIG_EXPORTS = {
+    "AnthropicSettings",
+    "AzureSettings",
+    "BedrockSettings",
+    "DeepSeekSettings",
+    "GenericSettings",
+    "GoogleSettings",
+    "GroqSettings",
+    "HuggingFaceSettings",
+    "LoggerSettings",
+    "MCPElicitationSettings",
+    "MCPRootSettings",
+    "MCPSamplingSettings",
+    "MCPServerAuthSettings",
+    "MCPServerSettings",
+    "MCPSettings",
+    "OpenAISettings",
+    "OpenRouterSettings",
+    "OpenTelemetrySettings",
+    "Settings",
+    "SkillsSettings",
+    "TensorZeroSettings",
+    "XAISettings",
+}
+
+_TYPE_EXPORTS = {
+    "ConversationSummary",
+    "LlmStopReason",
+    "PromptMessageExtended",
+    "RequestParams",
+    "ResourceLink",
+    "audio_link",
+    "extract_first",
+    "extract_last",
+    "find_matches",
+    "image_link",
+    "resource_link",
+    "search_messages",
+    "text_content",
+    "video_link",
+}
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "Core": ("fast_agent.core", "Core"),
@@ -67,6 +69,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
 
 def __getattr__(name: str):
     """Lazy import heavy modules to avoid circular imports during package initialization."""
+    if name in _CONFIG_EXPORTS:
+        return getattr(importlib.import_module("fast_agent.config"), name)
+    if name in _TYPE_EXPORTS:
+        return getattr(importlib.import_module("fast_agent.types"), name)
     try:
         module_name, attr_name = _LAZY_EXPORTS[name]
     except KeyError as exc:

@@ -1,0 +1,4 @@
+type: a2a
+name: fake_remote
+url: http://127.0.0.1:41242
+transport: JSONRPC

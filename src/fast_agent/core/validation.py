@@ -137,6 +137,7 @@ _CARD_DEPENDENCY_FIELD_SPECS: dict[str, tuple[DependencyFieldSpec, ...]] = {
         DependencyFieldSpec("generator", multiple=False),
     ),
     "MAKER": (DependencyFieldSpec("worker", multiple=False),),
+    "a2a": (),
 }
 
 _TOPOLOGICAL_DEPENDENCY_FIELDS: dict[str, tuple[str, ...]] = {

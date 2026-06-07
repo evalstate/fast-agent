@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -20,8 +21,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+DOCS = ROOT / "docs" / "docs"
 ASSETS = ROOT / "docs" / "docs" / "assets"
 VENDOR_ASCIINEMA = ASSETS / "vendor" / "asciinema-player"
+ASCIINEMA_INDEX = ASSETS / "asciinema-index.json"
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,13 @@ class TerminalCastScenario:
     idle_time_limit: float
     prompt: str
     shell_command: str
+
+
+@dataclass(frozen=True)
+class CastRecorder:
+    name: str
+    command: str
+    notes: str = ""
 
 
 def _tui_shell_scenario() -> TerminalCastScenario:
@@ -155,6 +165,212 @@ def _scenarios() -> dict[str, TerminalCastScenario]:
     return {scenario.name: scenario for scenario in scenarios}
 
 
+def _a2a_recorders() -> dict[Path, CastRecorder]:
+    a2a_assets = ASSETS / "a2a"
+    return {
+        (a2a_assets / "a2a-client-cli.cast").relative_to(ROOT): CastRecorder(
+            name="a2a-client-cli",
+            command="uv run scripts/a2a_docs_pipeline.py record",
+            notes="Deterministic fake-server A2A recording; regenerated with the A2A batch.",
+        ),
+        (a2a_assets / "a2a-streaming-files.cast").relative_to(ROOT): CastRecorder(
+            name="a2a-streaming-files",
+            command="uv run scripts/a2a_docs_pipeline.py record",
+            notes="Live TUI fake-server A2A flow; regenerated with the A2A batch.",
+        ),
+        (a2a_assets / "a2a-client-input-required.cast").relative_to(ROOT): CastRecorder(
+            name="a2a-client-input-required",
+            command="uv run scripts/a2a_docs_pipeline.py record",
+            notes="Deterministic turn-continuation transcript; regenerated with the A2A batch.",
+        ),
+        (a2a_assets / "a2a-server-card.cast").relative_to(ROOT): CastRecorder(
+            name="a2a-server-card",
+            command="uv run scripts/a2a_docs_pipeline.py record",
+            notes="Deterministic A2A server card recording; regenerated with the A2A batch.",
+        ),
+        (a2a_assets / "a2a-real-llm-hf-streaming.cast").relative_to(ROOT): CastRecorder(
+            name="a2a-real-llm-hf-streaming",
+            command="uv run scripts/a2a_docs_pipeline.py record-real-llm",
+            notes="Optional provider-backed recording; requires HF_TOKEN and OPENAI_API_KEY.",
+        ),
+    }
+
+
+def _cast_recorders() -> dict[Path, CastRecorder]:
+    recorders = {
+        scenario.output.relative_to(ROOT): CastRecorder(
+            name=scenario.name,
+            command=f"uv run scripts/docs.py cast-build {scenario.name}",
+        )
+        for scenario in _scenarios().values()
+    }
+    recorders.update(_a2a_recorders())
+    return recorders
+
+
+_ATTR_RE = re.compile(r"""(?P<name>data-fa-[\w-]+|class)=["'](?P<value>[^"']*)["']""")
+_DEMO_RE = re.compile(r"<div\b(?P<attrs>[^>]*\bdata-fa-asciinema-cast=[^>]*)>", re.DOTALL)
+
+
+def _attrs(fragment: str) -> dict[str, str]:
+    return {match.group("name"): match.group("value") for match in _ATTR_RE.finditer(fragment)}
+
+
+def _resolve_docs_asset_reference(page: Path, value: str) -> Path:
+    if "assets/" in value:
+        return (DOCS / value[value.index("assets/") :]).relative_to(ROOT)
+    resolved = (page.parent / value).resolve()
+    try:
+        return resolved.relative_to(ROOT)
+    except ValueError:
+        return resolved
+
+
+def _embedded_casts() -> dict[Path, list[dict[str, object]]]:
+    embeds: dict[Path, list[dict[str, object]]] = {}
+    for page in sorted(DOCS.rglob("*.md")):
+        text = page.read_text(encoding="utf-8")
+        for match in _DEMO_RE.finditer(text):
+            attrs = _attrs(match.group("attrs"))
+            cast_ref = attrs.get("data-fa-asciinema-cast")
+            if cast_ref is None:
+                continue
+            asset = _resolve_docs_asset_reference(page, cast_ref)
+            embeds.setdefault(asset, []).append(
+                {
+                    "page": str(page.relative_to(ROOT)),
+                    "reference": cast_ref,
+                    "cols": _optional_int(attrs.get("data-fa-asciinema-cols")),
+                    "rows": _optional_int(attrs.get("data-fa-asciinema-rows")),
+                    "idle_time_limit": _optional_float(
+                        attrs.get("data-fa-asciinema-idle-time-limit")
+                    ),
+                    "poster": attrs.get("data-fa-asciinema-poster"),
+                    "autoplay": attrs.get("data-fa-asciinema-autoplay") == "true",
+                    "fit": attrs.get("data-fa-asciinema-fit"),
+                }
+            )
+    return embeds
+
+
+def _optional_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def _optional_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _cast_header(path: Path) -> dict[str, object]:
+    try:
+        first_line = path.read_text(encoding="utf-8").splitlines()[0]
+    except IndexError:
+        return {}
+    data = json.loads(first_line)
+    return data if isinstance(data, dict) else {}
+
+
+def _cast_line_count(path: Path) -> int:
+    return len(path.read_text(encoding="utf-8").splitlines())
+
+
+def _relative(path: Path) -> str:
+    if not path.is_absolute():
+        return str(path)
+    return str(path.relative_to(ROOT))
+
+
+def _asciinema_index() -> dict[str, object]:
+    embeds = _embedded_casts()
+    recorders = _cast_recorders()
+    cast_paths = sorted(
+        {path.relative_to(ROOT) for path in ASSETS.rglob("*.cast")} | set(embeds) | set(recorders)
+    )
+    casts: list[dict[str, object]] = []
+    for path in cast_paths:
+        abs_path = ROOT / path if not path.is_absolute() else path
+        header = _cast_header(abs_path) if abs_path.exists() else {}
+        recorder = recorders.get(path)
+        embedded = embeds.get(path, [])
+        problems: list[str] = []
+        if not abs_path.exists():
+            problems.append("missing asset")
+        if recorder is None:
+            problems.append("missing recorder")
+        for embed in embedded:
+            cols = embed.get("cols")
+            rows = embed.get("rows")
+            idle_time_limit = embed.get("idle_time_limit")
+            if header and cols is not None and header.get("width") != cols:
+                problems.append(f"{embed['page']} cols {cols} != cast width {header.get('width')}")
+            if header and rows is not None and header.get("height") != rows:
+                problems.append(f"{embed['page']} rows {rows} != cast height {header.get('height')}")
+            if header and idle_time_limit is not None:
+                header_idle = header.get("idle_time_limit")
+                if header_idle is not None and float(header_idle) != float(idle_time_limit):
+                    problems.append(
+                        f"{embed['page']} idle {idle_time_limit} != cast idle {header_idle}"
+                    )
+        casts.append(
+            {
+                "path": _relative(path),
+                "present": abs_path.exists(),
+                "title": header.get("title"),
+                "width": header.get("width"),
+                "height": header.get("height"),
+                "idle_time_limit": header.get("idle_time_limit"),
+                "timestamp": header.get("timestamp"),
+                "line_count": _cast_line_count(abs_path) if abs_path.exists() else 0,
+                "recorder": recorder.name if recorder else None,
+                "record_command": recorder.command if recorder else None,
+                "notes": recorder.notes if recorder else "",
+                "embedded": embedded,
+                "problems": problems,
+            }
+        )
+    return {
+        "schema": 1,
+        "description": "Internal review index for committed asciinema docs recordings.",
+        "casts": casts,
+    }
+
+
+def _write_asciinema_index() -> None:
+    ASCIINEMA_INDEX.write_text(
+        json.dumps(_asciinema_index(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_asciinema_index() -> None:
+    _write_asciinema_index()
+
+
+def _asciinema_index_problems() -> list[str]:
+    index = _asciinema_index()
+    problems: list[str] = []
+    for cast in index["casts"]:
+        cast_problems = cast.get("problems", [])
+        if isinstance(cast_problems, list):
+            problems.extend(f"{cast['path']}: {problem}" for problem in cast_problems)
+    expected = json.dumps(index, indent=2, sort_keys=True) + "\n"
+    if not ASCIINEMA_INDEX.exists():
+        problems.append(f"{ASCIINEMA_INDEX.relative_to(ROOT)} is missing")
+    elif ASCIINEMA_INDEX.read_text(encoding="utf-8") != expected:
+        problems.append(
+            f"{ASCIINEMA_INDEX.relative_to(ROOT)} is stale; run `uv run scripts/docs.py assets`"
+        )
+    return problems
+
+
+def asciinema_index_problems() -> list[str]:
+    return _asciinema_index_problems()
+
+
 def _model_picker_record_script(scenario: TerminalCastScenario) -> str:
     startup_wait = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_STARTUP_WAIT", "5")
     navigation_wait = os.environ.get("FAST_AGENT_MODEL_PICKER_DEMO_NAVIGATION_WAIT", "0.55")
@@ -208,6 +424,12 @@ tmux attach-session -t "$SESSION" || true
 
 def _missing_tools(tools: tuple[str, ...]) -> list[str]:
     return [tool for tool in tools if shutil.which(tool) is None]
+
+
+def require_recording_tools(tools: tuple[str, ...] = ("asciinema", "tmux")) -> None:
+    missing = _missing_tools(tools)
+    if missing:
+        raise RuntimeError("Cannot record docs assets; missing tools: " + ", ".join(missing))
 
 
 def _skills_direct_install_record_script(scenario: TerminalCastScenario) -> str:
@@ -482,9 +704,16 @@ def _required_assets() -> list[Path]:
 
 
 def list_assets() -> int:
-    print("Terminal cast scenarios:")
-    for scenario in _scenarios().values():
-        print(f"  {scenario.name:<16} {scenario.output.relative_to(ROOT)}")
+    print("Terminal cast recordings:")
+    for cast in _asciinema_index()["casts"]:
+        embedded_count = len(cast["embedded"]) if isinstance(cast["embedded"], list) else 0
+        recorder = cast["recorder"] or "missing-recorder"
+        status = "present" if cast["present"] else "missing"
+        print(
+            f"  {recorder:<32} {status:<7} embeds={embedded_count:<2} "
+            f"{cast['path']}"
+        )
+    print(f"\nIndex: {ASCIINEMA_INDEX.relative_to(ROOT)}")
     return 0
 
 
@@ -496,15 +725,22 @@ def check() -> int:
             print(f"  - {path.relative_to(ROOT)}")
         return 1
 
-    print("Docs asset support files are present.")
-    for scenario in _scenarios().values():
-        status = "present" if scenario.output.exists() else "not recorded"
-        print(f"  {scenario.name:<16} {status}: {scenario.output.relative_to(ROOT)}")
+    problems = _asciinema_index_problems()
+    if problems:
+        print("Asciinema docs asset issues:")
+        for problem in problems:
+            print(f"  - {problem}")
+        return 1
+
+    print("Docs asset support files and asciinema index are current.")
+    for cast in _asciinema_index()["casts"]:
+        print(f"  {cast['recorder']:<32} {cast['path']}")
     return 0
 
 
 def build() -> int:
     """Build static assets that do not require external services."""
+    _write_asciinema_index()
     return check()
 
 
@@ -593,42 +829,67 @@ def record(name: str) -> int:
         print("Available scenarios: " + ", ".join(sorted(scenarios)))
         return 1
 
-    missing = _missing_tools(("asciinema", "tmux"))
-    if missing:
-        print("Cannot record docs assets; missing tools: " + ", ".join(missing))
+    try:
+        require_recording_tools()
+    except RuntimeError as exc:
+        print(str(exc))
         return 1
 
-    scenario.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="fast-agent-docs-assets-") as temp_dir:
         driver = Path(temp_dir) / f"{scenario.name}.sh"
         driver.write_text(_record_script(scenario), encoding="utf-8")
         driver.chmod(0o755)
-        command = [
-            "asciinema",
-            "rec",
-            "--overwrite",
-            "--cols",
-            str(scenario.cols),
-            "--rows",
-            str(scenario.rows),
-            "--idle-time-limit",
-            str(scenario.idle_time_limit),
-            "-t",
-            scenario.title,
-            "-c",
-            str(driver),
-            str(scenario.output),
-        ]
-        try:
-            subprocess.run(command, cwd=ROOT, check=True)
-        finally:
-            subprocess.run(
-                ["tmux", "kill-session", "-t", f"fast_agent_docs_{name.replace('-', '_')}"],
-                check=False,
-            )
-    _trim_terminal_teardown(scenario.output)
+        record_asciinema_cast(
+            output=scenario.output,
+            title=scenario.title,
+            command=str(driver),
+            cols=scenario.cols,
+            rows=scenario.rows,
+            idle_time_limit=scenario.idle_time_limit,
+            cleanup_session=f"fast_agent_docs_{name.replace('-', '_')}",
+        )
     print(f"Recorded {scenario.output.relative_to(ROOT)}")
     return 0
+
+
+def record_asciinema_cast(
+    *,
+    output: Path,
+    title: str,
+    command: str,
+    cols: int,
+    rows: int,
+    idle_time_limit: float = 1.3,
+    cleanup_session: str | None = None,
+    cwd: Path = ROOT,
+) -> None:
+    """Record an asciinema cast using docs-wide defaults and cleanup rules."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            [
+                "asciinema",
+                "rec",
+                "--overwrite",
+                "--cols",
+                str(cols),
+                "--rows",
+                str(rows),
+                "--idle-time-limit",
+                str(idle_time_limit),
+                "-t",
+                title,
+                "-c",
+                command,
+                str(output),
+            ],
+            cwd=cwd,
+            check=True,
+        )
+    finally:
+        if cleanup_session:
+            subprocess.run(["tmux", "kill-session", "-t", cleanup_session], check=False)
+    _trim_terminal_teardown(output)
 
 
 def _is_terminal_teardown_event(line: str) -> bool:
@@ -671,6 +932,7 @@ def main() -> int:
     subparsers.add_parser("list")
     subparsers.add_parser("check")
     subparsers.add_parser("build")
+    subparsers.add_parser("index")
     record_parser = subparsers.add_parser("record")
     record_parser.add_argument("scenario", choices=sorted(_scenarios()))
     args = parser.parse_args()
@@ -681,6 +943,10 @@ def main() -> int:
         return check()
     if args.command == "build":
         return build()
+    if args.command == "index":
+        _write_asciinema_index()
+        print(f"Wrote {ASCIINEMA_INDEX.relative_to(ROOT)}")
+        return 0
     if args.command == "record":
         return record(args.scenario)
     raise AssertionError(args.command)
