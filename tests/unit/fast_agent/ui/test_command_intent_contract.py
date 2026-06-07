@@ -75,6 +75,7 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "session",
         "card",
         "agent",
+        "a2a",
         "mcp",
         "connect",
         "prompt",
