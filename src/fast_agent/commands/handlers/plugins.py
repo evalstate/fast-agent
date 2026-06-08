@@ -108,7 +108,12 @@ def _format_plugin_keys(entry: LocalPlugin) -> str:
     return ", ".join(labels) if labels else "-"
 
 
-def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) -> Text:
+def _format_local_plugins(
+    *,
+    plugins_dir: Path,
+    plugins: Sequence[LocalPlugin],
+    guidance: bool = True,
+) -> Text:
     content = Text()
     append_heading(content, f"Plugins in {format_display_path(plugins_dir)}:")
     if not plugins:
@@ -160,9 +165,56 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
         )
         content.append("\n\n")
 
+    if guidance:
+        content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
+        content.append("\n")
+        content.append_text(Text("Remove with /plugins remove <number|name>", style="dim"))
+    return content
+
+
+def _path_equal(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:
+        return False
+
+
+def _global_plugins_dir(settings) -> Path | None:
+    if not settings._fast_agent_global_plugin_home:
+        return None
+    return Path(settings._fast_agent_global_plugin_home) / "plugins"
+
+
+def _format_installed_plugins(
+    *,
+    project_plugins_dir: Path,
+    project_plugins: Sequence[LocalPlugin],
+    global_plugins_dir: Path | None,
+    global_plugins: Sequence[LocalPlugin],
+) -> Text:
+    if global_plugins_dir is None:
+        return _format_local_plugins(plugins_dir=project_plugins_dir, plugins=project_plugins)
+
+    content = Text()
+    content.append_text(
+        _format_local_plugins(
+            plugins_dir=global_plugins_dir,
+            plugins=global_plugins,
+            guidance=False,
+        )
+    )
+    content.append("\n\n")
+    content.append_text(
+        _format_local_plugins(
+            plugins_dir=project_plugins_dir,
+            plugins=project_plugins,
+            guidance=False,
+        )
+    )
+    content.append("\n")
     content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
     content.append("\n")
-    content.append_text(Text("Remove with /plugins remove <number|name>", style="dim"))
+    content.append_text(Text("Remove project plugins with /plugins remove <number|name>", style="dim"))
     return content
 
 
@@ -287,10 +339,26 @@ def _refresh_provider_plugins(ctx: CommandContext, config_path: Path) -> None:
 
 async def handle_list_plugins(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
-    env_paths = resolve_environment_paths(ctx.resolve_settings())
+    settings = ctx.resolve_settings()
+    env_paths = resolve_environment_paths(settings)
     plugins = list_local_plugins(destination_root=env_paths.plugins)
+    global_plugins_dir = _global_plugins_dir(settings)
+    if global_plugins_dir is not None and _path_equal(global_plugins_dir, env_paths.plugins):
+        global_plugins_dir = None
+    global_plugins = (
+        list_local_plugins(destination_root=global_plugins_dir)
+        if global_plugins_dir is not None
+        else []
+    )
+    if not global_plugins:
+        global_plugins_dir = None
     outcome.add_message(
-        _format_local_plugins(plugins_dir=env_paths.plugins, plugins=plugins),
+        _format_installed_plugins(
+            project_plugins_dir=env_paths.plugins,
+            project_plugins=plugins,
+            global_plugins_dir=global_plugins_dir,
+            global_plugins=global_plugins,
+        ),
         right_info="plugins",
         agent_name=agent_name,
     )

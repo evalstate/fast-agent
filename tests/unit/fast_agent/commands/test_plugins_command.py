@@ -493,6 +493,62 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
         update_global_settings(old_settings)
 
 
+@pytest.mark.asyncio
+async def test_plugins_slash_list_includes_global_plugins(tmp_path: Path, monkeypatch) -> None:
+    user_home = tmp_path / "user-home"
+    global_home = user_home / ".fast-agent"
+    global_plugin = global_home / "plugins" / "global-finder"
+    global_plugin.mkdir(parents=True)
+    (global_plugin / "plugin.yaml").write_text(
+        "schema_version: 1\n"
+        "name: global-finder\n"
+        "commands:\n"
+        "  global-finder:\n"
+        "    description: Run global finder\n"
+        "    handler: ./commands.py:run\n",
+        encoding="utf-8",
+    )
+    (global_plugin / "commands.py").write_text(
+        "async def run(ctx):\n    return 'ok'\n",
+        encoding="utf-8",
+    )
+    (global_home / "fast-agent.yaml").write_text(
+        "plugins:\n  enabled: ['global-finder']\n",
+        encoding="utf-8",
+    )
+
+    env_root = tmp_path / "project-env"
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        "default_model: passthrough\n"
+        f"environment_dir: '{env_root.as_posix()}'\n",
+        encoding="utf-8",
+    )
+
+    old_settings = get_settings()
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    monkeypatch.setenv("HOME", user_home.as_posix())
+    settings = get_settings(config_path=str(config_path))
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_CapturingIO(),
+        settings=settings,
+    )
+    try:
+        list_outcome = await plugins_handlers.handle_plugins_command(
+            ctx,
+            agent_name="main",
+            action="list",
+            argument=None,
+        )
+        rendered = "\n".join(str(message.text) for message in list_outcome.messages)
+        assert f"Plugins in {global_home / 'plugins'}:" in rendered
+        assert "commands: global-finder" in rendered
+    finally:
+        update_global_settings(old_settings)
+
+
 def test_plugins_update_reinstalls_managed_plugin(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
