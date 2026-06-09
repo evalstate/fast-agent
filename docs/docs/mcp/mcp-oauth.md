@@ -122,3 +122,20 @@ to an empty value to disable the built-in default.
 
 - STDIO not listed
   - Expected; STDIO transport does not use OAuth.
+
+## Hosting fast-agent MCP on Hugging Face
+
+When deploying `fast-agent serve mcp` on Hugging Face infrastructure, set
+`FAST_AGENT_SERVE_OAUTH=huggingface` to require Hugging Face bearer
+authentication for HTTP MCP requests. The server accepts `Authorization: Bearer
+<token>` and, when the ingress forwards it, `X-HF-Authorization: Bearer <token>`.
+Both forms are validated against Hugging Face before MCP initialization,
+`tools/list`, or `tools/call` can reach fast-agent tools.
+
+Validated request tokens are stored in fast-agent request context while the tool
+call runs. Hugging Face provider calls and MCP servers configured with
+`auth.forward: huggingface` can then use the caller's token. If you leave
+`FAST_AGENT_SERVE_OAUTH` unset, inbound HTTP requests are not gated by
+fast-agent; any `HF_TOKEN` in the Space environment is treated as the server's
+own credential. Use that mode only for trusted/private deployments or with
+least-privilege service tokens.

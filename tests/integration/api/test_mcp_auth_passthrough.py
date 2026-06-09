@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 import httpx
 import pytest
+from fastmcp.server.auth import AccessToken
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -12,6 +13,7 @@ from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
+from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.server.agent_server import AgentMCPServer
 
@@ -46,6 +48,17 @@ class _TokenEchoAgent:
 
     async def shutdown(self) -> None:
         return None
+
+
+@pytest.fixture(autouse=True)
+def _mock_hf_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def verify_token(self: HuggingFaceTokenVerifier, token: str) -> AccessToken | None:
+        del self
+        if token == "invalid-token":
+            return None
+        return AccessToken(token=token, client_id="test-client", scopes=["access"])
+
+    monkeypatch.setattr(HuggingFaceTokenVerifier, "verify_token", verify_token)
 
 
 async def _build_server() -> AgentMCPServer:
@@ -119,3 +132,10 @@ async def test_streamable_http_hf_header_is_normalized_and_reaches_agent_context
     )
 
     assert response_text == "hf-space-token"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_streamable_http_rejects_invalid_hf_bearer_token() -> None:
+    with pytest.raises(Exception):
+        await _call_worker_tool({"Authorization": "Bearer invalid-token"})

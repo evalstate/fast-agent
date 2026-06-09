@@ -114,6 +114,8 @@ def test_a2a_remote_agent_starts_without_client_generated_context_id() -> None:
 
     assert agent.context_id is None
     assert agent.current_task_id is None
+    assert agent.task_status_summary().total == 0
+    assert agent.prompt_status_line() is None
 
 
 @pytest.mark.asyncio
@@ -139,6 +141,8 @@ async def test_a2a_remote_agent_clears_task_id_for_terminal_full_task_event() ->
     assert agent.context_id == "ctx-1"
     assert agent.last_task_state == "TASK_STATE_COMPLETED"
     assert agent.current_task_id is None
+    assert agent.task_status_summary().finished == 1
+    assert agent.task_status_summary().pending == 0
 
 
 @pytest.mark.asyncio
@@ -161,6 +165,25 @@ async def test_a2a_remote_agent_keeps_task_id_for_input_required_full_task_event
     assert agent.context_id == "ctx-2"
     assert agent.last_task_state == "TASK_STATE_INPUT_REQUIRED"
     assert agent.current_task_id == "input-task"
+    assert agent.task_status_summary().finished == 0
+    assert agent.task_status_summary().pending == 1
+
+
+def test_a2a_remote_agent_formats_prompt_status_line() -> None:
+    agent = _remote_agent()
+    agent.context_id = "context-1234567890"
+    agent.current_task_id = "task-pending"
+    agent.last_task_state = "TASK_STATE_INPUT_REQUIRED"
+    agent.task_states = {
+        "task-done": "TASK_STATE_COMPLETED",
+        "task-failed": "TASK_STATE_FAILED",
+        "task-pending": "TASK_STATE_INPUT_REQUIRED",
+    }
+
+    assert (
+        agent.prompt_status_line()
+        == "(a2a) - Context ID: cont...7890. Tasks: 2 finished, 1 pending. /tasks for info"
+    )
 
 
 def test_a2a_remote_agent_clears_context_for_no_history_completed_turns() -> None:

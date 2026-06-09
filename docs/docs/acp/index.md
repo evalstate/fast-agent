@@ -68,6 +68,11 @@ The [default system prompt](../agents/instructions/) will read `AGENTS.md` if pr
 
 Note: OAuth keys are stored in your keyring, so `check` may prompt to read the credential store.
 
+Security note: ACP runs as a local agent process started by an ACP-compatible client. An `HF_TOKEN`
+configured in the ACP process environment is a server-side credential for model and MCP calls; it is
+not an inbound web authentication gate. For public HTTP deployments that should require Hugging Face
+auth before tool execution, use the MCP or A2A server transports with `FAST_AGENT_SERVE_OAUTH=huggingface`.
+
 An example Zed configuration is:
 
 ```json

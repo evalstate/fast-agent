@@ -71,6 +71,15 @@ _ERROR_STATES = {
     "TASK_STATE_AUTH_REQUIRED",
 }
 
+_FINISHED_STATES = {
+    "TASK_STATE_COMPLETED",
+    "TASK_STATE_FAILED",
+    "TASK_STATE_CANCELED",
+    "TASK_STATE_CANCELLED",
+    "TASK_STATE_REJECTED",
+    "TASK_STATE_AUTH_REQUIRED",
+}
+
 logger = get_logger(__name__)
 
 SUPPORTED_A2A_HTTP_TRANSPORTS = ["JSONRPC", "HTTP+JSON"]
@@ -88,6 +97,19 @@ class A2ADiagnostics:
     selected_transport_class: str | None
 
 
+@dataclass(frozen=True)
+class A2ATaskStatusSummary:
+    context_id: str | None
+    current_task_id: str | None
+    last_task_state: str | None
+    finished: int
+    pending: int
+
+    @property
+    def total(self) -> int:
+        return self.finished + self.pending
+
+
 class A2ARemoteAgent(LlmDecorator):
     """A fast-agent AgentProtocol adapter for a remote A2A agent."""
 
@@ -102,6 +124,7 @@ class A2ARemoteAgent(LlmDecorator):
         self.context_id: str | None = None
         self.current_task_id: str | None = None
         self.last_task_state: str | None = None
+        self.task_states: dict[str, str] = {}
         self.remote_card: AgentCard | None = None
         self.display = ConsoleDisplay(config=context.config if context else None)
         self._client: Any | None = None
@@ -223,6 +246,7 @@ class A2ARemoteAgent(LlmDecorator):
         self.context_id = None
         self.current_task_id = None
         self.last_task_state = None
+        self.task_states.clear()
 
     def diagnostics(self) -> A2ADiagnostics:
         return A2ADiagnostics(
@@ -233,6 +257,28 @@ class A2ARemoteAgent(LlmDecorator):
             current_task_id=self.current_task_id,
             last_task_state=self.last_task_state,
             selected_transport_class=self._selected_transport_class(),
+        )
+
+    def task_status_summary(self) -> A2ATaskStatusSummary:
+        finished = sum(1 for state in self.task_states.values() if state in _FINISHED_STATES)
+        pending = len(self.task_states) - finished
+        return A2ATaskStatusSummary(
+            context_id=self.context_id,
+            current_task_id=self.current_task_id,
+            last_task_state=self.last_task_state,
+            finished=finished,
+            pending=pending,
+        )
+
+    def prompt_status_line(self) -> str | None:
+        summary = self.task_status_summary()
+        if summary.context_id is None and summary.total == 0:
+            return None
+        context = _short_context_id(summary.context_id)
+        return (
+            f"(a2a) - Context ID: {context}. "
+            f"Tasks: {summary.finished} finished, {summary.pending} pending. "
+            "/tasks for info"
         )
 
     async def generate_impl(
@@ -440,6 +486,8 @@ class A2ARemoteAgent(LlmDecorator):
     def _advance_task_state(self, *, state: str, task_id: str, context_id: str) -> None:
         self.last_task_state = state
         self.context_id = context_id or None
+        if task_id:
+            self.task_states[task_id] = state
         if state == _INPUT_REQUIRED_STATE:
             self.current_task_id = task_id
             return
@@ -602,6 +650,14 @@ def _latest_text(messages: Sequence[PromptMessageExtended]) -> str:
         if text.strip():
             return text
     return ""
+
+
+def _short_context_id(context_id: str | None, *, keep: int = 4) -> str:
+    if not context_id:
+        return "-"
+    if len(context_id) <= keep * 2 + 3:
+        return context_id
+    return f"{context_id[:keep]}...{context_id[-keep:]}"
 
 
 def _append_text(chunks: list[str], text: str) -> None:

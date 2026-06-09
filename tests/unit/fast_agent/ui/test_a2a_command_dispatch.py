@@ -30,6 +30,10 @@ def _remote_agent(*, name: str = "remote") -> A2ARemoteAgent:
     agent.context_id = "ctx-current"
     agent.current_task_id = "task-current"
     agent.last_task_state = "TASK_STATE_INPUT_REQUIRED"
+    agent.task_states = {
+        "task-done": "TASK_STATE_COMPLETED",
+        "task-current": "TASK_STATE_INPUT_REQUIRED",
+    }
     agent.remote_card = AgentCard(
         name="Remote A2A",
         description="Deterministic remote A2A agent.",
@@ -93,11 +97,34 @@ async def test_a2a_tui_dispatch_reports_status_transport_and_card(
     assert "Context: ctx-current" in output
     assert "Task: task-current" in output
     assert "Last state: TASK_STATE_INPUT_REQUIRED" in output
+    assert "Tasks: 1 finished, 1 pending" in output
     assert "A2A transport: remote" in output
     assert "Requested: JSONRPC" in output
     assert "Selected client: _SelectedTransport" in output
     assert "A2A card: Remote A2A" in output
     assert "JSONRPC 1.0: http://127.0.0.1:41242/a2a/jsonrpc" in output
+
+
+@pytest.mark.asyncio
+async def test_a2a_tui_dispatch_reports_tasks_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    printed: list[str] = []
+    monkeypatch.setattr(
+        command_dispatch,
+        "rich_print",
+        lambda value="", *args, **kwargs: printed.append(str(value)),
+    )
+    remote = _remote_agent()
+    app = _app({"remote": remote})
+    owner = InteractivePrompt(agent_types={"remote": AgentType.A2A})
+
+    result = await _dispatch(owner, app, A2ACommand(action="tasks", argument="remote"))
+
+    assert result.handled
+    output = "\n".join(printed)
+    assert "A2A tasks: remote" in output
+    assert "Tasks: 1 finished, 1 pending" in output
 
 
 @pytest.mark.asyncio
@@ -125,6 +152,7 @@ async def test_a2a_tui_dispatch_lists_and_resets_remote_agents(
     assert remote.context_id is None
     assert remote.current_task_id is None
     assert remote.last_task_state is None
+    assert remote.task_states == {}
 
 
 @pytest.mark.asyncio

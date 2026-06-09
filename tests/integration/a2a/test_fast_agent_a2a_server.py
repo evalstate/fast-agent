@@ -22,6 +22,7 @@ from a2a.types import (
     TaskState,
 )
 from fastapi.testclient import TestClient
+from fastmcp.server.auth import AccessToken
 from google.protobuf.json_format import MessageToDict
 from mcp.types import (
     BlobResourceContents,
@@ -45,12 +46,23 @@ from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.auth.context import request_bearer_token
+from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from fast_agent.interfaces import AgentProtocol
+
+
+def _patch_hf_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def verify_token(self: HuggingFaceTokenVerifier, token: str) -> AccessToken | None:
+        del self
+        if token == "invalid-token":
+            return None
+        return AccessToken(token=token, client_id="test-client", scopes=["access"])
+
+    monkeypatch.setattr(HuggingFaceTokenVerifier, "verify_token", verify_token)
 
 
 @dataclass
@@ -1238,6 +1250,7 @@ async def test_fast_agent_a2a_server_preserves_input_required_task_for_follow_up
 
 @pytest.mark.integration
 def test_fast_agent_a2a_server_hf_auth_card_and_rejection(monkeypatch) -> None:
+    _patch_hf_token_verifier(monkeypatch)
     monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
     monkeypatch.setenv("FAST_AGENT_OAUTH_RESOURCE_URL", "http://testserver")
     server = AgentA2AServer(
@@ -1262,6 +1275,14 @@ def test_fast_agent_a2a_server_hf_auth_card_and_rejection(monkeypatch) -> None:
     assert rejected.status_code == 401
     assert rejected.headers["www-authenticate"].startswith("Bearer ")
 
+    invalid = client.post(
+        "/a2a/jsonrpc",
+        headers={"Authorization": "Bearer invalid-token"},
+        json={},
+    )
+    assert invalid.status_code == 401
+    assert invalid.headers["www-authenticate"].startswith("Bearer ")
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -1279,6 +1300,7 @@ async def test_fast_agent_a2a_server_passes_bearer_token_to_request_context(
     headers: dict[str, str],
     expected: str,
 ) -> None:
+    _patch_hf_token_verifier(monkeypatch)
     monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
     monkeypatch.setenv("FAST_AGENT_OAUTH_RESOURCE_URL", "http://127.0.0.1")
     host = "127.0.0.1"
@@ -1341,6 +1363,7 @@ async def test_fast_agent_a2a_server_sets_bearer_token_before_instance_creation(
     unused_tcp_port: int,
     wait_for_port,
 ) -> None:
+    _patch_hf_token_verifier(monkeypatch)
     monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
     monkeypatch.setenv("FAST_AGENT_OAUTH_RESOURCE_URL", "http://127.0.0.1")
     host = "127.0.0.1"

@@ -181,9 +181,9 @@ class AgentMCPServer:
         oauth_provider, oauth_scopes, resource_url = _get_oauth_config()
         auth_provider = None
         if oauth_provider == "huggingface":
-            from fast_agent.mcp.auth.presence import PresenceTokenVerifier
+            from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
 
-            token_verifier = PresenceTokenVerifier(
+            token_verifier = HuggingFaceTokenVerifier(
                 provider="huggingface",
                 scopes=oauth_scopes,
                 base_url=resource_url,

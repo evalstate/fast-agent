@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from types import TracebackType
 
+    from fast_agent.a2a.task_api import A2ATaskHandle
     from fast_agent.core.fastagent import AgentInstance, FastAgent, RunRuntime, RunSettings
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
@@ -478,6 +479,32 @@ class AgentHarness:
             cwd=cwd,
             env=env,
             timeout=timeout,
+        )
+
+    async def start_task(self, message: str = "fast-agent is working") -> A2ATaskHandle:
+        """Publish an A2A task working update when the harness is used inside A2A serving."""
+        from fast_agent.a2a.task_api import start_task
+
+        return await start_task(message)
+
+    async def return_artifact(
+        self,
+        text: str,
+        *,
+        name: str = "response",
+        artifact_id: str | None = None,
+        append: bool = False,
+        last_chunk: bool = True,
+    ) -> A2ATaskHandle:
+        """Publish an A2A task artifact when the harness is used inside A2A serving."""
+        from fast_agent.a2a.task_api import return_artifact
+
+        return await return_artifact(
+            text,
+            name=name,
+            artifact_id=artifact_id,
+            append=append,
+            last_chunk=last_chunk,
         )
 
     def _load_environment_agent_cards(self) -> None:

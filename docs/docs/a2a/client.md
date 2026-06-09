@@ -180,13 +180,22 @@ Useful diagnostics:
 ```text
 /a2a list
 /a2a status [agent]
+/tasks [agent]
 /a2a card [agent]
 /a2a transport [agent]
 /a2a reset [agent]
 ```
 
-`/a2a status` shows the current A2A `context_id`, pending `task_id`, last task
-state, and selected client transport.
+After an A2A turn starts a remote context, fast-agent shows a compact status
+line above the input:
+
+```text
+(a2a) - Context ID: 7b7c...8d9e. Tasks: 4 finished, 3 pending. /tasks for info
+```
+
+`/tasks` shows the current A2A `context_id`, pending `task_id`, last task state,
+finished/pending task counts, and selected client transport. `/a2a status`
+remains available for the same connection diagnostics.
 
 When the local A2A AgentCard or request has `use_history: false`, fast-agent
 starts each completed turn with a fresh A2A context. The exception is

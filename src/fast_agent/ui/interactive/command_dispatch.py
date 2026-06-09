@@ -507,6 +507,7 @@ def _print_a2a_help() -> None:
     for line in [
         "/a2a list",
         "/a2a status [agent]",
+        "/tasks [agent]",
         "/a2a card [agent]",
         "/a2a transport [agent]",
         "/a2a reset [agent]",
@@ -558,7 +559,7 @@ async def _dispatch_a2a_payload(
             available_agents_set=available_agents_set,
         )
 
-    if payload.action in {"status", "card", "reset", "transport"}:
+    if payload.action in {"status", "tasks", "card", "reset", "transport"}:
         target = payload.argument or agent
         remote_agent = owner._get_agent_or_warn(prompt_provider, target)
         if remote_agent is None:
@@ -652,15 +653,18 @@ def _dispatch_a2a_existing_agent_action(
         rich_print(f"[green]Reset A2A state for {target}.[/green]")
         return result
 
-    if action == "status":
+    if action in {"status", "tasks"}:
         diagnostics = remote_agent.diagnostics()
-        rich_print(f"[bold]A2A status: {target}[/bold]")
+        summary = remote_agent.task_status_summary()
+        title = "A2A tasks" if action == "tasks" else "A2A status"
+        rich_print(f"[bold]{title}: {target}[/bold]")
         rich_print(f"  URL: {diagnostics.url}")
         rich_print(f"  Transport: {diagnostics.transport or 'auto'}")
         rich_print(f"  Remote: {diagnostics.remote_name or 'unresolved'}")
         rich_print(f"  Context: {diagnostics.context_id or '-'}")
         rich_print(f"  Task: {diagnostics.current_task_id or '-'}")
         rich_print(f"  Last state: {diagnostics.last_task_state or '-'}")
+        rich_print(f"  Tasks: {summary.finished} finished, {summary.pending} pending")
         rich_print(f"  Client transport: {diagnostics.selected_transport_class or '-'}")
         return result
 

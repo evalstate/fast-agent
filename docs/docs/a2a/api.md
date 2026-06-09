@@ -138,6 +138,42 @@ app = server.asgi_app()
 Each served agent's `use_history` setting still controls whether prior turns are
 included in model calls inside the selected instance scope.
 
+### Server Task API
+
+Code running inside a fast-agent A2A request can publish task status and artifact
+updates directly:
+
+```python
+from fast_agent.a2a.task_api import return_artifact, start_task
+
+handle = await start_task("Searching source documents")
+await return_artifact(
+    "Found the first batch of notes.",
+    name="notes",
+    artifact_id=f"{handle.task_id}:notes",
+    append=False,
+    last_chunk=False,
+)
+```
+
+The same helpers are exposed to tool-capable fast-agent agents served over A2A
+as model tools named `start_task` and `return_artifact`. This lets an agent
+developer either call the Python API directly from server code, or let the model
+publish A2A progress/artifacts through ordinary fast-agent tool calls.
+
+If your A2A server program is already using `AgentHarness`, the harness exposes
+the same request-local helpers:
+
+```python
+async with fast.harness() as harness:
+    handle = await harness.start_task("Building report")
+    await harness.return_artifact(
+        "Draft ready.",
+        artifact_id=f"{handle.task_id}:draft",
+        name="draft",
+    )
+```
+
 ## Raw A2A JSON-RPC
 
 External clients can call the served fast-agent endpoint directly:

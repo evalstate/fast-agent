@@ -50,10 +50,15 @@ from mcp.types import (
 from pydantic import AnyUrl
 from starlette.responses import JSONResponse
 
+from fast_agent.a2a.task_api import _reset_current_task, _set_current_task
+from fast_agent.a2a.task_api import return_artifact as a2a_return_artifact
+from fast_agent.a2a.task_api import start_task as a2a_start_task
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.auth.context import request_bearer_token
+from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
+from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -73,6 +78,12 @@ if TYPE_CHECKING:
 class _StreamListenerCapable(Protocol):
     def add_stream_listener(self, listener: Any) -> Any:
         """Register a text stream listener."""
+
+
+@runtime_checkable
+class _FunctionToolAttachable(Protocol):
+    def add_tool(self, tool: Any, *, replace: bool = True) -> None:
+        """Attach a local function tool."""
 
 
 logger = get_logger(__name__)
@@ -135,6 +146,7 @@ class A2ABearerAuthMiddleware:
     def __init__(self, app: ASGIApp, *, provider: str) -> None:
         self.app = app
         self.provider = provider
+        self.token_verifier = HuggingFaceTokenVerifier(provider=provider)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -155,7 +167,8 @@ class A2ABearerAuthMiddleware:
             scope = dict(scope, headers=headers)
 
         token = _bearer_token_from_header(authorization)
-        if token is None:
+        access_token = await self.token_verifier.verify_token(token or "")
+        if token is None or access_token is None:
             response = JSONResponse(
                 {"error": "unauthorized"},
                 status_code=401,
@@ -267,12 +280,14 @@ class FastAgentA2AExecutor(AgentExecutor):
             saved_bearer_token = request_bearer_token.set(
                 _bearer_token_from_call_context(context)
             )
+            saved_a2a_task = _set_current_task(updater)
             instance: AgentInstance | None = None
             try:
                 instance = await self._acquire_instance(context.context_id)
                 stream_context: _A2AStreamingContext | None = None
                 try:
                     agent = self._select_agent(instance, context.message)
+                    _attach_a2a_task_tools(agent)
                     stream_context = self._prepare_streaming_context(
                         agent=agent,
                         updater=updater,
@@ -297,6 +312,7 @@ class FastAgentA2AExecutor(AgentExecutor):
                     if stream_context is not None:
                         await self._cleanup_streaming_context(stream_context)
             finally:
+                _reset_current_task(saved_a2a_task)
                 request_bearer_token.reset(saved_bearer_token)
                 if instance is not None:
                     await self._release_instance(
@@ -406,6 +422,47 @@ class FastAgentA2AExecutor(AgentExecutor):
             await self._dispose_instance(instance)
         self._context_instances.clear()
         self._context_locks.clear()
+
+
+def _attach_a2a_task_tools(agent: AgentProtocol) -> None:
+    if not isinstance(agent, _FunctionToolAttachable):
+        return
+    agent.add_tool(
+        build_default_function_tool(
+            _a2a_start_task_tool,
+            name="start_task",
+            description="Publish an A2A working status update for the current task.",
+        )
+    )
+    agent.add_tool(
+        build_default_function_tool(
+            _a2a_return_artifact_tool,
+            name="return_artifact",
+            description="Publish a text artifact update for the current A2A task.",
+        )
+    )
+
+
+async def _a2a_start_task_tool(message: str = "fast-agent is working") -> dict[str, str]:
+    handle = await a2a_start_task(message)
+    return {"task_id": handle.task_id, "context_id": handle.context_id}
+
+
+async def _a2a_return_artifact_tool(
+    text: str,
+    name: str = "response",
+    artifact_id: str | None = None,
+    append: bool = False,
+    last_chunk: bool = True,
+) -> dict[str, str]:
+    handle = await a2a_return_artifact(
+        text,
+        name=name,
+        artifact_id=artifact_id,
+        append=append,
+        last_chunk=last_chunk,
+    )
+    return {"task_id": handle.task_id, "context_id": handle.context_id}
 
 
 class _A2AStreamingContext:

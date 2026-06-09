@@ -553,6 +553,7 @@ def _parse_a2a_command(remainder: str) -> CommandPayload:
     if action in {
         "list",
         "status",
+        "tasks",
         "card",
         "reset",
         "connect",
@@ -675,6 +676,7 @@ def _parse_slash_alias_command(
 
 _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "a2a": _parse_a2a_command,
+    "tasks": lambda remainder: A2ACommand(action="tasks", argument=remainder or None),
     "history": _parse_history_command,
     "session": _parse_session_command,
     "card": _parse_card_command,

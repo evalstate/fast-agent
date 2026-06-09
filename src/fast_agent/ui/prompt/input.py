@@ -197,6 +197,11 @@ class _ChatVisibilitySettings(Protocol):
     def show_chat(self) -> bool: ...
 
 
+@runtime_checkable
+class _A2APromptStatusAgent(Protocol):
+    def prompt_status_line(self) -> str | None: ...
+
+
 # Get the application version
 try:
     app_version = version("fast-agent-mcp")
@@ -1192,6 +1197,24 @@ async def _show_input_startup(
     help_message_shown = True
 
 
+def _show_a2a_prompt_status(
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> None:
+    if agent_provider is None:
+        return
+    try:
+        agent = agent_provider._agent(agent_name)
+    except Exception:
+        return
+    if not isinstance(agent, _A2APromptStatusAgent):
+        return
+    status_line = agent.prompt_status_line()
+    if status_line:
+        rich_print(f"[dim]{escape_markup(status_line)}[/dim]")
+
+
 async def get_enhanced_input(
     agent_name: str,
     default: str = "",
@@ -1306,6 +1329,7 @@ async def get_enhanced_input(
         agent_provider=agent_provider,
         supports_clipboard_image_paste=supports_clipboard_image_paste,
     )
+    _show_a2a_prompt_status(agent_name=agent_name, agent_provider=agent_provider)
     buffer_default = pre_populate_buffer if pre_populate_buffer else default
     default_agent_name = _resolve_default_agent_name(agent_provider)
     resolve_prompt_text = _build_prompt_text_resolver(

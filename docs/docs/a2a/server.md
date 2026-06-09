@@ -203,6 +203,10 @@ Authorization: Bearer <token>
 X-HF-Authorization: Bearer <token>
 ```
 
+The bearer token is validated against Hugging Face before any A2A task reaches
+fast-agent agents or tools. A non-empty placeholder such as `Bearer test` is
+rejected; it is not treated as authentication.
+
 For Space-hosted A2A endpoints, clients should use `Authorization` through
 `--auth`, explicit AgentCard headers, or OAuth. `X-HF-Authorization` is the
 ambient fast-agent CLI policy for ordinary Space app calls; it is not a
@@ -211,6 +215,11 @@ header through to the app. The server advertises an `hf_bearer` HTTP bearer
 security scheme in the AgentCard and stores the inbound token in fast-agent
 request context while the agent runs, allowing Hugging Face Inference Provider
 models and Hugging Face MCP/tools to use the caller credential.
+
+If `FAST_AGENT_SERVE_OAUTH` is not set, the server does not gate inbound A2A
+requests and any `HF_TOKEN` configured in the Space environment is used as the
+server's own Hugging Face credential. Use that only for trusted/private
+deployments or with tightly scoped service tokens.
 
 See [Host A2A on Hugging Face](host-on-hf.md) for a Space-oriented setup.
 

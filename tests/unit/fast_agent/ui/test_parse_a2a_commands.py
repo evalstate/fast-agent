@@ -17,6 +17,20 @@ def test_parse_a2a_status_target() -> None:
     assert result.argument == "remote"
 
 
+def test_parse_tasks_alias() -> None:
+    result = parse_special_input("/tasks remote")
+    assert isinstance(result, A2ACommand)
+    assert result.action == "tasks"
+    assert result.argument == "remote"
+
+
+def test_parse_a2a_tasks_target() -> None:
+    result = parse_special_input("/a2a tasks remote")
+    assert isinstance(result, A2ACommand)
+    assert result.action == "tasks"
+    assert result.argument == "remote"
+
+
 def test_parse_a2a_connect_preserves_arguments() -> None:
     result = parse_special_input("/a2a connect http://127.0.0.1:41241 --transport JSONRPC")
     assert isinstance(result, A2ACommand)
