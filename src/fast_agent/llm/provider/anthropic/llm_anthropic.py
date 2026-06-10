@@ -64,8 +64,8 @@ from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_CONTAINER_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
-    ANTHROPIC_STOP_DETAILS_CHANNEL,
     ANTHROPIC_THINKING_BLOCKS,
+    FAST_AGENT_SAFETY_DETAILS,
     REASONING,
 )
 from fast_agent.core.exceptions import ProviderKeyError
@@ -2306,14 +2306,27 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         return serialized_blocks
 
     @staticmethod
-    def _anthropic_stop_details_channel(response: BetaMessage) -> list[TextContent]:
+    def _safety_details_channel(response: BetaMessage) -> list[TextContent]:
         stop_details = response.stop_details
         if stop_details is None:
             return []
         if isinstance(stop_details, _ModelDumpable):
-            payload = stop_details.model_dump(mode="json", exclude_none=True)
+            stop_payload = stop_details.model_dump(mode="json", exclude_none=True)
         else:
-            payload = stop_details
+            stop_payload = stop_details
+        payload: dict[str, Any] = {"provider": "anthropic"}
+        if isinstance(stop_payload, dict):
+            reason = stop_payload.get("type")
+            if isinstance(reason, str):
+                payload["reason"] = reason
+            category = stop_payload.get("category")
+            if isinstance(category, str) and category:
+                payload["category"] = category
+            explanation = stop_payload.get("explanation")
+            if isinstance(explanation, str) and explanation:
+                payload["explanation"] = explanation
+        else:
+            payload["details"] = str(stop_payload)
         return [TextContent(type="text", text=json.dumps(payload))]
 
     @staticmethod
@@ -2339,7 +2352,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
     @staticmethod
     def _test_refusal_stop_details(category: str) -> list[TextContent]:
-        payload: dict[str, Any] = {"type": "refusal"}
+        payload: dict[str, Any] = {"provider": "anthropic", "reason": "refusal"}
         if category not in {"none", "null"}:
             payload["category"] = category
         return [TextContent(type="text", text=json.dumps(payload))]
@@ -2414,10 +2427,10 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             channels = self._add_anthropic_channel(
                 channels, ANTHROPIC_CITATIONS_CHANNEL, payloads.citations
             )
-        if stop_details := self._anthropic_stop_details_channel(response):
+        if stop_details := self._safety_details_channel(response):
             channels = self._add_anthropic_channel(
                 channels,
-                ANTHROPIC_STOP_DETAILS_CHANNEL,
+                FAST_AGENT_SAFETY_DETAILS,
                 stop_details,
             )
         if response.container and response.container.id:
@@ -2465,7 +2478,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             stop_result = _AnthropicStopResult(LlmStopReason.SAFETY)
             channels = self._add_anthropic_channel(
                 channels,
-                ANTHROPIC_STOP_DETAILS_CHANNEL,
+                FAST_AGENT_SAFETY_DETAILS,
                 self._test_refusal_stop_details(test_refusal_category),
             )
 

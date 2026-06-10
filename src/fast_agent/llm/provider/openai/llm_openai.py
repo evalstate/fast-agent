@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,7 +29,7 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_message_tool_call import Function
 from pydantic_core import from_json
 
-from fast_agent.constants import REASONING
+from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -1275,6 +1276,30 @@ class OpenAILLM(
             return None
         return [TextContent(type="text", text="".join(streamed_reasoning))]
 
+    @staticmethod
+    def _openai_response_channels(
+        *,
+        reasoning_blocks: list[ContentBlock] | None,
+        choice: Any,
+        stop_result: _OpenAIStopResult,
+    ) -> dict[str, list[ContentBlock]] | None:
+        channels: dict[str, list[ContentBlock]] = {}
+        if reasoning_blocks:
+            channels[REASONING] = reasoning_blocks
+        if stop_result.stop_reason == LlmStopReason.SAFETY:
+            channels[FAST_AGENT_SAFETY_DETAILS] = [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "provider": "openai",
+                            "reason": str(getattr(choice, "finish_reason", "content_filter")),
+                        }
+                    ),
+                )
+            ]
+        return channels or None
+
     async def _finalize_openai_completion(
         self,
         request: _OpenAICompletionRequest,
@@ -1298,7 +1323,11 @@ class OpenAILLM(
             role="assistant",
             content=response_content_blocks,
             tool_calls=stop_result.requested_tool_calls,
-            channels={REASONING: reasoning_blocks} if reasoning_blocks else None,
+            channels=self._openai_response_channels(
+                reasoning_blocks=reasoning_blocks,
+                choice=choice,
+                stop_result=stop_result,
+            ),
             stop_reason=stop_result.stop_reason,
         )
 

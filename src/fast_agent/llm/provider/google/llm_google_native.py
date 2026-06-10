@@ -19,7 +19,7 @@ from mcp.types import (
     TextContent,
 )
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS, REASONING
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_SAFETY_DETAILS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
@@ -998,14 +998,34 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         stop_reason: LlmStopReason,
         tool_calls: dict[str, CallToolRequest] | None,
         candidate_content: types.Content | None,
+        finish_reason: object | None = None,
     ) -> PromptMessageExtended:
         assistant = Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
+        channels = dict(assistant.channels or {})
         reasoning_blocks = GoogleNativeLLM._extract_reasoning_blocks(candidate_content)
         if reasoning_blocks:
-            channels = dict(assistant.channels or {})
             channels[REASONING] = reasoning_blocks
+        if stop_reason == LlmStopReason.SAFETY:
+            reason = GoogleNativeLLM._finish_reason_key(finish_reason) or "SAFETY"
+            channels[FAST_AGENT_SAFETY_DETAILS] = [
+                TextContent(
+                    type="text",
+                    text=json.dumps({"provider": "google", "reason": reason}),
+                )
+            ]
+        if channels:
             assistant.channels = channels
         return assistant
+
+    @staticmethod
+    def _finish_reason_key(finish_reason: object) -> str | None:
+        try:
+            reason = str(finish_reason) if finish_reason is not None else None
+        except Exception:
+            return None
+        if not reason:
+            return None
+        return reason.split(".")[-1].upper()
 
     async def _consume_google_stream(
         self,
@@ -1143,6 +1163,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             stop_reason=stop_reason,
             tool_calls=tool_calls,
             candidate_content=candidate_content,
+            finish_reason=getattr(candidate, "finish_reason", None),
         )
 
     #        return responses  # Return the accumulated responses (fast-agent content types)
@@ -1342,18 +1363,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
     def _map_finish_reason(self, finish_reason: object) -> LlmStopReason:
         """Map Google finish reasons to LlmStopReason robustly."""
-        # Normalize to string if it's an enum-like object
-        reason = None
-        try:
-            reason = str(finish_reason) if finish_reason is not None else None
-        except Exception:
-            reason = None
-
-        if not reason:
+        key = self._finish_reason_key(finish_reason)
+        if not key:
             return LlmStopReason.END_TURN
-
-        # Extract last token after any dots or enum prefixes
-        key = reason.split(".")[-1].upper()
 
         # Some SDKs include OTHER, LANGUAGE, GROUNDING, UNSPECIFIED, etc.
         return _GOOGLE_FINISH_REASON_MAP.get(key, LlmStopReason.ERROR)

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from rich.text import Text
 
-from fast_agent.constants import ANTHROPIC_STOP_DETAILS_CHANNEL
+from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
 from fast_agent.mcp.helpers.content_helpers import (
     get_text,
     is_image_content,
@@ -165,11 +165,11 @@ def build_tool_use_additional_message(
     return Text(message_text, style="dim green italic")
 
 
-def _anthropic_stop_details_category(message: "PromptMessageExtended") -> str | None:
+def _safety_details_category(message: "PromptMessageExtended") -> str | None:
     channels = message.channels
     if not channels:
         return None
-    detail_blocks = channels.get(ANTHROPIC_STOP_DETAILS_CHANNEL)
+    detail_blocks = channels.get(FAST_AGENT_SAFETY_DETAILS)
     if not detail_blocks:
         return None
     detail_text = get_text(detail_blocks[0])
@@ -189,7 +189,7 @@ def build_safety_additional_message(message: "PromptMessageExtended") -> Text | 
     """Build a user-visible refusal/safety stop message with provider details when present."""
     if message.stop_reason != LlmStopReason.SAFETY:
         return None
-    category = _anthropic_stop_details_category(message)
+    category = _safety_details_category(message)
     suffix = f" ({category})" if category else ""
     return Text(f"\n\nRequest refused by safety classifier{suffix}.", style="dim red italic")
 

@@ -644,7 +644,8 @@ def test_model_database_fable_5_reasoning_spec_is_always_on():
     assert params.anthropic_thinking_field_required is False
     assert spec is not None
     assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
+    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
+    assert spec.allow_auto is False
     assert spec.allow_toggle_disable is False
     assert spec.default is not None
     assert spec.default.value == "high"

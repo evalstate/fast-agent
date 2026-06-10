@@ -1,7 +1,7 @@
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent, TextContent
 
-from fast_agent.constants import ANTHROPIC_STOP_DETAILS_CHANNEL
+from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.message_display_helpers import (
@@ -138,7 +138,7 @@ def test_build_safety_additional_message_includes_anthropic_refusal_category() -
         content=[],
         stop_reason=LlmStopReason.SAFETY,
         channels={
-            ANTHROPIC_STOP_DETAILS_CHANNEL: [
+            FAST_AGENT_SAFETY_DETAILS: [
                 TextContent(type="text", text='{"type": "refusal", "category": "cyber"}')
             ]
         },

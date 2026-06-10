@@ -17,7 +17,7 @@ from mcp.types import TextContent
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
-from fast_agent.constants import ANTHROPIC_STOP_DETAILS_CHANNEL
+from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.anthropic.llm_anthropic import (
@@ -588,8 +588,13 @@ def test_refusal_stop_details_are_captured_in_response_channels() -> None:
     )
 
     assert channels is not None
-    [details] = channels[ANTHROPIC_STOP_DETAILS_CHANNEL]
-    assert json.loads(details.text) == {"type": "refusal", "category": "cyber"}
+    [details] = channels[FAST_AGENT_SAFETY_DETAILS]
+    assert isinstance(details, TextContent)
+    assert json.loads(details.text) == {
+        "provider": "anthropic",
+        "reason": "refusal",
+        "category": "cyber",
+    }
 
 
 @pytest.mark.asyncio
@@ -620,9 +625,13 @@ async def test_test_refusal_env_manipulates_final_stop_after_response(monkeypatc
     assert result.stop_reason is LlmStopReason.SAFETY
     assert result.last_text() == "streamed context remains visible"
     assert result.channels is not None
-    [details] = result.channels[ANTHROPIC_STOP_DETAILS_CHANNEL]
+    [details] = result.channels[FAST_AGENT_SAFETY_DETAILS]
     assert isinstance(details, TextContent)
-    assert json.loads(details.text) == {"type": "refusal", "category": "bio"}
+    assert json.loads(details.text) == {
+        "provider": "anthropic",
+        "reason": "refusal",
+        "category": "bio",
+    }
 
 
 def test_json_structured_output_uses_raw_schema_when_supplied() -> None:

@@ -253,8 +253,7 @@ class ModelDatabase:
 
     ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
-        allowed_efforts=["low", "medium", "high", "xhigh", "max"],
-        allow_auto=True,
+        allowed_efforts=["low", "medium", "high", "xhigh"],
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
