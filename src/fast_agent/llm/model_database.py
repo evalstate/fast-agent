@@ -81,6 +81,9 @@ class ModelParameters(BaseModel):
     anthropic_task_budget_supported: bool = False
     """Whether Anthropic task_budget output_config is supported for this model."""
 
+    anthropic_thinking_field_required: bool = True
+    """Whether adaptive-thinking models require an explicit thinking request field."""
+
     google_search_supported: bool = False
     """Whether Grounding with Google Search is supported for this model."""
 
@@ -246,6 +249,13 @@ class ModelDatabase:
         allow_toggle_disable=True,
         allow_auto=True,
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+    )
+
+    ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
     GOOGLE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
@@ -501,6 +511,12 @@ class ModelDatabase:
     ANTHROPIC_OPUS_48 = ANTHROPIC_OPUS_47.model_copy(
         update={
             "max_output_tokens": 128_000,
+        }
+    )
+    ANTHROPIC_FABLE_5 = ANTHROPIC_OPUS_48.model_copy(
+        update={
+            "reasoning_effort_spec": ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC,
+            "anthropic_thinking_field_required": False,
         }
     )
 
@@ -975,6 +991,7 @@ class ModelDatabase:
         "claude-opus-4-6": ANTHROPIC_OPUS_46,
         "claude-opus-4-7": ANTHROPIC_OPUS_47,
         "claude-opus-4-8": ANTHROPIC_OPUS_48,
+        "claude-fable-5": ANTHROPIC_FABLE_5,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),

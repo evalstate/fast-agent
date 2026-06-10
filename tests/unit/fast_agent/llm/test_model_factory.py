@@ -734,6 +734,10 @@ def test_claude_alias_resolves_to_sonnet_46():
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-opus-4-7"
 
+    config = ModelFactory.parse_model_string("fable")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-fable-5"
+
 
 def test_gemini31_alias_resolves_to_google_31_preview():
     config = ModelFactory.parse_model_string("gemini3.1")

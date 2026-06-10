@@ -635,6 +635,21 @@ def test_model_database_opus_47_reasoning_spec():
     assert spec.allow_toggle_disable
 
 
+def test_model_database_fable_5_reasoning_spec_is_always_on():
+    """Fable 5 adaptive thinking is always on and needs no thinking field."""
+    params = ModelDatabase.get_model_params("claude-fable-5")
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-fable-5")
+
+    assert params is not None
+    assert params.anthropic_thinking_field_required is False
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
+    assert spec.allow_toggle_disable is False
+    assert spec.default is not None
+    assert spec.default.value == "high"
+
+
 def test_model_database_text_verbosity_spec():
     """Ensure text verbosity support is tracked for GPT-5 models."""
     spec = ModelDatabase.get_text_verbosity_spec("gpt-5")

@@ -7,19 +7,24 @@ import pytest
 from anthropic.lib._parse._transform import transform_schema
 from anthropic.types.beta import (
     BetaMessage,
+    BetaRefusalStopDetails,
+    BetaTextBlock,
     BetaToolUseBlock,
     BetaUsage,
 )
 from mcp import Tool
+from mcp.types import TextContent
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
+from fast_agent.constants import ANTHROPIC_STOP_DETAILS_CHANNEL
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.anthropic.llm_anthropic import (
     FINE_GRAINED_TOOL_STREAMING_BETA,
     STRUCTURED_OUTPUT_BETA,
     STRUCTURED_OUTPUT_TOOL_NAME,
+    TEST_REFUSAL_TRIGGER_ENV,
     AnthropicLLM,
 )
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
@@ -142,6 +147,63 @@ def test_opus_47_supports_xhigh_effort():
     assert thinking_enabled
     assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert args["output_config"] == {"effort": "xhigh"}
+
+
+def test_fable_5_omits_thinking_field_and_defaults_high_effort():
+    llm = _make_llm("claude-fable-5")
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-fable-5",
+        max_tokens=16000,
+        structured_mode=None,
+    )
+
+    assert thinking_enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": "high"}
+    assert args["max_tokens"] == 16000
+
+
+def test_fable_5_does_not_allow_reasoning_disable():
+    llm = _make_llm("claude-fable-5", reasoning=False)
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-fable-5",
+        max_tokens=16000,
+        structured_mode=None,
+    )
+
+    assert thinking_enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": "high"}
+
+
+def test_fable_5_supports_xhigh_effort_without_thinking_field():
+    llm = _make_llm("claude-fable-5", reasoning="xhigh")
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-fable-5",
+        max_tokens=16000,
+        structured_mode=None,
+    )
+
+    assert thinking_enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": "xhigh"}
+
+
+def test_fable_5_tool_forced_structured_output_keeps_always_on_thinking():
+    llm = _make_llm("claude-fable-5")
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-fable-5",
+        max_tokens=16000,
+        structured_mode="tool_use",
+    )
+
+    assert thinking_enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": "high"}
 
 
 def test_opus_47_task_budget_merges_into_output_config() -> None:
@@ -484,6 +546,83 @@ def test_opus_47_drops_sampling_parameters_from_request_payload() -> None:
     assert "temperature" not in result
     assert "top_p" not in result
     assert "top_k" not in result
+
+
+def test_fable_5_drops_sampling_parameters_from_request_payload() -> None:
+    llm = _make_llm("claude-fable-5")
+
+    result = llm.prepare_provider_arguments(
+        {
+            "model": "claude-fable-5",
+            "messages": [],
+            "max_tokens": 1000,
+        },
+        RequestParams(temperature=0.7, top_p=0.9, top_k=10),
+        llm.ANTHROPIC_EXCLUDE_FIELDS,
+    )
+
+    assert "temperature" not in result
+    assert "top_p" not in result
+    assert "top_k" not in result
+
+
+def test_refusal_stop_details_are_captured_in_response_channels() -> None:
+    llm = _make_llm("claude-fable-5")
+    response = BetaMessage(
+        id="msg_1",
+        type="message",
+        role="assistant",
+        content=[],
+        model="claude-fable-5",
+        stop_reason="refusal",
+        stop_sequence=None,
+        usage=BetaUsage(input_tokens=10, output_tokens=0),
+        stop_details=BetaRefusalStopDetails(type="refusal", category="cyber"),
+    )
+
+    channels = llm._anthropic_response_channels(
+        response,
+        model="claude-fable-5",
+        thinking_segments=[],
+        tool_calls=None,
+    )
+
+    assert channels is not None
+    [details] = channels[ANTHROPIC_STOP_DETAILS_CHANNEL]
+    assert json.loads(details.text) == {"type": "refusal", "category": "cyber"}
+
+
+@pytest.mark.asyncio
+async def test_test_refusal_env_manipulates_final_stop_after_response(monkeypatch) -> None:
+    monkeypatch.setenv(TEST_REFUSAL_TRIGGER_ENV, "bio")
+    llm = _make_llm("claude-fable-5")
+    response = BetaMessage(
+        id="msg_1",
+        type="message",
+        role="assistant",
+        content=[BetaTextBlock(type="text", text="streamed context remains visible")],
+        model="claude-fable-5",
+        stop_reason="end_turn",
+        stop_sequence=None,
+        usage=BetaUsage(input_tokens=10, output_tokens=4),
+    )
+
+    result = await llm._finalize_anthropic_response(
+        response=response,
+        model="claude-fable-5",
+        messages=[],
+        thinking_segments=[],
+        streamed_text_segments=[],
+        structured_mode=None,
+        structured_model=None,
+    )
+
+    assert result.stop_reason is LlmStopReason.SAFETY
+    assert result.last_text() == "streamed context remains visible"
+    assert result.channels is not None
+    [details] = result.channels[ANTHROPIC_STOP_DETAILS_CHANNEL]
+    assert isinstance(details, TextContent)
+    assert json.loads(details.text) == {"type": "refusal", "category": "bio"}
 
 
 def test_json_structured_output_uses_raw_schema_when_supplied() -> None:

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from rich.text import Text
 
+from fast_agent.constants import ANTHROPIC_STOP_DETAILS_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import (
+    get_text,
     is_image_content,
     is_resource_content,
     is_resource_link,
@@ -162,6 +165,35 @@ def build_tool_use_additional_message(
     return Text(message_text, style="dim green italic")
 
 
+def _anthropic_stop_details_category(message: "PromptMessageExtended") -> str | None:
+    channels = message.channels
+    if not channels:
+        return None
+    detail_blocks = channels.get(ANTHROPIC_STOP_DETAILS_CHANNEL)
+    if not detail_blocks:
+        return None
+    detail_text = get_text(detail_blocks[0])
+    if not detail_text:
+        return None
+    try:
+        payload = json.loads(detail_text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    category = payload.get("category")
+    return category if isinstance(category, str) and category else None
+
+
+def build_safety_additional_message(message: "PromptMessageExtended") -> Text | None:
+    """Build a user-visible refusal/safety stop message with provider details when present."""
+    if message.stop_reason != LlmStopReason.SAFETY:
+        return None
+    category = _anthropic_stop_details_category(message)
+    suffix = f" ({category})" if category else ""
+    return Text(f"\n\nRequest refused by safety classifier{suffix}.", style="dim red italic")
+
+
 def resolve_highlight_index(
     items: "Sequence[str] | None",
     highlight_items: str | "Sequence[str]" | None,
@@ -243,6 +275,7 @@ def tool_use_requests_file_read_access(
 
 
 __all__ = [
+    "build_safety_additional_message",
     "build_tool_use_additional_message",
     "build_user_message_display",
     "build_user_message_image_previews",

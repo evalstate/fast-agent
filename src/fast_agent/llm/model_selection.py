@@ -80,6 +80,8 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="gpt-4.1-nano", model="openai.gpt-4.1-nano", fast=True),
         ),
         Provider.ANTHROPIC: (
+            CatalogModelEntry(alias="fable", model="claude-fable-5"),
+            CatalogModelEntry(alias="fable5", model="claude-fable-5"),
             CatalogModelEntry(alias="opus", model="claude-opus-4-8"),
             CatalogModelEntry(alias="opus4", model="claude-opus-4-8"),
             CatalogModelEntry(alias="opus46", model="claude-opus-4-6"),

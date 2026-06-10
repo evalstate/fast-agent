@@ -771,6 +771,8 @@ class ModelFactory:
         "opus46": "claude-opus-4-6",
         "opus47": "claude-opus-4-7",
         "opus48": "claude-opus-4-8",
+        "fable": "claude-fable-5",
+        "fable5": "claude-fable-5",
         "deepseek": "deepseek.deepseek-v4-pro",
         "deepseek4": "deepseek.deepseek-v4-pro",
         "deepseek4pro": "deepseek.deepseek-v4-pro",

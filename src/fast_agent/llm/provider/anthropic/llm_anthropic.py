@@ -64,6 +64,7 @@ from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_CONTAINER_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    ANTHROPIC_STOP_DETAILS_CHANNEL,
     ANTHROPIC_THINKING_BLOCKS,
     REASONING,
 )
@@ -122,6 +123,7 @@ STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 TASK_BUDGETS_BETA = "task-budgets-2026-03-13"
+TEST_REFUSAL_TRIGGER_ENV = "FAST_AGENT_TEST_REFUSAL_TRIGGERS"
 
 # Explicit 1M context is still opt-in for pre-4.6 Anthropic models.
 LONG_CONTEXT_BETA = "context-1m-2025-08-07"
@@ -530,7 +532,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             reasoning_source = None
 
         if raw_setting is None and reasoning_mode == "anthropic_thinking":
-            if spec and spec.kind == "effort" and spec.allow_auto:
+            if spec and spec.kind == "effort" and spec.default:
+                raw_setting = spec.default
+            elif spec and spec.kind == "effort" and spec.allow_auto:
                 raw_setting = AUTO_REASONING
             else:
                 raw_setting = spec.default if spec and spec.default else 1024
@@ -885,6 +889,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         """Return True when summarized thinking should be requested explicitly."""
         return self._normalize_model_name(model) == "claude-opus-4-7"
 
+    def _requires_explicit_thinking_field(self, model: str) -> bool:
+        return self._get_model_anthropic_thinking_field_required(model)
+
     def _supports_task_budget(self, model: str) -> bool:
         """Return True when Anthropic task budgets are supported for the model/provider."""
         return self.provider_identity() in {
@@ -944,7 +951,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         thinking_enabled = self._is_thinking_enabled(model)
         adaptive_supported = self._supports_adaptive_thinking(model)
 
-        if thinking_enabled and structured_mode == "tool_use":
+        if (
+            thinking_enabled
+            and structured_mode == "tool_use"
+            and self._requires_explicit_thinking_field(model)
+        ):
             if max_tokens is not None:
                 args["max_tokens"] = max_tokens
             return args, False
@@ -955,10 +966,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return args, False
 
         if adaptive_supported:
-            thinking: dict[str, str] = {"type": "adaptive"}
-            if self._uses_summarized_thinking_display(model):
-                thinking["display"] = "summarized"
-            args["thinking"] = thinking
+            if self._requires_explicit_thinking_field(model):
+                thinking: dict[str, str] = {"type": "adaptive"}
+                if self._uses_summarized_thinking_display(model):
+                    thinking["display"] = "summarized"
+                args["thinking"] = thinking
             effort = self._resolve_adaptive_effort(model)
             if effort:
                 args["output_config"] = {"effort": effort}
@@ -1944,7 +1956,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             base_args["system"] = self.instruction or params.systemPrompt
 
         if structured_mode == "tool_use":
-            if self._is_thinking_enabled(model):
+            if self._is_thinking_enabled(model) and self._requires_explicit_thinking_field(model):
                 if auto_tool_use_fallback:
                     logger.warning(
                         "Anthropic structured output fell back to legacy tool_use mode; "
@@ -1991,7 +2003,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         exclude_fields: set | None = None,
     ) -> dict:
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
-        if self._normalize_model_name(str(arguments.get("model", ""))) != "claude-opus-4-7":
+        if self._normalize_model_name(str(arguments.get("model", ""))) not in {
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-fable-5",
+        }:
             return arguments
 
         removed_fields = [
@@ -2000,7 +2016,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if removed_fields:
             removed = ", ".join(removed_fields)
             self.logger.warning(
-                f"Anthropic Opus 4.7 ignores unsupported sampling parameters; removed {removed}."
+                f"Anthropic model ignores unsupported sampling parameters; removed {removed}."
             )
         return arguments
 
@@ -2290,6 +2306,45 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         return serialized_blocks
 
     @staticmethod
+    def _anthropic_stop_details_channel(response: BetaMessage) -> list[TextContent]:
+        stop_details = response.stop_details
+        if stop_details is None:
+            return []
+        if isinstance(stop_details, _ModelDumpable):
+            payload = stop_details.model_dump(mode="json", exclude_none=True)
+        else:
+            payload = stop_details
+        return [TextContent(type="text", text=json.dumps(payload))]
+
+    @staticmethod
+    def _test_refusal_category() -> str | None:
+        raw_value = os.environ.get(TEST_REFUSAL_TRIGGER_ENV)
+        if raw_value is None:
+            return None
+        category = strip_casefold(raw_value)
+        if not category or category in {"0", "false", "off", "no"}:
+            return None
+        allowed = {"bio", "cyber", "reasoning_extraction", "none", "null"}
+        if category not in allowed:
+            logger.warning(
+                "Ignoring invalid Anthropic test refusal trigger category",
+                data={
+                    "env": TEST_REFUSAL_TRIGGER_ENV,
+                    "category": raw_value,
+                    "allowed": sorted(allowed),
+                },
+            )
+            return None
+        return category
+
+    @staticmethod
+    def _test_refusal_stop_details(category: str) -> list[TextContent]:
+        payload: dict[str, Any] = {"type": "refusal"}
+        if category not in {"none", "null"}:
+            payload["category"] = category
+        return [TextContent(type="text", text=json.dumps(payload))]
+
+    @staticmethod
     def _anthropic_provider_payloads(response: BetaMessage) -> _AnthropicProviderPayloads:
         payloads = _AnthropicProviderPayloads()
         for block in response.content or []:
@@ -2359,6 +2414,12 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             channels = self._add_anthropic_channel(
                 channels, ANTHROPIC_CITATIONS_CHANNEL, payloads.citations
             )
+        if stop_details := self._anthropic_stop_details_channel(response):
+            channels = self._add_anthropic_channel(
+                channels,
+                ANTHROPIC_STOP_DETAILS_CHANNEL,
+                stop_details,
+            )
         if response.container and response.container.id:
             channels = self._add_anthropic_channel(
                 channels,
@@ -2400,6 +2461,13 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             thinking_segments,
             stop_result.tool_calls,
         )
+        if test_refusal_category := self._test_refusal_category():
+            stop_result = _AnthropicStopResult(LlmStopReason.SAFETY)
+            channels = self._add_anthropic_channel(
+                channels,
+                ANTHROPIC_STOP_DETAILS_CHANNEL,
+                self._test_refusal_stop_details(test_refusal_category),
+            )
 
         return PromptMessageExtended(
             role="assistant",

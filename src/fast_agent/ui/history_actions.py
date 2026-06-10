@@ -158,6 +158,7 @@ class _HistoryTurnDisplayContext:
         rendered_remote_activities: bool,
     ) -> dict[str, object] | None:
         from fast_agent.ui.message_display_helpers import (
+            build_safety_additional_message,
             build_tool_use_additional_message,
             tool_use_requests_file_read_access,
             tool_use_requests_shell_access,
@@ -177,6 +178,8 @@ class _HistoryTurnDisplayContext:
             shell_access=shell_access,
             file_read=read_file_access,
         )
+        if additional_message is None:
+            additional_message = build_safety_additional_message(message)
         badges = web_tool_badges(message)
         additional_message = _append_web_activity_badges(additional_message, badges)
         pre_content = render_sources_pre_content(message)
