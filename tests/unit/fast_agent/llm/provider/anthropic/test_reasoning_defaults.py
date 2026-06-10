@@ -149,7 +149,7 @@ def test_opus_47_supports_xhigh_effort():
     assert args["output_config"] == {"effort": "xhigh"}
 
 
-def test_fable_5_omits_thinking_field_and_defaults_high_effort():
+def test_fable_5_omits_thinking_field_and_uses_provider_default_effort():
     llm = _make_llm("claude-fable-5")
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
@@ -160,7 +160,7 @@ def test_fable_5_omits_thinking_field_and_defaults_high_effort():
 
     assert thinking_enabled
     assert "thinking" not in args
-    assert args["output_config"] == {"effort": "high"}
+    assert "output_config" not in args
     assert args["max_tokens"] == 16000
 
 
@@ -175,7 +175,7 @@ def test_fable_5_does_not_allow_reasoning_disable():
 
     assert thinking_enabled
     assert "thinking" not in args
-    assert args["output_config"] == {"effort": "high"}
+    assert "output_config" not in args
 
 
 def test_fable_5_supports_xhigh_effort_without_thinking_field():
@@ -203,7 +203,7 @@ def test_fable_5_tool_forced_structured_output_keeps_always_on_thinking():
 
     assert thinking_enabled
     assert "thinking" not in args
-    assert args["output_config"] == {"effort": "high"}
+    assert "output_config" not in args
 
 
 def test_opus_47_task_budget_merges_into_output_config() -> None:

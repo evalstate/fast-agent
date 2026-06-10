@@ -254,7 +254,8 @@ class ModelDatabase:
     ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh"],
-        default=ReasoningEffortSetting(kind="effort", value="high"),
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
 
     GOOGLE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(

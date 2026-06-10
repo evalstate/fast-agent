@@ -81,18 +81,10 @@ class ModelSelectionCatalog:
         ),
         Provider.ANTHROPIC: (
             CatalogModelEntry(alias="fable", model="claude-fable-5"),
-            CatalogModelEntry(alias="fable5", model="claude-fable-5"),
             CatalogModelEntry(alias="opus", model="claude-opus-4-8"),
-            CatalogModelEntry(alias="opus4", model="claude-opus-4-8"),
             CatalogModelEntry(alias="opus46", model="claude-opus-4-6"),
-            CatalogModelEntry(alias="opus47", model="claude-opus-4-7"),
-            CatalogModelEntry(alias="opus48", model="claude-opus-4-8"),
             CatalogModelEntry(alias="sonnet", model="claude-sonnet-4-6"),
-            CatalogModelEntry(alias="sonnet4", model="claude-sonnet-4-6"),
-            CatalogModelEntry(alias="sonnet46", model="claude-sonnet-4-6"),
-            CatalogModelEntry(alias="claude", model="claude-sonnet-4-6"),
             CatalogModelEntry(alias="haiku", model="claude-haiku-4-5", fast=True),
-            CatalogModelEntry(alias="haiku45", model="claude-haiku-4-5", fast=True),
         ),
         Provider.ANTHROPIC_VERTEX: (
             CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),

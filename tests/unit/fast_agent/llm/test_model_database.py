@@ -645,10 +645,10 @@ def test_model_database_fable_5_reasoning_spec_is_always_on():
     assert spec is not None
     assert spec.kind == "effort"
     assert spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
-    assert spec.allow_auto is False
+    assert spec.allow_auto is True
     assert spec.allow_toggle_disable is False
     assert spec.default is not None
-    assert spec.default.value == "high"
+    assert spec.default.value == "auto"
 
 
 def test_model_database_text_verbosity_spec():
