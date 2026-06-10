@@ -64,35 +64,24 @@ def test_list_curated_models_for_provider() -> None:
 def test_list_curated_aliases_for_provider() -> None:
     aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
 
-    assert aliases[:2] == ["opus", "opus4"]
+    assert aliases == unique_preserve_order(aliases)
     assert {
-        "claude",
-        "haiku45",
-        "opus47",
-        "opus48",
-        "sonnet46",
+        "fable",
+        "haiku",
+        "opus",
+        "sonnet",
     }.issubset(aliases)
+    assert aliases.index("opus") < aliases.index("opus46")
 
 
 def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
-    aliases = set(ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC))
-    expected_aliases = {
-        "claude",
-        "haiku",
-        "haiku45",
-        "opus",
-        "opus4",
-        "opus46",
-        "opus47",
-        "opus48",
-        "sonnet",
-        "sonnet4",
-        "sonnet46",
-    }
+    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
 
-    assert expected_aliases.issubset(aliases)
-    for alias in expected_aliases:
+    assert aliases
+    for alias in aliases:
         assert alias in ModelFactory.MODEL_PRESETS
+    assert ModelFactory.MODEL_PRESETS["fable"] == "claude-fable-5"
+    assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
 
 
 def test_deepseek_curated_order_prefers_pro_above_flash() -> None:
