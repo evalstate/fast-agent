@@ -1314,6 +1314,53 @@ class OpenTelemetrySettings(BaseModel):
         return _reject_bool_number_field(value, field_name="sample_rate")
 
 
+class LiteLLMSettings(BaseModel):
+    """Settings for the LiteLLM provider (embedded SDK or proxy mode)."""
+
+    api_key: str | None = Field(
+        default=None,
+        description=(
+            "Optional LiteLLM proxy API key. Leave unset to let LiteLLM resolve "
+            "credentials from per-provider env vars (ANTHROPIC_API_KEY, "
+            "OPENAI_API_KEY, etc.) at call time."
+        ),
+    )
+    api_base: str | None = Field(
+        default=None,
+        description=(
+            "Optional LiteLLM proxy base URL (e.g. http://localhost:4000). "
+            "When set, every call routes through the proxy."
+        ),
+    )
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default LiteLLM model spec when the LiteLLM provider is selected "
+            "without an explicit model (e.g. 'anthropic/claude-sonnet-4-5')."
+        ),
+    )
+    drop_params: bool = Field(
+        default=True,
+        description=(
+            "Forward `drop_params=True` to litellm.acompletion so unsupported "
+            "kwargs are stripped per backing provider rather than raising."
+        ),
+    )
+    extra_kwargs: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Additional kwargs forwarded verbatim to litellm.acompletion. Useful "
+            "for routing-specific options like `metadata`, `tags`, `caching`."
+        ),
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers forwarded as `extra_headers` to LiteLLM.",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class TensorZeroSettings(BaseModel):
     """Settings for using TensorZero LLM gateway."""
 
@@ -1892,6 +1939,9 @@ class Settings(BaseSettings):
 
     tensorzero: TensorZeroSettings | None = None
     """Settings for using TensorZero inference gateway"""
+
+    litellm: LiteLLMSettings | None = None
+    """Settings for the LiteLLM provider (routes via the LiteLLM SDK)"""
 
     azure: AzureSettings | None = None
     """Settings for using Azure OpenAI Service in the fast-agent application"""

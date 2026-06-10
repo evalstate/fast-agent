@@ -1,59 +1,51 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, TypeGuard
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fast_agent.config import get_settings
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, FAST_AGENT_RUNTIME_ENVIRONMENT
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.vertex_config import (
+    anthropic_vertex_intent,
     anthropic_vertex_ready,
 )
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
+from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
-from fast_agent.utils.action_normalization import on_off_label
-from fast_agent.utils.collections import unique_preserve_order
-from fast_agent.utils.count_display import format_count
-from fast_agent.utils.text import strip_str_to_none
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 ModelSource = Literal["curated", "all"]
 ProviderActivationAction = Literal["codex-login"]
-ModelAvailability = Literal["active", "attention", "inactive"]
-MODEL_AVAILABILITIES: tuple[ModelAvailability, ...] = ("active", "attention", "inactive")
 KEEP_VALUE = "__keep__"
 DEFAULT_VALUE = "__default__"
 
-
-def is_model_availability(value: object) -> TypeGuard[ModelAvailability]:
-    return value in MODEL_AVAILABILITIES
-
-
 PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
+    Provider.LITELLM,
     Provider.RESPONSES,
     Provider.OPENRESPONSES,
     Provider.CODEX_RESPONSES,
     Provider.ANTHROPIC,
+    Provider.ANTHROPIC_VERTEX,
     Provider.HUGGINGFACE,
+    Provider.OPENAI,
+    Provider.GENERIC,
     Provider.GOOGLE,
     Provider.XAI,
-    Provider.DEEPSEEK,
-    Provider.GENERIC,
-    Provider.ANTHROPIC_VERTEX,
-    Provider.OPENAI,
     Provider.GROQ,
-    Provider.AZURE,
-    Provider.BEDROCK,
+    Provider.DEEPSEEK,
     Provider.ALIYUN,
     Provider.OPENROUTER,
+    Provider.AZURE,
+    Provider.BEDROCK,
     Provider.FAST_AGENT,
 )
 
@@ -68,9 +60,6 @@ CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
 ANTHROPIC_VERTEX_PROVIDER_KEY = "anthropic-vertex"
 LLAMACPP_PROVIDER_KEY = "llamacpp"
 LLAMACPP_IMPORT_SENTINEL = "llamacpp.__import__"
-PROVIDER_PREFIX_DELIMITERS = ("/", ".")
-ProviderActiveCheck = Callable[[dict[str, Any]], bool]
-ModelSpecTransform = Callable[[str], str]
 
 
 @dataclass(frozen=True)
@@ -87,16 +76,14 @@ class ProviderOption:
     def option_key(self) -> str:
         if self.key is not None:
             return self.key
-        if self.provider is None:
-            raise ValueError("Provider option requires key when provider is unset")
+        assert self.provider is not None
         return self.provider.config_name
 
     @property
     def option_display_name(self) -> str:
         if self.display_name is not None:
             return self.display_name
-        if self.provider is None:
-            raise ValueError("Provider option requires display_name when provider is unset")
+        assert self.provider is not None
         return self.provider.display_name
 
 
@@ -108,9 +95,10 @@ class ModelOption:
     fast: bool = False
     curated: bool = False
     activation_action: ProviderActivationAction | None = None
-
-
-SyntheticProviderOptionFactory = Callable[[Provider], list[ModelOption] | None]
+    # When set, overrides the parent provider's availability for marker rendering.
+    # Used by LiteLLM rows where each model's reachability depends on the
+    # backing provider's credentials, not on the LiteLLM SDK alone.
+    backing_available: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -146,45 +134,122 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
     if ProviderKeyManager.get_env_var(provider.config_name):
         return True
 
-    if active_check := _PROVIDER_ACTIVE_CHECKS.get(provider):
-        return active_check(config_payload)
+    if provider == Provider.GOOGLE:
+        google_cfg = config_payload.get("google")
+        if isinstance(google_cfg, dict):
+            vertex_cfg = google_cfg.get("vertex_ai")
+            if isinstance(vertex_cfg, dict) and bool(vertex_cfg.get("enabled")):
+                return True
 
-    return provider in {Provider.FAST_AGENT, Provider.GENERIC}
+    if provider == Provider.AZURE:
+        azure_cfg = config_payload.get("azure")
+        if isinstance(azure_cfg, dict):
+            use_default = bool(azure_cfg.get("use_default_azure_credential"))
+            base_url = azure_cfg.get("base_url")
+            if use_default and isinstance(base_url, str) and bool(base_url.strip()):
+                return True
+
+    if provider == Provider.CODEX_RESPONSES:
+        try:
+            from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
+
+            status = get_codex_token_status()
+            if bool(status.get("present")):
+                return True
+        except Exception:
+            pass
+
+    if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
+        return True
+
+    # LiteLLM is "available" once the SDK is importable. The SDK resolves
+    # backing-provider credentials at call time, so showing the row as available
+    # lets the user pick a model and have LiteLLM raise its own clear error if
+    # the routed provider's API key is missing.
+    if provider == Provider.LITELLM:
+        try:
+            import litellm  # noqa: F401
+
+            return True
+        except ImportError:
+            return False
+
+    return False
 
 
-def _google_vertex_is_active(config_payload: dict[str, Any]) -> bool:
-    google_cfg = config_payload.get("google")
-    if not isinstance(google_cfg, dict):
-        return False
-    vertex_cfg = google_cfg.get("vertex_ai")
-    return isinstance(vertex_cfg, dict) and bool(vertex_cfg.get("enabled"))
+def litellm_backing_provider_for_spec(spec: str) -> str | None:
+    """Extract the backing provider from a `litellm.<backing>/<model>` spec."""
+    if not spec.startswith("litellm."):
+        return None
+    body = spec[len("litellm.") :]
+    head = body.split("/", 1)[0]
+    return head or None
 
 
-def _azure_default_credential_is_active(config_payload: dict[str, Any]) -> bool:
-    azure_cfg = config_payload.get("azure")
-    if not isinstance(azure_cfg, dict):
-        return False
-    use_default = bool(azure_cfg.get("use_default_azure_credential"))
-    base_url = azure_cfg.get("base_url")
-    normalized_base_url = strip_str_to_none(base_url)
-    return use_default and normalized_base_url is not None
-
-
-def _codex_oauth_is_active(_config_payload: dict[str, Any]) -> bool:
-    try:
-        from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
-
-        status = get_codex_token_status()
-        return bool(status.get("present"))
-    except Exception:
-        return False
-
-
-_PROVIDER_ACTIVE_CHECKS: dict[Provider, ProviderActiveCheck] = {
-    Provider.GOOGLE: _google_vertex_is_active,
-    Provider.AZURE: _azure_default_credential_is_active,
-    Provider.CODEX_RESPONSES: _codex_oauth_is_active,
+_LITELLM_BACKING_ENV_KEYS: dict[str, tuple[str, ...]] = {
+    "openai": ("OPENAI_API_KEY",),
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "anthropic_text": ("ANTHROPIC_API_KEY",),
+    "azure": ("AZURE_API_KEY", "AZURE_OPENAI_API_KEY"),
+    "azure_ai": ("AZURE_AI_API_KEY", "AZURE_API_KEY"),
+    "azure_anthropic": ("AZURE_API_KEY",),
+    "bedrock": ("AWS_ACCESS_KEY_ID", "AWS_BEARER_TOKEN_BEDROCK"),
+    "amazon_nova": ("AWS_ACCESS_KEY_ID",),
+    "vertex_ai": ("GOOGLE_APPLICATION_CREDENTIALS", "VERTEXAI_PROJECT", "VERTEX_PROJECT"),
+    "vertex_ai_beta": ("GOOGLE_APPLICATION_CREDENTIALS",),
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "groq": ("GROQ_API_KEY",),
+    "cohere": ("COHERE_API_KEY",),
+    "cohere_chat": ("COHERE_API_KEY",),
+    "mistral": ("MISTRAL_API_KEY", "CODESTRAL_API_KEY"),
+    "codestral": ("CODESTRAL_API_KEY",),
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "xai": ("XAI_API_KEY",),
+    "perplexity": ("PERPLEXITYAI_API_KEY",),
+    "fireworks_ai": ("FIREWORKS_API_KEY", "FIREWORKS_AI_API_KEY"),
+    "cerebras": ("CEREBRAS_API_KEY",),
+    "together_ai": ("TOGETHERAI_API_KEY", "TOGETHER_API_KEY"),
+    "databricks": ("DATABRICKS_API_KEY",),
+    "ai21": ("AI21_API_KEY",),
+    "openrouter": ("OPENROUTER_API_KEY",),
+    "huggingface": ("HF_TOKEN", "HUGGINGFACE_API_KEY"),
+    "cloudflare": ("CLOUDFLARE_API_KEY",),
+    "replicate": ("REPLICATE_API_KEY",),
+    "anyscale": ("ANYSCALE_API_KEY",),
+    "watsonx": ("WATSONX_API_KEY", "WATSONX_TOKEN"),
+    "sambanova": ("SAMBANOVA_API_KEY",),
+    "nvidia_nim": ("NVIDIA_NIM_API_KEY",),
+    "deepinfra": ("DEEPINFRA_API_KEY",),
+    "voyage": ("VOYAGE_API_KEY",),
+    "novita": ("NOVITA_API_KEY",),
+    "moonshot": ("MOONSHOT_API_KEY",),
+    "dashscope": ("DASHSCOPE_API_KEY",),
+    "baseten": ("BASETEN_API_KEY",),
+    "lambda_ai": ("LAMBDA_API_KEY",),
+    "minimax": ("MINIMAX_API_KEY",),
+    "friendliai": ("FRIENDLIAI_API_KEY",),
+    "nlp_cloud": ("NLP_CLOUD_API_KEY",),
+    # Local / OAuth-driven backings (kept out of the map so we don't probe OAuth flows)
+    # github_copilot, ollama, llamafile -- treated as "unknown" -> falls back to provider-level
 }
+
+
+def litellm_backing_creds_present(spec: str) -> bool | None:
+    """Return True/False if any expected env key for the spec's backing is set.
+
+    Uses a static map rather than `litellm.validate_environment(...)` because
+    that API can trigger OAuth device-code flows for some backings (notably
+    `github_copilot`), which would block the wizard render. Returns None when
+    the backing isn't in the map so callers can fall back to the provider's
+    SDK-level availability without showing a misleading ✗.
+    """
+    backing = litellm_backing_provider_for_spec(spec)
+    if backing is None:
+        return None
+    keys = _LITELLM_BACKING_ENV_KEYS.get(backing)
+    if not keys:
+        return None
+    return any(os.getenv(key) for key in keys)
 
 
 def _catalog_options_from_entries(
@@ -192,117 +257,106 @@ def _catalog_options_from_entries(
     *,
     provider: Provider,
     source: ModelSource,
-    spec_transform: ModelSpecTransform | None = None,
-    filter_current: bool = True,
+    spec_transform: Any = None,
+    discovered_specs: tuple[str, ...] = (),
 ) -> list[ModelOption]:
-    transform = spec_transform or _identity_model_spec
+    transform = spec_transform or (lambda value: value)
 
-    entry_options: list[ModelOption] = []
+    curated_options: list[ModelOption] = []
     for entry in entries:
         spec = transform(entry.model)
-        entry_options.append(
+        tags: list[str] = []
+        if entry.local:
+            tags.append("local")
+        if entry.fast:
+            tags.append("fast")
+        if not entry.current:
+            tags.append("legacy")
+
+        suffix = f" ({', '.join(tags)})" if tags else ""
+        entry_label = entry.display_label or entry.alias
+        label = f"{entry_label:<19} → {spec}{suffix}"
+        if entry.description:
+            label = f"{label} — {entry.description}"
+        backing_available = (
+            litellm_backing_creds_present(spec) if provider == Provider.LITELLM else None
+        )
+        curated_options.append(
             ModelOption(
                 spec=spec,
-                label=format_catalog_model_entry_label(entry, spec=spec),
+                label=label,
                 preset_token=entry.alias,
                 fast=entry.fast,
                 curated=entry.current,
+                backing_available=backing_available,
             )
         )
 
     if source == "curated":
-        if not filter_current:
-            return entry_options
-        return [
-            option for entry, option in zip(entries, entry_options, strict=True) if entry.current
-        ]
+        return curated_options
 
     seen_identities: set[tuple[Provider, str]] = set()
-    options: list[ModelOption] = list(entry_options)
-    for option in entry_options:
-        identity = model_identity(option.spec)
+    seen_specs: set[str] = set()
+    options: list[ModelOption] = list(curated_options)
+    for curated in curated_options:
+        seen_specs.add(curated.spec)
+        identity = model_identity(curated.spec)
         if identity is not None:
             seen_identities.add(identity)
 
+    is_litellm_provider = provider == Provider.LITELLM
+
     for spec in _static_provider_models(provider):
         transformed_spec = transform(spec)
+        if transformed_spec in seen_specs:
+            continue
         identity = model_identity(transformed_spec)
         if identity is not None and identity in seen_identities:
             continue
         if identity is not None:
             seen_identities.add(identity)
-        options.append(ModelOption(spec=transformed_spec, label=f"{transformed_spec} (catalog)"))
+        seen_specs.add(transformed_spec)
+        backing_available = (
+            litellm_backing_creds_present(transformed_spec) if is_litellm_provider else None
+        )
+        options.append(
+            ModelOption(
+                spec=transformed_spec,
+                label=f"{transformed_spec} (catalog)",
+                backing_available=backing_available,
+            )
+        )
+
+    for spec in discovered_specs:
+        transformed_spec = transform(spec)
+        if transformed_spec in seen_specs:
+            continue
+        identity = model_identity(transformed_spec)
+        if identity is not None and identity in seen_identities:
+            continue
+        if identity is not None:
+            seen_identities.add(identity)
+        seen_specs.add(transformed_spec)
+        backing_available = (
+            litellm_backing_creds_present(transformed_spec) if is_litellm_provider else None
+        )
+        options.append(
+            ModelOption(
+                spec=transformed_spec,
+                label=f"{transformed_spec} (catalog)",
+                backing_available=backing_available,
+            )
+        )
 
     return options
 
 
-def _identity_model_spec(model_spec: str) -> str:
-    return model_spec
-
-
-def catalog_model_entry_tags(entry: CatalogModelEntry) -> tuple[str, ...]:
-    tags: list[str] = []
-    if entry.local:
-        tags.append("local")
-    if entry.fast:
-        tags.append("fast")
-    if not entry.current:
-        tags.append("legacy")
-    return tuple(tags)
-
-
-def format_catalog_model_entry_label(entry: CatalogModelEntry, *, spec: str | None = None) -> str:
-    resolved_spec = spec or entry.model
-    tags = catalog_model_entry_tags(entry)
-    suffix = f" ({', '.join(tags)})" if tags else ""
-    label = f"{(entry.display_label or entry.alias):<19} → {resolved_spec}{suffix}"
-    if entry.description:
-        label = f"{label} — {entry.description}"
-    return label
-
-
-def _generic_provider_model_options(_provider: Provider) -> list[ModelOption]:
-    return [
-        ModelOption(
-            spec=GENERIC_CUSTOM_MODEL_SENTINEL,
-            label="Enter local model string (e.g. llama3.2)",
-        )
-    ]
-
-
-def _refer_to_docs_provider_model_options(provider: Provider) -> list[ModelOption]:
-    return [
-        ModelOption(
-            spec=f"{provider.config_name}.refer-to-docs",
-            label="Refer to docs (provider-specific setup)",
-        )
-    ]
-
-
-_SYNTHETIC_PROVIDER_OPTION_FACTORIES: dict[Provider, SyntheticProviderOptionFactory] = {
-    Provider.GENERIC: _generic_provider_model_options,
-    **{provider: _refer_to_docs_provider_model_options for provider in REFER_TO_DOCS_PROVIDERS},
-}
-
-
-def _synthetic_provider_model_options(provider: Provider) -> list[ModelOption] | None:
-    factory = _SYNTHETIC_PROVIDER_OPTION_FACTORIES.get(provider)
-    if factory is None:
-        return None
-    return factory(provider)
-
-
 def model_options_for_option(
+    snapshot: ModelPickerSnapshot,
     option: ProviderOption,
     *,
     source: ModelSource,
 ) -> list[ModelOption]:
-    provider = option.provider
-    if provider is not None:
-        synthetic_options = _synthetic_provider_model_options(provider)
-        if synthetic_options is not None:
-            return synthetic_options
-
     if option.option_key == LLAMACPP_PROVIDER_KEY:
         return [
             ModelOption(
@@ -316,15 +370,21 @@ def model_options_for_option(
             option.curated_entries,
             provider=Provider.ANTHROPIC,
             source="curated",
-            filter_current=False,
         )
 
-    if provider is None:
-        raise ValueError(f"Provider option '{option.option_key}' has no model provider")
+    provider = option.provider
+    assert provider is not None
+
+    discovered_specs: tuple[str, ...] = ()
+    if source == "all":
+        discovered = ProviderModelCatalogRegistry.discover(provider, snapshot.config_payload)
+        discovered_specs = discovered.all_models
+
     return _catalog_options_from_entries(
         option.curated_entries,
         provider=provider,
         source=source,
+        discovered_specs=discovered_specs,
     )
 
 
@@ -361,7 +421,10 @@ def build_snapshot(
         )
         for overlay in overlay_registry.overlays
     )
-    overlay_group_active = bool(overlay_entries)
+    if overlay_entries:
+        overlay_group_active = True
+    else:
+        overlay_group_active = False
     providers.append(
         ProviderOption(
             provider=None,
@@ -373,6 +436,8 @@ def build_snapshot(
         )
     )
     for provider in PICKER_PROVIDER_ORDER:
+        if provider == Provider.ANTHROPIC_VERTEX and not anthropic_vertex_intent(config_payload):
+            continue
         entries = tuple(
             entry
             for entry in ModelSelectionCatalog.list_entries(
@@ -386,7 +451,19 @@ def build_snapshot(
         )
         if not entries and not has_special_picker_flow:
             continue
-        if provider == Provider.DEEPSEEK:
+        providers.append(
+            ProviderOption(
+                provider=provider,
+                active=provider in active_providers,
+                curated_entries=entries,
+                disabled_reason=(
+                    anthropic_vertex_ready(config_payload)[1]
+                    if provider == Provider.ANTHROPIC_VERTEX and provider not in active_providers
+                    else None
+                ),
+            )
+        )
+        if provider == Provider.GENERIC:
             providers.append(
                 ProviderOption(
                     provider=None,
@@ -396,19 +473,6 @@ def build_snapshot(
                     display_name="llama.cpp",
                 )
             )
-        providers.append(
-            ProviderOption(
-                provider=provider,
-                active=provider in active_providers,
-                curated_entries=entries,
-                display_name=("Generic (ollama)" if provider == Provider.GENERIC else None),
-                disabled_reason=(
-                    anthropic_vertex_ready(config_payload)[1]
-                    if provider == Provider.ANTHROPIC_VERTEX and provider not in active_providers
-                    else None
-                ),
-            )
-        )
 
     return ModelPickerSnapshot(providers=tuple(providers), config_payload=config_payload)
 
@@ -419,133 +483,58 @@ def _load_overlay_registry_for_snapshot(
     config_payload: dict[str, Any],
     start_path: Path | None,
 ):
+    from pathlib import Path as _Path
+
     env_dir = config_payload.get("environment_dir")
-    normalized_env_dir = _normalized_overlay_env_dir(env_dir)
-    candidate_starts = _overlay_candidate_starts(
-        config_path=config_path,
-        env_dir=env_dir,
-        normalized_env_dir=normalized_env_dir,
-        start_path=start_path,
-    )
+    normalized_env_dir = env_dir if isinstance(env_dir, (str, _Path)) else None
 
-    if normalized_env_dir is None and (config_path is not None or start_path is not None):
-        normalized_env_dir = DEFAULT_ENVIRONMENT_DIR
-
-    return _first_overlay_registry_with_entries(
-        _dedupe_paths(candidate_starts),
-        env_dir=normalized_env_dir,
-    )
-
-
-def _normalized_overlay_env_dir(env_dir: object) -> str | Path | None:
-    from pathlib import Path as _Path
-
-    if isinstance(env_dir, (str, _Path)):
-        return env_dir
-    return os.getenv(FAST_AGENT_RUNTIME_ENVIRONMENT) or os.getenv("ENVIRONMENT_DIR")
-
-
-def _overlay_candidate_starts(
-    *,
-    config_path: str | Path | None,
-    env_dir: object,
-    normalized_env_dir: str | Path | None,
-    start_path: Path | None,
-) -> list[Path]:
-    from pathlib import Path as _Path
-
+    candidate_starts: list[_Path] = []
     if config_path is not None:
-        return _config_overlay_candidate_starts(
-            config_path=config_path,
-            env_dir=env_dir,
-            normalized_env_dir=normalized_env_dir,
-        )
+        config_file = _Path(config_path).expanduser().resolve()
+        candidate_starts.append(config_file.parent)
 
-    if start_path is not None:
-        return [_Path(start_path).expanduser().resolve()]
-    return [_Path.cwd().resolve()]
+        relative_env_dir: _Path | None = None
+        if normalized_env_dir is None:
+            relative_env_dir = _Path(DEFAULT_ENVIRONMENT_DIR)
+        else:
+            env_path = _Path(normalized_env_dir).expanduser()
+            if not env_path.is_absolute():
+                relative_env_dir = env_path
 
+        if relative_env_dir is not None and relative_env_dir.parts:
+            env_parts = relative_env_dir.parts
+            parent_parts = config_file.parent.parts
+            if len(env_parts) <= len(parent_parts) and parent_parts[-len(env_parts) :] == env_parts:
+                project_root = config_file.parent
+                for _ in env_parts:
+                    project_root = project_root.parent
+                if project_root != config_file.parent:
+                    candidate_starts.append(project_root)
 
-def _config_overlay_candidate_starts(
-    *,
-    config_path: str | Path,
-    env_dir: object,
-    normalized_env_dir: str | Path | None,
-) -> list[Path]:
-    from pathlib import Path as _Path
+    if config_path is None and start_path is not None:
+        candidate_starts.append(_Path(start_path).expanduser().resolve())
 
-    config_file = _Path(config_path).expanduser().resolve()
-    candidate_starts: list[Path] = [config_file.parent]
-    relative_env_dir = _relative_overlay_env_dir(
-        env_dir=env_dir,
-        normalized_env_dir=normalized_env_dir,
-    )
-    project_root = _project_root_for_env_config(config_file.parent, relative_env_dir)
-    if project_root is not None:
-        candidate_starts.append(project_root)
-    return candidate_starts
+    if config_path is None and start_path is None:
+        candidate_starts.append(_Path.cwd().resolve())
 
-
-def _relative_overlay_env_dir(
-    *,
-    env_dir: object,
-    normalized_env_dir: str | Path | None,
-) -> Path | None:
-    from pathlib import Path as _Path
-
-    if env_dir is None:
-        return _Path(DEFAULT_ENVIRONMENT_DIR)
-    if normalized_env_dir is None:
-        raise ValueError("environment_dir must be a string or path")
-
-    env_path = _Path(normalized_env_dir).expanduser()
-    if env_path.is_absolute():
-        return None
-    return env_path
-
-
-def _project_root_for_env_config(config_dir: Path, relative_env_dir: Path | None) -> Path | None:
-    if relative_env_dir is None or not relative_env_dir.parts:
-        return None
-
-    env_parts = relative_env_dir.parts
-    parent_parts = config_dir.parts
-    if len(env_parts) > len(parent_parts) or parent_parts[-len(env_parts) :] != env_parts:
-        return None
-
-    project_root = config_dir
-    for _ in env_parts:
-        project_root = project_root.parent
-    if project_root == config_dir:
-        return None
-    return project_root
-
-
-def _dedupe_paths(candidate_starts: list[Path]) -> list[Path]:
-    return unique_preserve_order(candidate_starts)
-
-
-def _first_overlay_registry_with_entries(
-    ordered_starts: list[Path],
-    *,
-    env_dir: str | Path | None,
-):
-    from pathlib import Path as _Path
+    seen: set[_Path] = set()
+    ordered_starts: list[_Path] = []
+    for candidate in candidate_starts:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        ordered_starts.append(candidate)
 
     fallback_registry = None
-    for overlay_start_path in ordered_starts:
-        registry = load_model_overlay_registry(
-            start_path=overlay_start_path,
-            env_dir=env_dir,
-        )
+    for start_path in ordered_starts:
+        registry = load_model_overlay_registry(start_path=start_path, env_dir=normalized_env_dir)
         if fallback_registry is None:
             fallback_registry = registry
         if registry.overlays:
             return registry
 
-    if fallback_registry is not None:
-        return fallback_registry
-    return load_model_overlay_registry(start_path=_Path.cwd().resolve(), env_dir=env_dir)
+    assert fallback_registry is not None
+    return fallback_registry
 
 
 def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> ProviderOption:
@@ -555,31 +544,22 @@ def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> Provider
     raise ValueError(f"Unknown provider: {provider_name}")
 
 
-def provider_option_status_label(option: ProviderOption) -> str:
+def build_provider_label(option: ProviderOption) -> str:
     if option.option_key == LLAMACPP_PROVIDER_KEY:
-        return "active"
-    if option.active:
-        return "active"
-    if option.disabled_reason:
-        return "disabled"
-    return "inactive"
+        status = "active"
+        count_text = "import flow"
+        return f"{option.option_display_name:<16} [{status}] · {count_text}"
 
-
-def provider_option_count_label(option: ProviderOption) -> str:
-    if option.option_key == LLAMACPP_PROVIDER_KEY:
-        return "import flow"
-
+    status = "active" if option.active else "disabled" if option.disabled_reason else "inactive"
     curated_count = len(option.curated_entries)
     if option.overlay_group:
-        return format_count(curated_count, "overlay")
-    return format_count(curated_count, "curated model")
-
-
-def build_provider_label(option: ProviderOption) -> str:
-    count_text = provider_option_count_label(option)
-    return (
-        f"{option.option_display_name:<16} [{provider_option_status_label(option)}] · {count_text}"
-    )
+        entry_text = "overlay" if curated_count == 1 else "overlays"
+        count_text = f"{curated_count} {entry_text}"
+    else:
+        count_text = f"{curated_count} curated model"
+        if curated_count != 1:
+            count_text += "s"
+    return f"{option.option_display_name:<16} [{status}] · {count_text}"
 
 
 def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:
@@ -588,10 +568,15 @@ def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:
 
 def has_explicit_provider_prefix(model_spec: str) -> bool:
     provider_names = {provider.config_name for provider in Provider}
-    for delimiter in PROVIDER_PREFIX_DELIMITERS:
-        prefix, separator, rest = model_spec.partition(delimiter)
-        if prefix and separator and rest and prefix in provider_names:
-            return True
+
+    slash_prefix, _, slash_rest = model_spec.partition("/")
+    if slash_prefix and slash_rest and slash_prefix in provider_names:
+        return True
+
+    dot_prefix, _, dot_rest = model_spec.partition(".")
+    if dot_prefix and dot_rest and dot_prefix in provider_names:
+        return True
+
     return False
 
 
@@ -613,8 +598,6 @@ def infer_initial_picker_provider(model_spec: str | None) -> str | None:
     normalized = model_spec.strip()
     if not normalized:
         return None
-
-    from fast_agent.llm.model_factory import ModelFactory
 
     try:
         parsed = ModelFactory.parse_model_string(
@@ -639,8 +622,6 @@ def provider_activation_action(
 
 
 def model_identity(model_spec: str) -> tuple[Provider, str] | None:
-    from fast_agent.llm.model_factory import ModelFactory
-
     try:
         parsed = ModelFactory.parse_model_string(model_spec)
     except Exception:
@@ -669,9 +650,21 @@ def model_options_for_provider(
     *,
     source: ModelSource,
 ) -> list[ModelOption]:
-    synthetic_options = _synthetic_provider_model_options(provider)
-    if synthetic_options is not None:
-        return synthetic_options
+    if provider == Provider.GENERIC:
+        return [
+            ModelOption(
+                spec=GENERIC_CUSTOM_MODEL_SENTINEL,
+                label="Enter local model string (e.g. llama3.2)",
+            )
+        ]
+
+    if provider in REFER_TO_DOCS_PROVIDERS:
+        return [
+            ModelOption(
+                spec=f"{provider.config_name}.refer-to-docs",
+                label="Refer to docs (provider-specific setup)",
+            )
+        ]
 
     provider_option = find_provider(snapshot, provider.config_name)
     activation_action = provider_activation_action(snapshot, provider)
@@ -691,8 +684,6 @@ def model_options_for_provider(
 
 
 def model_capabilities(model_spec: str) -> ModelCapabilities:
-    from fast_agent.llm.model_factory import ModelFactory
-
     resolved = ModelFactory.resolve_model_spec(model_spec)
     parsed = resolved.model_config
     reasoning_spec = resolved.reasoning_effort_spec
@@ -711,7 +702,7 @@ def model_capabilities(model_spec: str) -> ModelCapabilities:
         current_reasoning=format_reasoning_setting(parsed.reasoning_effort),
         default_reasoning=default_reasoning,
         web_search_supported=(
-            parsed.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.XAI}
+            parsed.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}
             or (
                 parsed.provider == Provider.ANTHROPIC
                 and resolved.anthropic_web_search_version is not None
@@ -759,20 +750,23 @@ def apply_option_overrides(
     """
 
     result = model_spec
-    overrides = {
-        "reasoning": reasoning_value,
-        "web_search": web_search_value,
-        "context": context_value,
-    }
-    for key, selected_value in overrides.items():
-        if selected_value is None:
-            continue
-        target = None if selected_value == DEFAULT_VALUE else selected_value
-        result = _update_query_param(result, key=key, value=target)
+
+    if reasoning_value is not None:
+        target = None if reasoning_value == DEFAULT_VALUE else reasoning_value
+        result = _update_query_param(result, key="reasoning", value=target)
+
+    if web_search_value is not None:
+        target = None if web_search_value == DEFAULT_VALUE else web_search_value
+        result = _update_query_param(result, key="web_search", value=target)
+
+    if context_value is not None:
+        target = None if context_value == DEFAULT_VALUE else context_value
+        result = _update_query_param(result, key="context", value=target)
+
     return result
 
 
 def web_search_display(value: bool | None) -> str:
     if value is None:
         return "default"
-    return on_off_label(value)
+    return "on" if value else "off"

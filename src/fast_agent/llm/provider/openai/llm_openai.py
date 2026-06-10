@@ -742,6 +742,7 @@ class OpenAILLM(
             Provider.GENERIC,
             Provider.OPENROUTER,
             Provider.GOOGLE_OAI,
+            Provider.LITELLM,
         ]
         if stream_mode == "manual" or provider_requires_manual:
             return await self._process_stream_manual(stream, model, capture_filename)

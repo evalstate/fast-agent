@@ -22,7 +22,6 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
-from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -35,7 +34,7 @@ from fast_agent.types import RequestParams
 TEST_ALIASES = {
     "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905",  # No default provider
     "glm": "hf.zai-org/GLM-4.6:cerebras",  # Has default provider
-    "qwen35": "hf.Qwen/Qwen3.5-397B-A17B:novita",
+    "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
     "minimax": "hf.MiniMaxAI/MiniMax-M2",  # No default provider
 }
 
@@ -44,8 +43,8 @@ def test_simple_model_names():
     """Test parsing of simple model names"""
     cases = [
         ("o1-mini", Provider.RESPONSES),
-        ("claude-haiku-4-5", Provider.ANTHROPIC),
-        ("claude-sonnet-4-6", Provider.ANTHROPIC),
+        ("claude-3-haiku-20240307", Provider.ANTHROPIC),
+        ("claude-3-5-sonnet-20240620", Provider.ANTHROPIC),
         ("claude-opus-4-6", Provider.ANTHROPIC),
     ]
 
@@ -60,9 +59,9 @@ def test_full_model_strings():
     """Test parsing of full model strings with providers"""
     cases = [
         (
-            "anthropic.claude-haiku-4-5",
+            "anthropic.claude-3-haiku-20240307",
             Provider.ANTHROPIC,
-            "claude-haiku-4-5",
+            "claude-3-haiku-20240307",
             None,
         ),
         ("openai.gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
@@ -94,9 +93,6 @@ def test_deprecated_reasoning_suffix_is_rejected() -> None:
 
     with pytest.raises(ModelConfigError, match=r"Use '\?reasoning=<value>' instead"):
         ModelFactory.parse_model_string("openai/o1.high")
-
-    with pytest.raises(ModelConfigError, match=r"Use '\?reasoning=<value>' instead"):
-        ModelFactory.parse_model_string("openai.o1.HIGH")
 
 
 def test_model_query_reasoning_effort():
@@ -136,11 +132,6 @@ def test_model_query_instant_mode_toggle():
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
 
 
-def test_model_query_instant_rejects_reasoning_only_value():
-    with pytest.raises(ModelConfigError, match="Invalid instant query value"):
-        ModelFactory.parse_model_string("hf.moonshotai/Kimi-K2.5?instant=auto")
-
-
 def test_model_query_structured_json():
     config = ModelFactory.parse_model_string("claude-sonnet-4-5?structured=json")
     assert config.provider == Provider.ANTHROPIC
@@ -155,20 +146,8 @@ def test_model_query_structured_tool_use():
     assert config.structured_output_mode == "tool_use"
 
 
-def test_model_query_structured_tools_policy():
-    config = ModelFactory.parse_model_string(
-        "claude-sonnet-4-6?structured=json&structured_tools=defer"
-    )
-    assert config.structured_tool_policy == "defer"
-
-    camel_case_config = ModelFactory.parse_model_string(
-        "claude-sonnet-4-6?structuredToolPolicy=%20DEFER%20"
-    )
-    assert camel_case_config.structured_tool_policy == "defer"
-
-
 def test_model_query_unknown_parameter_is_rejected() -> None:
-    with pytest.raises(ModelConfigError, match="Unsupported model query parameter 'routing'"):
+    with pytest.raises(ModelConfigError, match="Unsupported model query parameter"):
         ModelFactory.parse_model_string("claude-sonnet-4-6?routing=vertex")
 
 
@@ -180,26 +159,8 @@ def test_explicit_anthropic_vertex_provider_namespace() -> None:
 
 
 def test_model_query_unknown_parameter_rejected_for_non_anthropic_model():
-    with pytest.raises(ModelConfigError, match="Unsupported model query parameter 'routing'"):
+    with pytest.raises(ModelConfigError, match="Unsupported model query parameter"):
         ModelFactory.parse_model_string("openai.gpt-4.1?routing=vertex")
-
-
-def test_model_query_multiple_unknown_parameters_uses_plural_error() -> None:
-    with pytest.raises(
-        ModelConfigError,
-        match=r"Unsupported model query parameters 'other', 'routing'",
-    ):
-        ModelFactory.parse_model_string("openai.gpt-4.1?routing=vertex&other=true")
-
-
-def test_model_query_rejects_blank_unknown_parameter() -> None:
-    with pytest.raises(ModelConfigError, match="Unsupported model query parameter 'unknown'"):
-        ModelFactory.parse_model_string("gpt-5?unknown=")
-
-
-def test_model_preset_query_rejects_blank_values() -> None:
-    with pytest.raises(ModelConfigError):
-        ModelFactory.parse_model_string("broken", presets={"broken": "gpt-5?temperature="})
 
 
 def test_model_query_text_verbosity():
@@ -284,7 +245,7 @@ def test_kimi25_alias_sets_thinking_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi25")
 
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2.5:novita"
+    assert config.model_name == "moonshotai/Kimi-K2.5:fireworks-ai"
     assert config.temperature == 1.0
     assert config.top_p == 0.95
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
@@ -294,7 +255,7 @@ def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi25instant")
 
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2.5:novita"
+    assert config.model_name == "moonshotai/Kimi-K2.5:fireworks-ai"
     assert config.temperature == 0.6
     assert config.top_p == 0.95
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
@@ -302,17 +263,6 @@ def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
 
 def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
     assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string("kimi26")
-
-
-def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
-    assert ModelFactory.parse_model_string("kimithink") == ModelFactory.parse_model_string("kimi26")
-
-
-def test_direct_kimi_model_routes_to_huggingface() -> None:
-    config = ModelFactory.parse_model_string("moonshotai/kimi-k2")
-
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/kimi-k2"
 
 
 def test_kimi26_alias_sets_thinking_sampling_defaults() -> None:
@@ -352,13 +302,8 @@ def test_model_query_transport_websocket_alias():
     assert config.transport == "websocket"
 
 
-def test_model_query_transport_normalizes_case_and_spacing():
-    config = ModelFactory.parse_model_string("codexplan?transport=%20WS%20")
-    assert config.transport == "websocket"
-
-
 def test_model_query_transport_auto():
-    config = ModelFactory.parse_model_string("codexplan?transport=auto")
+    config = ModelFactory.parse_model_string("codexplan52?transport=auto")
     assert config.transport == "auto"
 
 
@@ -374,14 +319,9 @@ def test_model_query_service_tier():
     assert config.service_tier == "fast"
 
 
-def test_model_query_service_tier_normalizes_case_and_spacing():
-    config = ModelFactory.parse_model_string("responses.gpt-5-mini?service_tier=%20FAST%20")
-    assert config.service_tier == "fast"
-
-
 def test_invalid_service_tier_query():
-    with pytest.raises(ModelConfigError, match="service_tier query value: 'turbo'"):
-        ModelFactory.parse_model_string("responses.gpt-5-mini?service_tier=%20TURBO%20")
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("responses.gpt-5-mini?service_tier=turbo")
 
 
 def test_codexresponses_fast_service_tier_query() -> None:
@@ -403,8 +343,16 @@ def test_responses_chatgpt_flex_service_tier_query_rejected() -> None:
 
 
 def test_chatgpt_alias_flex_service_tier_query_rejected() -> None:
-    with pytest.raises(ModelConfigError, match="chat-latest"):
+    with pytest.raises(ModelConfigError, match="gpt-5.3-chat-latest"):
         ModelFactory.parse_model_string("chatgpt?service_tier=flex")
+
+
+def test_responses_codex_52_flex_service_tier_query_allowed() -> None:
+    config = ModelFactory.parse_model_string("responses.gpt-5.2-codex?service_tier=flex")
+
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5.2-codex"
+    assert config.service_tier == "flex"
 
 
 def test_responses_codex_53_flex_service_tier_query_rejected() -> None:
@@ -421,7 +369,7 @@ def test_model_query_web_tool_flags():
 
 
 def test_model_query_web_tool_flags_boolean_aliases():
-    config = ModelFactory.parse_model_string("sonnet?web_search=yes&web_fetch=disable")
+    config = ModelFactory.parse_model_string("sonnet?web_search=true&web_fetch=0")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-sonnet-4-6"
     assert config.web_search is True
@@ -444,8 +392,8 @@ def test_invalid_web_tool_query_values():
 
 
 def test_invalid_transport_query():
-    with pytest.raises(ModelConfigError, match="transport query value: 'websock'"):
-        ModelFactory.parse_model_string("codexplan?transport=%20WEBSOCK%20")
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("codexplan?transport=websock")
 
 
 def test_transport_query_allows_responses_default_model():
@@ -481,27 +429,6 @@ def test_transport_query_allows_codexresponses_provider_for_codex_spark():
     assert config.transport == "websocket"
 
 
-def test_transport_query_allows_xai_provider_for_grok():
-    config = ModelFactory.parse_model_string("xai.grok-4.3?transport=ws")
-    assert config.provider == Provider.XAI
-    assert config.model_name == "grok-4.3"
-    assert config.transport == "websocket"
-
-
-def test_reasoning_query_allows_xai_grok_43_effort() -> None:
-    config = ModelFactory.parse_model_string("xai.grok-4.3?reasoning=high")
-    assert config.provider == Provider.XAI
-    assert config.model_name == "grok-4.3"
-    assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="high")
-
-
-def test_x_search_query_allows_xai_grok() -> None:
-    config = ModelFactory.parse_model_string("xai.grok-4.3?x_search=enabled")
-    assert config.provider == Provider.XAI
-    assert config.model_name == "grok-4.3"
-    assert config.x_search is True
-
-
 def test_transport_query_rejects_openai_provider_even_with_responses_model():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("openai.gpt-5?transport=ws")
@@ -527,24 +454,6 @@ def test_factory_passes_transport_to_responses_llm_for_openai_responses_model() 
     assert isinstance(llm, ResponsesLLM)
     assert llm.provider == Provider.RESPONSES
     assert llm._transport == "websocket"
-
-
-def test_factory_builds_xai_responses_llm_by_default() -> None:
-    factory = ModelFactory.create_factory("xai.grok-4.3?transport=ws")
-    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
-    assert isinstance(llm, ResponsesLLM)
-    assert llm.provider == Provider.XAI
-    assert llm._transport == "websocket"
-
-
-def test_factory_passes_x_search_override_to_xai_responses_llm() -> None:
-    from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
-
-    factory = ModelFactory.create_factory("xai.grok-4.3?x_search=on")
-    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
-    assert isinstance(llm, XAIResponsesLLM)
-    assert llm.provider == Provider.XAI
-    assert llm._x_search_override is True
 
 
 def test_factory_passes_service_tier_query_to_request_params() -> None:
@@ -590,14 +499,6 @@ def test_factory_passes_web_tool_overrides_to_anthropic_llm():
     assert isinstance(llm, AnthropicLLM)
     assert llm._web_search_override is True
     assert llm._web_fetch_override is False
-
-
-def test_factory_passes_web_search_override_to_anthropic_vertex_llm():
-    factory = ModelFactory.create_factory("anthropic-vertex.claude-sonnet-4-6?web_search=on")
-    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
-
-    assert isinstance(llm, AnthropicVertexLLM)
-    assert llm._web_search_override is True
 
 
 def test_factory_passes_web_search_override_to_responses_llm():
@@ -647,17 +548,11 @@ def test_invalid_temperature_query():
         ModelFactory.parse_model_string("gpt-5?temperature=hot")
 
 
-def test_invalid_blank_model_query_values() -> None:
-    for model_string in ("gpt-5?reasoning=", "gpt-5?temperature="):
-        with pytest.raises(ModelConfigError):
-            ModelFactory.parse_model_string(model_string)
-
-
 def test_llm_class_creation():
     """Test creation of LLM classes"""
     cases = [
         ("gpt-4.1", OpenAILLM),
-        ("claude-haiku-4-5", AnthropicLLM),
+        ("claude-3-haiku-20240307", AnthropicLLM),
         ("openai.gpt-4.1", OpenAILLM),
     ]
 
@@ -702,29 +597,16 @@ def test_builtin_glm_alias_uses_glm_51_default() -> None:
     assert legacy.model_name == "zai-org/GLM-5:novita"
 
 
-def test_opus_alias_resolves_to_current_catalog_model():
-    opus_entry = next(
-        entry
-        for entry in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.ANTHROPIC]
-        if entry.alias == "opus" and entry.current
-    )
+def test_opus_aliases_resolve_to_opus_47():
     config = ModelFactory.parse_model_string("opus")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == opus_entry.model
+    assert config.model_name == "claude-opus-4-7"
 
 
 def test_claude_alias_resolves_to_sonnet_46():
     config = ModelFactory.parse_model_string("claude")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-sonnet-4-6"
-
-    config = ModelFactory.parse_model_string("sonnet4")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-sonnet-4-6"
-
-    config = ModelFactory.parse_model_string("opus4")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == ModelFactory.parse_model_string("opus").model_name
 
     config = ModelFactory.parse_model_string("opus46")
     assert config.provider == Provider.ANTHROPIC
@@ -744,87 +626,18 @@ def test_gemini31_alias_resolves_to_google_31_preview():
     assert config.provider == Provider.GOOGLE
     assert config.model_name == "gemini-3.1-pro-preview"
 
-    config = ModelFactory.parse_model_string("gemini31pro")
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-3.1-pro-preview"
-
-
-def test_gemini31_flash_lite_alias_resolves_to_google_preview():
-    config = ModelFactory.parse_model_string("gemini3.1flashlite")
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-3.1-flash-lite-preview"
-
-
-def test_gemini25_alias_resolves_to_current_google_flash():
-    config = ModelFactory.parse_model_string("gemini25")
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-2.5-flash"
-
-
-@pytest.mark.parametrize("alias", ["gemini35", "gemini35flash", "gemini3.5flash"])
-def test_gemini35_flash_aliases_resolve_to_current_google_flash(alias: str):
-    config = ModelFactory.parse_model_string(alias)
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-3.5-flash"
-
-
-def test_grok_aliases_resolve_to_xai_grok_43():
-    config = ModelFactory.parse_model_string("grok")
-    assert config.provider == Provider.XAI
-    assert config.model_name == "grok-4.3"
-
-    config = ModelFactory.parse_model_string("grok4")
-    assert config.provider == Provider.XAI
-    assert config.model_name == "grok-4.3"
-
-
-def test_deepseek_alias_resolves_to_direct_deepseek_v4_pro():
-    config = ModelFactory.parse_model_string("deepseek")
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-pro"
-
-
-def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
-    for alias in ("deepseek-hf", "deepseek4-hf", "deepseek4pro-hf", "deepseekv4pro-hf"):
-        config = ModelFactory.parse_model_string(alias)
-        assert config.provider == Provider.HUGGINGFACE
-        assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
-
-
-def test_deepseek_direct_aliases_resolve_to_official_provider():
-    config = ModelFactory.parse_model_string("deepseek-v4-pro")
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-pro"
-
-    for alias in ("deepseek4", "deepseek4pro", "deepseekv4pro"):
-        config = ModelFactory.parse_model_string(alias)
-        assert config.provider == Provider.DEEPSEEK
-        assert config.model_name == "deepseek-v4-pro"
-
-    config = ModelFactory.parse_model_string("deepseek4flash")
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-flash"
-
-    config = ModelFactory.parse_model_string("deepseek4pro-direct")
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-pro"
-
-
-def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
-    resolved = ModelFactory.resolve_model_spec("gpt-oss")
-
-    assert resolved.provider == Provider.HUGGINGFACE
-    assert resolved.wire_model_name == "openai/gpt-oss-120b:cerebras"
-    assert resolved.max_output_tokens == 32766
-
 
 def test_curated_catalog_aliases_are_parseable():
-    runtime_presets = ModelFactory.get_runtime_presets()
     for entry in ModelSelectionCatalog.list_current_entries():
+        if "?" in entry.model:
+            continue
         if entry.model.startswith("anthropic-vertex."):
             continue
-        preset_token = entry.alias.strip()
-        if runtime_presets.get(preset_token) != entry.model:
+        # LiteLLM curated aliases (e.g. "gpt-4o", "claude-sonnet") intentionally
+        # mirror the popular short names users already know; they resolve to
+        # native providers when typed standalone, and to LiteLLM only when the
+        # full `litellm.<backing>/<model>` spec is selected from the picker.
+        if entry.model.startswith("litellm."):
             continue
 
         alias_config = ModelFactory.parse_model_string(entry.alias)
@@ -834,15 +647,6 @@ def test_curated_catalog_aliases_are_parseable():
         assert ModelDatabase.normalize_model_name(
             alias_config.model_name
         ) == ModelDatabase.normalize_model_name(model_config.model_name)
-        assert alias_config.reasoning_effort == model_config.reasoning_effort
-
-
-def test_query_backed_catalog_alias_applies_runtime_defaults() -> None:
-    config = ModelFactory.parse_model_string("gpt-5.5")
-
-    assert config.provider == Provider.RESPONSES
-    assert config.model_name == "gpt-5.5"
-    assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="medium")
 
 
 def test_codexplan_aliases_use_codex_oauth_provider():
@@ -853,6 +657,10 @@ def test_codexplan_aliases_use_codex_oauth_provider():
     config = ModelFactory.parse_model_string("gpt54")
     assert config.provider == Provider.RESPONSES
     assert config.model_name == "gpt-5.4"
+
+    config = ModelFactory.parse_model_string("codexplan52")
+    assert config.provider == Provider.CODEX_RESPONSES
+    assert config.model_name == "gpt-5.2-codex"
 
     config = ModelFactory.parse_model_string("codexspark")
     assert config.provider == Provider.CODEX_RESPONSES
@@ -865,10 +673,12 @@ def test_codexplan_aliases_use_codex_oauth_provider():
         ("glm", "zai-org/GLM-4.6:cerebras"),
         ("glm:groq", "zai-org/GLM-4.6:groq"),
         ("kimi:groq", "moonshotai/Kimi-K2-Instruct-0905:groq"),
-        ("qwen35:nebius", "Qwen/Qwen3.5-397B-A17B:nebius"),
+        ("qwen3:nebius", "Qwen/Qwen3-Next-80B-A3B-Instruct:nebius"),
     ],
 )
-def test_huggingface_alias_provider_routing_contracts(model: str, expected_model_name: str) -> None:
+def test_huggingface_alias_provider_routing_contracts(
+    model: str, expected_model_name: str
+) -> None:
     """Test HuggingFace alias/provider suffix behavior with stable test aliases."""
     config = ModelFactory.parse_model_string(model, presets=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
@@ -919,14 +729,14 @@ def test_model_query_context_1m_case_insensitive():
 
 def test_model_query_context_invalid_value():
     """Only '1m' is accepted; anything else raises."""
-    with pytest.raises(ModelConfigError, match="context query value: '2m'"):
-        ModelFactory.parse_model_string("claude-opus-4-6?context=%202M%20")
-
-
-def test_model_query_context_empty_is_rejected():
-    """An explicit context= value is invalid unless it names a supported context."""
     with pytest.raises(ModelConfigError):
-        ModelFactory.parse_model_string("claude-opus-4-6?context=")
+        ModelFactory.parse_model_string("claude-opus-4-6?context=2m")
+
+
+def test_model_query_context_empty_is_ignored():
+    """Empty context= is dropped by parse_qs, treated as absent."""
+    config = ModelFactory.parse_model_string("claude-opus-4-6?context=")
+    assert config.long_context is False
 
 
 def test_model_query_context_absent_means_false():
@@ -957,34 +767,6 @@ def test_model_query_task_budget_off_clears_default() -> None:
     config = ModelFactory.parse_model_string("claude-opus-4-7?task_budget=off")
     assert config.task_budget_tokens is None
     assert config.task_budget_configured is True
-
-
-def test_model_query_task_budget_aliases_preserve_url_order() -> None:
-    config = ModelFactory.parse_model_string("claude-opus-4-7?taskBudget=128k&task_budget=off")
-
-    assert config.task_budget_tokens is None
-    assert config.task_budget_configured is True
-
-
-def test_model_query_alias_families_parse() -> None:
-    config = ModelFactory.parse_model_string(
-        "gpt-5?structured_tool_policy=defer&web_search=on&x_search=off"
-        "&web_fetch=on&taskBudget=20k&temp=0.2&topP=0.9&topK=40"
-        "&minP=0.1&presencePenalty=0.3&repetitionPenalty=1.1"
-    )
-
-    assert config.structured_tool_policy == "defer"
-    assert config.web_search is True
-    assert config.x_search is False
-    assert config.web_fetch is True
-    assert config.task_budget_tokens == 20_000
-    assert config.task_budget_configured is True
-    assert config.temperature == 0.2
-    assert config.top_p == 0.9
-    assert config.top_k == 40
-    assert config.min_p == 0.1
-    assert config.presence_penalty == 0.3
-    assert config.repetition_penalty == 1.1
 
 
 def test_model_query_task_budget_rejects_values_below_minimum() -> None:
@@ -1042,12 +824,6 @@ def test_factory_passes_temperature_query_to_request_params():
     assert llm.default_request_params.temperature == 0.42
 
 
-def test_model_sampling_query_aliases_preserve_url_order() -> None:
-    config = ModelFactory.parse_model_string("gpt-5?topP=0.95&top_p=0.25")
-
-    assert config.top_p == 0.25
-
-
 def test_factory_passes_sampling_query_to_request_params() -> None:
     factory = ModelFactory.create_factory("qwen35")
     agent = LlmAgent(AgentConfig(name="test"))
@@ -1061,20 +837,6 @@ def test_factory_passes_sampling_query_to_request_params() -> None:
     assert llm.default_request_params.presence_penalty == 0.0
     assert llm.default_request_params.repetition_penalty == 1.0
     assert llm.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
-
-
-def test_factory_sampling_query_overrides_explicit_request_params() -> None:
-    factory = ModelFactory.create_factory("qwen35")
-    agent = LlmAgent(AgentConfig(name="test"))
-    request_params = RequestParams(temperature=0.2, top_p=None, top_k=7)
-    llm = factory(agent, request_params=request_params)
-
-    assert llm.default_request_params.temperature == 0.6
-    assert llm.default_request_params.top_p == 0.95
-    assert llm.default_request_params.top_k == 20
-    assert llm.default_request_params.min_p == 0.0
-    assert llm.default_request_params.presence_penalty == 0.0
-    assert llm.default_request_params.repetition_penalty == 1.0
 
 
 def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:

@@ -276,6 +276,116 @@ class ModelSelectionCatalog:
                 model="groq.deepseek-r1-distill-llama-70b",
             ),
         ),
+        # LiteLLM curated set spans the major backing providers so the picker
+        # shows a useful default list when LiteLLM is focused. Use `c` to flip
+        # to the all-catalog scope (~2k models pulled from the LiteLLM SDK).
+        Provider.LITELLM: (
+            CatalogModelEntry(
+                alias="gpt-4o",
+                display_label="OpenAI GPT-4o",
+                model="litellm.openai/gpt-4o",
+            ),
+            CatalogModelEntry(
+                alias="gpt-4o-mini",
+                display_label="OpenAI GPT-4o mini",
+                model="litellm.openai/gpt-4o-mini",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="claude-sonnet",
+                display_label="Anthropic Claude Sonnet",
+                model="litellm.anthropic/claude-sonnet-4-6",
+            ),
+            CatalogModelEntry(
+                alias="claude-haiku",
+                display_label="Anthropic Claude Haiku",
+                model="litellm.anthropic/claude-haiku-4-5",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="claude-opus",
+                display_label="Anthropic Claude Opus",
+                model="litellm.anthropic/claude-opus-4-7",
+            ),
+            CatalogModelEntry(
+                alias="gemini-2.5-pro",
+                display_label="Google Gemini 2.5 Pro",
+                model="litellm.gemini/gemini-2.5-pro",
+            ),
+            CatalogModelEntry(
+                alias="gemini-2.5-flash",
+                display_label="Google Gemini 2.5 Flash",
+                model="litellm.gemini/gemini-2.5-flash",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="vertex-sonnet",
+                display_label="Vertex AI Claude Sonnet",
+                model="litellm.vertex_ai/claude-sonnet-4-5",
+            ),
+            CatalogModelEntry(
+                alias="bedrock-sonnet",
+                display_label="Bedrock Claude Sonnet",
+                model="litellm.bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0",
+            ),
+            CatalogModelEntry(
+                alias="azure-gpt-4o",
+                display_label="Azure GPT-4o",
+                model="litellm.azure/gpt-4o",
+            ),
+            CatalogModelEntry(
+                alias="cohere-command-r",
+                display_label="Cohere Command R+",
+                model="litellm.cohere/command-r-plus-08-2024",
+            ),
+            CatalogModelEntry(
+                alias="mistral-large",
+                display_label="Mistral Large",
+                model="litellm.mistral/mistral-large-latest",
+            ),
+            CatalogModelEntry(
+                alias="together-llama",
+                display_label="Together Llama 3.3 70B",
+                model="litellm.together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            ),
+            CatalogModelEntry(
+                alias="groq-llama",
+                display_label="Groq Llama 3.3 70B",
+                model="litellm.groq/llama-3.3-70b-versatile",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="cerebras-llama",
+                display_label="Cerebras Llama 3.3 70B",
+                model="litellm.cerebras/llama-3.3-70b",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="deepseek-chat",
+                display_label="DeepSeek Chat",
+                model="litellm.deepseek/deepseek-chat",
+            ),
+            CatalogModelEntry(
+                alias="xai-grok",
+                display_label="xAI Grok 4",
+                model="litellm.xai/grok-4",
+            ),
+            CatalogModelEntry(
+                alias="perplexity-sonar",
+                display_label="Perplexity Sonar",
+                model="litellm.perplexity/sonar",
+            ),
+            CatalogModelEntry(
+                alias="fireworks-llama",
+                display_label="Fireworks Llama 3.3 70B",
+                model="litellm.fireworks_ai/accounts/fireworks/models/llama-v3p3-70b-instruct",
+            ),
+            CatalogModelEntry(
+                alias="databricks-claude",
+                display_label="Databricks Claude Sonnet",
+                model="litellm.databricks/databricks-claude-3-7-sonnet",
+            ),
+        ),
         Provider.FAST_AGENT: (
             CatalogModelEntry(
                 alias="passthrough",
