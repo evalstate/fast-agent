@@ -323,10 +323,18 @@ Install GEPA and Trackio support with the `gepa` optional dependency:
 uv add "fast-agent-mcp[gepa]"
 ```
 
-This currently installs GEPA from the Trackio integration branch while that
-support is landing upstream. See the
-[Extension Reference](../ref/extension_reference/#gepa) for the exact dependency
-set and adapter class signatures.
+PyPI packages cannot declare direct Git dependencies in extras, so the published
+extra depends on the latest PyPI GEPA release plus Trackio. Trackio-specific GEPA
+helpers require a GEPA release with Trackio support; until that support is
+available on PyPI, install the integration branch in your application
+environment:
+
+```bash
+uv add "gepa @ git+https://github.com/evalstate/gepa.git@feat/trackio"
+```
+
+See the [Extension Reference](../ref/extension_reference/#gepa) for the exact
+dependency set and adapter class signatures.
 
 For row-oriented evaluators, use the public batch adapter instead of
 hand-rolling candidate directories, subprocess calls, JSONL parsing, summary

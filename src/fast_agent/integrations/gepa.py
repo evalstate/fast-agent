@@ -27,7 +27,9 @@ NumericMetric: TypeAlias = int | float
 GEPA_EXTRA_REQUIREMENTS = {"gepa": "gepa"}
 GEPA_EXTRA_INSTALL_MESSAGE = (
     'Install fast-agent with the GEPA extra, "fast-agent-mcp[gepa]", '
-    "in the environment where fast-agent runs."
+    "in the environment where fast-agent runs. Trackio-specific GEPA helpers require "
+    "a GEPA release with Trackio support; until that is released, install GEPA from "
+    "the Trackio integration branch in your application environment."
 )
 
 
@@ -692,11 +694,14 @@ def _evaluation_batch(
             objective_scores=objective_scores,
             num_metric_calls=num_metric_calls,
         )
-    except TypeError as exc:
-        raise GEPAIntegrationError(
-            "GEPA is installed, but gepa.core.adapter.EvaluationBatch does not accept "
-            "the row-wise adapter payload expected by fast-agent."
-        ) from exc
+    except TypeError:
+        return _fallback_evaluation_batch(
+            outputs=outputs,
+            scores=scores,
+            trajectories=trajectories,
+            objective_scores=objective_scores,
+            num_metric_calls=num_metric_calls,
+        )
 
 
 def _fallback_evaluation_batch(
