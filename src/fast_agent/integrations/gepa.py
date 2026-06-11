@@ -9,6 +9,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
 
@@ -21,6 +22,35 @@ if TYPE_CHECKING:
 
 
 JsonRow: TypeAlias = dict[str, Any]
+
+GEPA_EXTRA_REQUIREMENTS = {"gepa": "gepa"}
+GEPA_EXTRA_INSTALL_MESSAGE = (
+    'Install fast-agent with the GEPA extra, "fast-agent-mcp[gepa]", '
+    "in the environment where fast-agent runs."
+)
+
+
+class GEPAIntegrationError(RuntimeError):
+    """Raised when an installed GEPA package does not provide the expected API."""
+
+
+def missing_gepa_dependencies() -> list[str]:
+    """Return package names missing for GEPA optimizer integration."""
+
+    return [
+        package for module, package in GEPA_EXTRA_REQUIREMENTS.items() if find_spec(module) is None
+    ]
+
+
+def format_missing_gepa_dependencies(packages: list[str]) -> str:
+    """Render an actionable missing-dependency error for GEPA optimizer workflows."""
+
+    package_lines = "\n".join(f"  - {package}" for package in packages)
+    return (
+        "GEPA optimization requires optional dependencies that are not installed:\n"
+        f"{package_lines}\n\n"
+        f"{GEPA_EXTRA_INSTALL_MESSAGE}"
+    )
 
 
 class BatchScorer(Protocol):
@@ -483,24 +513,53 @@ def _evaluation_batch(
 ) -> Any:
     try:
         adapter_module = importlib.import_module("gepa.core.adapter")
-    except ImportError:
-        return _FallbackEvaluationBatch(
-            outputs=outputs,
-            scores=scores,
-            trajectories=trajectories,
-            objective_scores=objective_scores,
-            num_metric_calls=num_metric_calls,
-        )
+    except ImportError as exc:
+        if missing_gepa_dependencies():
+            return _fallback_evaluation_batch(
+                outputs=outputs,
+                scores=scores,
+                trajectories=trajectories,
+                objective_scores=objective_scores,
+                num_metric_calls=num_metric_calls,
+            )
+        raise GEPAIntegrationError(
+            "GEPA is installed, but fast-agent could not import gepa.core.adapter. "
+            f"{GEPA_EXTRA_INSTALL_MESSAGE}"
+        ) from exc
+    except Exception as exc:
+        raise GEPAIntegrationError(
+            f"GEPA is installed, but loading gepa.core.adapter failed. {GEPA_EXTRA_INSTALL_MESSAGE}"
+        ) from exc
     evaluation_batch = adapter_module.__dict__.get("EvaluationBatch")
     if not callable(evaluation_batch):
-        return _FallbackEvaluationBatch(
+        raise GEPAIntegrationError(
+            "GEPA is installed, but gepa.core.adapter.EvaluationBatch is unavailable. "
+            "Install a GEPA version that provides the row-wise adapter API."
+        )
+    try:
+        return evaluation_batch(
             outputs=outputs,
             scores=scores,
             trajectories=trajectories,
             objective_scores=objective_scores,
             num_metric_calls=num_metric_calls,
         )
-    return evaluation_batch(
+    except TypeError as exc:
+        raise GEPAIntegrationError(
+            "GEPA is installed, but gepa.core.adapter.EvaluationBatch does not accept "
+            "the row-wise adapter payload expected by fast-agent."
+        ) from exc
+
+
+def _fallback_evaluation_batch(
+    *,
+    outputs: list[Any],
+    scores: list[float],
+    trajectories: list[Any] | None,
+    objective_scores: list[dict[str, float]] | None,
+    num_metric_calls: int,
+) -> _FallbackEvaluationBatch:
+    return _FallbackEvaluationBatch(
         outputs=outputs,
         scores=scores,
         trajectories=trajectories,

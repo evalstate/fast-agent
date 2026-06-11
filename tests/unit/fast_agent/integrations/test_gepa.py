@@ -1,4 +1,6 @@
+import os
 import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -10,6 +12,7 @@ from fast_agent.integrations.gepa import (
     FastAgentRowWiseBatchAdapter,
     RowWiseEvaluationRun,
     RowWiseScore,
+    _evaluation_batch,
 )
 
 
@@ -189,3 +192,61 @@ def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(t
         "exact": 0.0,
     }
     assert reflective["policy"][0]["selected_row_score"] == 0.0
+
+
+def test_evaluation_batch_falls_back_when_gepa_is_not_installed():
+    batch = _evaluation_batch(
+        outputs=[{"ok": True}],
+        scores=[1.0],
+        trajectories=None,
+        objective_scores=[{"gepa_score": 1.0}],
+        num_metric_calls=1,
+    )
+
+    assert batch.outputs == [{"ok": True}]
+    assert batch.scores == [1.0]
+    assert batch.objective_scores == [{"gepa_score": 1.0}]
+    assert batch.num_metric_calls == 1
+
+
+def test_evaluation_batch_rejects_incompatible_gepa_package(tmp_path):
+    package_root = tmp_path / "packages"
+    adapter_path = package_root / "gepa" / "core" / "adapter.py"
+    adapter_path.parent.mkdir(parents=True)
+    (package_root / "gepa" / "__init__.py").write_text("", encoding="utf-8")
+    (package_root / "gepa" / "core" / "__init__.py").write_text("", encoding="utf-8")
+    adapter_path.write_text("class NotEvaluationBatch:\n    pass\n", encoding="utf-8")
+
+    code = """
+from fast_agent.integrations.gepa import GEPAIntegrationError, _evaluation_batch
+try:
+    _evaluation_batch(
+        outputs=[],
+        scores=[],
+        trajectories=None,
+        objective_scores=[],
+        num_metric_calls=0,
+    )
+except GEPAIntegrationError as exc:
+    print(str(exc))
+else:
+    raise SystemExit("expected GEPAIntegrationError")
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).parents[4],
+        env={
+            **os.environ,
+            "PYTHONPATH": (
+                f"{package_root}{os.pathsep}{os.environ['PYTHONPATH']}"
+                if "PYTHONPATH" in os.environ
+                else str(package_root)
+            ),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert "gepa.core.adapter.EvaluationBatch is unavailable" in completed.stdout
