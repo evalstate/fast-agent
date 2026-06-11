@@ -163,6 +163,9 @@ prompt-server = "fast_agent.mcp.prompts.__main__:main"
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+extend-exclude = [
+    "docs/docs/assets/gepa-monty-runs/**/candidate-*/*.monty.py",
+]
 
 [tool.ruff.lint]
 select = [

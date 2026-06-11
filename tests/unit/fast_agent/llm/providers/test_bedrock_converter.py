@@ -187,7 +187,6 @@ def test_bedrock_nova_inference_config_normalizes_model_name() -> None:
 
     assert reasoning_budget == 0
     assert converse_args["inferenceConfig"] == {
-        "maxTokens": 2048,
         "temperature": 0.2,
         "topP": 1.0,
     }

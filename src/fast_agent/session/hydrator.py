@@ -520,7 +520,8 @@ class SessionHydrator:
         request_settings: SessionRequestSettingsSnapshot,
     ) -> None:
         params = self._base_request_params(agent)
-        params.maxTokens = request_settings.max_tokens or params.maxTokens
+        if request_settings.max_tokens is not None:
+            params.maxTokens = request_settings.max_tokens
         params.temperature = request_settings.temperature
         params.top_p = request_settings.top_p
         params.top_k = request_settings.top_k

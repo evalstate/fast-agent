@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from fast_agent.llm.fastagent_llm import FastAgentLLM, _mcp_metadata_var
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import BatchRequestContext, RequestParams
 from fast_agent.mcp.prompt import Prompt
@@ -276,6 +277,29 @@ class TestRequestParamsInLLM:
         assert "use_history" not in result  # Should be excluded
         assert "max_iterations" not in result  # Should be excluded
         assert "parallel_tool_calls" not in result  # Should be excluded
+
+    def test_openai_request_omits_unset_max_tokens(self):
+        llm = OpenAILLM(model="unknown-model")
+
+        result = llm._prepare_api_request(
+            [{"role": "user", "content": "hi"}],
+            None,
+            RequestParams(model="unknown-model"),
+        )
+
+        assert "max_tokens" not in result
+        assert "max_completion_tokens" not in result
+
+    def test_responses_request_omits_unset_max_tokens(self):
+        llm = ResponsesLLM(model="unknown-model")
+
+        result = llm._build_response_args(
+            [{"role": "user", "content": "hi"}],
+            RequestParams(model="unknown-model"),
+            None,
+        )
+
+        assert "max_output_tokens" not in result
 
     def test_anthropic_provider_arguments(self):
         """Test prepare_provider_arguments with Anthropic provider"""

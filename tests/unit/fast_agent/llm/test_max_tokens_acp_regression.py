@@ -55,21 +55,19 @@ def test_request_params_exclude_unset_tracks_only_explicit_max_tokens(
     assert params.model_dump(exclude_unset=True) == expected_dump
 
 
-def test_request_params_dump_recreate_turns_default_max_tokens_into_explicit_field() -> None:
+def test_request_params_dump_recreate_preserves_unset_max_tokens_as_none() -> None:
     """
     Document the bug shape that originally caused ACP to reset model-aware limits.
 
-    A RequestParams created with only systemPrompt has the class default
-    maxTokens=2048, but that value is *unset*. Dumping and recreating the model
-    turns maxTokens into an explicitly set field, so later merges may override
-    the model-aware value unless maxTokens is excluded.
+    A RequestParams created with only systemPrompt should not acquire a small
+    maxTokens fallback through dump/recreate flows.
     """
 
     original = RequestParams(systemPrompt="test")
     recreated = RequestParams(**original.model_dump(exclude={"model"}))
 
     assert "maxTokens" in recreated.model_dump(exclude_unset=True)
-    assert recreated.maxTokens == 2048
+    assert recreated.maxTokens is None
 
 
 @pytest.mark.parametrize(

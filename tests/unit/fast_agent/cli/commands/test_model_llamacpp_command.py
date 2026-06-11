@@ -192,9 +192,8 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
         server.close()
 
     assert result.exit_code == 0, result.stdout
-    assert server.state.request_paths[:3] == ["/v1/models", "/props", "/slots"]
-    assert server.state.auth_headers[:3] == [
-        "Bearer test-token",
+    assert server.state.request_paths[:2] == ["/v1/models", "/props"]
+    assert server.state.auth_headers[:2] == [
         "Bearer test-token",
         "Bearer test-token",
     ]
@@ -208,13 +207,13 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
     assert payload["connection"]["base_url"] == f"{server.base_url}/v1"
     assert payload["connection"]["auth"] == "env"
     assert payload["connection"]["api_key_env"] == "LLAMA_CPP_TOKEN"
-    assert payload["defaults"]["max_tokens"] == 2048
+    assert "max_tokens" not in payload["defaults"]
     assert "temperature" not in payload["defaults"]
     assert "top_k" not in payload["defaults"]
     assert "top_p" not in payload["defaults"]
     assert "min_p" not in payload["defaults"]
     assert payload["metadata"]["context_window"] == 75264
-    assert payload["metadata"]["max_output_tokens"] == 2048
+    assert "max_output_tokens" not in payload["metadata"]
     assert payload["metadata"]["tokenizes"] == [
         "text/plain",
         "image/jpeg",
@@ -228,7 +227,7 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
     assert "copied the server's current sampling defaults" not in result.stdout
 
 
-def test_model_llamacpp_import_tolerates_null_props_params_and_uses_slots_fallback(
+def test_model_llamacpp_import_tolerates_null_props_params_without_slots_fallback(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -261,10 +260,12 @@ def test_model_llamacpp_import_tolerates_null_props_params_and_uses_slots_fallba
     assert result.exit_code == 0, result.stdout
     overlay_path = env_dir / "model-overlays" / "qwen-local.yaml"
     payload = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
-    assert payload["defaults"]["max_tokens"] == 2048
+    assert "max_tokens" not in payload["defaults"]
     assert "temperature" not in payload["defaults"]
     assert payload["metadata"]["context_window"] == 262144
+    assert "max_output_tokens" not in payload["metadata"]
     assert "Context window: 262144 (catalog fallback; /props reported none)" in result.stdout
+    assert "/slots" not in server.state.request_paths
 
     registry = load_model_overlay_registry(start_path=workspace, env_dir=env_dir)
     loaded = registry.resolve_model_string("qwen-local")
@@ -368,7 +369,7 @@ def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) ->
         server.close()
 
     assert result.exit_code == 0, result.stdout
-    assert server.state.request_paths[:3] == ["/v1/models", "/props", "/slots"]
+    assert server.state.request_paths[:2] == ["/v1/models", "/props"]
 
     overlay_path = env_dir / "model-overlays" / "group-first.yaml"
     assert overlay_path.exists()

@@ -335,9 +335,9 @@ def test_model_database_max_tokens():
     assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
     assert ModelDatabase.get_default_max_tokens("Qwen/Qwen3.5-397B-A17B:novita") == 65536
 
-    # Test fallbacks
-    assert ModelDatabase.get_default_max_tokens("unknown-model") == 2048
-    assert ModelDatabase.get_default_max_tokens("") == 2048
+    # Unknown models should omit max_tokens rather than inventing a small cap.
+    assert ModelDatabase.get_default_max_tokens("unknown-model") is None
+    assert ModelDatabase.get_default_max_tokens("") is None
 
 
 def test_model_database_default_temperature():

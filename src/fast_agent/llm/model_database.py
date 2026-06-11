@@ -1275,15 +1275,15 @@ class ModelDatabase:
         return params.stream_mode if params else "openai"
 
     @classmethod
-    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int:
+    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int | None:
         """Get default max_tokens for RequestParams based on model"""
         if not model:
-            return 2048  # Fallback when no model specified
+            return None
 
         params = cls.get_model_params(model, provider=provider)
         if params:
             return params.max_output_tokens
-        return 2048  # Fallback for unknown models
+        return None
 
     @classmethod
     def get_default_temperature(
