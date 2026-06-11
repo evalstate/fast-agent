@@ -53,6 +53,7 @@
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
+| `gemma4` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `gemma4?reasoning=off` | — | — |
 | `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
 | `glm` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm?reasoning=off` | — | — |

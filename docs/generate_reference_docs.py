@@ -977,6 +977,7 @@ def _load_model_factory_constants(
 
         from fast_agent.llm.model_database import ModelDatabase
         from fast_agent.llm.model_factory import ModelFactory
+        from fast_agent.llm.model_selection import ModelSelectionCatalog
         from fast_agent.llm.provider_types import Provider
 
         provider_names = {provider.value for provider in Provider}
@@ -990,6 +991,14 @@ def _load_model_factory_constants(
             for model_name in ModelDatabase.MODELS
             if (provider := ModelDatabase.get_default_provider(model_name)) is not None
         }
+        for entry in ModelSelectionCatalog.list_current_entries():
+            alias = entry.alias.strip()
+            if (
+                alias
+                and alias not in default_providers
+                and not any(character.isspace() for character in alias)
+            ):
+                model_aliases.setdefault(alias, entry.model)
         return model_aliases, default_providers, set(), provider_names
     except Exception:
         pass
@@ -1110,55 +1119,6 @@ def generate_model_alias_table(
     return _format_alias_table(list(entries.items()), two_column=two_column)
 
 
-def generate_openai_merged_table(*, repo_root: Path) -> str:
-    """
-    Generate a merged OpenAI + Responses table.
-
-    Models from the Responses provider are marked with (*) since they use
-    the OpenAI Responses API but are commonly thought of as "OpenAI models".
-    """
-    model_aliases, default_providers, effort_suffixes, provider_names = (
-        _load_model_factory_constants(repo_root)
-    )
-
-    entries: dict[str, str] = {}
-    responses_entries: set[str] = set()  # Track which entries are via Responses
-
-    # Include models from both openai and responses providers
-    for provider in ("openai", "responses"):
-        for model_name, default_provider in default_providers.items():
-            if default_provider == provider and _include_default_model_name(provider, model_name):
-                entries[model_name] = model_name
-                if provider == "responses":
-                    responses_entries.add(model_name)
-
-    # Include aliases that resolve to openai or responses
-    for alias, target in model_aliases.items():
-        inferred = _infer_provider_for_model_string(
-            target,
-            default_providers=default_providers,
-            provider_names=provider_names,
-            effort_suffixes=effort_suffixes,
-        )
-        if inferred in ("openai", "responses"):
-            # Strip provider prefix for cleaner display (e.g., "responses.gpt-5.1" -> "gpt-5.1")
-            display_target = target
-            for prefix in ("responses.", "openai."):
-                if display_target.startswith(prefix):
-                    display_target = display_target[len(prefix) :]
-                    break
-            entries[alias] = display_target
-            if inferred == "responses":
-                responses_entries.add(alias)
-
-    table = _format_alias_table(
-        list(entries.items()), two_column=False, marked_entries=responses_entries
-    )
-    # Add footnote
-    table += "\n\\* _Via OpenAI Responses API_\n"
-    return table
-
-
 def generate_current_model_table(provider_name: str) -> str:
     from fast_agent.llm.model_selection import ModelSelectionCatalog
     from fast_agent.llm.provider_types import Provider
@@ -1213,11 +1173,6 @@ def main() -> int:
             two_column=True,
             repo_root=repo_root,
         ),
-    )
-    # OpenAI table merges openai + responses providers, with (*) marking Responses models
-    _write(
-        GENERATED_DIR / "model_aliases_openai.md",
-        generate_openai_merged_table(repo_root=repo_root),
     )
     # Keep Codex OAuth aliases in a dedicated include so provider docs can embed
     # a focused table (`codexplan`, `codexplan54`, etc.) instead of relying only

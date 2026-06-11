@@ -42,6 +42,7 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
+    assert ModelDatabase.get_context_window("google/gemma-4-31B-it:novita") == 262144
     assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
     assert ModelDatabase.get_context_window("deepseek-v4-flash") == 1_048_576
     assert ModelDatabase.get_context_window("deepseek-v4-pro") == 1_048_576
@@ -109,6 +110,7 @@ def test_model_database_default_provider_lookup():
         == Provider.HUGGINGFACE
     )
     assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
+    assert ModelDatabase.get_default_provider("google/gemma-4-31B-it") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
 
 
@@ -234,6 +236,20 @@ def test_huggingface_kimi25_uses_schema_mode() -> None:
     assert params is not None
     assert params.json_mode == "schema"
     assert params.structured_tool_policy is None
+
+
+def test_huggingface_gemma4_31b_metadata() -> None:
+    params = ModelDatabase.get_model_params("google/gemma-4-31B-it:novita")
+
+    assert params is not None
+    assert params.context_window == 262_144
+    assert params.max_output_tokens == 65_536
+    assert params.json_mode == "schema"
+    assert params.structured_tool_policy == "no_tools"
+    assert params.reasoning == "reasoning_content"
+    assert params.reasoning_effort_spec is not None
+    assert ModelDatabase.supports_mime("google/gemma-4-31B-it", "image/png")
+    assert not ModelDatabase.supports_mime("google/gemma-4-31B-it", "audio/mpeg")
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
@@ -801,6 +817,33 @@ def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_disabled(
 
 def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_enabled():
     llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=True)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_gemma4_reasoning_toggle_uses_chat_template_kwargs_enabled():
+    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it", reasoning=True)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_gemma4_reasoning_toggle_uses_chat_template_kwargs_disabled():
+    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_huggingface_gemma4_default_reasoning_emits_chat_template_kwargs_enabled():
+    llm = _make_hf_llm("google/gemma-4-31B-it")
 
     args = _hf_request_args(llm)
     extra_body = args.get("extra_body")

@@ -112,11 +112,13 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         disable_reasoning = not bool(effective.value)
         uses_kimi_25_chat_toggle = self._uses_kimi_25_chat_toggle(arguments.get("model"))
         uses_kimi_26_chat_toggle = self._uses_kimi_26_chat_toggle(arguments.get("model"))
-        uses_qwen_chat_toggle = self._uses_qwen_chat_template_toggle(arguments.get("model"))
+        uses_chat_template_enable_thinking = self._uses_enable_thinking_chat_template_toggle(
+            arguments.get("model")
+        )
         if (
             not uses_kimi_25_chat_toggle
             and not uses_kimi_26_chat_toggle
-            and not uses_qwen_chat_toggle
+            and not uses_chat_template_enable_thinking
             and not disable_reasoning
             and self.reasoning_effort is None
         ):
@@ -140,7 +142,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
                 self._set_chat_template_kwarg(extra_body, "thinking", False)
                 arguments["extra_body"] = extra_body
             return
-        if uses_qwen_chat_toggle:
+        if uses_chat_template_enable_thinking:
             self._set_chat_template_kwarg(
                 extra_body,
                 "enable_thinking",
@@ -180,10 +182,13 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         return ModelDatabase.normalize_model_name(model) == "moonshotai/kimi-k2.6"
 
     @staticmethod
-    def _uses_qwen_chat_template_toggle(model: str | None) -> bool:
+    def _uses_enable_thinking_chat_template_toggle(model: str | None) -> bool:
         if not model:
             return False
-        return ModelDatabase.normalize_model_name(model) == "qwen/qwen3.5-397b-a17b"
+        return ModelDatabase.normalize_model_name(model) in {
+            "qwen/qwen3.5-397b-a17b",
+            "google/gemma-4-31b-it",
+        }
 
     def _resolve_default_provider(self) -> str | None:
         config_provider = None
