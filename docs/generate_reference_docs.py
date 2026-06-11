@@ -71,7 +71,9 @@ def _clean_signature_text(text: str) -> str:
     return (
         text.replace("collections.abc.Callable", "Callable")
         .replace("collections.abc.Coroutine", "Coroutine")
+        .replace("pathlib._local.Path", "pathlib.Path")
         .replace("typing.Any", "Any")
+        .replace("\"'BatchBackend'\"", "BatchBackend")
     )
 
 
@@ -382,6 +384,90 @@ def generate_harness_reference() -> str:
             "RuntimeError: Session 'support-123' is running generate; wait before deleting it.",
         )
     )
+    return "".join(lines)
+
+
+def _format_constructor_signature(name: str, cls: Any) -> str:
+    return _format_method_signature(name, cls.__init__)
+
+
+def generate_extension_reference() -> str:
+    from fast_agent.integrations.gepa import (
+        FastAgentBatchEvaluator,
+        FastAgentReflectionLM,
+        FastAgentRowWiseBatchAdapter,
+        RowWiseEvaluationRun,
+        RowWiseScore,
+    )
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py\n")
+    lines.append("-->\n\n")
+
+    lines.append("## GEPA integration adapters\n\n")
+    lines.append(
+        "Import GEPA helpers from `fast_agent.integrations.gepa`. These adapters keep\n"
+        "fast-agent responsible for batch execution, artifact paths, and reflection LM\n"
+        "calls while leaving scoring policy in your evaluator code.\n\n"
+    )
+
+    lines.append("### `FastAgentReflectionLM`\n\n")
+    lines.append(
+        "Synchronous language-model callable for GEPA reflection calls backed by\n"
+        "`fast-agent go`. It writes prompt, request, response, timing, stdout/stderr,\n"
+        "error, and usage artifacts under `audit_dir`.\n\n"
+    )
+    lines.append(_md_code("python", _format_constructor_signature("FastAgentReflectionLM", FastAgentReflectionLM)))
+    lines.append(_md_code("python", _format_method_signature("reflection_lm.__call__", FastAgentReflectionLM.__call__)))
+
+    lines.append("### `FastAgentBatchEvaluator`\n\n")
+    lines.append(
+        "Aggregate GEPA evaluator for `gepa.optimize_anything.optimize_anything`: one\n"
+        "candidate runs one full fast-agent batch and returns one `(score, side_info)`\n"
+        "pair. Use this when the primary metric is corpus-level.\n\n"
+    )
+    lines.append(_md_code("python", _format_constructor_signature("FastAgentBatchEvaluator", FastAgentBatchEvaluator)))
+    lines.append(_md_code("python", _format_method_signature("evaluator.__call__", FastAgentBatchEvaluator.__call__)))
+
+    lines.append("### `FastAgentRowWiseBatchAdapter`\n\n")
+    lines.append(
+        "Lower-level GEPA adapter protocol implementation for `gepa.api.optimize`: GEPA\n"
+        "supplies minibatches of input rows, fast-agent runs each minibatch through\n"
+        "`BatchRunner`, and your `row_scorer` returns one score/trajectory per row.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature("FastAgentRowWiseBatchAdapter", FastAgentRowWiseBatchAdapter),
+        )
+    )
+    lines.append(_md_code("python", _format_method_signature("adapter.evaluate", FastAgentRowWiseBatchAdapter.evaluate)))
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature(
+                "adapter.make_reflective_dataset",
+                FastAgentRowWiseBatchAdapter.make_reflective_dataset,
+            ),
+        )
+    )
+
+    lines.append("### `RowWiseScore`\n\n")
+    lines.append(
+        "`row_scorer` may return `RowWiseScore`, a bare float, `(score, trajectory)`,\n"
+        "or `(score, trajectory, objective_scores)`. `objective_scores` values should\n"
+        "be higher-is-better because GEPA uses them for frontier tracking.\n\n"
+    )
+    lines.append(_md_code("python", _format_constructor_signature("RowWiseScore", RowWiseScore)))
+
+    lines.append("### `RowWiseEvaluationRun`\n\n")
+    lines.append(
+        "Metadata passed to each `row_scorer` call for the current minibatch evaluation.\n\n"
+    )
+    lines.append(_md_code("python", _format_constructor_signature("RowWiseEvaluationRun", RowWiseEvaluationRun)))
+
     return "".join(lines)
 
 
@@ -1144,6 +1230,7 @@ def main() -> int:
             generate_fastagent_harness_method_reference(),
         )
         _write(GENERATED_DIR / "harness_reference.md", generate_harness_reference())
+        _write(GENERATED_DIR / "extension_reference.md", generate_extension_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
         _write(

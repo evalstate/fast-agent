@@ -55,14 +55,16 @@ The core pattern is:
 
 ## Pick the evidence shape: rows or artifacts
 
-GEPA only requires an evaluator with one shape: `candidate -> (score,
-side_info)`. Philosophically, batch and artifact evals are the same kind of
-optimization loop. Practically, fast-agent GEPA loops almost always split by the
-evidence they produce.
+GEPA loops need a candidate, a score, and enough evidence for reflection.
+Practically, fast-agent GEPA loops split by the evidence they produce and by the
+GEPA API shape they use.
 
-**Batch-focused evals** run the same worker over many independent rows, then
-score the output JSONL. Use this shape for classification, extraction,
-labeling, routing, grading, and other dataset-style tasks.
+**Aggregate batch evals** run the same worker over many independent rows, then
+score the output JSONL as one candidate result. Use this shape for
+classification, extraction, labeling, routing, grading, and other dataset-style
+tasks where the main signal is corpus-level. This is the
+`candidate -> (score, side_info)` shape used by
+`FastAgentBatchEvaluator` and GEPA's `optimize_anything()`.
 
 ```text
 candidate instructions/card variables
@@ -70,6 +72,20 @@ candidate instructions/card variables
   -> results.jsonl + summary/telemetry
   -> deterministic scorer
   -> score + ASI
+```
+
+**Row-wise batch evals** still use fast-agent batch execution, but expose each
+input row as a GEPA optimization instance. Use this when GEPA should sample
+minibatches, compare per-row scores, and reflect over row-level trajectories.
+This is the adapter protocol shape used by `FastAgentRowWiseBatchAdapter` and
+GEPA's `gepa.api.optimize()`.
+
+```text
+candidate instructions/card variables + GEPA minibatch rows
+  -> fast-agent batch run over that minibatch
+  -> aligned per-row outputs
+  -> row scorer
+  -> per-row scores + trajectories + objective scores
 ```
 
 **Artifact-focused evals** ask the task model to create files or other
@@ -85,12 +101,13 @@ candidate skill/card/prompt files
   -> score + ASI
 ```
 
-The evaluator contract is the same in both cases. The operational details are
-different: batch evals usually center on `results.jsonl`; artifact evals usually
-center on generated files, checker reports, screenshots, logs, or test output.
-Keep candidate materialization isolated, write every prompt/result/report to a
-candidate directory, and make the scorer produce compact evidence that the
-reflection model can act on.
+The evidence hygiene is the same in every mode even when the GEPA API shape is
+different. Keep candidate materialization isolated, write every
+prompt/result/report to a candidate or evaluation directory, and make the
+scorer produce compact evidence that the reflection model can act on. Batch
+evals usually center on `results.jsonl`; row-wise evals center on minibatch
+JSONL plus per-row trajectories; artifact evals center on generated files,
+checker reports, screenshots, logs, or test output.
 
 ## Start with a batch evaluator
 
@@ -273,6 +290,17 @@ abort the optimization without evidence.
 
 ## Call fast-agent from GEPA
 
+Install GEPA and Trackio support with the `gepa` optional dependency:
+
+```bash
+uv add "fast-agent-mcp[gepa]"
+```
+
+This currently installs GEPA from the Trackio integration branch while that
+support is landing upstream. See the
+[Extension Reference](../ref/extension_reference/#gepa) for the exact dependency
+set and adapter class signatures.
+
 For row-oriented evaluators, use the public batch adapter instead of
 hand-rolling candidate directories, subprocess calls, JSONL parsing, summary
 paths, and telemetry paths.
@@ -436,6 +464,9 @@ result = optimize(
     cache_evaluation=True,
 )
 ```
+
+See the [Extension Reference](../ref/extension_reference/#gepa-integration-adapters)
+for the generated signatures of the GEPA adapter classes.
 
 Use row-wise mode when the row is the natural optimization instance and GEPA
 should reflect over row-level successes/failures. Keep aggregate metrics such as

@@ -72,6 +72,10 @@ textual = [
 batch-parquet = [
     "duckdb>=1.4",
 ]
+gepa = [
+    "gepa @ git+https://github.com/evalstate/gepa.git@feat/trackio",
+    "trackio>=0.26.0",
+]
 parquet = [
     "duckdb>=1.4",
 ]
@@ -98,6 +102,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.custom]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build]
 include = [
