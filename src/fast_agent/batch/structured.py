@@ -10,6 +10,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, TypeAlias, cast
@@ -100,6 +101,7 @@ class StructuredBatchOptions:
     progress_label: str | None = None
     variables: dict[str, str] | None = None
     trackio: BatchTrackioOptions | None = None
+    monitor: BatchMonitor | None = None
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,132 @@ class ParallelManifest:
     input_rows: int
     selected_rows: int
     shards: list[BatchShard]
+
+
+@dataclass
+class _UsageTotalsSnapshot:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    billing_tokens: int = 0
+    reasoning_tokens: int = 0
+    tool_use_tokens: int = 0
+    tool_calls: int = 0
+    rows_with_usage: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_hit_tokens: int = 0
+    effective_input_tokens: int = 0
+    rows_with_cache_activity: int = 0
+
+
+@dataclass
+class _ShardMonitorSnapshot:
+    processed_rows: int = 0
+    skipped_rows: int = 0
+    failed_rows: int = 0
+    timing_duration_count: int = 0
+    timing_ttft_count: int = 0
+    timing_time_to_response_count: int = 0
+    usage: _UsageTotalsSnapshot = dataclass_field(default_factory=_UsageTotalsSnapshot)
+
+
+@dataclass
+class _ParallelMonitorState:
+    monitor: BatchMonitor
+    summary: BatchSummary
+
+
+class _ParallelShardMonitor:
+    def __init__(self, state: _ParallelMonitorState) -> None:
+        self._state = state
+        self._snapshot = _ShardMonitorSnapshot()
+
+    def start(self, options: StructuredBatchOptions, selected_rows: int) -> None:
+        pass
+
+    def row(self, summary: BatchSummary) -> None:
+        aggregate = self._state.summary
+        aggregate.processed_rows += summary.processed_rows - self._snapshot.processed_rows
+        aggregate.skipped_rows += summary.skipped_rows - self._snapshot.skipped_rows
+        aggregate.failed_rows += summary.failed_rows - self._snapshot.failed_rows
+        aggregate.timing_duration_ms.extend(
+            summary.timing_duration_ms[self._snapshot.timing_duration_count :]
+        )
+        aggregate.timing_ttft_ms.extend(summary.timing_ttft_ms[self._snapshot.timing_ttft_count :])
+        aggregate.timing_time_to_response_ms.extend(
+            summary.timing_time_to_response_ms[
+                self._snapshot.timing_time_to_response_count :
+            ]
+        )
+        _add_usage_totals_delta(
+            aggregate.usage_totals,
+            current=summary.usage_totals,
+            previous=self._snapshot.usage,
+        )
+        self._snapshot = _snapshot_shard_summary(summary)
+        self._state.monitor.row(aggregate)
+
+    def complete(self, payload: Mapping[str, Any]) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def _snapshot_usage_totals(totals: BatchUsageTotals) -> _UsageTotalsSnapshot:
+    return _UsageTotalsSnapshot(
+        input_tokens=totals.input_tokens,
+        output_tokens=totals.output_tokens,
+        total_tokens=totals.total_tokens,
+        billing_tokens=totals.billing_tokens,
+        reasoning_tokens=totals.reasoning_tokens,
+        tool_use_tokens=totals.tool_use_tokens,
+        tool_calls=totals.tool_calls,
+        rows_with_usage=totals.rows_with_usage,
+        cache_read_tokens=totals.cache_read_tokens,
+        cache_write_tokens=totals.cache_write_tokens,
+        cache_hit_tokens=totals.cache_hit_tokens,
+        effective_input_tokens=totals.effective_input_tokens,
+        rows_with_cache_activity=totals.rows_with_cache_activity,
+    )
+
+
+def _snapshot_shard_summary(summary: BatchSummary) -> _ShardMonitorSnapshot:
+    return _ShardMonitorSnapshot(
+        processed_rows=summary.processed_rows,
+        skipped_rows=summary.skipped_rows,
+        failed_rows=summary.failed_rows,
+        timing_duration_count=len(summary.timing_duration_ms),
+        timing_ttft_count=len(summary.timing_ttft_ms),
+        timing_time_to_response_count=len(summary.timing_time_to_response_ms),
+        usage=_snapshot_usage_totals(summary.usage_totals),
+    )
+
+
+def _add_usage_totals_delta(
+    target: BatchUsageTotals,
+    *,
+    current: BatchUsageTotals,
+    previous: _UsageTotalsSnapshot,
+) -> None:
+    target.input_tokens += current.input_tokens - previous.input_tokens
+    target.output_tokens += current.output_tokens - previous.output_tokens
+    target.total_tokens += current.total_tokens - previous.total_tokens
+    target.billing_tokens += current.billing_tokens - previous.billing_tokens
+    target.reasoning_tokens += current.reasoning_tokens - previous.reasoning_tokens
+    target.tool_use_tokens += current.tool_use_tokens - previous.tool_use_tokens
+    target.tool_calls += current.tool_calls - previous.tool_calls
+    target.rows_with_usage += current.rows_with_usage - previous.rows_with_usage
+    target.cache_read_tokens += current.cache_read_tokens - previous.cache_read_tokens
+    target.cache_write_tokens += current.cache_write_tokens - previous.cache_write_tokens
+    target.cache_hit_tokens += current.cache_hit_tokens - previous.cache_hit_tokens
+    target.effective_input_tokens += (
+        current.effective_input_tokens - previous.effective_input_tokens
+    )
+    target.rows_with_cache_activity += (
+        current.rows_with_cache_activity - previous.rows_with_cache_activity
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -791,7 +919,7 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
         options,
         f"start selected_rows={len(selected)} output={options.output_path}",
     )
-    monitor = create_batch_monitor(options)
+    monitor = options.monitor or create_batch_monitor(options)
     monitor.start(options, len(selected))
 
     try:
@@ -902,7 +1030,7 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
     else:
         selected_rows = input_counts.selected_rows
 
-    monitor = create_batch_monitor(options)
+    monitor = options.monitor or create_batch_monitor(options)
     monitor.start(options, selected_rows)
     try:
         return await _run_parallel_structured_batch_started(
@@ -955,6 +1083,15 @@ async def _run_parallel_structured_batch_started(
         f"planned {len(shards)} shards for {selected_rows} selected rows work_dir={work_dir}",
     )
 
+    monitor_state = _ParallelMonitorState(
+        monitor=monitor,
+        summary=BatchSummary(
+            input_rows=input_counts.input_rows,
+            selected_rows=selected_rows,
+            started_at=started_at,
+            metadata={},
+        ),
+    )
     shard_tasks = []
     for shard in shards:
         _emit_progress(
@@ -964,7 +1101,15 @@ async def _run_parallel_structured_batch_started(
                 f"limit={shard.limit} output={shard.output_path}"
             ),
         )
-        shard_tasks.append(run_structured_batch(_shard_options(options, shard)))
+        shard_tasks.append(
+            run_structured_batch(
+                _shard_options(
+                    options,
+                    shard,
+                    monitor=_ParallelShardMonitor(monitor_state),
+                )
+            )
+        )
 
     try:
         shard_summaries = await asyncio.gather(*shard_tasks)
@@ -1132,7 +1277,12 @@ def _plan_parallel_shards(
     return shards
 
 
-def _shard_options(options: StructuredBatchOptions, shard: BatchShard) -> StructuredBatchOptions:
+def _shard_options(
+    options: StructuredBatchOptions,
+    shard: BatchShard,
+    *,
+    monitor: BatchMonitor,
+) -> StructuredBatchOptions:
     return replace(
         options,
         output_path=shard.output_path,
@@ -1151,6 +1301,7 @@ def _shard_options(options: StructuredBatchOptions, shard: BatchShard) -> Struct
         keep_temp=True,
         progress_label=f"shard {shard.index}",
         trackio=None,
+        monitor=monitor,
     )
 
 

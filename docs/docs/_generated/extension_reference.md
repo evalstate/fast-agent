@@ -85,10 +85,18 @@ FastAgentRowWiseBatchAdapter(
 )
 ```
 ```python
-adapter.evaluate(batch: list[JsonRow], candidate: dict[str, str], capture_traces: bool = False) -> Any
+adapter.evaluate(
+    batch: list[JsonRow],
+    candidate: dict[str, str],
+    capture_traces: bool = False
+) -> Any
 ```
 ```python
-adapter.make_reflective_dataset(candidate: dict[str, str], eval_batch: Any, components_to_update: list[str]) -> Mapping[str, Sequence[Mapping[str, Any]]]
+adapter.make_reflective_dataset(
+    candidate: dict[str, str],
+    eval_batch: Any,
+    components_to_update: list[str]
+) -> Mapping[str, Sequence[Mapping[str, Any]]]
 ```
 ### `RowWiseScore`
 
@@ -108,7 +116,12 @@ RowWiseScore(
 Metadata passed to each `row_scorer` call for the current minibatch evaluation.
 
 ```python
-RowWiseEvaluationRun(index: int, path: Path, input_path: Path, result: BatchRunResult) -> None
+RowWiseEvaluationRun(
+    index: int,
+    path: Path,
+    input_path: Path,
+    result: BatchRunResult
+) -> None
 ```
 ### Trackio helpers
 

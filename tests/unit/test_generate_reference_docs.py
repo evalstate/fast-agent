@@ -67,6 +67,30 @@ def test_compact_signature_defaults_elides_long_string_defaults() -> None:
     assert compact.parameters["instruction"].default == "..."
 
 
+def test_prefixed_method_signatures_wrap_to_documented_width() -> None:
+    from fast_agent.integrations.gepa import FastAgentRowWiseBatchAdapter
+
+    generator = _load_generator()
+
+    signatures = [
+        generator._format_method_signature(
+            "adapter.evaluate",
+            FastAgentRowWiseBatchAdapter.evaluate,
+        ),
+        generator._format_method_signature(
+            "adapter.make_reflective_dataset",
+            FastAgentRowWiseBatchAdapter.make_reflective_dataset,
+        ),
+    ]
+
+    assert all("\n" in signature for signature in signatures)
+    assert all(
+        len(line) <= generator.SIGNATURE_MAX_WIDTH
+        for signature in signatures
+        for line in signature.splitlines()
+    )
+
+
 def test_current_model_table_uses_current_catalog_entries() -> None:
     generator = _load_generator()
 

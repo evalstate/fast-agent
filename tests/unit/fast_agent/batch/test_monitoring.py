@@ -79,6 +79,35 @@ def test_usage_totals_aggregate_openai_turn_cached_prompt_tokens() -> None:
     assert totals.cache_block()["hit_rate_percent"] == 40.0
 
 
+def test_usage_totals_prefer_turn_usage_over_cumulative_summary() -> None:
+    totals = BatchUsageTotals()
+
+    totals.add_row_usage(
+        {
+            "turn": {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+            "summary": {
+                "cumulative_input_tokens": 10,
+                "cumulative_output_tokens": 2,
+                "cumulative_total_tokens": 12,
+            },
+        }
+    )
+    totals.add_row_usage(
+        {
+            "turn": {"input_tokens": 20, "output_tokens": 3, "total_tokens": 23},
+            "summary": {
+                "cumulative_input_tokens": 30,
+                "cumulative_output_tokens": 5,
+                "cumulative_total_tokens": 35,
+            },
+        }
+    )
+
+    assert totals.usage_block(processed_rows=2)["input_tokens"] == 30
+    assert totals.usage_block(processed_rows=2)["output_tokens"] == 5
+    assert totals.usage_block(processed_rows=2)["total_tokens"] == 35
+
+
 def test_usage_totals_aggregate_google_turn_cached_content_tokens() -> None:
     totals = BatchUsageTotals()
 

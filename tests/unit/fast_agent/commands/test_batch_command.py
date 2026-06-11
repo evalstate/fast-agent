@@ -1,12 +1,16 @@
 import asyncio
 import json
 import sys
+from collections.abc import Mapping
 from io import BytesIO
+from typing import Any
 
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import fast_agent.io.source_resolver as source_resolver
 from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
+from fast_agent.batch.summary import BatchSummary
 from fast_agent.cli.commands.batch import _build_trackio_options
 from fast_agent.cli.main import app
 
@@ -17,6 +21,25 @@ class FakeHfFileSystem:
 
     def open(self, path: str, mode: str = "rb") -> BytesIO:
         return BytesIO(self.files[path])
+
+
+class RecordingBatchMonitor:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, int]] = []
+
+    def start(self, options: StructuredBatchOptions, selected_rows: int) -> None:
+        self.events.append(("start", selected_rows))
+
+    def row(self, summary: BatchSummary) -> None:
+        self.events.append(("row", summary.processed_rows))
+
+    def complete(self, payload: Mapping[str, Any]) -> None:
+        processed_rows = payload.get("processed_rows")
+        assert isinstance(processed_rows, int)
+        self.events.append(("complete", processed_rows))
+
+    def close(self) -> None:
+        self.events.append(("close", 0))
 
 
 def test_batch_run_direct_mode_with_passthrough(tmp_path):
@@ -149,7 +172,7 @@ def test_batch_trackio_every_must_be_positive(tmp_path):
     )
 
     assert result.exit_code != 0
-    assert "--trackio-every must be greater than zero" in result.output
+    assert "--trackio-every must be greater than zero" in strip_ansi(result.output)
 
 
 def test_batch_trackio_detail_options_require_project(tmp_path):
@@ -645,6 +668,45 @@ def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["parallel"] == 2
     assert summary["selected_rows"] == 4
+
+
+def test_batch_run_parallel_reports_aggregate_monitor_row_progress(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    summary_path = tmp_path / "summary.json"
+    work_dir = tmp_path / "work"
+    monitor = RecordingBatchMonitor()
+
+    input_path.write_text(
+        "\n".join(json.dumps({"id": str(index), "x": index}) for index in range(4)) + "\n",
+        encoding="utf-8",
+    )
+
+    asyncio.run(
+        run_parallel_structured_batch(
+            StructuredBatchOptions(
+                input_path=input_path,
+                output_path=output_path,
+                model="passthrough",
+                id_field="id",
+                summary_output_path=summary_path,
+                final_summary=False,
+                environment_dir=env_dir,
+                parallel=2,
+                work_dir=work_dir,
+                keep_temp=True,
+                progress=False,
+                monitor=monitor,
+            )
+        )
+    )
+
+    assert ("complete", 4) in monitor.events
+    row_progress = [processed for event, processed in monitor.events if event == "row"]
+    assert row_progress
+    assert row_progress[-1] == 4
 
 
 def test_batch_run_parallel_rejects_final_output_inside_work_dir(tmp_path):

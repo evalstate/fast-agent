@@ -347,12 +347,12 @@ def merge_usage_totals_from_summaries(summaries: Sequence[Mapping[str, Any]]) ->
 def _usage_source(usage: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
     if usage is None:
         return None
-    summary = _mapping(usage.get("summary"))
-    if summary is not None:
-        return summary
     turn = _mapping(usage.get("turn"))
     if turn is not None:
         return turn
+    summary = _mapping(usage.get("summary"))
+    if summary is not None:
+        return summary
     if any(
         key in usage
         for key in (

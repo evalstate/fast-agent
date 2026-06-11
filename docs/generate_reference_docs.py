@@ -14,6 +14,7 @@ from pydantic_core import PydanticUndefined
 
 DOCS_ROOT = Path(__file__).resolve().parent
 GENERATED_DIR = DOCS_ROOT / "docs" / "_generated"
+SIGNATURE_MAX_WIDTH = 88
 
 
 def _find_fast_agent_repo() -> Path:
@@ -97,8 +98,18 @@ def _compact_signature_defaults(sig: inspect.Signature) -> inspect.Signature:
     return sig.replace(parameters=params)
 
 
+def _prefixed_signature_width(name: str) -> int:
+    # `inspect.Signature.format()` only sees the parenthesized signature, not the
+    # callable name we prepend in the generated docs. Account for that prefix so
+    # reference signatures wrap before the rendered code block needs horizontal
+    # scrolling.
+    return max(1, SIGNATURE_MAX_WIDTH - len(name))
+
+
 def _format_signature(name: str, func: Any) -> str:
-    sig = _compact_signature_defaults(inspect.signature(func)).format(max_width=88)
+    sig = _compact_signature_defaults(inspect.signature(func)).format(
+        max_width=_prefixed_signature_width(name)
+    )
     sig = _wrap_workflow_return_annotation(_clean_signature_text(sig))
     return f"{name}{sig}"
 
@@ -185,7 +196,7 @@ def _signature_without_self(func: Any) -> inspect.Signature:
 
 
 def _format_method_signature(name: str, func: Any) -> str:
-    sig = _signature_without_self(func).format(max_width=88)
+    sig = _signature_without_self(func).format(max_width=_prefixed_signature_width(name))
     text = _clean_signature_text(sig)
     text = re.sub(r" -> \"'([^']+)'\"", r" -> \1", text)
     text = re.sub(r": '([^']+)'", r": \1", text)
