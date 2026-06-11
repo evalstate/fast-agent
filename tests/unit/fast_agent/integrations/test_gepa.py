@@ -1,7 +1,16 @@
 import subprocess
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
 
 from fast_agent.batch import BatchRunResult
-from fast_agent.integrations.gepa import FastAgentBatchEvaluator, FastAgentReflectionLM
+from fast_agent.integrations.gepa import (
+    FastAgentBatchEvaluator,
+    FastAgentReflectionLM,
+    FastAgentRowWiseBatchAdapter,
+    RowWiseEvaluationRun,
+    RowWiseScore,
+)
 
 
 def test_reflection_lm_writes_audit_files(tmp_path):
@@ -72,3 +81,111 @@ def test_batch_evaluator_allocates_candidate_and_scores(monkeypatch, tmp_path):
     assert evaluator({"policy": "route A"}) == (1.0, "matched")
     assert captured["variables"] == {"policy": "route A"}
     assert (tmp_path / "runs" / "candidate-0001" / "score.json").exists()
+
+
+class RecordingBatchRunner:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def run(self, **kwargs):
+        self.calls.append(kwargs)
+        rows = [
+            {
+                "id": "row-2",
+                "ok": True,
+                "input": {"id": "row-2", "expected": "B"},
+                "result": {"label": "B"},
+            },
+            {
+                "id": "row-1",
+                "ok": True,
+                "input": {"id": "row-1", "expected": "A"},
+                "result": {"label": "C"},
+            },
+        ]
+        output_path = Path(kwargs["output_path"])
+        output_path.write_text(
+            "".join(f"{row}\n" for row in rows),
+            encoding="utf-8",
+        )
+        return BatchRunResult(
+            rows=rows,
+            output_path=output_path,
+            summary={"processed_rows": 2},
+            telemetry_path=kwargs["telemetry_path"],
+            error_output_path=None,
+            summary_path=kwargs["summary_path"],
+        )
+
+
+def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(tmp_path):
+    runner = RecordingBatchRunner()
+
+    def runner_factory(env_dir, *, backend):
+        assert env_dir == tmp_path / "env"
+        assert backend == "harness"
+        return runner
+
+    def row_scorer(
+        output_row: dict[str, Any],
+        input_row: dict[str, Any],
+        candidate: Mapping[str, str],
+        evaluation: RowWiseEvaluationRun,
+    ) -> RowWiseScore:
+        assert candidate == {"policy": "route carefully"}
+        assert evaluation.path.name == "eval-00001"
+        actual = output_row["result"]["label"]
+        expected = input_row["expected"]
+        score = 1.0 if actual == expected else 0.0
+        return RowWiseScore(
+            score=score,
+            trajectory={
+                "scores": {"gepa_score": score, "exact": score},
+                "expected": expected,
+                "actual": actual,
+            },
+            objective_scores={"gepa_score": score, "exact": score},
+        )
+
+    adapter = FastAgentRowWiseBatchAdapter(
+        env_dir=tmp_path / "env",
+        agent_card=tmp_path / "card.md",
+        candidate_variables={"policy": "policy"},
+        template="{{row_json}}",
+        row_scorer=row_scorer,
+        run_dir=tmp_path / "runs",
+        id_field="id",
+        batch_runner_factory=runner_factory,
+    )
+
+    batch = [
+        {"id": "row-1", "expected": "A"},
+        {"id": "row-2", "expected": "B"},
+    ]
+    result = adapter.evaluate(batch, {"policy": "route carefully"}, capture_traces=True)
+
+    assert result.scores == [0.0, 1.0]
+    assert result.objective_scores == [
+        {"gepa_score": 0.0, "exact": 0.0},
+        {"gepa_score": 1.0, "exact": 1.0},
+    ]
+    assert result.num_metric_calls == 2
+    assert result.outputs[0]["id"] == "row-1"
+    assert result.outputs[1]["id"] == "row-2"
+    assert runner.calls[0]["variables"] == {"policy": "route carefully"}
+    assert runner.calls[0]["id_field"] == "id"
+    assert (tmp_path / "runs" / "row-wise-evals" / "eval-00001" / "input.jsonl").exists()
+    assert (tmp_path / "runs" / "row-wise-evals" / "eval-00001" / "row-wise-score.json").exists()
+
+    reflective = adapter.make_reflective_dataset(
+        {"policy": "route carefully"},
+        result,
+        ["policy"],
+    )
+
+    assert list(reflective) == ["policy"]
+    assert reflective["policy"][0]["Scores (Higher is Better)"] == {
+        "gepa_score": 0.0,
+        "exact": 0.0,
+    }
+    assert reflective["policy"][0]["selected_row_score"] == 0.0
