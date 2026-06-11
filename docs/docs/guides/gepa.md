@@ -350,6 +350,100 @@ checker. The checker is the most important part of the loop: it should encode
 the product decision you actually care about and explain failures in language a
 reflection model can act on.
 
+### Use row-wise GEPA when each row is an optimization instance
+
+`FastAgentBatchEvaluator` treats the whole JSONL batch as one GEPA metric call:
+`candidate -> full batch -> one aggregate score + side_info`. That is usually
+the simplest and most stable mode.
+
+GEPA also supports a lower-level adapter protocol where it samples minibatches
+from a trainset and expects **one score per row**. Use
+`FastAgentRowWiseBatchAdapter` for that mode. fast-agent still owns the JSONL
+minibatch file, `BatchRunner` call, result alignment, summaries, telemetry, and
+artifact directories; your code supplies row scoring and row-level trajectories.
+
+```python title="row-wise-gepa.py"
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from gepa.api import optimize
+
+from fast_agent.integrations.gepa import (
+    FastAgentReflectionLM,
+    FastAgentRowWiseBatchAdapter,
+    RowWiseEvaluationRun,
+    RowWiseScore,
+)
+
+
+def score_row(
+    output_row: dict[str, Any],
+    input_row: dict[str, Any],
+    candidate: dict[str, str],
+    evaluation: RowWiseEvaluationRun,
+) -> RowWiseScore:
+    result = output_row.get("result") if isinstance(output_row.get("result"), dict) else {}
+    expected = input_row["expected_label"]
+    actual = result.get("label")
+    score = 1.0 if actual == expected else 0.0
+    return RowWiseScore(
+        score=score,
+        trajectory={
+            "scores": {"gepa_score": score, "row_exact": score},
+            "expected": expected,
+            "actual": actual,
+            "feedback": (
+                "Preserve this row behavior."
+                if score == 1.0
+                else f"Expected {expected!r}, got {actual!r}."
+            ),
+        },
+        objective_scores={"gepa_score": score, "row_exact": score},
+    )
+
+
+adapter = FastAgentRowWiseBatchAdapter(
+    env_dir=".fast-agent",
+    agent_card=".fast-agent/agent-cards/classifier.md",
+    agent="classifier",
+    candidate_variables={"policy": "policy"},
+    template_source="eval/template.md",
+    schema="eval/output.schema.json",
+    model="responses.gpt-5.4-mini",
+    parallel=8,
+    row_scorer=score_row,
+    run_dir=Path("runs/row-wise-gepa"),
+    id_field="id",
+    backend="process",
+)
+
+rows = load_jsonl("eval/train.jsonl")
+
+result = optimize(
+    seed_candidate={"policy": Path("seed/policy.md").read_text(encoding="utf-8")},
+    trainset=rows,
+    valset=rows,
+    adapter=adapter,
+    reflection_lm=FastAgentReflectionLM(
+        env_dir=".fast-agent",
+        model="responses.gpt-5.5?reasoning=high",
+        audit_dir="runs/row-wise-gepa/reflection",
+    ),
+    reflection_minibatch_size=3,
+    max_metric_calls=400,
+    cache_evaluation=True,
+)
+```
+
+Use row-wise mode when the row is the natural optimization instance and GEPA
+should reflect over row-level successes/failures. Keep aggregate metrics such as
+micro-F1, exact-match rate, or average Jaccard in your scorer or Trackio logs as
+needed, but remember that GEPA's adapter protocol accepts per-row scores and
+sums/minibatches them during candidate selection. If your signal is mostly a
+single corpus-level metric, prefer `FastAgentBatchEvaluator`.
+
 For artifact evaluators, use `EvalRun` and `CandidateRun` directly:
 
 ```python title="artifact-evaluator.py"
