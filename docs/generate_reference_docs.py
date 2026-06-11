@@ -419,8 +419,17 @@ def generate_extension_reference() -> str:
         "`fast-agent go`. It writes prompt, request, response, timing, stdout/stderr,\n"
         "error, and usage artifacts under `audit_dir`.\n\n"
     )
-    lines.append(_md_code("python", _format_constructor_signature("FastAgentReflectionLM", FastAgentReflectionLM)))
-    lines.append(_md_code("python", _format_method_signature("reflection_lm.__call__", FastAgentReflectionLM.__call__)))
+    lines.append(
+        _md_code(
+            "python", _format_constructor_signature("FastAgentReflectionLM", FastAgentReflectionLM)
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("reflection_lm.__call__", FastAgentReflectionLM.__call__),
+        )
+    )
 
     lines.append("### `FastAgentBatchEvaluator`\n\n")
     lines.append(
@@ -428,8 +437,18 @@ def generate_extension_reference() -> str:
         "candidate runs one full fast-agent batch and returns one `(score, side_info)`\n"
         "pair. Use this when the primary metric is corpus-level.\n\n"
     )
-    lines.append(_md_code("python", _format_constructor_signature("FastAgentBatchEvaluator", FastAgentBatchEvaluator)))
-    lines.append(_md_code("python", _format_method_signature("evaluator.__call__", FastAgentBatchEvaluator.__call__)))
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature("FastAgentBatchEvaluator", FastAgentBatchEvaluator),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("evaluator.__call__", FastAgentBatchEvaluator.__call__),
+        )
+    )
 
     lines.append("### `FastAgentRowWiseBatchAdapter`\n\n")
     lines.append(
@@ -440,10 +459,17 @@ def generate_extension_reference() -> str:
     lines.append(
         _md_code(
             "python",
-            _format_constructor_signature("FastAgentRowWiseBatchAdapter", FastAgentRowWiseBatchAdapter),
+            _format_constructor_signature(
+                "FastAgentRowWiseBatchAdapter", FastAgentRowWiseBatchAdapter
+            ),
         )
     )
-    lines.append(_md_code("python", _format_method_signature("adapter.evaluate", FastAgentRowWiseBatchAdapter.evaluate)))
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("adapter.evaluate", FastAgentRowWiseBatchAdapter.evaluate),
+        )
+    )
     lines.append(
         _md_code(
             "python",
@@ -466,7 +492,11 @@ def generate_extension_reference() -> str:
     lines.append(
         "Metadata passed to each `row_scorer` call for the current minibatch evaluation.\n\n"
     )
-    lines.append(_md_code("python", _format_constructor_signature("RowWiseEvaluationRun", RowWiseEvaluationRun)))
+    lines.append(
+        _md_code(
+            "python", _format_constructor_signature("RowWiseEvaluationRun", RowWiseEvaluationRun)
+        )
+    )
 
     return "".join(lines)
 

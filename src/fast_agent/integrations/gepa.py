@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import subprocess
 import sys
@@ -73,7 +74,9 @@ class BatchRunnerFactory(Protocol):
     def __call__(self, env_dir: Path | None, *, backend: "BatchBackend") -> BatchRunner: ...
 
 
-CommandRunner = Callable[[Sequence[str], Path | None, float | None], subprocess.CompletedProcess[str]]
+CommandRunner = Callable[
+    [Sequence[str], Path | None, float | None], subprocess.CompletedProcess[str]
+]
 
 
 @dataclass(frozen=True)
@@ -479,7 +482,7 @@ def _evaluation_batch(
     num_metric_calls: int,
 ) -> Any:
     try:
-        from gepa.core.adapter import EvaluationBatch
+        adapter_module = importlib.import_module("gepa.core.adapter")
     except ImportError:
         return _FallbackEvaluationBatch(
             outputs=outputs,
@@ -488,7 +491,16 @@ def _evaluation_batch(
             objective_scores=objective_scores,
             num_metric_calls=num_metric_calls,
         )
-    return EvaluationBatch(
+    evaluation_batch = adapter_module.__dict__.get("EvaluationBatch")
+    if not callable(evaluation_batch):
+        return _FallbackEvaluationBatch(
+            outputs=outputs,
+            scores=scores,
+            trajectories=trajectories,
+            objective_scores=objective_scores,
+            num_metric_calls=num_metric_calls,
+        )
+    return evaluation_batch(
         outputs=outputs,
         scores=scores,
         trajectories=trajectories,
@@ -530,7 +542,9 @@ def _align_output_rows(
 ) -> list[JsonRow]:
     if id_field is None:
         return [
-            output_rows[index] if index < len(output_rows) else _missing_output_row(input_row, id_field)
+            output_rows[index]
+            if index < len(output_rows)
+            else _missing_output_row(input_row, id_field)
             for index, input_row in enumerate(input_rows)
         ]
 

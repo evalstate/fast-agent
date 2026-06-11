@@ -172,6 +172,7 @@ line-length = 100
 target-version = "py313"
 extend-exclude = [
     "docs/docs/assets/gepa-monty-runs/**/candidate-*/*.monty.py",
+    "skills-repo/**",
 ]
 
 [tool.ruff.lint]
