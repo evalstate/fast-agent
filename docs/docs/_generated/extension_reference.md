@@ -110,3 +110,67 @@ Metadata passed to each `row_scorer` call for the current minibatch evaluation.
 ```python
 RowWiseEvaluationRun(index: int, path: Path, input_path: Path, result: BatchRunResult) -> None
 ```
+### Trackio helpers
+
+Trackio helpers provide fast-agent defaults for GEPA dashboards. Use
+`gepa_trackio_init_kwargs()` when your script initializes Trackio, use
+`gepa_api_trackio_kwargs()` with `gepa.api.optimize()`, and use
+`make_gepa_tracking_config()` with `optimize_anything()`.
+
+```python
+gepa_trackio_init_kwargs(
+    *,
+    project: str = 'fast-agent-gepa',
+    name: str | None = None,
+    group: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    embed: bool = False,
+    auto_log_gpu: bool = False,
+    **overrides: Any
+) -> dict[str, Any]
+```
+```python
+gepa_api_trackio_kwargs(
+    *,
+    project: str = 'fast-agent-gepa',
+    name: str | None = None,
+    group: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    step_metric: str = 'gepa/iteration',
+    key_prefix: str = 'gepa/',
+    attach_existing: bool = False,
+    **trackio_init_overrides: Any
+) -> dict[str, Any]
+```
+```python
+make_gepa_tracking_config(
+    *,
+    project: str = 'fast-agent-gepa',
+    name: str | None = None,
+    group: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    step_metric: str = 'gepa/iteration',
+    key_prefix: str = 'gepa/',
+    attach_existing: bool = False,
+    **trackio_init_overrides: Any
+) -> Any
+```
+### Evaluator metric helpers
+
+`gepa_numeric_metrics()` flattens `side_info['scores']`,
+`side_info['score_details']`, and `side_info['raw_metrics']` into
+Trackio-friendly numeric metrics. `safe_trackio_log()` logs them without
+making Trackio a hard dependency of evaluator code.
+
+```python
+gepa_numeric_metrics(
+    side_info: Mapping[str, Any],
+    *,
+    score_prefix: str = 'candidate/',
+    detail_prefix: str = 'candidate/detail/',
+    raw_prefix: str = 'candidate/raw/'
+) -> dict[str, NumericMetric]
+```
+```python
+safe_trackio_log(payload: Mapping[str, Any], *, step: int | None = None) -> bool
+```

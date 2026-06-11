@@ -154,6 +154,26 @@ Appending and de-duplicating result rows into a Hugging Face dataset is not impl
 `--parallel` cannot be combined with `--sql`, `--sample`, `--max-errors`, or
 `--export-traces`.
 
+### Trackio monitoring
+
+Trackio is optional and explicit opt-in. Install `fast-agent-mcp[trackio]` or
+`fast-agent-mcp[gepa]`, then pass `--project` or `--trackio-project`.
+
+| Option                         | Description                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
+| `--project PROJECT`            | Enable Trackio monitoring and set the Trackio project. Alias: `--trackio-project`.          |
+| `--run-name NAME`              | Trackio run name. Alias: `--trackio-name`.                                                  |
+| `--group GROUP`                | Trackio group for repeated runs or phases. Alias: `--trackio-group`.                        |
+| `--trackio-space-id SPACE`     | Optional Trackio / Hugging Face Space id.                                                   |
+| `--trackio-server-url URL`     | Optional Trackio server URL.                                                                |
+| `--trackio-every N`            | Log aggregate progress every `N` processed rows. Defaults to `--progress-every`, then `10`. |
+| `--trackio-config-json PATH`   | Extra JSON object merged into `trackio.init(config=...)`.                                   |
+| `--no-trackio`                 | Explicitly disable Trackio monitoring.                                                      |
+
+Trackio logs aggregate `batch/` metrics only: progress, timing, usage, and
+cache behavior. Row contents, prompts, full outputs, and full errors are not
+logged by default.
+
 ### Trace export
 
 | Option                   | Description                                                                                               |

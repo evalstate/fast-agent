@@ -1575,6 +1575,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         return self._provider_api_key()
 
+    def validate_provider_credentials(self) -> None:
+        """Validate that this provider has a locally configured credential source."""
+        self._api_key()
+
     def _provider_api_key(self):
         from fast_agent.llm.provider_key_manager import ProviderKeyManager
 

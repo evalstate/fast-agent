@@ -174,7 +174,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.106.0"
+version = "0.109.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -186,9 +186,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/69/f1b6b5918d18ab47193bc7dd316bc208bc98decab5cf69b328d8a3e258dc/anthropic-0.106.0.tar.gz", hash = "sha256:f26e2645e31f66eff526b923f539b80b4b6eda1a918790cd77c0afe5e24a2203", size = 855469, upload-time = "2026-06-05T21:13:26.555Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/0b/ce24a4f275573f5e436ca954faca60c759d58ed152b8fa36a1e3b888e261/anthropic-0.109.1.tar.gz", hash = "sha256:83e06b3d9d40ff5898f588020e0cc4e42187de954549a3b5fbe6e2685a09c785", size = 927569, upload-time = "2026-06-09T23:55:24.884Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/7a/8c64e9ba12b16d5d1c64e0fc9da1f32cbf6742f14fe2ad943f83a2ed8639/anthropic-0.106.0-py3-none-any.whl", hash = "sha256:d0e4a7448e54c3942833cee5b3de5f1b31289fd49999bfbcc2ec0c0acaddf75f", size = 838152, upload-time = "2026-06-05T21:13:28.404Z" },
+    { url = "https://files.pythonhosted.org/packages/91/0f/a6110d713370bc92f074a622f8a5ebdec7e92360149b1048dca258a07b2f/anthropic-0.109.1-py3-none-any.whl", hash = "sha256:ce7d94a7657f2aa29338cca448945eac621b4f62c1794cf461cb32847223e9b8", size = 923851, upload-time = "2026-06-09T23:55:23.348Z" },
 ]
 
 [package.optional-dependencies]
@@ -857,6 +857,9 @@ tensorzero = [
 textual = [
     { name = "textual" },
 ]
+trackio = [
+    { name = "trackio" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -880,7 +883,7 @@ requires-dist = [
     { name = "a2a-sdk", specifier = "==1.1.0" },
     { name = "agent-client-protocol", specifier = "==0.10.1" },
     { name = "aiohttp", specifier = "==3.14.0" },
-    { name = "anthropic", extras = ["vertex"], specifier = "==0.106" },
+    { name = "anthropic", extras = ["vertex"], specifier = "==0.109.1" },
     { name = "azure-identity", marker = "extra == 'all-providers'", specifier = ">=1.14.0" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.14.0" },
     { name = "boto3", marker = "extra == 'all-providers'", specifier = ">=1.35.0" },
@@ -929,11 +932,12 @@ requires-dist = [
     { name = "tokenizers", marker = "extra == 'privacy'", specifier = ">=0.22" },
     { name = "tokenizers", marker = "extra == 'privacy-gpu'", specifier = ">=0.22" },
     { name = "trackio", marker = "extra == 'gepa'", specifier = ">=0.26.0" },
+    { name = "trackio", marker = "extra == 'trackio'", specifier = ">=0.26.0" },
     { name = "typer", specifier = "==0.25.1" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = "==0.22.1" },
     { name = "watchfiles", specifier = "==1.2.0" },
 ]
-provides-extras = ["azure", "bedrock", "tensorzero", "textual", "batch-parquet", "gepa", "parquet", "privacy", "privacy-gpu", "all-providers"]
+provides-extras = ["azure", "bedrock", "tensorzero", "textual", "batch-parquet", "gepa", "trackio", "parquet", "privacy", "privacy-gpu", "all-providers"]
 
 [package.metadata.requires-dev]
 dev = [

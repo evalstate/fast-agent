@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 import fast_agent.io.source_resolver as source_resolver
 from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
+from fast_agent.cli.commands.batch import _build_trackio_options
 from fast_agent.cli.main import app
 
 
@@ -95,6 +96,91 @@ def test_batch_run_missing_input_reports_error_without_traceback(tmp_path):
     assert f"Error: Input file not found: {input_path}" in result.output
     assert "Traceback" not in result.output
     assert not output_path.exists()
+
+
+def test_batch_trackio_options_default_to_progress_interval() -> None:
+    options = _build_trackio_options(
+        project="demo",
+        name="run-1",
+        group="phase-a",
+        space_id=None,
+        server_url=None,
+        trackio_every=None,
+        progress_every=25,
+        config={"dataset": "pilot"},
+        disabled=False,
+    )
+
+    assert options is not None
+    assert options.project == "demo"
+    assert options.name == "run-1"
+    assert options.group == "phase-a"
+    assert options.log_every == 25
+    assert options.config == {"dataset": "pilot"}
+
+
+def test_batch_trackio_every_must_be_positive(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    input_path.write_text('{"id":"1"}\n', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--project",
+            "demo",
+            "--trackio-every",
+            "0",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--trackio-every must be greater than zero" in result.output
+
+
+def test_batch_trackio_detail_options_require_project(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    input_path.write_text('{"id":"1"}\n', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--run-name",
+            "run-1",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Trackio options require --project or --trackio-project" in result.output
 
 
 def test_batch_run_parallel_missing_parquet_input_reports_error_without_traceback(tmp_path):

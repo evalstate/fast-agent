@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 
 JsonRow: TypeAlias = dict[str, Any]
+NumericMetric: TypeAlias = int | float
 
 GEPA_EXTRA_REQUIREMENTS = {"gepa": "gepa"}
 GEPA_EXTRA_INSTALL_MESSAGE = (
@@ -51,6 +52,152 @@ def format_missing_gepa_dependencies(packages: list[str]) -> str:
         f"{package_lines}\n\n"
         f"{GEPA_EXTRA_INSTALL_MESSAGE}"
     )
+
+
+def gepa_trackio_init_kwargs(
+    *,
+    project: str = "fast-agent-gepa",
+    name: str | None = None,
+    group: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    embed: bool = False,
+    auto_log_gpu: bool = False,
+    **overrides: Any,
+) -> dict[str, Any]:
+    """Return sensible ``trackio.init`` kwargs for fast-agent GEPA runs.
+
+    The returned mapping is intentionally plain so callers can use it with either
+    a direct ``trackio.init(**kwargs)`` call or GEPA's ``trackio_init_kwargs``.
+    """
+
+    init_kwargs: dict[str, Any] = {
+        "project": project,
+        "embed": embed,
+        "auto_log_gpu": auto_log_gpu,
+    }
+    if name is not None:
+        init_kwargs["name"] = name
+    if group is not None:
+        init_kwargs["group"] = group
+    if config is not None:
+        init_kwargs["config"] = dict(config)
+    init_kwargs.update(overrides)
+    return init_kwargs
+
+
+def gepa_api_trackio_kwargs(
+    *,
+    project: str = "fast-agent-gepa",
+    name: str | None = None,
+    group: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    step_metric: str = "gepa/iteration",
+    key_prefix: str = "gepa/",
+    attach_existing: bool = False,
+    **trackio_init_overrides: Any,
+) -> dict[str, Any]:
+    """Return Trackio kwargs for ``gepa.api.optimize``.
+
+    Use ``attach_existing=True`` when your script has already called
+    ``trackio.init`` and GEPA should log into that active run. Otherwise GEPA
+    will initialize Trackio with the returned ``trackio_init_kwargs``.
+    """
+
+    return {
+        "use_trackio": True,
+        "trackio_init_kwargs": gepa_trackio_init_kwargs(
+            project=project,
+            name=name,
+            group=group,
+            config=config,
+            **trackio_init_overrides,
+        ),
+        "trackio_attach_existing": attach_existing,
+        "trackio_step_metric": step_metric,
+        "tracking_key_prefix": key_prefix,
+    }
+
+
+def make_gepa_tracking_config(
+    *,
+    project: str = "fast-agent-gepa",
+    name: str | None = None,
+    group: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    step_metric: str = "gepa/iteration",
+    key_prefix: str = "gepa/",
+    attach_existing: bool = False,
+    **trackio_init_overrides: Any,
+) -> Any:
+    """Build GEPA's ``TrackingConfig`` with fast-agent Trackio defaults.
+
+    The GEPA import is dynamic so importing ``fast_agent.integrations.gepa`` does
+    not require the optional ``[gepa]`` dependency.
+    """
+
+    try:
+        optimize_anything_module = importlib.import_module("gepa.optimize_anything")
+    except ImportError as exc:
+        raise GEPAIntegrationError(
+            f"GEPA TrackingConfig requires GEPA to be installed. {GEPA_EXTRA_INSTALL_MESSAGE}"
+        ) from exc
+    tracking_config = optimize_anything_module.__dict__.get("TrackingConfig")
+    if not callable(tracking_config):
+        raise GEPAIntegrationError(
+            "GEPA is installed, but gepa.optimize_anything.TrackingConfig is unavailable."
+        )
+    return tracking_config(
+        use_trackio=True,
+        trackio_init_kwargs=gepa_trackio_init_kwargs(
+            project=project,
+            name=name,
+            group=group,
+            config=config,
+            **trackio_init_overrides,
+        ),
+        trackio_attach_existing=attach_existing,
+        trackio_step_metric=step_metric,
+        key_prefix=key_prefix,
+    )
+
+
+def gepa_numeric_metrics(
+    side_info: Mapping[str, Any],
+    *,
+    score_prefix: str = "candidate/",
+    detail_prefix: str = "candidate/detail/",
+    raw_prefix: str = "candidate/raw/",
+) -> dict[str, NumericMetric]:
+    """Flatten GEPA side-info scores/details into Trackio-friendly metrics.
+
+    ``side_info["scores"]`` is treated as frontier-safe, higher-is-better
+    metrics. ``score_details`` and ``raw_metrics`` are treated as diagnostics
+    and logged under separate prefixes.
+    """
+
+    metrics: dict[str, NumericMetric] = {}
+    _extend_numeric_metrics(metrics, side_info.get("scores"), prefix=score_prefix)
+    _extend_numeric_metrics(metrics, side_info.get("score_details"), prefix=detail_prefix)
+    _extend_numeric_metrics(metrics, side_info.get("raw_metrics"), prefix=raw_prefix)
+    return metrics
+
+
+def safe_trackio_log(payload: Mapping[str, Any], *, step: int | None = None) -> bool:
+    """Best-effort Trackio logging for evaluator-specific metrics.
+
+    Returns ``True`` when a Trackio log call was made successfully and ``False``
+    when Trackio is not installed or rejects the payload.
+    """
+
+    try:
+        trackio = importlib.import_module("trackio")
+        log = trackio.__dict__.get("log")
+        if not callable(log):
+            return False
+        log(dict(payload), step=step)
+        return True
+    except Exception:
+        return False
 
 
 class BatchScorer(Protocol):
@@ -438,6 +585,7 @@ class FastAgentRowWiseBatchAdapter:
             "batch_size": len(input_rows),
             "avg_score": sum(scores) / max(1, len(scores)),
             "num_metric_calls": len(input_rows),
+            "objective_averages": _objective_averages(objective_scores),
         }
         (eval_dir / "row-wise-score.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -568,6 +716,23 @@ def _fallback_evaluation_batch(
     )
 
 
+def _extend_numeric_metrics(
+    metrics: dict[str, NumericMetric],
+    values: Any,
+    *,
+    prefix: str,
+) -> None:
+    if not isinstance(values, Mapping):
+        return
+    for key, value in values.items():
+        if isinstance(key, str) and _is_numeric_metric(value):
+            metrics[f"{prefix}{key}"] = value
+
+
+def _is_numeric_metric(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
 def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     path.write_text(
         "".join(json.dumps(dict(row), ensure_ascii=False) + "\n" for row in rows),
@@ -591,6 +756,16 @@ def _parse_row_wise_score(
         trajectory=trajectory,
         objective_scores=objective_scores,
     )
+
+
+def _objective_averages(objective_scores: Sequence[Mapping[str, float]]) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    for row_scores in objective_scores:
+        for key, value in row_scores.items():
+            totals[key] = totals.get(key, 0.0) + value
+            counts[key] = counts.get(key, 0) + 1
+    return {key: totals[key] / counts[key] for key in sorted(totals)}
 
 
 def _align_output_rows(

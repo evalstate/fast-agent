@@ -704,18 +704,40 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             self.context.config,
         )
 
+    def _configured_api_key(self) -> str | None:
+        if self._init_api_key is not None:
+            return self._init_api_key
+
+        from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+        api_key = ProviderKeyManager.get_optional_api_key(
+            self.provider.config_name,
+            self.context.config,
+        )
+        return api_key if api_key else None
+
     def _initialize_anthropic_client(self) -> Any:
         base_url = self._base_url()
         default_headers = self._default_headers()
 
-        api_key = self._api_key()
         if base_url and base_url.endswith("/v1"):
             base_url = base_url.rstrip("/v1")
-        return AsyncAnthropic(
-            api_key=api_key,
-            base_url=base_url,
-            default_headers=default_headers,
-        )
+        client_args: dict[str, Any] = {
+            "base_url": base_url,
+            "default_headers": default_headers,
+        }
+        api_key = self._configured_api_key()
+        if api_key is not None:
+            client_args["api_key"] = api_key
+        return AsyncAnthropic(**client_args)
+
+    def validate_provider_credentials(self) -> None:
+        if self._configured_api_key() is not None:
+            return
+        client = self._initialize_anthropic_client()
+        if client.api_key is not None or client.auth_token is not None or client.credentials is not None:
+            return
+        self._provider_api_key()
 
     def supports_files_api(self) -> bool:
         return True
@@ -2325,6 +2347,15 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             explanation = stop_payload.get("explanation")
             if isinstance(explanation, str) and explanation:
                 payload["explanation"] = explanation
+            fallback_credit_token = stop_payload.get("fallback_credit_token")
+            if isinstance(fallback_credit_token, str) and fallback_credit_token:
+                payload["fallback_credit_token"] = fallback_credit_token
+            fallback_has_prefill_claim = stop_payload.get("fallback_has_prefill_claim")
+            if isinstance(fallback_has_prefill_claim, bool):
+                payload["fallback_has_prefill_claim"] = fallback_has_prefill_claim
+            recommended_model = stop_payload.get("recommended_model")
+            if isinstance(recommended_model, str) and recommended_model:
+                payload["recommended_model"] = recommended_model
         else:
             payload["details"] = str(stop_payload)
         return [TextContent(type="text", text=json.dumps(payload))]
@@ -2337,7 +2368,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         category = strip_casefold(raw_value)
         if not category or category in {"0", "false", "off", "no"}:
             return None
-        allowed = {"bio", "cyber", "reasoning_extraction", "none", "null"}
+        allowed = {"bio", "cyber", "frontier_llm", "reasoning_extraction", "none", "null"}
         if category not in allowed:
             logger.warning(
                 "Ignoring invalid Anthropic test refusal trigger category",

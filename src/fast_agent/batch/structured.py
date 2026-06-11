@@ -24,6 +24,13 @@ from fast_agent.batch.input import (
     iter_input_rows,
     select_rows,
 )
+from fast_agent.batch.monitoring import (
+    BatchMonitor,
+    BatchTrackioOptions,
+    BatchUsageTotals,
+    create_batch_monitor,
+    merge_usage_totals_from_summaries,
+)
 from fast_agent.batch.output import (
     ensure_parent,
     error_envelope,
@@ -92,6 +99,7 @@ class StructuredBatchOptions:
     progress: bool = True
     progress_label: str | None = None
     variables: dict[str, str] | None = None
+    trackio: BatchTrackioOptions | None = None
 
 
 @dataclass(frozen=True)
@@ -250,9 +258,13 @@ def _extract_usage(response: Any) -> dict[str, Any] | None:
     usage = _extract_json_channel(response, FAST_AGENT_USAGE)
     if usage is None:
         return None
-    if "turn" not in usage and "raw_usage" not in usage:
+    if "turn" not in usage and "raw_usage" not in usage and "summary" not in usage:
         return usage
-    return {key: value for key in ("turn", "raw_usage") if (value := usage.get(key)) is not None}
+    return {
+        key: value
+        for key in ("turn", "raw_usage", "summary")
+        if (value := usage.get(key)) is not None
+    }
 
 
 def _write_optional_failure(
@@ -501,6 +513,7 @@ def _record_batch_failure(
     error_handle: TextIO | None,
     telemetry_handle: TextIO | None,
     summary: BatchSummary,
+    monitor: BatchMonitor,
     trace_recorder: BatchTraceRecorder | None,
     prepared: PreparedBatchRow,
     error: RowError,
@@ -528,7 +541,9 @@ def _record_batch_failure(
     )
     summary.processed_rows += 1
     summary.failed_rows += 1
+    summary.add_usage(usage)
     _emit_row_progress(options, summary)
+    monitor.row(summary)
     _record_trace_failure(
         trace_recorder,
         prepared=prepared,
@@ -571,6 +586,7 @@ def _record_batch_success(
     output_handle: TextIO,
     telemetry_handle: TextIO | None,
     summary: BatchSummary,
+    monitor: BatchMonitor,
     trace_recorder: BatchTraceRecorder | None,
     prepared: PreparedBatchRow,
     parsed: Any,
@@ -595,7 +611,9 @@ def _record_batch_success(
         usage=usage,
     )
     summary.processed_rows += 1
+    summary.add_usage(usage)
     _emit_row_progress(options, summary)
+    monitor.row(summary)
     if trace_recorder is not None:
         trace_recorder.finish_row(ok=True, response=response)
 
@@ -634,6 +652,7 @@ async def _process_prepared_batch_row(
     error_handle: TextIO | None,
     telemetry_handle: TextIO | None,
     summary: BatchSummary,
+    monitor: BatchMonitor,
     trace_recorder: BatchTraceRecorder | None,
 ) -> None:
     if prepared.error is not None:
@@ -643,6 +662,7 @@ async def _process_prepared_batch_row(
             error_handle=error_handle,
             telemetry_handle=telemetry_handle,
             summary=summary,
+            monitor=monitor,
             trace_recorder=trace_recorder,
             prepared=prepared,
             error=prepared.error,
@@ -673,6 +693,7 @@ async def _process_prepared_batch_row(
             error_handle=error_handle,
             telemetry_handle=telemetry_handle,
             summary=summary,
+            monitor=monitor,
             trace_recorder=trace_recorder,
             prepared=prepared,
             error=RowError(type(exc).__name__, str(exc)),
@@ -690,6 +711,7 @@ async def _process_prepared_batch_row(
             error_handle=error_handle,
             telemetry_handle=telemetry_handle,
             summary=summary,
+            monitor=monitor,
             trace_recorder=trace_recorder,
             prepared=prepared,
             error=RowError(
@@ -708,6 +730,7 @@ async def _process_prepared_batch_row(
         output_handle=output_handle,
         telemetry_handle=telemetry_handle,
         summary=summary,
+        monitor=monitor,
         trace_recorder=trace_recorder,
         prepared=prepared,
         parsed=parsed,
@@ -768,82 +791,90 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
         options,
         f"start selected_rows={len(selected)} output={options.output_path}",
     )
+    monitor = create_batch_monitor(options)
+    monitor.start(options, len(selected))
 
-    from fast_agent import FastAgent
+    try:
+        from fast_agent import FastAgent
 
-    fast = FastAgent(
-        name="batch",
-        parse_cli_args=False,
-        ignore_unknown_args=True,
-        quiet=True,
-        environment_dir=options.environment_dir,
-    )
-    if options.model:
-        fast.args.model = options.model
-    if options.variables:
-        fast.set_prompt_context(options.variables)
-
-    target_agent_name = await _configure_batch_worker(fast, options, instruction)
-    if options.agent_card_source is not None:
-        summary.metadata["agent"] = target_agent_name
-
-    if options.shell_runtime:
-        await fast.app.initialize()
-        context = cast("Any", fast.app.context)
-        context.shell_runtime = True
-
-    output_mode = _output_mode(options)
-
-    async with fast.run() as agent_app:
-        worker = agent_app._agent(target_agent_name)
-        trace_recorder = _configure_trace_recorder(worker, options, summary.metadata)
-        with (
-            options.output_path.open(output_mode, encoding="utf-8") as output_handle,
-            _optional_jsonl_handle(
-                options.error_output_path, "a" if options.resume else "w"
-            ) as error_handle,
-            _optional_jsonl_handle(
-                options.telemetry_output_path,
-                "a" if options.resume else "w",
-            ) as telemetry_handle,
-        ):
-            for candidate in selected:
-                if _max_errors_reached(summary.failed_rows, options.max_errors):
-                    break
-                prepared = _prepare_batch_row(
-                    candidate,
-                    options=options,
-                    template=template,
-                )
-                if prepared.identity in completed_ids:
-                    summary.skipped_rows += 1
-                    continue
-
-                await _process_prepared_batch_row(
-                    worker=worker,
-                    prepared=prepared,
-                    schema_source=schema_source,
-                    options=options,
-                    output_handle=cast("TextIO", output_handle),
-                    error_handle=error_handle,
-                    telemetry_handle=telemetry_handle,
-                    summary=summary,
-                    trace_recorder=trace_recorder,
-                )
-                if _max_errors_reached(summary.failed_rows, options.max_errors):
-                    break
-
-        _finalize_trace_export(
-            options=options,
-            summary=summary,
-            trace_recorder=trace_recorder,
+        fast = FastAgent(
+            name="batch",
+            parse_cli_args=False,
+            ignore_unknown_args=True,
+            quiet=True,
+            environment_dir=options.environment_dir,
         )
+        if options.model:
+            fast.args.model = options.model
+        if options.variables:
+            fast.set_prompt_context(options.variables)
 
-    return _write_batch_summary(
-        options,
-        summary,
-        completed_at=utc_now_iso(),
-    )
+        target_agent_name = await _configure_batch_worker(fast, options, instruction)
+        if options.agent_card_source is not None:
+            summary.metadata["agent"] = target_agent_name
+
+        if options.shell_runtime:
+            await fast.app.initialize()
+            context = cast("Any", fast.app.context)
+            context.shell_runtime = True
+
+        output_mode = _output_mode(options)
+
+        async with fast.run() as agent_app:
+            worker = agent_app._agent(target_agent_name)
+            trace_recorder = _configure_trace_recorder(worker, options, summary.metadata)
+            with (
+                options.output_path.open(output_mode, encoding="utf-8") as output_handle,
+                _optional_jsonl_handle(
+                    options.error_output_path, "a" if options.resume else "w"
+                ) as error_handle,
+                _optional_jsonl_handle(
+                    options.telemetry_output_path,
+                    "a" if options.resume else "w",
+                ) as telemetry_handle,
+            ):
+                for candidate in selected:
+                    if _max_errors_reached(summary.failed_rows, options.max_errors):
+                        break
+                    prepared = _prepare_batch_row(
+                        candidate,
+                        options=options,
+                        template=template,
+                    )
+                    if prepared.identity in completed_ids:
+                        summary.skipped_rows += 1
+                        continue
+
+                    await _process_prepared_batch_row(
+                        worker=worker,
+                        prepared=prepared,
+                        schema_source=schema_source,
+                        options=options,
+                        output_handle=cast("TextIO", output_handle),
+                        error_handle=error_handle,
+                        telemetry_handle=telemetry_handle,
+                        summary=summary,
+                        monitor=monitor,
+                        trace_recorder=trace_recorder,
+                    )
+                    if _max_errors_reached(summary.failed_rows, options.max_errors):
+                        break
+
+            _finalize_trace_export(
+                options=options,
+                summary=summary,
+                trace_recorder=trace_recorder,
+            )
+
+        payload = _write_batch_summary(
+            options,
+            summary,
+            completed_at=utc_now_iso(),
+        )
+        monitor.complete(payload)
+        return payload
+    finally:
+        monitor.close()
 
 
 async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict[str, Any]:
@@ -863,6 +894,7 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
     started_monotonic = time.monotonic()
     _prepare_parallel_work_dir(work_dir, resume=options.resume, overwrite=options.overwrite)
 
+    shards: list[BatchShard] | None = None
     if options.resume:
         manifest = _load_parallel_manifest(options, work_dir, input_rows=input_counts.input_rows)
         shards = manifest.shards
@@ -870,11 +902,42 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
     else:
         selected_rows = input_counts.selected_rows
 
+    monitor = create_batch_monitor(options)
+    monitor.start(options, selected_rows)
+    try:
+        return await _run_parallel_structured_batch_started(
+            options=options,
+            parallel=parallel,
+            work_dir=work_dir,
+            input_counts=input_counts,
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            selected_rows=selected_rows,
+            shards=shards if options.resume else None,
+            monitor=monitor,
+        )
+    finally:
+        monitor.close()
+
+
+async def _run_parallel_structured_batch_started(
+    *,
+    options: StructuredBatchOptions,
+    parallel: int,
+    work_dir: Path,
+    input_counts: ParallelInputCounts,
+    started_at: str,
+    started_monotonic: float,
+    selected_rows: int,
+    shards: list[BatchShard] | None,
+    monitor: BatchMonitor,
+) -> dict[str, Any]:
     if not selected_rows:
         _write_empty_parallel_outputs(options)
         payload = _empty_parallel_summary(options, started_at, input_counts.input_rows, work_dir)
         _write_parallel_summary(options, payload)
         _cleanup_parallel_work_dir(options, work_dir)
+        monitor.complete(payload)
         return payload
 
     if not options.resume:
@@ -886,6 +949,7 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
             input_counts.input_rows,
             selected_rows,
         )
+    assert shards is not None
     _emit_progress(
         options,
         f"planned {len(shards)} shards for {selected_rows} selected rows work_dir={work_dir}",
@@ -939,6 +1003,7 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
         shard_summaries=shard_summaries,
     )
     _write_parallel_summary(options, payload)
+    monitor.complete(payload)
     _emit_progress(
         options,
         (
@@ -1085,6 +1150,7 @@ def _shard_options(options: StructuredBatchOptions, shard: BatchShard) -> Struct
         work_dir=None,
         keep_temp=True,
         progress_label=f"shard {shard.index}",
+        trackio=None,
     )
 
 
@@ -1241,6 +1307,8 @@ def _merge_parallel_summaries(
     shard_summaries: list[dict[str, Any]],
 ) -> dict[str, Any]:
     schema_source = load_schema_source(options)
+    processed_rows = sum(_summary_int(summary, "processed_rows") for summary in shard_summaries)
+    usage_totals = merge_usage_totals_from_summaries(shard_summaries)
     payload: dict[str, Any] = {
         "model": options.model,
         "input": str(options.input_path),
@@ -1262,13 +1330,13 @@ def _merge_parallel_summaries(
         "completed_at": completed_at,
         "input_rows": input_rows,
         "selected_rows": selected_rows,
-        "processed_rows": sum(
-            _summary_int(summary, "processed_rows") for summary in shard_summaries
-        ),
+        "processed_rows": processed_rows,
         "skipped_rows": sum(_summary_int(summary, "skipped_rows") for summary in shard_summaries),
         "failed_rows": sum(_summary_int(summary, "failed_rows") for summary in shard_summaries),
         "duration_ms": duration_ms,
         "timing_ms": _merge_timing_summaries(shard_summaries),
+        "usage": usage_totals.usage_block(processed_rows=processed_rows),
+        "cache": usage_totals.cache_block(),
         "shards": [
             {
                 "index": shard.index,
@@ -1289,6 +1357,7 @@ def _empty_parallel_summary(
     work_dir: Path,
 ) -> dict[str, Any]:
     completed_at = utc_now_iso()
+    usage_totals = BatchUsageTotals()
     return {
         "model": options.model,
         "input": str(options.input_path),
@@ -1321,6 +1390,8 @@ def _empty_parallel_summary(
             "ttft": {"count": 0},
             "time_to_response": {"count": 0},
         },
+        "usage": usage_totals.usage_block(processed_rows=0),
+        "cache": usage_totals.cache_block(),
         "shards": [],
     }
 

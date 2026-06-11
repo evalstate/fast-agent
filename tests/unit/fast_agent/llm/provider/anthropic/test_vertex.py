@@ -144,6 +144,29 @@ def test_initialize_anthropic_client_uses_direct_sdk(monkeypatch) -> None:
     assert called["default_headers"] == {"X-Test": "direct"}
 
 
+def test_initialize_anthropic_client_allows_sdk_credentials_without_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    config = Settings.model_validate({"anthropic": {"base_url": "https://api.anthropic.example"}})
+    llm = _build_direct_llm(config)
+
+    called: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs) -> None:
+            called.update(kwargs)
+
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic",
+        FakeClient,
+    )
+
+    client = llm._initialize_anthropic_client()
+
+    assert isinstance(client, FakeClient)
+    assert "api_key" not in called
+    assert called["base_url"] == "https://api.anthropic.example"
+
+
 def test_vertex_client_requires_google_adc(monkeypatch) -> None:
     config = Settings.model_validate(
         {

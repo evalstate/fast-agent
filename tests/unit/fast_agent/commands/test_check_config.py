@@ -82,6 +82,16 @@ def test_check_api_keys_google_vertex_adc():
     assert results["google"]["config"] == "Vertex AI ADC"
 
 
+def test_check_api_keys_detects_anthropic_sdk_auth_token(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-token")
+
+    results = check_api_keys({}, {})
+
+    assert results["anthropic"]["env"] == ""
+    assert results["anthropic"]["config"] == "ANTHROPIC_AUTH_TOKEN"
+
+
 def test_check_api_keys_hint_text():
     azure_cfg = {
         "api_key": API_KEY_HINT_TEXT,

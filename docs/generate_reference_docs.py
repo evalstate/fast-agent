@@ -398,6 +398,11 @@ def generate_extension_reference() -> str:
         FastAgentRowWiseBatchAdapter,
         RowWiseEvaluationRun,
         RowWiseScore,
+        gepa_api_trackio_kwargs,
+        gepa_numeric_metrics,
+        gepa_trackio_init_kwargs,
+        make_gepa_tracking_config,
+        safe_trackio_log,
     )
 
     lines: list[str] = []
@@ -497,6 +502,32 @@ def generate_extension_reference() -> str:
             "python", _format_constructor_signature("RowWiseEvaluationRun", RowWiseEvaluationRun)
         )
     )
+
+    lines.append("### Trackio helpers\n\n")
+    lines.append(
+        "Trackio helpers provide fast-agent defaults for GEPA dashboards. Use\n"
+        "`gepa_trackio_init_kwargs()` when your script initializes Trackio, use\n"
+        "`gepa_api_trackio_kwargs()` with `gepa.api.optimize()`, and use\n"
+        "`make_gepa_tracking_config()` with `optimize_anything()`.\n\n"
+    )
+    for name, func in (
+        ("gepa_trackio_init_kwargs", gepa_trackio_init_kwargs),
+        ("gepa_api_trackio_kwargs", gepa_api_trackio_kwargs),
+        ("make_gepa_tracking_config", make_gepa_tracking_config),
+    ):
+        lines.append(_md_code("python", _format_method_signature(name, func)))
+
+    lines.append("### Evaluator metric helpers\n\n")
+    lines.append(
+        "`gepa_numeric_metrics()` flattens `side_info['scores']`,\n"
+        "`side_info['score_details']`, and `side_info['raw_metrics']` into\n"
+        "Trackio-friendly numeric metrics. `safe_trackio_log()` logs them without\n"
+        "making Trackio a hard dependency of evaluator code.\n\n"
+    )
+    lines.append(
+        _md_code("python", _format_method_signature("gepa_numeric_metrics", gepa_numeric_metrics))
+    )
+    lines.append(_md_code("python", _format_method_signature("safe_trackio_log", safe_trackio_log)))
 
     return "".join(lines)
 

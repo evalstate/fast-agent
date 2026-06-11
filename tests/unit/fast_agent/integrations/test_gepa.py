@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -13,6 +14,9 @@ from fast_agent.integrations.gepa import (
     RowWiseEvaluationRun,
     RowWiseScore,
     _evaluation_batch,
+    gepa_api_trackio_kwargs,
+    gepa_numeric_metrics,
+    gepa_trackio_init_kwargs,
 )
 
 
@@ -178,7 +182,12 @@ def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(t
     assert runner.calls[0]["variables"] == {"policy": "route carefully"}
     assert runner.calls[0]["id_field"] == "id"
     assert (tmp_path / "runs" / "row-wise-evals" / "eval-00001" / "input.jsonl").exists()
-    assert (tmp_path / "runs" / "row-wise-evals" / "eval-00001" / "row-wise-score.json").exists()
+    row_wise_score_path = (
+        tmp_path / "runs" / "row-wise-evals" / "eval-00001" / "row-wise-score.json"
+    )
+    assert row_wise_score_path.exists()
+    row_wise_score = json.loads(row_wise_score_path.read_text(encoding="utf-8"))
+    assert row_wise_score["objective_averages"] == {"exact": 0.5, "gepa_score": 0.5}
 
     reflective = adapter.make_reflective_dataset(
         {"policy": "route carefully"},
@@ -192,6 +201,75 @@ def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(t
         "exact": 0.0,
     }
     assert reflective["policy"][0]["selected_row_score"] == 0.0
+
+
+def test_gepa_numeric_metrics_flattens_scores_and_details():
+    metrics = gepa_numeric_metrics(
+        {
+            "scores": {
+                "gepa_score": 0.8,
+                "valid_json": 1,
+                "accepted": True,
+                "note": "ignored",
+            },
+            "score_details": {
+                "failure_count": 3,
+                "latency_seconds": 1.25,
+                "nested": {"ignored": 1},
+            },
+            "raw_metrics": {
+                "tokens": 42,
+            },
+        }
+    )
+
+    assert metrics == {
+        "candidate/gepa_score": 0.8,
+        "candidate/valid_json": 1,
+        "candidate/detail/failure_count": 3,
+        "candidate/detail/latency_seconds": 1.25,
+        "candidate/raw/tokens": 42,
+    }
+
+
+def test_gepa_trackio_kwargs_are_sensible_defaults():
+    init_kwargs = gepa_trackio_init_kwargs(
+        name="classifier",
+        group="smoke",
+        config={"agent": "classifier"},
+        space_id="owner/space",
+    )
+
+    assert init_kwargs == {
+        "project": "fast-agent-gepa",
+        "name": "classifier",
+        "group": "smoke",
+        "embed": False,
+        "auto_log_gpu": False,
+        "config": {"agent": "classifier"},
+        "space_id": "owner/space",
+    }
+
+    api_kwargs = gepa_api_trackio_kwargs(
+        project="demo",
+        name="row-wise",
+        config={"mode": "row-wise"},
+        attach_existing=True,
+    )
+
+    assert api_kwargs == {
+        "use_trackio": True,
+        "trackio_init_kwargs": {
+            "project": "demo",
+            "name": "row-wise",
+            "embed": False,
+            "auto_log_gpu": False,
+            "config": {"mode": "row-wise"},
+        },
+        "trackio_attach_existing": True,
+        "trackio_step_metric": "gepa/iteration",
+        "tracking_key_prefix": "gepa/",
+    }
 
 
 def test_evaluation_batch_falls_back_when_gepa_is_not_installed():

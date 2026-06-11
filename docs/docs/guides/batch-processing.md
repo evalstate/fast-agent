@@ -405,10 +405,10 @@ and usage information when the provider reports it:
 ```
 
 Summary output is a JSON object describing the whole run: selected row counts,
-processed/skipped/failed counts, model and input metadata, duration, and timing
-aggregates for duration, time to first token, and time to response. The same
-summary is printed to stdout by default; use `--no-final-summary` when another
-process is consuming stdout.
+processed/skipped/failed counts, model and input metadata, duration, timing
+aggregates, and aggregate `usage` / `cache` blocks. The same summary is printed
+to stdout by default; use `--no-final-summary` when another process is consuming
+stdout.
 
 Use these outputs together:
 
@@ -419,7 +419,44 @@ Use these outputs together:
 - `--summary-output`: final run metadata for audit logs, CI artifacts, or
   regression comparisons.
 
-## 8. Use Hugging Face datasets as input
+## 8. Monitor expensive batches with Trackio
+
+Trackio monitoring is explicit opt-in. Install `fast-agent-mcp[trackio]` or
+`fast-agent-mcp[gepa]`, then pass a project:
+
+```bash
+fast-agent batch run \
+  --input eval/input.jsonl \
+  --output runs/labels/results.jsonl \
+  --agent-card eval/teacher-card.md \
+  --agent teacher \
+  --template eval/template.md \
+  --json-schema eval/schema.json \
+  --model "codexresponses.gpt-5.5?reasoning=high" \
+  --parallel 4 \
+  --summary-output runs/labels/summary.json \
+  --telemetry-output runs/labels/telemetry.jsonl \
+  --project easy-v6-label-build \
+  --run-name v6-gpt55-anchor-free-repeat-01 \
+  --group v6-anchor-free-revalidation \
+  --trackio-every 10
+```
+
+Batch Trackio logs aggregate progress, timing, token usage, and provider cache
+behavior under `batch/` metric names. Charts use processed rows as the natural
+step, so cumulative token counters and cache/rate percentages can be compared
+across repeated runs.
+
+By default fast-agent does **not** send row contents, rendered prompts, full
+model outputs, or full errors to Trackio. Keep full-fidelity artifacts in local
+`--output`, `--telemetry-output`, `--error-output`, and `--summary-output` files.
+
+Batch Trackio is lower-level than GEPA Trackio: use it for row-processing health
+and cache diagnostics; use GEPA Trackio for optimizer state, candidate scores,
+frontier metrics, and proposals. They can be combined because batch metrics are
+namespaced under `batch/`.
+
+## 9. Use Hugging Face datasets as input
 
 Use `hf://` URIs with `--input` to read from Hugging Face datasets:
 

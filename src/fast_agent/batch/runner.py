@@ -9,7 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from fast_agent.batch.monitoring import BatchTrackioOptions
 from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
+from fast_agent.utils.text import strip_to_none
 
 BatchBackend = Literal["harness", "process"]
 
@@ -75,6 +77,13 @@ class BatchRunner:
         seed: int | None = None,
         max_errors: int | None = None,
         progress: bool = False,
+        trackio_project: str | None = None,
+        trackio_name: str | None = None,
+        trackio_group: str | None = None,
+        trackio_space_id: str | None = None,
+        trackio_server_url: str | None = None,
+        trackio_every: int | None = None,
+        trackio_config: dict[str, Any] | None = None,
     ) -> BatchRunResult:
         output = Path(output_path)
         summary_output = Path(summary_path) if summary_path is not None else None
@@ -106,6 +115,25 @@ class BatchRunner:
                 seed=seed,
                 max_errors=max_errors,
                 progress=progress,
+                trackio_project=trackio_project,
+                trackio_name=trackio_name,
+                trackio_group=trackio_group,
+                trackio_space_id=trackio_space_id,
+                trackio_server_url=trackio_server_url,
+                trackio_every=trackio_every,
+                trackio_config=trackio_config,
+            )
+        trackio = None
+        project = strip_to_none(trackio_project)
+        if project is not None:
+            trackio = BatchTrackioOptions(
+                project=project,
+                name=strip_to_none(trackio_name),
+                group=strip_to_none(trackio_group),
+                space_id=strip_to_none(trackio_space_id),
+                server_url=strip_to_none(trackio_server_url),
+                log_every=trackio_every,
+                config=trackio_config,
             )
         options = StructuredBatchOptions(
             input_path=input,
@@ -133,6 +161,7 @@ class BatchRunner:
             parallel=parallel,
             progress=progress,
             variables=variables,
+            trackio=trackio,
         )
         summary = await run_parallel_structured_batch(options)
         return BatchRunResult(
@@ -171,6 +200,13 @@ class BatchRunner:
         seed: int | None,
         max_errors: int | None,
         progress: bool,
+        trackio_project: str | None,
+        trackio_name: str | None,
+        trackio_group: str | None,
+        trackio_space_id: str | None,
+        trackio_server_url: str | None,
+        trackio_every: int | None,
+        trackio_config: dict[str, Any] | None,
     ) -> BatchRunResult:
         summary_path = summary_output or output.with_suffix(".summary.json")
         command = [sys.executable, "-m", "fast_agent.cli.__main__", "--no-update-check"]
@@ -194,6 +230,12 @@ class BatchRunner:
         _extend_optional(command, "--summary-output", summary_path)
         _extend_optional(command, "--telemetry-output", telemetry_output)
         _extend_optional(command, "--error-output", error_output)
+        _extend_optional(command, "--project", trackio_project)
+        _extend_optional(command, "--run-name", trackio_name)
+        _extend_optional(command, "--group", trackio_group)
+        _extend_optional(command, "--trackio-space-id", trackio_space_id)
+        _extend_optional(command, "--trackio-server-url", trackio_server_url)
+        _extend_optional(command, "--trackio-every", trackio_every)
         if include_input:
             command.append("--include-input")
         if overwrite:
@@ -204,6 +246,7 @@ class BatchRunner:
             command.append("--no-progress")
         command.append("--no-final-summary")
         vars_path = None
+        trackio_config_path = None
         if variables:
             output.parent.mkdir(parents=True, exist_ok=True)
             vars_path = output.parent / f".{output.name}.vars.json"
@@ -212,6 +255,14 @@ class BatchRunner:
                 encoding="utf-8",
             )
             command.extend(["--vars-json", str(vars_path)])
+        if trackio_config:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            trackio_config_path = output.parent / f".{output.name}.trackio-config.json"
+            trackio_config_path.write_text(
+                json.dumps(trackio_config, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            command.extend(["--trackio-config-json", str(trackio_config_path)])
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
             raise RuntimeError(

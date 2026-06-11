@@ -280,13 +280,40 @@ Artifact evals often benefit from subprocess isolation. A failed candidate
 should usually produce side-info and artifacts, not corrupt the working tree or
 abort the optimization without evidence.
 
-!!! tip "Monitor long runs with Trackio"
+## Make Trackio the default dashboard
 
-    GEPA runs can be long-lived. If you want a live view of candidate scores,
-    frontier metrics, alerts, or run metadata, initialize
-    [Trackio](https://github.com/huggingface/trackio) in your evaluator script
-    and log after each candidate evaluation. Keep raw lower-is-better values out
-    of `side_info["scores"]`, but log them to Trackio normally for monitoring.
+GEPA runs can be long-lived. [Trackio](https://github.com/gradio-app/trackio) is recommended to provide a live view of GEPA optimize metrics, and other metadata you want to track. Use one Trackio run for both GEPA's optimizer metrics and your evaluator-specific candidate metrics:
+
+- GEPA logs frontier, candidate, proposal, validation, objective, and summary
+  data under the `gepa/` prefix.
+- Your scorer can log task-specific candidate metrics under `candidate/` and
+  `candidate/detail/`.
+- Keep `side_info["scores"]` frontier-safe: every value should be numeric and
+  higher-is-better. Put raw lower-is-better diagnostics in
+  `side_info["score_details"]` or `side_info["raw_metrics"]`.
+
+The useful side-info shape is:
+
+```python
+side_info = {
+    "scores": {
+        "gepa_score": score,
+        "valid_output_rate": valid_output_rate,
+        "failure_free_rate": failure_free_rate,
+    },
+    "score_details": {
+        "failure_count": failure_count,
+        "latency_seconds": latency_seconds,
+    },
+    "failures": failures[:20],
+    "actionable_feedback": summarize_failures(failures),
+}
+```
+
+`fast_agent.integrations.gepa.gepa_numeric_metrics()` turns that into Trackio
+metrics such as `candidate/gepa_score` and
+`candidate/detail/failure_count`; `safe_trackio_log()` makes that logging
+best-effort so a dashboard outage does not fail an evaluator.
 
 ## Call fast-agent from GEPA
 
@@ -311,10 +338,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import trackio
 from gepa.optimize_anything import GEPAConfig, EngineConfig, ReflectionConfig, optimize_anything
 from fast_agent.batch import BatchRunResult
 from fast_agent.eval import CandidateRun
-from fast_agent.integrations.gepa import FastAgentBatchEvaluator, FastAgentReflectionLM
+from fast_agent.integrations.gepa import (
+    FastAgentBatchEvaluator,
+    FastAgentReflectionLM,
+    gepa_numeric_metrics,
+    gepa_trackio_init_kwargs,
+    make_gepa_tracking_config,
+    safe_trackio_log,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -331,11 +366,21 @@ def score_candidate(
             "gepa_score": score,
             "valid_output_rate": sum(1 for row in result.rows if row.get("ok")) / max(len(result.rows), 1),
         },
+        "score_details": {
+            "failure_count": len(failures),
+        },
         "candidate_dir": str(candidate_run.path),
         "summary": result.summary,
         "failures": failures[:20],
         "actionable_feedback": summarize_failures(failures),
     }
+    safe_trackio_log(
+        {
+            "gepa/iteration": (candidate_run.index or 1) - 1,
+            "candidate/local_idx": candidate_run.index or 0,
+            **gepa_numeric_metrics(side_info),
+        }
+    )
     return score, side_info
 
 
@@ -360,6 +405,18 @@ reflection_lm = FastAgentReflectionLM(
     audit_dir=ROOT / "runs" / "reflection",
 )
 
+trackio.init(
+    **gepa_trackio_init_kwargs(
+        project="fast-agent-gepa",
+        name="classifier-policy",
+        config={
+            "mode": "aggregate",
+            "agent": "classifier",
+            "run_dir": str(ROOT / "runs"),
+        },
+    )
+)
+
 result = optimize_anything(
     seed_candidate={"policy": Path("seed/policy.md").read_text(encoding="utf-8")},
     evaluator=evaluator,
@@ -367,6 +424,10 @@ result = optimize_anything(
     config=GEPAConfig(
         engine=EngineConfig(max_metric_calls=24, cache_evaluation=True),
         reflection=ReflectionConfig(reflection_lm=reflection_lm),
+        tracking=make_gepa_tracking_config(
+            name="classifier-policy",
+            attach_existing=True,
+        ),
     ),
 )
 
@@ -403,6 +464,7 @@ from fast_agent.integrations.gepa import (
     FastAgentRowWiseBatchAdapter,
     RowWiseEvaluationRun,
     RowWiseScore,
+    gepa_api_trackio_kwargs,
 )
 
 
@@ -462,6 +524,15 @@ result = optimize(
     reflection_minibatch_size=3,
     max_metric_calls=400,
     cache_evaluation=True,
+    frontier_type="hybrid",
+    **gepa_api_trackio_kwargs(
+        project="fast-agent-gepa",
+        name="classifier-row-wise",
+        config={
+            "mode": "row-wise",
+            "agent": "classifier",
+        },
+    ),
 )
 ```
 

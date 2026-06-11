@@ -22,7 +22,7 @@ dependencies = [
     "pyyaml==6.0.3",
     "rich==15.0.0",
     "typer==0.25.1",
-    "anthropic[vertex]==0.106",
+    "anthropic[vertex]==0.109.1",
     "openai[aiohttp]==2.41.0",
     "prompt-toolkit==3.0.52",
     "aiohttp==3.14.0",
@@ -74,6 +74,9 @@ batch-parquet = [
 ]
 gepa = [
     "gepa @ git+https://github.com/evalstate/gepa.git@feat/trackio",
+    "trackio>=0.26.0",
+]
+trackio = [
     "trackio>=0.26.0",
 ]
 parquet = [

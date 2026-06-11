@@ -147,7 +147,7 @@ For a complete guide, see [Model Overlays](../models/model_overlays/).
 
 ```yaml
 anthropic:
-  api_key: "your_anthropic_key"  # Can also use ANTHROPIC_API_KEY env var
+  api_key: "your_anthropic_key"  # Optional; can also use ANTHROPIC_API_KEY or Anthropic SDK credentials
   base_url: "https://api.anthropic.com/v1"  # Optional, only include to override
   reasoning: auto  # Adaptive models: auto/low/medium/high/max. Budget models: integer tokens or off.
   structured_output_mode: auto  # auto (default), json, or tool_use
@@ -170,6 +170,16 @@ anthropic:
     allowed_domains: ["example.com"]  # Optional; mutually exclusive with blocked_domains
     # blocked_domains: ["ads.example"]
 ```
+
+Anthropic authentication uses this precedence:
+
+1. `anthropic.api_key` in fast-agent config/secrets.
+2. `ANTHROPIC_API_KEY`.
+3. Anthropic SDK credential discovery, including `ANTHROPIC_AUTH_TOKEN`, Anthropic profiles
+   (`ANTHROPIC_PROFILE` / `ANTHROPIC_CONFIG_DIR` / active profile), and workload identity
+   federation environment variables.
+
+This means `api_key` is no longer required when Anthropic SDK credentials are available.
 
 Anthropic models fall into three groups:
 

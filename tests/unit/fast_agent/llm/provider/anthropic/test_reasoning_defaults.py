@@ -577,7 +577,14 @@ def test_refusal_stop_details_are_captured_in_response_channels() -> None:
         stop_reason="refusal",
         stop_sequence=None,
         usage=BetaUsage(input_tokens=10, output_tokens=0),
-        stop_details=BetaRefusalStopDetails(type="refusal", category="cyber"),
+        stop_details=BetaRefusalStopDetails(
+            type="refusal",
+            category="frontier_llm",
+            explanation="Request requires frontier model handling.",
+            fallback_credit_token="fallback-token",
+            fallback_has_prefill_claim=True,
+            recommended_model="claude-fable-5-fallback",
+        ),
     )
 
     channels = llm._anthropic_response_channels(
@@ -593,8 +600,18 @@ def test_refusal_stop_details_are_captured_in_response_channels() -> None:
     assert json.loads(details.text) == {
         "provider": "anthropic",
         "reason": "refusal",
-        "category": "cyber",
+        "category": "frontier_llm",
+        "explanation": "Request requires frontier model handling.",
+        "fallback_credit_token": "fallback-token",
+        "fallback_has_prefill_claim": True,
+        "recommended_model": "claude-fable-5-fallback",
     }
+
+
+def test_test_refusal_env_accepts_frontier_llm_category(monkeypatch) -> None:
+    monkeypatch.setenv(TEST_REFUSAL_TRIGGER_ENV, "frontier_llm")
+
+    assert AnthropicLLM._test_refusal_category() == "frontier_llm"
 
 
 @pytest.mark.asyncio
