@@ -361,12 +361,19 @@ def test_extracts_timing_and_usage_channels() -> None:
         content=[],
         channels={
             FAST_AGENT_TIMING: [text_content('{"duration_ms": 12.5}')],
-            FAST_AGENT_USAGE: [text_content('{"summary": {"total_tokens": 42}}')],
+            FAST_AGENT_USAGE: [
+                text_content(
+                    '{"turn": {"total_tokens": 42}, "summary": {"cumulative_input_tokens": 40}}'
+                )
+            ],
         },
     )
 
     assert _extract_timing(response) == {"duration_ms": 12.5}
-    assert _extract_usage(response) == {"summary": {"total_tokens": 42}}
+    assert _extract_usage(response) == {
+        "turn": {"total_tokens": 42},
+        "summary": {"cumulative_input_tokens": 40},
+    }
 
 
 @pytest.mark.asyncio

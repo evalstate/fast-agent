@@ -10,6 +10,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, TypeAlias, cast
@@ -23,6 +24,13 @@ from fast_agent.batch.input import (
     is_parquet_input_source,
     iter_input_rows,
     select_rows,
+)
+from fast_agent.batch.monitoring import (
+    BatchMonitor,
+    BatchTrackioOptions,
+    BatchUsageTotals,
+    create_batch_monitor,
+    merge_usage_totals_from_summaries,
 )
 from fast_agent.batch.output import (
     ensure_parent,
@@ -92,6 +100,8 @@ class StructuredBatchOptions:
     progress: bool = True
     progress_label: str | None = None
     variables: dict[str, str] | None = None
+    trackio: BatchTrackioOptions | None = None
+    monitor: BatchMonitor | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +120,132 @@ class ParallelManifest:
     input_rows: int
     selected_rows: int
     shards: list[BatchShard]
+
+
+@dataclass
+class _UsageTotalsSnapshot:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    billing_tokens: int = 0
+    reasoning_tokens: int = 0
+    tool_use_tokens: int = 0
+    tool_calls: int = 0
+    rows_with_usage: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_hit_tokens: int = 0
+    effective_input_tokens: int = 0
+    rows_with_cache_activity: int = 0
+
+
+@dataclass
+class _ShardMonitorSnapshot:
+    processed_rows: int = 0
+    skipped_rows: int = 0
+    failed_rows: int = 0
+    timing_duration_count: int = 0
+    timing_ttft_count: int = 0
+    timing_time_to_response_count: int = 0
+    usage: _UsageTotalsSnapshot = dataclass_field(default_factory=_UsageTotalsSnapshot)
+
+
+@dataclass
+class _ParallelMonitorState:
+    monitor: BatchMonitor
+    summary: BatchSummary
+
+
+class _ParallelShardMonitor:
+    def __init__(self, state: _ParallelMonitorState) -> None:
+        self._state = state
+        self._snapshot = _ShardMonitorSnapshot()
+
+    def start(self, options: StructuredBatchOptions, selected_rows: int) -> None:
+        pass
+
+    def row(self, summary: BatchSummary) -> None:
+        aggregate = self._state.summary
+        aggregate.processed_rows += summary.processed_rows - self._snapshot.processed_rows
+        aggregate.skipped_rows += summary.skipped_rows - self._snapshot.skipped_rows
+        aggregate.failed_rows += summary.failed_rows - self._snapshot.failed_rows
+        aggregate.timing_duration_ms.extend(
+            summary.timing_duration_ms[self._snapshot.timing_duration_count :]
+        )
+        aggregate.timing_ttft_ms.extend(summary.timing_ttft_ms[self._snapshot.timing_ttft_count :])
+        aggregate.timing_time_to_response_ms.extend(
+            summary.timing_time_to_response_ms[
+                self._snapshot.timing_time_to_response_count :
+            ]
+        )
+        _add_usage_totals_delta(
+            aggregate.usage_totals,
+            current=summary.usage_totals,
+            previous=self._snapshot.usage,
+        )
+        self._snapshot = _snapshot_shard_summary(summary)
+        self._state.monitor.row(aggregate)
+
+    def complete(self, payload: Mapping[str, Any]) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def _snapshot_usage_totals(totals: BatchUsageTotals) -> _UsageTotalsSnapshot:
+    return _UsageTotalsSnapshot(
+        input_tokens=totals.input_tokens,
+        output_tokens=totals.output_tokens,
+        total_tokens=totals.total_tokens,
+        billing_tokens=totals.billing_tokens,
+        reasoning_tokens=totals.reasoning_tokens,
+        tool_use_tokens=totals.tool_use_tokens,
+        tool_calls=totals.tool_calls,
+        rows_with_usage=totals.rows_with_usage,
+        cache_read_tokens=totals.cache_read_tokens,
+        cache_write_tokens=totals.cache_write_tokens,
+        cache_hit_tokens=totals.cache_hit_tokens,
+        effective_input_tokens=totals.effective_input_tokens,
+        rows_with_cache_activity=totals.rows_with_cache_activity,
+    )
+
+
+def _snapshot_shard_summary(summary: BatchSummary) -> _ShardMonitorSnapshot:
+    return _ShardMonitorSnapshot(
+        processed_rows=summary.processed_rows,
+        skipped_rows=summary.skipped_rows,
+        failed_rows=summary.failed_rows,
+        timing_duration_count=len(summary.timing_duration_ms),
+        timing_ttft_count=len(summary.timing_ttft_ms),
+        timing_time_to_response_count=len(summary.timing_time_to_response_ms),
+        usage=_snapshot_usage_totals(summary.usage_totals),
+    )
+
+
+def _add_usage_totals_delta(
+    target: BatchUsageTotals,
+    *,
+    current: BatchUsageTotals,
+    previous: _UsageTotalsSnapshot,
+) -> None:
+    target.input_tokens += current.input_tokens - previous.input_tokens
+    target.output_tokens += current.output_tokens - previous.output_tokens
+    target.total_tokens += current.total_tokens - previous.total_tokens
+    target.billing_tokens += current.billing_tokens - previous.billing_tokens
+    target.reasoning_tokens += current.reasoning_tokens - previous.reasoning_tokens
+    target.tool_use_tokens += current.tool_use_tokens - previous.tool_use_tokens
+    target.tool_calls += current.tool_calls - previous.tool_calls
+    target.rows_with_usage += current.rows_with_usage - previous.rows_with_usage
+    target.cache_read_tokens += current.cache_read_tokens - previous.cache_read_tokens
+    target.cache_write_tokens += current.cache_write_tokens - previous.cache_write_tokens
+    target.cache_hit_tokens += current.cache_hit_tokens - previous.cache_hit_tokens
+    target.effective_input_tokens += (
+        current.effective_input_tokens - previous.effective_input_tokens
+    )
+    target.rows_with_cache_activity += (
+        current.rows_with_cache_activity - previous.rows_with_cache_activity
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,9 +386,13 @@ def _extract_usage(response: Any) -> dict[str, Any] | None:
     usage = _extract_json_channel(response, FAST_AGENT_USAGE)
     if usage is None:
         return None
-    if "turn" not in usage and "raw_usage" not in usage:
+    if "turn" not in usage and "raw_usage" not in usage and "summary" not in usage:
         return usage
-    return {key: value for key in ("turn", "raw_usage") if (value := usage.get(key)) is not None}
+    return {
+        key: value
+        for key in ("turn", "raw_usage", "summary")
+        if (value := usage.get(key)) is not None
+    }
 
 
 def _write_optional_failure(
@@ -501,6 +641,7 @@ def _record_batch_failure(
     error_handle: TextIO | None,
     telemetry_handle: TextIO | None,
     summary: BatchSummary,
+    monitor: BatchMonitor,
     trace_recorder: BatchTraceRecorder | None,
     prepared: PreparedBatchRow,
     error: RowError,
@@ -528,7 +669,9 @@ def _record_batch_failure(
     )
     summary.processed_rows += 1
     summary.failed_rows += 1
+    summary.add_usage(usage)
     _emit_row_progress(options, summary)
+    monitor.row(summary)
     _record_trace_failure(
         trace_recorder,
         prepared=prepared,
@@ -571,6 +714,7 @@ def _record_batch_success(
     output_handle: TextIO,
     telemetry_handle: TextIO | None,
     summary: BatchSummary,
+    monitor: BatchMonitor,
     trace_recorder: BatchTraceRecorder | None,
     prepared: PreparedBatchRow,
     parsed: Any,
@@ -595,7 +739,9 @@ def _record_batch_success(
         usage=usage,
     )
     summary.processed_rows += 1
+    summary.add_usage(usage)
     _emit_row_progress(options, summary)
+    monitor.row(summary)
     if trace_recorder is not None:
         trace_recorder.finish_row(ok=True, response=response)
 
@@ -634,6 +780,7 @@ async def _process_prepared_batch_row(
     error_handle: TextIO | None,
     telemetry_handle: TextIO | None,
     summary: BatchSummary,
+    monitor: BatchMonitor,
     trace_recorder: BatchTraceRecorder | None,
 ) -> None:
     if prepared.error is not None:
@@ -643,6 +790,7 @@ async def _process_prepared_batch_row(
             error_handle=error_handle,
             telemetry_handle=telemetry_handle,
             summary=summary,
+            monitor=monitor,
             trace_recorder=trace_recorder,
             prepared=prepared,
             error=prepared.error,
@@ -673,6 +821,7 @@ async def _process_prepared_batch_row(
             error_handle=error_handle,
             telemetry_handle=telemetry_handle,
             summary=summary,
+            monitor=monitor,
             trace_recorder=trace_recorder,
             prepared=prepared,
             error=RowError(type(exc).__name__, str(exc)),
@@ -690,6 +839,7 @@ async def _process_prepared_batch_row(
             error_handle=error_handle,
             telemetry_handle=telemetry_handle,
             summary=summary,
+            monitor=monitor,
             trace_recorder=trace_recorder,
             prepared=prepared,
             error=RowError(
@@ -708,6 +858,7 @@ async def _process_prepared_batch_row(
         output_handle=output_handle,
         telemetry_handle=telemetry_handle,
         summary=summary,
+        monitor=monitor,
         trace_recorder=trace_recorder,
         prepared=prepared,
         parsed=parsed,
@@ -768,82 +919,90 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
         options,
         f"start selected_rows={len(selected)} output={options.output_path}",
     )
+    monitor = options.monitor or create_batch_monitor(options)
+    monitor.start(options, len(selected))
 
-    from fast_agent import FastAgent
+    try:
+        from fast_agent import FastAgent
 
-    fast = FastAgent(
-        name="batch",
-        parse_cli_args=False,
-        ignore_unknown_args=True,
-        quiet=True,
-        environment_dir=options.environment_dir,
-    )
-    if options.model:
-        fast.args.model = options.model
-    if options.variables:
-        fast.set_prompt_context(options.variables)
-
-    target_agent_name = await _configure_batch_worker(fast, options, instruction)
-    if options.agent_card_source is not None:
-        summary.metadata["agent"] = target_agent_name
-
-    if options.shell_runtime:
-        await fast.app.initialize()
-        context = cast("Any", fast.app.context)
-        context.shell_runtime = True
-
-    output_mode = _output_mode(options)
-
-    async with fast.run() as agent_app:
-        worker = agent_app._agent(target_agent_name)
-        trace_recorder = _configure_trace_recorder(worker, options, summary.metadata)
-        with (
-            options.output_path.open(output_mode, encoding="utf-8") as output_handle,
-            _optional_jsonl_handle(
-                options.error_output_path, "a" if options.resume else "w"
-            ) as error_handle,
-            _optional_jsonl_handle(
-                options.telemetry_output_path,
-                "a" if options.resume else "w",
-            ) as telemetry_handle,
-        ):
-            for candidate in selected:
-                if _max_errors_reached(summary.failed_rows, options.max_errors):
-                    break
-                prepared = _prepare_batch_row(
-                    candidate,
-                    options=options,
-                    template=template,
-                )
-                if prepared.identity in completed_ids:
-                    summary.skipped_rows += 1
-                    continue
-
-                await _process_prepared_batch_row(
-                    worker=worker,
-                    prepared=prepared,
-                    schema_source=schema_source,
-                    options=options,
-                    output_handle=cast("TextIO", output_handle),
-                    error_handle=error_handle,
-                    telemetry_handle=telemetry_handle,
-                    summary=summary,
-                    trace_recorder=trace_recorder,
-                )
-                if _max_errors_reached(summary.failed_rows, options.max_errors):
-                    break
-
-        _finalize_trace_export(
-            options=options,
-            summary=summary,
-            trace_recorder=trace_recorder,
+        fast = FastAgent(
+            name="batch",
+            parse_cli_args=False,
+            ignore_unknown_args=True,
+            quiet=True,
+            environment_dir=options.environment_dir,
         )
+        if options.model:
+            fast.args.model = options.model
+        if options.variables:
+            fast.set_prompt_context(options.variables)
 
-    return _write_batch_summary(
-        options,
-        summary,
-        completed_at=utc_now_iso(),
-    )
+        target_agent_name = await _configure_batch_worker(fast, options, instruction)
+        if options.agent_card_source is not None:
+            summary.metadata["agent"] = target_agent_name
+
+        if options.shell_runtime:
+            await fast.app.initialize()
+            context = cast("Any", fast.app.context)
+            context.shell_runtime = True
+
+        output_mode = _output_mode(options)
+
+        async with fast.run() as agent_app:
+            worker = agent_app._agent(target_agent_name)
+            trace_recorder = _configure_trace_recorder(worker, options, summary.metadata)
+            with (
+                options.output_path.open(output_mode, encoding="utf-8") as output_handle,
+                _optional_jsonl_handle(
+                    options.error_output_path, "a" if options.resume else "w"
+                ) as error_handle,
+                _optional_jsonl_handle(
+                    options.telemetry_output_path,
+                    "a" if options.resume else "w",
+                ) as telemetry_handle,
+            ):
+                for candidate in selected:
+                    if _max_errors_reached(summary.failed_rows, options.max_errors):
+                        break
+                    prepared = _prepare_batch_row(
+                        candidate,
+                        options=options,
+                        template=template,
+                    )
+                    if prepared.identity in completed_ids:
+                        summary.skipped_rows += 1
+                        continue
+
+                    await _process_prepared_batch_row(
+                        worker=worker,
+                        prepared=prepared,
+                        schema_source=schema_source,
+                        options=options,
+                        output_handle=cast("TextIO", output_handle),
+                        error_handle=error_handle,
+                        telemetry_handle=telemetry_handle,
+                        summary=summary,
+                        monitor=monitor,
+                        trace_recorder=trace_recorder,
+                    )
+                    if _max_errors_reached(summary.failed_rows, options.max_errors):
+                        break
+
+            _finalize_trace_export(
+                options=options,
+                summary=summary,
+                trace_recorder=trace_recorder,
+            )
+
+        payload = _write_batch_summary(
+            options,
+            summary,
+            completed_at=utc_now_iso(),
+        )
+        monitor.complete(payload)
+        return payload
+    finally:
+        monitor.close()
 
 
 async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict[str, Any]:
@@ -863,6 +1022,7 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
     started_monotonic = time.monotonic()
     _prepare_parallel_work_dir(work_dir, resume=options.resume, overwrite=options.overwrite)
 
+    shards: list[BatchShard] | None = None
     if options.resume:
         manifest = _load_parallel_manifest(options, work_dir, input_rows=input_counts.input_rows)
         shards = manifest.shards
@@ -870,11 +1030,42 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
     else:
         selected_rows = input_counts.selected_rows
 
+    monitor = options.monitor or create_batch_monitor(options)
+    monitor.start(options, selected_rows)
+    try:
+        return await _run_parallel_structured_batch_started(
+            options=options,
+            parallel=parallel,
+            work_dir=work_dir,
+            input_counts=input_counts,
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            selected_rows=selected_rows,
+            shards=shards if options.resume else None,
+            monitor=monitor,
+        )
+    finally:
+        monitor.close()
+
+
+async def _run_parallel_structured_batch_started(
+    *,
+    options: StructuredBatchOptions,
+    parallel: int,
+    work_dir: Path,
+    input_counts: ParallelInputCounts,
+    started_at: str,
+    started_monotonic: float,
+    selected_rows: int,
+    shards: list[BatchShard] | None,
+    monitor: BatchMonitor,
+) -> dict[str, Any]:
     if not selected_rows:
         _write_empty_parallel_outputs(options)
         payload = _empty_parallel_summary(options, started_at, input_counts.input_rows, work_dir)
         _write_parallel_summary(options, payload)
         _cleanup_parallel_work_dir(options, work_dir)
+        monitor.complete(payload)
         return payload
 
     if not options.resume:
@@ -886,11 +1077,21 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
             input_counts.input_rows,
             selected_rows,
         )
+    assert shards is not None
     _emit_progress(
         options,
         f"planned {len(shards)} shards for {selected_rows} selected rows work_dir={work_dir}",
     )
 
+    monitor_state = _ParallelMonitorState(
+        monitor=monitor,
+        summary=BatchSummary(
+            input_rows=input_counts.input_rows,
+            selected_rows=selected_rows,
+            started_at=started_at,
+            metadata={},
+        ),
+    )
     shard_tasks = []
     for shard in shards:
         _emit_progress(
@@ -900,7 +1101,15 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
                 f"limit={shard.limit} output={shard.output_path}"
             ),
         )
-        shard_tasks.append(run_structured_batch(_shard_options(options, shard)))
+        shard_tasks.append(
+            run_structured_batch(
+                _shard_options(
+                    options,
+                    shard,
+                    monitor=_ParallelShardMonitor(monitor_state),
+                )
+            )
+        )
 
     try:
         shard_summaries = await asyncio.gather(*shard_tasks)
@@ -939,6 +1148,7 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
         shard_summaries=shard_summaries,
     )
     _write_parallel_summary(options, payload)
+    monitor.complete(payload)
     _emit_progress(
         options,
         (
@@ -1067,7 +1277,12 @@ def _plan_parallel_shards(
     return shards
 
 
-def _shard_options(options: StructuredBatchOptions, shard: BatchShard) -> StructuredBatchOptions:
+def _shard_options(
+    options: StructuredBatchOptions,
+    shard: BatchShard,
+    *,
+    monitor: BatchMonitor,
+) -> StructuredBatchOptions:
     return replace(
         options,
         output_path=shard.output_path,
@@ -1085,6 +1300,8 @@ def _shard_options(options: StructuredBatchOptions, shard: BatchShard) -> Struct
         work_dir=None,
         keep_temp=True,
         progress_label=f"shard {shard.index}",
+        trackio=None,
+        monitor=monitor,
     )
 
 
@@ -1241,6 +1458,8 @@ def _merge_parallel_summaries(
     shard_summaries: list[dict[str, Any]],
 ) -> dict[str, Any]:
     schema_source = load_schema_source(options)
+    processed_rows = sum(_summary_int(summary, "processed_rows") for summary in shard_summaries)
+    usage_totals = merge_usage_totals_from_summaries(shard_summaries)
     payload: dict[str, Any] = {
         "model": options.model,
         "input": str(options.input_path),
@@ -1262,13 +1481,13 @@ def _merge_parallel_summaries(
         "completed_at": completed_at,
         "input_rows": input_rows,
         "selected_rows": selected_rows,
-        "processed_rows": sum(
-            _summary_int(summary, "processed_rows") for summary in shard_summaries
-        ),
+        "processed_rows": processed_rows,
         "skipped_rows": sum(_summary_int(summary, "skipped_rows") for summary in shard_summaries),
         "failed_rows": sum(_summary_int(summary, "failed_rows") for summary in shard_summaries),
         "duration_ms": duration_ms,
         "timing_ms": _merge_timing_summaries(shard_summaries),
+        "usage": usage_totals.usage_block(processed_rows=processed_rows),
+        "cache": usage_totals.cache_block(),
         "shards": [
             {
                 "index": shard.index,
@@ -1289,6 +1508,7 @@ def _empty_parallel_summary(
     work_dir: Path,
 ) -> dict[str, Any]:
     completed_at = utc_now_iso()
+    usage_totals = BatchUsageTotals()
     return {
         "model": options.model,
         "input": str(options.input_path),
@@ -1321,6 +1541,8 @@ def _empty_parallel_summary(
             "ttft": {"count": 0},
             "time_to_response": {"count": 0},
         },
+        "usage": usage_totals.usage_block(processed_rows=0),
+        "cache": usage_totals.cache_block(),
         "shards": [],
     }
 

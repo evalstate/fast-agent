@@ -84,4 +84,4 @@ def test_initialize_base_default_params_treats_blank_model_as_missing() -> None:
     )
 
     assert params.model is None
-    assert params.maxTokens == 16384
+    assert params.maxTokens is None

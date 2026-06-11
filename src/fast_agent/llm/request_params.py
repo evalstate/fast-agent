@@ -77,7 +77,7 @@ class RequestParams(CreateMessageRequestParams):
     to avoid confusion with the 'message' parameter on 'generate' method.
     """
 
-    maxTokens: int = 2048
+    maxTokens: int | None = None
     """The maximum number of tokens to sample, as requested by the server."""
 
     model: str | None = None

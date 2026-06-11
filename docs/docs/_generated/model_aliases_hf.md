@@ -6,10 +6,12 @@
 | `deepseek4-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseekv4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
+| `gemma4` | `hf.google/gemma-4-31B-it:novita` |
 | `glm` | `hf.zai-org/GLM-5.1:together` |
 | `glm47` | `hf.zai-org/GLM-4.7:cerebras` |
 | `glm5` | `hf.zai-org/GLM-5:novita` |
 | `glm51` | `hf.zai-org/GLM-5.1:together` |
+| `google/gemma-4-31b-it` | `google/gemma-4-31b-it` |
 | `gpt-oss` | `hf.openai/gpt-oss-120b:cerebras` |
 | `gpt-oss-20b` | `hf.openai/gpt-oss-20b` |
 | `kimi` | `hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on` |

@@ -402,6 +402,27 @@ def _resolve_codex_oauth_label(provider_name: str) -> str | None:
     return source_label
 
 
+def _resolve_anthropic_sdk_credentials_label(provider_name: str) -> str | None:
+    if provider_name != Provider.ANTHROPIC.config_name:
+        return None
+
+    try:
+        from anthropic import AsyncAnthropic
+    except Exception:
+        return None
+
+    try:
+        client = AsyncAnthropic()
+    except Exception:
+        return None
+
+    if client.auth_token is not None:
+        return "ANTHROPIC_AUTH_TOKEN"
+    if client.credentials is not None:
+        return "Anthropic SDK credentials"
+    return None
+
+
 def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
     """Check if API keys are configured in secrets file or environment, including Azure DefaultAzureCredential.
     Now also checks Azure config in main config file for retrocompatibility.
@@ -449,6 +470,11 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
             status["config"] = config_key
 
         if status["env"] or status["config"]:
+            continue
+
+        anthropic_sdk_label = _resolve_anthropic_sdk_credentials_label(provider_name)
+        if anthropic_sdk_label is not None:
+            status["config"] = anthropic_sdk_label
             continue
 
         huggingface_label = _resolve_huggingface_login_label(provider_name)

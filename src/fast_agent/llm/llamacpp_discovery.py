@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Final, Literal
+from typing import Final, Literal
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
@@ -20,9 +20,6 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.text import strip_casefold, strip_to_none
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
 
 DEFAULT_LLAMA_CPP_URL: Final[str] = "http://localhost:8080/v1"
 DEFAULT_DISCOVERY_TIMEOUT_SECONDS: Final[float] = 10.0
@@ -62,10 +59,6 @@ class LlamaCppServerEndpoints:
                 _join_url(self.server_url, "/props"),
             )
         )
-
-    def slots_urls(self) -> tuple[str, ...]:
-        """Return candidate slots URLs in preferred order."""
-        return (_join_url(self.server_url, "/slots"),)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,20 +165,6 @@ class _LlamaCppPropsPayload(BaseModel):
     modalities: _LlamaCppModalitiesPayload = Field(default_factory=_LlamaCppModalitiesPayload)
 
 
-class _LlamaCppSlotParamsPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    max_tokens: int | None = None
-    n_predict: int | None = None
-
-
-class _LlamaCppSlotPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    is_processing: bool = False
-    params: _LlamaCppSlotParamsPayload | None = None
-
-
 def normalize_llamacpp_url(url: str) -> LlamaCppServerEndpoints:
     """Normalize a user-supplied llama.cpp URL.
 
@@ -284,12 +263,6 @@ async def interrogate_llamacpp_model(
         max_output_tokens = positive_int_or_none(params.n_predict)
         if max_output_tokens is None:
             max_output_tokens = positive_int_or_none(params.max_tokens)
-        if max_output_tokens is None:
-            max_output_tokens = await _discover_slots_max_output_tokens(
-                client=client,
-                catalog=catalog,
-                headers=headers,
-            )
         if catalog.router_mode and listing.training_context_window is None:
             listing = await _refresh_router_model_listing(
                 client=client,
@@ -461,34 +434,6 @@ async def _get_json_from_candidates(
     )
 
 
-async def _maybe_get_json_from_candidates(
-    client: httpx.AsyncClient,
-    urls: tuple[str, ...],
-    *,
-    headers: dict[str, str],
-) -> tuple[object, str] | None:
-    for url in urls:
-        try:
-            response = await client.get(url, headers=headers)
-        except httpx.HTTPError:
-            continue
-
-        if response.status_code in {401, 403, 404}:
-            continue
-
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError:
-            continue
-
-        try:
-            return response.json(), url
-        except ValueError:
-            continue
-
-    return None
-
-
 def _parse_models_payload(payload: object) -> tuple[tuple[LlamaCppModelListing, ...], bool]:
     if isinstance(payload, list):
         raw_items = payload
@@ -539,65 +484,6 @@ def _parse_props_payload(payload: object) -> _LlamaCppPropsPayload:
         return _LlamaCppPropsPayload.model_validate(payload)
     except ValidationError as exc:
         raise LlamaCppDiscoveryError("Unexpected llama.cpp props payload shape.") from exc
-
-
-async def _discover_slots_max_output_tokens(
-    *,
-    client: httpx.AsyncClient,
-    catalog: LlamaCppDiscoveryCatalog,
-    headers: dict[str, str],
-) -> int | None:
-    slots_payload = await _maybe_get_json_from_candidates(
-        client,
-        catalog.endpoints.slots_urls(),
-        headers=headers,
-    )
-    if slots_payload is None:
-        return None
-
-    payload, _resolved_url = slots_payload
-    return _parse_slots_max_output_tokens(payload)
-
-
-def _parse_slots_max_output_tokens(payload: object) -> int | None:
-    if not isinstance(payload, list):
-        return None
-
-    slots = _validated_slot_payloads(payload)
-    return _first_slot_max_output_tokens(
-        (slot for slot in slots if slot.is_processing)
-    ) or _first_slot_max_output_tokens(slots)
-
-
-def _validated_slot_payloads(payload: "Sequence[object]") -> list[_LlamaCppSlotPayload]:
-    slots: list[_LlamaCppSlotPayload] = []
-    for raw_slot in payload:
-        if not isinstance(raw_slot, dict):
-            continue
-        try:
-            slots.append(_LlamaCppSlotPayload.model_validate(raw_slot))
-        except ValidationError as exc:
-            raise LlamaCppDiscoveryError("Unexpected llama.cpp slots payload shape.") from exc
-    return slots
-
-
-def _slot_max_output_tokens(slot: _LlamaCppSlotPayload) -> int | None:
-    if slot.params is None:
-        return None
-    n_predict = positive_int_or_none(slot.params.n_predict)
-    if n_predict is not None:
-        return n_predict
-    return positive_int_or_none(slot.params.max_tokens)
-
-
-def _first_slot_max_output_tokens(
-    slots: "Iterable[_LlamaCppSlotPayload]",
-) -> int | None:
-    for slot in slots:
-        max_output_tokens = _slot_max_output_tokens(slot)
-        if max_output_tokens is not None:
-            return max_output_tokens
-    return None
 
 
 def _derive_tokenizes(modalities: _LlamaCppModalitiesPayload) -> tuple[str, ...]:

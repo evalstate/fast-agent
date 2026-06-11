@@ -876,6 +876,18 @@ class ModelDatabase:
         default_provider=Provider.HUGGINGFACE,
     )
 
+    HF_PROVIDER_GEMMA4_31B = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=65_536,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+        model_specific="You have vision capabilities.",
+    )
+
     ALIYUN_QWEN3_MODERN = ModelParameters(
         context_window=256_000,
         max_output_tokens=64_000,
@@ -1046,6 +1058,7 @@ class ModelDatabase:
         "minimaxai/minimax-m2.7": MINIMAX_27,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
+        "google/gemma-4-31b-it": HF_PROVIDER_GEMMA4_31B,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
         "deepseek-ai/deepseek-v4-pro": HF_PROVIDER_DEEPSEEK4_PRO,
@@ -1275,15 +1288,15 @@ class ModelDatabase:
         return params.stream_mode if params else "openai"
 
     @classmethod
-    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int:
+    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int | None:
         """Get default max_tokens for RequestParams based on model"""
         if not model:
-            return 2048  # Fallback when no model specified
+            return None
 
         params = cls.get_model_params(model, provider=provider)
         if params:
             return params.max_output_tokens
-        return 2048  # Fallback for unknown models
+        return None
 
     @classmethod
     def get_default_temperature(

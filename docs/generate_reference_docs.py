@@ -14,6 +14,7 @@ from pydantic_core import PydanticUndefined
 
 DOCS_ROOT = Path(__file__).resolve().parent
 GENERATED_DIR = DOCS_ROOT / "docs" / "_generated"
+SIGNATURE_MAX_WIDTH = 88
 
 
 def _find_fast_agent_repo() -> Path:
@@ -71,7 +72,9 @@ def _clean_signature_text(text: str) -> str:
     return (
         text.replace("collections.abc.Callable", "Callable")
         .replace("collections.abc.Coroutine", "Coroutine")
+        .replace("pathlib._local.Path", "pathlib.Path")
         .replace("typing.Any", "Any")
+        .replace("\"'BatchBackend'\"", "BatchBackend")
     )
 
 
@@ -95,8 +98,18 @@ def _compact_signature_defaults(sig: inspect.Signature) -> inspect.Signature:
     return sig.replace(parameters=params)
 
 
+def _prefixed_signature_width(name: str) -> int:
+    # `inspect.Signature.format()` only sees the parenthesized signature, not the
+    # callable name we prepend in the generated docs. Account for that prefix so
+    # reference signatures wrap before the rendered code block needs horizontal
+    # scrolling.
+    return max(1, SIGNATURE_MAX_WIDTH - len(name))
+
+
 def _format_signature(name: str, func: Any) -> str:
-    sig = _compact_signature_defaults(inspect.signature(func)).format(max_width=88)
+    sig = _compact_signature_defaults(inspect.signature(func)).format(
+        max_width=_prefixed_signature_width(name)
+    )
     sig = _wrap_workflow_return_annotation(_clean_signature_text(sig))
     return f"{name}{sig}"
 
@@ -183,7 +196,7 @@ def _signature_without_self(func: Any) -> inspect.Signature:
 
 
 def _format_method_signature(name: str, func: Any) -> str:
-    sig = _signature_without_self(func).format(max_width=88)
+    sig = _signature_without_self(func).format(max_width=_prefixed_signature_width(name))
     text = _clean_signature_text(sig)
     text = re.sub(r" -> \"'([^']+)'\"", r" -> \1", text)
     text = re.sub(r": '([^']+)'", r": \1", text)
@@ -382,6 +395,151 @@ def generate_harness_reference() -> str:
             "RuntimeError: Session 'support-123' is running generate; wait before deleting it.",
         )
     )
+    return "".join(lines)
+
+
+def _format_constructor_signature(name: str, cls: Any) -> str:
+    return _format_method_signature(name, cls.__init__)
+
+
+def generate_extension_reference() -> str:
+    from fast_agent.integrations.gepa import (
+        FastAgentBatchEvaluator,
+        FastAgentReflectionLM,
+        FastAgentRowWiseBatchAdapter,
+        RowWiseEvaluationRun,
+        RowWiseScore,
+        gepa_api_trackio_kwargs,
+        gepa_numeric_metrics,
+        gepa_trackio_init_kwargs,
+        make_gepa_tracking_config,
+        safe_trackio_log,
+    )
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py\n")
+    lines.append("-->\n\n")
+
+    lines.append("## GEPA integration adapters\n\n")
+    lines.append(
+        "Import GEPA helpers from `fast_agent.integrations.gepa`. These adapters keep\n"
+        "fast-agent responsible for batch execution, artifact paths, and reflection LM\n"
+        "calls while leaving scoring policy in your evaluator code.\n\n"
+    )
+
+    lines.append("### `FastAgentReflectionLM`\n\n")
+    lines.append(
+        "Synchronous language-model callable for GEPA reflection calls backed by\n"
+        "`fast-agent go`. It writes prompt, request, response, timing, stdout/stderr,\n"
+        "error, and usage artifacts under `audit_dir`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python", _format_constructor_signature("FastAgentReflectionLM", FastAgentReflectionLM)
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("reflection_lm.__call__", FastAgentReflectionLM.__call__),
+        )
+    )
+
+    lines.append("### `FastAgentBatchEvaluator`\n\n")
+    lines.append(
+        "Aggregate GEPA evaluator for `gepa.optimize_anything.optimize_anything`: one\n"
+        "candidate runs one full fast-agent batch and returns one `(score, side_info)`\n"
+        "pair. Use this when the primary metric is corpus-level.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature("FastAgentBatchEvaluator", FastAgentBatchEvaluator),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("evaluator.__call__", FastAgentBatchEvaluator.__call__),
+        )
+    )
+
+    lines.append("### `FastAgentRowWiseBatchAdapter`\n\n")
+    lines.append(
+        "Lower-level GEPA adapter protocol implementation for `gepa.api.optimize`: GEPA\n"
+        "supplies minibatches of input rows, fast-agent runs each minibatch through\n"
+        "`BatchRunner`, and your `row_scorer` returns one score/trajectory per row.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature(
+                "FastAgentRowWiseBatchAdapter", FastAgentRowWiseBatchAdapter
+            ),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("adapter.evaluate", FastAgentRowWiseBatchAdapter.evaluate),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature(
+                "adapter.make_reflective_dataset",
+                FastAgentRowWiseBatchAdapter.make_reflective_dataset,
+            ),
+        )
+    )
+
+    lines.append("### `RowWiseScore`\n\n")
+    lines.append(
+        "`row_scorer` may return `RowWiseScore`, a bare float, `(score, trajectory)`,\n"
+        "or `(score, trajectory, objective_scores)`. `objective_scores` values should\n"
+        "be higher-is-better because GEPA uses them for frontier tracking.\n\n"
+    )
+    lines.append(_md_code("python", _format_constructor_signature("RowWiseScore", RowWiseScore)))
+
+    lines.append("### `RowWiseEvaluationRun`\n\n")
+    lines.append(
+        "Metadata passed to each `row_scorer` call for the current minibatch evaluation.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python", _format_constructor_signature("RowWiseEvaluationRun", RowWiseEvaluationRun)
+        )
+    )
+
+    lines.append("### Trackio helpers\n\n")
+    lines.append(
+        "Trackio helpers provide fast-agent defaults for GEPA dashboards. Use\n"
+        "`gepa_trackio_init_kwargs()` when your script initializes Trackio, use\n"
+        "`gepa_api_trackio_kwargs()` with `gepa.api.optimize()`, and use\n"
+        "`make_gepa_tracking_config()` with `optimize_anything()`.\n\n"
+    )
+    for name, func in (
+        ("gepa_trackio_init_kwargs", gepa_trackio_init_kwargs),
+        ("gepa_api_trackio_kwargs", gepa_api_trackio_kwargs),
+        ("make_gepa_tracking_config", make_gepa_tracking_config),
+    ):
+        lines.append(_md_code("python", _format_method_signature(name, func)))
+
+    lines.append("### Evaluator metric helpers\n\n")
+    lines.append(
+        "`gepa_numeric_metrics()` flattens `side_info['scores']`,\n"
+        "`side_info['score_details']`, and `side_info['raw_metrics']` into\n"
+        "Trackio-friendly numeric metrics. `safe_trackio_log()` logs them without\n"
+        "making Trackio a hard dependency of evaluator code.\n\n"
+    )
+    lines.append(
+        _md_code("python", _format_method_signature("gepa_numeric_metrics", gepa_numeric_metrics))
+    )
+    lines.append(_md_code("python", _format_method_signature("safe_trackio_log", safe_trackio_log)))
+
     return "".join(lines)
 
 
@@ -819,6 +977,7 @@ def _load_model_factory_constants(
 
         from fast_agent.llm.model_database import ModelDatabase
         from fast_agent.llm.model_factory import ModelFactory
+        from fast_agent.llm.model_selection import ModelSelectionCatalog
         from fast_agent.llm.provider_types import Provider
 
         provider_names = {provider.value for provider in Provider}
@@ -832,6 +991,14 @@ def _load_model_factory_constants(
             for model_name in ModelDatabase.MODELS
             if (provider := ModelDatabase.get_default_provider(model_name)) is not None
         }
+        for entry in ModelSelectionCatalog.list_current_entries():
+            alias = entry.alias.strip()
+            if (
+                alias
+                and alias not in default_providers
+                and not any(character.isspace() for character in alias)
+            ):
+                model_aliases.setdefault(alias, entry.model)
         return model_aliases, default_providers, set(), provider_names
     except Exception:
         pass
@@ -952,55 +1119,6 @@ def generate_model_alias_table(
     return _format_alias_table(list(entries.items()), two_column=two_column)
 
 
-def generate_openai_merged_table(*, repo_root: Path) -> str:
-    """
-    Generate a merged OpenAI + Responses table.
-
-    Models from the Responses provider are marked with (*) since they use
-    the OpenAI Responses API but are commonly thought of as "OpenAI models".
-    """
-    model_aliases, default_providers, effort_suffixes, provider_names = (
-        _load_model_factory_constants(repo_root)
-    )
-
-    entries: dict[str, str] = {}
-    responses_entries: set[str] = set()  # Track which entries are via Responses
-
-    # Include models from both openai and responses providers
-    for provider in ("openai", "responses"):
-        for model_name, default_provider in default_providers.items():
-            if default_provider == provider and _include_default_model_name(provider, model_name):
-                entries[model_name] = model_name
-                if provider == "responses":
-                    responses_entries.add(model_name)
-
-    # Include aliases that resolve to openai or responses
-    for alias, target in model_aliases.items():
-        inferred = _infer_provider_for_model_string(
-            target,
-            default_providers=default_providers,
-            provider_names=provider_names,
-            effort_suffixes=effort_suffixes,
-        )
-        if inferred in ("openai", "responses"):
-            # Strip provider prefix for cleaner display (e.g., "responses.gpt-5.1" -> "gpt-5.1")
-            display_target = target
-            for prefix in ("responses.", "openai."):
-                if display_target.startswith(prefix):
-                    display_target = display_target[len(prefix) :]
-                    break
-            entries[alias] = display_target
-            if inferred == "responses":
-                responses_entries.add(alias)
-
-    table = _format_alias_table(
-        list(entries.items()), two_column=False, marked_entries=responses_entries
-    )
-    # Add footnote
-    table += "\n\\* _Via OpenAI Responses API_\n"
-    return table
-
-
 def generate_current_model_table(provider_name: str) -> str:
     from fast_agent.llm.model_selection import ModelSelectionCatalog
     from fast_agent.llm.provider_types import Provider
@@ -1055,11 +1173,6 @@ def main() -> int:
             two_column=True,
             repo_root=repo_root,
         ),
-    )
-    # OpenAI table merges openai + responses providers, with (*) marking Responses models
-    _write(
-        GENERATED_DIR / "model_aliases_openai.md",
-        generate_openai_merged_table(repo_root=repo_root),
     )
     # Keep Codex OAuth aliases in a dedicated include so provider docs can embed
     # a focused table (`codexplan`, `codexplan54`, etc.) instead of relying only
@@ -1144,6 +1257,7 @@ def main() -> int:
             generate_fastagent_harness_method_reference(),
         )
         _write(GENERATED_DIR / "harness_reference.md", generate_harness_reference())
+        _write(GENERATED_DIR / "extension_reference.md", generate_extension_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
         _write(

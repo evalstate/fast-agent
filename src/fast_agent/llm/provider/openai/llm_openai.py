@@ -1418,14 +1418,13 @@ class OpenAILLM(
 
         if self._reasoning:
             effort = self._resolve_reasoning_effort()
-            base_args.update(
-                {
-                    "max_completion_tokens": request_params.maxTokens,
-                    **({"reasoning_effort": effort} if effort else {}),
-                }
-            )
+            if request_params.maxTokens is not None:
+                base_args["max_completion_tokens"] = request_params.maxTokens
+            if effort:
+                base_args["reasoning_effort"] = effort
         else:
-            base_args["max_tokens"] = request_params.maxTokens
+            if request_params.maxTokens is not None:
+                base_args["max_tokens"] = request_params.maxTokens
             if tools:
                 base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 

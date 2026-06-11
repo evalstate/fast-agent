@@ -113,7 +113,7 @@ def _assert_child_params(params: RequestParams | None) -> None:
     assert params is not None
     assert params.model is None
     assert params.systemPrompt is None
-    assert params.maxTokens == 2048
+    assert params.maxTokens is None
     assert params.use_history is False
 
 

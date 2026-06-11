@@ -37,7 +37,9 @@ def test_uvloop_creation_failure_falls_back_to_asyncio(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_DISABLE_UV_LOOP", raising=False)
     monkeypatch.delenv("FAST_AGENT_UVLOOP", raising=False)
     monkeypatch.setattr(async_utils, "find_spec", lambda name: object())
-    monkeypatch.setitem(sys.modules, "uvloop", SimpleNamespace(new_event_loop=broken_new_event_loop))
+    monkeypatch.setitem(
+        sys.modules, "uvloop", SimpleNamespace(new_event_loop=broken_new_event_loop)
+    )
     async_utils._UVLOOP_REQUESTED = None
     async_utils._UVLOOP_CONFIGURED = None
 

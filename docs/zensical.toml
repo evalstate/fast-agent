@@ -90,6 +90,7 @@ nav = [
     { "Config File" = "ref/config_file.md" },
     { "Command Line" = "ref/cmd_switches.md" },
     { "Class Reference" = "ref/class_reference.md" },
+    { "Extension Reference" = "ref/extension_reference.md" },
     { "Open Telemetry" = "ref/open_telemetry.md" },
     { "Articles & Blog Posts" = "ref/fast_agent_ai_articles.md" },
     { "Generated Docs" = "ref/generated_docs.md" },

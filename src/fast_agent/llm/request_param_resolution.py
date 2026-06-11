@@ -108,7 +108,7 @@ def initialize_base_default_params(
 ) -> RequestParams:
     """Build provider-agnostic default request params."""
     model = normalize_model_name(kwargs.get("model"))
-    max_tokens: int
+    max_tokens: int | None
     if (
         isinstance(model, str)
         and resolved_model_spec is not None
@@ -117,7 +117,7 @@ def initialize_base_default_params(
     ):
         max_tokens = resolved_model_spec.max_output_tokens
     else:
-        max_tokens = ModelDatabase.get_default_max_tokens(model) if model else 16384
+        max_tokens = ModelDatabase.get_default_max_tokens(model) if model else None
 
     return RequestParams(
         model=model,
