@@ -9,6 +9,7 @@ from typing import Any
 from fast_agent.batch import BatchRunResult
 from fast_agent.integrations.gepa import (
     FastAgentBatchEvaluator,
+    FastAgentGEPATrackioCallback,
     FastAgentReflectionLM,
     FastAgentRowWiseBatchAdapter,
     RowWiseEvaluationRun,
@@ -106,11 +107,21 @@ def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
     )
 
     assert lm("think about this") == "reflection"
+    assert not logged
+    FastAgentGEPATrackioCallback(reflection_lm=lm).on_proposal_end(
+        {
+            "iteration": 3,
+            "new_instructions": {"policy": "new"},
+            "prompts": {"policy": "prompt"},
+            "raw_lm_outputs": {"policy": "raw"},
+        }
+    )
     assert logged
+    assert logged[0]["gepa/iteration"] == 3
+    assert logged[0]["fast_agent/gepa_context/proposed_components"] == 1
     assert logged[0]["fast_agent/reflection/call_index"] == 1
     assert logged[0]["fast_agent/reflection/usage/cumulative_billing_tokens"] == 12
     assert logged[0]["fast_agent/reflection/usage/cache_hit_rate_percent"] == 40.0
-    assert logged[0]["fast_agent/reflection/last_turn/cache/cache_hit_tokens"] == 4
 
 
 def test_batch_evaluator_allocates_candidate_and_scores(monkeypatch, tmp_path):
@@ -324,14 +335,34 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
         {"policy": "route carefully"},
     )
 
+    assert not logged
+    FastAgentGEPATrackioCallback(row_wise_adapter=adapter).on_evaluation_end(
+        {
+            "iteration": 7,
+            "candidate_idx": 4,
+            "batch_size": 2,
+            "capture_traces": True,
+            "parent_ids": [1],
+            "scores": [1.0, 0.0],
+            "has_trajectories": False,
+            "outputs": [],
+            "trajectories": None,
+            "objective_scores": None,
+            "is_seed_candidate": False,
+        }
+    )
     assert logged
     payload = logged[0]
+    assert payload["gepa/iteration"] == 7
+    assert payload["gepa/candidate_idx"] == 4
+    assert payload["fast_agent/gepa_context/parent_count"] == 1
+    assert payload["fast_agent/gepa_context/score_mean"] == 0.5
     assert payload["fast_agent/eval/eval_index"] == 1
     assert payload["fast_agent/eval/batch_size"] == 2
-    assert payload["fast_agent/eval/objective/gepa_score"] == 0.5
-    assert payload["fast_agent/eval/batch/usage/billing_tokens_per_row"] == 60
-    assert payload["fast_agent/eval/batch/cache/served_tokens_per_row"] == 30
-    assert payload["fast_agent/eval/batch/cache/hit_rate_percent"] == 60.0
+    assert "fast_agent/eval/objective/gepa_score" not in payload
+    assert payload["fast_agent/eval/usage/billing_tokens_per_row"] == 60
+    assert payload["fast_agent/eval/cache/served_tokens"] == 60
+    assert payload["fast_agent/eval/cache/hit_rate_percent"] == 60.0
 
 
 def test_gepa_numeric_metrics_flattens_scores_and_details():

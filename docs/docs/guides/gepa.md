@@ -547,6 +547,25 @@ result = optimize(
 See the [Extension Reference](../ref/extension_reference/#gepa-integration-adapters)
 for the generated signatures of the GEPA adapter classes.
 
+!!! tip "Choose row-wise minibatch sizes deliberately"
+
+    GEPA's default epoch-shuffled minibatch sampler pads an epoch when the
+    trainset size is not divisible by `reflection_minibatch_size`. Padding can
+    repeat examples. That is statistically fine for some in-memory evaluators,
+    but it can surprise the batch runner that requires unique row IDs inside
+    each minibatch.
+
+    For row-wise **`fast-agent`** runs, prefer one of these setups:
+
+    - choose a trainset size divisible by `reflection_minibatch_size`;
+    - use a custom GEPA batch sampler that does not repeat IDs;
+    - or make the batch layer explicitly tolerate duplicate logical examples,
+      for example by assigning unique per-evaluation row IDs while preserving
+      the original source ID in a separate field.
+
+    If your dataset size changes between experiments, re-check this divisibility
+    before starting a long run.
+
 Use row-wise mode when the row is the natural optimization instance and GEPA
 should reflect over row-level successes/failures. Keep aggregate metrics such as
 micro-F1, exact-match rate, or average Jaccard in your scorer or Trackio logs as
