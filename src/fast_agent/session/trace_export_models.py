@@ -23,6 +23,7 @@ class ExportRequest:
     target: str | Path | None
     agent_name: str | None
     output_path: Path | None
+    hf_url: str | None = None
     hf_dataset: str | None = None
     hf_dataset_path: str | None = None
     format: str = "codex"
@@ -35,12 +36,14 @@ class ExportRequest:
 
 @dataclass(frozen=True, slots=True)
 class DatasetUploadResult:
-    """Remote dataset upload details for an exported trace."""
+    """Remote Hugging Face upload details for an exported trace."""
 
     repo_id: str
     path_in_repo: str
     commit_url: str
     file_url: str
+    destination_url: str | None = None
+    destination_label: str = "dataset"
 
 
 @dataclass(frozen=True, slots=True)

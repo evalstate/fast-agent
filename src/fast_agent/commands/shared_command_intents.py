@@ -55,6 +55,7 @@ ToolMutationAction = Literal["add_tool", "remove_tool"]
 _ExportValueName = Literal[
     "agent",
     "output",
+    "hf_url",
     "hf_dataset",
     "hf_dataset_path",
     "privacy_filter_path",
@@ -211,6 +212,7 @@ class _ExportArgument:
     target: str | None = None
     agent: str | None = None
     output: str | None = None
+    hf_url: str | None = None
     hf_dataset: str | None = None
     hf_dataset_path: str | None = None
     privacy_filter: bool = False
@@ -246,6 +248,7 @@ class _ExportTokenParseResult:
 _EXPORT_VALUE_OPTIONS: tuple[ValueOption[_ExportValueName], ...] = (
     ValueOption("agent", ("--agent", "-a"), error_name="--agent"),
     ValueOption("output", ("--output", "-o"), error_name="--output"),
+    ValueOption("hf_url", ("--hf-url",)),
     ValueOption("hf_dataset", ("--hf-dataset",)),
     ValueOption("hf_dataset_path", ("--hf-dataset-path",)),
     ValueOption("privacy_filter_path", ("--privacy-filter-path",)),
@@ -617,6 +620,7 @@ class SessionCommandIntent:
     export_target: str | None = None
     export_agent: str | None = None
     export_output: str | None = None
+    export_hf_url: str | None = None
     export_hf_dataset: str | None = None
     export_hf_dataset_path: str | None = None
     export_privacy_filter: bool = False
@@ -720,6 +724,7 @@ def _session_intent_from_export(export: _ExportArgument) -> SessionCommandIntent
         export_target=export.target,
         export_agent=export.agent,
         export_output=export.output,
+        export_hf_url=export.hf_url,
         export_hf_dataset=export.hf_dataset,
         export_hf_dataset_path=export.hf_dataset_path,
         export_privacy_filter=export.privacy_filter,
@@ -770,6 +775,7 @@ def _export_argument_from_parse(
         target=target,
         agent=option_values.get("agent"),
         output=option_values.get("output"),
+        hf_url=option_values.get("hf_url"),
         hf_dataset=option_values.get("hf_dataset"),
         hf_dataset_path=option_values.get("hf_dataset_path"),
         privacy_filter="privacy_filter" in enabled_flags,

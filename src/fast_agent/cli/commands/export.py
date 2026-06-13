@@ -20,6 +20,7 @@ from fast_agent.commands.session_export_help import (
     SESSION_EXPORT_AGENT_HELP,
     SESSION_EXPORT_HF_DATASET_HELP,
     SESSION_EXPORT_HF_DATASET_PATH_HELP,
+    SESSION_EXPORT_HF_URL_HELP,
     SESSION_EXPORT_OUTPUT_HELP,
     SESSION_EXPORT_PRIVACY_DEVICE_HELP,
     SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP,
@@ -72,6 +73,11 @@ def export(
     ),
     agent: str | None = typer.Option(None, "--agent", "-a", help=SESSION_EXPORT_AGENT_HELP),
     output: Path | None = typer.Option(None, "--output", "-o", help=SESSION_EXPORT_OUTPUT_HELP),
+    hf_url: str | None = typer.Option(
+        None,
+        "--hf-url",
+        help=SESSION_EXPORT_HF_URL_HELP,
+    ),
     hf_dataset: str | None = typer.Option(
         None,
         "--hf-dataset",
@@ -130,6 +136,7 @@ def export(
             target is not None
             or agent is not None
             or output is not None
+            or hf_url is not None
             or hf_dataset is not None
             or hf_dataset_path is not None
             or privacy_filter
@@ -155,6 +162,7 @@ def export(
             target=target,
             agent_name=agent,
             output_path=str(output) if output is not None else None,
+            hf_url=hf_url,
             hf_dataset=hf_dataset,
             hf_dataset_path=hf_dataset_path,
             privacy_filter=privacy_filter,

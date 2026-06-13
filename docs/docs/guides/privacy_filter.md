@@ -1,11 +1,11 @@
 ---
 title: OpenAI Privacy Filter session export
 description: Redact text content in fast-agent session exports before writing locally
-  or uploading to Hugging Face datasets. Powered by openai/privacy-filter models.
+  or uploading to Hugging Face Hub storage. Powered by openai/privacy-filter models.
 social:
   title: Privacy-filtered exports
-  tagline: Redact sensitive trace content before saving locally or uploading datasets.
-  description: Redact sensitive trace content before saving locally or uploading datasets.
+  tagline: Redact sensitive trace content before saving locally or uploading to Hugging Face.
+  description: Redact sensitive trace content before saving locally or uploading to Hugging Face.
   alt: fast-agent social card — Privacy-filtered exports
 ---
 
@@ -14,7 +14,7 @@ social:
 
 `fast-agent export --privacy-filter` redacts likely private data from exported
 session traces before the JSONL file is written locally or uploaded to a Hugging
-Face dataset.
+Face URL.
 
 Use it when you want to share a trace for debugging, evals, or dataset review but
 want a safer default than exporting raw prompts, messages, and tool output.
@@ -118,15 +118,23 @@ fast-agent export latest \
   --privacy-filter-path ~/.cache/huggingface/hub/path/to/snapshot
 ```
 
-Upload the sanitized file to a Hugging Face dataset:
+Upload the sanitized file to a Hugging Face URL:
 
 ```bash
 fast-agent export latest \
   --privacy-filter \
-  --hf-dataset your-name/fast-agent-traces
+  --hf-url hf://buckets/your-name/fast-agent-traces/
 ```
 
-Upload into a folder in the dataset repo:
+Dataset URLs also work:
+
+```bash
+fast-agent export latest \
+  --privacy-filter \
+  --hf-url hf://datasets/your-name/fast-agent-traces/sanitized-trace.jsonl
+```
+
+Compatibility dataset option:
 
 ```bash
 fast-agent export latest \
@@ -145,7 +153,7 @@ Inside the interactive prompt, use `/session export` with the same options:
 ```text
 /session export latest --privacy-filter
 /session export latest --privacy-filter --output sanitized-trace.jsonl
-/session export latest --privacy-filter --hf-dataset your-name/fast-agent-traces
+/session export latest --privacy-filter --hf-url hf://buckets/your-name/fast-agent-traces/
 ```
 
 ## Options

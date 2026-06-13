@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from io import BytesIO
+from typing import TYPE_CHECKING, BinaryIO
 
 import pytest
 
@@ -9,6 +10,7 @@ from fast_agent.session.trace_export_hf import HuggingFaceDatasetTraceUploader
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from types import TracebackType
 
 
 class _ApiStub:
@@ -34,26 +36,45 @@ class _ApiStub:
         return "https://huggingface.co/datasets/owner/dataset/commit/main"
 
 
+class _WritableHfFile(BytesIO):
+    def __enter__(self) -> "_WritableHfFile":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        return None
+
+
+class _FileSystemStub:
+    def __init__(self) -> None:
+        self.opened: list[tuple[str, str]] = []
+        self.files: list[_WritableHfFile] = []
+
+    def open(self, path: str, mode: str = "rb") -> BinaryIO:
+        self.opened.append((path, mode))
+        file = _WritableHfFile()
+        self.files.append(file)
+        return file
+
+
 def test_hf_dataset_uploader_defaults_to_repo_root(tmp_path: Path) -> None:
     api = _ApiStub()
     trace_path = tmp_path / "trace.jsonl"
     trace_path.write_text("{}", encoding="utf-8")
 
-    result = HuggingFaceDatasetTraceUploader(api=api).upload(
+    filesystem = _FileSystemStub()
+    result = HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
         dataset_repo="owner/dataset",
         trace_path=trace_path,
     )
 
     assert api.create_repo_calls == [("owner/dataset", "dataset", True)]
-    assert api.upload_file_calls == [
-        (
-            str(trace_path),
-            "trace.jsonl",
-            "owner/dataset",
-            "dataset",
-            "Upload fast-agent trace trace.jsonl",
-        )
-    ]
+    assert api.upload_file_calls == []
+    assert filesystem.opened == [("hf://datasets/owner/dataset/trace.jsonl", "wb")]
     assert result.path_in_repo == "trace.jsonl"
 
 
@@ -62,13 +83,14 @@ def test_hf_dataset_uploader_appends_filename_for_folder_path(tmp_path: Path) ->
     trace_path = tmp_path / "trace.jsonl"
     trace_path.write_text("{}", encoding="utf-8")
 
-    result = HuggingFaceDatasetTraceUploader(api=api).upload(
+    filesystem = _FileSystemStub()
+    result = HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
         dataset_repo="owner/dataset",
         trace_path=trace_path,
         dataset_path="exports/",
     )
 
-    assert api.upload_file_calls[0][1] == "exports/trace.jsonl"
+    assert filesystem.opened[0][0] == "hf://datasets/owner/dataset/exports/trace.jsonl"
     assert result.path_in_repo == "exports/trace.jsonl"
 
 
@@ -77,13 +99,14 @@ def test_hf_dataset_uploader_appends_filename_for_padded_folder_path(tmp_path: P
     trace_path = tmp_path / "trace.jsonl"
     trace_path.write_text("{}", encoding="utf-8")
 
-    result = HuggingFaceDatasetTraceUploader(api=api).upload(
+    filesystem = _FileSystemStub()
+    result = HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
         dataset_repo="owner/dataset",
         trace_path=trace_path,
         dataset_path="  /exports/  ",
     )
 
-    assert api.upload_file_calls[0][1] == "exports/trace.jsonl"
+    assert filesystem.opened[0][0] == "hf://datasets/owner/dataset/exports/trace.jsonl"
     assert result.path_in_repo == "exports/trace.jsonl"
 
 
@@ -92,14 +115,32 @@ def test_hf_dataset_uploader_treats_blank_dataset_path_as_repo_root(tmp_path: Pa
     trace_path = tmp_path / "trace.jsonl"
     trace_path.write_text("{}", encoding="utf-8")
 
-    result = HuggingFaceDatasetTraceUploader(api=api).upload(
+    filesystem = _FileSystemStub()
+    result = HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
         dataset_repo="owner/dataset",
         trace_path=trace_path,
         dataset_path=" / ",
     )
 
-    assert api.upload_file_calls[0][1] == "trace.jsonl"
+    assert filesystem.opened[0][0] == "hf://datasets/owner/dataset/trace.jsonl"
     assert result.path_in_repo == "trace.jsonl"
+
+
+def test_hf_url_uploader_writes_to_bucket_url(tmp_path: Path) -> None:
+    api = _ApiStub()
+    filesystem = _FileSystemStub()
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text("{}", encoding="utf-8")
+
+    result = HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
+        trace_path=trace_path,
+        hf_url="hf://buckets/evalstate/traces/",
+    )
+
+    assert api.create_repo_calls == []
+    assert filesystem.opened == [("hf://buckets/evalstate/traces/trace.jsonl", "wb")]
+    assert filesystem.files[0].getvalue() == b"{}"
+    assert result.file_url == "hf://buckets/evalstate/traces/trace.jsonl"
 
 
 def test_hf_dataset_uploader_reports_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:

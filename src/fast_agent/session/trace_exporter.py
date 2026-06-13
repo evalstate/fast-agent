@@ -28,6 +28,7 @@ from fast_agent.session.trace_export_errors import (
 from fast_agent.session.trace_export_hf import (
     DatasetTraceUploader,
     HuggingFaceDatasetTraceUploader,
+    dataset_upload_url,
 )
 from fast_agent.session.trace_export_models import (
     ExportRequest,
@@ -116,13 +117,19 @@ class SessionTraceExporter:
             raise SessionExportWriteError(
                 f"Failed to write trace export to {output_path}: {exc}"
             ) from exc
-        if request.hf_dataset is None:
+        hf_url = request.hf_url
+        if hf_url is None and request.hf_dataset is not None:
+            hf_url = dataset_upload_url(
+                dataset_repo=request.hf_dataset,
+                trace_path=result.output_path,
+                dataset_path=request.hf_dataset_path,
+            )
+        if hf_url is None:
             return result
         uploader = self._dataset_uploader or HuggingFaceDatasetTraceUploader()
         upload = uploader.upload(
-            dataset_repo=request.hf_dataset,
             trace_path=result.output_path,
-            dataset_path=request.hf_dataset_path,
+            hf_url=hf_url,
         )
         return ExportResult(
             session_id=result.session_id,
