@@ -51,6 +51,68 @@ def test_reflection_lm_writes_audit_files(tmp_path):
     assert "--env-dir" not in commands[0][0]
 
 
+def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
+    logged: list[dict[str, Any]] = []
+
+    def fake_runner(command, cwd, timeout_seconds):
+        results_path = command[command.index("--results") + 1]
+        Path(results_path).write_text(
+            json.dumps(
+                {
+                    "messages": [
+                        {
+                            "channels": {
+                                "fast-agent-usage": [
+                                    {
+                                        "text": json.dumps(
+                                            {
+                                                "turn": {
+                                                    "input_tokens": 10,
+                                                    "output_tokens": 2,
+                                                    "total_tokens": 12,
+                                                    "effective_input_tokens": 6,
+                                                    "cache_usage": {"cache_hit_tokens": 4},
+                                                },
+                                                "summary": {
+                                                    "cumulative_input_tokens": 10,
+                                                    "cumulative_output_tokens": 2,
+                                                    "cumulative_billing_tokens": 12,
+                                                    "cumulative_cache_hit_tokens": 4,
+                                                    "cache_hit_rate_percent": 40.0,
+                                                },
+                                            }
+                                        )
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="reflection\n", stderr="")
+
+    monkeypatch.setattr(
+        "fast_agent.integrations.gepa.safe_trackio_log",
+        lambda payload, **kwargs: logged.append(dict(payload)) or True,
+    )
+
+    lm = FastAgentReflectionLM(
+        env_dir=tmp_path / "env",
+        model="passthrough",
+        audit_dir=tmp_path / "audit",
+        command_runner=fake_runner,
+    )
+
+    assert lm("think about this") == "reflection"
+    assert logged
+    assert logged[0]["fast_agent/reflection/call_index"] == 1
+    assert logged[0]["fast_agent/reflection/usage/cumulative_billing_tokens"] == 12
+    assert logged[0]["fast_agent/reflection/usage/cache_hit_rate_percent"] == 40.0
+    assert logged[0]["fast_agent/reflection/last_turn/cache/cache_hit_tokens"] == 4
+
+
 def test_batch_evaluator_allocates_candidate_and_scores(monkeypatch, tmp_path):
     captured = {}
 
@@ -91,8 +153,9 @@ def test_batch_evaluator_allocates_candidate_and_scores(monkeypatch, tmp_path):
 
 
 class RecordingBatchRunner:
-    def __init__(self) -> None:
+    def __init__(self, *, summary: dict[str, Any] | None = None) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.summary = summary or {"processed_rows": 2}
 
     async def run(self, **kwargs):
         self.calls.append(kwargs)
@@ -118,7 +181,7 @@ class RecordingBatchRunner:
         return BatchRunResult(
             rows=rows,
             output_path=output_path,
-            summary={"processed_rows": 2},
+            summary=self.summary,
             telemetry_path=kwargs["telemetry_path"],
             error_output_path=None,
             summary_path=kwargs["summary_path"],
@@ -201,6 +264,74 @@ def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(t
         "exact": 0.0,
     }
     assert reflective["policy"][0]["selected_row_score"] == 0.0
+
+
+def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path):
+    logged: list[dict[str, Any]] = []
+    runner = RecordingBatchRunner(
+        summary={
+            "processed_rows": 2,
+            "failed_rows": 0,
+            "skipped_rows": 0,
+            "selected_rows": 2,
+            "duration_ms": 1000,
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "billing_tokens": 120,
+                "reasoning_tokens": 7,
+                "rows_with_usage": 2,
+                "usage_coverage_percent": 100.0,
+            },
+            "cache": {
+                "served_tokens": 60,
+                "hit_tokens": 40,
+                "write_tokens": 20,
+                "effective_input_tokens": 40,
+                "hit_rate_percent": 60.0,
+            },
+        }
+    )
+
+    def runner_factory(env_dir, *, backend):
+        return runner
+
+    def row_scorer(output_row, input_row, candidate, evaluation):
+        score = 1.0 if output_row["result"]["label"] == input_row["expected"] else 0.0
+        return RowWiseScore(
+            score=score,
+            objective_scores={"gepa_score": score},
+        )
+
+    monkeypatch.setattr(
+        "fast_agent.integrations.gepa.safe_trackio_log",
+        lambda payload, **kwargs: logged.append(dict(payload)) or True,
+    )
+
+    adapter = FastAgentRowWiseBatchAdapter(
+        env_dir=tmp_path / "env",
+        agent_card=tmp_path / "card.md",
+        candidate_variables={"policy": "policy"},
+        template="{{row_json}}",
+        row_scorer=row_scorer,
+        run_dir=tmp_path / "runs",
+        id_field="id",
+        batch_runner_factory=runner_factory,
+    )
+
+    adapter.evaluate(
+        [{"id": "row-1", "expected": "A"}, {"id": "row-2", "expected": "B"}],
+        {"policy": "route carefully"},
+    )
+
+    assert logged
+    payload = logged[0]
+    assert payload["fast_agent/eval/eval_index"] == 1
+    assert payload["fast_agent/eval/batch_size"] == 2
+    assert payload["fast_agent/eval/objective/gepa_score"] == 0.5
+    assert payload["fast_agent/eval/batch/usage/billing_tokens_per_row"] == 60
+    assert payload["fast_agent/eval/batch/cache/served_tokens_per_row"] == 30
+    assert payload["fast_agent/eval/batch/cache/hit_rate_percent"] == 60.0
 
 
 def test_gepa_numeric_metrics_flattens_scores_and_details():

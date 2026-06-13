@@ -11,9 +11,10 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeGuard
 
 from fast_agent.batch import BatchRunner, BatchRunResult
+from fast_agent.batch.monitoring import payload_metrics
 from fast_agent.eval import ArtifactRun, CandidateRun
 from fast_agent.utils.async_utils import run_coroutine
 
@@ -326,6 +327,13 @@ class FastAgentReflectionLM:
                 json.dumps(usage, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
+            safe_trackio_log(
+                _reflection_usage_metrics(
+                    usage,
+                    call_index=self._calls,
+                    duration_seconds=duration,
+                )
+            )
         response = completed.stdout.strip()
         audit.response_path.write_text(response + "\n", encoding="utf-8")
         return response
@@ -593,6 +601,12 @@ class FastAgentRowWiseBatchAdapter:
             json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+        safe_trackio_log(
+            _row_wise_eval_metrics(
+                result.summary,
+                summary,
+            )
+        )
         return _evaluation_batch(
             outputs=output_rows,
             scores=scores,
@@ -734,7 +748,77 @@ def _extend_numeric_metrics(
             metrics[f"{prefix}{key}"] = value
 
 
-def _is_numeric_metric(value: Any) -> bool:
+def _prefixed_metrics(
+    values: Mapping[str, Any],
+    *,
+    prefix: str,
+) -> dict[str, NumericMetric]:
+    metrics: dict[str, NumericMetric] = {}
+    for key, value in values.items():
+        if isinstance(key, str) and _is_numeric_metric(value):
+            metrics[f"{prefix}{key}"] = value
+    return metrics
+
+
+def _row_wise_eval_metrics(
+    batch_summary: Mapping[str, Any],
+    row_score_summary: Mapping[str, Any],
+) -> dict[str, NumericMetric]:
+    metrics = _prefixed_metrics(
+        payload_metrics(batch_summary),
+        prefix="fast_agent/eval/",
+    )
+    for key in ("eval_index", "batch_size", "avg_score", "num_metric_calls"):
+        value = row_score_summary.get(key)
+        if _is_numeric_metric(value):
+            metrics[f"fast_agent/eval/{key}"] = value
+    objective_averages = row_score_summary.get("objective_averages")
+    if isinstance(objective_averages, Mapping):
+        _extend_numeric_metrics(
+            metrics,
+            objective_averages,
+            prefix="fast_agent/eval/objective/",
+        )
+    return metrics
+
+
+def _reflection_usage_metrics(
+    usage: Mapping[str, Any],
+    *,
+    call_index: int,
+    duration_seconds: float,
+) -> dict[str, NumericMetric]:
+    metrics: dict[str, NumericMetric] = {
+        "fast_agent/reflection/call_index": call_index,
+        "fast_agent/reflection/duration_seconds": duration_seconds,
+    }
+    summary = usage.get("summary")
+    if isinstance(summary, Mapping):
+        _extend_numeric_metrics(
+            metrics,
+            summary,
+            prefix="fast_agent/reflection/usage/",
+        )
+    turns = usage.get("turns")
+    if isinstance(turns, Sequence) and not isinstance(turns, str | bytes):
+        metrics["fast_agent/reflection/turns"] = len(turns)
+        if turns and isinstance(turns[-1], Mapping):
+            _extend_numeric_metrics(
+                metrics,
+                turns[-1],
+                prefix="fast_agent/reflection/last_turn/",
+            )
+            cache_usage = turns[-1].get("cache_usage")
+            if isinstance(cache_usage, Mapping):
+                _extend_numeric_metrics(
+                    metrics,
+                    cache_usage,
+                    prefix="fast_agent/reflection/last_turn/cache/",
+                )
+    return metrics
+
+
+def _is_numeric_metric(value: Any) -> TypeGuard[NumericMetric]:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
