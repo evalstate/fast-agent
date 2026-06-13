@@ -143,6 +143,37 @@ def test_hf_url_uploader_writes_to_bucket_url(tmp_path: Path) -> None:
     assert result.file_url == "hf://buckets/evalstate/traces/trace.jsonl"
 
 
+def test_hf_url_uploader_appends_filename_for_bucket_root(tmp_path: Path) -> None:
+    api = _ApiStub()
+    filesystem = _FileSystemStub()
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text("{}", encoding="utf-8")
+
+    result = HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
+        trace_path=trace_path,
+        hf_url="hf://buckets/evalstate/openclaw-data",
+    )
+
+    assert filesystem.opened == [("hf://buckets/evalstate/openclaw-data/trace.jsonl", "wb")]
+    assert result.file_url == "hf://buckets/evalstate/openclaw-data/trace.jsonl"
+
+
+def test_hf_url_uploader_appends_filename_for_dataset_root(tmp_path: Path) -> None:
+    api = _ApiStub()
+    filesystem = _FileSystemStub()
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text("{}", encoding="utf-8")
+
+    result = HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
+        trace_path=trace_path,
+        hf_url="hf://datasets/owner/dataset",
+    )
+
+    assert api.create_repo_calls == [("owner/dataset", "dataset", True)]
+    assert filesystem.opened == [("hf://datasets/owner/dataset/trace.jsonl", "wb")]
+    assert result.file_url == "https://huggingface.co/datasets/owner/dataset/blob/main/trace.jsonl"
+
+
 def test_hf_dataset_uploader_reports_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
     def _missing_module(module_name: str) -> object:
         raise ModuleNotFoundError(module_name)

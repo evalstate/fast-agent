@@ -39,9 +39,17 @@ def resolve_hf_upload_url(*, hf_url: str, trace_path: Path) -> str:
     """Resolve an hf:// destination, appending the local filename for folder URLs."""
     stripped = hf_url.strip()
     normalized = stripped.rstrip("/")
-    if stripped.endswith("/"):
+    if stripped.endswith("/") or _is_hf_storage_root(normalized):
         return f"{normalized}/{trace_path.name}"
     return stripped
+
+
+def _is_hf_storage_root(hf_url: str) -> bool:
+    parsed = urlparse(hf_url)
+    if parsed.scheme != "hf" or parsed.netloc not in {"buckets", "datasets"}:
+        return False
+    parts = [part for part in parsed.path.split("/") if part]
+    return len(parts) == 2
 
 
 def _parse_dataset_hf_url(hf_url: str) -> tuple[str, str] | None:
