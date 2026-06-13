@@ -44,6 +44,7 @@ async def test_noenv_session_export_dispatch_does_not_resolve_session_manager(
             target="latest",
             agent_name=None,
             output_path=None,
+            hf_url=None,
             hf_dataset="evalstate/test-traces",
             hf_dataset_path=None,
             privacy_filter=False,
