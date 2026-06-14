@@ -568,6 +568,81 @@ def _default_text(default: object) -> str:
     return f"`{default}`"
 
 
+def _yaml_scalar(value: object) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if value is None:
+        return "null"
+    if isinstance(value, str):
+        return repr(value)
+    return str(value)
+
+
+def _yaml_default_text(default: object) -> str:
+    return f"`{_yaml_scalar(default)}`"
+
+
+_COMPACTION_SNIPPET_COMMENTS = {
+    "auto": "automatically compact when the threshold is crossed",
+    "threshold": "fraction of the context window that triggers compaction",
+    "keep_turns": "recent turns kept verbatim after compaction",
+    "prompt": "built-in prompt; set inline text or a relative file path",
+}
+
+
+def generate_compaction_config_snippet() -> str:
+    """Generate the config snippet from CompactionSettings defaults."""
+    from fast_agent.config import CompactionSettings
+
+    fields = CompactionSettings.model_fields
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py / fast_agent.config.CompactionSettings\n")
+    lines.append("-->\n\n")
+    lines.append("```yaml\n")
+    lines.append("compaction:\n")
+    for field_name, field in fields.items():
+        default = field.default
+        if default is PydanticUndefined:
+            continue
+        value = _yaml_scalar(default)
+        comment = _COMPACTION_SNIPPET_COMMENTS[field_name]
+        key = f"{field_name}:"
+        if default is None:
+            lines.append(f"  # {key:<13} {value:<5} # {comment}\n")
+        else:
+            lines.append(f"  {key:<13} {value:<5} # {comment}\n")
+    lines.append("```\n")
+    return "".join(lines)
+
+
+def generate_compaction_settings_reference() -> str:
+    """Generate the compaction settings table from CompactionSettings fields."""
+    from fast_agent.config import CompactionSettings
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py / fast_agent.config.CompactionSettings\n")
+    lines.append("-->\n\n")
+    lines.append("| Setting | Default | Description |\n")
+    lines.append("| --- | --- | --- |\n")
+
+    for field_name, field in CompactionSettings.model_fields.items():
+        default = field.default
+        if default is PydanticUndefined:
+            default_text = "`required`"
+        else:
+            default_text = _yaml_default_text(default)
+        description = field.description or ""
+        lines.append(
+            f"| `compaction.{field_name}` | {default_text} | {_escape_table(description)} |\n"
+        )
+
+    return "".join(lines)
+
+
 def generate_tui_runtime_reference() -> str:
     """Generate curated TUI settings/env reference from code-owned values."""
     from pydantic_core import PydanticUndefined
@@ -1269,6 +1344,11 @@ def main() -> int:
         )
         _write(GENERATED_DIR / "current_models_openai.md", generate_current_model_table("openai"))
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
+        _write(GENERATED_DIR / "compaction_config_snippet.md", generate_compaction_config_snippet())
+        _write(
+            GENERATED_DIR / "compaction_settings_reference.md",
+            generate_compaction_settings_reference(),
+        )
         (GENERATED_DIR / "_generation_warnings.md").unlink(missing_ok=True)
     except Exception as exc:
         _write(

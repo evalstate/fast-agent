@@ -120,7 +120,11 @@ async def test_create_agents_in_dependency_order_respects_disabled_session_histo
 
     agent = agents["decorated_agent"]
     assert isinstance(agent, LlmAgent)
-    assert agent.tool_runner_hooks is None
+    # Session-history persistence must not be wired, but the always-on
+    # (runtime-gated) auto-compaction wrapper is still present.
+    hooks = agent.tool_runner_hooks
+    assert hooks is not None
+    assert hooks.after_turn_complete is not None
 
 
 def test_validate_workflow_references_accepts_basic_like_and_custom_children() -> None:

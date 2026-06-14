@@ -33,6 +33,7 @@ from fast_agent.ui.command_payloads import (
     CommandError,
     CommandPayload,
     CommandsCommand,
+    CompactCommand,
     CreateSessionCommand,
     ExportSessionCommand,
     ForkSessionCommand,
@@ -243,6 +244,18 @@ def _parse_attach_command(remainder: str) -> AttachCommand:
         return AttachCommand(paths=(), clear=True)
 
     return AttachCommand(paths=tuple(tokens))
+
+
+def _parse_compact_command(remainder: str) -> CommandPayload:
+    stripped = remainder.strip()
+    if not stripped:
+        return CompactCommand()
+    action = strip_casefold(stripped)
+    if action == "preview":
+        return CompactCommand(action="preview")
+    if action == "prompt":
+        return CompactCommand(action="prompt")
+    return CompactCommand(instructions=stripped)
 
 
 def _parse_history_command(remainder: str) -> CommandPayload:
@@ -651,6 +664,7 @@ def _parse_slash_alias_command(
 
 
 _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
+    "compact": _parse_compact_command,
     "history": _parse_history_command,
     "session": _parse_session_command,
     "card": _parse_card_command,

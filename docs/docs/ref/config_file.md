@@ -51,6 +51,14 @@ session_history: true
 session_history_window: 20
 ```
 
+History compaction defaults are generated from `fast_agent.config.CompactionSettings`:
+
+--8<-- "_generated/compaction_config_snippet.md"
+
+Relative `compaction.prompt` file paths are resolved from the loaded config file's directory. If
+`FAST_AGENT_HOME` points at a home config, the path is relative to that home config file; it is not
+resolved from the process current working directory.
+
 `llm_retries` defaults to `1` and is the preferred way to control retry attempts. If unset in
 config, the `FAST_AGENT_RETRIES` environment variable is used as a fallback.
 
@@ -140,6 +148,21 @@ For a complete guide, see [Model Overlays](../models/model_overlays/).
 `session_history` controls whether fast-agent persists session metadata and history files in the environment sessions folder (default `.fast-agent/sessions`). `session_history_window` limits how many recent sessions are kept; older sessions are pruned when new sessions are created. The same window is used for session resume completions and ordinal selection (e.g. `/session resume 1`).
 
 `environment_dir` sets the base folder for local fast-agent data such as skills, sessions, and permission history. You can also override this per run with `fast-agent --env <path>`. Use `--noenv` for ephemeral runs that intentionally skip environment-based side effects.
+
+### History Compaction
+
+When a conversation grows large, fast-agent can compact older turns into a single checkpoint summary, freeing context while preserving the work done so far. The summary is produced by the agent's own model and inserted into history as a clearly-marked message (shown as `compacted` in `/history`); the most recent turns are kept verbatim.
+
+--8<-- "_generated/compaction_settings_reference.md"
+
+You can also compact on demand:
+
+- `/compact` &mdash; compact now, showing the before/after context usage.
+- `/compact <instructions>` &mdash; steer the summary (for example, `/compact focus on the database migration`).
+- `/compact preview` &mdash; show what would be kept and dropped, without calling the model.
+- `/compact prompt` &mdash; print the active summarization prompt.
+
+The pre-compaction history is archived to a `compacted_*.json` file in the session directory so the original conversation is never lost.
 
 ## Model Providers
 

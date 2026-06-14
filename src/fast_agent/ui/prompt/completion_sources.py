@@ -545,6 +545,25 @@ def _history_command_completions(
     return _subcommand_completions(partial, subcommands)
 
 
+def _compact_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    del completer
+    if not text_lower.startswith("/compact "):
+        return None
+
+    partial = text[len("/compact ") :]
+    return _subcommand_completions(
+        partial,
+        {
+            "preview": "Show what compaction would keep (no model call)",
+            "prompt": "Show the active compaction prompt",
+        },
+    )
+
+
 def _prompt_command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -1372,6 +1391,7 @@ def command_completions(
         ...,
     ] = (
         _history_command_completions,
+        _compact_command_completions,
         _prompt_command_completions,
         _attach_command_completions,
         _session_command_completions,

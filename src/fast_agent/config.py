@@ -387,6 +387,35 @@ class ShellSettings(BaseModel):
         raise ValueError("write_text_file_mode must be one of: auto, on, off, apply_patch")
 
 
+class CompactionSettings(BaseModel):
+    """Configuration for conversation history compaction."""
+
+    auto: bool = Field(
+        default=True,
+        description="Automatically compact history when context usage crosses the threshold",
+    )
+    threshold: float = Field(
+        default=0.85,
+        gt=0.0,
+        le=1.0,
+        description="Fraction of the model context window that triggers auto-compaction",
+    )
+    keep_turns: int = Field(
+        default=2,
+        ge=0,
+        description="Number of recent complete turns kept verbatim after compaction",
+    )
+    prompt: str | None = Field(
+        default=None,
+        description=(
+            "Custom summarization prompt for compaction. Inline text, or a path to a "
+            "text/markdown file. None uses the built-in prompt (see /compact prompt)."
+        ),
+    )
+    model_config = ConfigDict(extra="ignore")
+    _config_file: str | None = PrivateAttr(default=None)
+
+
 class MCPRootSettings(BaseModel):
     """Represents a root directory configuration for an MCP server."""
 
@@ -1857,6 +1886,9 @@ class Settings(BaseSettings):
     session_history_window: int = 20
     """Maximum number of sessions to keep in the rolling window (default: 20)."""
 
+    compaction: CompactionSettings = Field(default_factory=CompactionSettings)
+    """History compaction settings (auto trigger threshold, retained turns, prompt)."""
+
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""
 
@@ -2172,6 +2204,23 @@ def _set_theme_file_config_path(
             break
 
 
+def _set_compaction_config_file_path(
+    settings: Settings,
+    config_sources: list[tuple[Path, dict[str, Any]]],
+) -> None:
+    current_prompt = settings.compaction.prompt
+    if current_prompt is None:
+        return
+    for source_path, source_mapping in reversed(config_sources):
+        found, source_value = _lookup_nested_mapping_value(
+            source_mapping,
+            ("compaction", "prompt"),
+        )
+        if found and source_value == current_prompt:
+            settings.compaction._config_file = str(source_path.expanduser().resolve())
+            break
+
+
 def _settings_from_sources(
     sources: _LoadedSettingsSources,
     *,
@@ -2191,6 +2240,7 @@ def _settings_from_sources(
     settings._fast_agent_noenv = noenv
     settings._fast_agent_settings_source = "discovered"
     _set_theme_file_config_path(settings, sources.config_sources)
+    _set_compaction_config_file_path(settings, sources.config_sources)
     settings.commands = _merge_enabled_plugin_commands(settings)
     return settings
 
