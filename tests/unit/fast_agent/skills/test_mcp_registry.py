@@ -21,6 +21,7 @@ from fast_agent.skills.mcp_registry import (
     INDEX_URI,
     MAX_WALK_PAGES,
     McpRegistrySkill,
+    _validate_archive_name,
     install_mcp_registry_skill,
     scan_mcp_skill_registry,
     server_supports_directory_read,
@@ -348,6 +349,89 @@ async def test_install_direct_skill_materializes_supporting_files(tmp_path) -> N
 
     assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
     assert (install_dir / "references" / "GUIDE.md").read_text(encoding="utf-8") == guide_text
+
+
+def test_validate_archive_name_rejects_windows_traversal() -> None:
+    # Forward-slash traversal and POSIX absolute paths (pre-existing guard).
+    for bad in ("../evil.md", "/etc/passwd", "a/../../b"):
+        with pytest.raises(ValueError):
+            _validate_archive_name(bad)
+    # Windows separators and drive anchors: a PurePosixPath-only check would
+    # let these escape install_dir when later joined with the OS path API.
+    for bad in ("..\\..\\evil.md", "sub\\evil.md", "C:\\Windows\\evil", "C:/Windows/evil"):
+        with pytest.raises(ValueError):
+            _validate_archive_name(bad)
+    # Legitimate nested names still pass.
+    _validate_archive_name("references/GUIDE.md")
+    _validate_archive_name("a/b/c.txt")
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_does_not_overwrite_verified_skill_md(tmp_path) -> None:
+    """A sibling named 'skill.md' must not clobber the digest-verified SKILL.md.
+
+    On case-insensitive filesystems (Windows, macOS) an unverified sibling whose
+    name differs only in case would otherwise overwrite the verified SKILL.md.
+    """
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nVerified body\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/skill.md": "UNVERIFIED OVERWRITE",
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/SKILL.md"), name="SKILL.md"),
+                Resource(uri=AnyUrl("skill://demo/skill.md"), name="skill.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_rolls_back_partial_supporting_files(tmp_path) -> None:
+    """A mid-walk failure leaves only the verified SKILL.md, not a half-written tree."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/GUIDE.md": "# Guide\n",
+        },
+        directories={
+            # GUIDE.md is staged first, then the unsafe backslash sibling raises
+            # mid-walk (validated by _validate_archive_name).
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
+                Resource(uri=AnyUrl(r"skill://demo/..\..\evil.md"), name="evil.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    # The walk failed after staging GUIDE.md, so nothing is merged in.
+    assert not (install_dir / "GUIDE.md").exists()
 
 
 @pytest.mark.asyncio

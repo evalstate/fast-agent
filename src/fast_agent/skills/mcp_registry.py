@@ -207,7 +207,13 @@ def _build_registry_skill(
     description = frontmatter.get("description")
     description = description.strip() if isinstance(description, str) else None
 
-    direct_url, direct_digest = _parse_direct_entry(entry, server_name=server_name, name=name)
+    direct = _validate_url_and_digest(
+        url=entry.get("url"),
+        digest=entry.get("digest"),
+        server_name=server_name,
+        name=name,
+        label="url",
+    )
     archives = _parse_archives(entry, server_name=server_name, name=name)
 
     # Prefer an archive (atomic, complete multi-file skill) when one is offered;
@@ -218,10 +224,9 @@ def _build_registry_skill(
         source_url = chosen.url
         digest = chosen.digest
         artifact_mime_type: str | None = chosen.mime_type
-    elif direct_url is not None and direct_digest is not None:
+    elif direct is not None:
         artifact_type = "skill-md"
-        source_url = direct_url
-        digest = direct_digest
+        source_url, digest = direct
         artifact_mime_type = None
     else:
         logger.warning(
@@ -244,26 +249,30 @@ def _build_registry_skill(
     )
 
 
-def _parse_direct_entry(
-    entry: Mapping[str, Any], *, server_name: str, name: str
-) -> tuple[str | None, str | None]:
-    url = entry.get("url")
+def _validate_url_and_digest(
+    *, url: Any, digest: Any, server_name: str, name: str, label: str
+) -> tuple[str, str] | None:
+    """Validate an artifact's ``url``/``digest`` pair, shared by direct entries and archives.
+
+    Returns ``(resolved_url, stripped_digest)`` or ``None`` when the url is
+    missing/empty (silently), points at ``file://``, or the digest is not a valid
+    sha256. ``label`` ("url" / "archive") is woven into the rejection warnings.
+    """
     if not isinstance(url, str) or not url.strip():
-        return None, None
+        return None
     source_url = url.strip()
     if source_url.lower().startswith("file://"):
         logger.warning(
-            "Rejecting file:// MCP skill URL",
-            data={"server": server_name, "url": source_url},
+            f"Rejecting file:// MCP skill {label}",
+            data={"server": server_name, "name": name, "url": source_url},
         )
-        return None, None
-    digest = entry.get("digest")
+        return None
     if not isinstance(digest, str) or not _is_valid_sha256_digest(digest):
         logger.warning(
-            "MCP skill entry url missing valid sha256 digest",
+            f"MCP skill {label} missing valid sha256 digest",
             data={"server": server_name, "name": name},
         )
-        return None, None
+        return None
     return _resolve_entry_url(source_url), digest.strip()
 
 
@@ -277,35 +286,25 @@ def _parse_archives(
     for raw in raw_archives:
         if not isinstance(raw, Mapping):
             continue
-        url = raw.get("url")
         mime_type = raw.get("mimeType")
-        digest = raw.get("digest")
-        if not isinstance(url, str) or not url.strip():
-            continue
-        if url.strip().lower().startswith("file://"):
-            logger.warning(
-                "Rejecting file:// MCP skill archive URL",
-                data={"server": server_name, "name": name},
-            )
-            continue
         if not isinstance(mime_type, str) or mime_type.strip() not in ARCHIVE_MEDIA_TYPES:
             logger.warning(
                 "Skipping MCP skill archive with unsupported media type",
                 data={"server": server_name, "name": name, "mimeType": mime_type},
             )
             continue
-        if not isinstance(digest, str) or not _is_valid_sha256_digest(digest):
-            logger.warning(
-                "MCP skill archive missing valid sha256 digest",
-                data={"server": server_name, "name": name},
-            )
+        validated = _validate_url_and_digest(
+            url=raw.get("url"),
+            digest=raw.get("digest"),
+            server_name=server_name,
+            name=name,
+            label="archive",
+        )
+        if validated is None:
             continue
+        url, digest = validated
         archives.append(
-            McpRegistryArchive(
-                url=_resolve_entry_url(url.strip()),
-                mime_type=mime_type.strip(),
-                digest=digest.strip(),
-            )
+            McpRegistryArchive(url=url, mime_type=mime_type.strip(), digest=digest)
         )
     return archives
 
@@ -524,8 +523,11 @@ async def _materialize_supporting_files(
 
     A direct ``url`` entry only addresses ``SKILL.md``; its supporting files are
     sibling resources. When the server advertises the ``directoryRead`` capability,
-    walk the skill root and materialize each child into ``install_dir``. Best-effort:
-    a failure leaves the (valid) single-file skill in place.
+    walk the skill root and materialize each child into ``install_dir``. Best-effort
+    and all-or-nothing: the walk writes into a staging directory and is merged into
+    ``install_dir`` only on full success, so a mid-walk failure (size budget, walk
+    limits, an unsafe path, or a transport error) leaves the (valid) single-file
+    skill in place rather than a half-written tree.
 
     Trust note: unlike the verified ``SKILL.md`` (digest-checked) and archive
     artifacts (whole bundle digest-checked), supporting files carry no digests in
@@ -539,22 +541,32 @@ async def _materialize_supporting_files(
     root_uri = _skill_root_uri(skill.source_url)
     if root_uri is None:
         return
-    try:
-        await _walk_skill_directory(
-            aggregator,
-            server_name=skill.server_name,
-            root_uri=root_uri,
-            dir_uri=root_uri,
-            install_dir=install_dir,
-            budget=_ByteBudget(MAX_UNPACKED_ARCHIVE_BYTES),
-            limits=_WalkLimits(),
-            depth=0,
-        )
-    except Exception as exc:  # noqa: BLE001 - supporting files are best-effort.
-        logger.warning(
-            "Failed to materialize MCP skill supporting files",
-            data={"server": skill.server_name, "skill": skill.name, "error": str(exc)},
-        )
+    with tempfile.TemporaryDirectory(
+        dir=install_dir.parent, prefix=f".{install_dir.name}.support-"
+    ) as staging_str:
+        staging = Path(staging_str)
+        try:
+            await _walk_skill_directory(
+                aggregator,
+                server_name=skill.server_name,
+                root_uri=root_uri,
+                dir_uri=root_uri,
+                dest_dir=staging,
+                budget=_ByteBudget(MAX_UNPACKED_ARCHIVE_BYTES),
+                limits=_WalkLimits(),
+                depth=0,
+            )
+        except Exception as exc:  # noqa: BLE001 - supporting files are best-effort.
+            # Staging is discarded on exit, so the partial tree never reaches
+            # install_dir; the verified single-file skill remains intact.
+            logger.warning(
+                "Failed to materialize MCP skill supporting files",
+                data={"server": skill.server_name, "skill": skill.name, "error": str(exc)},
+            )
+            return
+        # Full walk succeeded: merge the staged tree alongside the verified
+        # SKILL.md already present in install_dir.
+        shutil.copytree(staging, install_dir, dirs_exist_ok=True)
 
 
 class _ByteBudget:
@@ -592,7 +604,7 @@ async def _walk_skill_directory(
     server_name: str,
     root_uri: str,
     dir_uri: str,
-    install_dir: Path,
+    dest_dir: Path,
     budget: _ByteBudget,
     limits: _WalkLimits,
     depth: int,
@@ -608,6 +620,10 @@ async def _walk_skill_directory(
             child_uri = str(resource.uri)
             relative = _relative_uri_path(root_uri, child_uri)
             if relative is None:
+                logger.debug(
+                    "Skipping MCP skill resource outside skill root",
+                    data={"server": server_name, "root": root_uri, "uri": child_uri},
+                )
                 continue
             if resource.mimeType == DIRECTORY_MIME_TYPE:
                 await _walk_skill_directory(
@@ -615,21 +631,38 @@ async def _walk_skill_directory(
                     server_name=server_name,
                     root_uri=root_uri,
                     dir_uri=child_uri,
-                    install_dir=install_dir,
+                    dest_dir=dest_dir,
                     budget=budget,
                     limits=limits,
                     depth=depth + 1,
                 )
                 continue
-            if relative == "SKILL.md":
-                continue  # already written from the direct entry
+            if relative.casefold() == "skill.md":
+                # Already written (digest-verified) from the direct entry. The
+                # compare is case-insensitive so an unverified sibling named
+                # "skill.md"/"SKILL.MD" cannot clobber the verified SKILL.md on
+                # case-insensitive filesystems (Windows, macOS).
+                continue
             _validate_archive_name(relative)
             content = await aggregator.get_resource(child_uri, server_name=server_name)
             data = _first_bytes(content)
             if data is None:
+                # Reached the file branch but the resource carried no bytes. The
+                # common cause is a directory the server did not tag with the
+                # ``inode/directory`` mime type (so it was not recursed into) and
+                # whose children are therefore silently dropped. Log it so an
+                # incomplete install is diagnosable rather than invisible.
+                logger.debug(
+                    "MCP skill supporting resource returned no content; skipping",
+                    data={
+                        "server": server_name,
+                        "uri": child_uri,
+                        "mimeType": resource.mimeType,
+                    },
+                )
                 continue
             budget.add(len(data))
-            destination = install_dir / PurePosixPath(relative)
+            destination = dest_dir / PurePosixPath(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
         cursor = listing.nextCursor
@@ -680,9 +713,22 @@ def _extract_zip_safely(artifact: bytes, destination: Path) -> None:
         archive.extractall(destination)
 
 
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+
 def _validate_archive_name(name: str) -> None:
+    # These names are later joined with the OS path API. On Windows a backslash
+    # is a separator and "C:" is a drive anchor -- neither of which
+    # PurePosixPath treats specially -- so a POSIX-only check would let
+    # "..\\.." or "C:\\..." escape the install directory. Reject Windows
+    # separators and drive components in addition to POSIX absolute paths
+    # and "..".
+    if "\\" in name:
+        raise ValueError(f"Unsafe path in MCP skill archive: {name}")
     path = PurePosixPath(name)
     if path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"Unsafe path in MCP skill archive: {name}")
+    if any(_WINDOWS_DRIVE_RE.match(part) for part in path.parts):
         raise ValueError(f"Unsafe path in MCP skill archive: {name}")
 
 
