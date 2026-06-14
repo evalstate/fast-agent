@@ -568,6 +568,11 @@ class ToolRunner:
         self._request_params = params
 
     @property
+    def agent(self) -> object:
+        """Agent currently being driven by this tool runner."""
+        return self._agent
+
+    @property
     def request_params(self) -> RequestParams | None:
         """Current request params driving this tool-loop turn."""
         return self._request_params

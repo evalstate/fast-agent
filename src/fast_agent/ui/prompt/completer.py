@@ -290,6 +290,7 @@ class AgentCompleter(Completer):
                 "Show conversation history overview "
                 "(or /history show|detail|save|load|clear|rewind|fix)"
             ),
+            "compact": "Compact history into a checkpoint summary (/compact preview|prompt)",
             "tools": "List tools",
             "model": _catalog_command_description("model"),
             "models": _catalog_command_description("models"),

@@ -8,7 +8,7 @@ social:
 
 # Generated Docs
 
-Some parts of the documentation are generated from the `fast-agent` Python package to prevent drift, including model alias tables, the models reference page, workflow/request/TUI references, and the plugin API reference.
+Some parts of the documentation are generated from the `fast-agent` Python package to prevent drift, including model alias tables, the models reference page, workflow/request/TUI references, configuration snippets, and the plugin API reference.
 
 ## Regenerate
 
@@ -26,3 +26,16 @@ FAST_AGENT_REPO_PATH=../fast-agent uv run python docs/generate_reference_docs.py
 ```
 
 Generated files are written to `docs/_generated/` and included in pages via `pymdownx.snippets`.
+
+## Source-Backed Config Values
+
+When documentation needs to show defaults from `fast-agent.yaml`, prefer generated snippets from
+the Pydantic settings models over hand-written literals. For example, the compaction YAML snippet
+and settings table are generated from `fast_agent.config.CompactionSettings`, then included in both
+the configuration reference and the compaction guide. If a code default changes, run
+`uv run scripts/docs.py generate` and review the generated diff rather than editing each page by
+hand.
+
+Keep the annotated setup template in `examples/setup/fast-agent.yaml`; packaged setup resources are
+copied from there during build. When setup defaults mirror code-owned settings, add focused tests so
+the sample config and generated docs fail visibly if the code default changes.

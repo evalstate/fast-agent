@@ -427,6 +427,43 @@ await session.clear(clear_prompts=True)
 `clear(agent_name=None)` clears only the resolved default target. It does not
 clear every agent in the session.
 
+## Compacting history
+
+Compaction is **on by default under the harness**, exactly as under `fast.run()`.
+After each completed turn, if context usage crosses `compaction.threshold`
+(default `0.85`), the agent's history is automatically compacted into a
+checkpoint summary; recent turns are kept verbatim. Disable it with
+`compaction: {auto: false}` in config (see
+[History Compaction](../../ref/config_file/#history-compaction)).
+
+You can also compact a session on demand with `session.compact()`:
+
+```python
+result = await session.compact()
+print(f"{result.messages_before} → {result.messages_after} messages "
+      f"(~{result.tokens_after_estimate} tokens)")
+```
+
+Steer the summary with one-off instructions, or target a specific agent:
+
+```python
+await session.compact(instructions="Preserve the order number and the SLA.")
+await session.compact(agent_name="writer")
+```
+
+`compact()` returns a `CompactionResult` (`messages_before`/`messages_after`,
+`tokens_before`/`tokens_after_estimate`, `context_window`, `summary_text`,
+`archive_file`). It honors `compaction.keep_turns` and `compaction.prompt` from
+config, persists the compacted history, and serializes with other session
+operations. It raises `CompactionSkipped` when there is nothing worth compacting
+and `CompactionError` if the summarization call fails — in both cases history is
+left untouched.
+
+For lower-level use (custom triggers, building your own UI), the primitives in
+`fast_agent.history.compaction` are importable directly: `compact_conversation`,
+`plan_compaction` (model-call-free retention preview), `should_auto_compact`,
+`estimate_tokens`, `is_compaction_message`, and `resolve_compaction_prompt`.
+
 ## Skills, MCP, and agents-as-tools
 
 Agent Skills work under the harness the same way they work under `fast.run()`.

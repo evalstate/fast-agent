@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -98,3 +99,21 @@ def test_current_model_table_uses_current_catalog_entries() -> None:
 
     assert "| `gpt-4.1` | `openai.gpt-4.1` | — |" in table
     assert "| `gpt-4.1-mini` | `openai.gpt-4.1-mini` | Fast |" in table
+
+
+def test_compaction_snippets_use_compaction_settings_defaults() -> None:
+    from fast_agent.config import CompactionSettings
+
+    generator = _load_generator()
+    defaults = CompactionSettings()
+
+    snippet = generator.generate_compaction_config_snippet()
+    table = generator.generate_compaction_settings_reference()
+
+    assert re.search(rf"auto:\s+{str(defaults.auto).lower()}\b", snippet)
+    assert re.search(rf"threshold:\s+{defaults.threshold}\b", snippet)
+    assert re.search(rf"keep_turns:\s+{defaults.keep_turns}\b", snippet)
+    assert re.search(r"prompt:\s+null\b", snippet)
+
+    for field_name in CompactionSettings.model_fields:
+        assert f"`compaction.{field_name}`" in table

@@ -26,6 +26,7 @@ nav = [
     { "GEPA Optimization" = "guides/gepa.md" },
     "guides/structured-outputs.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
+    { "Compaction" = "guides/compaction.md" },
   ] },
   { "Agents" = [
     { "Defining Agents" = [

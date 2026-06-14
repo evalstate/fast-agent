@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 
 from rich.text import Text
 
-from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING
+from fast_agent.constants import (
+    FAST_AGENT_COMPACTION_CHANNEL,
+    FAST_AGENT_TIMING,
+    FAST_AGENT_TOOL_TIMING,
+)
 from fast_agent.history.tool_activities import remote_tool_activities
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.ui.history_display_models import HistoryDisplayRow, ToolResultSummary
@@ -344,6 +348,22 @@ def _combine_detail_sections(sections: list[Text]) -> Text | None:
     return details
 
 
+def _compaction_preview(normalized_text: str, *, limit: int = 80) -> str:
+    """Preview the checkpoint summary content, skipping the boilerplate notice."""
+    from fast_agent.history.compaction import SUMMARY_NOTICE
+
+    text = normalized_text
+    marker = "[COMPACTED HISTORY]"
+    if text.startswith(marker):
+        text = text[len(marker) :].lstrip()
+    notice = collapse_whitespace(SUMMARY_NOTICE)
+    if text.startswith(notice):
+        text = text[len(notice) :].lstrip()
+    if len(text) > limit:
+        return text[: limit - 1] + "…"
+    return text
+
+
 def build_history_rows(history: Sequence["PromptMessageExtended"]) -> list[HistoryDisplayRow]:
     rows: list[HistoryDisplayRow] = []
     call_name_lookup: dict[str, str] = {}
@@ -352,6 +372,26 @@ def build_history_rows(history: Sequence["PromptMessageExtended"]) -> list[Histo
         role = _message_role(message)
         text_summary = _message_text_summary(message)
         timing_ms = _extract_timing_ms(message)
+
+        if message.channels and FAST_AGENT_COMPACTION_CHANNEL in message.channels:
+            rows.append(
+                _history_row(
+                    role=role,
+                    timeline_role=role,
+                    chars=text_summary.chars,
+                    preview=_compaction_preview(text_summary.normalized),
+                    details=None,
+                    non_text=False,
+                    has_tool_request=False,
+                    hide_summary=False,
+                    include_in_timeline=True,
+                    is_error=False,
+                    timing_ms=timing_ms,
+                    label="compacted",
+                    arrow="≡",
+                )
+            )
+            continue
 
         detail_sections: list[Text] = []
         row_non_text = text_summary.non_text

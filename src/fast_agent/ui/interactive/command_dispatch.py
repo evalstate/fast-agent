@@ -21,6 +21,7 @@ from fast_agent.command_actions.config import normalize_plugin_command_name
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import cards_manager as cards_handlers
+from fast_agent.commands.handlers import compact as compact_handlers
 from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
@@ -48,6 +49,7 @@ from fast_agent.ui.command_payloads import (
     CommandError,
     CommandPayload,
     CommandsCommand,
+    CompactCommand,
     CreateSessionCommand,
     ExportSessionCommand,
     ForkSessionCommand,
@@ -95,6 +97,7 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
 )
 from fast_agent.ui.history_display import display_history_show
+from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt.attachment_tokens import (
     append_attachment_tokens,
     build_local_attachment_token,
@@ -701,6 +704,39 @@ def _mcp_handler(
     return handler
 
 
+async def _dispatch_compact_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult | None:
+    if not isinstance(payload, CompactCommand):
+        return None
+
+    result = DispatchResult(handled=True)
+    context = build_command_context(prompt_provider, agent)
+
+    if payload.action == "run":
+        # Resume the streaming token progress display around the summarization
+        # call so /compact shows tokens arriving, the same as a normal turn.
+        progress_display.resume()
+        try:
+            outcome = await compact_handlers.handle_compact(
+                context,
+                agent_name=agent,
+                instructions=payload.instructions,
+            )
+        finally:
+            progress_display.pause(cancel_deferred_on_noop=True)
+    elif payload.action == "preview":
+        outcome = await compact_handlers.handle_compact_preview(context, agent_name=agent)
+    else:  # "prompt"
+        outcome = await compact_handlers.handle_compact_prompt(context, agent_name=agent)
+
+    await emit_command_outcome(context, outcome)
+    return result
+
+
 async def _dispatch_history_payload(
     owner: "InteractivePrompt",
     payload: CommandPayload,
@@ -1205,6 +1241,14 @@ async def dispatch_command_payload(
             _DispatchStep(
                 name="display command",
                 run=lambda: _dispatch_display_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                ),
+            ),
+            _DispatchStep(
+                name="compact command",
+                run=lambda: _dispatch_compact_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,

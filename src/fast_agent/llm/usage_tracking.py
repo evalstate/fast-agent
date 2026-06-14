@@ -236,18 +236,28 @@ class UsageAccumulator(BaseModel):
     # Provider/resolution-set effective context window size for the active model.
     _context_window_size: int | None = PrivateAttr(default=None)
 
+    # Estimated context size override (e.g. after history compaction) used until
+    # the next server-observed turn replaces it.
+    _context_estimate: int | None = PrivateAttr(default=None)
+
     def set_context_window_size(self, value: int | None) -> None:
         """Set the effective context window size for this accumulator."""
         self._context_window_size = value
+
+    def set_context_estimate(self, value: int | None) -> None:
+        """Override current context size with an estimate until the next turn lands."""
+        self._context_estimate = value
 
     def reset(self) -> None:
         """Clear accumulated turn usage while preserving context-window configuration."""
         self.turns = []
         self.model = None
         self.last_cache_activity_time = None
+        self._context_estimate = None
 
     def add_turn(self, turn: TurnUsage) -> None:
         """Add a new turn to the accumulator"""
+        self._context_estimate = None
         self.turns.append(turn)
         if self.model is None:
             self.model = turn.model
@@ -341,6 +351,8 @@ class UsageAccumulator(BaseModel):
     @property
     def current_context_tokens(self) -> int:
         """Current context usage (last turn's context tokens)"""
+        if self._context_estimate is not None:
+            return self._context_estimate
         if not self.turns:
             return 0
         return self.turns[-1].current_context_tokens

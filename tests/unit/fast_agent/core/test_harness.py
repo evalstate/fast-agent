@@ -78,6 +78,7 @@ class FakeAgent:
     ) -> None:
         self.name = name
         self.config = SimpleNamespace(default=default)
+        self.context: Any = None
         self.received: list[str] = []
         self.clears: list[bool] = []
         self.shutdown_count = 0
@@ -256,6 +257,100 @@ async def test_harness_sessions_uses_persistence_protocol() -> None:
     assert persistence.created == [("demo", "support")]
     assert persistence.saved == [({"session_id": "demo"}, "support-0")]
     assert persistence.deleted == ["demo"]
+
+
+@pytest.mark.asyncio
+async def test_harness_session_compact_passes_settings_and_persists(monkeypatch) -> None:
+    from fast_agent.config import CompactionSettings, Settings
+    from fast_agent.context import Context
+    from fast_agent.history.compaction import CompactionResult
+
+    factory = InstanceFactory()
+    persistence = FakePersistence()
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        persistence=persistence,
+    )
+
+    session = await sessions.create("demo", agent_name="support")
+    # The target agent carries config that compaction should pick up.
+    agent = session._resolve_agent("support")
+    agent.context = Context(config=Settings(compaction=CompactionSettings(keep_turns=4)))
+
+    captured: dict[str, Any] = {}
+
+    async def fake_compact(target, *, settings, instructions):
+        captured["agent"] = target
+        captured["settings"] = settings
+        captured["instructions"] = instructions
+        return CompactionResult(
+            agent_name=target.name,
+            summary_text="summary",
+            messages_before=10,
+            messages_after=3,
+            tokens_before=900,
+            tokens_after_estimate=120,
+            context_window=100_000,
+            archive_file=None,
+        )
+
+    # compact() imports compact_conversation lazily from its source module.
+    monkeypatch.setattr(
+        "fast_agent.history.compaction.compact_conversation", fake_compact, raising=False
+    )
+
+    result = await session.compact(instructions="keep the order number")
+
+    assert result.messages_before == 10
+    assert result.messages_after == 3
+    assert captured["agent"] is agent
+    assert captured["settings"].keep_turns == 4
+    assert captured["instructions"] == "keep the order number"
+    # Persistence is invoked with the compacted agent.
+    assert persistence.saved == [({"session_id": "demo"}, "support-0")]
+
+    await session.delete()
+
+
+@pytest.mark.asyncio
+async def test_harness_session_compact_defaults_settings_without_config(monkeypatch) -> None:
+    from fast_agent.config import CompactionSettings
+    from fast_agent.history.compaction import CompactionResult
+
+    factory = InstanceFactory()
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+    )
+    session = await sessions.create("demo", agent_name="support")
+
+    captured: dict[str, Any] = {}
+
+    async def fake_compact(target, *, settings, instructions):
+        captured["settings"] = settings
+        return CompactionResult(
+            agent_name=target.name,
+            summary_text="s",
+            messages_before=2,
+            messages_after=1,
+            tokens_before=None,
+            tokens_after_estimate=10,
+            context_window=None,
+            archive_file=None,
+        )
+
+    monkeypatch.setattr(
+        "fast_agent.history.compaction.compact_conversation", fake_compact, raising=False
+    )
+
+    await session.compact()
+
+    # No agent context/config -> default settings.
+    assert isinstance(captured["settings"], CompactionSettings)
+    assert captured["settings"].keep_turns == CompactionSettings().keep_turns
+
+    await session.delete()
 
 
 @pytest.mark.asyncio
