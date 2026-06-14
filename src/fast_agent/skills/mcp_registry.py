@@ -1,9 +1,15 @@
 """SEP-2640 Skills over MCP registry support.
 
-This module intentionally implements the registry/install/update portion of the
-draft SEP: servers that advertise ``io.modelcontextprotocol/skills`` can be
-used as a source for installing SHA256-verified ``skill-md`` or archive entries
-into the normal managed skills directory.
+This module implements the registry/install/update portion of the Skills
+Extension SEP (SEP-2640): servers that advertise ``io.modelcontextprotocol/skills``
+can be used as a source for installing SHA256-verified skills into the normal
+managed skills directory.
+
+The index format follows the current SEP: each ``skills[]`` entry carries a
+verbatim ``frontmatter`` object (the skill's ``SKILL.md`` YAML rendered as JSON)
+plus an optional direct ``url``/``digest`` for ``SKILL.md`` and/or an
+``archives[]`` array of pre-packed forms. There is no ``type`` field; an entry
+must supply a usable ``url``, a non-empty ``archives``, or both.
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ import stat
 import tarfile
 import tempfile
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Protocol
 from urllib.parse import urlparse
@@ -36,7 +42,7 @@ from fast_agent.skills.registry import SkillRegistry
 from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
-    from mcp.types import ReadResourceResult
+    from mcp.types import ListResourcesResult, ReadResourceResult
 
 
 class McpSkillRegistryClient(Protocol):
@@ -45,6 +51,14 @@ class McpSkillRegistryClient(Protocol):
     async def get_resource(
         self, resource_uri: str, *, server_name: str | None = None
     ) -> "ReadResourceResult": ...
+
+
+class McpSkillInstallClient(McpSkillRegistryClient, Protocol):
+    """Client used to install skills; also walks directories for supporting files."""
+
+    async def read_directory(
+        self, uri: str, *, server_name: str | None = None, cursor: str | None = None
+    ) -> "ListResourcesResult": ...
 
 
 class McpSkillRegistryStatusClient(McpSkillRegistryClient, Protocol):
@@ -59,8 +73,26 @@ MAX_INDEX_BYTES = 1_048_576
 MAX_SKILL_MD_BYTES = 262_144
 MAX_ARCHIVE_BYTES = 10 * 1_048_576
 MAX_UNPACKED_ARCHIVE_BYTES = 50 * 1_048_576
+DIRECTORY_MIME_TYPE = "inode/directory"
 ArtifactType = Literal["skill-md", "archive"]
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+# Supported archive media types mapped to the extraction strategy.
+ARCHIVE_MEDIA_TYPES: dict[str, Literal["tar", "zip"]] = {
+    "application/gzip": "tar",
+    "application/x-gzip": "tar",
+    "application/x-tar": "tar",
+    "application/x-gtar": "tar",
+    "application/zip": "zip",
+    "application/x-zip-compressed": "zip",
+}
+
+
+@dataclass(frozen=True)
+class McpRegistryArchive:
+    url: str
+    mime_type: str
+    digest: str
 
 
 @dataclass(frozen=True)
@@ -72,6 +104,9 @@ class McpRegistrySkill:
     digest: str
     artifact_type: ArtifactType = "skill-md"
     server_version: str | None = None
+    frontmatter: dict[str, Any] = field(default_factory=dict)
+    archives: tuple[McpRegistryArchive, ...] = ()
+    artifact_mime_type: str | None = None
 
     @property
     def install_dir_name(self) -> str:
@@ -90,6 +125,17 @@ class McpSkillRegistry:
         return f"mcp-server {self.server_name}{version}"
 
 
+def _extension_settings(capabilities: ServerCapabilities | None) -> Mapping[str, Any] | None:
+    if capabilities is None:
+        return None
+    extras = capabilities.model_extra or {}
+    extensions = extras.get("extensions")
+    if not isinstance(extensions, Mapping):
+        return None
+    settings = extensions.get(SKILLS_EXTENSION)
+    return settings if isinstance(settings, Mapping) else None
+
+
 def server_supports_mcp_skills(capabilities: ServerCapabilities | None) -> bool:
     if capabilities is None:
         return False
@@ -98,6 +144,14 @@ def server_supports_mcp_skills(capabilities: ServerCapabilities | None) -> bool:
     if not isinstance(extensions, Mapping):
         return False
     return SKILLS_EXTENSION in extensions
+
+
+def server_supports_directory_read(capabilities: ServerCapabilities | None) -> bool:
+    """Whether the server declared ``directoryRead`` for the skills extension."""
+    settings = _extension_settings(capabilities)
+    if settings is None:
+        return False
+    return settings.get("directoryRead") is True
 
 
 async def scan_mcp_skill_registry(
@@ -122,49 +176,131 @@ async def scan_mcp_skill_registry(
     entries = _parse_index(result, server_name)
     skills: list[McpRegistrySkill] = []
     for entry in entries:
-        entry_type = entry.get("type")
-        if entry_type not in {"skill-md", "archive"}:
+        skill = _build_registry_skill(entry, server_name=server_name, server_version=server_version)
+        if skill is not None:
+            skills.append(skill)
+    return McpSkillRegistry(server_name=server_name, server_version=server_version, skills=skills)
+
+
+def _build_registry_skill(
+    entry: dict[str, Any],
+    *,
+    server_name: str,
+    server_version: str | None,
+) -> McpRegistrySkill | None:
+    frontmatter = entry.get("frontmatter")
+    if not isinstance(frontmatter, Mapping):
+        logger.warning("MCP skill entry missing frontmatter", data={"server": server_name})
+        return None
+    name = frontmatter.get("name")
+    if not isinstance(name, str) or not name.strip():
+        logger.warning("MCP skill entry frontmatter missing name", data={"server": server_name})
+        return None
+    name = name.strip()
+    description = frontmatter.get("description")
+    description = description.strip() if isinstance(description, str) else None
+
+    direct_url, direct_digest = _parse_direct_entry(entry, server_name=server_name, name=name)
+    archives = _parse_archives(entry, server_name=server_name, name=name)
+
+    # Prefer an archive (atomic, complete multi-file skill) when one is offered;
+    # otherwise fall back to the direct SKILL.md entry.
+    if archives:
+        chosen = archives[0]
+        artifact_type: ArtifactType = "archive"
+        source_url = chosen.url
+        digest = chosen.digest
+        artifact_mime_type: str | None = chosen.mime_type
+    elif direct_url is not None and direct_digest is not None:
+        artifact_type = "skill-md"
+        source_url = direct_url
+        digest = direct_digest
+        artifact_mime_type = None
+    else:
+        logger.warning(
+            "MCP skill entry has no usable url or archives",
+            data={"server": server_name, "name": name},
+        )
+        return None
+
+    return McpRegistrySkill(
+        name=name,
+        description=description,
+        source_url=source_url,
+        server_name=server_name,
+        digest=digest,
+        artifact_type=artifact_type,
+        server_version=server_version,
+        frontmatter=dict(frontmatter),
+        archives=tuple(archives),
+        artifact_mime_type=artifact_mime_type,
+    )
+
+
+def _parse_direct_entry(
+    entry: Mapping[str, Any], *, server_name: str, name: str
+) -> tuple[str | None, str | None]:
+    url = entry.get("url")
+    if not isinstance(url, str) or not url.strip():
+        return None, None
+    source_url = url.strip()
+    if source_url.lower().startswith("file://"):
+        logger.warning(
+            "Rejecting file:// MCP skill URL",
+            data={"server": server_name, "url": source_url},
+        )
+        return None, None
+    digest = entry.get("digest")
+    if not isinstance(digest, str) or not _is_valid_sha256_digest(digest):
+        logger.warning(
+            "MCP skill entry url missing valid sha256 digest",
+            data={"server": server_name, "name": name},
+        )
+        return None, None
+    return _resolve_entry_url(source_url), digest.strip()
+
+
+def _parse_archives(
+    entry: Mapping[str, Any], *, server_name: str, name: str
+) -> list[McpRegistryArchive]:
+    raw_archives = entry.get("archives")
+    if not isinstance(raw_archives, list):
+        return []
+    archives: list[McpRegistryArchive] = []
+    for raw in raw_archives:
+        if not isinstance(raw, Mapping):
+            continue
+        url = raw.get("url")
+        mime_type = raw.get("mimeType")
+        digest = raw.get("digest")
+        if not isinstance(url, str) or not url.strip():
+            continue
+        if url.strip().lower().startswith("file://"):
             logger.warning(
-                "Skipping unsupported MCP skill entry type",
-                data={"server": server_name, "type": entry_type},
+                "Rejecting file:// MCP skill archive URL",
+                data={"server": server_name, "name": name},
             )
             continue
-        name = entry.get("name")
-        url = entry.get("url")
-        digest = entry.get("digest")
-        description = entry.get("description")
-        if not isinstance(name, str) or not name.strip():
-            logger.warning("MCP skill entry missing name", data={"server": server_name})
-            continue
-        if not isinstance(url, str) or not url.strip():
-            logger.warning("MCP skill entry missing url", data={"server": server_name})
-            continue
-        source_url = url.strip()
-        if source_url.lower().startswith("file://"):
+        if not isinstance(mime_type, str) or mime_type.strip() not in ARCHIVE_MEDIA_TYPES:
             logger.warning(
-                "Rejecting file:// MCP skill URL",
-                data={"server": server_name, "url": source_url},
+                "Skipping MCP skill archive with unsupported media type",
+                data={"server": server_name, "name": name, "mimeType": mime_type},
             )
             continue
         if not isinstance(digest, str) or not _is_valid_sha256_digest(digest):
             logger.warning(
-                "MCP skill entry missing valid sha256 digest",
+                "MCP skill archive missing valid sha256 digest",
                 data={"server": server_name, "name": name},
             )
             continue
-        artifact_type: ArtifactType = "archive" if entry_type == "archive" else "skill-md"
-        skills.append(
-            McpRegistrySkill(
-                name=name.strip(),
-                description=description.strip() if isinstance(description, str) else None,
-                source_url=_resolve_entry_url(source_url),
-                server_name=server_name,
+        archives.append(
+            McpRegistryArchive(
+                url=_resolve_entry_url(url.strip()),
+                mime_type=mime_type.strip(),
                 digest=digest.strip(),
-                artifact_type=artifact_type,
-                server_version=server_version,
             )
         )
-    return McpSkillRegistry(server_name=server_name, server_version=server_version, skills=skills)
+    return archives
 
 
 async def list_mcp_skill_registries(
@@ -182,7 +318,7 @@ async def list_mcp_skill_registries(
 
 
 async def install_mcp_registry_skill(
-    aggregator: McpSkillRegistryClient,
+    aggregator: McpSkillInstallClient,
     skill: McpRegistrySkill,
     *,
     destination_root: Path,
@@ -201,7 +337,7 @@ async def install_mcp_registry_skill(
 
 
 async def update_mcp_registry_skill(
-    aggregator: McpSkillRegistryClient,
+    aggregator: McpSkillInstallClient,
     skill: McpRegistrySkill,
     *,
     skill_dir: Path,
@@ -290,7 +426,7 @@ def _first_bytes(result: "ReadResourceResult") -> bytes | None:
 
 
 async def _write_verified_mcp_skill(
-    aggregator: McpSkillRegistryClient,
+    aggregator: McpSkillInstallClient,
     skill: McpRegistrySkill,
     install_dir: Path,
 ) -> None:
@@ -302,6 +438,7 @@ async def _write_verified_mcp_skill(
 
     if skill.artifact_type == "skill-md":
         _write_skill_md_artifact(skill, artifact, install_dir)
+        await _materialize_supporting_files(aggregator, skill, install_dir)
     else:
         _write_archive_artifact(skill, artifact, install_dir)
 
@@ -340,7 +477,7 @@ def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_di
         raise ValueError(f"MCP skill archive exceeds size limit: {skill.source_url}")
     install_dir.mkdir(parents=True, exist_ok=False)
     try:
-        if skill.source_url.lower().endswith(".zip"):
+        if _archive_strategy(skill) == "zip":
             _extract_zip_safely(artifact, install_dir)
         else:
             _extract_tar_safely(artifact, install_dir)
@@ -360,6 +497,118 @@ def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_di
         if install_dir.exists():
             shutil.rmtree(install_dir)
         raise
+
+
+def _archive_strategy(skill: McpRegistrySkill) -> Literal["tar", "zip"]:
+    if skill.artifact_mime_type is not None:
+        strategy = ARCHIVE_MEDIA_TYPES.get(skill.artifact_mime_type)
+        if strategy is not None:
+            return strategy
+    # Fall back to the URL suffix when no (recognized) media type is available.
+    return "zip" if skill.source_url.lower().endswith(".zip") else "tar"
+
+
+async def _materialize_supporting_files(
+    aggregator: McpSkillInstallClient,
+    skill: McpRegistrySkill,
+    install_dir: Path,
+) -> None:
+    """Fetch a direct-entry skill's supporting files via ``resources/directory/read``.
+
+    A direct ``url`` entry only addresses ``SKILL.md``; its supporting files are
+    sibling resources. When the server advertises the ``directoryRead`` capability,
+    walk the skill root and materialize each child into ``install_dir``. Best-effort:
+    a failure leaves the (valid) single-file skill in place.
+    """
+    capabilities = await aggregator.get_capabilities(skill.server_name)
+    if not server_supports_directory_read(capabilities):
+        return
+    root_uri = _skill_root_uri(skill.source_url)
+    if root_uri is None:
+        return
+    try:
+        await _walk_skill_directory(
+            aggregator,
+            server_name=skill.server_name,
+            root_uri=root_uri,
+            dir_uri=root_uri,
+            install_dir=install_dir,
+            budget=_ByteBudget(MAX_UNPACKED_ARCHIVE_BYTES),
+        )
+    except Exception as exc:  # noqa: BLE001 - supporting files are best-effort.
+        logger.warning(
+            "Failed to materialize MCP skill supporting files",
+            data={"server": skill.server_name, "skill": skill.name, "error": str(exc)},
+        )
+
+
+class _ByteBudget:
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._used = 0
+
+    def add(self, size: int) -> None:
+        self._used += size
+        if self._used > self._limit:
+            raise ValueError("MCP skill supporting files exceed unpacked size limit")
+
+
+async def _walk_skill_directory(
+    aggregator: McpSkillInstallClient,
+    *,
+    server_name: str,
+    root_uri: str,
+    dir_uri: str,
+    install_dir: Path,
+    budget: _ByteBudget,
+) -> None:
+    cursor: str | None = None
+    while True:
+        listing = await aggregator.read_directory(dir_uri, server_name=server_name, cursor=cursor)
+        for resource in listing.resources:
+            child_uri = str(resource.uri)
+            relative = _relative_uri_path(root_uri, child_uri)
+            if relative is None:
+                continue
+            if resource.mimeType == DIRECTORY_MIME_TYPE:
+                await _walk_skill_directory(
+                    aggregator,
+                    server_name=server_name,
+                    root_uri=root_uri,
+                    dir_uri=child_uri,
+                    install_dir=install_dir,
+                    budget=budget,
+                )
+                continue
+            if relative == "SKILL.md":
+                continue  # already written from the direct entry
+            _validate_archive_name(relative)
+            content = await aggregator.get_resource(child_uri, server_name=server_name)
+            data = _first_bytes(content)
+            if data is None:
+                continue
+            budget.add(len(data))
+            destination = install_dir / PurePosixPath(relative)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+        cursor = listing.nextCursor
+        if not cursor:
+            break
+
+
+def _skill_root_uri(source_url: str) -> str | None:
+    suffix = "/SKILL.md"
+    if source_url.endswith(suffix):
+        return source_url[: -len(suffix)]
+    return None
+
+
+def _relative_uri_path(root_uri: str, child_uri: str) -> str | None:
+    prefix = root_uri.rstrip("/") + "/"
+    if not child_uri.startswith(prefix):
+        return None
+    relative = child_uri[len(prefix) :]
+    return relative or None
 
 
 def _extract_tar_safely(artifact: bytes, destination: Path) -> None:

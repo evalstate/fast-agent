@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from fast_agent.skills.mcp_registry import (
     McpRegistrySkill,
+    McpSkillInstallClient,
     McpSkillRegistry,
-    McpSkillRegistryClient,
     install_mcp_registry_skill,
     select_mcp_registry_skill,
     update_mcp_registry_skill,
@@ -29,7 +29,7 @@ class McpSkillSource:
     def __init__(
         self,
         *,
-        aggregator: McpSkillRegistryClient,
+        aggregator: McpSkillInstallClient,
         registry: McpSkillRegistry,
     ) -> None:
         self._aggregator = aggregator

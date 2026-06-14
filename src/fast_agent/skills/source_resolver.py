@@ -11,7 +11,7 @@ from fast_agent.skills.mcp_source import McpSkillSource, UnavailableMcpSkillSour
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
-    from fast_agent.skills.mcp_registry import McpSkillRegistry, McpSkillRegistryClient
+    from fast_agent.skills.mcp_registry import McpSkillInstallClient, McpSkillRegistry
     from fast_agent.skills.models import SkillUpdateInfo
     from fast_agent.skills.sources import SkillInstallSource
 
@@ -111,7 +111,7 @@ class SkillSourceResolver:
                 source=None,
                 error="This agent does not expose MCP skill registries.",
             )
-        registry_client = cast("McpSkillRegistryClient", agent.aggregator)
+        registry_client = cast("McpSkillInstallClient", agent.aggregator)
         return SkillSourceResolution(
             source=McpSkillSource(aggregator=registry_client, registry=registry)
         )
@@ -167,7 +167,7 @@ class SkillSourceResolver:
         except KeyError:
             agent = None
         registry_client = (
-            cast("McpSkillRegistryClient", agent.aggregator)
+            cast("McpSkillInstallClient", agent.aggregator)
             if isinstance(agent, McpSkillRegistryAgent)
             else None
         )

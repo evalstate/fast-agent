@@ -287,7 +287,7 @@ async def test_refresh_attached_server_cache_discovers_mcp_skill_registry() -> N
     index_uri = "skill://index.json"
     skill_uri = "skill://demo/SKILL.md"
     index_text = (
-        '{"skills":[{"name":"demo","description":"Demo skill","type":"skill-md",'
+        '{"skills":[{"frontmatter":{"name":"demo","description":"Demo skill"},'
         f'"url":"{skill_uri}","digest":"sha256:'
         '0000000000000000000000000000000000000000000000000000000000000000"}]}'
     )

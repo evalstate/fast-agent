@@ -3183,6 +3183,67 @@ class MCPAggregator(ContextDependent):
 
         return result
 
+    async def read_directory(
+        self,
+        uri: str,
+        *,
+        server_name: str | None = None,
+        cursor: str | None = None,
+    ) -> ListResourcesResult:
+        """List the direct children of a directory resource via SEP-2640.
+
+        Routes ``resources/directory/read`` to the named server. Callers should
+        only invoke this against servers that declared ``directoryRead`` for the
+        ``io.modelcontextprotocol/skills`` extension.
+        """
+        if not self.initialized:
+            await self.load_servers()
+
+        if server_name is not None:
+            if server_name not in self.server_names:
+                raise ValueError(f"Server '{server_name}' not found")
+            return await self._read_directory_from_server(server_name, uri, cursor=cursor)
+
+        if not self.server_names:
+            raise ValueError("No servers available to read directory from")
+
+        for s_name in self.server_names:
+            try:
+                return await self._read_directory_from_server(s_name, uri, cursor=cursor)
+            except Exception:
+                continue
+
+        raise ValueError(f"Directory '{uri}' not found on any server")
+
+    async def _read_directory_from_server(
+        self, server_name: str, uri: str, *, cursor: str | None = None
+    ) -> ListResourcesResult:
+        """Internal helper to call ``resources/directory/read`` on a server."""
+        if not await self.server_supports_feature(server_name, "resources"):
+            raise ValueError(f"Server '{server_name}' does not support resources")
+
+        try:
+            uri_obj = AnyUrl(uri)
+        except Exception as e:
+            raise ValueError(f"Invalid directory URI: {uri}. Error: {e}") from e
+
+        method_args: dict[str, Any] = {"uri": uri_obj}
+        if cursor is not None:
+            method_args["cursor"] = cursor
+
+        result = await self._execute_on_server(
+            server_name=server_name,
+            operation_type="resources/directory/read",
+            operation_name=uri,
+            method_name="read_directory",
+            method_args=method_args,
+        )
+
+        if result is None:
+            raise ValueError(f"Directory '{uri}' not found on server '{server_name}'")
+
+        return result
+
     async def _list_resources_from_server(
         self, server_name: str, *, check_support: bool = True
     ) -> list[Any]:
