@@ -17,6 +17,7 @@ from mcp.types import (
 )
 from pydantic import AnyUrl
 
+from fast_agent.skills import mcp_registry
 from fast_agent.skills.mcp_registry import (
     INDEX_URI,
     MAX_WALK_PAGES,
@@ -349,6 +350,75 @@ async def test_install_direct_skill_materializes_supporting_files(tmp_path) -> N
 
     assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
     assert (install_dir / "references" / "GUIDE.md").read_text(encoding="utf-8") == guide_text
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_walks_lowercase_skill_md_url(tmp_path) -> None:
+    """A url addressing the manifest as '/skill.md' still triggers the directory walk.
+
+    The skill root is derived by stripping the manifest suffix case-insensitively;
+    a case-sensitive check would silently disable supporting-file materialization.
+    """
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nSee GUIDE.md\n"
+    guide_text = "# Guide\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/skill.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/skill.md": skill_text,
+            "skill://demo/GUIDE.md": guide_text,
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert (install_dir / "GUIDE.md").read_text(encoding="utf-8") == guide_text
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_rejects_oversized_supporting_file(
+    tmp_path, monkeypatch
+) -> None:
+    """A supporting file over the per-resource cap aborts the (best-effort) walk."""
+    monkeypatch.setattr(mcp_registry, "MAX_SUPPORTING_FILE_BYTES", 16)
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/BIG.md": "x" * 1024,  # exceeds the patched 16-byte cap
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/BIG.md"), name="BIG.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    # Verified single-file skill survives; the oversized sibling is not written.
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert not (install_dir / "BIG.md").exists()
 
 
 def test_validate_archive_name_rejects_windows_traversal() -> None:

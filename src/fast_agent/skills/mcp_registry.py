@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Protocol
 from urllib.parse import urlparse
 
 from mcp.types import BlobResourceContents, ServerCapabilities, TextResourceContents
+from pydantic import AnyUrl
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.marketplace import git_sources as marketplace_git_sources
@@ -73,6 +74,11 @@ MAX_INDEX_BYTES = 1_048_576
 MAX_SKILL_MD_BYTES = 262_144
 MAX_ARCHIVE_BYTES = 10 * 1_048_576
 MAX_UNPACKED_ARCHIVE_BYTES = 50 * 1_048_576
+# Per-resource cap for a supporting file fetched during a directory walk. The
+# cumulative ``MAX_UNPACKED_ARCHIVE_BYTES`` budget is only charged *after* a
+# resource is fetched, so without this a single oversized file would be fully
+# decoded into memory before the budget could reject it.
+MAX_SUPPORTING_FILE_BYTES = 10 * 1_048_576
 # Bounds on a ``resources/directory/read`` walk so a buggy or hostile server
 # cannot hang the install. MAX_WALK_PAGES caps total ``read_directory`` calls
 # (guarding against a server that returns a never-terminating ``nextCursor``);
@@ -506,12 +512,13 @@ def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_di
 
 
 def _archive_strategy(skill: McpRegistrySkill) -> Literal["tar", "zip"]:
-    if skill.artifact_mime_type is not None:
-        strategy = ARCHIVE_MEDIA_TYPES.get(skill.artifact_mime_type)
-        if strategy is not None:
-            return strategy
-    # Fall back to the URL suffix when no (recognized) media type is available.
-    return "zip" if skill.source_url.lower().endswith(".zip") else "tar"
+    # ``_parse_archives`` only accepts archives whose ``mimeType`` is in
+    # ``ARCHIVE_MEDIA_TYPES``, so an index-sourced archive always carries a
+    # recognized media type and the lookup is authoritative.
+    mime_type = skill.artifact_mime_type
+    if mime_type is None or mime_type not in ARCHIVE_MEDIA_TYPES:
+        raise ValueError(f"MCP skill archive has no recognized media type: {skill.source_url}")
+    return ARCHIVE_MEDIA_TYPES[mime_type]
 
 
 async def _materialize_supporting_files(
@@ -650,10 +657,12 @@ async def _walk_skill_directory(
                 # Reached the file branch but the resource carried no bytes. The
                 # common cause is a directory the server did not tag with the
                 # ``inode/directory`` mime type (so it was not recursed into) and
-                # whose children are therefore silently dropped. Log it so an
-                # incomplete install is diagnosable rather than invisible.
-                logger.debug(
-                    "MCP skill supporting resource returned no content; skipping",
+                # whose children are therefore silently dropped, leaving an
+                # incomplete-but-"successful" install. Warn (not debug) so the
+                # gap is visible rather than invisible.
+                logger.warning(
+                    "MCP skill supporting resource returned no content; skipping "
+                    "(its children, if it is an untagged directory, are not installed)",
                     data={
                         "server": server_name,
                         "uri": child_uri,
@@ -661,6 +670,10 @@ async def _walk_skill_directory(
                     },
                 )
                 continue
+            if len(data) > MAX_SUPPORTING_FILE_BYTES:
+                raise ValueError(
+                    f"MCP skill supporting file exceeds size limit: {child_uri}"
+                )
             budget.add(len(data))
             destination = dest_dir / PurePosixPath(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -671,10 +684,26 @@ async def _walk_skill_directory(
 
 
 def _skill_root_uri(source_url: str) -> str | None:
+    # Case-insensitive: a server may legitimately address the manifest as
+    # ``/skill.md``; we still strip a fixed-length ``/SKILL.md`` suffix.
     suffix = "/SKILL.md"
-    if source_url.endswith(suffix):
-        return source_url[: -len(suffix)]
+    if source_url.lower().endswith(suffix.lower()):
+        return _normalize_uri(source_url[: -len(suffix)])
     return None
+
+
+def _normalize_uri(uri: str) -> str:
+    """Best-effort RFC-3986 normalization matching ``AnyUrl`` (used for resource URIs).
+
+    Directory children arrive as ``str(resource.uri)`` where ``resource.uri`` is a
+    pydantic ``AnyUrl`` (dot-segments resolved, etc.). The skill root is sliced from
+    the raw index ``url`` string, so it must be normalized the same way or a prefix
+    comparison can spuriously fail and silently drop every child.
+    """
+    try:
+        return str(AnyUrl(uri))
+    except Exception:  # noqa: BLE001 - fall back to the raw string if unparseable.
+        return uri
 
 
 def _relative_uri_path(root_uri: str, child_uri: str) -> str | None:
