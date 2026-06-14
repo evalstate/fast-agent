@@ -160,10 +160,12 @@ async def handle_compact_prompt(
         render_markdown=True,
     )
     outcome.add_message(
-        "Override with compaction.prompt in fastagent.config.yaml (inline text or file path). "
-        "Relative prompt paths resolve from the loaded config file directory, including "
-        "FAST_AGENT_HOME configs. Add one-off focus with /compact <instructions>.",
+        "> Override with `compaction.prompt` in `fastagent.config.yaml` "
+        "(inline text or file path). Relative prompt paths resolve from the loaded config "
+        "file directory, including `FAST_AGENT_HOME` configs. Add one-off focus with "
+        "`/compact <instructions>`.",
         channel="system",
         agent_name=agent_name,
+        render_markdown=True,
     )
     return outcome
