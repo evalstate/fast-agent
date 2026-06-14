@@ -280,6 +280,30 @@ def test_alias_sampling_defaults_preserve_user_provider_suffix_override() -> Non
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
 
 
+def test_qwen36_alias_sets_deepinfra_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("qwen36")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "Qwen/Qwen3.6-35B-A3B:deepinfra"
+    assert config.temperature == 0.6
+    assert config.top_p == 0.95
+    assert config.top_k == 20
+    assert config.min_p == 0.0
+    assert config.presence_penalty == 0.0
+    assert config.repetition_penalty == 1.0
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def test_qwen36instruct_alias_disables_reasoning() -> None:
+    config = ModelFactory.parse_model_string("qwen36instruct")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "Qwen/Qwen3.6-35B-A3B:deepinfra"
+    assert config.temperature == 0.7
+    assert config.top_p == 0.8
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
+
+
 def test_kimi25_alias_sets_thinking_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi25")
 
@@ -301,7 +325,17 @@ def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
 
 
 def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
-    assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string("kimi26")
+    assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string("kimi27code")
+
+
+def test_kimi27code_alias_sets_thinking_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("kimi27code")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2.7-Code:fireworks-ai"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
 
 
 def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
