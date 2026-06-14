@@ -19,6 +19,7 @@ from pydantic import AnyUrl
 
 from fast_agent.skills.mcp_registry import (
     INDEX_URI,
+    MAX_WALK_PAGES,
     McpRegistrySkill,
     install_mcp_registry_skill,
     scan_mcp_skill_registry,
@@ -347,6 +348,40 @@ async def test_install_direct_skill_materializes_supporting_files(tmp_path) -> N
 
     assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
     assert (install_dir / "references" / "GUIDE.md").read_text(encoding="utf-8") == guide_text
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_bounds_infinite_pagination(tmp_path) -> None:
+    """A server returning a never-terminating cursor must not hang the install."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+
+    class _InfinitePagerAggregator(_Aggregator):
+        def __init__(self) -> None:
+            super().__init__(
+                capabilities=_skills_capabilities(directory_read=True),
+                responses={"skill://demo/SKILL.md": skill_text},
+            )
+            self.calls = 0
+
+        async def read_directory(self, uri, *, server_name=None, cursor=None):
+            del uri, server_name, cursor
+            self.calls += 1
+            return ListResourcesResult(resources=[], nextCursor="more")
+
+    aggregator = _InfinitePagerAggregator()
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    # Walk is best-effort: it aborts at the page cap and leaves the valid skill.
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert aggregator.calls <= MAX_WALK_PAGES + 1
 
 
 @pytest.mark.asyncio

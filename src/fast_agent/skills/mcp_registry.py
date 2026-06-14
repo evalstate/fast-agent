@@ -73,6 +73,13 @@ MAX_INDEX_BYTES = 1_048_576
 MAX_SKILL_MD_BYTES = 262_144
 MAX_ARCHIVE_BYTES = 10 * 1_048_576
 MAX_UNPACKED_ARCHIVE_BYTES = 50 * 1_048_576
+# Bounds on a ``resources/directory/read`` walk so a buggy or hostile server
+# cannot hang the install. MAX_WALK_PAGES caps total ``read_directory`` calls
+# (guarding against a server that returns a never-terminating ``nextCursor``);
+# MAX_WALK_ENTRIES caps files+directories seen; MAX_WALK_DEPTH caps nesting.
+MAX_WALK_PAGES = 1_000
+MAX_WALK_ENTRIES = 10_000
+MAX_WALK_DEPTH = 32
 DIRECTORY_MIME_TYPE = "inode/directory"
 ArtifactType = Literal["skill-md", "archive"]
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -519,6 +526,12 @@ async def _materialize_supporting_files(
     sibling resources. When the server advertises the ``directoryRead`` capability,
     walk the skill root and materialize each child into ``install_dir``. Best-effort:
     a failure leaves the (valid) single-file skill in place.
+
+    Trust note: unlike the verified ``SKILL.md`` (digest-checked) and archive
+    artifacts (whole bundle digest-checked), supporting files carry no digests in
+    the index, so they are written on the server's word alone. Integrity here rests
+    on the transport and on having chosen to trust this MCP server; path traversal
+    is still blocked (``_validate_archive_name``) and total size is bounded.
     """
     capabilities = await aggregator.get_capabilities(skill.server_name)
     if not server_supports_directory_read(capabilities):
@@ -534,6 +547,8 @@ async def _materialize_supporting_files(
             dir_uri=root_uri,
             install_dir=install_dir,
             budget=_ByteBudget(MAX_UNPACKED_ARCHIVE_BYTES),
+            limits=_WalkLimits(),
+            depth=0,
         )
     except Exception as exc:  # noqa: BLE001 - supporting files are best-effort.
         logger.warning(
@@ -553,6 +568,24 @@ class _ByteBudget:
             raise ValueError("MCP skill supporting files exceed unpacked size limit")
 
 
+class _WalkLimits:
+    """Shared counters bounding a directory walk across all recursion branches."""
+
+    def __init__(self) -> None:
+        self._pages = 0
+        self._entries = 0
+
+    def count_page(self) -> None:
+        self._pages += 1
+        if self._pages > MAX_WALK_PAGES:
+            raise ValueError("MCP skill directory walk exceeded page limit")
+
+    def count_entry(self) -> None:
+        self._entries += 1
+        if self._entries > MAX_WALK_ENTRIES:
+            raise ValueError("MCP skill directory walk exceeded entry limit")
+
+
 async def _walk_skill_directory(
     aggregator: McpSkillInstallClient,
     *,
@@ -561,11 +594,17 @@ async def _walk_skill_directory(
     dir_uri: str,
     install_dir: Path,
     budget: _ByteBudget,
+    limits: _WalkLimits,
+    depth: int,
 ) -> None:
+    if depth > MAX_WALK_DEPTH:
+        raise ValueError("MCP skill directory walk exceeded depth limit")
     cursor: str | None = None
     while True:
+        limits.count_page()
         listing = await aggregator.read_directory(dir_uri, server_name=server_name, cursor=cursor)
         for resource in listing.resources:
+            limits.count_entry()
             child_uri = str(resource.uri)
             relative = _relative_uri_path(root_uri, child_uri)
             if relative is None:
@@ -578,6 +617,8 @@ async def _walk_skill_directory(
                     dir_uri=child_uri,
                     install_dir=install_dir,
                     budget=budget,
+                    limits=limits,
+                    depth=depth + 1,
                 )
                 continue
             if relative == "SKILL.md":
