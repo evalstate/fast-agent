@@ -166,6 +166,15 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(
+                alias="kimi27code",
+                display_label="Kimi 2.7-Code",
+                description="thinking mode",
+                model=(
+                    "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
+                ),
+                fast=True,
+            ),
+            CatalogModelEntry(
                 alias="minimax3",
                 display_label="Minimax 3.0",
                 model="hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
