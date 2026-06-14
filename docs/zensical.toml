@@ -4,6 +4,7 @@ site_url = "https://fast-agent.ai/"
 site_description = "MCP-native agents, workflows, and servers"
 repo_url = "https://github.com/evalstate/fast-agent"
 repo_name = "evalstate/fast-agent"
+edit_uri = "edit/main/docs/docs"
 copyright = "© 2025-2026 llmindset.co.uk"
 extra_css = [
   "stylesheets/fast-agent.css",
