@@ -7,11 +7,12 @@ import json
 import subprocess
 import sys
 import time
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeGuard
 
 from fast_agent.batch import BatchRunner, BatchRunResult
 from fast_agent.eval import ArtifactRun, CandidateRun
@@ -288,6 +289,12 @@ class FastAgentReflectionLM:
         self.timeout_seconds = timeout_seconds
         self.command_runner = command_runner or _run_command
         self._calls = 0
+        self._pending_gepa_reflection_metrics: deque[dict[str, NumericMetric]] = deque()
+
+    def pop_pending_gepa_reflection_metrics(self) -> list[dict[str, NumericMetric]]:
+        metrics = list(self._pending_gepa_reflection_metrics)
+        self._pending_gepa_reflection_metrics.clear()
+        return metrics
 
     def __call__(self, prompt: str | list[dict[str, Any]]) -> str:
         self._calls += 1
@@ -325,6 +332,13 @@ class FastAgentReflectionLM:
             (audit.path / "usage.json").write_text(
                 json.dumps(usage, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
+            )
+            self._pending_gepa_reflection_metrics.append(
+                _reflection_usage_metrics(
+                    usage,
+                    call_index=self._calls,
+                    duration_seconds=duration,
+                )
             )
         response = completed.stdout.strip()
         audit.response_path.write_text(response + "\n", encoding="utf-8")
@@ -544,6 +558,12 @@ class FastAgentRowWiseBatchAdapter:
         self.reflective_dataset_builder = reflective_dataset_builder
         self.batch_runner_factory = batch_runner_factory or BatchRunner
         self._evaluations = 0
+        self._pending_gepa_eval_metrics: deque[dict[str, NumericMetric]] = deque()
+
+    def pop_pending_gepa_eval_metrics(self) -> dict[str, NumericMetric] | None:
+        if not self._pending_gepa_eval_metrics:
+            return None
+        return self._pending_gepa_eval_metrics.popleft()
 
     def evaluate(
         self,
@@ -592,6 +612,12 @@ class FastAgentRowWiseBatchAdapter:
         (eval_dir / "row-wise-score.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
+        )
+        self._pending_gepa_eval_metrics.append(
+            _row_wise_eval_metrics(
+                result.summary,
+                summary,
+            )
         )
         return _evaluation_batch(
             outputs=output_rows,
@@ -642,6 +668,45 @@ class FastAgentRowWiseBatchAdapter:
             id_field=self.id_field,
             overwrite=True,
         )
+
+
+class FastAgentGEPATrackioCallback:
+    """GEPA callback that logs compact fast-agent telemetry on GEPA's x-axis."""
+
+    def __init__(
+        self,
+        *,
+        row_wise_adapter: FastAgentRowWiseBatchAdapter | None = None,
+        reflection_lm: FastAgentReflectionLM | None = None,
+        include_gepa_context: bool = True,
+        include_eval_score_summary: bool = True,
+    ) -> None:
+        self.row_wise_adapter = row_wise_adapter
+        self.reflection_lm = reflection_lm
+        self.include_gepa_context = include_gepa_context
+        self.include_eval_score_summary = include_eval_score_summary
+
+    def on_evaluation_end(self, event: Mapping[str, Any]) -> None:
+        if self.row_wise_adapter is None:
+            return
+        metrics = self.row_wise_adapter.pop_pending_gepa_eval_metrics()
+        if metrics is not None:
+            safe_trackio_log(
+                {
+                    **_evaluation_event_metrics(event, include_context=self.include_gepa_context),
+                    **_filter_eval_metrics(
+                        metrics,
+                        include_score_summary=self.include_eval_score_summary,
+                    ),
+                }
+            )
+
+    def on_proposal_end(self, event: Mapping[str, Any]) -> None:
+        if self.reflection_lm is None:
+            return
+        context = _proposal_event_metrics(event, include_context=self.include_gepa_context)
+        for metrics in self.reflection_lm.pop_pending_gepa_reflection_metrics():
+            safe_trackio_log({**context, **metrics})
 
 
 @dataclass
@@ -734,7 +799,183 @@ def _extend_numeric_metrics(
             metrics[f"{prefix}{key}"] = value
 
 
-def _is_numeric_metric(value: Any) -> bool:
+def _row_wise_eval_metrics(
+    batch_summary: Mapping[str, Any],
+    row_score_summary: Mapping[str, Any],
+) -> dict[str, NumericMetric]:
+    metrics: dict[str, NumericMetric] = {}
+    for key in ("eval_index", "batch_size", "avg_score", "num_metric_calls"):
+        value = row_score_summary.get(key)
+        if _is_numeric_metric(value):
+            metrics[f"fast_agent/eval/{key}"] = value
+    for key in ("processed_rows", "failed_rows", "skipped_rows", "selected_rows", "duration_ms"):
+        value = batch_summary.get(key)
+        if _is_numeric_metric(value):
+            metrics[f"fast_agent/eval/{key}"] = value
+    usage = batch_summary.get("usage")
+    if isinstance(usage, Mapping):
+        _copy_selected_metrics(
+            metrics,
+            usage,
+            prefix="fast_agent/eval/usage/",
+            names=(
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "billing_tokens",
+                "reasoning_tokens",
+                "tool_use_tokens",
+                "tool_calls",
+                "rows_with_usage",
+                "usage_coverage_percent",
+            ),
+        )
+        rows_with_usage = usage.get("rows_with_usage")
+        billing_tokens = usage.get("billing_tokens")
+        if _is_numeric_metric(rows_with_usage) and rows_with_usage > 0 and _is_numeric_metric(billing_tokens):
+            metrics["fast_agent/eval/usage/billing_tokens_per_row"] = billing_tokens / rows_with_usage
+    cache = batch_summary.get("cache")
+    if isinstance(cache, Mapping):
+        _copy_selected_metrics(
+            metrics,
+            cache,
+            prefix="fast_agent/eval/cache/",
+            names=(
+                "read_tokens",
+                "write_tokens",
+                "hit_tokens",
+                "served_tokens",
+                "activity_tokens",
+                "effective_input_tokens",
+                "hit_rate_percent",
+                "write_rate_percent",
+                "activity_rate_percent",
+                "served_to_effective_input_ratio",
+            ),
+        )
+    return metrics
+
+
+def _filter_eval_metrics(
+    metrics: Mapping[str, NumericMetric],
+    *,
+    include_score_summary: bool,
+) -> dict[str, NumericMetric]:
+    if include_score_summary:
+        return dict(metrics)
+    blocked = {
+        "fast_agent/eval/batch_size",
+        "fast_agent/eval/avg_score",
+        "fast_agent/eval/num_metric_calls",
+    }
+    return {key: value for key, value in metrics.items() if key not in blocked}
+
+
+def _reflection_usage_metrics(
+    usage: Mapping[str, Any],
+    *,
+    call_index: int,
+    duration_seconds: float,
+) -> dict[str, NumericMetric]:
+    metrics: dict[str, NumericMetric] = {
+        "fast_agent/reflection/call_index": call_index,
+        "fast_agent/reflection/duration_seconds": duration_seconds,
+    }
+    summary = usage.get("summary")
+    if isinstance(summary, Mapping):
+        _copy_selected_metrics(
+            metrics,
+            summary,
+            prefix="fast_agent/reflection/usage/",
+            names=(
+                "cumulative_input_tokens",
+                "cumulative_output_tokens",
+                "cumulative_total_tokens",
+                "cumulative_billing_tokens",
+                "cumulative_reasoning_tokens",
+                "cumulative_cache_read_tokens",
+                "cumulative_cache_write_tokens",
+                "cumulative_cache_hit_tokens",
+                "cache_hit_rate_percent",
+            ),
+        )
+    turns = usage.get("turns")
+    if isinstance(turns, Sequence) and not isinstance(turns, str | bytes):
+        metrics["fast_agent/reflection/turns"] = len(turns)
+    return metrics
+
+
+def _evaluation_event_metrics(
+    event: Mapping[str, Any],
+    *,
+    include_context: bool = True,
+) -> dict[str, NumericMetric]:
+    metrics: dict[str, NumericMetric] = {}
+    metric_names = {
+        "iteration": "gepa/iteration",
+        "candidate_idx": "gepa/candidate_idx",
+    }
+    if include_context:
+        metric_names.update(
+            {
+                "batch_size": "fast_agent/gepa_context/batch_size",
+                "capture_traces": "fast_agent/gepa_context/capture_traces",
+                "is_seed_candidate": "fast_agent/gepa_context/is_seed_candidate",
+            }
+        )
+    for source_key, metric_key in metric_names.items():
+        value = event.get(source_key)
+        if isinstance(value, bool):
+            metrics[metric_key] = int(value)
+        elif _is_numeric_metric(value):
+            metrics[metric_key] = value
+    if not include_context:
+        return metrics
+    parent_ids = event.get("parent_ids")
+    if isinstance(parent_ids, Sequence) and not isinstance(parent_ids, str | bytes):
+        metrics["fast_agent/gepa_context/parent_count"] = len(parent_ids)
+    scores = event.get("scores")
+    if isinstance(scores, Sequence) and not isinstance(scores, str | bytes):
+        numeric_scores = [score for score in scores if _is_numeric_metric(score)]
+        if numeric_scores:
+            metrics["fast_agent/gepa_context/score_mean"] = sum(numeric_scores) / len(numeric_scores)
+    return metrics
+
+
+def _proposal_event_metrics(
+    event: Mapping[str, Any],
+    *,
+    include_context: bool = True,
+) -> dict[str, NumericMetric]:
+    metrics: dict[str, NumericMetric] = {}
+    iteration = event.get("iteration")
+    if _is_numeric_metric(iteration):
+        metrics["gepa/iteration"] = iteration
+    if not include_context:
+        return metrics
+    new_instructions = event.get("new_instructions")
+    if isinstance(new_instructions, Mapping):
+        metrics["fast_agent/gepa_context/proposed_components"] = len(new_instructions)
+    prompts = event.get("prompts")
+    if isinstance(prompts, Mapping):
+        metrics["fast_agent/gepa_context/proposal_prompts"] = len(prompts)
+    return metrics
+
+
+def _copy_selected_metrics(
+    metrics: dict[str, NumericMetric],
+    values: Mapping[str, Any],
+    *,
+    prefix: str,
+    names: Sequence[str],
+) -> None:
+    for name in names:
+        value = values.get(name)
+        if _is_numeric_metric(value):
+            metrics[f"{prefix}{name}"] = value
+
+
+def _is_numeric_metric(value: Any) -> TypeGuard[NumericMetric]:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 

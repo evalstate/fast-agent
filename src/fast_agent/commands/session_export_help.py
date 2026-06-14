@@ -38,7 +38,7 @@ class SessionExportActionDetail(TypedDict):
 
 SESSION_EXPORT_USAGE = (
     "/session export [latest|id|path] [--agent name] [--output path] "
-    "[--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] "
+    "[--hf-url hf://...] [--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] "
     "[--privacy-filter-path path] [--download-privacy-filter] "
     "[--privacy-filter-device auto|cpu|cuda] "
     "[--privacy-filter-variant q4|q4f16|q8|fp16] [--show-redactions]"
@@ -53,7 +53,10 @@ SESSION_EXPORT_OUTPUT_HELP = (
     "working directory. Parent directories are created as needed."
 )
 SESSION_EXPORT_HF_DATASET_HELP = (
-    "Upload the exported trace to this Hugging Face dataset repo (owner/name)."
+    "Compatibility option: upload the exported trace to this Hugging Face dataset repo (owner/name). Prefer --hf-url for new workflows."
+)
+SESSION_EXPORT_HF_URL_HELP = (
+    "Upload the exported trace to this Hugging Face URL. Supports hf://buckets/... and hf://datasets/...."
 )
 SESSION_EXPORT_HF_DATASET_PATH_HELP = (
     "Path in the dataset repo. Defaults to the root using the local filename. "
@@ -74,7 +77,8 @@ SESSION_EXPORT_SHOW_REDACTIONS_HELP = (
 
 SESSION_EXPORT_EXAMPLES: tuple[str, ...] = (
     "/session export latest --output trace.jsonl",
-    "/session export latest --hf-dataset owner/name",
+    "/session export latest --hf-url hf://buckets/owner/traces/",
+    "/session export latest --hf-url hf://datasets/owner/name/trace.jsonl",
     "/session export latest --privacy-filter",
     "/session export latest --help",
 )
@@ -117,6 +121,12 @@ def build_session_export_action_detail() -> SessionExportActionDetail:
                 "aliases": ["-o"],
                 "value_name": "path",
                 "summary": SESSION_EXPORT_OUTPUT_HELP,
+            },
+            {
+                "name": "--hf-url",
+                "aliases": [],
+                "value_name": "hf://...",
+                "summary": SESSION_EXPORT_HF_URL_HELP,
             },
             {
                 "name": "--hf-dataset",

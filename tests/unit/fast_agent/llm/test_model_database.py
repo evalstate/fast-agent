@@ -41,6 +41,7 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("gpt-4o") == 128000
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
+    assert ModelDatabase.get_context_window("Qwen/Qwen3.6-35B-A3B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
     assert ModelDatabase.get_context_window("google/gemma-4-31B-it:novita") == 262144
     assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
@@ -110,6 +111,7 @@ def test_model_database_default_provider_lookup():
         == Provider.HUGGINGFACE
     )
     assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
+    assert ModelDatabase.get_default_provider("Qwen/Qwen3.6-35B-A3B") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("google/gemma-4-31B-it") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
 
@@ -225,6 +227,26 @@ def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -
 
     assert llm.resolve_structured_tool_policy(RequestParams(structured_schema=schema)) == "no_tools"
     assert prepared_params.response_format == {"type": "json_object"}
+    prepared_text = prepared_messages[-1].last_text()
+    assert prepared_text is not None
+    assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
+
+
+def test_huggingface_qwen36_structured_output_uses_prompt_only() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    llm = _make_hf_llm("Qwen/Qwen3.6-35B-A3B")
+
+    prepared_messages, prepared_params = llm._prepare_structured_request(
+        [Prompt.user("return json")],
+        RequestParams(structured_schema=schema),
+    )
+
+    assert llm.resolve_structured_tool_policy(RequestParams(structured_schema=schema)) == "no_tools"
+    assert prepared_params.response_format is None
     prepared_text = prepared_messages[-1].last_text()
     assert prepared_text is not None
     assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text

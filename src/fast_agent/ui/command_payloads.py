@@ -329,6 +329,7 @@ class ExportSessionCommand(CommandBase):
     target: str | None
     agent_name: str | None
     output_path: str | None
+    hf_url: str | None
     hf_dataset: str | None
     hf_dataset_path: str | None
     privacy_filter: bool

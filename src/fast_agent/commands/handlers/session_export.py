@@ -90,14 +90,19 @@ def _path_option(value: str | None) -> Path | None:
 
 def _session_export_option_error(
     *,
-    hf_dataset: str | None,
-    hf_dataset_path: str | None,
+    hf_url: str | None = None,
+    hf_dataset: str | None = None,
+    hf_dataset_path: str | None = None,
     privacy_filter: bool,
     privacy_filter_path: str | None,
     download_privacy_filter: bool,
     privacy_filter_device: str | None,
     privacy_filter_variant: str | None,
 ) -> str | None:
+    if hf_url is not None and hf_dataset is not None:
+        return "--hf-url cannot be combined with --hf-dataset."
+    if hf_url is not None and not hf_url.strip().startswith("hf://"):
+        return "--hf-url must be an hf:// URL."
     if hf_dataset_path is not None and hf_dataset is None:
         return "--hf-dataset-path requires --hf-dataset."
     if not privacy_filter and _privacy_filter_options_requested(
@@ -186,15 +191,24 @@ def _add_redaction_result_messages(outcome: CommandOutcome, result: ExportResult
 def _add_upload_result_messages(outcome: CommandOutcome, result: ExportResult) -> None:
     if result.upload is None:
         return
-    outcome.add_message(
-        (
-            f"Uploaded trace to Hugging Face dataset '{result.upload.repo_id}' "
-            f"as {result.upload.path_in_repo}"
-        ),
-        channel="info",
-        right_info="session",
-        agent_name=result.agent_name,
-    )
+    if result.upload.destination_label == "url":
+        destination = result.upload.destination_url or result.upload.file_url
+        outcome.add_message(
+            f"Uploaded trace to Hugging Face URL {destination}",
+            channel="info",
+            right_info="session",
+            agent_name=result.agent_name,
+        )
+    else:
+        outcome.add_message(
+            (
+                f"Uploaded trace to Hugging Face dataset '{result.upload.repo_id}' "
+                f"as {result.upload.path_in_repo}"
+            ),
+            channel="info",
+            right_info="session",
+            agent_name=result.agent_name,
+        )
     outcome.add_message(
         result.upload.file_url,
         channel="info",
@@ -217,8 +231,9 @@ def _add_session_export_preflight_error(
     outcome: CommandOutcome,
     ctx: CommandContext,
     *,
-    hf_dataset: str | None,
-    hf_dataset_path: str | None,
+    hf_url: str | None = None,
+    hf_dataset: str | None = None,
+    hf_dataset_path: str | None = None,
     privacy_filter: bool,
     privacy_filter_path: str | None,
     download_privacy_filter: bool,
@@ -235,6 +250,7 @@ def _add_session_export_preflight_error(
         return True
 
     option_error = _session_export_option_error(
+        hf_url=hf_url,
         hf_dataset=hf_dataset,
         hf_dataset_path=hf_dataset_path,
         privacy_filter=privacy_filter,
@@ -323,8 +339,9 @@ async def handle_session_export(
     target: str | None,
     agent_name: str | None,
     output_path: str | None,
-    hf_dataset: str | None,
-    hf_dataset_path: str | None,
+    hf_url: str | None = None,
+    hf_dataset: str | None = None,
+    hf_dataset_path: str | None = None,
     privacy_filter: bool = False,
     privacy_filter_path: str | None = None,
     download_privacy_filter: bool = False,
@@ -337,6 +354,7 @@ async def handle_session_export(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     output_path = strip_to_none(output_path)
+    hf_url = strip_to_none(hf_url)
     hf_dataset = strip_to_none(hf_dataset)
     hf_dataset_path = strip_to_none(hf_dataset_path)
     privacy_filter_path = strip_to_none(privacy_filter_path)
@@ -346,6 +364,7 @@ async def handle_session_export(
     if _add_session_export_preflight_error(
         outcome,
         ctx,
+        hf_url=hf_url,
         hf_dataset=hf_dataset,
         hf_dataset_path=hf_dataset_path,
         privacy_filter=privacy_filter,
@@ -374,6 +393,7 @@ async def handle_session_export(
         target=target,
         agent_name=agent_name,
         output_path=_path_option(output_path),
+        hf_url=hf_url,
         hf_dataset=hf_dataset,
         hf_dataset_path=hf_dataset_path,
         current_session_id=current_session_id,

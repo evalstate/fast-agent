@@ -727,6 +727,19 @@ class ModelDatabase:
         model_specific="You have vision capabilities.",
     )
 
+    KIMI_MOONSHOT_27_CODE = ModelParameters(
+        context_window=262144,
+        max_output_tokens=16384,
+        # Kimi K2.6 is multimodal, but video remains experimental and is only
+        # supported in Moonshot's official API for now.
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        default_provider=Provider.HUGGINGFACE,
+        model_specific="You have vision capabilities.",
+    )
+
     # xAI recommends Grok 4.3 for general text workloads. The pricing/tool
     # invocation tables and file/collection storage pricing are billing policy,
     # not model capability metadata, so they are intentionally not encoded here.
@@ -833,7 +846,15 @@ class ModelDatabase:
         reasoning="reasoning_content",
         stream_mode="manual",
     )
-
+    MINIMAX_3 = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        stream_mode="manual",
+    )
     HF_PROVIDER_DEEPSEEK31 = ModelParameters(
         context_window=163_800,
         max_output_tokens=8192,
@@ -870,6 +891,17 @@ class ModelDatabase:
         max_output_tokens=65_536,
         tokenizes=QWEN_MULTIMODAL,
         json_mode="object",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
+    HF_PROVIDER_QWEN36 = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=65_536,
+        tokenizes=TEXT_ONLY,
+        json_mode=None,
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
@@ -1042,6 +1074,7 @@ class ModelDatabase:
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
+        "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
@@ -1056,8 +1089,10 @@ class ModelDatabase:
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "minimaxai/minimax-m2.5": MINIMAX_25,
         "minimaxai/minimax-m2.7": MINIMAX_27,
+        "minimaxai/minimax-m3": MINIMAX_3,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
+        "qwen/qwen3.6-35b-a3b": HF_PROVIDER_QWEN36,
         "google/gemma-4-31b-it": HF_PROVIDER_GEMMA4_31B,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,

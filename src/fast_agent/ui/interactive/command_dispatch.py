@@ -964,6 +964,7 @@ async def _dispatch_session_export_command(
         target=payload.target,
         agent_name=resolved_agent_name,
         output_path=payload.output_path,
+        hf_url=payload.hf_url,
         hf_dataset=payload.hf_dataset,
         hf_dataset_path=payload.hf_dataset_path,
         privacy_filter=payload.privacy_filter,

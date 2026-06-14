@@ -98,9 +98,15 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
     assert "gemma4" in curated_aliases
     assert "kimi26instant" in curated_aliases
     assert "deepseek-hf" in curated_aliases
+    assert "kimi27" in curated_aliases
+    assert "kimi27code" in curated_aliases
+    assert "qwen36" in curated_aliases
+    assert "qwen36instruct" in curated_aliases
     assert "kimi-k2-instruct" not in curated_aliases
-    assert "kimi25" in curated_aliases
-    assert "kimi25instant" in curated_aliases
+    assert "kimi25" not in curated_aliases
+    assert "kimi25instant" not in curated_aliases
+    assert "kimi25" in legacy_aliases
+    assert "kimi25instant" in legacy_aliases
     assert "glm5" not in curated_aliases
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases

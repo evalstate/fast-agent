@@ -122,8 +122,8 @@ fast-agent export --list
 # Export locally
 fast-agent export latest --output trace.jsonl
 
-# Upload to a Hugging Face dataset
-fast-agent export latest --hf-dataset your-name/fast-agent-traces
+# Upload to a Hugging Face URL
+fast-agent export latest --hf-url hf://buckets/your-name/fast-agent-traces/
 ```
 
 See the full reference [here](export_command/).
