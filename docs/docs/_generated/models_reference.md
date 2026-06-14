@@ -63,11 +63,14 @@
 | `hf.qwen/qwen3-next-80b-a3b-instruct` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.zai-org/glm-4.6` | `hf` | Text | `json` (schema) | — | — | — |
 | `kimi25` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi25?reasoning=off` | — | — |
-| `kimi` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi?reasoning=off` | — | — |
+| `kimi26` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi26?reasoning=off` | — | — |
+| `kimi` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `minimax21` | `hf` | Text | `json` (schema) | — | — | — |
 | `minimax25` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax25?reasoning=off` | — | — |
-| `minimax` | `hf` | Text | `json` (schema) | — | — | — |
+| `minimax27` | `hf` | Text | `json` (schema) | — | — | — |
+| `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
+| `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
 | `gpt-4.1-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |

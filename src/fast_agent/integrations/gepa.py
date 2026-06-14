@@ -678,21 +678,33 @@ class FastAgentGEPATrackioCallback:
         *,
         row_wise_adapter: FastAgentRowWiseBatchAdapter | None = None,
         reflection_lm: FastAgentReflectionLM | None = None,
+        include_gepa_context: bool = True,
+        include_eval_score_summary: bool = True,
     ) -> None:
         self.row_wise_adapter = row_wise_adapter
         self.reflection_lm = reflection_lm
+        self.include_gepa_context = include_gepa_context
+        self.include_eval_score_summary = include_eval_score_summary
 
     def on_evaluation_end(self, event: Mapping[str, Any]) -> None:
         if self.row_wise_adapter is None:
             return
         metrics = self.row_wise_adapter.pop_pending_gepa_eval_metrics()
         if metrics is not None:
-            safe_trackio_log({**_evaluation_event_metrics(event), **metrics})
+            safe_trackio_log(
+                {
+                    **_evaluation_event_metrics(event, include_context=self.include_gepa_context),
+                    **_filter_eval_metrics(
+                        metrics,
+                        include_score_summary=self.include_eval_score_summary,
+                    ),
+                }
+            )
 
     def on_proposal_end(self, event: Mapping[str, Any]) -> None:
         if self.reflection_lm is None:
             return
-        context = _proposal_event_metrics(event)
+        context = _proposal_event_metrics(event, include_context=self.include_gepa_context)
         for metrics in self.reflection_lm.pop_pending_gepa_reflection_metrics():
             safe_trackio_log({**context, **metrics})
 
@@ -844,6 +856,21 @@ def _row_wise_eval_metrics(
     return metrics
 
 
+def _filter_eval_metrics(
+    metrics: Mapping[str, NumericMetric],
+    *,
+    include_score_summary: bool,
+) -> dict[str, NumericMetric]:
+    if include_score_summary:
+        return dict(metrics)
+    blocked = {
+        "fast_agent/eval/batch_size",
+        "fast_agent/eval/avg_score",
+        "fast_agent/eval/num_metric_calls",
+    }
+    return {key: value for key, value in metrics.items() if key not in blocked}
+
+
 def _reflection_usage_metrics(
     usage: Mapping[str, Any],
     *,
@@ -878,21 +905,32 @@ def _reflection_usage_metrics(
     return metrics
 
 
-def _evaluation_event_metrics(event: Mapping[str, Any]) -> dict[str, NumericMetric]:
+def _evaluation_event_metrics(
+    event: Mapping[str, Any],
+    *,
+    include_context: bool = True,
+) -> dict[str, NumericMetric]:
     metrics: dict[str, NumericMetric] = {}
     metric_names = {
         "iteration": "gepa/iteration",
         "candidate_idx": "gepa/candidate_idx",
-        "batch_size": "fast_agent/gepa_context/batch_size",
-        "capture_traces": "fast_agent/gepa_context/capture_traces",
-        "is_seed_candidate": "fast_agent/gepa_context/is_seed_candidate",
     }
+    if include_context:
+        metric_names.update(
+            {
+                "batch_size": "fast_agent/gepa_context/batch_size",
+                "capture_traces": "fast_agent/gepa_context/capture_traces",
+                "is_seed_candidate": "fast_agent/gepa_context/is_seed_candidate",
+            }
+        )
     for source_key, metric_key in metric_names.items():
         value = event.get(source_key)
         if isinstance(value, bool):
             metrics[metric_key] = int(value)
         elif _is_numeric_metric(value):
             metrics[metric_key] = value
+    if not include_context:
+        return metrics
     parent_ids = event.get("parent_ids")
     if isinstance(parent_ids, Sequence) and not isinstance(parent_ids, str | bytes):
         metrics["fast_agent/gepa_context/parent_count"] = len(parent_ids)
@@ -904,11 +942,17 @@ def _evaluation_event_metrics(event: Mapping[str, Any]) -> dict[str, NumericMetr
     return metrics
 
 
-def _proposal_event_metrics(event: Mapping[str, Any]) -> dict[str, NumericMetric]:
+def _proposal_event_metrics(
+    event: Mapping[str, Any],
+    *,
+    include_context: bool = True,
+) -> dict[str, NumericMetric]:
     metrics: dict[str, NumericMetric] = {}
     iteration = event.get("iteration")
     if _is_numeric_metric(iteration):
         metrics["gepa/iteration"] = iteration
+    if not include_context:
+        return metrics
     new_instructions = event.get("new_instructions")
     if isinstance(new_instructions, Mapping):
         metrics["fast_agent/gepa_context/proposed_components"] = len(new_instructions)

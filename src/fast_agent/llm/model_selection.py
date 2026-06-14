@@ -157,6 +157,29 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             CatalogModelEntry(
+                alias="kimi27",
+                display_label="Kimi 2.7-Code",
+                description="thinking mode",
+                model=(
+                    "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
+                ),
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="kimi27code",
+                display_label="Kimi 2.7-Code",
+                description="thinking mode",
+                model=(
+                    "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
+                ),
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="minimax3",
+                display_label="Minimax 3.0",
+                model="hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
+            ),
+            CatalogModelEntry(
                 alias="deepseek-hf",
                 display_label="DeepSeek V4 Pro (HF)",
                 model="hf.deepseek-ai/DeepSeek-V4-Pro:together",
@@ -167,7 +190,6 @@ class ModelSelectionCatalog:
                 display_label="Kimi 2.6",
                 description="thinking mode",
                 model=("hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on"),
-                fast=True,
             ),
             CatalogModelEntry(
                 alias="kimi26instant",
@@ -188,6 +210,7 @@ class ModelSelectionCatalog:
                 alias="minimax27",
                 display_label="Minimax 2.7",
                 model="hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+                current=False,
             ),
             CatalogModelEntry(
                 alias="qwen35",
@@ -208,6 +231,24 @@ class ModelSelectionCatalog:
                 ),
             ),
             CatalogModelEntry(
+                alias="qwen36",
+                display_label="Qwen 3.6 35B-A3B",
+                model=(
+                    "hf.Qwen/Qwen3.6-35B-A3B:deepinfra"
+                    "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
+                    "&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on"
+                ),
+            ),
+            CatalogModelEntry(
+                alias="qwen36instruct",
+                display_label="Qwen 3.6 35B-A3B (instruct)",
+                model=(
+                    "hf.Qwen/Qwen3.6-35B-A3B:deepinfra"
+                    "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
+                    "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
+                ),
+            ),
+            CatalogModelEntry(
                 alias="minimax25",
                 display_label="Minimax 2.5",
                 model="hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
@@ -218,14 +259,14 @@ class ModelSelectionCatalog:
                 display_label="Kimi 2.5",
                 model=("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
                 fast=True,
-                current=True,
+                current=False,
             ),
             CatalogModelEntry(
                 alias="kimi25instant",
                 display_label="Kimi 2.5 (instant)",
                 model=("hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"),
                 fast=True,
-                current=True,
+                current=False,
             ),
             CatalogModelEntry(
                 alias="glm5",

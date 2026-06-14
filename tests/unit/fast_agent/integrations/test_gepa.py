@@ -365,6 +365,80 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
     assert payload["fast_agent/eval/cache/hit_rate_percent"] == 60.0
 
 
+def test_trackio_callback_can_log_operational_metrics_only(monkeypatch, tmp_path):
+    logged: list[dict[str, Any]] = []
+    runner = RecordingBatchRunner(
+        summary={
+            "processed_rows": 2,
+            "failed_rows": 0,
+            "duration_ms": 1000,
+            "usage": {
+                "billing_tokens": 120,
+                "rows_with_usage": 2,
+            },
+            "cache": {
+                "served_tokens": 60,
+                "hit_rate_percent": 60.0,
+            },
+        }
+    )
+
+    def runner_factory(env_dir, *, backend):
+        return runner
+
+    def row_scorer(output_row, input_row, candidate, evaluation):
+        return RowWiseScore(score=1.0, objective_scores={"gepa_score": 1.0})
+
+    monkeypatch.setattr(
+        "fast_agent.integrations.gepa.safe_trackio_log",
+        lambda payload, **kwargs: logged.append(dict(payload)) or True,
+    )
+
+    adapter = FastAgentRowWiseBatchAdapter(
+        env_dir=tmp_path / "env",
+        agent_card=tmp_path / "card.md",
+        candidate_variables={"policy": "policy"},
+        template="{{row_json}}",
+        row_scorer=row_scorer,
+        run_dir=tmp_path / "runs",
+        id_field="id",
+        batch_runner_factory=runner_factory,
+    )
+    adapter.evaluate([{"id": "row-1"}], {"policy": "route carefully"})
+
+    FastAgentGEPATrackioCallback(
+        row_wise_adapter=adapter,
+        include_gepa_context=False,
+        include_eval_score_summary=False,
+    ).on_evaluation_end(
+        {
+            "iteration": 7,
+            "candidate_idx": 4,
+            "batch_size": 1,
+            "capture_traces": True,
+            "parent_ids": [1],
+            "scores": [1.0],
+            "has_trajectories": False,
+            "outputs": [],
+            "trajectories": None,
+            "objective_scores": None,
+            "is_seed_candidate": False,
+        }
+    )
+
+    assert logged
+    payload = logged[0]
+    assert payload["gepa/iteration"] == 7
+    assert payload["gepa/candidate_idx"] == 4
+    assert "fast_agent/gepa_context/score_mean" not in payload
+    assert "fast_agent/gepa_context/batch_size" not in payload
+    assert "fast_agent/eval/batch_size" not in payload
+    assert "fast_agent/eval/avg_score" not in payload
+    assert "fast_agent/eval/num_metric_calls" not in payload
+    assert payload["fast_agent/eval/usage/billing_tokens_per_row"] == 60
+    assert payload["fast_agent/eval/cache/served_tokens"] == 60
+
+
 def test_gepa_numeric_metrics_flattens_scores_and_details():
     metrics = gepa_numeric_metrics(
         {
