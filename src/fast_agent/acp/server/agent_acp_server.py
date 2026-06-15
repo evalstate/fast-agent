@@ -37,6 +37,7 @@ from acp.schema import (
     Implementation,
     ListSessionsResponse,
     LoadSessionResponse,
+    McpCapabilities,
     McpServerStdio,
     PromptCapabilities,
     ResumeSessionResponse,
@@ -358,6 +359,7 @@ class AgentACPServer(ACPAgent):
                     audio=False,  # Don't support audio (yet)
                 ),
                 load_session=True,
+                mcp_capabilities=McpCapabilities(http=True, sse=True),
                 session_capabilities=SessionCapabilities(
                     list=SessionListCapabilities(),
                     resume=SessionResumeCapabilities(),
