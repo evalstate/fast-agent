@@ -74,15 +74,11 @@ MAX_INDEX_BYTES = 1_048_576
 MAX_SKILL_MD_BYTES = 262_144
 MAX_ARCHIVE_BYTES = 10 * 1_048_576
 MAX_UNPACKED_ARCHIVE_BYTES = 50 * 1_048_576
-# Per-resource cap for a supporting file fetched during a directory walk. The
-# cumulative ``MAX_UNPACKED_ARCHIVE_BYTES`` budget is only charged *after* a
-# resource is fetched, so without this a single oversized file would be fully
-# decoded into memory before the budget could reject it.
+# Per-resource cap for a supporting file, bounding any single file under the
+# cumulative ``MAX_UNPACKED_ARCHIVE_BYTES`` budget.
 MAX_SUPPORTING_FILE_BYTES = 10 * 1_048_576
 # Bounds on a ``resources/directory/read`` walk so a buggy or hostile server
-# cannot hang the install. MAX_WALK_PAGES caps total ``read_directory`` calls
-# (guarding against a server that returns a never-terminating ``nextCursor``);
-# MAX_WALK_ENTRIES caps files+directories seen; MAX_WALK_DEPTH caps nesting.
+# cannot hang the install: total pages (never-terminating cursor), entries, depth.
 MAX_WALK_PAGES = 1_000
 MAX_WALK_ENTRIES = 10_000
 MAX_WALK_DEPTH = 32
@@ -512,9 +508,8 @@ def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_di
 
 
 def _archive_strategy(skill: McpRegistrySkill) -> Literal["tar", "zip"]:
-    # ``_parse_archives`` only accepts archives whose ``mimeType`` is in
-    # ``ARCHIVE_MEDIA_TYPES``, so an index-sourced archive always carries a
-    # recognized media type and the lookup is authoritative.
+    # ``_parse_archives`` only admits archives whose ``mimeType`` is known, so
+    # an index-sourced archive always resolves here.
     mime_type = skill.artifact_mime_type
     if mime_type is None or mime_type not in ARCHIVE_MEDIA_TYPES:
         raise ValueError(f"MCP skill archive has no recognized media type: {skill.source_url}")
@@ -528,19 +523,15 @@ async def _materialize_supporting_files(
 ) -> None:
     """Fetch a direct-entry skill's supporting files via ``resources/directory/read``.
 
-    A direct ``url`` entry only addresses ``SKILL.md``; its supporting files are
-    sibling resources. When the server advertises the ``directoryRead`` capability,
-    walk the skill root and materialize each child into ``install_dir``. Best-effort
-    and all-or-nothing: the walk writes into a staging directory and is merged into
-    ``install_dir`` only on full success, so a mid-walk failure (size budget, walk
-    limits, an unsafe path, or a transport error) leaves the (valid) single-file
-    skill in place rather than a half-written tree.
+    A direct ``url`` entry only addresses ``SKILL.md``; supporting files are
+    sibling resources. When the server advertises ``directoryRead``, walk the
+    skill root and materialize each child. All-or-nothing: the walk stages into a
+    temp dir and merges only on full success, so a mid-walk failure leaves the
+    verified single-file skill intact rather than a half-written tree.
 
-    Trust note: unlike the verified ``SKILL.md`` (digest-checked) and archive
-    artifacts (whole bundle digest-checked), supporting files carry no digests in
-    the index, so they are written on the server's word alone. Integrity here rests
-    on the transport and on having chosen to trust this MCP server; path traversal
-    is still blocked (``_validate_archive_name``) and total size is bounded.
+    Unlike the digest-checked ``SKILL.md`` and archive artifacts, supporting
+    files carry no digests, so they rest on trusting this server and the
+    transport; path traversal is still blocked and total size bounded.
     """
     capabilities = await aggregator.get_capabilities(skill.server_name)
     if not server_supports_directory_read(capabilities):
@@ -564,15 +555,13 @@ async def _materialize_supporting_files(
                 depth=0,
             )
         except Exception as exc:  # noqa: BLE001 - supporting files are best-effort.
-            # Staging is discarded on exit, so the partial tree never reaches
-            # install_dir; the verified single-file skill remains intact.
+            # Staging is discarded on exit; the verified skill remains intact.
             logger.warning(
                 "Failed to materialize MCP skill supporting files",
                 data={"server": skill.server_name, "skill": skill.name, "error": str(exc)},
             )
             return
-        # Full walk succeeded: merge the staged tree alongside the verified
-        # SKILL.md already present in install_dir.
+        # Walk succeeded: merge the staged tree alongside the verified SKILL.md.
         shutil.copytree(staging, install_dir, dirs_exist_ok=True)
 
 
@@ -645,21 +634,16 @@ async def _walk_skill_directory(
                 )
                 continue
             if relative.casefold() == "skill.md":
-                # Already written (digest-verified) from the direct entry. The
-                # compare is case-insensitive so an unverified sibling named
-                # "skill.md"/"SKILL.MD" cannot clobber the verified SKILL.md on
-                # case-insensitive filesystems (Windows, macOS).
+                # Already written (digest-verified) from the direct entry; skip
+                # case-insensitively so a sibling can't clobber it on Windows/macOS.
                 continue
             _validate_archive_name(relative)
             content = await aggregator.get_resource(child_uri, server_name=server_name)
             data = _first_bytes(content)
             if data is None:
-                # Reached the file branch but the resource carried no bytes. The
-                # common cause is a directory the server did not tag with the
-                # ``inode/directory`` mime type (so it was not recursed into) and
-                # whose children are therefore silently dropped, leaving an
-                # incomplete-but-"successful" install. Warn (not debug) so the
-                # gap is visible rather than invisible.
+                # No bytes -- often a directory the server failed to tag with
+                # ``inode/directory``, so its children are silently dropped. Warn
+                # so the gap is visible.
                 logger.warning(
                     "MCP skill supporting resource returned no content; skipping "
                     "(its children, if it is an untagged directory, are not installed)",
@@ -684,8 +668,7 @@ async def _walk_skill_directory(
 
 
 def _skill_root_uri(source_url: str) -> str | None:
-    # Case-insensitive: a server may legitimately address the manifest as
-    # ``/skill.md``; we still strip a fixed-length ``/SKILL.md`` suffix.
+    # Case-insensitive: the manifest may be addressed as ``/skill.md``.
     suffix = "/SKILL.md"
     if source_url.lower().endswith(suffix.lower()):
         return _normalize_uri(source_url[: -len(suffix)])
@@ -693,12 +676,11 @@ def _skill_root_uri(source_url: str) -> str | None:
 
 
 def _normalize_uri(uri: str) -> str:
-    """Best-effort RFC-3986 normalization matching ``AnyUrl`` (used for resource URIs).
+    """Normalize a URI through ``AnyUrl`` to match directory children.
 
-    Directory children arrive as ``str(resource.uri)`` where ``resource.uri`` is a
-    pydantic ``AnyUrl`` (dot-segments resolved, etc.). The skill root is sliced from
-    the raw index ``url`` string, so it must be normalized the same way or a prefix
-    comparison can spuriously fail and silently drop every child.
+    Children arrive as ``str(resource.uri)`` (an ``AnyUrl``); the root is sliced
+    from the raw index ``url``, so it must be normalized the same way or the
+    prefix comparison spuriously fails and drops every child.
     """
     try:
         return str(AnyUrl(uri))
@@ -746,12 +728,9 @@ _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 
 def _validate_archive_name(name: str) -> None:
-    # These names are later joined with the OS path API. On Windows a backslash
-    # is a separator and "C:" is a drive anchor -- neither of which
-    # PurePosixPath treats specially -- so a POSIX-only check would let
-    # "..\\.." or "C:\\..." escape the install directory. Reject Windows
-    # separators and drive components in addition to POSIX absolute paths
-    # and "..".
+    # Names are later joined with the OS path API. PurePosixPath ignores Windows
+    # separators and drive anchors, so reject those too or "..\\.." / "C:\\..."
+    # could escape the install dir on Windows.
     if "\\" in name:
         raise ValueError(f"Unsafe path in MCP skill archive: {name}")
     path = PurePosixPath(name)

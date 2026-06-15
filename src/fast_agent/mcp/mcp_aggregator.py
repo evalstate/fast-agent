@@ -3209,15 +3209,11 @@ class MCPAggregator(ContextDependent):
         """List the direct children of a directory resource via SEP-2640.
 
         Routes ``resources/directory/read`` to the named server. Callers should
-        only invoke this against servers that declared ``directoryRead`` for the
-        ``io.modelcontextprotocol/skills`` extension.
+        only invoke this against servers that declared ``directoryRead``.
 
-        ``server_name`` is required: a directory walk is always scoped to the one
-        server that hosts the skill. We deliberately do not fan out across all
-        servers the way ``get_resource`` does -- a same-named directory URI could
-        exist on multiple servers, and silently returning the first one to answer
-        (or the first non-empty listing) would read off the wrong server and mask
-        real errors.
+        ``server_name`` is required: a walk is scoped to the one server hosting
+        the skill. Unlike ``get_resource`` we don't fan out, since a same-named
+        directory URI on another server would read off the wrong server.
         """
         if not self.initialized:
             await self.load_servers()

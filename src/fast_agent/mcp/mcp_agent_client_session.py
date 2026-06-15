@@ -724,12 +724,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         Sends ``resources/directory/read`` and reuses the ``resources/list``
         result shape (``resources`` + ``nextCursor``). Callers MUST only invoke
-        this against servers that declared ``directoryRead`` for the skills
-        extension. The method is not part of the closed ``ClientRequest`` union,
-        so the bare request is passed through our ``send_request`` override
-        (which only needs ``model_dump`` + tolerates a missing ``.root``);
-        wrapping it in ``ClientRequest`` would emit per-call union serializer
-        warnings.
+        this against servers that declared ``directoryRead``. The method is not in
+        the closed ``ClientRequest`` union, so the bare request goes through our
+        ``send_request`` override; wrapping it would emit union serializer warnings.
         """
         uri_obj: AnyUrl = uri if isinstance(uri, AnyUrl) else AnyUrl(uri)
         params = DirectoryReadRequestParams(uri=uri_obj, cursor=cursor)
