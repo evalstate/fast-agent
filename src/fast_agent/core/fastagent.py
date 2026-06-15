@@ -306,7 +306,7 @@ class FastAgent(DecoratorMixin):
         )
         parser.add_argument(
             "--host",
-            default="0.0.0.0",
+            default="127.0.0.1",
             help="Host address to bind to when running as a server with HTTP transport",
         )
         parser.add_argument(

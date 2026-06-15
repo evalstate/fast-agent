@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from datetime import datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
@@ -9,6 +11,7 @@ import pytest
 from mcp.types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.config import get_settings
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import (
@@ -19,6 +22,8 @@ from fast_agent.session import (
     SessionCardProvenanceRef,
     SessionContinuationSnapshot,
     SessionDiagnosticSnapshot,
+    SessionGitSnapshot,
+    SessionGitStateSnapshot,
     SessionLineageSnapshot,
     SessionMetadataSnapshot,
     SessionModelOverlayRef,
@@ -36,6 +41,37 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.interfaces import AgentProtocol
+
+
+def _run_git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ("git", "-C", str(repo), *args),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _init_git_repo(path: Path) -> str:
+    if shutil.which("git") is None:
+        pytest.skip("git is not available")
+    path.mkdir()
+    _run_git(path, "init")
+    _run_git(path, "config", "user.email", "test@example.com")
+    _run_git(path, "config", "user.name", "Test User")
+    _run_git(path, "remote", "add", "origin", "git@github.com:fast-agent-ai/fast-agent.git")
+    (path / "demo.txt").write_text("one\n", encoding="utf-8")
+    _run_git(path, "add", "demo.txt")
+    _run_git(path, "commit", "-m", "initial")
+    return _run_git(path, "rev-parse", "HEAD")
+
+
+def _commit_change(repo: Path) -> str:
+    (repo / "demo.txt").write_text("two\n", encoding="utf-8")
+    _run_git(repo, "add", "demo.txt")
+    _run_git(repo, "commit", "-m", "second")
+    return _run_git(repo, "rev-parse", "HEAD")
 
 
 class _Overlay:
@@ -162,6 +198,28 @@ def test_session_snapshot_v2_round_trips_unchanged() -> None:
         continuation=SessionContinuationSnapshot(
             active_agent="dev",
             cwd="/tmp/workspace",
+            git=SessionGitStateSnapshot(
+                started=SessionGitSnapshot(
+                    cwd="/tmp/workspace",
+                    repository_root="/tmp/workspace",
+                    commit="a" * 40,
+                    captured_at=datetime(2026, 4, 14, 17, 5, 1),
+                    remote_url="https://github.com/fast-agent-ai/fast-agent.git",
+                    github_repository="fast-agent-ai/fast-agent",
+                    branch="main",
+                    dirty=False,
+                ),
+                current=SessionGitSnapshot(
+                    cwd="/tmp/workspace",
+                    repository_root="/tmp/workspace",
+                    commit="b" * 40,
+                    captured_at=datetime(2026, 4, 14, 17, 9, 1),
+                    remote_url="https://github.com/fast-agent-ai/fast-agent.git",
+                    github_repository="fast-agent-ai/fast-agent",
+                    branch="main",
+                    dirty=True,
+                ),
+            ),
             lineage=SessionLineageSnapshot(
                 forked_from="2604141600-ZzYyXx",
                 acp_session_id="acp-123",
@@ -483,6 +541,108 @@ def test_capture_session_snapshot_preserves_existing_v2_fallback_values(tmp_path
     assert foo_snapshot.provider == "persisted-provider"
     assert bar_snapshot.history_file == "history_bar.json"
     assert bar_snapshot.resolved_prompt == "persisted bar prompt"
+
+
+def test_capture_session_snapshot_tracks_started_and_current_git_commits(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    first_commit = _init_git_repo(workspace)
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text("git_aware: true\n", encoding="utf-8")
+    get_settings(config_path=str(config_path))
+
+    manager = SessionManager(
+        cwd=workspace,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session(metadata={"last_history_by_agent": {"foo": "history_foo.json"}})
+    session.info.history_files = ["history_foo.json"]
+    agent = _Agent(
+        name="foo",
+        instruction="resolved foo prompt",
+        config=AgentConfig("foo", instruction="template foo", model=None),
+    )
+    identity = SessionSaveIdentity(
+        manager=manager,
+        session=session,
+        created=False,
+        acp_session_id=None,
+        session_cwd=workspace,
+        session_store_scope="workspace",
+        session_store_cwd=workspace,
+    )
+
+    first_snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", agent),
+        agent_registry=None,
+        identity=identity,
+    )
+    assert first_snapshot.continuation.git is not None
+    assert first_snapshot.continuation.git.started is not None
+    assert first_snapshot.continuation.git.current is not None
+    assert first_snapshot.continuation.git.started.commit == first_commit
+    assert first_snapshot.continuation.git.current.commit == first_commit
+    assert first_snapshot.continuation.git.current.github_repository == "fast-agent-ai/fast-agent"
+
+    (session.directory / "session.json").write_text(
+        json.dumps(first_snapshot.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+    second_commit = _commit_change(workspace)
+
+    second_snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", agent),
+        agent_registry=None,
+        identity=identity,
+    )
+
+    assert second_snapshot.continuation.git is not None
+    assert second_snapshot.continuation.git.started is not None
+    assert second_snapshot.continuation.git.current is not None
+    assert second_snapshot.continuation.git.started.commit == first_commit
+    assert second_snapshot.continuation.git.current.commit == second_commit
+
+
+def test_capture_session_snapshot_omits_git_when_config_disabled(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    _init_git_repo(workspace)
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text("", encoding="utf-8")
+    get_settings(config_path=str(config_path))
+
+    manager = SessionManager(
+        cwd=workspace,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session(metadata={"last_history_by_agent": {"foo": "history_foo.json"}})
+    session.info.history_files = ["history_foo.json"]
+    agent = _Agent(
+        name="foo",
+        instruction="resolved foo prompt",
+        config=AgentConfig("foo", instruction="template foo", model=None),
+    )
+
+    snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", agent),
+        agent_registry=None,
+        identity=SessionSaveIdentity(
+            manager=manager,
+            session=session,
+            created=False,
+            acp_session_id=None,
+            session_cwd=workspace,
+            session_store_scope="workspace",
+            session_store_cwd=workspace,
+        ),
+    )
+
+    assert snapshot.continuation.git is None
 
 
 def test_capture_session_snapshot_prefers_explicit_resolved_prompts(tmp_path: Path) -> None:

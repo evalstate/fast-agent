@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.7.20"
+version = "0.7.21"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -23,7 +23,7 @@ dependencies = [
     "rich==15.0.0",
     "typer==0.25.1",
     "anthropic[vertex]==0.109.1",
-    "openai[aiohttp]==2.41.0",
+    "openai[aiohttp]==2.41.1",
     "prompt-toolkit==3.0.52",
     "aiohttp==3.14.0",
     "opentelemetry-distro==0.63b1",

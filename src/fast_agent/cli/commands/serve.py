@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from enum import Enum
+from ipaddress import ip_address
 from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
 from typing import TYPE_CHECKING
 
 import typer
+from rich.console import Console
 
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.runtime.request_builders import build_command_run_request
@@ -36,6 +38,10 @@ class MissingShellCwdPolicy(str, Enum):
     ERROR = "error"
 
 
+_WARNING_CONSOLE = Console(stderr=True)
+DEFAULT_HTTP_HOST = "127.0.0.1"
+
+
 def _validate_acp_instance_scope(instance_scope: InstanceScope) -> InstanceScope:
     if instance_scope != InstanceScope.CONNECTION:
         raise typer.BadParameter(
@@ -60,6 +66,48 @@ def _resolve_instance_scope(
     if transport == ServeTransport.ACP:
         return _validate_acp_instance_scope(instance_scope)
     return instance_scope
+
+
+def _serves_remote_clients(transport: ServeTransport, host: str) -> bool:
+    if transport != ServeTransport.HTTP:
+        return False
+    normalized_host = host.strip().lower()
+    if normalized_host == "localhost":
+        return False
+    try:
+        return not ip_address(normalized_host).is_loopback
+    except ValueError:
+        return True
+
+
+def _serve_security_warning_messages(
+    *,
+    transport: ServeTransport,
+    host: str,
+    shell: bool,
+) -> list[str]:
+    if not _serves_remote_clients(transport, host):
+        return []
+    messages = [
+        "[yellow]Warning:[/yellow] serving on "
+        f"[bold]{host}[/bold] exposes fast-agent to remote network clients."
+    ]
+    if shell:
+        messages.append(
+            "[bold red]Warning: --shell is enabled; the shell execution tool is "
+            "available to remote callers.[/bold red]"
+        )
+    return messages
+
+
+def _emit_serve_security_warnings(
+    *,
+    transport: ServeTransport,
+    host: str,
+    shell: bool,
+) -> None:
+    for message in _serve_security_warning_messages(transport=transport, host=host, shell=shell):
+        _WARNING_CONSOLE.print(message)
 
 
 def _build_run_request(
@@ -181,7 +229,7 @@ def serve(
         help="Transport protocol to expose (http, stdio, acp)",
     ),
     host: str = typer.Option(
-        "0.0.0.0",
+        DEFAULT_HTTP_HOST,
         "--host",
         help="Host address to bind when using HTTP transport",
     ),
@@ -256,4 +304,5 @@ def serve(
         watch=watch,
         missing_shell_cwd=missing_shell_cwd,
     )
+    _emit_serve_security_warnings(transport=transport, host=host, shell=shell)
     run_request(request)

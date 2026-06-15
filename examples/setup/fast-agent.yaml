@@ -26,6 +26,11 @@ default_model: gpt-5-mini?reasoning=low
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
 # llm_retries: 1
 
+# Persist git repository provenance in session snapshots and trace exports.
+# Captures the repo root, commit, branch, dirty state, and sanitized origin URL
+# for the session working directory when it is inside a git repository.
+# git_aware: false
+
 # History compaction keeps long conversations within the model context window.
 compaction:
   auto: true # automatically compact when the threshold is crossed

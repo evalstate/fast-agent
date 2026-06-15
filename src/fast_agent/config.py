@@ -1886,6 +1886,9 @@ class Settings(BaseSettings):
     session_history_window: int = 20
     """Maximum number of sessions to keep in the rolling window (default: 20)."""
 
+    git_aware: bool = False
+    """Persist git repository provenance in session snapshots and trace exports."""
+
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
     """History compaction settings (auto trigger threshold, retained turns, prompt)."""
 

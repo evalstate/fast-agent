@@ -49,6 +49,9 @@ session_history: true
 
 # Session history rolling window (number of recent sessions to keep)
 session_history_window: 20
+
+# Persist git repository provenance in session snapshots and trace exports
+git_aware: false
 ```
 
 History compaction defaults are generated from `fast_agent.config.CompactionSettings`:
@@ -146,6 +149,8 @@ For a complete guide, see [Model Overlays](../models/model_overlays/).
 
 - `FAST_AGENT_DISABLE_UV_LOOP=1`: Disable uvloop even if installed (non-Windows). By default, uvloop is used when available.
 `session_history` controls whether fast-agent persists session metadata and history files in the environment sessions folder (default `.fast-agent/sessions`). `session_history_window` limits how many recent sessions are kept; older sessions are pruned when new sessions are created. The same window is used for session resume completions and ordinal selection (e.g. `/session resume 1`).
+
+`git_aware` adds best-effort git provenance to persisted sessions and exported traces. When enabled and the session working directory is inside a git repository, fast-agent records the repository root, commit, capture time, branch, dirty state, GitHub `owner/repo` when available, and a sanitized `origin` remote URL. The first captured state is kept as `started`; later saves update `current`.
 
 `environment_dir` sets the base folder for local fast-agent data such as skills, sessions, and permission history. You can also override this per run with `fast-agent --env <path>`. Use `--noenv` for ephemeral runs that intentionally skip environment-based side effects.
 

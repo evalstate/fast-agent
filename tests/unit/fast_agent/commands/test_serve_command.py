@@ -1,9 +1,72 @@
+import inspect
+
 import click
 import pytest
 import typer
 
 from fast_agent.cli.commands import go as go_command
 from fast_agent.cli.commands import serve as serve_command
+
+
+def test_serve_http_host_defaults_to_loopback() -> None:
+    host_default = inspect.signature(serve_command.serve).parameters["host"].default
+
+    assert host_default.default == "127.0.0.1"
+
+
+def test_serve_security_warnings_for_wildcard_host() -> None:
+    messages = serve_command._serve_security_warning_messages(
+        transport=serve_command.ServeTransport.HTTP,
+        host="0.0.0.0",
+        shell=False,
+    )
+
+    assert len(messages) == 1
+    assert "exposes fast-agent to remote network clients" in messages[0]
+
+
+def test_serve_security_warnings_for_wildcard_host_with_shell() -> None:
+    messages = serve_command._serve_security_warning_messages(
+        transport=serve_command.ServeTransport.HTTP,
+        host="0.0.0.0",
+        shell=True,
+    )
+
+    assert len(messages) == 2
+    assert "[bold red]" in messages[1]
+    assert "shell execution tool is available to remote callers" in messages[1]
+
+
+def test_serve_security_warnings_only_for_remote_http_binds() -> None:
+    assert (
+        serve_command._serve_security_warning_messages(
+            transport=serve_command.ServeTransport.HTTP,
+            host="127.0.0.1",
+            shell=True,
+        )
+        == []
+    )
+    assert (
+        serve_command._serve_security_warning_messages(
+            transport=serve_command.ServeTransport.HTTP,
+            host="localhost",
+            shell=True,
+        )
+        == []
+    )
+    assert serve_command._serve_security_warning_messages(
+        transport=serve_command.ServeTransport.HTTP,
+        host="192.168.1.10",
+        shell=True,
+    )
+    assert (
+        serve_command._serve_security_warning_messages(
+            transport=serve_command.ServeTransport.STDIO,
+            host="0.0.0.0",
+            shell=True,
+        )
+        == []
+    )
 
 
 def test_run_async_agent_passes_serve_mode() -> None:
