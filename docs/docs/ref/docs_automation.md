@@ -61,6 +61,8 @@ uv run scripts/docs.py cast-build tui-shell
 uv run scripts/docs.py cast-build model-picker
 uv run scripts/docs.py cast-build skills-direct-install
 uv run scripts/docs.py cast-build skills-slash-commands
+uv run scripts/docs.py cast-build skills-over-mcp
+uv run scripts/docs.py cast-build hf-image-generation
 ```
 
 The `tui-shell` scenario records `fast-agent` starting with shell access and a visible model
@@ -71,6 +73,12 @@ The `model-picker` scenario records `fast-agent go` opening the startup model pi
 the provider/model lists with arrow keys.
 The skills scenarios record direct install and update-check flows from a temporary local git
 repository, using either CLI commands or `/skills` slash commands in the TUI.
+The `skills-over-mcp` scenario connects to `https://huggingface.co/mcp`, selects the `hf`
+MCP-backed registry, searches the registry, and installs a SHA256-verified skill. Override
+`FAST_AGENT_SKILLS_MCP_DEMO_SERVER` to record against a local SEP-2640 server.
+The `hf-image-generation` scenario records the Hugging Face dynamic Space flow with halfcell
+terminal-image rendering so the generated image is captured as ordinary terminal cells. It is more
+service-dependent than the other casts; use it when intentionally refreshing the image-viewer demo.
 
 By default, cast recordings stop by killing the tmux session after the final demonstrated action,
 so the user-facing recording does not show a trailing `/exit`. Set
@@ -98,20 +106,15 @@ FAST_AGENT_TUI_DEMO_MODEL=sonnet uv run scripts/docs.py assets-record tui-shell
 FAST_AGENT_TUI_DEMO_COMMAND="fast-agent -x --model deepseek" uv run scripts/docs.py assets-record tui-shell
 ```
 
-For image-output experiments, prefer a small halfcell render and a landscape prompt with broad shapes:
+For image-output refreshes, prefer a small halfcell render and a landscape prompt with broad shapes:
 
 ```bash
-export FAST_AGENT_KEYRING_NOTICE=0
-export LOGGER__TERMINAL_IMAGES__ENABLED=true
-export LOGGER__TERMINAL_IMAGES__BACKEND=halfcell
-export LOGGER__TERMINAL_IMAGES__WIDTH=96
-export LOGGER__TERMINAL_IMAGES__HEIGHT=24
-fast-agent -x --model codexplan --url 'https://huggingface.co/mcp?bouquet=dynamic_space'
+uv run scripts/docs.py cast-build hf-image-generation
 ```
 
-```text
-generate a wide cinematic landscape: a quiet alpine lake at sunrise, dark pine silhouettes, snow-capped mountains, warm orange sky reflected in the water, bold simple shapes, high contrast, no text
-```
+Override `FAST_AGENT_HF_IMAGE_DEMO_COMMAND`, `FAST_AGENT_HF_IMAGE_DEMO_PROMPT`,
+`FAST_AGENT_HF_IMAGE_DEMO_RESPONSE_WAIT`, or the `LOGGER__TERMINAL_IMAGES__WIDTH`/`HEIGHT`
+environment variables when the service or model needs a different prompt, timing, or image size.
 
 ## Social Cards
 
@@ -160,6 +163,18 @@ pages can include examples directly from `examples/`:
 
 Prefer direct includes for examples that are meant to stay runnable. This keeps docs and examples
 on one source of truth and makes drift visible in ordinary code review.
+
+## Source-Backed Configuration
+
+For defaults that appear in code, docs, and sample config, keep the Pydantic settings model as the
+authority and generate reusable snippets. `docs/generate_reference_docs.py` writes compaction
+snippets from `fast_agent.config.CompactionSettings`; docs pages include those snippets instead of
+copying values such as `compaction.threshold` by hand.
+
+The annotated setup template lives at `examples/setup/fast-agent.yaml`, and the packaged setup
+resource is copied from that path during build. When a setup value mirrors a code default, add or
+update a focused test that parses the setup template and compares that value with the corresponding
+settings model.
 
 ## Plugin API Reference
 

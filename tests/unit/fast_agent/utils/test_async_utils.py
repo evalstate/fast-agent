@@ -1,51 +1,57 @@
 """Tests for asyncio runtime helpers."""
 
-import warnings
+import sys
+from types import SimpleNamespace
 
-from fast_agent.utils.async_utils import (
-    _UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE,
-    _suppress_known_uvloop_prompt_toolkit_deprecation,
-    install_known_runtime_warning_filters,
-    suppress_known_runtime_warnings,
-)
+from fast_agent.utils import async_utils
 
 
-def test_suppress_known_uvloop_prompt_toolkit_deprecation_installs_targeted_filter() -> None:
-    with warnings.catch_warnings():
-        warnings.resetwarnings()
-        _suppress_known_uvloop_prompt_toolkit_deprecation(version_info=(3, 14))
+def test_uvloop_disable_env_prevents_uvloop_creation(monkeypatch) -> None:
+    monkeypatch.setenv("FAST_AGENT_DISABLE_UV_LOOP", "1")
+    async_utils._UVLOOP_REQUESTED = None
+    async_utils._UVLOOP_CONFIGURED = None
 
-        assert any(
-            action == "ignore"
-            and category is DeprecationWarning
-            and getattr(message, "pattern", None) == _UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE
-            for action, message, category, module, _lineno in warnings.filters
-        )
-
-
-def test_install_known_runtime_warning_filters_installs_targeted_filter() -> None:
-    with warnings.catch_warnings():
-        warnings.resetwarnings()
-        install_known_runtime_warning_filters(version_info=(3, 14))
-
-        assert any(
-            action == "ignore"
-            and category is DeprecationWarning
-            and getattr(message, "pattern", None) == _UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE
-            for action, message, category, module, _lineno in warnings.filters
-        )
+    requested, enabled = async_utils.configure_uvloop()
+    loop = async_utils.create_event_loop()
+    try:
+        assert not requested
+        assert not enabled
+        assert type(loop).__module__.startswith("asyncio.")
+    finally:
+        loop.close()
+        async_utils._UVLOOP_REQUESTED = None
+        async_utils._UVLOOP_CONFIGURED = None
 
 
-def test_suppress_known_runtime_warnings_ignores_target_warning() -> None:
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.resetwarnings()
-        warnings.simplefilter("always")
+def test_run_coroutine_uses_fast_agent_loop_factory() -> None:
+    async def value() -> int:
+        return 7
 
-        with suppress_known_runtime_warnings(version_info=(3, 14)):
-            warnings.warn(
-                "'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; "
-                "use inspect.iscoroutinefunction() instead",
-                DeprecationWarning,
-            )
+    assert async_utils.run_coroutine(value()) == 7
 
-        assert not caught
+
+def test_uvloop_creation_failure_falls_back_to_asyncio(monkeypatch) -> None:
+    def broken_new_event_loop():
+        raise RuntimeError("broken uvloop wheel")
+
+    monkeypatch.delenv("FAST_AGENT_DISABLE_UV_LOOP", raising=False)
+    monkeypatch.delenv("FAST_AGENT_UVLOOP", raising=False)
+    monkeypatch.setattr(async_utils, "find_spec", lambda name: object())
+    monkeypatch.setitem(
+        sys.modules, "uvloop", SimpleNamespace(new_event_loop=broken_new_event_loop)
+    )
+    async_utils._UVLOOP_REQUESTED = None
+    async_utils._UVLOOP_CONFIGURED = None
+
+    requested, enabled = async_utils.configure_uvloop()
+    loop = async_utils.create_event_loop()
+    try:
+        assert not requested
+        assert enabled
+        assert async_utils._UVLOOP_CONFIGURED is False
+        assert type(loop).__module__.startswith("asyncio.")
+    finally:
+        loop.close()
+        async_utils._UVLOOP_REQUESTED = None
+        async_utils._UVLOOP_CONFIGURED = None
+        sys.modules.pop("uvloop", None)

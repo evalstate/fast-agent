@@ -105,14 +105,14 @@ async def main():
 
         # Ambiguous customer messages where intent is unclear
         test_cases = [
-            "I've been waiting for 3 days now.",              # Complaint? Status question?
-            "Can someone explain how this works?",            # Question? Request for help?
-            "This isn't what I expected.",                    # Complaint? Feedback?
-            "I'd like to speak to a manager.",                # Complaint? Request?
-            "Why does this keep happening?",                  # Complaint? Question?
-            "Just wanted to let you know about this.",        # Feedback? Complaint?
-            "Is there any way to get a refund?",              # Question? Request?
-            "The new update changed everything.",             # Complaint? Feedback?
+            "I've been waiting for 3 days now.",  # Complaint? Status question?
+            "Can someone explain how this works?",  # Question? Request for help?
+            "This isn't what I expected.",  # Complaint? Feedback?
+            "I'd like to speak to a manager.",  # Complaint? Request?
+            "Why does this keep happening?",  # Complaint? Question?
+            "Just wanted to let you know about this.",  # Feedback? Complaint?
+            "Is there any way to get a refund?",  # Question? Request?
+            "The new update changed everything.",  # Complaint? Feedback?
         ]
 
         # Collect all results first

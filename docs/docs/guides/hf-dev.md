@@ -9,7 +9,7 @@ social:
 ---
 
 
-# Code with HF Inference Providers and llama.cpp
+# Code with HF Inference Providers
 
 Use the latest open weight models via Hugging Face Inference Providers:
 
@@ -51,35 +51,27 @@ This installs the `fast-agent` executable.
 
 ## llama.cpp
 
-To use models hosted locally with [`llama.cpp`](https://llama-cpp.com/), start `llama-server` with your chosen model and then run:
+`fast-agent` has support for [llama.cpp](https://llama.app). Read the 
+[llama.cpp provider guide](../models/providers/llamacpp.md) to get
+started.
 
-```bash
-fast-agent model llamacpp
-```
-
-This reads the correct model parameters (e.g. context window size) from the `llama.cpp` server, and configures the `fast-agent` model settings correctly.
-
-![llamacpp](2026-03-21-llamacpp.png)
-
-Create a [model overlay](../models/model_overlays.md) file for future use, or start immediately with "Start now".
-
-## Export agent traces to Hugging Face datasets
+## Export agent traces to Hugging Face URLs
 
 Persisted sessions can be exported as Codex-style JSONL traces and uploaded directly
-to a Hugging Face dataset repo.
+to Hugging Face Hub storage.
 
 From inside `fast-agent`:
 
 ```text
-/session export latest --hf-dataset your-name/fast-agent-traces
-/session export latest --hf-dataset your-name/fast-agent-traces --hf-dataset-path evals/
+/session export latest --hf-url hf://buckets/your-name/fast-agent-traces/
+/session export latest --hf-url hf://datasets/your-name/fast-agent-traces/trace.jsonl
 ```
 
 From the shell:
 
 ```bash
-fast-agent export latest --hf-dataset your-name/fast-agent-traces
-fast-agent export latest --output trace.jsonl --hf-dataset your-name/fast-agent-traces
+fast-agent export latest --hf-url hf://buckets/your-name/fast-agent-traces/
+fast-agent export latest --output trace.jsonl --hf-url hf://datasets/your-name/fast-agent-traces/trace.jsonl
 ```
 
 Notes:
@@ -87,9 +79,11 @@ Notes:
 - Traces come from persisted sessions, so `--noenv` runs are not exportable.
 - If you omit `--output`, fast-agent writes a default file named
   `{session_id}__{agent_name}__codex.jsonl` in the current directory before upload.
-- `--hf-dataset-path` can be either a file path or a folder path. If it ends with `/`,
-  fast-agent appends the local filename.
-- Uploads require `huggingface_hub`. The dataset repo is created automatically if it
-  does not already exist.
+- `--hf-url` supports `hf://buckets/...` and `hf://datasets/...`. If it ends with
+  `/`, fast-agent appends the local filename.
+- `--hf-dataset` remains available for compatibility and constructs an equivalent
+  `hf://datasets/...` upload URL.
+- Uploads require `huggingface_hub`. Dataset repos are created automatically if
+  they do not already exist.
 
 For the full CLI reference, see [fast-agent export](../ref/export_command/).

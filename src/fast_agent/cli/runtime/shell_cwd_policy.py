@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Mapping, Protocol, Sequence, cast, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable
+
+from fast_agent.agents.agent_types import AgentConfig
 
 if TYPE_CHECKING:
-    from fast_agent.agents.agent_types import AgentConfig
+    from collections.abc import Mapping, Sequence
+
     from fast_agent.cli.runtime.run_request import ExecutionMode
     from fast_agent.core.agent_card_types import AgentCardData
 
@@ -34,6 +37,14 @@ class ShellCwdCreationError:
 
     path: Path
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ShellCwdCreationResult:
+    """Created shell cwd paths plus any failed creation attempts."""
+
+    created_paths: list[Path]
+    errors: list[ShellCwdCreationError]
 
 
 @runtime_checkable
@@ -104,17 +115,17 @@ def collect_shell_cwd_issues(
     for agent_name in sorted(agents):
         agent_data = agents[agent_name]
         config = agent_data.get("config")
-        if config is None:
+        if not isinstance(config, AgentConfig):
             continue
 
-        configured_cwd = getattr(config, "cwd", None)
+        configured_cwd = config.cwd
         if not isinstance(configured_cwd, Path):
             continue
 
         if not _shell_runtime_active_for_agent(
             shell_runtime_requested=shell_runtime_requested,
-            shell_enabled=bool(getattr(config, "shell", False)),
-            skills_configured=bool(getattr(config, "skill_manifests", []) or []),
+            shell_enabled=config.shell,
+            skills_configured=bool(config.skill_manifests),
         ):
             continue
 
@@ -188,7 +199,7 @@ def collect_shell_cwd_issues_from_runtime_agents(
 
 def create_missing_shell_cwd_directories(
     issues: Sequence[ShellCwdIssue],
-) -> tuple[list[Path], list[ShellCwdCreationError]]:
+) -> ShellCwdCreationResult:
     """Create missing cwd directories and return created paths + creation errors."""
     created_paths: list[Path] = []
     errors: list[ShellCwdCreationError] = []
@@ -219,7 +230,7 @@ def create_missing_shell_cwd_directories(
             )
         )
 
-    return created_paths, errors
+    return ShellCwdCreationResult(created_paths=created_paths, errors=errors)
 
 
 def format_shell_cwd_issues(issues: Sequence[ShellCwdIssue]) -> list[str]:
@@ -229,11 +240,7 @@ def format_shell_cwd_issues(issues: Sequence[ShellCwdIssue]) -> list[str]:
 
     lines = ["Invalid shell working directories detected:"]
     for issue in issues:
-        reason = (
-            "does not exist"
-            if issue.kind == "missing"
-            else "is not a directory"
-        )
+        reason = "does not exist" if issue.kind == "missing" else "is not a directory"
         lines.append(
             " - "
             f"{issue.agent_name}: cwd={issue.configured_path} "

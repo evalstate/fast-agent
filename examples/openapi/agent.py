@@ -11,7 +11,7 @@ default_instruction = DEFAULT_AGENT_INSTRUCTION
 
 
 # Define the agent
-@fast.agent(instruction=default_instruction,servers=["petstore"])
+@fast.agent(instruction=default_instruction, servers=["petstore"])
 async def main():
     # use the --model command line switch or agent arguments to change model
     async with fast.run() as agent:

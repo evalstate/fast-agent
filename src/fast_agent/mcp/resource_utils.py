@@ -1,4 +1,6 @@
 import base64
+from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 from mcp.types import (
@@ -13,8 +15,19 @@ import fast_agent.mcp.mime_utils as mime_utils
 
 HTTP_TIMEOUT = 10  # Default timeout for HTTP requests
 
-# Define a type alias for resource content results
-ResourceContent = tuple[str, str, bool]
+
+@dataclass(frozen=True, slots=True)
+class ResourceContent:
+    content: str
+    mime_type: str
+    is_binary: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _ResourceMarkerHeader:
+    uri: str
+    mime_type: str
+    is_binary: bool
 
 
 def find_resource_file(resource_path: str, prompt_files: list[Path]) -> Path | None:
@@ -35,7 +48,7 @@ def load_resource_content(resource_path: str, prompt_files: list[Path]) -> Resou
         prompt_files: List of prompt files (to find relative paths)
 
     Returns:
-        Tuple of (content, mime_type, is_binary)
+        Resource content with MIME metadata
         - content: String content for text files, base64-encoded string for binary files
         - mime_type: The MIME type of the resource
         - is_binary: Whether the content is binary (and base64-encoded)
@@ -54,14 +67,14 @@ def load_resource_content(resource_path: str, prompt_files: list[Path]) -> Resou
 
     if is_binary:
         # For binary files, read as binary and base64 encode
-        with open(resource_file, "rb") as f:
+        with resource_file.open("rb") as f:
             content = base64.b64encode(f.read()).decode("utf-8")
     else:
         # For text files, read as text
-        with open(resource_file, "r", encoding="utf-8") as f:
+        with resource_file.open("r", encoding="utf-8") as f:
             content = f.read()
 
-    return content, mime_type, is_binary
+    return ResourceContent(content=content, mime_type=mime_type, is_binary=is_binary)
 
 
 # Create a safe way to generate resource URIs that Pydantic accepts
@@ -121,15 +134,14 @@ def create_embedded_resource(
                 blob=content,
             ),
         )
-    else:
-        return EmbeddedResource(
-            type="resource",
-            resource=TextResourceContents(
-                uri=resource_uri_str,
-                mimeType=mime_type,
-                text=content,
-            ),
-        )
+    return EmbeddedResource(
+        type="resource",
+        resource=TextResourceContents(
+            uri=resource_uri_str,
+            mimeType=mime_type,
+            text=content,
+        ),
+    )
 
 
 def create_image_content(data: str, mime_type: str) -> ImageContent:
@@ -172,29 +184,43 @@ def create_text_resource(
 RESOURCE_MARKER_PREFIXES = ("[Resource:", "[Binary Resource:")
 
 
+def _parse_resource_marker_header(header: str) -> _ResourceMarkerHeader | None:
+    if not header.endswith("]") or "MIME:" not in header:
+        return None
+
+    if header.startswith("[Resource:"):
+        uri = header.removeprefix("[Resource:").split(",", 1)[0].strip()
+        is_binary = False
+    elif header.startswith("[Binary Resource:"):
+        uri = header.removeprefix("[Binary Resource:").split(",", 1)[0].strip()
+        is_binary = True
+    else:
+        return None
+
+    mime_type = header.split("MIME:", 1)[1].removesuffix("]").strip()
+    if not uri or not mime_type:
+        return None
+    return _ResourceMarkerHeader(uri=uri, mime_type=mime_type, is_binary=is_binary)
+
+
 def parse_resource_marker(text: str) -> EmbeddedResource | None:
-    if (
-        not text
-        or not text.startswith(RESOURCE_MARKER_PREFIXES)
-        or "\n" not in text
-    ):
+    if not text or not text.startswith(RESOURCE_MARKER_PREFIXES) or "\n" not in text:
         return None
 
     header, content_text = text.split("\n", 1)
-    if "MIME:" not in header:
+    parsed_header = _parse_resource_marker_header(header)
+    if (
+        parsed_header is None
+        or mime_utils.normalize_mime_type(parsed_header.mime_type) == "text/plain"
+    ):
         return None
 
-    mime_match = header.split("MIME:", 1)[1].split("]")[0].strip()
-    if mime_match == "text/plain":
-        return None
-
-    if "Resource:" in header and "Binary Resource:" not in header:
-        uri = header.split("Resource:", 1)[1].split(",")[0].strip()
+    if not parsed_header.is_binary:
         return EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=to_any_url(uri),
-                mimeType=mime_match,
+                uri=to_any_url(parsed_header.uri),
+                mimeType=parsed_header.mime_type,
                 text=content_text,
             ),
         )
@@ -227,15 +253,14 @@ def normalize_uri(uri_or_filename: str) -> str:
     # Make sure it has three slashes for an absolute path
     if normalized_path.startswith("/"):
         return f"file://{normalized_path}"
-    else:
-        return f"file:///{normalized_path}"
+    return f"file:///{normalized_path}"
 
 
 def extract_title_from_uri(uri: AnyUrl) -> str:
     """Extract a readable title from a URI."""
     # Simple attempt to get filename from path
     uri_str = str(uri)
-    try:
+    with suppress(Exception):
         # For HTTP(S) URLs
         if uri.scheme in ("http", "https"):
             # Get the last part of the path
@@ -245,13 +270,8 @@ def extract_title_from_uri(uri: AnyUrl) -> str:
             return filename if filename else uri_str
 
         # For file URLs or other schemes
-        elif uri.path:
-            import os.path
-
-            return os.path.basename(uri.path)
-
-    except Exception:
-        pass
+        if uri.path:
+            return Path(uri.path).name
 
     # Fallback to the full URI if parsing fails
     return uri_str

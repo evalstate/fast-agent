@@ -16,6 +16,7 @@ from huggingface_hub.errors import HfHubHTTPError, RepositoryNotFoundError
 from pydantic import BaseModel, Field, computed_field
 
 from fast_agent.utils.async_utils import run_sync
+from fast_agent.utils.count_display import plural_label
 
 INFERENCE_PROVIDER_MAPPING_EXPAND: list[ExpandModelProperty_T] = ["inferenceProviderMapping"]
 
@@ -65,7 +66,7 @@ class InferenceProviderLookupResult(BaseModel):
     @property
     def has_providers(self) -> bool:
         """Return True if the model has any live inference providers."""
-        return len(self.live_providers) > 0
+        return bool(self.live_providers)
 
     @property
     def live_providers(self) -> list[InferenceProvider]:
@@ -96,8 +97,7 @@ def normalize_hf_model_id(model: str) -> str | None:
     """Normalize an HF model spec to a bare model_id, or return None if not HF."""
     model_id = model
 
-    if model_id.startswith("hf."):
-        model_id = model_id[3:]
+    model_id = model_id.removeprefix("hf.")
 
     if ":" in model_id:
         model_id = model_id.rsplit(":", 1)[0]
@@ -160,8 +160,7 @@ async def lookup_inference_providers(
         return await lookup_fn(model_id)
 
     # Normalize model_id - strip any hf. prefix
-    if model_id.startswith("hf."):
-        model_id = model_id[3:]
+    model_id = model_id.removeprefix("hf.")
 
     # Strip any existing provider suffix (e.g., model:provider -> model)
     if ":" in model_id:
@@ -260,12 +259,12 @@ def format_inference_lookup_message(result: InferenceProviderLookupResult) -> st
         )
 
     providers = result.live_providers
+    provider_label = plural_label(len(providers), "provider")
     lines = [
-        f"Model `{result.model_id}` has **{len(providers)}** inference provider(s) available:\n",
+        f"Model `{result.model_id}` has **{len(providers)}** inference {provider_label} available:\n",
     ]
 
-    for provider in providers:
-        lines.append(f"- **{provider.name}**")
+    lines.extend(f"- **{provider.name}**" for provider in providers)
 
     lines.extend(
         [
@@ -279,8 +278,10 @@ def format_inference_lookup_message(result: InferenceProviderLookupResult) -> st
         ]
     )
 
-    for model_str in result.format_model_strings()[:3]:  # Show up to 3 examples
-        lines.append(f"- `hf.{model_str}`")
+    lines.extend(
+        f"- `hf.{model_str}`"
+        for model_str in result.format_model_strings()[:3]  # Show up to 3 examples
+    )
 
     return "\n".join(lines)
 

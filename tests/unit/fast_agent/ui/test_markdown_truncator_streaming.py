@@ -336,8 +336,7 @@ def test_streaming_truncation_indented_code_block() -> None:
                 f"closing text vanished from renderables at height={height}"
             )
             assert not isinstance(closing_renderable, Syntax), (
-                "closing prose was rendered as Syntax (inside a spurious fence) "
-                f"at height={height}"
+                f"closing prose was rendered as Syntax (inside a spurious fence) at height={height}"
             )
 
 
@@ -383,9 +382,7 @@ def test_streaming_truncation_does_not_wrap_nested_list_as_code() -> None:
 
     saw_group = False
     for height in range(6, 18):
-        truncated = truncator.truncate_to_height(
-            text, terminal_height=height, console=test_console
-        )
+        truncated = truncator.truncate_to_height(text, terminal_height=height, console=test_console)
         renderable = build_markdown_renderable(
             truncated,
             code_theme="native",
@@ -418,18 +415,10 @@ def test_streaming_truncation_does_not_wrap_nested_list_as_code() -> None:
 def test_streaming_truncation_avoids_duplicate_table_header() -> None:
     truncator = MarkdownTruncator(target_height_ratio=0.5)
     original = (
-        "Intro\n"
-        "| Mission | Date |\n"
-        "| --- | --- |\n"
-        "| Apollo 11 | 1969 |\n"
-        "| Apollo 12 | 1969 |\n"
+        "Intro\n| Mission | Date |\n| --- | --- |\n| Apollo 11 | 1969 |\n| Apollo 12 | 1969 |\n"
     )
 
-    truncated = (
-        "| Mission | Date |\n"
-        "| --- | --- |\n"
-        "| Apollo 12 | 1969 |\n"
-    )
+    truncated = "| Mission | Date |\n| --- | --- |\n| Apollo 12 | 1969 |\n"
 
     result = truncator._ensure_table_header_if_needed(original, truncated)
     assert result.count("| Mission | Date |") == 1

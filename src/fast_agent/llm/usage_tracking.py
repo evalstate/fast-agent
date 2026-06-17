@@ -102,8 +102,7 @@ class TurnUsage(BaseModel):
         # For other providers: subtract cache hits from input_tokens
         if self.provider in _ANTHROPIC_USAGE_PROVIDERS:
             return self.input_tokens
-        else:
-            return max(0, self.input_tokens - self.cache_usage.cache_hit_tokens)
+        return max(0, self.input_tokens - self.cache_usage.cache_hit_tokens)
 
     @computed_field
     @property
@@ -116,9 +115,8 @@ class TurnUsage(BaseModel):
                 + self.cache_usage.cache_read_tokens
                 + self.cache_usage.cache_write_tokens
             )
-        else:
-            # For OpenAI/Google: input_tokens already includes cached tokens
-            return self.input_tokens
+        # For OpenAI/Google: input_tokens already includes cached tokens
+        return self.input_tokens
 
     def set_tool_calls(self, count: int) -> None:
         """Set the number of tool calls made in this turn"""
@@ -161,8 +159,9 @@ class TurnUsage(BaseModel):
     def from_openai(cls, usage: OpenAIUsage, model: str) -> "TurnUsage":
         # Extract cache tokens with proper null handling
         cached_tokens = 0
-        if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
-            cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+        prompt_tokens_details = getattr(usage, "prompt_tokens_details", None)
+        if prompt_tokens_details:
+            cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
 
         cache_usage = CacheUsage(
             cache_hit_tokens=cached_tokens  # These are tokens served from cache (50% discount)
@@ -237,18 +236,28 @@ class UsageAccumulator(BaseModel):
     # Provider/resolution-set effective context window size for the active model.
     _context_window_size: int | None = PrivateAttr(default=None)
 
+    # Estimated context size override (e.g. after history compaction) used until
+    # the next server-observed turn replaces it.
+    _context_estimate: int | None = PrivateAttr(default=None)
+
     def set_context_window_size(self, value: int | None) -> None:
         """Set the effective context window size for this accumulator."""
         self._context_window_size = value
+
+    def set_context_estimate(self, value: int | None) -> None:
+        """Override current context size with an estimate until the next turn lands."""
+        self._context_estimate = value
 
     def reset(self) -> None:
         """Clear accumulated turn usage while preserving context-window configuration."""
         self.turns = []
         self.model = None
         self.last_cache_activity_time = None
+        self._context_estimate = None
 
     def add_turn(self, turn: TurnUsage) -> None:
         """Add a new turn to the accumulator"""
+        self._context_estimate = None
         self.turns.append(turn)
         if self.model is None:
             self.model = turn.model
@@ -342,6 +351,8 @@ class UsageAccumulator(BaseModel):
     @property
     def current_context_tokens(self) -> int:
         """Current context usage (last turn's context tokens)"""
+        if self._context_estimate is not None:
+            return self._context_estimate
         if not self.turns:
             return 0
         return self.turns[-1].current_context_tokens

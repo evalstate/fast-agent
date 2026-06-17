@@ -1,9 +1,14 @@
 import base64
+from types import SimpleNamespace
 
 from mcp.types import ImageContent, TextContent
 
 from fast_agent.config import LoggerSettings, Settings, TerminalImageSettings
 from fast_agent.mcp.prompt_render import render_content_blocks
+from fast_agent.mcp.tool_result_metadata import (
+    get_tool_result_media_preview,
+    set_tool_result_media_preview,
+)
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.terminal_images import (
     extract_image_artifacts,
@@ -11,10 +16,10 @@ from fast_agent.ui.terminal_images import (
     render_assistant_images,
     render_tool_result_images,
 )
+from fast_agent.ui.terminal_images import renderer as terminal_image_renderer
 
 _PNG_BYTES = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ"
-    "/pLvAAAAAElFTkSuQmCC"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 )
 
 
@@ -73,6 +78,23 @@ def test_tool_result_images_render_without_console_display_state() -> None:
     assert render_tool_result_images(config, [_image_content()]) is not None
 
 
+def test_tool_result_media_preview_is_display_only() -> None:
+    from mcp.types import CallToolResult
+
+    result = CallToolResult(
+        content=[TextContent(type="text", text="Staged image for the next model call.")],
+        isError=False,
+    )
+
+    set_tool_result_media_preview(result, [_image_content()])
+
+    assert len(result.content) == 1
+    preview = get_tool_result_media_preview(result)
+    assert preview is not None
+    assert len(preview) == 1
+    assert isinstance(preview[0], ImageContent)
+
+
 def test_tool_result_image_rendering_does_not_create_console_display_state() -> None:
     display = ConsoleDisplay(
         Settings(
@@ -107,6 +129,17 @@ def test_render_assistant_images_returns_none_for_none_backend() -> None:
     renderable = render_assistant_images(config, [_image_content()])
 
     assert renderable is None
+
+
+def test_textual_image_backend_missing_class_disables_rendering(monkeypatch) -> None:
+    class DummyImage:
+        pass
+
+    module = SimpleNamespace(Image=DummyImage)
+    monkeypatch.setattr(terminal_image_renderer, "import_module", lambda name: module)
+
+    assert terminal_image_renderer._resolve_textual_image_class("auto") is DummyImage
+    assert terminal_image_renderer._resolve_textual_image_class("kitty") is None
 
 
 def test_render_content_blocks_summarizes_images_without_base64_payload() -> None:

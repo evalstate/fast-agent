@@ -23,7 +23,7 @@ When using calculation tools:
 When using text tools:
 - Preserve original formatting where possible
 - Be mindful of character encoding
-- Return helpful error messages for invalid inputs"""
+- Return helpful error messages for invalid inputs""",
 )
 
 
@@ -81,5 +81,6 @@ def text_count(text: str) -> str:
 
 if __name__ == "__main__":
     import sys
+
     app.run(transport="stdio")
     sys.exit(0)

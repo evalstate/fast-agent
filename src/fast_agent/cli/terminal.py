@@ -1,3 +1,5 @@
+from rich.text import Text
+
 from fast_agent.ui.console import console, error_console
 
 
@@ -15,10 +17,11 @@ class Application:
 
     def log(self, message: str, level: str = "info") -> None:
         if level == "info" or (level == "debug" and self.verbosity > 0) or level == "error":
+            line = Text(f"[{level.upper()}] {message}")
             if level == "error":
-                self.error_console.print(f"[{level.upper()}] {message}")
+                self.error_console.print(line)
             else:
-                self.console.print(f"[{level.upper()}] {message}")
+                self.console.print(line)
 
     def status(self, message: str):
-        return self.console.status(f"[bold cyan]{message}[/bold cyan]")
+        return self.console.status(Text(message, style="bold cyan"))

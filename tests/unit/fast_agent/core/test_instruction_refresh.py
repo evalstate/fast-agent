@@ -1,6 +1,7 @@
 """Tests for instruction building and refresh utilities."""
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
@@ -151,6 +152,80 @@ def test_build_instruction_with_context() -> None:
     assert result == "Root: /test/path"
 
 
+def test_build_instruction_resolves_file_placeholder(tmp_path: Path) -> None:
+    instruction_file = tmp_path / "instructions.md"
+    instruction_file.write_text("Read me", encoding="utf-8")
+
+    result = asyncio.run(
+        build_instruction(
+            "Context: {{file:instructions.md}}",
+            context={"workspaceRoot": str(tmp_path)},
+        )
+    )
+
+    assert result == "Context: Read me"
+
+
+def test_build_instruction_normalizes_padded_file_placeholder(tmp_path: Path) -> None:
+    instruction_file = tmp_path / "instructions.md"
+    instruction_file.write_text("Read me", encoding="utf-8")
+
+    result = asyncio.run(
+        build_instruction(
+            "Context: {{file:  instructions.md  }}",
+            context={"workspaceRoot": str(tmp_path)},
+        )
+    )
+
+    assert result == "Context: Read me"
+
+
+def test_build_instruction_silent_file_placeholder_returns_empty_for_missing(
+    tmp_path: Path,
+) -> None:
+    result = asyncio.run(
+        build_instruction(
+            "Context: {{file_silent:missing.md}}",
+            context={"workspaceRoot": str(tmp_path)},
+        )
+    )
+
+    assert result == "Context: "
+
+
+def test_build_instruction_rejects_absolute_file_placeholder(tmp_path: Path) -> None:
+    absolute_path = tmp_path / "instructions.md"
+
+    try:
+        asyncio.run(build_instruction(f"{{{{file:{absolute_path}}}}}"))
+    except ValueError as exc:
+        assert "must be relative" in str(exc)
+    else:
+        raise AssertionError("absolute file placeholder should fail")
+
+
+def test_build_instruction_falls_back_for_agent_directory_in_cwd(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    cwd = tmp_path / "cwd"
+    workspace.mkdir()
+    fallback_file = cwd / ".fast-agent" / "agents" / "reviewer.md"
+    fallback_file.parent.mkdir(parents=True)
+    fallback_file.write_text("Fallback instructions", encoding="utf-8")
+    monkeypatch.chdir(cwd)
+
+    result = asyncio.run(
+        build_instruction(
+            "{{file:.fast-agent/agents/reviewer.md}}",
+            context={"workspaceRoot": str(workspace)},
+        )
+    )
+
+    assert result == "Fallback instructions"
+
+
 def test_build_instruction_with_model_specific_context() -> None:
     agent = SimpleNamespace(
         name="gpt-agent",
@@ -165,9 +240,7 @@ def test_build_instruction_with_model_specific_context() -> None:
     )
     context = build_agent_instruction_context(cast("InstructionContextAgent", agent))
 
-    result = asyncio.run(
-        build_instruction("Base\n{{model_specific}}", context=context)
-    )
+    result = asyncio.run(build_instruction("Base\n{{model_specific}}", context=context))
 
     assert "Before making tool calls, send a brief preamble" in result
     assert "{{model_specific}}" not in result
@@ -185,7 +258,10 @@ def test_resolve_instruction_skill_manifests_inherits_shared_context_for_default
     agent = StubAgent()
     agent.set_instruction_context({"agentSkills": "shared skills"})
 
-    assert resolve_instruction_skill_manifests(cast("ConfiguredMcpInstructionCapable", agent), []) is None
+    assert (
+        resolve_instruction_skill_manifests(cast("ConfiguredMcpInstructionCapable", agent), [])
+        is None
+    )
 
 
 def test_resolve_instruction_skill_manifests_blanks_default_skills_without_shared_context() -> None:
@@ -197,7 +273,9 @@ def test_resolve_instruction_skill_manifests_blanks_default_skills_without_share
     )
 
     assert resolved_manifests == []
-    result = asyncio.run(build_instruction("Skills:\n{{agentSkills}}", skill_manifests=resolved_manifests))
+    result = asyncio.run(
+        build_instruction("Skills:\n{{agentSkills}}", skill_manifests=resolved_manifests)
+    )
     assert "{{agentSkills}}" not in result
 
 

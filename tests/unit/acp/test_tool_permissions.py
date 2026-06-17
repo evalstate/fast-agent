@@ -4,7 +4,6 @@ Unit tests for ACP tool permission components.
 Tests for:
 - PermissionStore file persistence
 - PermissionResult factory methods
-- _infer_tool_kind function
 - NoOpToolPermissionChecker
 - ACPToolPermissionManager (using test doubles)
 """
@@ -20,16 +19,19 @@ from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
 from fast_agent.acp.permission_store import (
     DEFAULT_PERMISSIONS_FILE,
     PermissionDecision,
+    PermissionEntry,
     PermissionResult,
     PermissionStore,
 )
+from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_permissions import (
     ACPToolPermissionManager,
     NoOpToolPermissionChecker,
     ToolPermissionChecker,
-    _infer_tool_kind,
+    _is_acp_tool_call_id,
+    _permission_options,
 )
-from fast_agent.acp.tool_titles import ARGUMENT_TRUNCATION_LIMIT, build_tool_title
+from fast_agent.acp.tool_titles import build_tool_title
 
 # =============================================================================
 # Test Doubles for ACPToolPermissionManager Testing
@@ -58,6 +60,7 @@ class FakeAgentSideConnection:
         self._responses = permission_responses or {}
         self._should_raise = should_raise
         self.permission_requests: list[Any] = []
+        self.session_updates: list[dict[str, Any]] = []
 
     async def request_permission(
         self,
@@ -68,11 +71,13 @@ class FakeAgentSideConnection:
     ) -> RequestPermissionResponse:
         """Fake implementation that returns configured responses (new SDK kwargs style)."""
         # Store the call for assertions
-        self.permission_requests.append({
-            "options": options,
-            "session_id": session_id,
-            "tool_call": tool_call,
-        })
+        self.permission_requests.append(
+            {
+                "options": options,
+                "session_id": session_id,
+                "tool_call": tool_call,
+            }
+        )
 
         if self._should_raise:
             raise self._should_raise
@@ -81,10 +86,7 @@ class FakeAgentSideConnection:
         if tool_call:
             # Title may include args like "server/tool(arg=val)", extract base "server/tool"
             title = tool_call.title
-            if "(" in title:
-                key = title.split("(")[0]
-            else:
-                key = title
+            key = title.split("(")[0] if "(" in title else title
         else:
             key = "unknown"
 
@@ -94,6 +96,32 @@ class FakeAgentSideConnection:
         return RequestPermissionResponse(
             outcome=AllowedOutcome(outcome="selected", option_id=option_id)
         )
+
+    async def session_update(
+        self,
+        session_id: str = "",
+        update: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        self.session_updates.append(
+            {
+                "session_id": session_id,
+                "update": update,
+                "kwargs": kwargs,
+            }
+        )
+
+
+class FakeToolProgressManager:
+    """Test double for ACP tool-call id lookup."""
+
+    def __init__(self, mapping: dict[str, str | None] | None = None) -> None:
+        self._mapping = mapping or {}
+        self.lookups: list[str] = []
+
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        self.lookups.append(tool_use_id)
+        return self._mapping.get(tool_use_id)
 
 
 class TestPermissionResult:
@@ -182,6 +210,20 @@ class TestPermissionStore:
         assert result == PermissionDecision.ALLOW_ALWAYS
 
     @pytest.mark.asyncio
+    async def test_persists_names_with_delimiters_across_instances(self, temp_dir: Path) -> None:
+        """Server and tool names can contain markdown/key delimiters."""
+        store1 = PermissionStore(cwd=temp_dir)
+        await store1.set("org/server|alpha", "tools/fetch|url", PermissionDecision.ALLOW_ALWAYS)
+
+        store2 = PermissionStore(cwd=temp_dir)
+
+        assert (
+            await store2.get("org/server|alpha", "tools/fetch|url")
+            == PermissionDecision.ALLOW_ALWAYS
+        )
+        assert await store2.get("org/server", "alpha/tools/fetch|url") is None
+
+    @pytest.mark.asyncio
     async def test_only_creates_file_when_permission_set(self, temp_dir: Path) -> None:
         """File is only created when first permission is set."""
         store = PermissionStore(cwd=temp_dir)
@@ -210,10 +252,12 @@ class TestPermissionStore:
     async def test_removes_permission(self, temp_dir: Path) -> None:
         """remove() deletes stored permission."""
         store = PermissionStore(cwd=temp_dir)
+        file_path = temp_dir / DEFAULT_PERMISSIONS_FILE
 
         # Set and verify
         await store.set("server1", "tool1", PermissionDecision.ALLOW_ALWAYS)
         assert await store.get("server1", "tool1") == PermissionDecision.ALLOW_ALWAYS
+        assert file_path.exists()
 
         # Remove
         removed = await store.remove("server1", "tool1")
@@ -221,6 +265,10 @@ class TestPermissionStore:
 
         # Verify removed
         assert await store.get("server1", "tool1") is None
+        assert not file_path.exists()
+
+        fresh_store = PermissionStore(cwd=temp_dir)
+        assert await fresh_store.get("server1", "tool1") is None
 
     @pytest.mark.asyncio
     async def test_remove_returns_false_for_missing(self, temp_dir: Path) -> None:
@@ -256,8 +304,20 @@ class TestPermissionStore:
 
         all_perms = await store.list_all()
         assert len(all_perms) == 2
-        assert all_perms["server1/tool1"] == PermissionDecision.ALLOW_ALWAYS
-        assert all_perms["server2/tool2"] == PermissionDecision.REJECT_ALWAYS
+        assert all_perms[PermissionEntry("server1", "tool1")] == PermissionDecision.ALLOW_ALWAYS
+        assert all_perms[PermissionEntry("server2", "tool2")] == PermissionDecision.REJECT_ALWAYS
+
+    @pytest.mark.asyncio
+    async def test_list_all_preserves_slashes_in_permission_keys(self, temp_dir: Path) -> None:
+        """list_all() returns structured keys so names with slashes are not ambiguous."""
+        store = PermissionStore(cwd=temp_dir)
+        await store.set("org/server", "tools/fetch", PermissionDecision.ALLOW_ALWAYS)
+
+        all_perms = await store.list_all()
+
+        assert all_perms == {
+            PermissionEntry("org/server", "tools/fetch"): PermissionDecision.ALLOW_ALWAYS
+        }
 
     @pytest.mark.asyncio
     async def test_file_format_is_human_readable(self, temp_dir: Path) -> None:
@@ -287,66 +347,6 @@ class TestPermissionStore:
         # All should be stored
         all_perms = await store.list_all()
         assert len(all_perms) == 10
-
-
-class TestInferToolKind:
-    """Tests for _infer_tool_kind function."""
-
-    def test_read_tools(self) -> None:
-        """Tools with read-like names are classified as 'read'."""
-        assert _infer_tool_kind("read_file") == "read"
-        assert _infer_tool_kind("get_data") == "read"
-        assert _infer_tool_kind("list_files") == "read"
-        assert _infer_tool_kind("show_status") == "read"
-        # Note: "fetch" is in the "read" list, so fetch_X -> "read" (not "fetch")
-        # The "fetch" category is for tools with only "fetch" pattern after read check
-
-    def test_edit_tools(self) -> None:
-        """Tools with edit-like names are classified as 'edit'."""
-        assert _infer_tool_kind("write_file") == "edit"
-        assert _infer_tool_kind("edit_document") == "edit"
-        assert _infer_tool_kind("update_config") == "edit"
-        assert _infer_tool_kind("modify_settings") == "edit"
-        assert _infer_tool_kind("create_file") == "edit"
-
-    def test_delete_tools(self) -> None:
-        """Tools with delete-like names are classified as 'delete'."""
-        assert _infer_tool_kind("delete_file") == "delete"
-        assert _infer_tool_kind("remove_item") == "delete"
-        assert _infer_tool_kind("clear_cache") == "delete"
-        assert _infer_tool_kind("clean_temp") == "delete"
-
-    def test_execute_tools(self) -> None:
-        """Tools with execute-like names are classified as 'execute'."""
-        assert _infer_tool_kind("execute_command") == "execute"
-        assert _infer_tool_kind("run_script") == "execute"
-        assert _infer_tool_kind("exec_sql") == "execute"
-        assert _infer_tool_kind("bash_command") == "execute"
-
-    def test_search_tools(self) -> None:
-        """Tools with search-like names are classified as 'search'."""
-        assert _infer_tool_kind("search_files") == "search"
-        assert _infer_tool_kind("find_pattern") == "search"
-        assert _infer_tool_kind("query_database") == "search"
-        assert _infer_tool_kind("grep_content") == "search"
-
-    def test_move_tools(self) -> None:
-        """Tools with move-like names are classified as 'move'."""
-        assert _infer_tool_kind("move_file") == "move"
-        assert _infer_tool_kind("rename_item") == "move"
-        assert _infer_tool_kind("copy_document") == "move"
-
-    def test_unknown_tools_return_other(self) -> None:
-        """Tools without matching patterns return 'other'."""
-        assert _infer_tool_kind("foo_bar") == "other"
-        assert _infer_tool_kind("my_custom_tool") == "other"
-        assert _infer_tool_kind("process_data") == "other"
-
-    def test_case_insensitive(self) -> None:
-        """Pattern matching is case-insensitive."""
-        assert _infer_tool_kind("READ_FILE") == "read"
-        assert _infer_tool_kind("Delete_Item") == "delete"
-        assert _infer_tool_kind("EXECUTE_CMD") == "execute"
 
 
 class TestPermissionStoreEdgeCases:
@@ -439,7 +439,9 @@ class TestPermissionStoreEdgeCases:
         """Should handle special characters in server/tool names."""
         store = PermissionStore(cwd=temp_dir)
 
-        await store.set("server-with-dashes", "tool_with_underscores", PermissionDecision.ALLOW_ALWAYS)
+        await store.set(
+            "server-with-dashes", "tool_with_underscores", PermissionDecision.ALLOW_ALWAYS
+        )
 
         result = await store.get("server-with-dashes", "tool_with_underscores")
         assert result == PermissionDecision.ALLOW_ALWAYS
@@ -467,6 +469,27 @@ class TestPermissionStoreEdgeCases:
         assert await store.get("server1", "tool1") == PermissionDecision.ALLOW_ALWAYS
         assert await store.get("server2", "tool2") == PermissionDecision.REJECT_ALWAYS
         assert await store.get("server3", "tool3") == PermissionDecision.ALLOW_ALWAYS
+
+    @pytest.mark.asyncio
+    async def test_skips_rows_with_blank_server_or_tool_names(self, temp_dir: Path) -> None:
+        """Should ignore table rows that cannot identify a server/tool pair."""
+        permissions_file = temp_dir / ".fast-agent" / "auths.md"
+        permissions_file.parent.mkdir(parents=True)
+        permissions_file.write_text(
+            """# Permissions
+| Server | Tool | Permission |
+|--------|------|------------|
+|        | tool1 | allow_always |
+| server1 |      | reject_always |
+| server2 | tool2 | allow_always |
+"""
+        )
+
+        store = PermissionStore(cwd=temp_dir)
+
+        assert await store.get("", "tool1") is None
+        assert await store.get("server1", "") is None
+        assert await store.get("server2", "tool2") == PermissionDecision.ALLOW_ALWAYS
 
 
 class TestNoOpToolPermissionChecker:
@@ -518,6 +541,74 @@ class TestNoOpToolPermissionChecker:
         assert isinstance(checker, ToolPermissionChecker)
 
 
+class TestACPToolPermissionAdapter:
+    """Tests for MCP permission-handler to ACP permission-manager adaptation."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create a temporary directory for tests."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
+
+    @pytest.mark.asyncio
+    async def test_uses_acp_tool_call_id_from_progress_manager(self, temp_dir: Path) -> None:
+        """Known progress ids should be forwarded to the permission prompt."""
+        acp_tool_call_id = "0123456789abcdef0123456789abcdef"
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
+        progress = FakeToolProgressManager({"provider-call-1": acp_tool_call_id})
+        adapter = ACPToolPermissionAdapter(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+            tool_handler=progress,
+        )
+
+        result = await adapter.check_permission(
+            "tool1",
+            "server1",
+            tool_use_id="provider-call-1",
+        )
+
+        assert result.allowed is True
+        assert progress.lookups == ["provider-call-1"]
+        tool_call = connection.permission_requests[0]["tool_call"]
+        assert tool_call.toolCallId == acp_tool_call_id
+
+    @pytest.mark.asyncio
+    async def test_does_not_use_provider_tool_use_id_as_acp_tool_call_id(
+        self, temp_dir: Path
+    ) -> None:
+        """Provider tool-use ids are not necessarily valid ACP tool-call ids."""
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
+        progress = FakeToolProgressManager({"provider-call-1": None})
+        adapter = ACPToolPermissionAdapter(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+            tool_handler=progress,
+        )
+
+        result = await adapter.check_permission(
+            "tool1",
+            "server1",
+            tool_use_id="provider-call-1",
+        )
+
+        assert result.allowed is True
+        assert progress.lookups == ["provider-call-1"]
+        tool_call = connection.permission_requests[0]["tool_call"]
+        assert tool_call.toolCallId == "pending"
+
+
+def test_is_acp_tool_call_id_accepts_only_32_hex_chars() -> None:
+    assert _is_acp_tool_call_id("0123456789abcdef0123456789abcdef")
+    assert _is_acp_tool_call_id("0123456789ABCDEF0123456789ABCDEF")
+    assert not _is_acp_tool_call_id(None)
+    assert not _is_acp_tool_call_id("provider-call-1")
+    assert not _is_acp_tool_call_id("g" * 32)
+    assert not _is_acp_tool_call_id("0" * 31)
+
+
 class TestACPToolPermissionManager:
     """Tests for ACPToolPermissionManager using test doubles."""
 
@@ -567,9 +658,7 @@ class TestACPToolPermissionManager:
     @pytest.mark.asyncio
     async def test_requests_from_client_when_not_stored(self, temp_dir: Path) -> None:
         """Should call client when no stored decision exists."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -591,25 +680,64 @@ class TestACPToolPermissionManager:
         request = connection.permission_requests[0]
         assert request["tool_call"] is not None
         assert request["tool_call"].rawInput == arguments
-        # Title should include trimmed argument summary
         title = request["tool_call"].title
-        assert "server1/tool1" in title
-        assert "prompt=lion" in title
-        assert "tool_result=image" in title
+        assert title == "server1/tool1"
+        assert "prompt=lion" not in title
+        assert "tool_result=image" not in title
+
+    def test_remembered_permission_options_name_tool_scope(self) -> None:
+        """Remembered options should make tool-level scope explicit."""
+        option_names = {option.option_id: option.name for option in _permission_options()}
+
+        assert option_names["allow_always"] == "Always Allow This Tool"
+        assert option_names["reject_always"] == "Never Allow This Tool"
 
     @pytest.mark.asyncio
-    async def test_truncates_argument_summary_in_title(self, temp_dir: Path) -> None:
-        """Titles should truncate long argument summaries."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+    async def test_permission_request_uses_tool_scoped_remembered_labels(
+        self,
+        temp_dir: Path,
+    ) -> None:
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
             cwd=temp_dir,
         )
 
-        long_value = "a" * (ARGUMENT_TRUNCATION_LIMIT + 10)
+        await manager.check_permission("tool1", "server1", {"path": "a.txt"})
+
+        options = connection.permission_requests[0]["options"]
+        option_names = {option.option_id: option.name for option in options}
+        assert option_names["allow_always"] == "Always Allow This Tool"
+        assert option_names["reject_always"] == "Never Allow This Tool"
+
+    @pytest.mark.asyncio
+    async def test_allow_always_is_tool_scoped_not_argument_scoped(self, temp_dir: Path) -> None:
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        first = await manager.check_permission("tool1", "server1", {"path": "a.txt"})
+        second = await manager.check_permission("tool1", "server1", {"path": "b.txt"})
+
+        assert first.allowed is True
+        assert second.allowed is True
+        assert len(connection.permission_requests) == 1
+
+    @pytest.mark.asyncio
+    async def test_long_arguments_stay_in_raw_input_not_title(self, temp_dir: Path) -> None:
+        """Long arguments should stay available without bloating the title."""
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        long_value = "a" * 120
         arguments = {"payload": long_value}
 
         result = await manager.check_permission("tool1", "server1", arguments)
@@ -617,9 +745,8 @@ class TestACPToolPermissionManager:
         assert result.allowed is True
         request = connection.permission_requests[0]
         title = request["tool_call"].title
-        summary = title.split("(", 1)[1].rstrip(")")
-        assert summary.endswith("...")
-        assert len(summary) == ARGUMENT_TRUNCATION_LIMIT
+        assert title == "server1/tool1"
+        assert request["tool_call"].rawInput == arguments
 
     @pytest.mark.asyncio
     async def test_builtin_server_omits_server_name_in_title(self, temp_dir: Path) -> None:
@@ -637,27 +764,14 @@ class TestACPToolPermissionManager:
         assert result.allowed is True
         request = connection.permission_requests[0]
         title = request["tool_call"].title
-        assert title.startswith("execute")
+        assert title == "execute"
         assert "acp_terminal" not in title
-        assert "command=ls" in title
-
-
-def test_build_tool_title_strips_line_breaks() -> None:
-    """Tool titles should strip CR/LF characters for display."""
-    title = build_tool_title(
-        tool_name="do\nthing",
-        server_name="server\r",
-        arguments={"payload": "line1\r\nline2"},
-    )
-    assert "\n" not in title
-    assert "\r" not in title
+        assert request["tool_call"].rawInput == arguments
 
     @pytest.mark.asyncio
     async def test_persists_allow_always_to_store(self, temp_dir: Path) -> None:
         """Should persist allow_always decisions."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_always"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -699,9 +813,7 @@ def test_build_tool_title_strips_line_breaks() -> None:
     @pytest.mark.asyncio
     async def test_handles_cancelled_response(self, temp_dir: Path) -> None:
         """Should handle cancelled permission requests."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "cancelled"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "cancelled"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -716,9 +828,7 @@ def test_build_tool_title_strips_line_breaks() -> None:
     @pytest.mark.asyncio
     async def test_fail_safe_denies_on_connection_error(self, temp_dir: Path) -> None:
         """FAIL-SAFE: Should DENY when client communication fails."""
-        connection = FakeAgentSideConnection(
-            should_raise=Exception("Connection failed")
-        )
+        connection = FakeAgentSideConnection(should_raise=Exception("Connection failed"))
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -732,9 +842,7 @@ def test_build_tool_title_strips_line_breaks() -> None:
     @pytest.mark.asyncio
     async def test_session_cache_avoids_repeated_client_calls(self, temp_dir: Path) -> None:
         """Should cache allow_always in session to avoid repeated client calls."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_always"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -750,11 +858,28 @@ def test_build_tool_title_strips_line_breaks() -> None:
         assert len(connection.permission_requests) == 1  # Still 1, not 2
 
     @pytest.mark.asyncio
+    async def test_session_cache_distinguishes_names_with_slashes(self, temp_dir: Path) -> None:
+        """Session cache keys should not collide when names contain slashes."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"org/server/fetch": "allow_always"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        first = await manager.check_permission("fetch", "org/server")
+        second = await manager.check_permission("server/fetch", "org")
+
+        assert first.allowed is True
+        assert second.allowed is True
+        assert len(connection.permission_requests) == 2
+
+    @pytest.mark.asyncio
     async def test_clears_session_cache(self, temp_dir: Path) -> None:
         """Should be able to clear session cache."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_always"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -771,9 +896,7 @@ def test_build_tool_title_strips_line_breaks() -> None:
     @pytest.mark.asyncio
     async def test_reject_once_does_not_persist(self, temp_dir: Path) -> None:
         """reject_once should not be persisted to store."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "reject_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "reject_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -793,9 +916,7 @@ def test_build_tool_title_strips_line_breaks() -> None:
     @pytest.mark.asyncio
     async def test_allow_once_does_not_persist(self, temp_dir: Path) -> None:
         """allow_once should not be persisted to store."""
-        connection = FakeAgentSideConnection(
-            permission_responses={"server1/tool1": "allow_once"}
-        )
+        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_once"})
         manager = ACPToolPermissionManager(
             connection=connection,
             session_id="test-session",
@@ -811,3 +932,13 @@ def test_build_tool_title_strips_line_breaks() -> None:
         store = PermissionStore(cwd=temp_dir)
         stored = await store.get("server1", "tool1")
         assert stored is None
+
+
+def test_build_tool_title_strips_line_breaks() -> None:
+    """Tool titles should strip CR/LF characters for display."""
+    title = build_tool_title(
+        tool_name="do\nthing",
+        server_name="server\r",
+    )
+    assert "\n" not in title
+    assert "\r" not in title

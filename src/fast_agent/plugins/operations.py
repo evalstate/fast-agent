@@ -2,20 +2,29 @@
 
 from __future__ import annotations
 
-import asyncio
 import shutil
-import subprocess
-import tarfile
 import tempfile
 import warnings
 from pathlib import Path
-from typing import Any, BinaryIO, Sequence, cast
+from typing import TYPE_CHECKING, Any
 
-from fast_agent.marketplace import source_utils as marketplace_source_utils
+from fast_agent.marketplace import fetch as marketplace_fetch
+from fast_agent.marketplace import git_sources as marketplace_git_sources
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
+from fast_agent.marketplace import source_models as marketplace_source_models
+from fast_agent.marketplace import source_urls as marketplace_source_urls
+from fast_agent.marketplace import update_status as marketplace_update_status
+from fast_agent.marketplace.selection import (
+    select_one_by_name_or_index,
+    select_updates_by_name_or_index,
+)
+from fast_agent.marketplace.update_status import is_update_applicable
 from fast_agent.plugins.manifest import load_plugin_manifest
 from fast_agent.plugins.marketplace import parse_marketplace_plugins
 from fast_agent.plugins.models import (
     LOCAL_REVISION,
+    PLUGIN_MANIFEST_FILENAME,
+    InstalledPluginSource,
     LocalPlugin,
     MarketplacePlugin,
     PluginSourceOrigin,
@@ -28,22 +37,29 @@ from fast_agent.plugins.provenance import (
     read_installed_plugin_source,
     write_installed_plugin_source,
 )
+from fast_agent.utils.async_utils import run_coroutine
 
-HeadCache = dict[tuple[str, str | None], tuple[str | None, PluginUpdateStatus | None, str | None]]
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+HeadCache = dict[
+    tuple[str, str | None],
+    marketplace_source_models.SourceRevision[PluginUpdateStatus],
+]
 PathCache = dict[
     tuple[str, str | None, str, str],
-    tuple[str | None, PluginUpdateStatus | None, str | None],
+    marketplace_source_models.SourcePathOid[PluginUpdateStatus],
 ]
 
 
 async def fetch_marketplace_plugins_with_source(
     url: str,
 ) -> tuple[list[MarketplacePlugin], str]:
-    return await marketplace_source_utils.fetch_marketplace_entries_with_source(
+    return await marketplace_fetch.fetch_marketplace_entries_with_source(
         url,
-        candidate_urls=marketplace_source_utils.candidate_marketplace_urls,
-        normalize_url=marketplace_source_utils.normalize_marketplace_url,
-        load_local_payload=marketplace_source_utils.load_local_marketplace_payload,
+        candidate_urls=marketplace_source_urls.candidate_marketplace_urls,
+        normalize_url=marketplace_source_urls.normalize_marketplace_url,
+        load_local_payload=marketplace_fetch.load_local_marketplace_payload,
         parse_payload=lambda payload, source_url: parse_marketplace_plugins(
             payload,
             source_url=source_url,
@@ -52,7 +68,7 @@ async def fetch_marketplace_plugins_with_source(
 
 
 def fetch_marketplace_plugins_with_source_sync(url: str) -> tuple[list[MarketplacePlugin], str]:
-    return asyncio.run(fetch_marketplace_plugins_with_source(url))
+    return run_coroutine(fetch_marketplace_plugins_with_source(url))
 
 
 def list_local_plugins(*, destination_root: Path) -> list[LocalPlugin]:
@@ -69,18 +85,18 @@ def list_local_plugins(*, destination_root: Path) -> list[LocalPlugin]:
         try:
             manifest = load_plugin_manifest(plugin_dir)
             name = manifest.name
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             manifest_error = str(exc)
             name = plugin_dir.name
-        source, metadata_error = read_installed_plugin_source(plugin_dir)
+        source_metadata = read_installed_plugin_source(plugin_dir)
         plugins.append(
             LocalPlugin(
                 index=index,
                 name=name,
                 plugin_dir=plugin_dir,
                 manifest=manifest,
-                source=source,
-                metadata_error=metadata_error,
+                source=source_metadata.source,
+                metadata_error=source_metadata.error,
                 manifest_error=manifest_error,
             )
         )
@@ -91,38 +107,28 @@ def select_plugin_by_name_or_index(
     entries: Sequence[MarketplacePlugin],
     selector: str,
 ) -> MarketplacePlugin | None:
-    selector_clean = selector.strip()
-    if not selector_clean:
-        return None
-    if selector_clean.isdigit():
-        index = int(selector_clean)
-        if 1 <= index <= len(entries):
-            return entries[index - 1]
-        return None
-    selector_lower = selector_clean.lower()
-    for entry in entries:
-        if entry.name.lower() == selector_lower:
-            return entry
-    return None
+    def names(entry: MarketplacePlugin) -> list[str]:
+        return [entry.name, entry.install_dir_name]
+
+    return select_one_by_name_or_index(
+        entries,
+        selector,
+        names=names,
+    )
 
 
 def select_local_plugin_by_name_or_index(
     entries: Sequence[LocalPlugin],
     selector: str,
 ) -> LocalPlugin | None:
-    selector_clean = selector.strip()
-    if not selector_clean:
-        return None
-    if selector_clean.isdigit():
-        index = int(selector_clean)
-        if 1 <= index <= len(entries):
-            return entries[index - 1]
-        return None
-    selector_lower = selector_clean.lower()
-    for entry in entries:
-        if entry.name.lower() == selector_lower or entry.plugin_dir.name.lower() == selector_lower:
-            return entry
-    return None
+    def names(entry: LocalPlugin) -> list[str]:
+        return [entry.name, entry.plugin_dir.name]
+
+    return select_one_by_name_or_index(
+        entries,
+        selector,
+        names=names,
+    )
 
 
 def install_marketplace_plugin_sync(
@@ -138,9 +144,12 @@ def install_marketplace_plugin_sync(
     if install_dir.exists() and not replace_existing:
         raise FileExistsError(f"Plugin already exists: {plugin.install_dir_name}")
 
-    with tempfile.TemporaryDirectory(dir=destination_root, prefix=f".{plugin.name}.staging-") as tmp:
+    with tempfile.TemporaryDirectory(
+        dir=destination_root,
+        prefix=f".{plugin.name}.staging-",
+    ) as tmp:
         staged_dir = Path(tmp) / plugin.install_dir_name
-        installed_commit, installed_path_oid, source_origin = _copy_plugin_from_source(
+        copied_source = _copy_plugin_from_source(
             plugin,
             destination_dir=staged_dir,
             pinned_revision=pinned_revision,
@@ -158,14 +167,14 @@ def install_marketplace_plugin_sync(
         fingerprint = compute_plugin_content_fingerprint(staged_dir)
         source = build_installed_plugin_source(
             plugin=plugin,
-            source_origin=source_origin,
-            installed_commit=installed_commit,
-            installed_path_oid=installed_path_oid,
+            source_origin=copied_source.origin,
+            installed_commit=copied_source.commit,
+            installed_path_oid=copied_source.path_oid,
             fingerprint=fingerprint,
         )
         write_installed_plugin_source(staged_dir, source)
         if install_dir.exists():
-            marketplace_source_utils.atomic_replace_directory(
+            marketplace_git_sources.atomic_replace_directory(
                 existing_dir=install_dir,
                 staged_dir=staged_dir,
             )
@@ -191,10 +200,12 @@ def load_enabled_plugin_commands(
 ) -> dict[str, Any]:
     commands: dict[str, Any] = {}
     for name in enabled:
+        plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
+        if not (plugin_dir / PLUGIN_MANIFEST_FILENAME).is_file():
+            continue
         try:
-            plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
             manifest = load_plugin_manifest(plugin_dir)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             warnings.warn(
                 f"Failed to load enabled fast-agent plugin '{name}': {exc}",
                 UserWarning,
@@ -207,7 +218,7 @@ def load_enabled_plugin_commands(
 
 def _resolve_enabled_plugin_dir(*, destination_root: Path, name: str) -> Path:
     direct_dir = destination_root / name
-    if (direct_dir / "plugin.yaml").is_file():
+    if (direct_dir / PLUGIN_MANIFEST_FILENAME).is_file():
         return direct_dir
 
     for entry in list_local_plugins(destination_root=destination_root):
@@ -239,23 +250,15 @@ def check_plugin_updates(*, destination_root: Path) -> list[PluginUpdateInfo]:
     return updates
 
 
-def select_plugin_updates(updates: Sequence[PluginUpdateInfo], selector: str) -> list[PluginUpdateInfo]:
-    selector_clean = selector.strip()
-    if not selector_clean:
-        return []
-    if selector_clean.lower() == "all":
-        return list(updates)
-    if selector_clean.isdigit():
-        index = int(selector_clean)
-        if 1 <= index <= len(updates):
-            return [updates[index - 1]]
-        return []
-    selector_lower = selector_clean.lower()
-    return [
-        update
-        for update in updates
-        if update.name.lower() == selector_lower or update.plugin_dir.name.lower() == selector_lower
-    ][:1]
+def select_plugin_updates(
+    updates: Sequence[PluginUpdateInfo],
+    selector: str,
+) -> list[PluginUpdateInfo]:
+    return select_updates_by_name_or_index(
+        updates,
+        selector,
+        names=lambda update: (update.name, update.plugin_dir.name),
+    )
 
 
 def apply_plugin_updates(
@@ -263,30 +266,50 @@ def apply_plugin_updates(
     *,
     force: bool,
 ) -> list[PluginUpdateInfo]:
+    head_cache: HeadCache = {}
+    path_cache: PathCache = {}
     results: list[PluginUpdateInfo] = []
     for update in updates:
-        source = update.managed_source
-        if update.status != "update_available" or source is None:
-            results.append(update)
+        refreshed = _evaluate_plugin_update(
+            plugin_dir=update.plugin_dir,
+            index=update.index,
+            head_cache=head_cache,
+            path_cache=path_cache,
+        )
+        source = refreshed.managed_source
+        if not is_update_applicable(refreshed.status):
+            results.append(refreshed)
             continue
-        fingerprint = compute_plugin_content_fingerprint(update.plugin_dir)
+        if source is None:
+            results.append(
+                PluginUpdateInfo(
+                    index=refreshed.index,
+                    name=refreshed.name,
+                    plugin_dir=refreshed.plugin_dir,
+                    status="invalid_metadata",
+                    detail="missing source metadata",
+                )
+            )
+            continue
+
+        fingerprint = compute_plugin_content_fingerprint(refreshed.plugin_dir)
         is_dirty = fingerprint != source.content_fingerprint
         if is_dirty and not force:
             results.append(
                 PluginUpdateInfo(
-                    index=update.index,
-                    name=update.name,
-                    plugin_dir=update.plugin_dir,
+                    index=refreshed.index,
+                    name=refreshed.name,
+                    plugin_dir=refreshed.plugin_dir,
                     status="skipped_dirty",
                     detail="local modifications detected; rerun with --force",
-                    current_revision=update.current_revision,
-                    available_revision=update.available_revision,
+                    current_revision=refreshed.current_revision,
+                    available_revision=refreshed.available_revision,
                     managed_source=source,
                 )
             )
             continue
         plugin = MarketplacePlugin(
-            name=update.name,
+            name=refreshed.name,
             description=None,
             repo_url=source.repo_url,
             repo_ref=source.repo_ref,
@@ -296,38 +319,42 @@ def apply_plugin_updates(
         try:
             install_marketplace_plugin_sync(
                 plugin,
-                destination_root=update.plugin_dir.parent,
+                destination_root=refreshed.plugin_dir.parent,
                 replace_existing=True,
-                pinned_revision=update.available_revision,
+                pinned_revision=refreshed.available_revision,
             )
-            refreshed = _evaluate_plugin_update(
-                plugin_dir=update.plugin_dir,
-                index=update.index,
+            after_apply = _evaluate_plugin_update(
+                plugin_dir=refreshed.plugin_dir,
+                index=refreshed.index,
                 head_cache={},
                 path_cache={},
             )
             results.append(
                 PluginUpdateInfo(
-                    index=update.index,
-                    name=update.name,
-                    plugin_dir=update.plugin_dir,
+                    index=refreshed.index,
+                    name=refreshed.name,
+                    plugin_dir=refreshed.plugin_dir,
                     status="updated",
-                    detail="updated with --force (local changes overwritten)" if is_dirty else "updated",
+                    detail=(
+                        "updated with --force (local changes overwritten)"
+                        if is_dirty
+                        else "updated"
+                    ),
                     current_revision=source.installed_revision,
-                    available_revision=refreshed.current_revision,
-                    managed_source=refreshed.managed_source,
+                    available_revision=after_apply.current_revision,
+                    managed_source=after_apply.managed_source,
                 )
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             results.append(
                 PluginUpdateInfo(
-                    index=update.index,
-                    name=update.name,
-                    plugin_dir=update.plugin_dir,
+                    index=refreshed.index,
+                    name=refreshed.name,
+                    plugin_dir=refreshed.plugin_dir,
                     status="source_unreachable",
                     detail=str(exc),
-                    current_revision=update.current_revision,
-                    available_revision=update.available_revision,
+                    current_revision=refreshed.current_revision,
+                    available_revision=refreshed.available_revision,
                     managed_source=source,
                 )
             )
@@ -344,71 +371,216 @@ def _evaluate_plugin_update(
     try:
         manifest = load_plugin_manifest(plugin_dir)
         name = manifest.name
-    except Exception as exc:  # noqa: BLE001
-        return PluginUpdateInfo(index=index, name=plugin_dir.name, plugin_dir=plugin_dir, status="invalid_local_plugin", detail=str(exc))
-    source, error = read_installed_plugin_source(plugin_dir)
-    if source is None:
-        return PluginUpdateInfo(index=index, name=name, plugin_dir=plugin_dir, status="invalid_metadata" if error else "unmanaged", detail=error or "no sidecar metadata")
+    except Exception as exc:
+        return PluginUpdateInfo(
+            index=index,
+            name=plugin_dir.name,
+            plugin_dir=plugin_dir,
+            status="invalid_local_plugin",
+            detail=str(exc),
+        )
+    source_metadata = read_installed_plugin_source(plugin_dir)
+    if source_metadata.source is None:
+        return PluginUpdateInfo(
+            index=index,
+            name=name,
+            plugin_dir=plugin_dir,
+            status="invalid_metadata" if source_metadata.error else "unmanaged",
+            detail=source_metadata.error or "no sidecar metadata",
+        )
+    source = source_metadata.source
+    return _evaluate_managed_plugin_update(
+        plugin_dir=plugin_dir,
+        index=index,
+        name=name,
+        source=source,
+        head_cache=head_cache,
+        path_cache=path_cache,
+    )
+
+
+def _plugin_update_info(
+    *,
+    plugin_dir: Path,
+    index: int,
+    name: str,
+    status: PluginUpdateStatus,
+    detail: str | None = None,
+    current_revision: str | None = None,
+    available_revision: str | None = None,
+    managed_source: InstalledPluginSource | None = None,
+) -> PluginUpdateInfo:
+    return PluginUpdateInfo(
+        index=index,
+        name=name,
+        plugin_dir=plugin_dir,
+        status=status,
+        detail=detail,
+        current_revision=current_revision,
+        available_revision=available_revision,
+        managed_source=managed_source,
+    )
+
+
+def _local_non_git_plugin_update(
+    *,
+    plugin_dir: Path,
+    index: int,
+    name: str,
+    source: InstalledPluginSource,
+) -> PluginUpdateInfo:
+    source_path_error = _validate_source_path_exists(source)
+    if source_path_error is not None:
+        return _plugin_update_info(
+            plugin_dir=plugin_dir,
+            index=index,
+            name=name,
+            status="source_path_missing",
+            detail=source_path_error,
+            current_revision=source.installed_revision,
+            managed_source=source,
+        )
+    return _plugin_update_info(
+        plugin_dir=plugin_dir,
+        index=index,
+        name=name,
+        status="unknown_revision",
+        detail="source is local non-git; compare unavailable",
+        current_revision=source.installed_revision,
+        available_revision=source.installed_revision,
+        managed_source=source,
+    )
+
+
+def _evaluate_managed_plugin_update(
+    *,
+    plugin_dir: Path,
+    index: int,
+    name: str,
+    source: InstalledPluginSource,
+    head_cache: HeadCache,
+    path_cache: PathCache,
+) -> PluginUpdateInfo:
     if source.installed_commit is None and source.installed_revision == LOCAL_REVISION:
-        return PluginUpdateInfo(index=index, name=name, plugin_dir=plugin_dir, status="unknown_revision", detail="source is local non-git; compare unavailable", current_revision=source.installed_revision, available_revision=source.installed_revision, managed_source=source)
-    available_revision, status, detail = _resolve_source_revision(source, head_cache)
-    if status is not None:
-        return PluginUpdateInfo(index=index, name=name, plugin_dir=plugin_dir, status=status, detail=detail, current_revision=source.installed_revision, managed_source=source)
-    assert available_revision is not None
-    available_path_oid, path_status, path_detail = _resolve_source_path_oid(source, available_revision, path_cache)
-    if path_status is not None:
-        return PluginUpdateInfo(index=index, name=name, plugin_dir=plugin_dir, status=path_status, detail=path_detail, current_revision=source.installed_revision, managed_source=source)
+        return _local_non_git_plugin_update(
+            plugin_dir=plugin_dir,
+            index=index,
+            name=name,
+            source=source,
+        )
+    resolved_revision = _resolve_source_revision(source, head_cache)
+    if resolved_revision.status is not None:
+        return _plugin_update_info(
+            plugin_dir=plugin_dir,
+            index=index,
+            name=name,
+            status=resolved_revision.status,
+            detail=resolved_revision.detail,
+            current_revision=source.installed_revision,
+            managed_source=source,
+        )
+    available_revision = resolved_revision.revision
+    if available_revision is None:
+        return _plugin_update_info(
+            plugin_dir=plugin_dir,
+            index=index,
+            name=name,
+            status="source_unreachable",
+            detail="unable to resolve source revision",
+            current_revision=source.installed_revision,
+            managed_source=source,
+        )
+    available_path = _resolve_source_path_oid(source, available_revision, path_cache)
+    if available_path.status is not None:
+        return _plugin_update_info(
+            plugin_dir=plugin_dir,
+            index=index,
+            name=name,
+            status=available_path.status,
+            detail=available_path.detail,
+            current_revision=source.installed_revision,
+            managed_source=source,
+        )
     current_path_oid = source.installed_path_oid
     if current_path_oid is None and source.installed_commit is not None:
-        current_path_oid, _, _ = _resolve_source_path_oid(
+        current_path_oid = _resolve_source_path_oid(
             source,
             source.installed_commit,
             path_cache,
-        )
+        ).path_oid
     current_revision = source.installed_commit or source.installed_revision
-    update_status: PluginUpdateStatus = "up_to_date"
-    update_detail = "already up to date"
-    if available_path_oid and current_path_oid:
-        if available_path_oid != current_path_oid:
-            update_status = "update_available"
-            update_detail = "plugin content changed"
-    elif available_revision != current_revision:
-        update_status = "update_available"
-        update_detail = "new revision available"
-    return PluginUpdateInfo(index=index, name=name, plugin_dir=plugin_dir, status=update_status, detail=update_detail, current_revision=current_revision, available_revision=available_revision, managed_source=source)
+    decision = marketplace_update_status.decide_source_update_status(
+        available_path_oid=available_path.path_oid,
+        current_path_oid=current_path_oid,
+        available_revision=available_revision,
+        current_revision=current_revision,
+        content_changed_detail="plugin content changed",
+    )
+    return _plugin_update_info(
+        plugin_dir=plugin_dir,
+        index=index,
+        name=name,
+        status=decision.status,
+        detail=decision.detail,
+        current_revision=current_revision,
+        available_revision=available_revision,
+        managed_source=source,
+    )
 
 
-def _resolve_source_revision(source: Any, head_cache: HeadCache) -> tuple[str | None, PluginUpdateStatus | None, str | None]:
-    resolved = marketplace_source_utils.resolve_local_repo(source.repo_url)
-    cache_key = (source.repo_url, source.repo_ref)
-    if cache_key in head_cache:
-        return head_cache[cache_key]
-    if resolved is not None:
-        revision = marketplace_source_utils.resolve_git_commit(resolved, source.repo_ref or "HEAD")
-        value = (revision or LOCAL_REVISION, None, None)
-        head_cache[cache_key] = value
-        return value
-    args = ["git", "ls-remote", source.repo_url, source.repo_ref or "HEAD"]
-    result = subprocess.run(args, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        value = (None, "source_unreachable", result.stderr.strip() or result.stdout.strip() or "unable to reach source")
-        head_cache[cache_key] = value
-        return value
-    commit = marketplace_source_utils.parse_ls_remote_commit(result.stdout)
-    value = (commit, None, None) if commit else (None, "source_unreachable", "unable to resolve source revision")
-    head_cache[cache_key] = value
-    return value
+def _validate_source_path_exists(source: InstalledPluginSource) -> str | None:
+    local_repo = marketplace_git_sources.resolve_local_repo(source.repo_url)
+    if local_repo is None:
+        return None
+
+    try:
+        source_dir = marketplace_git_sources.resolve_repo_subdir(
+            local_repo,
+            marketplace_provenance_io.repo_subdir_for_manifest_path(
+                source.repo_path,
+                PLUGIN_MANIFEST_FILENAME,
+            ),
+            label="Plugin",
+        )
+    except ValueError as exc:
+        return str(exc)
+
+    if not source_dir.exists():
+        return f"Plugin path not found in repository: {source.repo_path}"
+    if not (source_dir / PLUGIN_MANIFEST_FILENAME).is_file():
+        return f"Plugin manifest not found in repository: {source.repo_path}"
+    return None
 
 
-def _resolve_source_path_oid(source: Any, commit: str, path_cache: PathCache) -> tuple[str | None, PluginUpdateStatus | None, str | None]:
-    path_oid, status, detail = marketplace_source_utils.resolve_source_path_oid(
+def _resolve_source_revision(
+    source: InstalledPluginSource,
+    head_cache: HeadCache,
+) -> marketplace_source_models.SourceRevision[PluginUpdateStatus]:
+    return marketplace_git_sources.resolve_source_revision(
+        repo_url=source.repo_url,
+        repo_ref=source.repo_ref,
+        head_cache=head_cache,
+        local_revision=LOCAL_REVISION,
+        source_ref_missing_status="source_ref_missing",
+        source_unreachable_status="source_unreachable",
+    )
+
+
+def _resolve_source_path_oid(
+    source: InstalledPluginSource,
+    commit: str,
+    path_cache: PathCache,
+) -> marketplace_source_models.SourcePathOid[PluginUpdateStatus]:
+    return marketplace_git_sources.resolve_source_path_oid(
         repo_url=source.repo_url,
         repo_ref=source.repo_ref,
         repo_path=source.repo_path,
         commit=commit,
         path_cache=path_cache,
+        source_ref_missing_status="source_ref_missing",
+        source_unreachable_status="source_unreachable",
+        source_path_missing_status="source_path_missing",
     )
-    return path_oid, cast("PluginUpdateStatus | None", status), detail
 
 
 def _copy_plugin_from_source(
@@ -416,13 +588,16 @@ def _copy_plugin_from_source(
     *,
     destination_dir: Path,
     pinned_revision: str | None,
-) -> tuple[str | None, str | None, PluginSourceOrigin]:
-    local_repo = marketplace_source_utils.resolve_local_repo(plugin.repo_url)
+) -> marketplace_source_models.SourceCopyResult[PluginSourceOrigin]:
+    checkout_ref = marketplace_git_sources.pinned_checkout_ref(
+        pinned_revision,
+        local_revision=LOCAL_REVISION,
+    )
+    local_repo = marketplace_git_sources.resolve_local_repo(plugin.repo_url)
     if local_repo is not None:
-        revision = pinned_revision if pinned_revision and pinned_revision != LOCAL_REVISION else None
-        requested_revision = revision or plugin.repo_ref
+        requested_revision = checkout_ref or plugin.repo_ref
         if requested_revision:
-            commit = marketplace_source_utils.resolve_git_commit(local_repo, requested_revision)
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, requested_revision)
             if commit is None:
                 raise FileNotFoundError(f"Plugin source ref not found: {requested_revision}")
             _copy_plugin_source_from_git_commit(
@@ -432,42 +607,60 @@ def _copy_plugin_from_source(
                 destination_dir=destination_dir,
             )
         else:
-            source_dir = _resolve_repo_subdir(local_repo, plugin.repo_subdir)
+            source_dir = marketplace_git_sources.resolve_repo_subdir(
+                local_repo,
+                plugin.repo_subdir,
+                label="Plugin",
+            )
             _copy_plugin_source(source_dir, destination_dir)
-            if marketplace_source_utils.is_git_source_dirty(local_repo, source_dir):
-                return None, None, "local"
-            commit = marketplace_source_utils.resolve_git_commit(local_repo, "HEAD")
-        path_oid = marketplace_source_utils.resolve_git_path_oid(local_repo, commit, plugin.repo_path) if commit else None
-        return commit, path_oid, "local"
+            if marketplace_git_sources.is_git_source_dirty(local_repo, source_dir):
+                return marketplace_source_models.SourceCopyResult(
+                    origin="local",
+                    commit=None,
+                    path_oid=None,
+                )
+            commit = marketplace_git_sources.resolve_git_commit(local_repo, "HEAD")
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
+            local_repo,
+            commit,
+            plugin.repo_subdir,
+        )
+        return marketplace_source_models.SourceCopyResult(
+            origin="local",
+            commit=commit,
+            path_oid=path_oid,
+        )
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        clone_args = ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse"]
-        if plugin.repo_ref:
-            clone_args.extend(["--branch", plugin.repo_ref])
-        clone_args.extend([plugin.repo_url, str(tmp_path)])
-        marketplace_source_utils.run_git(clone_args)
-        marketplace_source_utils.run_git(["git", "-C", str(tmp_path), "sparse-checkout", "set", plugin.repo_subdir])
-        if pinned_revision and pinned_revision != LOCAL_REVISION:
-            marketplace_source_utils.run_git(["git", "-C", str(tmp_path), "checkout", pinned_revision])
-        else:
-            marketplace_source_utils.run_git(["git", "-C", str(tmp_path), "checkout"])
-        source_dir = _resolve_repo_subdir(tmp_path, plugin.repo_subdir)
+        marketplace_git_sources.clone_sparse_checkout(
+            repo_url=plugin.repo_url,
+            repo_ref=plugin.repo_ref,
+            repo_subdir=plugin.repo_subdir,
+            destination_dir=tmp_path,
+            checkout_ref=checkout_ref,
+        )
+        source_dir = marketplace_git_sources.resolve_repo_subdir(
+            tmp_path,
+            plugin.repo_subdir,
+            label="Plugin",
+        )
         _copy_plugin_source(source_dir, destination_dir)
-        commit = marketplace_source_utils.resolve_git_commit(tmp_path, "HEAD")
-        path_oid = marketplace_source_utils.resolve_git_path_oid(tmp_path, commit, plugin.repo_path) if commit else None
-        return commit, path_oid, "remote"
-
-
-def _resolve_repo_subdir(repo_root: Path, repo_subdir: str) -> Path:
-    source_dir = (repo_root.resolve() / repo_subdir).resolve()
-    source_dir.relative_to(repo_root.resolve())
-    return source_dir
+        commit = marketplace_git_sources.resolve_git_commit(tmp_path, "HEAD")
+        path_oid = marketplace_git_sources.resolve_git_path_oid_if_commit(
+            tmp_path,
+            commit,
+            plugin.repo_subdir,
+        )
+        return marketplace_source_models.SourceCopyResult(
+            origin="remote",
+            commit=commit,
+            path_oid=path_oid,
+        )
 
 
 def _copy_plugin_source(source_dir: Path, install_dir: Path) -> None:
-    if not (source_dir / "plugin.yaml").is_file():
-        raise FileNotFoundError("plugin.yaml not found in the selected repository path.")
+    _validate_plugin_source_dir(source_dir)
     shutil.copytree(source_dir, install_dir)
 
 
@@ -478,32 +671,19 @@ def _copy_plugin_source_from_git_commit(
     repo_subdir: str,
     destination_dir: Path,
 ) -> None:
-    archive_pathspec = f"{commit}:{repo_subdir}"
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "archive", "--format=tar", archive_pathspec],
-        capture_output=True,
-        check=False,
+    marketplace_git_sources.copy_git_path_from_commit(
+        repo_root=repo_root,
+        commit=commit,
+        repo_subdir=repo_subdir,
+        destination_dir=destination_dir,
+        missing_message=f"Plugin source path not found at revision {commit}: {repo_subdir}",
     )
-    if result.returncode != 0:
-        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+
+    _validate_plugin_source_dir(destination_dir)
+
+
+def _validate_plugin_source_dir(source_dir: Path) -> None:
+    if not (source_dir / PLUGIN_MANIFEST_FILENAME).is_file():
         raise FileNotFoundError(
-            stderr or f"Plugin source path not found at revision {commit}: {repo_subdir}"
+            f"{PLUGIN_MANIFEST_FILENAME} not found in the selected repository path."
         )
-
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryFile() as archive:
-        archive.write(result.stdout)
-        archive.seek(0)
-        _extract_tar_safely(archive, destination_dir)
-
-    if not (destination_dir / "plugin.yaml").is_file():
-        raise FileNotFoundError("plugin.yaml not found in the selected repository path.")
-
-
-def _extract_tar_safely(archive_file: BinaryIO, destination_dir: Path) -> None:
-    destination_root = destination_dir.resolve()
-    with tarfile.open(fileobj=archive_file, mode="r:") as archive:
-        for member in archive.getmembers():
-            target = (destination_root / member.name).resolve()
-            target.relative_to(destination_root)
-        archive.extractall(destination_root, filter="data")

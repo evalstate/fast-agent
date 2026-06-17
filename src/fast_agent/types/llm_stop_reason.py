@@ -1,7 +1,6 @@
-"""LLM-related type definitions for fast-agent."""
+from __future__ import annotations
 
 from enum import Enum
-from typing import Union
 
 
 class LlmStopReason(str, Enum):
@@ -27,20 +26,8 @@ class LlmStopReason(str, Enum):
     TIMEOUT = "timeout"  # Used when generation times out
     SAFETY = "safety"  # a safety or content warning was triggered
 
-    def __eq__(self, other: object) -> bool:
-        """
-        Allow comparison with both enum members and raw strings.
-
-        This enables code like:
-        - result.stopReason == LlmStopReason.END_TURN
-        - result.stopReason == "endTurn"
-        """
-        if isinstance(other, str):
-            return self.value == other
-        return super().__eq__(other)
-
     @classmethod
-    def from_string(cls, value: Union[str, "LlmStopReason"]) -> "LlmStopReason":
+    def from_string(cls, value: str | "LlmStopReason") -> "LlmStopReason":
         """
         Convert a string to a LlmStopReason enum member.
 
@@ -53,16 +40,13 @@ class LlmStopReason(str, Enum):
         Raises:
             ValueError: If the string doesn't match any enum value
         """
-        if isinstance(value, cls):
-            return value
-
-        for member in cls:
-            if member.value == value:
-                return member
-
-        raise ValueError(
-            f"Invalid stop reason: {value}. Valid values are: {[m.value for m in cls]}"
-        )
+        try:
+            return cls(value)
+        except ValueError as exc:
+            valid_values = [member.value for member in cls]
+            raise ValueError(
+                f"Invalid stop reason: {value}. Valid values are: {valid_values}"
+            ) from exc
 
     @classmethod
     def is_valid(cls, value: str) -> bool:
@@ -75,4 +59,8 @@ class LlmStopReason(str, Enum):
         Returns:
             True if the string matches a valid stop reason, False otherwise
         """
-        return value in [member.value for member in cls]
+        try:
+            cls(value)
+        except ValueError:
+            return False
+        return True

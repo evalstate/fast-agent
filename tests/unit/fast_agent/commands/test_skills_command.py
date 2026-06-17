@@ -9,7 +9,10 @@ from typer.testing import CliRunner
 
 import fast_agent.cli.commands.skills as skills_command
 from fast_agent.cli.main import LAZY_SUBCOMMANDS
+from fast_agent.commands.handlers.shared import unique_selection_options
 from fast_agent.config import get_settings, update_global_settings
+from fast_agent.skills.marketplace_source import MarketplaceSkillSource
+from fast_agent.skills.models import MarketplaceSkill
 
 
 def _repo_root() -> Path:
@@ -87,8 +90,7 @@ def test_skills_add_list_remove_via_cli(tmp_path: Path) -> None:
     env_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -180,15 +182,47 @@ def test_skills_help_has_registry_and_skills_dir_options_no_registry_subcommand(
     assert "│ registry" not in output
 
 
+def _marketplace_skill(
+    name: str,
+    repo_path: str,
+    *,
+    install_dir_name_override: str | None = None,
+) -> MarketplaceSkill:
+    return MarketplaceSkill(
+        name=name,
+        description=None,
+        repo_url="https://github.com/example/skills",
+        repo_ref=None,
+        repo_path=repo_path,
+        install_dir_name_override=install_dir_name_override,
+    )
+
+
+def test_marketplace_skill_selection_options_include_install_dir_aliases() -> None:
+    skills = [
+        _marketplace_skill(
+            "bundle-entry",
+            "plugins/app/SKILL.md",
+            install_dir_name_override="canonical-name",
+        ),
+        _marketplace_skill("canonical-name", "skills/canonical-name"),
+    ]
+
+    source = MarketplaceSkillSource("https://example.com/marketplace.json")
+
+    assert unique_selection_options(source.selection_options(skills)) == [
+        "bundle-entry",
+        "canonical-name",
+    ]
+
+
 def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
     env_root = tmp_path / "custom-env"
     managed_dir = tmp_path / "env-skills"
     _write_skill(managed_dir, "env-skill", description="ENV_SKILL")
     (env_root / "fastagent.config.yaml").parent.mkdir(parents=True, exist_ok=True)
     (env_root / "fastagent.config.yaml").write_text(
-        "default_model: passthrough\n"
-        "skills:\n"
-        f"  directories: ['{managed_dir.as_posix()}']\n",
+        f"default_model: passthrough\nskills:\n  directories: ['{managed_dir.as_posix()}']\n",
         encoding="utf-8",
     )
 
@@ -221,9 +255,7 @@ def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> No
     _write_skill(managed_dir, "env-skill", description="ENV_SKILL")
     (env_root / "fastagent.config.yaml").parent.mkdir(parents=True, exist_ok=True)
     (env_root / "fastagent.config.yaml").write_text(
-        "default_model: passthrough\n"
-        "skills:\n"
-        f"  directories: ['{managed_dir.as_posix()}']\n",
+        f"default_model: passthrough\nskills:\n  directories: ['{managed_dir.as_posix()}']\n",
         encoding="utf-8",
     )
 

@@ -155,9 +155,11 @@ dmypy.json
 cython_debug/
 
 # Make sure secrets files aren't added
+*.secrets.yaml
 examples/**/*.secrets.yaml
 
 # but make sure example files are
+!*.secrets.yaml.example
 !examples/**/*.secrets.yaml.example
 
 # Build-generated resources (copied from examples/ during build)

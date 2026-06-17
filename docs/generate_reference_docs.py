@@ -5,12 +5,16 @@ from __future__ import annotations
 import ast
 import inspect
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
+from pydantic_core import PydanticUndefined
+
 DOCS_ROOT = Path(__file__).resolve().parent
 GENERATED_DIR = DOCS_ROOT / "docs" / "_generated"
+SIGNATURE_MAX_WIDTH = 88
 
 
 def _find_fast_agent_repo() -> Path:
@@ -64,9 +68,68 @@ def _md_code(lang: str, code: str) -> str:
     return f"```{lang}\n{code.rstrip()}\n```\n"
 
 
+def _clean_signature_text(text: str) -> str:
+    return (
+        text.replace("collections.abc.Callable", "Callable")
+        .replace("collections.abc.Coroutine", "Coroutine")
+        .replace("pathlib._local.Path", "pathlib.Path")
+        .replace("typing.Any", "Any")
+        .replace("\"'BatchBackend'\"", "BatchBackend")
+    )
+
+
+def _wrap_workflow_return_annotation(text: str) -> str:
+    return text.replace(
+        "Callable[[Callable[~P, Coroutine[Any, Any, +R]]], Callable[~P, Coroutine[Any, Any, +R]]]",
+        "Callable[\n"
+        "    [Callable[~P, Coroutine[Any, Any, +R]]],\n"
+        "    Callable[~P, Coroutine[Any, Any, +R]],\n"
+        "]",
+    )
+
+
+def _compact_signature_defaults(sig: inspect.Signature) -> inspect.Signature:
+    params = []
+    for param in sig.parameters.values():
+        default = param.default
+        if isinstance(default, str) and ("\n" in default or len(default) > 60):
+            param = param.replace(default="...")
+        params.append(param)
+    return sig.replace(parameters=params)
+
+
+def _prefixed_signature_width(name: str) -> int:
+    # `inspect.Signature.format()` only sees the parenthesized signature, not the
+    # callable name we prepend in the generated docs. Account for that prefix so
+    # reference signatures wrap before the rendered code block needs horizontal
+    # scrolling.
+    return max(1, SIGNATURE_MAX_WIDTH - len(name))
+
+
 def _format_signature(name: str, func: Any) -> str:
-    sig = str(inspect.signature(func))
+    sig = _compact_signature_defaults(inspect.signature(func)).format(
+        max_width=_prefixed_signature_width(name)
+    )
+    sig = _wrap_workflow_return_annotation(_clean_signature_text(sig))
     return f"{name}{sig}"
+
+
+def _field_default_text(field_info: Any) -> str:
+    if field_info.default_factory is not None:
+        factory = field_info.default_factory
+        if factory is list:
+            return "`[]`"
+        if factory is dict:
+            return "`{}`"
+        name = getattr(factory, "__name__", "factory")
+        return f"`<factory: {name}>`"
+
+    default = field_info.default
+    if default is PydanticUndefined:
+        return "`required`"
+    if default is None:
+        return "`None`"
+    return f"`{default!r}`"
 
 
 def generate_workflows_reference() -> str:
@@ -116,14 +179,366 @@ def generate_request_params_reference() -> str:
     for field_name, field_info in RequestParams.model_fields.items():
         annotation = field_info.annotation
         type_str = getattr(annotation, "__name__", None) or str(annotation)
-        default = field_info.default
-        if default is None and field_info.default_factory is not None:
-            default_str = "`<factory>`"
-        else:
-            default_str = "`None`" if default is None else f"`{default!r}`"
+        default_str = _field_default_text(field_info)
 
         desc = (field_info.description or "").replace("\n", " ").strip()
         lines.append(f"| `{field_name}` | `{type_str}` | {default_str} | {desc} |\n")
+
+    return "".join(lines)
+
+
+def _signature_without_self(func: Any) -> inspect.Signature:
+    sig = _compact_signature_defaults(inspect.signature(func))
+    params = list(sig.parameters.values())
+    if params and params[0].name == "self":
+        sig = sig.replace(parameters=params[1:])
+    return sig
+
+
+def _format_method_signature(name: str, func: Any) -> str:
+    sig = _signature_without_self(func).format(max_width=_prefixed_signature_width(name))
+    text = _clean_signature_text(sig)
+    text = re.sub(r" -> \"'([^']+)'\"", r" -> \1", text)
+    text = re.sub(r": '([^']+)'", r": \1", text)
+    text = re.sub(r" -> '([^']+)'", r" -> \1", text)
+    return f"{name}{text}"
+
+
+def generate_fastagent_harness_method_reference() -> str:
+    from fast_agent.core.fastagent import FastAgent
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py\n")
+    lines.append("-->\n\n")
+    lines.append("#### `harness()`\n\n")
+    lines.append(_md_code("python", _format_method_signature("fast.harness", FastAgent.harness)))
+    lines.append(
+        "Creates a headless `AgentHarness` for typed, session-oriented Python usage.\n"
+        "The harness uses the same initialization path as `run()` but does not enter the\n"
+        "TUI, CLI message/prompt-file modes, MCP server mode, or ACP server mode.\n"
+        "On startup, it loads AgentCards from the active environment's `agent-cards/`\n"
+        "directory when that directory exists and contains cards.\n\n"
+    )
+    lines.append("| Parameter | Type | Default | Description |\n")
+    lines.append("|-----------|------|---------|-------------|\n")
+    lines.append(
+        "| `model` | `str \\| None` | `None` | Optional global model override, similar to the CLI `--model` override |\n"
+    )
+    return "".join(lines)
+
+
+def generate_harness_reference() -> str:
+    from fast_agent.core.harness import (
+        HARNESS_SESSION_ID_MAX_LENGTH,
+        HARNESS_SESSION_ID_PATTERN,
+        AgentHarness,
+        HarnessSession,
+        HarnessSessions,
+    )
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py\n")
+    lines.append("-->\n\n")
+    lines.append("## AgentHarness Class\n\n")
+    lines.append(
+        "`AgentHarness` is an async context manager returned by `FastAgent.harness()`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            "from fast_agent import AgentHarness\n\n\nasync with fast.harness() as harness:\n    typed: AgentHarness = harness",
+        )
+    )
+    lines.append("### Properties\n\n")
+    lines.append("| Property | Type | Description |\n")
+    lines.append("|----------|------|-------------|\n")
+    lines.append("| `sessions` | `HarnessSessions` | Session manager for the running harness |\n\n")
+    lines.append("### Methods\n\n")
+    lines.append("#### `session()`\n\n")
+    lines.append(
+        _md_code(
+            "python", f"await {_format_method_signature('harness.session', AgentHarness.session)}"
+        )
+    )
+    lines.append(
+        "Returns an existing session or creates one by delegating to\n"
+        "`harness.sessions.get_or_create()`.\n\n"
+    )
+    lines.append("#### `shell()`\n\n")
+    lines.append(
+        _md_code("python", f"await {_format_method_signature('harness.shell', AgentHarness.shell)}")
+    )
+    lines.append(
+        "Runs a shell command through the harness shell executor and returns a\n"
+        "`ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is\n"
+        "programmatic shell access: it does not create a session and does not add\n"
+        "the command or output to chat history.\n\n"
+    )
+
+    lines.append("## HarnessSessions Class\n\n")
+    lines.append(
+        "Manager for harness sessions. When `session_history` is enabled, creating a\n"
+        "session also creates or loads `environment_dir/sessions/<session_id>/`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            "\n".join(
+                [
+                    'session = await harness.sessions.get("demo")',
+                    'session = await harness.sessions.create("demo")',
+                    'session = await harness.sessions.get_or_create("demo")',
+                    'await harness.sessions.delete("demo")',
+                ]
+            ),
+        )
+    )
+    lines.append("Session ID rules:\n\n")
+    lines.append('- `None` means `"default"`;\n')
+    lines.append("- strings are stripped;\n")
+    lines.append("- empty strings raise `ValueError`;\n")
+    lines.append(f"- IDs must be 1-{HARNESS_SESSION_ID_MAX_LENGTH} characters;\n")
+    lines.append("- IDs must start and end with a letter or digit;\n")
+    lines.append("- IDs may contain only letters, digits, dashes, and underscores.\n\n")
+    lines.append(
+        f"Generated from `HARNESS_SESSION_ID_PATTERN`: `{HARNESS_SESSION_ID_PATTERN.pattern}`.\n\n"
+    )
+    lines.append("| Method | Signature | Behavior |\n")
+    lines.append("|--------|-----------|----------|\n")
+    get_signature = _escape_table(_format_method_signature("get", HarnessSessions.get))
+    create_signature = _escape_table(_format_method_signature("create", HarnessSessions.create))
+    get_or_create_signature = _escape_table(
+        _format_method_signature("get_or_create", HarnessSessions.get_or_create)
+    )
+    delete_signature = _escape_table(_format_method_signature("delete", HarnessSessions.delete))
+    lines.append(
+        f"| `get` | `{get_signature}` | Return an existing session. Raises if missing. |\n"
+    )
+    lines.append(
+        f"| `create` | `{create_signature}` | Create a session. Raises if it already exists. |\n"
+    )
+    lines.append(
+        f"| `get_or_create` | `{get_or_create_signature}` | Return an existing session or create it. |\n"
+    )
+    lines.append(
+        f"| `delete` | `{delete_signature}` | Delete a session if present; missing sessions are ignored. |\n\n"
+    )
+
+    lines.append("## HarnessSession Class\n\n")
+    lines.append("A stable session backed by one owned `AgentInstance`.\n\n")
+    lines.append("### Properties\n\n")
+    lines.append("| Property | Type | Description |\n")
+    lines.append("|----------|------|-------------|\n")
+    lines.append("| `id` | `str` | Normalized session ID |\n")
+    lines.append(
+        "| `default_agent_name` | `str \\| None` | Session default agent used when calls omit `agent_name` |\n\n"
+    )
+    lines.append("### Methods\n\n")
+    session_methods = [
+        ("send", HarnessSession.send),
+        ("generate", HarnessSession.generate),
+        ("structured", HarnessSession.structured),
+        ("structured_schema", HarnessSession.structured_schema),
+        ("clear", HarnessSession.clear),
+        ("shell", HarnessSession.shell),
+        ("delete", HarnessSession.delete),
+    ]
+    lines.append(
+        _md_code(
+            "python",
+            "\n\n".join(
+                f"await {_format_method_signature(f'session.{name}', method)}"
+                for name, method in session_methods
+            ),
+        )
+    )
+    lines.append("Calls resolve their target agent in this order:\n\n")
+    lines.append("1. explicit per-call `agent_name`;\n")
+    lines.append("2. the session `default_agent_name`;\n")
+    lines.append("3. the app default agent.\n\n")
+    lines.append(
+        "`clear()` clears only the resolved target agent, not every agent in the session.\n\n"
+    )
+    lines.append(
+        "`shell()` returns `ShellExecutionResult` with `stdout`, `stderr`, and\n"
+        "`exit_code`. It does not add the command or output to chat history, but it\n"
+        "is serialized with other operations on the same `HarnessSession`.\n\n"
+    )
+    lines.append("### Session lifecycle and concurrency\n\n")
+    lines.append(
+        "- the same session ID returns the same `HarnessSession` object and the same owned\n"
+        "  `AgentInstance`;\n"
+        "- different session IDs receive isolated `AgentInstance` objects;\n"
+        "- when `session_history` is enabled, session IDs map to persisted\n"
+        "  `environment_dir/sessions/<session_id>/` directories and existing histories\n"
+        "  are hydrated on creation;\n"
+        "- deleting a session disposes its instance;\n"
+        "- deleting a session removes its persisted session folder when persistence is enabled;\n"
+        "- exiting the harness context disposes all remaining session instances;\n"
+        "- deleted `HarnessSession` objects are closed.\n\n"
+    )
+    lines.append("Concurrent operations on the same `HarnessSession` are rejected:\n\n")
+    lines.append(
+        _md_code(
+            "text",
+            "RuntimeError: Session 'support-123' is already running generate; start another session for parallel conversation branches.",
+        )
+    )
+    lines.append("Deleting an active session is also rejected:\n\n")
+    lines.append(
+        _md_code(
+            "text",
+            "RuntimeError: Session 'support-123' is running generate; wait before deleting it.",
+        )
+    )
+    return "".join(lines)
+
+
+def _format_constructor_signature(name: str, cls: Any) -> str:
+    return _format_method_signature(name, cls.__init__)
+
+
+def generate_extension_reference() -> str:
+    from fast_agent.integrations.gepa import (
+        FastAgentBatchEvaluator,
+        FastAgentReflectionLM,
+        FastAgentRowWiseBatchAdapter,
+        RowWiseEvaluationRun,
+        RowWiseScore,
+        gepa_api_trackio_kwargs,
+        gepa_numeric_metrics,
+        gepa_trackio_init_kwargs,
+        make_gepa_tracking_config,
+        safe_trackio_log,
+    )
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py\n")
+    lines.append("-->\n\n")
+
+    lines.append("## GEPA integration adapters\n\n")
+    lines.append(
+        "Import GEPA helpers from `fast_agent.integrations.gepa`. These adapters keep\n"
+        "fast-agent responsible for batch execution, artifact paths, and reflection LM\n"
+        "calls while leaving scoring policy in your evaluator code.\n\n"
+    )
+
+    lines.append("### `FastAgentReflectionLM`\n\n")
+    lines.append(
+        "Synchronous language-model callable for GEPA reflection calls backed by\n"
+        "`fast-agent go`. It writes prompt, request, response, timing, stdout/stderr,\n"
+        "error, and usage artifacts under `audit_dir`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python", _format_constructor_signature("FastAgentReflectionLM", FastAgentReflectionLM)
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("reflection_lm.__call__", FastAgentReflectionLM.__call__),
+        )
+    )
+
+    lines.append("### `FastAgentBatchEvaluator`\n\n")
+    lines.append(
+        "Aggregate GEPA evaluator for `gepa.optimize_anything.optimize_anything`: one\n"
+        "candidate runs one full fast-agent batch and returns one `(score, side_info)`\n"
+        "pair. Use this when the primary metric is corpus-level.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature("FastAgentBatchEvaluator", FastAgentBatchEvaluator),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("evaluator.__call__", FastAgentBatchEvaluator.__call__),
+        )
+    )
+
+    lines.append("### `FastAgentRowWiseBatchAdapter`\n\n")
+    lines.append(
+        "Lower-level GEPA adapter protocol implementation for `gepa.api.optimize`: GEPA\n"
+        "supplies minibatches of input rows, fast-agent runs each minibatch through\n"
+        "`BatchRunner`, and your `row_scorer` returns one score/trajectory per row.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature(
+                "FastAgentRowWiseBatchAdapter", FastAgentRowWiseBatchAdapter
+            ),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("adapter.evaluate", FastAgentRowWiseBatchAdapter.evaluate),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature(
+                "adapter.make_reflective_dataset",
+                FastAgentRowWiseBatchAdapter.make_reflective_dataset,
+            ),
+        )
+    )
+
+    lines.append("### `RowWiseScore`\n\n")
+    lines.append(
+        "`row_scorer` may return `RowWiseScore`, a bare float, `(score, trajectory)`,\n"
+        "or `(score, trajectory, objective_scores)`. `objective_scores` values should\n"
+        "be higher-is-better because GEPA uses them for frontier tracking.\n\n"
+    )
+    lines.append(_md_code("python", _format_constructor_signature("RowWiseScore", RowWiseScore)))
+
+    lines.append("### `RowWiseEvaluationRun`\n\n")
+    lines.append(
+        "Metadata passed to each `row_scorer` call for the current minibatch evaluation.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python", _format_constructor_signature("RowWiseEvaluationRun", RowWiseEvaluationRun)
+        )
+    )
+
+    lines.append("### Trackio helpers\n\n")
+    lines.append(
+        "Trackio helpers provide fast-agent defaults for GEPA dashboards. Use\n"
+        "`gepa_trackio_init_kwargs()` when your script initializes Trackio, use\n"
+        "`gepa_api_trackio_kwargs()` with `gepa.api.optimize()`, and use\n"
+        "`make_gepa_tracking_config()` with `optimize_anything()`.\n\n"
+    )
+    for name, func in (
+        ("gepa_trackio_init_kwargs", gepa_trackio_init_kwargs),
+        ("gepa_api_trackio_kwargs", gepa_api_trackio_kwargs),
+        ("make_gepa_tracking_config", make_gepa_tracking_config),
+    ):
+        lines.append(_md_code("python", _format_method_signature(name, func)))
+
+    lines.append("### Evaluator metric helpers\n\n")
+    lines.append(
+        "`gepa_numeric_metrics()` flattens `side_info['scores']`,\n"
+        "`side_info['score_details']`, and `side_info['raw_metrics']` into\n"
+        "Trackio-friendly numeric metrics. `safe_trackio_log()` logs them without\n"
+        "making Trackio a hard dependency of evaluator code.\n\n"
+    )
+    lines.append(
+        _md_code("python", _format_method_signature("gepa_numeric_metrics", gepa_numeric_metrics))
+    )
+    lines.append(_md_code("python", _format_method_signature("safe_trackio_log", safe_trackio_log)))
 
     return "".join(lines)
 
@@ -151,6 +566,81 @@ def _default_text(default: object) -> str:
     if isinstance(default, str):
         return f"`{default}`"
     return f"`{default}`"
+
+
+def _yaml_scalar(value: object) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if value is None:
+        return "null"
+    if isinstance(value, str):
+        return repr(value)
+    return str(value)
+
+
+def _yaml_default_text(default: object) -> str:
+    return f"`{_yaml_scalar(default)}`"
+
+
+_COMPACTION_SNIPPET_COMMENTS = {
+    "auto": "automatically compact when the threshold is crossed",
+    "threshold": "fraction of the context window that triggers compaction",
+    "keep_turns": "recent turns kept verbatim after compaction",
+    "prompt": "built-in prompt; set inline text or a relative file path",
+}
+
+
+def generate_compaction_config_snippet() -> str:
+    """Generate the config snippet from CompactionSettings defaults."""
+    from fast_agent.config import CompactionSettings
+
+    fields = CompactionSettings.model_fields
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py / fast_agent.config.CompactionSettings\n")
+    lines.append("-->\n\n")
+    lines.append("```yaml\n")
+    lines.append("compaction:\n")
+    for field_name, field in fields.items():
+        default = field.default
+        if default is PydanticUndefined:
+            continue
+        value = _yaml_scalar(default)
+        comment = _COMPACTION_SNIPPET_COMMENTS[field_name]
+        key = f"{field_name}:"
+        if default is None:
+            lines.append(f"  # {key:<13} {value:<5} # {comment}\n")
+        else:
+            lines.append(f"  {key:<13} {value:<5} # {comment}\n")
+    lines.append("```\n")
+    return "".join(lines)
+
+
+def generate_compaction_settings_reference() -> str:
+    """Generate the compaction settings table from CompactionSettings fields."""
+    from fast_agent.config import CompactionSettings
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py / fast_agent.config.CompactionSettings\n")
+    lines.append("-->\n\n")
+    lines.append("| Setting | Default | Description |\n")
+    lines.append("| --- | --- | --- |\n")
+
+    for field_name, field in CompactionSettings.model_fields.items():
+        default = field.default
+        if default is PydanticUndefined:
+            default_text = "`required`"
+        else:
+            default_text = _yaml_default_text(default)
+        description = field.description or ""
+        lines.append(
+            f"| `compaction.{field_name}` | {default_text} | {_escape_table(description)} |\n"
+        )
+
+    return "".join(lines)
 
 
 def generate_tui_runtime_reference() -> str:
@@ -229,9 +719,7 @@ def generate_tui_runtime_reference() -> str:
     for item in DOCUMENTED_ENV_VARS:
         if item.surface != "tui":
             continue
-        lines.append(
-            f"| `{item.symbol}` | `{item.value}` | {_escape_table(item.purpose)} |\n"
-        )
+        lines.append(f"| `{item.symbol}` | `{item.value}` | {_escape_table(item.purpose)} |\n")
 
     lines.append("\n#### TUI-related settings\n\n")
     lines.append("| Setting | Environment variable | Type | Default | Description |\n")
@@ -564,17 +1052,28 @@ def _load_model_factory_constants(
 
         from fast_agent.llm.model_database import ModelDatabase
         from fast_agent.llm.model_factory import ModelFactory
+        from fast_agent.llm.model_selection import ModelSelectionCatalog
         from fast_agent.llm.provider_types import Provider
 
         provider_names = {provider.value for provider in Provider}
         model_aliases = {
-            key: value for key, value in ModelFactory.MODEL_PRESETS.items() if isinstance(value, str)
+            key: value
+            for key, value in ModelFactory.MODEL_PRESETS.items()
+            if isinstance(value, str)
         }
         default_providers = {
             model_name: provider.value
             for model_name in ModelDatabase.MODELS
             if (provider := ModelDatabase.get_default_provider(model_name)) is not None
         }
+        for entry in ModelSelectionCatalog.list_current_entries():
+            alias = entry.alias.strip()
+            if (
+                alias
+                and alias not in default_providers
+                and not any(character.isspace() for character in alias)
+            ):
+                model_aliases.setdefault(alias, entry.model)
         return model_aliases, default_providers, set(), provider_names
     except Exception:
         pass
@@ -695,53 +1194,28 @@ def generate_model_alias_table(
     return _format_alias_table(list(entries.items()), two_column=two_column)
 
 
-def generate_openai_merged_table(*, repo_root: Path) -> str:
-    """
-    Generate a merged OpenAI + Responses table.
+def generate_current_model_table(provider_name: str) -> str:
+    from fast_agent.llm.model_selection import ModelSelectionCatalog
+    from fast_agent.llm.provider_types import Provider
 
-    Models from the Responses provider are marked with (*) since they use
-    the OpenAI Responses API but are commonly thought of as "OpenAI models".
-    """
-    model_aliases, default_providers, effort_suffixes, provider_names = (
-        _load_model_factory_constants(repo_root)
-    )
+    providers = {provider.config_name: provider for provider in Provider}
+    provider = providers[provider_name]
 
-    entries: dict[str, str] = {}
-    responses_entries: set[str] = set()  # Track which entries are via Responses
+    lines = [
+        "| Model string or alias | Resolves to / equivalent | Notes |\n",
+        "| --- | --- | --- |\n",
+    ]
 
-    # Include models from both openai and responses providers
-    for provider in ("openai", "responses"):
-        for model_name, default_provider in default_providers.items():
-            if default_provider == provider and _include_default_model_name(provider, model_name):
-                entries[model_name] = model_name
-                if provider == "responses":
-                    responses_entries.add(model_name)
+    for entry in ModelSelectionCatalog.list_current_entries(provider):
+        notes: list[str] = []
+        if entry.fast:
+            notes.append("Fast")
+        if entry.description:
+            notes.append(entry.description)
+        note = ", ".join(notes) if notes else "—"
+        lines.append(f"| `{entry.alias}` | `{entry.model}` | {note} |\n")
 
-    # Include aliases that resolve to openai or responses
-    for alias, target in model_aliases.items():
-        inferred = _infer_provider_for_model_string(
-            target,
-            default_providers=default_providers,
-            provider_names=provider_names,
-            effort_suffixes=effort_suffixes,
-        )
-        if inferred in ("openai", "responses"):
-            # Strip provider prefix for cleaner display (e.g., "responses.gpt-5.1" -> "gpt-5.1")
-            display_target = target
-            for prefix in ("responses.", "openai."):
-                if display_target.startswith(prefix):
-                    display_target = display_target[len(prefix) :]
-                    break
-            entries[alias] = display_target
-            if inferred == "responses":
-                responses_entries.add(alias)
-
-    table = _format_alias_table(
-        list(entries.items()), two_column=False, marked_entries=responses_entries
-    )
-    # Add footnote
-    table += "\n\\* _Via OpenAI Responses API_\n"
-    return table
+    return "".join(lines)
 
 
 def main() -> int:
@@ -774,11 +1248,6 @@ def main() -> int:
             two_column=True,
             repo_root=repo_root,
         ),
-    )
-    # OpenAI table merges openai + responses providers, with (*) marking Responses models
-    _write(
-        GENERATED_DIR / "model_aliases_openai.md",
-        generate_openai_merged_table(repo_root=repo_root),
     )
     # Keep Codex OAuth aliases in a dedicated include so provider docs can embed
     # a focused table (`codexplan`, `codexplan54`, etc.) instead of relying only
@@ -858,9 +1327,28 @@ def main() -> int:
     try:
         if not skip_workflows:
             _write(GENERATED_DIR / "workflows_reference.md", generate_workflows_reference())
+        _write(
+            GENERATED_DIR / "fastagent_harness_method.md",
+            generate_fastagent_harness_method_reference(),
+        )
+        _write(GENERATED_DIR / "harness_reference.md", generate_harness_reference())
+        _write(GENERATED_DIR / "extension_reference.md", generate_extension_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
+        _write(
+            GENERATED_DIR / "current_models_responses.md", generate_current_model_table("responses")
+        )
+        _write(
+            GENERATED_DIR / "current_models_codexresponses.md",
+            generate_current_model_table("codexresponses"),
+        )
+        _write(GENERATED_DIR / "current_models_openai.md", generate_current_model_table("openai"))
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
+        _write(GENERATED_DIR / "compaction_config_snippet.md", generate_compaction_config_snippet())
+        _write(
+            GENERATED_DIR / "compaction_settings_reference.md",
+            generate_compaction_settings_reference(),
+        )
         (GENERATED_DIR / "_generation_warnings.md").unlink(missing_ok=True)
     except Exception as exc:
         _write(

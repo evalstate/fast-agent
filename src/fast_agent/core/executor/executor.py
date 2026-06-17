@@ -249,8 +249,7 @@ class AsyncioExecutor(Executor):
         results: list[R | BaseException] = []
 
         try:
-            for task in running:
-                results.append(await task)
+            results.extend([await task for task in running])
         except BaseException:
             for task in running:
                 if not task.done():
@@ -269,9 +268,7 @@ class AsyncioExecutor(Executor):
             pending = {asyncio.create_task(self._execute_task(task, kwargs)) for task in tasks}
             try:
                 while pending:
-                    done, pending = await asyncio.wait(
-                        pending, return_when=asyncio.FIRST_COMPLETED
-                    )
+                    done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                     for future in done:
                         yield await future
             finally:

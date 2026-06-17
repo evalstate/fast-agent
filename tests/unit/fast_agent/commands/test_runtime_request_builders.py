@@ -6,12 +6,22 @@ import typer
 from fast_agent.cli.runtime.request_builders import (
     build_agent_run_request,
     build_command_run_request,
+    merge_card_sources,
+    normalize_explicit_card_sources,
     resolve_default_instruction,
     resolve_instance_scope,
     resolve_instruction_option,
     resolve_smart_agent_enabled,
 )
+from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.constants import SMART_AGENT_INSTRUCTION
+
+
+def test_card_source_helpers_deduplicate_preserving_order(tmp_path: Path) -> None:
+    sources = ["cards/one", "cards/two", "cards/one"]
+
+    assert merge_card_sources(sources, tmp_path) == ["cards/one", "cards/two"]
+    assert normalize_explicit_card_sources(sources) == ["cards/one", "cards/two"]
 
 
 def test_build_agent_run_request_merges_url_servers_after_explicit_servers() -> None:
@@ -112,7 +122,7 @@ def test_build_agent_run_request_skips_invalid_stdio_commands(capsys) -> None:
         prompt_file=None,
         result_file=None,
         resume=None,
-        stdio_commands=["python good.py", "python \"unterminated", ""],
+        stdio_commands=["python good.py", 'python "unterminated', ""],
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
@@ -194,14 +204,14 @@ def test_resolve_instruction_option_preserves_default_agent_name_for_url(
     monkeypatch.setattr(source_resolver, "materialize_text_source", fake_materialize_text_source)
     monkeypatch.setattr(instruction_source, "_resolve_instruction", fake_resolve_instruction)
 
-    instruction, agent_name = resolve_instruction_option(
+    resolved = resolve_instruction_option(
         "https://example.com/instructions.md",
         model=None,
         mode="interactive",
     )
 
-    assert instruction == "remote instruction"
-    assert agent_name == "agent"
+    assert resolved.instruction == "remote instruction"
+    assert resolved.agent_name == "agent"
 
 
 def test_resolve_instruction_option_preserves_default_agent_name_for_hf_uri(
@@ -226,28 +236,28 @@ def test_resolve_instruction_option_preserves_default_agent_name_for_hf_uri(
     monkeypatch.setattr(source_resolver, "materialize_text_source", fake_materialize_text_source)
     monkeypatch.setattr(instruction_source, "_resolve_instruction", fake_resolve_instruction)
 
-    instruction, agent_name = resolve_instruction_option(
+    resolved = resolve_instruction_option(
         "hf://buckets/evalstate/home/instructions.md",
         model=None,
         mode="interactive",
     )
 
-    assert instruction == "remote instruction"
-    assert agent_name == "agent"
+    assert resolved.instruction == "remote instruction"
+    assert resolved.agent_name == "agent"
 
 
 def test_resolve_instruction_option_uses_local_file_stem_for_agent_name(tmp_path: Path) -> None:
     instruction_path = tmp_path / "reviewer.md"
     instruction_path.write_text("local instruction", encoding="utf-8")
 
-    instruction, agent_name = resolve_instruction_option(
+    resolved = resolve_instruction_option(
         str(instruction_path),
         model=None,
         mode="interactive",
     )
 
-    assert instruction == "local instruction"
-    assert agent_name == "reviewer"
+    assert resolved.instruction == "local instruction"
+    assert resolved.agent_name == "reviewer"
 
 
 def test_build_command_run_request_defaults_acp_instance_scope_to_connection() -> None:
@@ -534,7 +544,9 @@ def test_build_command_run_request_rejects_message_and_prompt_file() -> None:
 
 
 def test_build_command_run_request_rejects_json_schema_without_one_shot_input() -> None:
-    with pytest.raises(typer.BadParameter, match="--json-schema requires --message or --prompt-file"):
+    with pytest.raises(
+        typer.BadParameter, match="--json-schema requires --message or --prompt-file"
+    ):
         build_command_run_request(
             name="cli",
             instruction_option=None,
@@ -563,7 +575,9 @@ def test_build_command_run_request_rejects_json_schema_without_one_shot_input() 
 
 
 def test_build_command_run_request_rejects_json_schema_with_multi_model() -> None:
-    with pytest.raises(typer.BadParameter, match="Cannot combine --json-schema with multiple models"):
+    with pytest.raises(
+        typer.BadParameter, match="Cannot combine --json-schema with multiple models"
+    ):
         build_command_run_request(
             name="cli",
             instruction_option=None,
@@ -624,7 +638,9 @@ def test_build_command_run_request_accepts_schema_model_for_one_shot() -> None:
 
 
 def test_build_command_run_request_rejects_json_schema_with_schema_model() -> None:
-    with pytest.raises(typer.BadParameter, match="Cannot combine --json-schema with --schema-model"):
+    with pytest.raises(
+        typer.BadParameter, match="Cannot combine --json-schema with --schema-model"
+    ):
         build_command_run_request(
             name="cli",
             instruction_option=None,
@@ -746,11 +762,14 @@ def test_build_command_run_request_rejects_invalid_structured_tool_policy() -> N
 
 
 def test_resolve_smart_agent_enabled_disables_smart_for_multi_model_even_when_forced() -> None:
-    assert resolve_smart_agent_enabled(
-        "gpt-4.1,claude-sonnet-4-5",
-        "interactive",
-        force_smart=True,
-    ) is False
+    assert (
+        resolve_smart_agent_enabled(
+            "gpt-4.1,claude-sonnet-4-5",
+            "interactive",
+            force_smart=True,
+        )
+        is False
+    )
 
 
 def test_build_agent_run_request_rejects_multi_model_with_explicit_cards() -> None:
@@ -963,6 +982,43 @@ def test_build_command_run_request_rejects_noenv_with_resume() -> None:
             shell_enabled=False,
             mode="interactive",
             noenv=True,
+        )
+
+
+def test_agent_run_request_rejects_noenv_with_resume_at_boundary() -> None:
+    with pytest.raises(ValueError, match="--noenv cannot be combined with --resume"):
+        AgentRunRequest(
+            name="cli",
+            instruction="instruction",
+            config_path=None,
+            server_list=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume="latest",
+            url_servers=None,
+            stdio_servers=None,
+            agent_name="agent",
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            noenv=True,
+            force_smart=False,
+            shell_runtime=False,
+            no_shell=False,
+            mode="interactive",
+            transport="http",
+            host="127.0.0.1",
+            port=8000,
+            tool_description=None,
+            tool_name_template=None,
+            instance_scope="shared",
+            permissions_enabled=True,
+            reload=False,
+            watch=False,
         )
 
 

@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any, Literal
 from fast_agent.tool_activity_presentation import (
     ToolActivityFamily,
     build_tool_activity_presentation,
+    is_tool_activity_family,
     tool_activity_family_preserves_sections,
+    tool_activity_family_uses_status_body,
     tool_activity_status_text,
 )
 from fast_agent.tools.apply_patch_tool import is_apply_patch_tool_name
@@ -26,14 +28,27 @@ from fast_agent.ui.apply_patch_preview import (
     shell_syntax_language,
 )
 from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from fast_agent.llm.stream_types import StreamChunk
 
+BaseSegmentKind = Literal["markdown", "plain"]
 SegmentKind = Literal["markdown", "plain", "reasoning", "tool"]
 _JSON_PARSE_FAILED = object()
 _FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")
 _CONTAINER_BLOCK_LINE_RE = re.compile(r"^\s{0,3}(?:>|\d+[.)][ \t]+|[*+-][ \t]+)")
+_JSON_SIMPLE_ESCAPES = {
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    "b": "\b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+}
+_TOOL_EVENT_TYPES = frozenset({"start", "delta", "replace", "status", "stop"})
 
 
 @dataclass
@@ -65,6 +80,11 @@ class StreamSegment:
             code_preview=self.code_preview,
             apply_patch_preview=self.apply_patch_preview,
         )
+
+    @property
+    def uses_markdown_layout(self) -> bool:
+        """Whether viewport measurement/truncation should use markdown rendering."""
+        return self.kind in ("markdown", "reasoning")
 
 
 class LiteralNewlineDecoder:
@@ -116,10 +136,8 @@ class LiteralNewlineDecoder:
 class StreamSegmentBuffer:
     """Collect streaming content while keeping markdown/table boundaries intact."""
 
-    def __init__(self, base_kind: SegmentKind) -> None:
-        if base_kind not in ("markdown", "plain"):
-            raise ValueError("base_kind must be 'markdown' or 'plain'")
-        self._base_kind: SegmentKind = base_kind
+    def __init__(self, base_kind: BaseSegmentKind) -> None:
+        self._base_kind: BaseSegmentKind = base_kind
         self._segments: list[StreamSegment] = []
         self._pending_table_row = ""
         self._reasoning_separator_pending = False
@@ -161,7 +179,7 @@ class StreamSegmentBuffer:
     def consume_reasoning_gap(self) -> None:
         gap = self._consume_reasoning_gap()
         if gap:
-            target_kind: SegmentKind = "markdown" if self._base_kind == "markdown" else "plain"
+            target_kind: BaseSegmentKind = self._base_kind
             self._append_to_segment(target_kind, gap)
 
     def _append_plain(
@@ -195,8 +213,7 @@ class StreamSegmentBuffer:
 
         last_segment = self._last_segment(kind="markdown")
         text_so_far = last_segment.text if last_segment else ""
-        ends_with_newline = text_so_far.endswith("\n")
-        last_line = "" if ends_with_newline else (text_so_far.split("\n")[-1] if text_so_far else "")
+        last_line = self._current_line(text_so_far)
         currently_in_table = bool(last_segment) and last_line.strip().startswith("|")
         starts_table_row = text.lstrip().startswith("|")
 
@@ -222,6 +239,12 @@ class StreamSegmentBuffer:
         self._append_to_segment("markdown", text)
         self._freeze_completed_markdown_tail()
         return True
+
+    @staticmethod
+    def _current_line(text: str) -> str:
+        if not text or text.endswith("\n"):
+            return ""
+        return text.split("\n")[-1]
 
     def _consume_reasoning_gap(self) -> str:
         if not self._reasoning_separator_pending:
@@ -304,20 +327,19 @@ class StreamSegmentBuffer:
         offset = 0
 
         for raw_line in text.splitlines(keepends=True):
-            line = raw_line[:-1] if raw_line.endswith("\n") else raw_line
-            stripped = line.lstrip(" ")
+            line = raw_line.removesuffix("\n")
 
             if in_fence:
-                if stripped and stripped[0] == fence_char:
-                    index = 0
-                    while index < len(stripped) and stripped[index] == fence_char:
-                        index += 1
-                    if index >= fence_len and stripped[index:].strip() == "":
-                        in_fence = False
-                        if current_block_safe and raw_line.endswith("\n"):
-                            boundary = offset + len(raw_line)
-                        # A closed fence is a complete block; the next line starts fresh.
-                        current_block_safe = None
+                if self._is_fence_closing_line(
+                    line,
+                    fence_char=fence_char,
+                    fence_len=fence_len,
+                ):
+                    in_fence = False
+                    if current_block_safe and raw_line.endswith("\n"):
+                        boundary = offset + len(raw_line)
+                    # A closed fence is a complete block; the next line starts fresh.
+                    current_block_safe = None
                 offset += len(raw_line)
                 continue
 
@@ -328,24 +350,55 @@ class StreamSegmentBuffer:
                 offset += len(raw_line)
                 continue
 
-            line_safe = self._is_freeze_safe_markdown_line(line)
-            if current_block_safe is None:
-                current_block_safe = line_safe
-            else:
-                current_block_safe = current_block_safe and line_safe
+            current_block_safe = self._updated_block_safety(
+                current_block_safe=current_block_safe,
+                line=line,
+            )
 
-            opening = _FENCE_OPEN_LINE_RE.match(line)
+            opening = self._fence_opening(line)
             if opening:
-                delimiter = opening.group("delim")
-                info = opening.group("info")
-                if delimiter[0] != "`" or "`" not in info:
-                    in_fence = True
-                    fence_char = delimiter[0]
-                    fence_len = len(delimiter)
+                in_fence = True
+                fence_char, fence_len = opening
 
             offset += len(raw_line)
 
         return boundary
+
+    @classmethod
+    def _is_fence_closing_line(
+        cls,
+        line: str,
+        *,
+        fence_char: str,
+        fence_len: int,
+    ) -> bool:
+        stripped = line.lstrip(" ")
+        if not stripped or stripped[0] != fence_char:
+            return False
+        marker_len = cls._leading_run_length(stripped, fence_char)
+        return marker_len >= fence_len and stripped[marker_len:].strip() == ""
+
+    @staticmethod
+    def _leading_run_length(text: str, char: str) -> int:
+        index = 0
+        while index < len(text) and text[index] == char:
+            index += 1
+        return index
+
+    @classmethod
+    def _fence_opening(cls, line: str) -> tuple[str, int] | None:
+        opening = _FENCE_OPEN_LINE_RE.match(line)
+        if opening is None:
+            return None
+        delimiter = opening.group("delim")
+        info = opening.group("info")
+        if delimiter[0] == "`" and "`" in info:
+            return None
+        return delimiter[0], len(delimiter)
+
+    def _updated_block_safety(self, *, current_block_safe: bool | None, line: str) -> bool:
+        line_safe = self._is_freeze_safe_markdown_line(line)
+        return line_safe if current_block_safe is None else current_block_safe and line_safe
 
     def _is_freeze_safe_markdown_line(self, line: str) -> bool:
         stripped = line.lstrip(" ")
@@ -377,19 +430,27 @@ class ToolStreamState:
         self.raw_text += chunk
         self.display_text += self.decoder.decode(chunk)
 
+    def has_visible_content(self) -> bool:
+        return bool(self.raw_text or self.display_text or self.status_text or self.result_text)
+
     def code_preview(self) -> "ToolCodePreview | None":
         preview_spec = _tool_code_preview_spec(self.tool_metadata)
         if preview_spec is None:
             return None
-        field_name, language = preview_spec
-        extracted = extract_partial_json_string_field(self.raw_text, field_name=field_name)
+        extracted = extract_partial_json_string_field(
+            self.raw_text,
+            field_name=preview_spec.field_name,
+        )
         if extracted is None or not extracted.value:
             return None
-        if field_name == "command" and build_partial_apply_patch_preview(extracted.value) is not None:
+        if (
+            preview_spec.field_name == "command"
+            and build_partial_apply_patch_preview(extracted.value) is not None
+        ):
             return None
         return ToolCodePreview(
             code=extracted.value,
-            language=language,
+            language=preview_spec.language,
             complete=extracted.complete,
         )
 
@@ -403,9 +464,7 @@ class ToolStreamState:
             return build_apply_patch_preview_from_input(
                 stripped_text,
                 max_lines=self.apply_patch_preview_max_lines,
-            ) is not None or (
-                stripped_text.lstrip().startswith("*** Begin Patch")
-            )
+            ) is not None or (stripped_text.lstrip().startswith("*** Begin Patch"))
 
         if not is_shell_execution_tool(tool_name):
             return False
@@ -429,122 +488,140 @@ class ToolStreamState:
             )
 
         extracted = extract_partial_json_string_field(self.raw_text, field_name="command")
-        return extracted is not None and bool(extracted.value) and (
-            build_partial_apply_patch_preview(
-                extracted.value,
-                max_lines=self.apply_patch_preview_max_lines,
+        return (
+            extracted is not None
+            and bool(extracted.value)
+            and (
+                build_partial_apply_patch_preview(
+                    extracted.value,
+                    max_lines=self.apply_patch_preview_max_lines,
+                )
+                is not None
             )
-            is not None
         )
 
     def render_text(self, *, prefix: str, pretty: bool) -> str:
         tool_name = self.tool_name or "tool"
-        header_prefix = prefix.strip()
-        if header_prefix:
-            header = f"{header_prefix} {tool_name}\n"
-        else:
-            header = f"{tool_name}\n"
-
-        args_text = self.display_text
-        if is_apply_patch_tool_name(tool_name):
-            stripped_text = self.raw_text.strip()
-            if stripped_text:
-                preview = build_apply_patch_preview_from_input(
-                    stripped_text,
-                    max_lines=self.apply_patch_preview_max_lines,
-                )
-                if preview is not None:
-                    args_text = format_apply_patch_preview(preview)
-                elif stripped_text.lstrip().startswith("*** Begin Patch"):
-                    args_text = format_partial_apply_patch_preview(
-                        stripped_text,
-                        max_lines=self.apply_patch_preview_max_lines,
-                    )
-
-        if self.raw_text.strip():
-            parsed_args = _parse_json_value(self.raw_text)
-            if parsed_args is not _JSON_PARSE_FAILED:
-                if pretty:
-                    args_text = json.dumps(parsed_args, indent=2, ensure_ascii=True)
-                if isinstance(parsed_args, dict) and is_shell_execution_tool(tool_name):
-                    command = parsed_args.get("command")
-                    if isinstance(command, str):
-                        preview = build_apply_patch_preview(
-                            command,
-                            max_lines=self.apply_patch_preview_max_lines,
-                        )
-                        if preview is not None:
-                            args_text = format_apply_patch_preview(
-                                preview,
-                                other_args=extract_non_command_args(parsed_args),
-                            )
-                        else:
-                            partial_preview = build_partial_apply_patch_preview(
-                                command,
-                                other_args=extract_non_command_args(parsed_args),
-                                max_lines=self.apply_patch_preview_max_lines,
-                            )
-                            if partial_preview is not None:
-                                args_text = partial_preview
-            elif is_shell_execution_tool(tool_name):
-                extracted = extract_partial_json_string_field(self.raw_text, field_name="command")
-                if extracted is not None and extracted.value:
-                    partial_preview = build_partial_apply_patch_preview(
-                        extracted.value,
-                        max_lines=self.apply_patch_preview_max_lines,
-                    )
-                    if partial_preview is not None:
-                        args_text = partial_preview
+        header = self._render_header(prefix=prefix, tool_name=tool_name)
+        args_text = self._render_args_text(tool_name=tool_name, pretty=pretty)
 
         if self.preserve_details and not self.completed:
-            parts: list[str] = []
-            if args_text:
-                parts.append(self._labeled_section("args", args_text))
-            if self.status_text:
-                parts.append(self._labeled_section("status", self.status_text))
-            if self.result_text:
-                parts.append(self._labeled_section("result", self.result_text))
-            body = "\n".join(part for part in parts if part)
-            if body and pretty and not body.endswith("\n"):
-                body += "\n"
-            return header + body
+            return header + self._preserved_in_progress_body(args_text, pretty=pretty)
 
         if self.completed:
             compact_body = self._completed_body(args_text)
-            if compact_body and not compact_body.endswith("\n"):
-                compact_body += "\n"
-            return header + compact_body
+            return header + self._with_trailing_newline(compact_body)
 
-        if args_text and pretty and not args_text.endswith("\n"):
-            args_text += "\n"
+        if pretty:
+            args_text = self._with_trailing_newline(args_text)
         return header + (args_text or "")
+
+    @staticmethod
+    def _render_header(*, prefix: str, tool_name: str) -> str:
+        header_prefix = prefix.strip()
+        return f"{header_prefix} {tool_name}\n" if header_prefix else f"{tool_name}\n"
+
+    def _render_args_text(self, *, tool_name: str, pretty: bool) -> str:
+        args_text = self._apply_patch_args_text(tool_name)
+        if not self.raw_text.strip():
+            return args_text
+
+        parsed_args = _parse_json_value(self.raw_text)
+        if parsed_args is _JSON_PARSE_FAILED:
+            return self._partial_shell_args_text(tool_name) or args_text
+
+        if pretty:
+            args_text = json.dumps(parsed_args, indent=2, ensure_ascii=True)
+
+        if isinstance(parsed_args, dict) and is_shell_execution_tool(tool_name):
+            return self._shell_args_text(parsed_args) or args_text
+        return args_text
+
+    def _apply_patch_args_text(self, tool_name: str) -> str:
+        if not is_apply_patch_tool_name(tool_name):
+            return self.display_text
+
+        stripped_text = self.raw_text.strip()
+        if not stripped_text:
+            return self.display_text
+
+        preview = build_apply_patch_preview_from_input(
+            stripped_text,
+            max_lines=self.apply_patch_preview_max_lines,
+        )
+        if preview is not None:
+            return format_apply_patch_preview(preview)
+        if stripped_text.lstrip().startswith("*** Begin Patch"):
+            return format_partial_apply_patch_preview(
+                stripped_text,
+                max_lines=self.apply_patch_preview_max_lines,
+            )
+        return self.display_text
+
+    def _shell_args_text(self, parsed_args: dict[str, Any]) -> str | None:
+        command = parsed_args.get("command")
+        if not isinstance(command, str):
+            return None
+
+        preview = build_apply_patch_preview(
+            command,
+            max_lines=self.apply_patch_preview_max_lines,
+        )
+        if preview is not None:
+            return format_apply_patch_preview(
+                preview,
+                other_args=extract_non_command_args(parsed_args),
+            )
+        return build_partial_apply_patch_preview(
+            command,
+            other_args=extract_non_command_args(parsed_args),
+            max_lines=self.apply_patch_preview_max_lines,
+        )
+
+    def _partial_shell_args_text(self, tool_name: str) -> str | None:
+        if not is_shell_execution_tool(tool_name):
+            return None
+
+        extracted = extract_partial_json_string_field(self.raw_text, field_name="command")
+        if extracted is None or not extracted.value:
+            return None
+        return build_partial_apply_patch_preview(
+            extracted.value,
+            max_lines=self.apply_patch_preview_max_lines,
+        )
+
+    def _preserved_in_progress_body(self, args_text: str, *, pretty: bool) -> str:
+        parts: list[str] = []
+        if args_text:
+            parts.append(self._labeled_section("args", args_text))
+        if self.status_text:
+            parts.append(self._labeled_section("status", self.status_text))
+        if self.result_text:
+            parts.append(self._labeled_section("result", self.result_text))
+        body = "\n".join(part for part in parts if part)
+        return self._with_trailing_newline(body) if pretty else body
+
+    @staticmethod
+    def _with_trailing_newline(text: str) -> str:
+        if text and not text.endswith("\n"):
+            return f"{text}\n"
+        return text
 
     def _completed_body(self, args_text: str) -> str:
         if self.family == "remote_tool":
             return self._completed_remote_tool_body(args_text)
-        if self.family in {"remote_tool_search", "remote_tool_listing"}:
+        if tool_activity_family_uses_status_body(self.family):
             return self._completed_remote_status_body(args_text)
         if self.preserve_details:
-            parts: list[str] = []
-            if args_text and not self._is_trivial_args(args_text):
-                parts.append(self._labeled_section("args", args_text))
-            if self.status_text:
-                parts.append(self._labeled_section("status", self.status_text))
-            if self.result_text:
-                parts.append(self._labeled_section("result", self.result_text))
-            return "\n".join(part for part in parts if part)
+            return self._labeled_tool_details(
+                args_text,
+                include_trivial_args=False,
+            )
         return args_text
 
     def _completed_remote_tool_body(self, args_text: str) -> str:
         if self._status_is_failure():
-            parts: list[str] = []
-            if args_text:
-                parts.append(self._labeled_section("args", args_text))
-            if self.status_text:
-                parts.append(self._labeled_section("status", self.status_text))
-            if self.result_text:
-                parts.append(self._labeled_section("result", self.result_text))
-            return "\n".join(part for part in parts if part)
+            return self._labeled_tool_details(args_text)
         parts: list[str] = []
         if args_text:
             parts.append(args_text)
@@ -558,18 +635,29 @@ class ToolStreamState:
 
     def _completed_remote_status_body(self, args_text: str) -> str:
         if self._status_is_failure():
-            parts: list[str] = []
-            if args_text and not self._is_trivial_args(args_text):
-                parts.append(self._labeled_section("args", args_text))
-            if self.status_text:
-                parts.append(self._labeled_section("status", self.status_text))
-            if self.result_text:
-                parts.append(self._labeled_section("result", self.result_text))
-            return "\n".join(part for part in parts if part)
+            return self._labeled_tool_details(
+                args_text,
+                include_trivial_args=False,
+            )
         return self.result_text or self.status_text or args_text
 
+    def _labeled_tool_details(
+        self,
+        args_text: str,
+        *,
+        include_trivial_args: bool = True,
+    ) -> str:
+        parts: list[str] = []
+        if args_text and (include_trivial_args or not self._is_trivial_args(args_text)):
+            parts.append(self._labeled_section("args", args_text))
+        if self.status_text:
+            parts.append(self._labeled_section("status", self.status_text))
+        if self.result_text:
+            parts.append(self._labeled_section("result", self.result_text))
+        return "\n".join(part for part in parts if part)
+
     def _status_is_failure(self) -> bool:
-        normalized = self.status_text.strip().lower()
+        normalized = strip_casefold(self.status_text)
         return "failed" in normalized or "error" in normalized or "cancel" in normalized
 
     @staticmethod
@@ -587,6 +675,16 @@ class ToolStreamState:
         return f"{label}: {normalized}"
 
 
+@dataclass(slots=True)
+class ToolEventContext:
+    tool_use_id: str
+    tool_name: str
+    family: ToolActivityFamily
+    tool_metadata: Mapping[str, Any] | None
+    preserve_details: bool
+    state: ToolStreamState | None
+
+
 @dataclass(frozen=True)
 class PartialJsonStringField:
     key: str
@@ -601,7 +699,13 @@ class ToolCodePreview:
     complete: bool
 
 
-def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> tuple[str, str] | None:
+@dataclass(frozen=True)
+class ToolCodePreviewSpec:
+    field_name: str
+    language: str
+
+
+def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> ToolCodePreviewSpec | None:
     if not metadata:
         return None
 
@@ -623,7 +727,7 @@ def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> tuple[str, st
         return None
     if not isinstance(language, str) or not language:
         return None
-    return code_arg, language
+    return ToolCodePreviewSpec(field_name=code_arg, language=language)
 
 
 def _decode_json_string_at(raw_text: str, start_index: int) -> tuple[str, int, bool]:
@@ -646,17 +750,7 @@ def _decode_json_string_at(raw_text: str, start_index: int) -> tuple[str, int, b
             return "".join(result), length, False
 
         escape = raw_text[index + 1]
-        simple_escapes = {
-            '"': '"',
-            "\\": "\\",
-            "/": "/",
-            "b": "\b",
-            "f": "\f",
-            "n": "\n",
-            "r": "\r",
-            "t": "\t",
-        }
-        replacement = simple_escapes.get(escape)
+        replacement = _JSON_SIMPLE_ESCAPES.get(escape)
         if replacement is not None:
             result.append(replacement)
             index += 2
@@ -678,53 +772,130 @@ def _decode_json_string_at(raw_text: str, start_index: int) -> tuple[str, int, b
     return "".join(result), length, False
 
 
+def _skip_json_whitespace(raw_text: str, index: int) -> int:
+    while index < len(raw_text) and raw_text[index].isspace():
+        index += 1
+    return index
+
+
+def _skip_json_string_value(raw_text: str, start_index: int) -> int:
+    _, end_index, complete = _decode_json_string_at(raw_text, start_index)
+    return end_index if complete else -1
+
+
+def _advance_json_string_scan_state(current: str, *, escape: bool) -> tuple[bool, bool]:
+    if escape:
+        return True, False
+    if current == "\\":
+        return True, True
+    if current == '"':
+        return False, False
+    return True, False
+
+
+def _skip_json_container(raw_text: str, start_index: int) -> int:
+    stack = [raw_text[start_index]]
+    index = start_index + 1
+    in_string = False
+    escape = False
+    matching = {"{": "}", "[": "]"}
+
+    while index < len(raw_text):
+        current = raw_text[index]
+        if in_string:
+            in_string, escape = _advance_json_string_scan_state(current, escape=escape)
+            index += 1
+            continue
+
+        if current == '"':
+            in_string = True
+        elif current in "[{":
+            stack.append(current)
+        elif current in "]}":
+            if not stack or matching[stack[-1]] != current:
+                return -1
+            stack.pop()
+            if not stack:
+                return index + 1
+        index += 1
+
+    return -1
+
+
+def _skip_json_scalar(raw_text: str, start_index: int) -> int:
+    index = start_index
+    while index < len(raw_text) and raw_text[index] not in ",}":
+        index += 1
+    return index
+
+
 def _skip_json_value(raw_text: str, start_index: int) -> int:
-    length = len(raw_text)
-    if start_index >= length:
+    if start_index >= len(raw_text):
         return -1
 
     char = raw_text[start_index]
     if char == '"':
-        _, end_index, complete = _decode_json_string_at(raw_text, start_index)
-        return end_index if complete else -1
-
+        return _skip_json_string_value(raw_text, start_index)
     if char in "[{":
-        stack = [char]
-        index = start_index + 1
-        in_string = False
-        escape = False
-        matching = {"{": "}", "[": "]"}
+        return _skip_json_container(raw_text, start_index)
+    return _skip_json_scalar(raw_text, start_index)
 
-        while index < length:
-            current = raw_text[index]
-            if in_string:
-                if escape:
-                    escape = False
-                elif current == "\\":
-                    escape = True
-                elif current == '"':
-                    in_string = False
-                index += 1
-                continue
 
-            if current == '"':
-                in_string = True
-            elif current in "[{":
-                stack.append(current)
-            elif current in "]}":
-                if not stack or matching[stack[-1]] != current:
-                    return -1
-                stack.pop()
-                if not stack:
-                    return index + 1
-            index += 1
-
+def _json_object_body_start(raw_text: str) -> int:
+    index = _skip_json_whitespace(raw_text, 0)
+    if index >= len(raw_text) or raw_text[index] != "{":
         return -1
+    return index + 1
 
-    index = start_index
-    while index < length and raw_text[index] not in ",}":
-        index += 1
-    return index
+
+def _decode_json_field_key(raw_text: str, index: int) -> tuple[str, int] | None:
+    if index >= len(raw_text) or raw_text[index] != '"':
+        return None
+
+    key, index, key_complete = _decode_json_string_at(raw_text, index)
+    if not key_complete:
+        return None
+
+    index = _skip_json_whitespace(raw_text, index)
+    if index >= len(raw_text) or raw_text[index] != ":":
+        return None
+    index = _skip_json_whitespace(raw_text, index + 1)
+    if index >= len(raw_text):
+        return None
+    return key, index
+
+
+def _decode_partial_json_string_field_value(
+    raw_text: str,
+    *,
+    field_name: str,
+    index: int,
+) -> PartialJsonStringField | None:
+    if raw_text[index] != '"':
+        return None
+
+    value, _end_index, complete = _decode_json_string_at(raw_text, index)
+    return PartialJsonStringField(
+        key=field_name,
+        value=value,
+        complete=complete,
+    )
+
+
+def _next_json_field(
+    raw_text: str,
+    index: int,
+) -> tuple[str | None, int]:
+    index = _skip_json_whitespace(raw_text, index)
+    if index >= len(raw_text) or raw_text[index] == "}":
+        return None, -1
+    if raw_text[index] == ",":
+        return "", index + 1
+
+    field = _decode_json_field_key(raw_text, index)
+    if field is None:
+        return None, -1
+    return field
 
 
 def extract_partial_json_string_field(
@@ -732,43 +903,18 @@ def extract_partial_json_string_field(
     *,
     field_name: str,
 ) -> PartialJsonStringField | None:
-    length = len(raw_text)
-    if length == 0:
+    if not raw_text:
         return None
 
-    index = 0
-    while index < length and raw_text[index].isspace():
-        index += 1
-    if index >= length or raw_text[index] != "{":
+    index = _json_object_body_start(raw_text)
+    if index < 0:
         return None
-    index += 1
 
-    while index < length:
-        while index < length and raw_text[index].isspace():
-            index += 1
-        if index >= length:
-            return None
-        if raw_text[index] == "}":
-            return None
-        if raw_text[index] == ",":
-            index += 1
+    while index < len(raw_text):
+        key, index = _next_json_field(raw_text, index)
+        if key == "":
             continue
-        if raw_text[index] != '"':
-            return None
-
-        key, index, key_complete = _decode_json_string_at(raw_text, index)
-        if not key_complete:
-            return None
-
-        while index < length and raw_text[index].isspace():
-            index += 1
-        if index >= length or raw_text[index] != ":":
-            return None
-        index += 1
-
-        while index < length and raw_text[index].isspace():
-            index += 1
-        if index >= length:
+        if key is None:
             return None
 
         if key != field_name:
@@ -777,14 +923,10 @@ def extract_partial_json_string_field(
                 return None
             continue
 
-        if raw_text[index] != '"':
-            return None
-
-        value, _end_index, complete = _decode_json_string_at(raw_text, index)
-        return PartialJsonStringField(
-            key=field_name,
-            value=value,
-            complete=complete,
+        return _decode_partial_json_string_field_value(
+            raw_text,
+            field_name=field_name,
+            index=index,
         )
 
     return None
@@ -799,8 +941,29 @@ def _parse_json_value(raw_text: str) -> Any:
         return _JSON_PARSE_FAILED
 
 
-def _status_chunk(status: str) -> str:
-    return tool_activity_status_text(family="tool", status=status)
+def _tool_event_chunk(info: Mapping[str, Any] | None) -> str:
+    if not info:
+        return ""
+    return str(info.get("chunk") or "")
+
+
+def _tool_status_chunk(
+    info: Mapping[str, Any] | None,
+    family: ToolActivityFamily,
+) -> str:
+    chunk = _tool_event_chunk(info)
+    if chunk or not info:
+        return chunk
+    raw_status = info.get("status")
+    if not isinstance(raw_status, str):
+        return ""
+    return tool_activity_status_text(
+        family=family,
+        status=raw_status,
+    ) or tool_activity_status_text(
+        family="tool",
+        status=raw_status,
+    )
 
 
 class StreamSegmentAssembler:
@@ -809,7 +972,7 @@ class StreamSegmentAssembler:
     def __init__(
         self,
         *,
-        base_kind: SegmentKind,
+        base_kind: BaseSegmentKind,
         tool_prefix: str,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
         apply_patch_preview_max_lines: int | None = None,
@@ -836,7 +999,7 @@ class StreamSegmentAssembler:
         """Return True when buffered stream state can still emit content on flush."""
         if self._buffer.pending_table_row:
             return True
-        if self._reasoning_parser.in_think:
+        if self._reasoning_parser.in_think or self._reasoning_parser.has_pending_text:
             return True
         for state in self._tool_states.values():
             if state.raw_text or state.display_text or state.status_text or state.result_text:
@@ -873,12 +1036,43 @@ class StreamSegmentAssembler:
         return self._buffer.append_content(chunk)
 
     def flush(self) -> bool:
-        if not self._reasoning_parser.in_think:
+        if not self._reasoning_parser.has_pending_text:
             return False
         segments = self._reasoning_parser.flush()
         return self._handle_reasoning_segments(segments)
 
     def handle_tool_event(self, event_type: str, info: dict[str, Any] | None) -> bool:
+        if event_type not in _TOOL_EVENT_TYPES:
+            return False
+
+        context = self._tool_event_context(event_type, info)
+
+        if event_type == "stop":
+            return self._stop_tool_event(context)
+
+        if event_type == "status":
+            return self._apply_tool_event_update(
+                context,
+                chunk=_tool_status_chunk(info, context.family),
+                apply_chunk=self._apply_status,
+            )
+
+        chunk = _tool_event_chunk(info)
+        if event_type == "replace":
+            return self._apply_tool_event_update(
+                context,
+                chunk=chunk,
+                apply_chunk=self._apply_replacement,
+            )
+        if event_type == "start":
+            return self._start_tool_event(context, chunk)
+        return self._append_tool_event_chunk(context, chunk)
+
+    def _tool_event_context(
+        self,
+        event_type: str,
+        info: Mapping[str, Any] | None,
+    ) -> ToolEventContext:
         lookup_tool_name = str(info.get("tool_name") or "tool") if info else "tool"
         presentation_family = self._resolve_presentation_family(lookup_tool_name, info)
         presentation = build_tool_activity_presentation(
@@ -915,99 +1109,72 @@ class StreamSegmentAssembler:
         if state is not None and preserve_details:
             state.preserve_details = True
 
-        if event_type == "start":
-            state = self._ensure_tool_state(
-                state=state,
-                tool_use_id=tool_use_id,
-                tool_name=tool_name,
-                family=presentation_family,
-                tool_metadata=tool_metadata,
-                preserve_details=preserve_details,
-            )
-            state.completed = False
-            chunk = str(info.get("chunk") or "") if info else ""
-            if not chunk:
-                return False
-            state.append(chunk)
-            self._update_tool_segment(state, pretty=False)
-            return True
+        return ToolEventContext(
+            tool_use_id=tool_use_id,
+            tool_name=tool_name,
+            family=presentation_family,
+            tool_metadata=tool_metadata,
+            preserve_details=preserve_details,
+            state=state,
+        )
 
-        if event_type == "delta":
-            chunk = str(info.get("chunk") or "") if info else ""
-            if not chunk:
-                return False
-            state = self._ensure_tool_state(
-                state=state,
-                tool_use_id=tool_use_id,
-                tool_name=tool_name,
-                family=presentation_family,
-                tool_metadata=tool_metadata,
-                preserve_details=preserve_details,
-            )
-            state.append(chunk)
-            self._update_tool_segment(state, pretty=False)
-            return True
+    def _ensure_context_tool_state(self, context: ToolEventContext) -> ToolStreamState:
+        return self._ensure_tool_state(
+            state=context.state,
+            tool_use_id=context.tool_use_id,
+            tool_name=context.tool_name,
+            family=context.family,
+            tool_metadata=context.tool_metadata,
+            preserve_details=context.preserve_details,
+        )
 
-        if event_type == "replace":
-            chunk = str(info.get("chunk") or "") if info else ""
-            if not chunk:
-                return False
-            state = self._ensure_tool_state(
-                state=state,
-                tool_use_id=tool_use_id,
-                tool_name=tool_name,
-                family=presentation_family,
-                tool_metadata=tool_metadata,
-                preserve_details=preserve_details,
-            )
-            self._apply_replacement(state, chunk)
-            self._update_tool_segment(state, pretty=False)
-            return True
+    def _start_tool_event(self, context: ToolEventContext, chunk: str) -> bool:
+        if not chunk:
+            return False
+        state = self._ensure_context_tool_state(context)
+        state.completed = False
+        state.append(chunk)
+        self._update_tool_segment(state, pretty=False)
+        return True
 
-        if event_type == "status":
-            chunk = str(info.get("chunk") or "") if info else ""
-            if not chunk and info:
-                raw_status = info.get("status")
-                if isinstance(raw_status, str):
-                    chunk = tool_activity_status_text(
-                        family=presentation_family,
-                        status=raw_status,
-                    ) or _status_chunk(raw_status)
-            if not chunk:
-                return False
-            state = self._ensure_tool_state(
-                state=state,
-                tool_use_id=tool_use_id,
-                tool_name=tool_name,
-                family=presentation_family,
-                tool_metadata=tool_metadata,
-                preserve_details=preserve_details,
-            )
-            self._apply_status(state, chunk)
-            self._update_tool_segment(state, pretty=False)
-            return True
+    def _append_tool_event_chunk(self, context: ToolEventContext, chunk: str) -> bool:
+        if not chunk:
+            return False
+        state = self._ensure_context_tool_state(context)
+        state.append(chunk)
+        self._update_tool_segment(state, pretty=False)
+        return True
 
-        if event_type == "stop":
-            if state is None:
-                return False
-            state.completed = True
-            if (
-                not state.raw_text
-                and not state.display_text
-                and not state.status_text
-                and not state.result_text
-            ):
-                self._tool_states.pop(tool_use_id, None)
-                if self._last_tool_id == tool_use_id:
-                    self._last_tool_id = None
-                return False
-            self._update_tool_segment(state, pretty=True)
-            self._tool_states.pop(tool_use_id, None)
-            if self._last_tool_id == tool_use_id:
-                self._last_tool_id = None
-            return True
+    def _apply_tool_event_update(
+        self,
+        context: ToolEventContext,
+        *,
+        chunk: str,
+        apply_chunk: Callable[[ToolStreamState, str], None],
+    ) -> bool:
+        if not chunk:
+            return False
+        state = self._ensure_context_tool_state(context)
+        apply_chunk(state, chunk)
+        self._update_tool_segment(state, pretty=False)
+        return True
 
-        return False
+    def _stop_tool_event(self, context: ToolEventContext) -> bool:
+        state = context.state
+        if state is None:
+            return False
+        state.completed = True
+        if not state.has_visible_content():
+            self._remove_tool_state(context.tool_use_id)
+            return False
+        self._update_tool_segment(state, pretty=True)
+        self._remove_tool_state(context.tool_use_id)
+        return True
+
+    def _remove_tool_state(self, tool_use_id: str) -> None:
+        self._tool_states.pop(tool_use_id, None)
+        if self._last_tool_id == tool_use_id:
+            self._last_tool_id = None
 
     def compact(self, window_segments: list[StreamSegment]) -> None:
         if not window_segments or self._tool_states:
@@ -1131,13 +1298,7 @@ class StreamSegmentAssembler:
     ) -> ToolActivityFamily:
         if info:
             raw_family = info.get("presentation_family")
-            if raw_family in {
-                "tool",
-                "remote_tool",
-                "web_search",
-                "remote_tool_search",
-                "remote_tool_listing",
-            }:
+            if is_tool_activity_family(raw_family):
                 return raw_family
         return build_tool_activity_presentation(tool_name=tool_name, phase="call").family
 
@@ -1192,7 +1353,9 @@ class StreamSegmentAssembler:
 
     def _process_reasoning_tags(self, chunk: str) -> bool:
         should_process = (
-            self._reasoning_parser.in_think or "<think>" in chunk or "</think>" in chunk
+            self._reasoning_parser.has_pending_text
+            or self._reasoning_parser.in_think
+            or "<" in chunk
         )
         if not should_process:
             return False
@@ -1231,6 +1394,7 @@ class StreamSegmentAssembler:
 
 __all__ = [
     "SegmentKind",
+    "BaseSegmentKind",
     "StreamSegment",
     "StreamSegmentAssembler",
     "StreamSegmentBuffer",

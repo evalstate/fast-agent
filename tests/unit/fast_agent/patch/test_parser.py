@@ -65,13 +65,7 @@ def test_parse_update_file_hunk_empty() -> None:
 
 
 def test_parse_update_file_hunk_without_context_header() -> None:
-    patch = (
-        "*** Begin Patch\n"
-        "*** Update File: file2.py\n"
-        " import foo\n"
-        "+bar\n"
-        "*** End Patch"
-    )
+    patch = "*** Begin Patch\n*** Update File: file2.py\n import foo\n+bar\n*** End Patch"
     parsed = parse_patch_text(patch, ParseMode.STRICT)
     assert parsed.hunks == [
         UpdateFileHunk(
@@ -91,13 +85,7 @@ def test_parse_update_file_hunk_without_context_header() -> None:
 
 
 def test_parse_patch_lenient_heredoc() -> None:
-    patch_text = (
-        "*** Begin Patch\n"
-        "*** Update File: file2.py\n"
-        " import foo\n"
-        "+bar\n"
-        "*** End Patch"
-    )
+    patch_text = "*** Begin Patch\n*** Update File: file2.py\n import foo\n+bar\n*** End Patch"
     expected = ApplyPatchArgs(
         patch=patch_text,
         hunks=[

@@ -26,9 +26,7 @@ class CommandHandler:
     def __init__(self, agent_types: dict[str, Any] | None = None) -> None:
         self._agent_types = agent_types
 
-    async def handle(
-        self, payload: CommandPayload, agent: str, prompt_provider, display
-    ) -> None:
+    async def handle(self, payload: CommandPayload, agent: str, prompt_provider, display) -> None:
         """Handle a parsed CommandPayload for read-only commands.
 
         Currently supports: /prompts, /tools, /skills. Others will raise

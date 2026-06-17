@@ -12,6 +12,7 @@ from fast_agent.core.instruction_utils import (
     build_agent_instruction_context,
 )
 from fast_agent.core.prompt_templates import (
+    _format_client_info,
     enrich_with_environment_context,
     load_skills_for_context,
 )
@@ -110,6 +111,32 @@ class StubMcpAgent(StubAgent):
     @property
     def skill_read_tool_name(self) -> str:
         return "read_skill"
+
+
+def test_format_client_info_ignores_blank_title_and_trims_version() -> None:
+    assert (
+        _format_client_info({"title": "   ", "name": " zed ", "version": " 1.2.3 "}) == "zed 1.2.3"
+    )
+
+
+def test_format_client_info_omits_blank_and_unknown_versions() -> None:
+    assert _format_client_info({"name": "editor", "version": "   "}) == "editor"
+    assert _format_client_info({"name": "editor", "version": "unknown"}) == "editor"
+
+
+def test_format_client_info_normalizes_via_client() -> None:
+    assert (
+        _format_client_info(
+            {
+                "name": "fast-agent",
+                "version": "1.0",
+                "viaTitle": "   ",
+                "viaName": " terminal ",
+                "viaVersion": " 2.0 ",
+            }
+        )
+        == "fast-agent 1.0 via terminal 2.0"
+    )
 
 
 def test_build_agent_instruction_context_includes_agent_metadata(tmp_path: Path) -> None:

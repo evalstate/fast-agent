@@ -1,12 +1,13 @@
 """Command to check FastAgent configuration."""
 
-import asyncio
 import json
 import os
 import platform
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,6 +15,12 @@ import typer
 import yaml
 from rich.table import Table
 
+from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.cli.codex_oauth_display import (
+    codex_oauth_expiry_display,
+    codex_oauth_source_display,
+    codex_oauth_source_label,
+)
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
@@ -32,7 +39,15 @@ from fast_agent.paths import EnvironmentPaths, default_skill_paths, resolve_envi
 from fast_agent.skills import SkillManifest, SkillRegistry
 from fast_agent.ui.a3_headers import build_a3_section_header
 from fast_agent.ui.console import console
+from fast_agent.utils.async_utils import run_coroutine
+from fast_agent.utils.count_display import plural_label
 from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
+from fast_agent.utils.name_normalization import normalize_provider_key
+from fast_agent.utils.text import strip_str_to_none, strip_to_none
+from fast_agent.utils.transports import uses_mcp_remote_transport
+
+SettingsTableRow = tuple[str, str]
+ProviderStatusRow = tuple[str, dict[str, str]]
 
 app = typer.Typer(
     help="Check and diagnose FastAgent configuration",
@@ -122,18 +137,20 @@ _PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
     "codexresponses",
 )
 
-
-def _normalize_provider_catalog_scope_name(value: str) -> str:
-    return value.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+_STEP_INTERVAL_UNITS: tuple[tuple[int, str], ...] = (
+    (86_400, "d"),
+    (3_600, "h"),
+    (60, "m"),
+)
 
 
 def _build_provider_catalog_scope_lookup() -> dict[str, ProviderCatalogScope]:
     lookup: dict[str, ProviderCatalogScope] = {}
     for name, scope in _PROVIDER_CATALOG_SCOPES_BY_KEY.items():
-        lookup[_normalize_provider_catalog_scope_name(name)] = scope
+        lookup[normalize_provider_key(name)] = scope
 
     for alias, canonical_name in _PROVIDER_CATALOG_SCOPE_ALIASES.items():
-        normalized_alias = _normalize_provider_catalog_scope_name(alias)
+        normalized_alias = normalize_provider_key(alias)
         canonical_scope = _PROVIDER_CATALOG_SCOPES_BY_KEY.get(canonical_name)
         if canonical_scope is None:
             continue
@@ -146,7 +163,7 @@ _PROVIDER_CATALOG_SCOPE_LOOKUP = _build_provider_catalog_scope_lookup()
 
 
 def _resolve_provider_catalog_scope(provider_name: str) -> ProviderCatalogScope:
-    normalized_name = _normalize_provider_catalog_scope_name(provider_name)
+    normalized_name = normalize_provider_key(provider_name)
     scope = _PROVIDER_CATALOG_SCOPE_LOOKUP.get(normalized_name)
     if scope is not None:
         return scope
@@ -248,7 +265,7 @@ def get_secrets_summary(secrets_path: Path | None) -> dict:
 
     # File exists, attempt to parse
     try:
-        with open(secrets_path, "r") as f:
+        with secrets_path.open("r") as f:
             secrets = yaml.safe_load(f)
 
         # Mark as successfully parsed
@@ -347,9 +364,8 @@ def _resolve_provider_config_key(
     if secrets_status == "parsed":
         config_key = ProviderKeyManager.get_config_file_key(provider_name, secrets)
 
-    if not config_key or config_key == API_KEY_HINT_TEXT:
-        if main_config:
-            config_key = ProviderKeyManager.get_config_file_key(provider_name, main_config)
+    if main_config and (not config_key or config_key == API_KEY_HINT_TEXT):
+        config_key = ProviderKeyManager.get_config_file_key(provider_name, main_config)
 
     if not config_key or config_key == API_KEY_HINT_TEXT:
         return None
@@ -379,17 +395,32 @@ def _resolve_codex_oauth_label(provider_name: str) -> str | None:
     if not codex_status.get("present"):
         return None
 
-    source = codex_status.get("source")
-    if source == "keyring":
-        source_label = "Keyring OAuth"
-    elif source == "auth.json":
-        source_label = "Codex auth.json"
-    else:
-        source_label = "OAuth token"
+    source_label = codex_oauth_source_label(codex_status.get("source"))
 
     if codex_status.get("expired"):
         return f"Expired {source_label}"
     return source_label
+
+
+def _resolve_anthropic_sdk_credentials_label(provider_name: str) -> str | None:
+    if provider_name != Provider.ANTHROPIC.config_name:
+        return None
+
+    try:
+        from anthropic import AsyncAnthropic
+    except Exception:
+        return None
+
+    try:
+        client = AsyncAnthropic()
+    except Exception:
+        return None
+
+    if client.auth_token is not None:
+        return "ANTHROPIC_AUTH_TOKEN"
+    if client.credentials is not None:
+        return "Anthropic SDK credentials"
+    return None
 
 
 def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
@@ -441,6 +472,11 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
         if status["env"] or status["config"]:
             continue
 
+        anthropic_sdk_label = _resolve_anthropic_sdk_credentials_label(provider_name)
+        if anthropic_sdk_label is not None:
+            status["config"] = anthropic_sdk_label
+            continue
+
         huggingface_label = _resolve_huggingface_login_label(provider_name)
         if huggingface_label is not None:
             status["config"] = huggingface_label
@@ -457,7 +493,7 @@ def get_fastagent_version() -> str:
     """Get the installed version of FastAgent."""
     try:
         return version("fast-agent-mcp")
-    except:  # noqa: E722
+    except Exception:
         return "unknown"
 
 
@@ -570,9 +606,7 @@ def _resolve_timeline_summary(
 
 
 def _truncate_server_display(value: str) -> str:
-    if len(value) <= 60:
-        return value
-    return value[:57] + "..."
+    return _truncate_summary_text(value, 60)
 
 
 def _resolve_mcp_server_transport(server_config: dict[str, Any]) -> tuple[str, str]:
@@ -637,8 +671,12 @@ def _extract_skills_directories(config: dict[str, Any]) -> list[str] | None:
     if not isinstance(directory_value, list):
         return None
 
-    cleaned = [str(value).strip() for value in directory_value if str(value).strip()]
+    cleaned = _clean_string_values(directory_value)
     return cleaned or None
+
+
+def _clean_string_values(values: Iterable[object]) -> list[str]:
+    return [cleaned for value in values if (cleaned := strip_to_none(str(value))) is not None]
 
 
 def get_config_summary(config_path: Path | None) -> dict:
@@ -657,7 +695,7 @@ def get_config_summary(config_path: Path | None) -> dict:
 
     # File exists, attempt to parse
     try:
-        with open(config_path, "r") as f:
+        with config_path.open("r") as f:
             config = yaml.safe_load(f)
 
         result["status"] = "parsed"
@@ -929,7 +967,7 @@ def show_provider_model_catalog(
 
 
 def _split_model_specs(raw_models: str) -> list[str]:
-    return [chunk.strip() for chunk in raw_models.split(",") if chunk.strip()]
+    return _clean_string_values(raw_models.split(","))
 
 
 def _build_model_references(config_payload: dict[str, Any] | None) -> dict[str, str]:
@@ -1127,14 +1165,16 @@ def _effective_environment_override(
         return env_dir
 
     env_override = os.getenv("ENVIRONMENT_DIR")
-    if isinstance(env_override, str) and env_override.strip():
-        return env_override.strip()
+    normalized_env_override = strip_str_to_none(env_override)
+    if normalized_env_override is not None:
+        return normalized_env_override
 
     config_payload = config_summary.get("config")
     if isinstance(config_payload, dict):
         configured_env_dir = config_payload.get("environment_dir")
-        if isinstance(configured_env_dir, str) and configured_env_dir.strip():
-            return configured_env_dir.strip()
+        normalized_configured_env_dir = strip_str_to_none(configured_env_dir)
+        if normalized_configured_env_dir is not None:
+            return normalized_configured_env_dir
 
     return DEFAULT_ENVIRONMENT_DIR
 
@@ -1281,7 +1321,7 @@ def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
 
 
 def _built_in_preset_sources() -> dict[str, str]:
-    sources = {preset_name: "built-in model preset" for preset_name in ModelFactory.MODEL_PRESETS}
+    sources = dict.fromkeys(ModelFactory.MODEL_PRESETS, "built-in model preset")
     for provider_entries in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.values():
         for entry in provider_entries:
             sources.setdefault(entry.alias, "curated model alias")
@@ -1381,28 +1421,26 @@ def _bool_to_symbol(value: object) -> str:
     return "[bold green]✓[/bold green]" if value else "[bold red]✗[/bold red]"
 
 
-def _format_step_interval(seconds: int) -> str:
+def _format_step_interval(seconds: int | str) -> str:
     try:
         total = int(seconds)
     except (TypeError, ValueError):
         return str(seconds)
+
     if total <= 0:
         return "0s"
-    if total % 86400 == 0:
-        return f"{total // 86400}d"
-    if total % 3600 == 0:
-        return f"{total // 3600}h"
-    if total % 60 == 0:
-        return f"{total // 60}m"
+
+    for unit_seconds, suffix in _STEP_INTERVAL_UNITS:
+        if total % unit_seconds == 0:
+            return f"{total // unit_seconds}{suffix}"
+
     minutes, secs = divmod(total, 60)
-    if minutes:
-        return f"{minutes}m{secs:02d}s"
-    return f"{secs}s"
+    return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
 
 
 def _build_application_settings_rows(
     config_summary: dict[str, Any],
-) -> list[tuple[str, str]]:
+) -> list[SettingsTableRow]:
     logger = config_summary.get("logger", {})
     mcp_ui_mode = config_summary.get("mcp_ui_mode", "auto")
     mcp_ui_display = (
@@ -1445,6 +1483,21 @@ def _build_application_settings_rows(
     ]
 
 
+def _adjacent_settings_pairs(
+    rows: Sequence[SettingsTableRow],
+) -> list[tuple[SettingsTableRow, SettingsTableRow | None]]:
+    row_iter = iter(rows)
+    return [(left, right) for left, right in zip_longest(row_iter, row_iter) if left is not None]
+
+
+def _split_provider_status_rows(
+    api_keys: dict[str, dict[str, str]],
+) -> list[tuple[ProviderStatusRow, ProviderStatusRow | None]]:
+    providers = list(api_keys.items())
+    mid_point = (len(providers) + 1) // 2
+    return list(zip_longest(providers[:mid_point], providers[mid_point:]))
+
+
 def _render_application_settings(config_summary: dict[str, Any]) -> None:
     logger_table = Table(show_header=True, box=None)
     logger_table.add_column("Setting", style="white", header_style="bold bright_white")
@@ -1452,14 +1505,15 @@ def _render_application_settings(config_summary: dict[str, Any]) -> None:
     logger_table.add_column("Setting", style="white", header_style="bold bright_white")
     logger_table.add_column("Value", header_style="bold bright_white")
 
-    settings_data = _build_application_settings_rows(config_summary)
-    for index in range(0, len(settings_data), 2):
-        left_setting, left_value = settings_data[index]
+    for left_row, right_row in _adjacent_settings_pairs(
+        _build_application_settings_rows(config_summary)
+    ):
+        left_setting, left_value = left_row
         if left_setting in {"Log Level", "Log Type"}:
             left_value = f"[green]{left_value}[/green]"
 
-        if index + 1 < len(settings_data):
-            right_setting, right_value = settings_data[index + 1]
+        if right_row is not None:
+            right_setting, right_value = right_row
             if right_setting in {"Log Level", "Log Type"}:
                 right_value = f"[green]{right_value}[/green]"
             logger_table.add_row(left_setting, left_value, right_setting, right_value)
@@ -1538,13 +1592,11 @@ def _render_api_keys_panel(api_keys: dict[str, dict[str, str]]) -> None:
         else:
             keys_table.add_column(title, header_style="bold bright_white")
 
-    providers_list = list(api_keys.items())
-    mid_point = (len(providers_list) + 1) // 2
-    for index in range(mid_point):
-        left_provider, left_status = providers_list[index]
+    for left_row, right_row in _split_provider_status_rows(api_keys):
+        left_provider, left_status = left_row
         left_data = _format_provider_row(left_provider, left_status)
-        if index + mid_point < len(providers_list):
-            right_provider, right_status = providers_list[index + mid_point]
+        if right_row is not None:
+            right_provider, right_status = right_row
             right_data = _format_provider_row(right_provider, right_status)
             keys_table.add_row(*left_data, *right_data)
         else:
@@ -1571,39 +1623,31 @@ def _render_codex_oauth_panel(keyring_status: KeyringStatus) -> None:
     codex_table.add_column("Expires", style="white", header_style="bold bright_white")
     codex_table.add_column("Keyring", style="white", header_style="bold bright_white")
 
-    if not keyring_status.available:
-        keyring_display = "[red]not available[/red]"
-    elif not keyring_status.writable:
-        keyring_display = f"[yellow]{keyring_status.name} (not writable)[/yellow]"
-    else:
-        keyring_display = f"[green]{keyring_status.name}[/green]"
-
     if not codex_status["present"]:
         token_display = "[dim]Not configured[/dim]"
         source_display = "[dim]-[/dim]"
         expires_display = "[dim]-[/dim]"
     else:
         token_display = "[bold green]OAuth token[/bold green]"
-        source = codex_status.get("source")
-        if source == "keyring":
-            source_display = "[green]Keyring OAuth[/green]"
-        elif source == "auth.json":
-            source_display = "[green]Codex auth.json[/green]"
-        else:
-            source_display = "[green]OAuth token[/green]"
-        expires_at = codex_status.get("expires_at")
-        if expires_at:
-            expires_display = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
-            if codex_status.get("expired"):
-                expires_display = f"[red]expired {expires_display}[/red]"
-            else:
-                expires_display = f"[green]{expires_display}[/green]"
-        else:
-            expires_display = "[green]unknown[/green]"
+        source_display = codex_oauth_source_display(codex_status)
+        expires_display = codex_oauth_expiry_display(codex_status, datetime_type=datetime)
 
-    codex_table.add_row(token_display, source_display, expires_display, keyring_display)
+    codex_table.add_row(
+        token_display,
+        source_display,
+        expires_display,
+        _format_keyring_status(keyring_status),
+    )
     _print_section_header("Codex OAuth", color="blue")
     console.print(codex_table)
+
+
+def _format_keyring_status(keyring_status: KeyringStatus) -> str:
+    if not keyring_status.available:
+        return "[red]not available[/red]"
+    if not keyring_status.writable:
+        return f"[yellow]{keyring_status.name} (not writable)[/yellow]"
+    return f"[green]{keyring_status.name}[/green]"
 
 
 def _build_mcp_servers_table() -> Table:
@@ -1642,15 +1686,17 @@ def _build_mcp_server_settings(server: dict[str, str]) -> Any | None:
 
 
 def _resolve_oauth_enabled(cfg: Any) -> bool:
-    if cfg.auth is None or not hasattr(cfg.auth, "oauth"):
+    auth = cfg.auth
+    if auth is None:
         return True
-    return bool(getattr(cfg.auth, "oauth"))
+    return bool(auth.oauth)
 
 
 def _resolve_oauth_persist_mode(cfg: Any) -> str:
-    if cfg.auth is None or not hasattr(cfg.auth, "persist"):
+    auth = cfg.auth
+    if auth is None:
         return "keyring"
-    return getattr(cfg.auth, "persist") or "keyring"
+    return auth.persist or "keyring"
 
 
 def _resolve_mcp_token_status(
@@ -1686,7 +1732,7 @@ def _resolve_mcp_oauth_columns(
     *,
     compute_server_identity: Any,
 ) -> tuple[str, str]:
-    if cfg is None or cfg.transport not in ("http", "sse"):
+    if cfg is None or not uses_mcp_remote_transport(cfg.transport):
         return "[dim]-[/dim]", "[dim]n/a[/dim]"
 
     oauth_enabled = _resolve_oauth_enabled(cfg)
@@ -1829,12 +1875,10 @@ def _should_warn_for_provider(
         configured_base_url = None
         if isinstance(openresponses_cfg, dict):
             raw_base_url = openresponses_cfg.get("base_url")
-            if isinstance(raw_base_url, str) and raw_base_url.strip():
-                configured_base_url = raw_base_url.strip()
+            configured_base_url = strip_str_to_none(raw_base_url)
         if configured_base_url is None:
             env_base_url = os.getenv("OPENRESPONSES_BASE_URL")
-            if env_base_url and env_base_url.strip():
-                configured_base_url = env_base_url.strip()
+            configured_base_url = strip_str_to_none(env_base_url)
         if configured_base_url is None:
             return False
         return configured_base_url.rstrip("/") != DEFAULT_OPENRESPONSES_BASE_URL.rstrip("/")
@@ -1844,9 +1888,7 @@ def _should_warn_for_provider(
         vertex_cfg = google_cfg.get("vertex_ai", {}) if isinstance(google_cfg, dict) else {}
         if isinstance(vertex_cfg, dict) and vertex_cfg.get("enabled") is True:
             return False
-    if provider == Provider.ANTHROPIC_VERTEX:
-        return False
-    return True
+    return provider != Provider.ANTHROPIC_VERTEX
 
 
 def _collect_card_directories(
@@ -1899,11 +1941,11 @@ def _load_agent_cards_for_status(entry: AgentCardScanResult) -> list[Any]:
 def _update_default_agent_tracking(
     *,
     card_name: str,
-    config: Any | None,
+    config: AgentConfig | None,
     default_agent_names: list[str],
     default_agent_seen: set[str],
 ) -> None:
-    if not config or not getattr(config, "default", False):
+    if config is None or not config.default:
         return
     if card_name in default_agent_seen:
         return
@@ -1911,10 +1953,10 @@ def _update_default_agent_tracking(
     default_agent_seen.add(card_name)
 
 
-def _runtime_mcp_entry_count(config: Any | None) -> int:
+def _runtime_mcp_entry_count(config: AgentConfig | None) -> int:
     if config is None:
         return 0
-    return len(getattr(config, "mcp_connect", []) or [])
+    return len(config.mcp_connect or [])
 
 
 def _record_missing_api_key_warning(
@@ -1951,8 +1993,10 @@ def _record_missing_api_key_warning(
 def _format_runtime_mcp_status(runtime_mcp_count: int) -> str:
     if runtime_mcp_count <= 0:
         return "[green]ok[/green]"
-    plural = "entry" if runtime_mcp_count == 1 else "entries"
-    return f"[green]ok[/green] [dim](mcp_connect: {runtime_mcp_count} {plural})[/dim]"
+    return (
+        "[green]ok[/green] "
+        f"[dim](mcp_connect: {runtime_mcp_count} {plural_label(runtime_mcp_count, 'entry', 'entries')})[/dim]"
+    )
 
 
 def _build_agent_card_status(
@@ -1972,7 +2016,8 @@ def _build_agent_card_status(
     runtime_mcp_count = 0
     cards = _load_agent_cards_for_status(entry)
     for card in cards:
-        config = card.agent_data.get("config")
+        raw_config = card.agent_data.get("config")
+        config = raw_config if isinstance(raw_config, AgentConfig) else None
         runtime_mcp_count += _runtime_mcp_entry_count(config)
         _update_default_agent_tracking(
             card_name=card.name,
@@ -2138,7 +2183,7 @@ def show(
     console.print(f"\n[bold]{file_type.capitalize()} file:[/bold] {config_path}\n")
 
     try:
-        with open(config_path, "r") as f:
+        with config_path.open("r") as f:
             content = f.read()
 
         # Try to parse as YAML to check validity
@@ -2328,7 +2373,7 @@ def _run_structured_output_probe(
             param_hint="--mode",
         )
 
-    model_names = [model.strip() for model in models.split(",") if model.strip()]
+    model_names = _split_model_specs(models)
     if not model_names:
         raise typer.BadParameter("At least one model is required.", param_hint="--models")
 
@@ -2343,7 +2388,7 @@ def _run_structured_output_probe(
         "both": ["direct", "tools"],
         "all": ["direct", "pydantic", "tools"],
     }.get(mode, [cast("StructuredProbeMode", mode)])
-    results = asyncio.run(
+    results = run_coroutine(
         run_probe_suite(
             model_names,
             structured_tool_policy=cast("StructuredToolPolicy", structured_tool_policy),

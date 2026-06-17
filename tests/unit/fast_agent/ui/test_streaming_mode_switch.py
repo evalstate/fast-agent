@@ -1,14 +1,16 @@
 import io
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from rich.console import Console
 from rich.text import Text
 
 from fast_agent.config import Settings
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.types.streaming import StreamingMode
 from fast_agent.ui import console
 from fast_agent.ui import streaming as streaming_module
 from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandle
+from fast_agent.ui.markdown_renderables import close_incomplete_code_blocks
 from fast_agent.ui.stream_segments import StreamSegment, StreamSegmentAssembler, ToolCodePreview
 
 
@@ -28,7 +30,7 @@ def _restore_console_size(original_console: Console) -> None:
 
 
 def _make_handle(
-    streaming_mode: Literal["markdown", "plain", "none"] = "markdown",
+    streaming_mode: StreamingMode = "markdown",
 ) -> _StreamingMessageHandle:
     settings = Settings()
     settings.logger.streaming = streaming_mode
@@ -90,6 +92,31 @@ def test_reasoning_gap_merges_into_markdown_segment() -> None:
     assert segments[-1].text.startswith("\n\n")
 
 
+def test_reasoning_tag_split_across_stream_chunks_switches_segments() -> None:
+    assembler = StreamSegmentAssembler(base_kind="markdown", tool_prefix="->")
+
+    assembler.handle_stream_chunk(StreamChunk("Intro <thi"))
+    assembler.handle_stream_chunk(StreamChunk("nk>Thinking</thi"))
+    assembler.handle_stream_chunk(StreamChunk("nk>Answer"))
+
+    assert [(segment.kind, segment.text) for segment in assembler.segments] == [
+        ("markdown", "Intro \n"),
+        ("reasoning", "Thinking"),
+        ("markdown", "\n\nAnswer"),
+    ]
+
+
+def test_incomplete_reasoning_tag_flushes_as_content() -> None:
+    assembler = StreamSegmentAssembler(base_kind="markdown", tool_prefix="->")
+
+    assembler.handle_stream_chunk(StreamChunk("Intro <thi"))
+    assert assembler.flush()
+
+    assert [(segment.kind, segment.text) for segment in assembler.segments] == [
+        ("markdown", "Intro <thi"),
+    ]
+
+
 def test_streaming_live_starts_without_initial_renderable() -> None:
     handle = _make_handle("markdown")
     assert handle._live is not None
@@ -128,6 +155,61 @@ def test_plain_stream_does_not_use_width_gutter() -> None:
         assert handle._effective_stream_width() is None
     finally:
         _restore_console_size(original_console)
+
+
+def test_console_width_override_restores_existing_width() -> None:
+    class TargetConsole:
+        _width = 100
+
+    missing = object()
+    target = TargetConsole()
+    original = streaming_module._apply_console_width_override(target, 79)
+
+    assert getattr(target, "_width", missing) == 79
+
+    streaming_module._restore_console_width_override(
+        target,
+        original_width=original,
+        width_override=79,
+    )
+
+    assert target._width == 100
+
+
+def test_console_width_override_removes_temporary_width() -> None:
+    class TargetConsole:
+        pass
+
+    missing = object()
+    target = TargetConsole()
+    original = streaming_module._apply_console_width_override(target, 79)
+
+    assert getattr(target, "_width", missing) == 79
+
+    streaming_module._restore_console_width_override(
+        target,
+        original_width=original,
+        width_override=79,
+    )
+
+    assert getattr(target, "_width", missing) is missing
+
+
+def test_console_width_restore_noops_without_override() -> None:
+    class TargetConsole:
+        pass
+
+    missing = object()
+    target = TargetConsole()
+    original = streaming_module._apply_console_width_override(target, None)
+
+    streaming_module._restore_console_width_override(
+        target,
+        original_width=original,
+        width_override=None,
+    )
+
+    assert getattr(target, "_width", missing) is missing
 
 
 def test_diff_live_updates_only_changed_tail_line() -> None:
@@ -704,7 +786,10 @@ def test_stream_cursor_suffix_only_targets_last_segment() -> None:
     handle = _make_handle("plain")
 
     assert handle._cursor_suffix(segment_index=0, total_segments=2) == ""
-    assert handle._cursor_suffix(segment_index=1, total_segments=2) == streaming_module.STREAM_CURSOR_BLOCK
+    assert (
+        handle._cursor_suffix(segment_index=1, total_segments=2)
+        == streaming_module.STREAM_CURSOR_BLOCK
+    )
 
     handle._show_stream_cursor = False
     assert handle._cursor_suffix(segment_index=1, total_segments=2) == ""
@@ -792,7 +877,9 @@ def test_preserve_final_frame_finalize_omits_tail_padding_from_last_frame(monkey
         assert fake_live.renderable is not None
 
         options = console.console.options.update(width=40)
-        rendered_lines = console.console.render_lines(fake_live.renderable, options=options, pad=False)
+        rendered_lines = console.console.render_lines(
+            fake_live.renderable, options=options, pad=False
+        )
         rendered_text = [console.console._render_buffer(line).rstrip() for line in rendered_lines]
 
         assert rendered_text[-1] == "short response"
@@ -844,24 +931,21 @@ def test_finalize_hides_scrolling_indicator_from_last_live_frame(monkeypatch) ->
 
 
 def test_close_incomplete_code_blocks_keeps_closed_fence_with_trailing_text() -> None:
-    handle = _make_handle("markdown")
     text = """Here is code:\n```python\nprint(1)\n```\nAnd more text."""
 
-    assert handle._close_incomplete_code_blocks(text) == text
+    assert close_incomplete_code_blocks(text) == text
 
 
 def test_close_incomplete_code_blocks_closes_unterminated_fence() -> None:
-    handle = _make_handle("markdown")
     text = """Here is code:\n```python\nprint(1)"""
 
-    assert handle._close_incomplete_code_blocks(text) == text + "\n```\n"
+    assert close_incomplete_code_blocks(text) == text + "\n```\n"
 
 
 def test_close_incomplete_code_blocks_supports_tilde_fences() -> None:
-    handle = _make_handle("markdown")
     text = """Here is code:\n~~~json\n{\"a\": 1}"""
 
-    assert handle._close_incomplete_code_blocks(text) == text + "\n~~~\n"
+    assert close_incomplete_code_blocks(text) == text + "\n~~~\n"
 
 
 # -- _DiffLive height-clamp tests -------------------------------------------
@@ -872,9 +956,7 @@ def test_diff_live_clamps_new_frame_to_terminal_height() -> None:
     output = io.StringIO()
     # Terminal height = 4
     live = streaming_module._DiffLive(
-        console=Console(
-            file=output, force_terminal=True, color_system=None, width=40, height=4
-        ),
+        console=Console(file=output, force_terminal=True, color_system=None, width=40, height=4),
         transient=True,
     )
 
@@ -895,9 +977,7 @@ def test_diff_live_clamps_old_frame_for_safe_diff() -> None:
     """If a previous frame exceeded height, old lines are clamped before diff."""
     output = io.StringIO()
     live = streaming_module._DiffLive(
-        console=Console(
-            file=output, force_terminal=True, color_system=None, width=40, height=4
-        ),
+        console=Console(file=output, force_terminal=True, color_system=None, width=40, height=4),
         transient=True,
     )
 
@@ -905,9 +985,7 @@ def test_diff_live_clamps_old_frame_for_safe_diff() -> None:
 
     # Manually set _lines to something oversized (simulates a pre-fix state or
     # a terminal that was resized smaller between frames).
-    live._lines = [
-        streaming_module._RenderedLine(f"old{i}", len(f"old{i}")) for i in range(8)
-    ]
+    live._lines = [streaming_module._RenderedLine(f"old{i}", len(f"old{i}")) for i in range(8)]
 
     # Now refresh with a small frame – the old lines should be clamped first
     # so the diff can compute correct cursor-up distances.
@@ -921,9 +999,7 @@ def test_diff_live_height_clamp_preserves_cursor_tracking() -> None:
     """After clamping, subsequent diffs position correctly."""
     output = io.StringIO()
     live = streaming_module._DiffLive(
-        console=Console(
-            file=output, force_terminal=True, color_system=None, width=40, height=5
-        ),
+        console=Console(file=output, force_terminal=True, color_system=None, width=40, height=5),
         transient=True,
     )
 

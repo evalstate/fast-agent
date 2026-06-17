@@ -8,13 +8,14 @@ from mcp import CallToolRequest
 from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.tool_runner import HistoryRollbackState
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
 )
-from fast_agent.core.agent_app import AgentRefreshResult
+from fast_agent.core.agent_app import AgentCardLoadResult, AgentRefreshResult
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -137,11 +138,11 @@ class _FakeAgentApp:
 
     async def load_agent_card(
         self, filename: str, _parent: str | None = None
-    ) -> tuple[list[str], list[str]]:
+    ) -> AgentCardLoadResult:
         self.loaded.append(filename)
         loaded = ["sizer"]
         attached = ["sizer"] if _parent else []
-        return loaded, attached
+        return AgentCardLoadResult(loaded_names=loaded, attached_names=attached)
 
     def can_reload_agents(self) -> bool:
         return False
@@ -303,8 +304,8 @@ async def test_agent_command_attach_and_detach(monkeypatch, capsys: Any) -> None
     )
 
     output = capsys.readouterr().out
-    assert "Attached agent tool(s): sizer" in output
-    assert "Detached agent tool(s): sizer" in output
+    assert "Attached agent tool: sizer" in output
+    assert "Detached agent tool: sizer" in output
 
 
 @pytest.mark.asyncio
@@ -346,8 +347,8 @@ async def test_card_command_attach(monkeypatch, capsys: Any) -> None:
     )
 
     output = capsys.readouterr().out
-    assert "Loaded AgentCard(s): sizer" in output
-    assert "Attached agent tool(s): sizer" in output
+    assert "Loaded AgentCard: sizer" in output
+    assert "Attached agent tool: sizer" in output
 
 
 @pytest.mark.asyncio
@@ -400,6 +401,36 @@ async def test_history_fix_trims_pending_tool_call(monkeypatch, capsys: Any) -> 
     output = capsys.readouterr().out
     assert "Removed pending tool call" in output
     assert agent_app._agent("test").message_history == []
+
+
+def test_cancelled_history_description_uses_singular_removed_message_label() -> None:
+    prompt_ui = InteractivePrompt()
+    history_state = HistoryRollbackState(
+        status=cast("Any", "removed_pending_tool_call"),
+        history_before=1,
+        history_after=0,
+        removed_messages=1,
+    )
+
+    assert (
+        prompt_ui._describe_cancelled_history_state(history_state)
+        == "History reconciliation completed (removed 1 message)."
+    )
+
+
+def test_cancelled_history_description_uses_plural_removed_message_label() -> None:
+    prompt_ui = InteractivePrompt()
+    history_state = HistoryRollbackState(
+        status=cast("Any", "removed_pending_tool_call"),
+        history_before=3,
+        history_after=1,
+        removed_messages=2,
+    )
+
+    assert (
+        prompt_ui._describe_cancelled_history_state(history_state)
+        == "History reconciliation completed (removed 2 messages)."
+    )
 
 
 @pytest.mark.asyncio
@@ -584,7 +615,7 @@ async def test_history_webclear_removes_web_channels(monkeypatch, capsys: Any) -
     )
 
     output = capsys.readouterr().out
-    assert "Removed 3 web metadata block(s)" in output
+    assert "Removed 3 web metadata blocks" in output
     channels = agent_app._agent("test").message_history[0].channels
     assert channels is None
 
@@ -614,7 +645,9 @@ async def test_cancelled_turn_reports_interrupted_tool_marker(monkeypatch, capsy
                 ),
                 PromptMessageExtended(
                     role="user",
-                    content=[TextContent(type="text", text="**The user interrupted this tool call**")],
+                    content=[
+                        TextContent(type="text", text="**The user interrupted this tool call**")
+                    ],
                     tool_results={
                         "call-1": CallToolResult(
                             content=[
@@ -742,10 +775,8 @@ async def test_reload_agents_switches_to_hydrated_active_agent(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_mcp_connect_ctrl_c_cancels_and_returns_to_prompt(
-    monkeypatch, capsys: Any
-) -> None:
-    _patch_input(monkeypatch, ["/mcp connect npx demo-server --name demo", "STOP"])
+async def test_mcp_connect_ctrl_c_cancels_and_returns_to_prompt(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/mcp connect --name demo npx demo-server", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
         return ""
@@ -775,10 +806,8 @@ async def test_mcp_connect_ctrl_c_cancels_and_returns_to_prompt(
 
 
 @pytest.mark.asyncio
-async def test_mcp_connect_cancel_survives_detach_cancelled_error(
-    monkeypatch, capsys: Any
-) -> None:
-    _patch_input(monkeypatch, ["/mcp connect npx demo-server --name demo", "STOP"])
+async def test_mcp_connect_cancel_survives_detach_cancelled_error(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/mcp connect --name demo npx demo-server", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
         return ""
@@ -811,7 +840,7 @@ async def test_mcp_connect_cancel_survives_detach_cancelled_error(
 async def test_mcp_connect_cancel_does_not_detach_previously_attached_server(
     monkeypatch, capsys: Any
 ) -> None:
-    _patch_input(monkeypatch, ["/mcp connect npx demo-server --name demo --reconnect", "STOP"])
+    _patch_input(monkeypatch, ["/mcp connect --name demo --reconnect npx demo-server", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
         return ""
@@ -842,10 +871,12 @@ async def test_mcp_connect_cancel_does_not_detach_previously_attached_server(
 
 @pytest.mark.asyncio
 async def test_mcp_connect_cancel_allows_stop_immediately(monkeypatch, capsys: Any) -> None:
-    inputs = iter([
-        "/mcp connect npx demo-server --name demo",
-        "STOP",
-    ])
+    inputs = iter(
+        [
+            "/mcp connect --name demo npx demo-server",
+            "STOP",
+        ]
+    )
     input_calls = {"count": 0}
 
     async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
@@ -930,7 +961,9 @@ async def test_mcp_connect_oauth_link_is_not_repeated_in_final_outcome(
 
 
 @pytest.mark.asyncio
-async def test_prompt_loop_recovers_from_keyboard_interrupt_in_input(monkeypatch, capsys: Any) -> None:
+async def test_prompt_loop_recovers_from_keyboard_interrupt_in_input(
+    monkeypatch, capsys: Any
+) -> None:
     inputs = iter(["STOP"])
     input_calls = {"count": 0}
 

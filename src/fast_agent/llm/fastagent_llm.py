@@ -6,17 +6,15 @@ import sys
 import time
 import traceback
 from abc import abstractmethod
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import nullcontext
 from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
     Any,
-    Awaitable,
-    Callable,
+    ClassVar,
     Generic,
     Literal,
-    Type,
     TypeVar,
     Union,
     cast,
@@ -78,10 +76,21 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.provider_management import ProviderManagedMCPState
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.console import error_console
+from fast_agent.utils.text import casefold_text
 
 # Define type variables locally
 MessageParamT = TypeVar("MessageParamT")
 MessageT = TypeVar("MessageT")
+
+_RETRYABLE_PROVIDER_KEY_ERROR_TERMS = (
+    "429",
+    "503",
+    "quota",
+    "exhausted",
+    "overloaded",
+    "unavailable",
+    "timeout",
+)
 
 # Forward reference for type annotations
 if TYPE_CHECKING:
@@ -116,7 +125,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_STRUCTURED_TOOL_POLICY = "structured_tool_policy"
 
     # Base set of fields that should always be excluded
-    BASE_EXCLUDE_FIELDS = {
+    BASE_EXCLUDE_FIELDS: ClassVar[set[str]] = {
         PARAM_METADATA,
         PARAM_TOOL_HANDLER,
         PARAM_LOOP_PROGRESS,
@@ -157,20 +166,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         # Extract request_params before super() call
         self._init_request_params = request_params
-        raw_resolved_model_spec = kwargs.pop("resolved_model_spec", None)
-        self._resolved_model_spec = raw_resolved_model_spec
+        self._resolved_model_spec = kwargs.pop("resolved_model_spec", None)
         self._init_base_url = kwargs.pop("base_url", None)
-        raw_default_headers = kwargs.pop("default_headers", None)
-        normalized_default_headers: dict[str, str] | None = None
-        if raw_default_headers is not None:
-            if not isinstance(raw_default_headers, Mapping):
-                raise TypeError("default_headers must be a mapping[str, str] when provided")
-            normalized_default_headers = {}
-            for key, value in raw_default_headers.items():
-                if not isinstance(key, str) or not isinstance(value, str):
-                    raise TypeError("default_headers must contain only string keys and values")
-                normalized_default_headers[key] = value
-        self._init_default_headers = normalized_default_headers
+        self._init_default_headers = self._normalize_default_headers(
+            kwargs.pop("default_headers", None)
+        )
         # Pop long_context before passing kwargs to ContextDependent;
         # subclasses (e.g. AnthropicLLM) may pop it first for their own handling.
         long_context_requested = kwargs.pop("long_context", False)
@@ -193,43 +193,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # and require API key access in that path.
         self._init_api_key = api_key
 
-        # Initialize default parameters, passing model info
-        model_kwargs = kwargs.copy()
-        if model:
-            model_kwargs["model"] = model
-        self.default_request_params = self._initialize_default_params(model_kwargs)
-
-        # Merge with provided params if any
-        if self._init_request_params:
-            self.default_request_params = self._merge_request_params(
-                self.default_request_params, self._init_request_params
-            )
-
-        # Cache effective model name for type-safe access
+        self.default_request_params = self._build_default_request_params(model, kwargs)
         self._model_name: str | None = self.default_request_params.model
-        if self._resolved_model_spec is None:
-            from fast_agent.llm.model_factory import ModelConfig
-            from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
-
-            fallback_model_name = self._model_name or ""
-            fallback_model_config = ModelConfig(
-                provider=provider,
-                model_name=fallback_model_name,
-            )
-            self._resolved_model_spec = ResolvedModelSpec(
-                raw_input=fallback_model_name,
-                selected_model_name=fallback_model_name,
-                source="direct",
-                model_config=fallback_model_config,
-                provider=provider,
-                wire_model_name=fallback_model_name,
-                model_params=resolve_base_model_params(
-                    provider=provider,
-                    model_name=fallback_model_name,
-                )
-                if fallback_model_name
-                else None,
-            )
+        self._ensure_resolved_model_spec(provider)
 
         # Reasoning effort configuration (provider-neutral)
         self._reasoning_effort: ReasoningEffortSetting | None = None
@@ -254,20 +220,77 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 f"'{provider.value}'. Ignoring."
             )
 
-        self.verb = kwargs.get("verb")
+        self.verb: str | ProgressAction | None = kwargs.get("verb")
 
-        # Initialize usage tracking
+        self._initialize_usage_tracking()
+        self._stream_listeners: set[Callable[[StreamChunk], None]] = set()
+        self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
+        self.retry_count = self._resolve_retry_count()
+        self.retry_backoff_seconds: float = 10.0
+        self._provider_managed_mcp_state = ProviderManagedMCPState()
+
+    @staticmethod
+    def _normalize_default_headers(raw_default_headers: Any) -> dict[str, str] | None:
+        if raw_default_headers is None:
+            return None
+        if not isinstance(raw_default_headers, Mapping):
+            raise TypeError("default_headers must be a mapping[str, str] when provided")
+
+        normalized_headers: dict[str, str] = {}
+        for key, value in raw_default_headers.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise TypeError("default_headers must contain only string keys and values")
+            normalized_headers[key] = value
+        return normalized_headers
+
+    def _build_default_request_params(
+        self,
+        model: str | None,
+        kwargs: dict[str, Any],
+    ) -> RequestParams:
+        model_kwargs = kwargs.copy()
+        if model:
+            model_kwargs["model"] = model
+
+        default_params = self._initialize_default_params(model_kwargs)
+        if self._init_request_params is None:
+            return default_params
+        return self._merge_request_params(default_params, self._init_request_params)
+
+    def _ensure_resolved_model_spec(self, provider: Provider) -> None:
+        if self._resolved_model_spec is not None:
+            return
+
+        from fast_agent.llm.model_factory import ModelConfig
+        from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
+
+        fallback_model_name = self._model_name or ""
+        fallback_model_config = ModelConfig(
+            provider=provider,
+            model_name=fallback_model_name,
+        )
+        self._resolved_model_spec = ResolvedModelSpec(
+            raw_input=fallback_model_name,
+            selected_model_name=fallback_model_name,
+            source="direct",
+            model_config=fallback_model_config,
+            provider=provider,
+            wire_model_name=fallback_model_name,
+            model_params=resolve_base_model_params(
+                provider=provider,
+                model_name=fallback_model_name,
+            )
+            if fallback_model_name
+            else None,
+        )
+
+    def _initialize_usage_tracking(self) -> None:
         self._usage_accumulator = UsageAccumulator()
         effective_context_window = self._context_window_override
         if effective_context_window is None and self._resolved_model_matches(self._model_name):
             effective_context_window = self._resolved_model_spec.context_window
         if effective_context_window is not None:
             self._usage_accumulator.set_context_window_size(effective_context_window)
-        self._stream_listeners: set[Callable[[StreamChunk], None]] = set()
-        self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
-        self.retry_count = self._resolve_retry_count()
-        self.retry_backoff_seconds: float = 10.0
-        self._provider_managed_mcp_state = ProviderManagedMCPState()
 
     def _resolved_model_matches(self, model_name: str | None) -> bool:
         if not model_name:
@@ -437,6 +460,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _get_model_anthropic_task_budget_supported(self, model_name: str | None) -> bool:
         params = self._get_model_params(model_name)
         return bool(params.anthropic_task_budget_supported) if params is not None else False
+
+    def _get_model_anthropic_thinking_field_required(self, model_name: str | None) -> bool:
+        params = self._get_model_params(model_name)
+        return params.anthropic_thinking_field_required if params is not None else True
 
     def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
         if setting is None:
@@ -641,27 +668,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Executes a function with robust retry logic for transient API errors.
         """
         retries = max(0, int(self.retry_count))
-
-        def _is_fatal_error(e: Exception) -> bool:
-            if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
-                return True
-            if isinstance(e, ProviderKeyError):
-                msg = str(e).lower()
-                # Retry on Rate Limits (429, Quota, Overloaded)
-                keywords = [
-                    "429",
-                    "503",
-                    "quota",
-                    "exhausted",
-                    "overloaded",
-                    "unavailable",
-                    "timeout",
-                ]
-                if any(k in msg for k in keywords):
-                    return False
-                return True
-            return False
-
         last_error = None
 
         for attempt in range(retries + 1):
@@ -669,52 +675,80 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 # Await the async function
                 return await func(*args, **kwargs)
             except Exception as e:
-                if _is_fatal_error(e):
-                    raise e
+                if self._is_fatal_retry_error(e):
+                    raise
 
                 last_error = e
                 if attempt < retries:
-                    wait_time = self.retry_backoff_seconds * (attempt + 1)
-
-                    if os.environ.get("FAST_AGENT_WEBDEBUG"):
-                        print(
-                            "[webdebug] provider call failed "
-                            f"attempt={attempt + 1}/{retries + 1} "
-                            f"error_type={type(e).__name__}",
-                            file=sys.stderr,
-                        )
-                        traceback.print_exception(type(e), e, e.__traceback__)
-
-                    try:
-                        from fast_agent.ui.progress_display import progress_display
-                    except ImportError:
-                        paused_progress = nullcontext()
-                    else:
-                        paused_progress = progress_display.paused()
-
-                    with paused_progress:
-                        error_console.print(
-                            f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]"
-                        )
-                        error_console.print(
-                            f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
-                        )
-
-                    await asyncio.sleep(wait_time)
+                    await self._wait_before_retry(e, attempt=attempt, retries=retries)
 
         if last_error:
-            handler = on_final_error or getattr(self, "_handle_retry_failure", None)
-            if handler:
-                handled = handler(last_error)
-                if inspect.isawaitable(handled):
-                    handled = await handled
-                if handled is not None:
-                    return handled
-
-            raise last_error
+            return await self._handle_exhausted_retries(last_error, on_final_error)
 
         # This line satisfies Pylance that we never implicitly return None
         raise RuntimeError("Retry loop finished without success or exception")
+
+    @staticmethod
+    def _is_fatal_retry_error(error: Exception) -> bool:
+        if isinstance(error, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+            return True
+        if not isinstance(error, ProviderKeyError):
+            return False
+
+        message = casefold_text(str(error))
+        return not any(term in message for term in _RETRYABLE_PROVIDER_KEY_ERROR_TERMS)
+
+    async def _wait_before_retry(
+        self,
+        error: Exception,
+        *,
+        attempt: int,
+        retries: int,
+    ) -> None:
+        wait_time = self.retry_backoff_seconds * (attempt + 1)
+        self._log_retry_webdebug(error, attempt=attempt, retries=retries)
+
+        with self._paused_progress_display():
+            error_console.print(f"\n[yellow]▲ Provider Error: {str(error)[:300]}...[/yellow]")
+            error_console.print(
+                f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
+            )
+
+        await asyncio.sleep(wait_time)
+
+    @staticmethod
+    def _log_retry_webdebug(error: Exception, *, attempt: int, retries: int) -> None:
+        if not os.environ.get("FAST_AGENT_WEBDEBUG"):
+            return
+
+        print(
+            "[webdebug] provider call failed "
+            f"attempt={attempt + 1}/{retries + 1} "
+            f"error_type={type(error).__name__}",
+            file=sys.stderr,
+        )
+        traceback.print_exception(type(error), error, error.__traceback__)
+
+    @staticmethod
+    def _paused_progress_display() -> Any:
+        try:
+            from fast_agent.ui.progress_display import progress_display
+        except ImportError:
+            return nullcontext()
+        return progress_display.paused()
+
+    async def _handle_exhausted_retries(
+        self,
+        last_error: Exception,
+        on_final_error: Callable[[Exception], Awaitable[Any] | Any] | None,
+    ) -> Any:
+        handler = on_final_error or self._handle_retry_failure
+        handled = handler(last_error)
+        if inspect.isawaitable(handled):
+            handled = await handled
+        if handled is not None:
+            return handled
+        raise last_error
 
     def _handle_retry_failure(self, error: Exception) -> Any | None:
         """
@@ -771,6 +805,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             asyncio.CancelledError: If the operation is cancelled via task.cancel()
         """
         # TODO -- create a "fast-agent" control role rather than magic strings
+
+        if not messages:
+            raise ValueError("generate requires at least one message")
 
         if messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY):
             parts: list[str] = messages[-1].first_text().split(" ", 1)
@@ -829,9 +866,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 },
             )
 
-        # Store MCP metadata in context variable
-        if prepared_request_params.mcp_metadata:
-            _mcp_metadata_var.set(prepared_request_params.mcp_metadata)
+        mcp_metadata_token = _mcp_metadata_var.set(prepared_request_params.mcp_metadata)
 
         # The caller supplies the full conversation to send
         full_history = prepared_messages
@@ -845,6 +880,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 prepared_tools,
             )
         finally:
+            _mcp_metadata_var.reset(mcp_metadata_token)
             cleanup_timing_capture()
         end_time = time.perf_counter()
         self._add_timing_channel(
@@ -925,7 +961,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     async def structured(
         self,
         messages: list[PromptMessageExtended],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
@@ -944,8 +980,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
 
         final_request_params = self.get_request_params(request_params)
-        if final_request_params.mcp_metadata:
-            _mcp_metadata_var.set(final_request_params.mcp_metadata)
+        mcp_metadata_token = _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
         timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
         try:
@@ -957,6 +992,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 on_final_error=self._handle_retry_failure,
             )
         finally:
+            _mcp_metadata_var.reset(mcp_metadata_token)
             cleanup_timing_capture()
 
         if isinstance(result_or_response, PromptMessageExtended):
@@ -1020,7 +1056,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     @staticmethod
     def model_to_response_format(
-        model: Type[Any],
+        model: type[Any],
     ) -> Any:
         """
         Convert a pydantic model to the appropriate response format schema.
@@ -1038,7 +1074,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     @staticmethod
     def model_to_schema_str(
-        model: Type[Any],
+        model: type[Any],
     ) -> str:
         """
         Convert a pydantic model to a schema string representation.
@@ -1086,7 +1122,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     async def _apply_prompt_provider_specific_structured(
         self,
         multipart_messages: list[PromptMessageExtended],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]:
         """Base class attempts to parse JSON - subclasses can use provider specific functionality"""
@@ -1122,18 +1158,19 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return await self._apply_prompt_provider_specific(multipart_messages, request_params)
 
     def _structured_from_multipart(
-        self, message: PromptMessageExtended, model: Type[ModelT]
+        self, message: PromptMessageExtended, model: type[ModelT]
     ) -> tuple[ModelT | None, PromptMessageExtended]:
         """Parse the content of a PromptMessage and return the structured model and message itself"""
         try:
-            text = get_text(message.content[-1]) or ""
+            text = get_text(message.content[-1]) if message.content else ""
+            text = text or ""
             text = self._prepare_structured_text(text)
             json_data = from_json(text, allow_partial=True)
             validated_model = model.model_validate(json_data)
             return validated_model, message
         except ValueError as e:
             logger = get_logger(__name__)
-            logger.warning(f"Failed to parse structured response: {str(e)}")
+            logger.warning(f"Failed to parse structured response: {e!s}")
             return None, message
 
     def _structured_schema_from_multipart(
@@ -1152,7 +1189,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             return json_data, message
         except Exception as e:
             logger = get_logger(__name__)
-            logger.warning(f"Failed to parse structured response: {str(e)}")
+            logger.warning(f"Failed to parse structured response: {e!s}")
             return None, message
 
     def _prepare_structured_text(self, text: str) -> str:
@@ -1266,12 +1303,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def _log_chat_progress(self, chat_turn: int | None = None, model: str | None = None) -> None:
         """Log a chat progress event"""
-        # Determine action type based on verb
-        if hasattr(self, "verb") and self.verb:
-            # Use verb directly regardless of type
-            act = self.verb
-        else:
-            act = ProgressAction.SENDING
+        act = self.verb or ProgressAction.SENDING
 
         data = {
             "progress_action": act,
@@ -1542,6 +1574,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             return self._init_api_key
 
         return self._provider_api_key()
+
+    def validate_provider_credentials(self) -> None:
+        """Validate that this provider has a locally configured credential source."""
+        self._api_key()
 
     def _provider_api_key(self):
         from fast_agent.llm.provider_key_manager import ProviderKeyManager

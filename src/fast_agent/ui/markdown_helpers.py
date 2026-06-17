@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import Any, Iterable, Iterator
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
 
 HTML_ESCAPE_CHARS: dict[str, str] = {
     "&": "&amp;",
@@ -23,6 +26,10 @@ def _flatten_tokens(tokens: Iterable[Any]) -> Iterator[Any]:
             yield from _flatten_tokens(token.children)
 
 
+def _is_protected_position(position: int, protected_ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= position < end for start, end in protected_ranges)
+
+
 @lru_cache(maxsize=1)
 def _get_markdown_parser() -> Any:
     from markdown_it import MarkdownIt
@@ -38,55 +45,92 @@ def _prepare_markdown_content_cached(content: str) -> str:
     except Exception:
         return _escape_markdown_text(content)
 
+    protected_ranges = _protected_markdown_ranges(content, tokens)
+    return _escape_unprotected_markdown(content, protected_ranges)
+
+
+def _protected_markdown_ranges(
+    content: str,
+    tokens: Iterable[Any],
+) -> list[tuple[int, int]]:
     protected_ranges: list[tuple[int, int]] = []
     lines = content.split("\n")
 
     for token in _flatten_tokens(tokens):
-        if token.map is not None:
-            if token.type in ("fence", "code_block"):
-                start_line = token.map[0]
-                end_line = token.map[1]
-                start_pos = sum(len(line) + 1 for line in lines[:start_line])
-                end_pos = sum(len(line) + 1 for line in lines[:end_line])
-                protected_ranges.append((start_pos, end_pos))
+        if token.map is not None and token.type in ("fence", "code_block"):
+            protected_ranges.append(_line_map_to_range(lines, token.map))
 
         if token.type == "code_inline":
-            code_content = token.content
-            if code_content:
-                pattern = f"`{code_content}`"
-                start = 0
-                while True:
-                    pos = content.find(pattern, start)
-                    if pos == -1:
-                        break
-                    in_protected = any(s <= pos < e for s, e in protected_ranges)
-                    if not in_protected:
-                        protected_ranges.append((pos, pos + len(pattern)))
-                    start = pos + len(pattern)
+            protected_ranges.extend(_inline_code_ranges(content, token.content, protected_ranges))
 
+    incomplete_fence_range = _incomplete_fence_range(content, protected_ranges)
+    if incomplete_fence_range is not None:
+        protected_ranges.append(incomplete_fence_range)
+
+    return _merge_ranges(protected_ranges)
+
+
+def _line_map_to_range(lines: list[str], line_map: list[int]) -> tuple[int, int]:
+    start_line, end_line = line_map
+    start_pos = sum(len(line) + 1 for line in lines[:start_line])
+    end_pos = sum(len(line) + 1 for line in lines[:end_line])
+    return start_pos, end_pos
+
+
+def _inline_code_ranges(
+    content: str,
+    code_content: str,
+    protected_ranges: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    if not code_content:
+        return []
+
+    ranges: list[tuple[int, int]] = []
+    pattern = f"`{code_content}`"
+    start = 0
+    while True:
+        pos = content.find(pattern, start)
+        if pos == -1:
+            return ranges
+        if not _is_protected_position(pos, protected_ranges):
+            ranges.append((pos, pos + len(pattern)))
+        start = pos + len(pattern)
+
+
+def _incomplete_fence_range(
+    content: str,
+    protected_ranges: list[tuple[int, int]],
+) -> tuple[int, int] | None:
     fences = list(_FENCE_PATTERN.finditer(content))
+    if len(fences) % 2 == 0:
+        return None
 
-    if len(fences) % 2 == 1:
-        last_fence_pos = fences[-1].start()
-        in_protected = any(s <= last_fence_pos < e for s, e in protected_ranges)
-        if not in_protected:
-            protected_ranges.append((last_fence_pos, len(content)))
+    last_fence_pos = fences[-1].start()
+    if _is_protected_position(last_fence_pos, protected_ranges):
+        return None
+    return last_fence_pos, len(content)
 
-    protected_ranges.sort(key=lambda x: x[0])
 
+def _merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    ranges.sort(key=lambda item: item[0])
     merged_ranges: list[tuple[int, int]] = []
-    for start, end in protected_ranges:
+    for start, end in ranges:
         if merged_ranges and start <= merged_ranges[-1][1]:
             merged_ranges[-1] = (merged_ranges[-1][0], max(end, merged_ranges[-1][1]))
         else:
             merged_ranges.append((start, end))
+    return merged_ranges
 
+
+def _escape_unprotected_markdown(
+    content: str,
+    protected_ranges: list[tuple[int, int]],
+) -> str:
     result_segments: list[str] = []
     last_end = 0
 
-    for start, end in merged_ranges:
+    for start, end in protected_ranges:
         result_segments.append(_escape_markdown_text(content[last_end:start]))
-
         result_segments.append(content[start:end])
         last_end = end
 

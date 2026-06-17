@@ -7,10 +7,11 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams, PromptMessage, TextContent
+from mcp.types import CallToolRequestParams, CallToolResult, PromptMessage, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
 from fast_agent.agents.workflow.agents_as_tools_agent import (
     AgentsAsToolsAgent,
@@ -19,8 +20,8 @@ from fast_agent.agents.workflow.agents_as_tools_agent import (
     HistorySource,
 )
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-from fast_agent.mcp.helpers.content_helpers import text_content
-from fast_agent.mcp.prompt_serialization import load_messages, save_messages
+from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.types import PromptMessageExtended, RequestParams
 
@@ -38,7 +39,7 @@ async def cleanup_logging():
         await bus.stop()
         # bus.stop() is best-effort (it may swallow cancellation/timeouts). Ensure
         # the underlying processing task is fully awaited so pytest doesn't warn.
-        if bus_task is not None and hasattr(bus_task, "done") and not bus_task.done():
+        if isinstance(bus_task, asyncio.Future) and not bus_task.done():
             bus_task.cancel()
             await asyncio.gather(bus_task, return_exceptions=True)
     AsyncEventBus.reset()
@@ -88,6 +89,17 @@ class FakeChildAgent(LlmAgent):
         return self
 
 
+def test_agents_as_tools_rejects_duplicate_child_tool_names() -> None:
+    first = FakeChildAgent("child")
+    second = FakeChildAgent("child")
+
+    with pytest.raises(
+        AgentConfigError,
+        match="Duplicate Agents-as-Tools tool name 'agent__child'",
+    ):
+        AgentsAsToolsAgent(AgentConfig("parent"), [first, second])
+
+
 class StructuredInputChild(FakeChildAgent):
     def __init__(self, name: str, response_text: str = "ok") -> None:
         super().__init__(name, response_text=response_text)
@@ -126,6 +138,19 @@ class ErrorChannelChild(FakeChildAgent):
             content=[],
             channels={FAST_AGENT_ERROR_CHANNEL: [text_content("err-block")]},
         )
+
+
+class CancellingChild(FakeChildAgent):
+    async def generate(
+        self,
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        raise asyncio.CancelledError
 
 
 class HistoryChild(LlmAgent):
@@ -189,9 +214,7 @@ class RecordingToolHandler(ToolExecutionHandler):
     def __init__(self) -> None:
         self.starts: list[tuple[str, str, dict[str, Any] | None, str | None]] = []
         self.progress: list[tuple[str, float, float | None, str | None]] = []
-        self.completes: list[
-            tuple[str, bool, list[Any] | None, str | None]
-        ] = []
+        self.completes: list[tuple[str, bool, list[Any] | None, str | None]] = []
 
     async def on_tool_start(
         self,
@@ -305,6 +328,92 @@ async def test_list_tools_merges_base_and_child():
     assert "agent__child" in tool_names
 
 
+def test_parallel_streaming_close_does_not_swallow_internal_attribute_errors() -> None:
+    class BrokenStreamingCloseAgent(AgentsAsToolsAgent):
+        def close_active_streaming_display(self, *, reason: str | None = None) -> bool:
+            raise AttributeError("internal display state missing")
+
+    child = FakeChildAgent("child")
+    agent = BrokenStreamingCloseAgent(AgentConfig("parent"), [child])
+
+    with pytest.raises(AttributeError, match="internal display state missing"):
+        agent._close_streaming_for_parallel_child_tools(2)
+
+
+@pytest.mark.asyncio
+async def test_call_tool_routes_collision_to_advertised_base_tool(monkeypatch):
+    child = StructuredInputChild("child", response_text="child")
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    base_tool = Tool(name="agent__child", description="base", inputSchema={"type": "object"})
+    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
+
+    async def fake_base_call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_params: RequestParams | None = None,
+    ) -> CallToolResult:
+        del self, arguments, tool_use_id, request_params
+        return CallToolResult(content=[text_content(f"base:{name}")], isError=False)
+
+    monkeypatch.setattr(McpAgent, "call_tool", fake_base_call_tool)
+
+    result = await agent.call_tool("agent__child", {"message": "hi"})
+
+    assert result.isError is False
+    assert result.content is not None
+    assert get_text(result.content[0]) == "base:agent__child"
+    assert child.last_input_text is None
+
+
+@pytest.mark.asyncio
+async def test_run_tools_routes_collision_to_advertised_base_tool(monkeypatch):
+    child = StructuredInputChild("child", response_text="child")
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    base_tool = Tool(name="agent__child", description="base", inputSchema={"type": "object"})
+    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
+
+    async def fake_base_run_tools(
+        self,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended:
+        del self, request_params
+        return PromptMessageExtended(
+            role="user",
+            tool_results={
+                cid: CallToolResult(
+                    content=[text_content(f"base:{tool.params.name}")],
+                    isError=False,
+                )
+                for cid, tool in (request.tool_calls or {}).items()
+            },
+        )
+
+    monkeypatch.setattr(McpAgent, "run_tools", fake_base_run_tools)
+
+    request = PromptMessageExtended(
+        role="assistant",
+        tool_calls={
+            "1": CallToolRequest(
+                params=CallToolRequestParams(name="agent__child", arguments={"message": "hi"})
+            )
+        },
+    )
+
+    result = await agent.run_tools(request)
+
+    assert result.tool_results is not None
+    assert get_text(result.tool_results["1"].content[0]) == "base:agent__child"
+    assert child.last_input_text is None
+
+
 @pytest.mark.asyncio
 async def test_list_tools_uses_child_tool_input_schema():
     child = FakeChildAgent("child")
@@ -358,8 +467,12 @@ async def test_run_tools_respects_max_parallel_and_timeout():
     await agent.initialize()
 
     tool_calls = {
-        "1": CallToolRequest(params=CallToolRequestParams(name="agent__fast", arguments={"text": "hi"})),
-        "2": CallToolRequest(params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"})),
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__fast", arguments={"text": "hi"})
+        ),
+        "2": CallToolRequest(
+            params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"})
+        ),
     }
     request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
 
@@ -370,18 +483,22 @@ async def test_run_tools_respects_max_parallel_and_timeout():
     slow_result = result_message.tool_results["2"]
 
     assert not fast_result.isError
-    # Skipped due to max_parallel cap.
+    # max_parallel limits concurrency without dropping requested calls; the slow
+    # call still runs and then hits the per-child timeout.
     assert slow_result.isError
     assert slow_result.content is not None
     assert slow_result.content[0].type == "text"
     assert isinstance(slow_result.content[0], TextContent)
-    assert "Skipped" in slow_result.content[0].text
 
     # Now ensure timeout path yields an error result when a single slow call runs.
     request_single = PromptMessageExtended(
         role="assistant",
         content=[],
-        tool_calls={"3": CallToolRequest(params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"}))},
+        tool_calls={
+            "3": CallToolRequest(
+                params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"})
+            )
+        },
     )
     single_result = await agent.run_tools(request_single)
     assert single_result.tool_results is not None
@@ -392,6 +509,55 @@ async def test_run_tools_respects_max_parallel_and_timeout():
         isinstance(block, TextContent) and "Tool execution failed" in (block.text or "")
         for block in err_res.content
     )
+
+
+@pytest.mark.asyncio
+async def test_run_tools_preserves_interleaved_child_and_mcp_result_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    child = FakeChildAgent("child", response_text="child")
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    async def fake_base_run_tools(
+        self: McpAgent,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended:
+        del self, request_params
+        assert request.tool_calls is not None
+        return PromptMessageExtended(
+            role="user",
+            tool_results={
+                correlation_id: CallToolResult(
+                    content=[text_content(f"mcp:{correlation_id}")],
+                    isError=False,
+                )
+                for correlation_id in request.tool_calls
+            },
+        )
+
+    monkeypatch.setattr(McpAgent, "run_tools", fake_base_run_tools)
+
+    request = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        tool_calls={
+            "mcp-1": CallToolRequest(params=CallToolRequestParams(name="base_tool", arguments={})),
+            "child-1": CallToolRequest(
+                params=CallToolRequestParams(
+                    name="agent__child",
+                    arguments={"message": "hi"},
+                )
+            ),
+            "mcp-2": CallToolRequest(params=CallToolRequestParams(name="other_tool", arguments={})),
+        },
+    )
+
+    result_message = await agent.run_tools(request)
+
+    assert result_message.tool_results is not None
+    assert list(result_message.tool_results) == ["mcp-1", "child-1", "mcp-2"]
 
 
 @pytest.mark.asyncio
@@ -491,12 +657,16 @@ async def test_invoke_child_uses_legacy_message_input_for_message_only_schema():
 
 
 @pytest.mark.asyncio
-async def test_child_passthrough_setting_is_inherited_from_parent_request_params() -> None:
+async def test_child_delegation_keeps_workflow_settings_without_parent_llm_defaults() -> None:
     child = FakeChildAgent("child")
     agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
     await agent.initialize()
 
-    parent_request_params = RequestParams(tool_result_mode="passthrough")
+    parent_request_params = RequestParams(
+        model="parent-model",
+        maxTokens=123,
+        tool_result_mode="passthrough",
+    )
     await agent._invoke_child_agent(
         child,
         {"message": "hello child"},
@@ -504,6 +674,8 @@ async def test_child_passthrough_setting_is_inherited_from_parent_request_params
     )
 
     assert child.last_request_params is not None
+    assert child.last_request_params.model is None
+    assert "maxTokens" not in child.last_request_params.model_dump(exclude_unset=True)
     assert child.last_request_params.tool_result_mode == "passthrough"
 
 
@@ -525,20 +697,142 @@ async def test_child_response_mode_overrides_inherited_passthrough_and_is_stripp
     agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
     await agent.initialize()
 
-    parent_request_params = RequestParams(tool_result_mode="passthrough")
+    parent_request_params = RequestParams(
+        model="parent-model",
+        maxTokens=123,
+        tool_result_mode="passthrough",
+    )
     await agent._invoke_child_agent(
         child,
         {
             "query": "find updates",
-            "response_mode": "postprocess",
+            "response_mode": " PostProcess ",
         },
         request_params=parent_request_params,
     )
 
     assert child.last_request_params is not None
+    assert child.last_request_params.model is None
+    assert "maxTokens" not in child.last_request_params.model_dump(exclude_unset=True)
     assert child.last_request_params.tool_result_mode == "postprocess"
     assert child.last_input_text is not None
     assert json.loads(child.last_input_text) == {"query": "find updates"}
+
+
+@pytest.mark.asyncio
+async def test_child_response_mode_rejects_invalid_value_when_control_enabled() -> None:
+    child = StructuredInputChild("child")
+    child.config.tool_input_schema = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+        },
+        "required": ["query"],
+    }
+    child.config.default_request_params = RequestParams(tool_result_mode="selectable")
+
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    result = await agent._invoke_child_agent(
+        child,
+        {
+            "query": "find updates",
+            "response_mode": "passthru",
+        },
+    )
+
+    assert result.isError is True
+    assert result.content is not None
+    error_text = get_text(result.content[0])
+    assert error_text is not None
+    assert "Invalid response_mode 'passthru'" in error_text
+    assert child.last_input_text is None
+
+
+@pytest.mark.asyncio
+async def test_child_response_mode_field_is_preserved_when_control_disabled() -> None:
+    child = StructuredInputChild("child")
+    child.config.tool_input_schema = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "What to investigate",
+            },
+        },
+        "required": ["query"],
+    }
+
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    parent_request_params = RequestParams(
+        model="parent-model",
+        tool_result_mode="passthrough",
+    )
+    await agent._invoke_child_agent(
+        child,
+        {
+            "query": "find updates",
+            "response_mode": "surprise",
+        },
+        request_params=parent_request_params,
+    )
+
+    assert child.last_request_params is not parent_request_params
+    assert child.last_request_params is not None
+    assert child.last_request_params.systemPrompt is None
+    assert child.last_request_params.model is None
+    assert child.last_request_params.tool_result_mode == "passthrough"
+    assert child.last_input_text is not None
+    assert json.loads(child.last_input_text) == {
+        "query": "find updates",
+        "response_mode": "surprise",
+    }
+
+
+@pytest.mark.asyncio
+async def test_child_owned_response_mode_field_is_preserved_when_selectable() -> None:
+    child = StructuredInputChild("child")
+    child.config.tool_input_schema = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "What to investigate",
+            },
+            "response_mode": {
+                "type": "string",
+                "description": "A domain-specific mode consumed by the child agent",
+            },
+        },
+        "required": ["query"],
+    }
+    child.config.default_request_params = RequestParams(tool_result_mode="selectable")
+
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    listed_tools = await agent.list_tools()
+    child_tool = next(tool for tool in listed_tools.tools if tool.name == "agent__child")
+
+    assert child_tool.inputSchema == child.config.tool_input_schema
+
+    await agent._invoke_child_agent(
+        child,
+        {
+            "query": "find updates",
+            "response_mode": "domain-value",
+        },
+    )
+
+    assert child.last_request_params is None
+    assert child.last_input_text is not None
+    assert json.loads(child.last_input_text) == {
+        "query": "find updates",
+        "response_mode": "domain-value",
+    }
 
 
 @pytest.mark.asyncio
@@ -570,6 +864,27 @@ async def test_run_tools_emits_progress_for_child_agent():
     assert success is True
     assert error is None
     assert content is not None
+
+
+@pytest.mark.asyncio
+async def test_invoke_child_completes_tool_call_on_cancellation() -> None:
+    child = CancellingChild("child")
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    handler = RecordingToolHandler()
+    request_params = RequestParams(tool_execution_handler=handler)
+
+    with pytest.raises(asyncio.CancelledError):
+        await agent._invoke_child_agent(
+            child,
+            {"message": "hi"},
+            request_params=request_params,
+            tool_use_id="tool-use-1",
+        )
+
+    assert handler.starts == [("child", "agent", {"message": "hi"}, "tool-use-1")]
+    assert handler.completes == [("tool-call-1", False, None, "Child agent tool call cancelled")]
 
 
 @pytest.mark.asyncio
@@ -631,23 +946,16 @@ async def test_history_source_orchestrator_merges_back_to_orchestrator():
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason="history_merge_target=messages is deferred until file merge is implemented",
-)
-async def test_history_merge_target_messages_updates_history_file(tmp_path):
-    messages_path = tmp_path / "history.json"
-    seed = PromptMessageExtended(role="user", content=[text_content("seed")])
-    save_messages([seed], str(messages_path))
-
+async def test_history_source_none_and_merge_none_leave_histories_unchanged():
     child = HistoryChild("child")
-    options = AgentsAsToolsOptions(history_merge_target=HistoryMergeTarget.MESSAGES)
-    agent = AgentsAsToolsAgent(
-        AgentConfig("parent"),
-        [child],
-        options=options,
-        child_message_files={"child": [messages_path]},
+    seed = PromptMessageExtended(role="user", content=[text_content("seed")])
+    child.load_message_history([seed])
+
+    options = AgentsAsToolsOptions(
+        history_source=HistorySource.NONE,
+        history_merge_target=HistoryMergeTarget.NONE,
     )
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child], options=options)
     await agent.initialize()
 
     tool_calls = {
@@ -659,8 +967,80 @@ async def test_history_merge_target_messages_updates_history_file(tmp_path):
 
     await agent.run_tools(request)
 
-    merged = load_messages(str(messages_path))
-    assert len(merged) > 1
+    clone = child.last_clone
+    assert clone is not None
+    assert clone.loaded_history == []
+    assert child.message_history == [seed]
+    assert agent.message_history == []
+
+
+def test_history_options_reject_invalid_history_source() -> None:
+    invalid_source: Any = "chlid"
+
+    with pytest.raises(ValueError, match="history_source must be one of"):
+        AgentsAsToolsOptions(history_source=invalid_source)
+
+
+def test_history_options_reject_unsupported_message_merge_target() -> None:
+    message_target: Any = "messages"
+
+    with pytest.raises(ValueError, match="history_merge_target=messages is not supported"):
+        AgentsAsToolsOptions(history_merge_target=message_target)
+
+
+def test_child_request_params_strip_parent_system_prompt() -> None:
+    request_params = RequestParams(
+        systemPrompt="parent instruction",
+        model="passthrough",
+        tool_result_mode="selectable",
+    )
+
+    child_params = AgentsAsToolsAgent._build_child_request_params(
+        request_params,
+        tool_result_mode_override=None,
+    )
+
+    assert child_params is not None
+    assert child_params.systemPrompt is None
+    assert child_params.model is None
+    assert child_params.tool_result_mode == "selectable"
+
+
+def test_child_request_params_strip_parent_system_prompt_with_response_mode_override() -> None:
+    request_params = RequestParams(
+        systemPrompt="parent instruction",
+        model="passthrough",
+        tool_result_mode="selectable",
+    )
+
+    child_params = AgentsAsToolsAgent._build_child_request_params(
+        request_params,
+        tool_result_mode_override="passthrough",
+    )
+
+    assert child_params is not None
+    assert child_params.systemPrompt is None
+    assert child_params.model is None
+    assert child_params.tool_result_mode == "passthrough"
+
+
+def test_child_request_params_preserve_explicit_no_history() -> None:
+    request_params = RequestParams(
+        systemPrompt="parent instruction",
+        model="passthrough",
+        use_history=False,
+    )
+
+    child_params = AgentsAsToolsAgent._build_child_request_params(
+        request_params,
+        tool_result_mode_override=None,
+    )
+
+    assert child_params is not None
+    assert child_params.systemPrompt is None
+    assert child_params.model is None
+    assert child_params.use_history is False
+
 
 @pytest.mark.asyncio
 async def test_invoke_child_appends_error_channel():
@@ -686,7 +1066,9 @@ async def test_nested_agents_as_tools_preserves_instance_labels():
     await parent.initialize()
 
     tool_calls = {
-        "1": CallToolRequest(params=CallToolRequestParams(name="agent__nested", arguments={"text": "hi"})),
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__nested", arguments={"text": "hi"})
+        ),
     }
     request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
 

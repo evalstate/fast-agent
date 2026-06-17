@@ -2,7 +2,10 @@
 
 import importlib
 import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
+from typing import ClassVar
 
 import click
 import typer
@@ -38,8 +41,23 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
 }
 
 
+def _resolve_root_verbosity(*, verbose: bool, quiet: bool) -> int:
+    if verbose:
+        return 1
+    if quiet:
+        return -1
+    return 0
+
+
+def _installed_package_version(package_name: str) -> str:
+    try:
+        return package_version(package_name)
+    except PackageNotFoundError:
+        return "unknown"
+
+
 class LazyGroup(TyperGroup):
-    lazy_subcommands: dict[str, str] = {}
+    lazy_subcommands: ClassVar[dict[str, str]] = {}
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         if _first_root_command(args) == "go":
@@ -47,9 +65,11 @@ class LazyGroup(TyperGroup):
         return super().parse_args(ctx, args)
 
     def list_commands(self, ctx: click.Context) -> list[str]:
+        del ctx
         return sorted(self.lazy_subcommands)
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        del ctx
         target = self.lazy_subcommands.get(cmd_name)
         if not target:
             return None
@@ -87,6 +107,7 @@ def _first_root_command(args: list[str]) -> str | None:
         return arg
     return None
 
+
 # Shared application context
 application = Application()
 # Use shared console to match app-wide styling
@@ -95,16 +116,9 @@ console = shared_console
 
 def show_welcome(update_notice: str | None = None) -> None:
     """Show a welcome message with available commands, using new styling."""
-    from importlib.metadata import version
-
     from rich.table import Table
 
-    try:
-        app_version = version("fast-agent-mcp")
-    except:  # noqa: E722
-        app_version = "unknown"
-
-    header_title = f"fast-agent v{app_version}"
+    header_title = f"fast-agent v{_installed_package_version('fast-agent-mcp')}"
     print_section_header(console, header_title, color="blue")
 
     # Commands list (no boxes), matching updated check styling
@@ -115,7 +129,9 @@ def show_welcome(update_notice: str | None = None) -> None:
     table.add_row("[bold]go[/bold]", "Start an interactive session")
     table.add_row("go -x", "Start an interactive session with a local shell tool")
     table.add_row("[bold]serve[/bold]", "Expose fast-agent over MCP (http/stdio) or ACP")
-    table.add_row("[bold]acp[/bold]", "Start fast-agent as an ACP stdio server (for Zed, Toad, etc.)")
+    table.add_row(
+        "[bold]acp[/bold]", "Start fast-agent as an ACP stdio server (for Zed, Toad, etc.)"
+    )
     table.add_row("[bold]export[/bold]", "Export a persisted session trace")
     table.add_row("check", "Show current configuration")
     table.add_row("cards", "Manage card packs (list/add/remove/update/publish)")
@@ -173,7 +189,7 @@ def main(
     resolved_env_dir = resolve_environment_dir_option(ctx, env)
     context_payload["env_dir"] = resolved_env_dir
 
-    application.verbosity = 1 if verbose else 0 if not quiet else -1
+    application.verbosity = _resolve_root_verbosity(verbose=verbose, quiet=quiet)
     if not color:
         # Recreate consoles without color when --no-color is provided
         from fast_agent.ui.console import console as base_console
@@ -183,20 +199,18 @@ def main(
         application.error_console = base_error_console.__class__(color_system=None, stderr=True)
 
     update_notice: str | None = None
-    if not version and ctx.invoked_subcommand is None and should_run_update_check(
-        disabled=no_update_check,
+    if (
+        not version
+        and ctx.invoked_subcommand is None
+        and should_run_update_check(
+            disabled=no_update_check,
+        )
     ):
         update_notice = check_for_update_notice(environment_dir=resolved_env_dir)
 
     # Handle version flag
     if version:
-        from importlib.metadata import version as get_version
-
-        try:
-            app_version = get_version("fast-agent-mcp")
-        except:  # noqa: E722
-            app_version = "unknown"
-        console.print(f"fast-agent-mcp v{app_version}")
+        console.print(f"fast-agent-mcp v{_installed_package_version('fast-agent-mcp')}")
         raise typer.Exit()
 
     # Show welcome message if no command was invoked

@@ -1,11 +1,11 @@
 import asyncio
 import concurrent.futures
-import contextlib
-import os
 import sys
-import warnings
-from collections.abc import Awaitable, Callable, Iterable
-from typing import ParamSpec, TypeVar
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from importlib.util import find_spec
+from typing import Any, ParamSpec, TypeVar
+
+from fast_agent.utils.env import optional_env_flag
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -13,93 +13,13 @@ P = ParamSpec("P")
 _UVLOOP_REQUESTED: bool | None = None
 _UVLOOP_CONFIGURED: bool | None = None
 
-_UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE = (
-    r"'asyncio\.iscoroutinefunction' is deprecated and slated for removal in Python 3\.16; "
-    r"use inspect\.iscoroutinefunction\(\) instead"
-)
-_ASYNCIO_SET_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE = (
-    r"'asyncio\.set_event_loop_policy' is deprecated and slated for removal in Python 3\.16"
-)
-_ASYNCIO_ABSTRACT_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE = (
-    r"'asyncio\.AbstractEventLoopPolicy' is deprecated and slated for removal in Python 3\.16"
-)
-
-
-def install_known_runtime_warning_filters(
-    *,
-    version_info: tuple[int, ...] | None = None,
-) -> None:
-    """Install targeted runtime warning filters for supported fast-agent runtimes."""
-    _suppress_known_uvloop_prompt_toolkit_deprecation(version_info=version_info)
-    _suppress_known_uvloop_event_loop_policy_deprecations(version_info=version_info)
-
-
-@contextlib.contextmanager
-def suppress_known_runtime_warnings(
-    *,
-    version_info: tuple[int, ...] | None = None,
-):
-    """Apply targeted warning filters for a narrow runtime scope."""
-    install_known_runtime_warning_filters(version_info=version_info)
-    with warnings.catch_warnings():
-        install_known_runtime_warning_filters(version_info=version_info)
-        yield
-
-
-def _suppress_known_uvloop_prompt_toolkit_deprecation(
-    *,
-    version_info: tuple[int, ...] | None = None,
-) -> None:
-    """Hide the known Python 3.14 uvloop/prompt-toolkit startup warning."""
-    current_version = sys.version_info if version_info is None else version_info
-    if current_version < (3, 14):
-        return
-
-    # uvloop 0.22.1 still calls `asyncio.iscoroutinefunction()` internally from
-    # its signal-handler path, which Python 3.14 surfaces as a DeprecationWarning
-    # during prompt-toolkit startup. Remove this filter when uvloop ships a
-    # release that switches to `inspect.iscoroutinefunction()` and we adopt it.
-    warnings.filterwarnings(
-        "ignore",
-        message=_UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE,
-        category=DeprecationWarning,
-    )
-
-
-def _suppress_known_uvloop_event_loop_policy_deprecations(
-    *,
-    version_info: tuple[int, ...] | None = None,
-) -> None:
-    """Hide Python 3.14 asyncio event-loop-policy deprecations from uvloop startup."""
-    current_version = sys.version_info if version_info is None else version_info
-    if current_version < (3, 14):
-        return
-
-    warnings.filterwarnings(
-        "ignore",
-        message=_ASYNCIO_SET_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE,
-        category=DeprecationWarning,
-    )
-    warnings.filterwarnings(
-        "ignore",
-        message=_ASYNCIO_ABSTRACT_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE,
-        category=DeprecationWarning,
-    )
-
-
-def _env_value(name: str) -> bool | None:
-    value = os.getenv(name)
-    if value is None:
-        return None
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
 
 def configure_uvloop(
     env_var: str = "FAST_AGENT_UVLOOP",
     disable_env_var: str = "FAST_AGENT_DISABLE_UV_LOOP",
 ) -> tuple[bool, bool]:
     """
-    Configure uvloop via an env var toggle.
+    Resolve the uvloop env var toggle for fast-agent-created event loops.
 
     Returns a tuple of (requested, enabled).
     """
@@ -107,23 +27,15 @@ def configure_uvloop(
     if _UVLOOP_REQUESTED is not None and _UVLOOP_CONFIGURED is not None:
         return _UVLOOP_REQUESTED, _UVLOOP_CONFIGURED
 
-    install_known_runtime_warning_filters()
-
-    explicit_enable = _env_value(env_var)
-    explicit_disable = _env_value(disable_env_var)
+    explicit_enable = optional_env_flag(env_var)
+    explicit_disable = optional_env_flag(disable_env_var)
     requested = explicit_enable is True and explicit_disable is not True
     enabled = False
 
     if explicit_disable is True or explicit_enable is False:
         enabled = False
     elif not sys.platform.startswith("win"):
-        try:
-            import uvloop
-        except Exception:
-            enabled = False
-        else:
-            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-            enabled = True
+        enabled = find_spec("uvloop") is not None
 
     _UVLOOP_REQUESTED = requested
     _UVLOOP_CONFIGURED = enabled
@@ -131,11 +43,27 @@ def configure_uvloop(
 
 
 def create_event_loop() -> asyncio.AbstractEventLoop:
-    """Create and set a new event loop using the configured policy."""
-    configure_uvloop()
-    loop = asyncio.new_event_loop()
+    """Create and set a new event loop using uvloop when enabled."""
+    _, enabled = configure_uvloop()
+    if enabled:
+        try:
+            import uvloop
+
+            loop = uvloop.new_event_loop()
+        except Exception:
+            global _UVLOOP_CONFIGURED
+            _UVLOOP_CONFIGURED = False
+            loop = asyncio.new_event_loop()
+    else:
+        loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     return loop
+
+
+def run_coroutine(coro: Coroutine[Any, Any, T]) -> T:
+    """Run a coroutine with the fast-agent event-loop factory."""
+    with asyncio.Runner(loop_factory=create_event_loop) as runner:
+        return runner.run(coro)
 
 
 def ensure_event_loop() -> asyncio.AbstractEventLoop:
@@ -152,11 +80,9 @@ def ensure_event_loop() -> asyncio.AbstractEventLoop:
         return loop
 
 
-def run_sync(
-    func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
-) -> T | None:
+def run_sync(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T | None:
     """
-    Run an async callable from sync code using the shared loop policy.
+    Run an async callable from sync code using the fast-agent loop factory.
 
     If a loop is already running in this thread, we run the coroutine in a new thread.
     """

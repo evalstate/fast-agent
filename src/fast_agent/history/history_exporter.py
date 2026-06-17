@@ -37,6 +37,7 @@ class HistoryExporter:
         # Determine a default filename when not provided
         if not filename:
             from datetime import datetime
+
             timestamp = datetime.now().strftime("%y_%m_%d_%H_%M")
             target = f"{timestamp}-conversation.json"
         else:

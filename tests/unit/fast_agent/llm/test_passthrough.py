@@ -32,7 +32,6 @@ async def test_simple_return():
 
 
 @pytest.mark.asyncio
-@pytest.mark.asyncio
 async def test_set_fixed_return():
     llm: FastAgentLLMProtocol = PassthroughLLM()
     response: PromptMessageExtended = await llm.generate(

@@ -22,6 +22,10 @@ def interactive_display_mode() -> InteractiveDisplayMode:
     return _interactive_display_mode.get()
 
 
+def _interactive_transcript_enabled() -> bool:
+    return interactive_display_mode() == "normal"
+
+
 @contextmanager
 def suppress_interactive_display(
     mode: InteractiveDisplayMode = "progress_only",
@@ -36,19 +40,19 @@ def suppress_interactive_display(
 
 def display_chat_enabled() -> bool:
     """Return True when chat-style interactive rendering is enabled."""
-    return interactive_display_mode() == "normal"
+    return _interactive_transcript_enabled()
 
 
 def display_tools_enabled() -> bool:
     """Return True when tool call/result rendering is enabled."""
-    return interactive_display_mode() == "normal"
+    return _interactive_transcript_enabled()
 
 
 def display_status_enabled() -> bool:
     """Return True when transient status-line rendering is enabled."""
-    return interactive_display_mode() == "normal"
+    return _interactive_transcript_enabled()
 
 
 def display_usage_enabled() -> bool:
     """Return True when post-turn usage rendering is enabled."""
-    return interactive_display_mode() == "normal"
+    return _interactive_transcript_enabled()

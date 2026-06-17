@@ -49,10 +49,7 @@ def test_vertex_cfg_accepts_model_object_and_expands_model_names() -> None:
     assert location == "loc"
 
     resolved = llm._resolve_model_name("gemini-2.5-flash")
-    assert (
-        resolved
-        == "projects/proj/locations/loc/publishers/google/models/gemini-2.5-flash"
-    )
+    assert resolved == "projects/proj/locations/loc/publishers/google/models/gemini-2.5-flash"
 
 
 def test_vertex_cfg_accepts_dict_and_provider_key_manager_allows_adc() -> None:
@@ -78,9 +75,7 @@ def test_vertex_cfg_accepts_dict_and_provider_key_manager_allows_adc() -> None:
 
     resolved = llm._resolve_model_name("gemini-3-flash-preview")
     assert resolved.endswith("gemini-3-flash-preview")
-    assert resolved.startswith(
-        "projects/proj/locations/europe-west4/publishers/google/models/"
-    )
+    assert resolved.startswith("projects/proj/locations/europe-west4/publishers/google/models/")
 
     # When Vertex is enabled, no API key should be required (ADC path).
     assert ProviderKeyManager.get_api_key("google", config) == ""
@@ -103,6 +98,8 @@ def test_vertex_partner_model_names_are_not_rewritten_to_google_publisher() -> N
     llm = _build_llm(config)
 
     assert llm._resolve_model_name("claude-sonnet-4-6") == "claude-sonnet-4-6"
+    mixed_case_model = "  Claude-Sonnet-4-6  "
+    assert llm._resolve_model_name(mixed_case_model) == mixed_case_model
     assert (
         llm._resolve_model_name("publishers/anthropic/models/claude-sonnet-4-6")
         == "publishers/anthropic/models/claude-sonnet-4-6"
@@ -151,9 +148,7 @@ def test_initialize_google_client_prefers_vertex_with_dict_config(monkeypatch) -
         def __init__(self, **kwargs):
             called["kwargs"] = kwargs
 
-    monkeypatch.setattr(
-        "fast_agent.llm.provider.google.llm_google_native.genai.Client", FakeClient
-    )
+    monkeypatch.setattr("fast_agent.llm.provider.google.llm_google_native.genai.Client", FakeClient)
 
     client = llm._initialize_google_client()
 
@@ -282,8 +277,7 @@ async def test_structured_model_path_passes_pydantic_model_to_google_sdk() -> No
                                 "parts": [
                                     {
                                         "text": (
-                                            '{"name":"Ada","count":3,'
-                                            '"tags":{"role":"engineer"}}'
+                                            '{"name":"Ada","count":3,"tags":{"role":"engineer"}}'
                                         )
                                     }
                                 ],

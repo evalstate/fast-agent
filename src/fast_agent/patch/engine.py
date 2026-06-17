@@ -5,18 +5,15 @@ Python port of openai/codex apply_patch (Apache 2.0).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TextIO, cast
+from typing import TYPE_CHECKING, TextIO
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 from fast_agent.patch.errors import ApplyPatchError, InvalidHunkError, InvalidPatchError, IoError
 from fast_agent.patch.parser import (
-    AddFileHunk,
-    DeleteFileHunk,
     Hunk,
     UpdateFileChunk,
-    UpdateFileHunk,
     parse_patch,
 )
 from fast_agent.patch.seek_sequence import seek_sequence
@@ -84,36 +81,31 @@ def apply_hunks_to_files(
 
     for hunk in hunks:
         if hunk.kind == "add":
-            add_hunk = cast("AddFileHunk", hunk)
-            _write_file(_resolve_target_path(add_hunk.path, base_directory), add_hunk.contents)
-            added.append(add_hunk.path)
+            _write_file(_resolve_target_path(hunk.path, base_directory), hunk.contents)
+            added.append(hunk.path)
         elif hunk.kind == "delete":
-            delete_hunk = cast("DeleteFileHunk", hunk)
             try:
-                _resolve_target_path(delete_hunk.path, base_directory).unlink()
+                _resolve_target_path(hunk.path, base_directory).unlink()
             except OSError as exc:
-                raise ApplyPatchError(f"Failed to delete file {delete_hunk.path}") from exc
-            deleted.append(delete_hunk.path)
+                raise ApplyPatchError(f"Failed to delete file {hunk.path}") from exc
+            deleted.append(hunk.path)
         elif hunk.kind == "update":
-            update_hunk = cast("UpdateFileHunk", hunk)
             applied = derive_new_contents_from_chunks(
-                update_hunk.path,
-                update_hunk.chunks,
+                hunk.path,
+                hunk.chunks,
                 base_directory=base_directory,
             )
-            destination = update_hunk.move_path
+            destination = hunk.move_path
             if destination is not None:
                 _write_file(_resolve_target_path(destination, base_directory), applied.new_contents)
                 try:
-                    _resolve_target_path(update_hunk.path, base_directory).unlink()
+                    _resolve_target_path(hunk.path, base_directory).unlink()
                 except OSError as exc:
-                    raise ApplyPatchError(
-                        f"Failed to remove original {update_hunk.path}"
-                    ) from exc
+                    raise ApplyPatchError(f"Failed to remove original {hunk.path}") from exc
                 modified.append(destination)
             else:
-                _write_file(_resolve_target_path(update_hunk.path, base_directory), applied.new_contents)
-                modified.append(update_hunk.path)
+                _write_file(_resolve_target_path(hunk.path, base_directory), applied.new_contents)
+                modified.append(hunk.path)
         else:
             raise ApplyPatchError(f"Unsupported hunk kind: {hunk}")
 
@@ -163,9 +155,7 @@ def compute_replacements(
                 False,
             )
             if found is None:
-                raise ApplyPatchError(
-                    f"Failed to find context '{chunk.change_context}' in {path}"
-                )
+                raise ApplyPatchError(f"Failed to find context '{chunk.change_context}' in {path}")
             line_index = found + 1
 
         if not chunk.old_lines:
@@ -214,12 +204,9 @@ def apply_replacements(
 
 def print_summary(affected: AffectedPaths, out: TextIO) -> None:
     out.write("Success. Updated the following files:\n")
-    for path in affected.added:
-        out.write(f"A {path}\n")
-    for path in affected.modified:
-        out.write(f"M {path}\n")
-    for path in affected.deleted:
-        out.write(f"D {path}\n")
+    out.writelines(f"A {path}\n" for path in affected.added)
+    out.writelines(f"M {path}\n" for path in affected.modified)
+    out.writelines(f"D {path}\n" for path in affected.deleted)
 
 
 def _resolve_target_path(path: Path, base_directory: Path | None) -> Path:

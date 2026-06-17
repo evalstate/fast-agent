@@ -1,4 +1,3 @@
-
 from anthropic.types.beta import BetaMessageParam
 from mcp.types import TextContent
 
@@ -55,7 +54,9 @@ def test_conversation_cache_respects_four_block_limit():
     ]
     extended.extend(make_message(f"turn {i}") for i in range(6))
 
-    plan_indices = planner.plan_indices(extended, cache_mode="auto", system_cache_blocks=system_cache_blocks)
+    plan_indices = planner.plan_indices(
+        extended, cache_mode="auto", system_cache_blocks=system_cache_blocks
+    )
     provider_msgs = [AnthropicConverter.convert_to_anthropic(msg) for msg in extended]
     for idx in plan_indices:
         AnthropicLLM._apply_cache_control_to_message(provider_msgs[idx])

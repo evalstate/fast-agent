@@ -182,7 +182,9 @@ def test_load_history_skips_responses_usage_when_model_changes(tmp_path) -> None
 def test_load_history_rehydrates_when_switching_between_responses_and_codex(tmp_path) -> None:
     history_path = tmp_path / "history.json"
     save_messages(
-        _history_with_usage(model="gpt-5.2", input_tokens=95, output_tokens=25, provider="responses"),
+        _history_with_usage(
+            model="gpt-5.2", input_tokens=95, output_tokens=25, provider="responses"
+        ),
         str(history_path),
     )
 

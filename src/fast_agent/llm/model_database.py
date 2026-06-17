@@ -5,10 +5,11 @@ This module provides a centralized lookup for model parameters including
 context windows, max output tokens, and supported tokenization types.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel
 
+from fast_agent.llm.model_mime_support import ResourceSource, tokenizes_support_mime
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     AUTO_REASONING,
@@ -17,8 +18,7 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
-
-ResourceSource = Literal["embedded", "link"]
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 
 class ModelParameters(BaseModel):
@@ -81,6 +81,9 @@ class ModelParameters(BaseModel):
     anthropic_task_budget_supported: bool = False
     """Whether Anthropic task_budget output_config is supported for this model."""
 
+    anthropic_thinking_field_required: bool = True
+    """Whether adaptive-thinking models require an explicit thinking request field."""
+
     google_search_supported: bool = False
     """Whether Grounding with Google Search is supported for this model."""
 
@@ -110,8 +113,8 @@ def _with_long_context(params: ModelParameters, window: int) -> ModelParameters:
 class ModelDatabase:
     """Centralized model configuration database"""
 
-    _RUNTIME_MODEL_DEFAULT_PROVIDERS: dict[str, Provider] = {}
-    _RUNTIME_MODEL_PARAMS: dict[str, ModelParameters] = {}
+    _RUNTIME_MODEL_DEFAULT_PROVIDERS: ClassVar[dict[str, Provider]] = {}
+    _RUNTIME_MODEL_PARAMS: ClassVar[dict[str, ModelParameters]] = {}
     REMOVED_MODEL_NAMES: frozenset[str] = frozenset(
         {
             "claude-3-haiku-20240307",
@@ -121,29 +124,29 @@ class ModelDatabase:
     )
 
     # Common parameter sets
-    OPENAI_MULTIMODAL = [
+    OPENAI_MULTIMODAL: ClassVar[list[str]] = [
         "text/plain",
         "image/jpeg",
         "image/png",
         "image/webp",
         *DOCUMENT_MIME_TYPES,
     ]
-    OPENAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
-    ANTHROPIC_MULTIMODAL = [
+    OPENAI_VISION: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png", "image/webp"]
+    ANTHROPIC_MULTIMODAL: ClassVar[list[str]] = [
         "text/plain",
         "image/jpeg",
         "image/png",
         "image/webp",
         *DOCUMENT_MIME_TYPES,
     ]
-    ANTHROPIC_VERTEX_MULTIMODAL = [
+    ANTHROPIC_VERTEX_MULTIMODAL: ClassVar[list[str]] = [
         "text/plain",
         "image/jpeg",
         "image/png",
         "image/webp",
         "application/pdf",
     ]
-    GOOGLE_MULTIMODAL = [
+    GOOGLE_MULTIMODAL: ClassVar[list[str]] = [
         "text/plain",
         "image/jpeg",
         "image/png",
@@ -166,9 +169,9 @@ class ModelDatabase:
         "video/mpeg",  # MPEG, MPG
         "video/webm",
     ]
-    QWEN_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp"]
-    XAI_VISION = ["text/plain", "image/jpeg", "image/png"]
-    TEXT_ONLY = ["text/plain"]
+    QWEN_MULTIMODAL: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png", "image/webp"]
+    XAI_VISION: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png"]
+    TEXT_ONLY: ClassVar[list[str]] = ["text/plain"]
     # encourage commentary
     GPT_53_PLUS_MODEL_SPECIFIC = (
         "Before making tool calls, send a brief preamble to the user "
@@ -244,6 +247,13 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh", "max"],
         allow_toggle_disable=True,
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+    )
+
+    ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
         allow_auto=True,
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
@@ -503,6 +513,12 @@ class ModelDatabase:
             "max_output_tokens": 128_000,
         }
     )
+    ANTHROPIC_FABLE_5 = ANTHROPIC_OPUS_48.model_copy(
+        update={
+            "reasoning_effort_spec": ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC,
+            "anthropic_thinking_field_required": False,
+        }
+    )
 
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
@@ -573,7 +589,7 @@ class ModelDatabase:
         context_window=1_048_576,
         max_output_tokens=393_216,
         tokenizes=TEXT_ONLY,
-        json_mode="schema",
+        json_mode="object",
         reasoning="reasoning_content",
         reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,
@@ -711,6 +727,19 @@ class ModelDatabase:
         model_specific="You have vision capabilities.",
     )
 
+    KIMI_MOONSHOT_27_CODE = ModelParameters(
+        context_window=262144,
+        max_output_tokens=16384,
+        # Kimi K2.6 is multimodal, but video remains experimental and is only
+        # supported in Moonshot's official API for now.
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        default_provider=Provider.HUGGINGFACE,
+        model_specific="You have vision capabilities.",
+    )
+
     # xAI recommends Grok 4.3 for general text workloads. The pricing/tool
     # invocation tables and file/collection storage pricing are billing policy,
     # not model capability metadata, so they are intentionally not encoded here.
@@ -817,7 +846,15 @@ class ModelDatabase:
         reasoning="reasoning_content",
         stream_mode="manual",
     )
-
+    MINIMAX_3 = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        stream_mode="manual",
+    )
     HF_PROVIDER_DEEPSEEK31 = ModelParameters(
         context_window=163_800,
         max_output_tokens=8192,
@@ -860,6 +897,29 @@ class ModelDatabase:
         default_provider=Provider.HUGGINGFACE,
     )
 
+    HF_PROVIDER_QWEN36 = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=65_536,
+        tokenizes=TEXT_ONLY,
+        json_mode=None,
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
+    HF_PROVIDER_GEMMA4_31B = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=65_536,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+        model_specific="You have vision capabilities.",
+    )
+
     ALIYUN_QWEN3_MODERN = ModelParameters(
         context_window=256_000,
         max_output_tokens=64_000,
@@ -869,7 +929,7 @@ class ModelDatabase:
 
     # Model configuration database
     # KEEP ALL LOWER CASE KEYS
-    MODELS: dict[str, ModelParameters] = {
+    MODELS: ClassVar[dict[str, ModelParameters]] = {
         # internal models
         "passthrough": FAST_AGENT_STANDARD,
         "silent": FAST_AGENT_STANDARD,
@@ -975,6 +1035,7 @@ class ModelDatabase:
         "claude-opus-4-6": ANTHROPIC_OPUS_46,
         "claude-opus-4-7": ANTHROPIC_OPUS_47,
         "claude-opus-4-8": ANTHROPIC_OPUS_48,
+        "claude-fable-5": ANTHROPIC_FABLE_5,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
@@ -1013,6 +1074,7 @@ class ModelDatabase:
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
+        "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
@@ -1027,16 +1089,19 @@ class ModelDatabase:
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "minimaxai/minimax-m2.5": MINIMAX_25,
         "minimaxai/minimax-m2.7": MINIMAX_27,
+        "minimaxai/minimax-m3": MINIMAX_3,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
+        "qwen/qwen3.6-35b-a3b": HF_PROVIDER_QWEN36,
+        "google/gemma-4-31b-it": HF_PROVIDER_GEMMA4_31B,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
         "deepseek-ai/deepseek-v4-pro": HF_PROVIDER_DEEPSEEK4_PRO,
         # aliyun modern
         "qwen3-max": ALIYUN_QWEN3_MODERN,
     }
-    _PROVIDER_MODEL_OVERRIDES: dict[tuple[Provider, str], ModelParameters] = {}
-    _PROVIDER_WIRE_MODEL_NAMES: dict[tuple[Provider, str], str] = {}
+    _PROVIDER_MODEL_OVERRIDES: ClassVar[dict[tuple[Provider, str], ModelParameters]] = {}
+    _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {}
 
     @classmethod
     def get_model_params(
@@ -1069,31 +1134,52 @@ class ModelDatabase:
         This intentionally delegates to ModelFactory parsing where possible rather than
         re-implementing model string semantics in the database layer.
         """
-        from fast_agent.core.exceptions import ModelConfigError
-        from fast_agent.llm.model_factory import ModelFactory
-        from fast_agent.llm.provider_types import Provider
-
-        model_spec = (model or "").strip()
-        if not model_spec:
+        model_spec = strip_to_none(model)
+        if model_spec is None:
             return ""
 
-        if "?" in model_spec:
-            model_spec = model_spec.split("?", 1)[0].strip()
+        model_spec = cls._strip_model_query(model_spec)
 
         # If it's already a known key, keep it as-is (after casing/whitespace normalization).
-        direct_key = model_spec.lower()
+        direct_key = strip_casefold(model_spec)
         if direct_key in cls.MODELS:
             return direct_key
 
         # Apply built-in model presets first (case-insensitive).
-        aliased = ModelFactory.MODEL_PRESETS.get(model_spec)
-        if not aliased:
-            aliased = ModelFactory.MODEL_PRESETS.get(model_spec.lower())
+        aliased = cls._preset_for_model_name(model_spec)
         if aliased:
-            model_spec = aliased
-            direct_key = model_spec.strip().lower()
-            if direct_key in cls.MODELS:
-                return direct_key
+            alias_key = strip_casefold(aliased)
+            return (
+                alias_key if alias_key in cls.MODELS else cls._normalize_parsed_model_name(aliased)
+            )
+
+        # If parsing failed, still support common "model:route" forms by stripping the suffix
+        # only when the base resolves to a known database key.
+        routed_key = cls._known_routed_model_key(model_spec)
+        if routed_key is not None:
+            return routed_key
+
+        normalized_model_spec = strip_casefold(model_spec)
+        explicit_provider = cls._provider_from_explicit_prefix(normalized_model_spec)
+        if explicit_provider is None and "/" not in model_spec:
+            return normalized_model_spec
+
+        return cls._normalize_parsed_model_name(
+            normalized_model_spec if explicit_provider is not None else model_spec
+        )
+
+    @classmethod
+    def _known_routed_model_key(cls, model_spec: str) -> str | None:
+        if ":" not in model_spec:
+            return None
+        base = strip_casefold(model_spec.rsplit(":", 1)[0])
+        return base if base in cls.MODELS else None
+
+    @classmethod
+    def _normalize_parsed_model_name(cls, model_spec: str) -> str:
+        from fast_agent.core.exceptions import ModelConfigError
+        from fast_agent.llm.model_factory import ModelFactory
+        from fast_agent.llm.provider_types import Provider
 
         # Parse known spec formats to strip provider prefixes and reasoning effort.
         try:
@@ -1103,18 +1189,23 @@ class ModelDatabase:
             # HF uses `model:provider` for routing; the suffix is not part of the model id.
             if parsed.provider == Provider.HUGGINGFACE and ":" in model_spec:
                 model_spec = model_spec.rsplit(":", 1)[0]
+
+            parsed_alias = cls._preset_for_model_name(model_spec)
+            if parsed_alias:
+                model_spec = parsed_alias
+                if parsed.provider == Provider.HUGGINGFACE and ":" in model_spec:
+                    model_spec = model_spec.rsplit(":", 1)[0]
         except ModelConfigError:
             # Best-effort fallback: keep original spec if it can't be parsed.
             pass
 
-        # If parsing failed, still support common "model:route" forms by stripping the suffix
-        # only when the base resolves to a known database key.
-        if ":" in model_spec:
-            base = model_spec.rsplit(":", 1)[0].strip().lower()
-            if base in cls.MODELS:
-                return base
+        return strip_casefold(model_spec)
 
-        return model_spec.strip().lower()
+    @classmethod
+    def _strip_model_query(cls, model_spec: str) -> str:
+        if "?" not in model_spec:
+            return model_spec
+        return model_spec.split("?", 1)[0].strip()
 
     @classmethod
     def get_context_window(cls, model: str, *, provider: Provider | None = None) -> int | None:
@@ -1132,7 +1223,7 @@ class ModelDatabase:
     def get_tokenizes(cls, model: str, *, provider: Provider | None = None) -> list[str] | None:
         """Get supported tokenization types for a model"""
         params = cls.get_model_params(model, provider=provider)
-        return params.tokenizes if params else None
+        return list(params.tokenizes) if params else None
 
     @classmethod
     def get_model_specific(cls, model: str, *, provider: Provider | None = None) -> str:
@@ -1155,32 +1246,13 @@ class ModelDatabase:
         Normalizes common aliases (e.g., image/jpg->image/jpeg, document/pdf->application/pdf)
         and also accepts bare extensions like "pdf" or "png".
         """
-        from fast_agent.mcp.mime_utils import normalize_mime_type
-
         tokenizes = cls.get_tokenizes(model, provider=provider) or []
-
-        # Normalize the candidate and the database entries to lowercase
-        normalized_supported = [t.lower() for t in tokenizes]
-
-        # Handle wildcard inputs like "image/*" quickly
-        mt = (mime_type or "").strip().lower()
-        if mt.endswith("/*") and "/" in mt:
-            prefix = mt.split("/", 1)[0] + "/"
-            return any(s.startswith(prefix) for s in normalized_supported)
-
-        normalized = normalize_mime_type(mime_type)
-        if not normalized:
-            return False
-
-        if (
-            resource_source == "link"
-            and provider in {Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX}
-            and normalized in DOCUMENT_MIME_TYPES
-            and normalized != "application/pdf"
-        ):
-            return False
-
-        return normalized.lower() in normalized_supported
+        return tokenizes_support_mime(
+            tokenizes,
+            mime_type,
+            provider=provider,
+            resource_source=resource_source,
+        )
 
     @classmethod
     def supports_any_mime(
@@ -1251,15 +1323,15 @@ class ModelDatabase:
         return params.stream_mode if params else "openai"
 
     @classmethod
-    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int:
+    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int | None:
         """Get default max_tokens for RequestParams based on model"""
         if not model:
-            return 2048  # Fallback when no model specified
+            return None
 
         params = cls.get_model_params(model, provider=provider)
         if params:
             return params.max_output_tokens
-        return 2048  # Fallback for unknown models
+        return None
 
     @classmethod
     def get_default_temperature(
@@ -1412,19 +1484,21 @@ class ModelDatabase:
         if not cls._RUNTIME_MODEL_PARAMS:
             return models
 
-        for runtime_key in sorted(cls._RUNTIME_MODEL_PARAMS.keys()):
-            if runtime_key not in cls.MODELS:
-                models.append(runtime_key)
+        models.extend(
+            runtime_key
+            for runtime_key in sorted(cls._RUNTIME_MODEL_PARAMS.keys())
+            if runtime_key not in cls.MODELS
+        )
         return models
 
     @classmethod
     def _normalize_provider_lookup_name(cls, model: str | None) -> str:
-        model_spec = (model or "").strip()
-        if not model_spec:
+        model_spec = strip_to_none(model)
+        if model_spec is None:
             return ""
         if "?" in model_spec:
             model_spec = model_spec.split("?", 1)[0]
-        return model_spec.lower()
+        return strip_casefold(model_spec)
 
     @classmethod
     def _provider_from_explicit_prefix(cls, model_spec: str) -> Provider | None:
@@ -1455,26 +1529,85 @@ class ModelDatabase:
         return model_spec
 
     @classmethod
+    def _preset_for_model_name(cls, model_spec: str) -> str | None:
+        from fast_agent.llm.model_factory import ModelFactory
+
+        return ModelFactory.MODEL_PRESETS.get(model_spec) or ModelFactory.MODEL_PRESETS.get(
+            strip_casefold(model_spec)
+        )
+
+    @classmethod
+    def _normalize_provider_lookup_key(cls, model_key: str) -> tuple[str, Provider | None]:
+        if model_key in cls.MODELS or model_key in cls._RUNTIME_MODEL_PARAMS:
+            return model_key, None
+
+        explicit_provider = cls._provider_from_explicit_prefix(model_key)
+        bare_model_key = cls._model_name_without_explicit_prefix(model_key)
+
+        aliased = cls._preset_for_model_name(bare_model_key) or cls._preset_for_model_name(
+            model_key
+        )
+        if aliased:
+            alias_key = cls._normalize_provider_lookup_name(aliased)
+            alias_provider = cls._provider_from_explicit_prefix(alias_key)
+            provider = explicit_provider or alias_provider
+            normalized = cls._model_name_without_explicit_prefix(alias_key)
+            if provider == Provider.HUGGINGFACE and ":" in normalized:
+                normalized = normalized.rsplit(":", 1)[0]
+            return normalized, provider
+
+        if ":" in bare_model_key:
+            base = bare_model_key.rsplit(":", 1)[0]
+            if base in cls.MODELS or base in cls._RUNTIME_MODEL_PARAMS:
+                return base, explicit_provider
+
+        return bare_model_key, explicit_provider
+
+    @classmethod
     def get_default_provider(cls, model: str | None) -> Provider | None:
         """Get default provider for a model name."""
         model_key = cls._normalize_provider_lookup_name(model)
         if not model_key:
             return None
 
-        bare_model_key = cls._model_name_without_explicit_prefix(model_key)
-        if bare_model_key in cls.REMOVED_MODEL_NAMES:
+        normalized, parsed_provider = cls._normalize_provider_lookup_key(model_key)
+        if normalized in cls.REMOVED_MODEL_NAMES:
             return None
+
+        runtime_provider = cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.get(normalized)
+        if runtime_provider is not None:
+            return runtime_provider
+
+        params = cls.MODELS.get(normalized) or cls._RUNTIME_MODEL_PARAMS.get(normalized)
+        return cls._default_provider_for_lookup(
+            model_key=model_key,
+            normalized=normalized,
+            parsed_provider=parsed_provider,
+            params=params,
+        )
+
+    @classmethod
+    def _default_provider_for_lookup(
+        cls,
+        *,
+        model_key: str,
+        normalized: str,
+        parsed_provider: Provider | None,
+        params: ModelParameters | None,
+    ) -> Provider | None:
+        if model_key == normalized and params is not None:
+            return params.default_provider
 
         explicit_provider = cls._provider_from_explicit_prefix(model_key)
         if explicit_provider is not None:
             return explicit_provider
 
-        runtime_provider = cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.get(model_key)
-        if runtime_provider is not None:
-            return runtime_provider
+        if params is None:
+            return None
+        if params.default_provider is not None:
+            return params.default_provider
 
-        params = cls.MODELS.get(model_key)
-        return params.default_provider if params else None
+        return parsed_provider
 
     @classmethod
     def register_runtime_model_params(cls, model: str, params: ModelParameters) -> None:

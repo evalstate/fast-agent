@@ -31,6 +31,32 @@ def _resolve_relative_path(path: Path, base: Path) -> Path:
     return (base / path).resolve()
 
 
+def resolve_settings_start_path(
+    settings: "Settings | None" = None,
+    *,
+    fallback_path: Path | None = None,
+) -> Path:
+    """Resolve the project base path implied by settings config/env metadata."""
+    if settings is not None:
+        config_file = settings._config_file
+        if config_file:
+            config_parent = Path(config_file).expanduser().resolve().parent
+            if config_parent.name == DEFAULT_ENVIRONMENT_DIR:
+                return config_parent.parent
+            return config_parent
+
+        environment_dir = settings.environment_dir
+        if environment_dir:
+            env_root = Path(environment_dir).expanduser()
+            if env_root.is_absolute():
+                return env_root.resolve().parent
+
+    if fallback_path is not None:
+        return fallback_path.resolve()
+
+    return Path.cwd().resolve()
+
+
 def _is_ambient_legacy_environment_dir(value: str | Path | None) -> bool:
     if value is None:
         return False
@@ -56,9 +82,8 @@ def resolve_environment_dir(
         if settings._fast_agent_noenv:
             raise ValueError("fast-agent home is disabled for these settings")
         configured_environment_dir = settings.environment_dir
-        if (
-            configured_environment_dir is not None
-            and not _is_ambient_legacy_environment_dir(configured_environment_dir)
+        if configured_environment_dir is not None and not _is_ambient_legacy_environment_dir(
+            configured_environment_dir
         ):
             environment_dir = configured_environment_dir
             env_path = Path(environment_dir).expanduser()
@@ -140,7 +165,7 @@ def resolve_mcp_ui_output_dir(
 
         settings = get_settings()
 
-    dir_setting = getattr(settings, "mcp_ui_output_dir", None)
+    dir_setting = settings.mcp_ui_output_dir
     env_paths = resolve_environment_paths(settings=settings, cwd=base, override=override)
     if dir_setting in (None, str(Path(DEFAULT_ENVIRONMENT_DIR) / "ui")):
         return env_paths.ui

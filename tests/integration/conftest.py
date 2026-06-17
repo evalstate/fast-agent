@@ -92,9 +92,7 @@ def wait_for_port():
                 stderr = ""
                 if process.stdout or process.stderr:
                     stdout, stderr = process.communicate(timeout=1)
-                raise AssertionError(
-                    f"Server exited early. stdout={stdout!r} stderr={stderr!r}"
-                )
+                raise AssertionError(f"Server exited early. stdout={stdout!r} stderr={stderr!r}")
             try:
                 reader, writer = await asyncio.open_connection(host, port)
                 writer.close()
@@ -102,9 +100,7 @@ def wait_for_port():
                 return
             except OSError:
                 if asyncio.get_running_loop().time() >= deadline:
-                    raise AssertionError(
-                        f"Server did not start listening on {host}:{port}"
-                    )
+                    raise AssertionError(f"Server did not start listening on {host}:{port}")
                 await asyncio.sleep(interval)
 
     return _wait_for_port

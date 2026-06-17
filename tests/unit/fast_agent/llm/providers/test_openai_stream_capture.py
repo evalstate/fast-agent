@@ -24,6 +24,16 @@ class _LegacyChunk:
         return {"legacy": True}
 
 
+class _NonJsonPayload:
+    pass
+
+
+class _ChunkWithNonJsonPayload:
+    def model_dump(self, **kwargs: object) -> dict[str, object]:
+        _ = kwargs
+        return {"payload": _NonJsonPayload()}
+
+
 @pytest.mark.unit
 def test_save_stream_chunk_suppresses_pydantic_serialization_warning(tmp_path) -> None:
     filename_base = tmp_path / "capture"
@@ -47,3 +57,16 @@ def test_save_stream_chunk_supports_model_dump_without_warnings_kw(tmp_path) -> 
     lines = filename_base.with_name("capture_chunks.jsonl").read_text().splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0]) == {"legacy": True}
+
+
+@pytest.mark.unit
+def test_save_stream_chunk_serializes_non_json_payloads(tmp_path) -> None:
+    filename_base = tmp_path / "capture"
+
+    save_stream_chunk(filename_base, _ChunkWithNonJsonPayload())
+
+    lines = filename_base.with_name("capture_chunks.jsonl").read_text().splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["payload"].startswith(
+        "<test_openai_stream_capture._NonJsonPayload object"
+    )

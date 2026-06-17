@@ -57,6 +57,13 @@ Hunk: TypeAlias = AddFileHunk | DeleteFileHunk | UpdateFileHunk
 
 
 @dataclass(frozen=True)
+class _UpdateHunkHeader:
+    move_path: Path | None
+    remaining_lines: list[str]
+    parsed_lines: int
+
+
+@dataclass(frozen=True)
 class ApplyPatchArgs:
     patch: str
     hunks: list[Hunk]
@@ -117,11 +124,7 @@ def _check_patch_boundaries_lenient(
         raise original_error
     first = lines[0]
     last = lines[-1]
-    if (
-        first in {"<<EOF", "<<'EOF'", '<<"EOF"'}
-        and last.endswith("EOF")
-        and len(lines) >= 4
-    ):
+    if first in {"<<EOF", "<<'EOF'", '<<"EOF"'} and last.endswith("EOF") and len(lines) >= 4:
         inner_lines = lines[1:-1]
         _check_patch_boundaries_strict(inner_lines)
         return inner_lines
@@ -143,65 +146,13 @@ def parse_one_hunk(lines: list[str], line_number: int) -> tuple[Hunk, int]:
     first_line = lines[0].strip()
     path = _strip_prefix(first_line, ADD_FILE_MARKER)
     if path is not None:
-        contents = ""
-        parsed_lines = 1
-        for add_line in lines[1:]:
-            line_to_add = _strip_prefix(add_line, "+")
-            if line_to_add is None:
-                break
-            contents += f"{line_to_add}\n"
-            parsed_lines += 1
-        return AddFileHunk(kind="add", path=Path(path), contents=contents), parsed_lines
+        return _parse_add_file_hunk(path, lines)
     path = _strip_prefix(first_line, DELETE_FILE_MARKER)
     if path is not None:
         return DeleteFileHunk(kind="delete", path=Path(path)), 1
     path = _strip_prefix(first_line, UPDATE_FILE_MARKER)
     if path is not None:
-        remaining_lines = lines[1:]
-        parsed_lines = 1
-
-        move_path = None
-        if remaining_lines:
-            move_path_text = _strip_prefix(remaining_lines[0], MOVE_TO_MARKER)
-            if move_path_text is not None:
-                move_path = Path(move_path_text)
-                remaining_lines = remaining_lines[1:]
-                parsed_lines += 1
-
-        chunks: list[UpdateFileChunk] = []
-        while remaining_lines:
-            if not remaining_lines:
-                break
-            if not remaining_lines[0].strip():
-                parsed_lines += 1
-                remaining_lines = remaining_lines[1:]
-                continue
-            if remaining_lines[0].startswith("***"):
-                break
-
-            chunk, chunk_lines = parse_update_file_chunk(
-                remaining_lines,
-                line_number + parsed_lines,
-                allow_missing_context=not chunks,
-            )
-            chunks.append(chunk)
-            parsed_lines += chunk_lines
-            remaining_lines = remaining_lines[chunk_lines:]
-
-        if not chunks:
-            raise InvalidHunkError(
-                message=f"Update file hunk for path '{path}' is empty",
-                line_number=line_number,
-            )
-        return (
-            UpdateFileHunk(
-                kind="update",
-                path=Path(path),
-                move_path=move_path,
-                chunks=chunks,
-            ),
-            parsed_lines,
-        )
+        return _parse_update_file_hunk(path, lines, line_number)
 
     raise InvalidHunkError(
         message=(
@@ -211,6 +162,90 @@ def parse_one_hunk(lines: list[str], line_number: int) -> tuple[Hunk, int]:
         ),
         line_number=line_number,
     )
+
+
+def _parse_add_file_hunk(path: str, lines: list[str]) -> tuple[AddFileHunk, int]:
+    contents = ""
+    parsed_lines = 1
+    for add_line in lines[1:]:
+        line_to_add = _strip_prefix(add_line, "+")
+        if line_to_add is None:
+            break
+        contents += f"{line_to_add}\n"
+        parsed_lines += 1
+    return AddFileHunk(kind="add", path=Path(path), contents=contents), parsed_lines
+
+
+def _parse_update_file_hunk(
+    path: str,
+    lines: list[str],
+    line_number: int,
+) -> tuple[UpdateFileHunk, int]:
+    header = _parse_update_hunk_header(lines)
+    chunks, chunk_lines = _parse_update_chunks(
+        header.remaining_lines,
+        line_number + header.parsed_lines,
+    )
+    parsed_lines = header.parsed_lines + chunk_lines
+
+    if not chunks:
+        raise InvalidHunkError(
+            message=f"Update file hunk for path '{path}' is empty",
+            line_number=line_number,
+        )
+    return (
+        UpdateFileHunk(
+            kind="update",
+            path=Path(path),
+            move_path=header.move_path,
+            chunks=chunks,
+        ),
+        parsed_lines,
+    )
+
+
+def _parse_update_hunk_header(lines: list[str]) -> _UpdateHunkHeader:
+    remaining_lines = lines[1:]
+    parsed_lines = 1
+    move_path = None
+    if remaining_lines:
+        move_path_text = _strip_prefix(remaining_lines[0], MOVE_TO_MARKER)
+        if move_path_text is not None:
+            move_path = Path(move_path_text)
+            remaining_lines = remaining_lines[1:]
+            parsed_lines += 1
+
+    return _UpdateHunkHeader(
+        move_path=move_path,
+        remaining_lines=remaining_lines,
+        parsed_lines=parsed_lines,
+    )
+
+
+def _parse_update_chunks(
+    remaining_lines: list[str],
+    line_number: int,
+) -> tuple[list[UpdateFileChunk], int]:
+    parsed_lines = 0
+    chunks: list[UpdateFileChunk] = []
+    while remaining_lines:
+        if not remaining_lines[0].strip():
+            parsed_lines += 1
+            remaining_lines = remaining_lines[1:]
+            continue
+        if remaining_lines[0].startswith("***"):
+            break
+
+        chunk, chunk_lines = parse_update_file_chunk(
+            remaining_lines,
+            line_number + parsed_lines,
+            allow_missing_context=not chunks,
+        )
+        chunks.append(chunk)
+        parsed_lines += chunk_lines
+        remaining_lines = remaining_lines[chunk_lines:]
+
+    return chunks, parsed_lines
 
 
 def parse_update_file_chunk(
@@ -225,26 +260,11 @@ def parse_update_file_chunk(
             line_number=line_number,
         )
 
-    if lines[0] == EMPTY_CHANGE_CONTEXT_MARKER:
-        change_context = None
-        start_index = 1
-    else:
-        context = _strip_prefix(lines[0], CHANGE_CONTEXT_MARKER)
-        if context is not None:
-            change_context = context
-            start_index = 1
-        else:
-            if not allow_missing_context:
-                raise InvalidHunkError(
-                    message=(
-                        "Expected update hunk to start with a @@ context marker, got: "
-                        f"'{lines[0]}'"
-                    ),
-                    line_number=line_number,
-                )
-            change_context = None
-            start_index = 0
-
+    change_context, start_index = _parse_change_context(
+        lines,
+        line_number,
+        allow_missing_context=allow_missing_context,
+    )
     if start_index >= len(lines):
         raise InvalidHunkError(
             message="Update hunk does not contain any lines",
@@ -257,49 +277,87 @@ def parse_update_file_chunk(
         new_lines=[],
         is_end_of_file=False,
     )
-    parsed_lines = 0
-    for line in lines[start_index:]:
-        if line == EOF_MARKER:
-            if parsed_lines == 0:
-                raise InvalidHunkError(
-                    message="Update hunk does not contain any lines",
-                    line_number=line_number + 1,
-                )
-            chunk.is_end_of_file = True
-            parsed_lines += 1
-            break
+    parsed_lines = _parse_update_chunk_lines(chunk, lines[start_index:], line_number)
+    return chunk, parsed_lines + start_index
 
-        if not line:
-            chunk.old_lines.append("")
-            chunk.new_lines.append("")
+
+def _parse_change_context(
+    lines: list[str],
+    line_number: int,
+    *,
+    allow_missing_context: bool,
+) -> tuple[str | None, int]:
+    if lines[0] == EMPTY_CHANGE_CONTEXT_MARKER:
+        return None, 1
+
+    context = _strip_prefix(lines[0], CHANGE_CONTEXT_MARKER)
+    if context is not None:
+        return context, 1
+
+    if allow_missing_context:
+        return None, 0
+
+    raise InvalidHunkError(
+        message=(f"Expected update hunk to start with a @@ context marker, got: '{lines[0]}'"),
+        line_number=line_number,
+    )
+
+
+def _parse_update_chunk_lines(
+    chunk: UpdateFileChunk,
+    lines: list[str],
+    line_number: int,
+) -> int:
+    parsed_lines = 0
+    for line in lines:
+        if line == EOF_MARKER and parsed_lines == 0:
+            raise InvalidHunkError(
+                message="Update hunk does not contain any lines",
+                line_number=line_number + 1,
+            )
+        if _apply_update_chunk_line(chunk, line):
             parsed_lines += 1
+            if line == EOF_MARKER:
+                break
             continue
 
-        prefix = line[0]
-        if prefix == " ":
-            content = line[1:]
-            chunk.old_lines.append(content)
-            chunk.new_lines.append(content)
-            parsed_lines += 1
-        elif prefix == "+":
-            chunk.new_lines.append(line[1:])
-            parsed_lines += 1
-        elif prefix == "-":
-            chunk.old_lines.append(line[1:])
-            parsed_lines += 1
-        else:
-            if parsed_lines == 0:
-                raise InvalidHunkError(
-                    message=(
-                        "Unexpected line found in update hunk: "
-                        f"'{line}'. Every line should start with ' ' (context line), "
-                        "'+' (added line), or '-' (removed line)"
-                    ),
-                    line_number=line_number + 1,
-                )
-            break
+        if parsed_lines == 0:
+            raise InvalidHunkError(
+                message=(
+                    "Unexpected line found in update hunk: "
+                    f"'{line}'. Every line should start with ' ' (context line), "
+                    "'+' (added line), or '-' (removed line)"
+                ),
+                line_number=line_number + 1,
+            )
+        break
 
-    return chunk, parsed_lines + start_index
+    return parsed_lines
+
+
+def _apply_update_chunk_line(chunk: UpdateFileChunk, line: str) -> bool:
+    if line == EOF_MARKER:
+        chunk.is_end_of_file = True
+        return True
+
+    if not line:
+        chunk.old_lines.append("")
+        chunk.new_lines.append("")
+        return True
+
+    prefix = line[0]
+    content = line[1:]
+    if prefix == " ":
+        chunk.old_lines.append(content)
+        chunk.new_lines.append(content)
+        return True
+    if prefix == "+":
+        chunk.new_lines.append(content)
+        return True
+    if prefix == "-":
+        chunk.old_lines.append(content)
+        return True
+    return False
 
 
 def _strip_prefix(value: str, prefix: str) -> str | None:

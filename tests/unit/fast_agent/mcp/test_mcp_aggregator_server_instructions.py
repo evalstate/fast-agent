@@ -16,6 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # Backport StrEnum for Python < 3.11 environments
 if not hasattr(enum, "StrEnum"):
+
     class StrEnum(str, enum.Enum):
         pass
 

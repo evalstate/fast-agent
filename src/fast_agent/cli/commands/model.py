@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
-import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
 import typer
 from pydantic import ValidationError
@@ -58,6 +56,10 @@ from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.console import console
+from fast_agent.utils.async_utils import run_coroutine
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 from fast_agent.ui.llamacpp_model_picker import (
     LlamaCppModelPickerContext,
     run_llamacpp_model_picker_async,
@@ -65,11 +67,31 @@ from fast_agent.ui.llamacpp_model_picker import (
 from fast_agent.ui.model_picker import run_model_picker_async
 from fast_agent.ui.model_reference_picker import (
     ModelReferencePickerItem,
+    ModelReferencePickerResult,
     run_model_reference_picker_async,
 )
+from fast_agent.utils.action_normalization import normalize_action_token
+from fast_agent.utils.commandline import join_commandline, quote_commandline_token
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 type WriteTarget = Literal["env", "project"]
 type LlamaCppAuthMode = Literal["none", "env", "secret_ref"]
+type _LlamaCppImportAction = Literal[
+    "start_now",
+    "start_now_with_shell",
+    "start_now_smart",
+    "generate_overlay",
+]
+type _LlamaCppStringGroupOptionName = Literal[
+    "env",
+    "url",
+    "auth",
+    "api_key_env",
+    "secret_ref",
+    "name",
+]
+type _LlamaCppBoolGroupOptionName = Literal["include_sampling_defaults"]
 
 
 @runtime_checkable
@@ -79,6 +101,7 @@ class ModelReferencePickerIO(Protocol):
         *,
         items: tuple[ModelReferenceSetupItem, ...],
     ) -> str | None: ...
+
 
 app = typer.Typer(help="Interactive model reference setup.", add_completion=False)
 llamacpp_app = typer.Typer(
@@ -171,8 +194,9 @@ def _build_reference_setup_argument(
     dry_run: bool,
 ) -> str:
     parts = ["set"]
-    if token is not None and token.strip():
-        parts.append(shlex.quote(token.strip()))
+    normalized_token = strip_to_none(token)
+    if normalized_token is not None:
+        parts.append(quote_commandline_token(normalized_token, syntax="posix"))
     parts.extend(["--target", target])
     if dry_run:
         parts.append("--dry-run")
@@ -180,7 +204,7 @@ def _build_reference_setup_argument(
 
 
 def _normalize_write_target(value: str) -> WriteTarget:
-    normalized = value.strip().lower()
+    normalized = normalize_action_token(value)
     if normalized == "env":
         return "env"
     if normalized == "project":
@@ -189,19 +213,18 @@ def _normalize_write_target(value: str) -> WriteTarget:
 
 
 def _normalize_interactive_reference_token(token: str | None) -> str | None:
-    if token is None:
+    stripped = strip_to_none(token)
+    if stripped is None:
         return None
-    stripped = token.strip()
-    if not stripped:
-        return stripped
     if stripped.startswith("$"):
         return stripped
     return f"${stripped}"
 
 
 def _bootstrap_settings_start_path(env_dir: str | Path | None) -> Path:
-    if isinstance(env_dir, str) and env_dir.strip():
-        env_root = Path(env_dir).expanduser()
+    env_dir_string = strip_to_none(env_dir) if isinstance(env_dir, str) else None
+    if env_dir_string is not None:
+        env_root = Path(env_dir_string).expanduser()
         if env_root.is_absolute():
             return env_root.resolve().parent
     elif isinstance(env_dir, Path):
@@ -234,7 +257,7 @@ async def run_model_setup(
     if resolved_token is None:
         diagnostics = collect_model_reference_setup_diagnostics(
             cwd=start_path,
-            env_dir=getattr(settings, "environment_dir", None),
+            env_dir=settings.environment_dir,
         )
         common_items = _build_common_setup_items(diagnostics.valid_references)
         has_guided_choices = bool(diagnostics.items) or (
@@ -282,10 +305,10 @@ async def run_model_doctor(
         and settings.default_model is None
         and not settings.model_references
     ):
-        start_path = _bootstrap_settings_start_path(getattr(settings, "environment_dir", None))
+        start_path = _bootstrap_settings_start_path(settings.environment_dir)
         effective_settings = _load_cli_settings(
             cwd=start_path,
-            env_dir=getattr(settings, "environment_dir", None),
+            env_dir=settings.environment_dir,
         )
 
     provider = StaticAgentProvider()
@@ -315,20 +338,36 @@ async def _select_model_setup_token(
         if common_items is not None
         else _build_common_setup_items(diagnostics.valid_references)
     )
-    if not items:
-        if isinstance(io, ModelReferencePickerIO) and resolved_common_items:
-            return await _pick_or_prompt_reference_token(
-                io,
-                items=resolved_common_items,
-            )
-        return None
-
     if isinstance(io, ModelReferencePickerIO):
-        return await _pick_or_prompt_reference_token(
+        return await _select_model_setup_token_from_picker(
             io,
-            items=_merge_setup_items(items, resolved_common_items),
+            items=items,
+            common_items=resolved_common_items,
         )
 
+    if not items:
+        return None
+
+    return await _select_model_setup_token_from_prompt(io, items=items)
+
+
+async def _select_model_setup_token_from_picker(
+    io: ModelReferencePickerIO,
+    *,
+    items: tuple[ModelReferenceSetupItem, ...],
+    common_items: tuple[ModelReferenceSetupItem, ...],
+) -> str | None:
+    picker_items = _merge_setup_items(items, common_items) if items else common_items
+    if not picker_items:
+        return None
+    return await _pick_or_prompt_reference_token(io, items=picker_items)
+
+
+async def _select_model_setup_token_from_prompt(
+    io: CommandIO,
+    *,
+    items: tuple[ModelReferenceSetupItem, ...],
+) -> str | None:
     if len(items) == 1:
         item = items[0]
         await io.emit(
@@ -348,10 +387,7 @@ async def _select_model_setup_token(
             right_info="model",
         )
     )
-    option_labels = {
-        str(index): item.token
-        for index, item in enumerate(items, start=1)
-    }
+    option_labels = {str(index): item.token for index, item in enumerate(items, start=1)}
     selection = await io.prompt_selection(
         "Reference to configure (number or 'custom'):",
         options=[*option_labels.keys(), "custom"],
@@ -360,7 +396,7 @@ async def _select_model_setup_token(
     if selection is None:
         return None
 
-    normalized_selection = selection.strip().lower()
+    normalized_selection = normalize_action_token(selection)
     if normalized_selection == "custom":
         return await _prompt_manual_reference_token(io)
     return option_labels.get(normalized_selection)
@@ -450,6 +486,7 @@ def _merge_setup_items(
     for item in extra_items:
         if item.token in seen_tokens:
             continue
+        seen_tokens.add(item.token)
         merged.append(item)
     return tuple(merged)
 
@@ -531,7 +568,7 @@ async def _run_model_reference_unset(
         io=io,
         settings=settings,
     )
-    argument = f"unset {shlex.quote(token)} --target {target}"
+    argument = f"unset {quote_commandline_token(token, syntax='posix')} --target {target}"
     if dry_run:
         argument += " --dry-run"
     return await models_manager.handle_models_command(
@@ -550,17 +587,7 @@ async def _run_model_setup_command(
     dry_run: bool,
 ) -> None:
     start_path = resolve_model_reference_start_path(settings=settings)
-    config_payload = _load_tolerant_config_payload(
-        cwd=start_path,
-        env_dir=getattr(settings, "environment_dir", None),
-    )
-    provider = StaticAgentProvider()
-    io = TuiCommandIO(
-        prompt_provider=provider,
-        agent_name="cli",
-        settings=settings,
-        config_payload=config_payload,
-    )
+    io = _model_reference_command_io(settings=settings, start_path=start_path)
     if token is not None:
         outcome = await run_model_setup(
             io=io,
@@ -575,65 +602,116 @@ async def _run_model_setup_command(
 
     suppressed_tokens: set[str] = set()
     while True:
-        diagnostics = collect_model_reference_setup_diagnostics(
-            cwd=start_path,
-            env_dir=getattr(settings, "environment_dir", None),
-        )
-        picker_items = _build_picker_items(
-            diagnostics,
+        picker_result = await _run_reference_picker(
+            settings=settings,
+            start_path=start_path,
             suppressed_tokens=suppressed_tokens,
         )
-        picker_result = await run_model_reference_picker_async(picker_items)
         if picker_result is None:
             return
         if picker_result.action == "done":
             return
 
-        if picker_result.action == "custom":
-            selected_token = await _prompt_manual_reference_token(io)
-            if selected_token is None:
-                return
-            outcome = await run_model_setup(
-                io=io,
-                settings=settings,
-                token=selected_token,
-                target=target,
-                dry_run=dry_run,
-            )
-        elif picker_result.action == "unset":
-            assert picker_result.token is not None
-            outcome = await _run_model_reference_unset(
-                io=io,
-                settings=settings,
-                token=picker_result.token,
-                target=target,
-                dry_run=dry_run,
-            )
-            if dry_run:
-                for message in outcome.messages:
-                    await io.emit(message)
-                return
-
-            suppressed_tokens.add(picker_result.token)
-            for message in outcome.messages:
-                if message.channel in {"warning", "error"}:
-                    await io.emit(message)
+        outcome = await _handle_model_setup_picker_result(
+            picker_result,
+            io=io,
+            settings=settings,
+            target=target,
+            dry_run=dry_run,
+            suppressed_tokens=suppressed_tokens,
+        )
+        if outcome is None:
+            return
+        if picker_result.action == "unset" and not dry_run:
             continue
-        else:
-            assert picker_result.token is not None
-            suppressed_tokens.discard(picker_result.token)
-            outcome = await run_model_setup(
-                io=io,
-                settings=settings,
-                token=picker_result.token,
-                target=target,
-                dry_run=dry_run,
-            )
 
         for message in outcome.messages:
             await io.emit(message)
         if dry_run:
             return
+
+
+def _model_reference_command_io(*, settings: Settings, start_path: Path) -> TuiCommandIO:
+    return TuiCommandIO(
+        prompt_provider=StaticAgentProvider(),
+        agent_name="cli",
+        settings=settings,
+        config_payload=_load_tolerant_config_payload(
+            cwd=start_path,
+            env_dir=settings.environment_dir,
+        ),
+    )
+
+
+async def _run_reference_picker(
+    *,
+    settings: Settings,
+    start_path: Path,
+    suppressed_tokens: set[str],
+) -> ModelReferencePickerResult | None:
+    diagnostics = collect_model_reference_setup_diagnostics(
+        cwd=start_path,
+        env_dir=settings.environment_dir,
+    )
+    picker_items = _build_picker_items(
+        diagnostics,
+        suppressed_tokens=suppressed_tokens,
+    )
+    return await run_model_reference_picker_async(picker_items)
+
+
+async def _handle_model_setup_picker_result(
+    picker_result: ModelReferencePickerResult,
+    *,
+    io: CommandIO,
+    settings: Settings,
+    target: WriteTarget,
+    dry_run: bool,
+    suppressed_tokens: set[str],
+) -> CommandOutcome | None:
+    if picker_result.action == "custom":
+        selected_token = await _prompt_manual_reference_token(io)
+        if selected_token is None:
+            return None
+        return await run_model_setup(
+            io=io,
+            settings=settings,
+            token=selected_token,
+            target=target,
+            dry_run=dry_run,
+        )
+
+    if picker_result.action == "unset":
+        assert picker_result.token is not None
+        outcome = await _run_model_reference_unset(
+            io=io,
+            settings=settings,
+            token=picker_result.token,
+            target=target,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            return outcome
+
+        suppressed_tokens.add(picker_result.token)
+        await _emit_warning_and_error_messages(io, outcome)
+        return outcome
+
+    assert picker_result.token is not None
+    suppressed_tokens.discard(picker_result.token)
+    return await run_model_setup(
+        io=io,
+        settings=settings,
+        token=picker_result.token,
+        target=target,
+        dry_run=dry_run,
+    )
+
+
+async def _emit_warning_and_error_messages(io: CommandIO, outcome: CommandOutcome) -> None:
+    for message in outcome.messages:
+        if message.channel in {"warning", "error"}:
+            await io.emit(message)
 
 
 async def _run_model_doctor_command(*, settings: Settings) -> None:
@@ -645,7 +723,7 @@ async def _run_model_doctor_command(*, settings: Settings) -> None:
         settings=settings,
         config_payload=_load_tolerant_config_payload(
             cwd=start_path,
-            env_dir=getattr(settings, "environment_dir", None),
+            env_dir=settings.environment_dir,
         ),
     )
     outcome = await run_model_doctor(
@@ -704,7 +782,7 @@ def _print_validation_error(exc: ValidationError) -> None:
 class _LlamaCppImportResult:
     catalog: LlamaCppDiscoveryCatalog
     discovered_model: LlamaCppDiscoveredModel
-    action: Literal["start_now", "start_now_with_shell", "start_now_smart", "generate_overlay"]
+    action: _LlamaCppImportAction
     overlay_name: str
     manifest_payload: dict[str, object]
     overlay_yaml: str
@@ -714,7 +792,23 @@ class _LlamaCppImportResult:
 @dataclass(frozen=True, slots=True)
 class _LlamaCppSelection:
     model_id: str
-    action: Literal["start_now", "start_now_with_shell", "start_now_smart", "generate_overlay"]
+    action: _LlamaCppImportAction
+
+
+@dataclass(frozen=True, slots=True)
+class _LlamaCppLaunchOptions:
+    with_shell: bool = False
+    smart: bool = False
+
+
+_LLAMACPP_LAUNCH_OPTIONS_BY_ACTION: dict[
+    _LlamaCppImportAction,
+    _LlamaCppLaunchOptions,
+] = {
+    "start_now": _LlamaCppLaunchOptions(),
+    "start_now_with_shell": _LlamaCppLaunchOptions(with_shell=True),
+    "start_now_smart": _LlamaCppLaunchOptions(with_shell=True, smart=True),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -750,6 +844,25 @@ class _LlamaCppGroupOptions:
     include_sampling_defaults: bool
 
 
+_LLAMACPP_STRING_GROUP_OPTION_READERS: dict[
+    _LlamaCppStringGroupOptionName,
+    "Callable[[_LlamaCppGroupOptions], str | None]",
+] = {
+    "env": lambda options: options.env,
+    "url": lambda options: options.url,
+    "auth": lambda options: options.auth,
+    "api_key_env": lambda options: options.api_key_env,
+    "secret_ref": lambda options: options.secret_ref,
+    "name": lambda options: options.name,
+}
+_LLAMACPP_BOOL_GROUP_OPTION_READERS: dict[
+    _LlamaCppBoolGroupOptionName,
+    "Callable[[_LlamaCppGroupOptions], bool]",
+] = {
+    "include_sampling_defaults": lambda options: options.include_sampling_defaults,
+}
+
+
 def _store_llamacpp_group_options(
     ctx: typer.Context,
     *,
@@ -779,7 +892,7 @@ def _store_llamacpp_group_options(
 def _inherit_llamacpp_group_option(
     ctx: typer.Context,
     *,
-    option_name: str,
+    option_name: _LlamaCppStringGroupOptionName,
     value: str | None,
 ) -> str | None:
     parameter_source = ctx.get_parameter_source(option_name)
@@ -791,8 +904,7 @@ def _inherit_llamacpp_group_option(
     payload = ctx.obj.get("llamacpp_group_options")
     if not isinstance(payload, _LlamaCppGroupOptions):
         return value
-    inherited = getattr(payload, option_name)
-    return inherited if isinstance(inherited, str) or inherited is None else value
+    return _LLAMACPP_STRING_GROUP_OPTION_READERS[option_name](payload)
 
 
 def _inherit_llamacpp_group_url(ctx: typer.Context, *, url: str) -> str:
@@ -803,7 +915,7 @@ def _inherit_llamacpp_group_url(ctx: typer.Context, *, url: str) -> str:
 def _inherit_llamacpp_group_bool_option(
     ctx: typer.Context,
     *,
-    option_name: str,
+    option_name: _LlamaCppBoolGroupOptionName,
     value: bool,
 ) -> bool:
     parameter_source = ctx.get_parameter_source(option_name)
@@ -815,8 +927,7 @@ def _inherit_llamacpp_group_bool_option(
     payload = ctx.obj.get("llamacpp_group_options")
     if not isinstance(payload, _LlamaCppGroupOptions):
         return value
-    inherited = getattr(payload, option_name)
-    return inherited if isinstance(inherited, bool) else value
+    return _LLAMACPP_BOOL_GROUP_OPTION_READERS[option_name](payload)
 
 
 def _llamacpp_include_sampling_defaults_option() -> bool:
@@ -842,17 +953,21 @@ def _llamacpp_option_was_explicit(ctx: typer.Context, *, option_name: str) -> bo
     return parent_source is not None and parent_source.name != "DEFAULT"
 
 
+def _optional_cli_text(value: str | None) -> str | None:
+    return strip_to_none(value)
+
+
 def _normalize_llamacpp_auth(
     *,
     auth: str | None,
     api_key_env: str | None,
     secret_ref: str | None,
 ) -> LlamaCppAuthMode:
-    normalized_env = api_key_env.strip() if api_key_env else None
-    normalized_secret_ref = secret_ref.strip() if secret_ref else None
+    normalized_env = _optional_cli_text(api_key_env)
+    normalized_secret_ref = _optional_cli_text(secret_ref)
 
     if auth is not None:
-        resolved_auth = auth.strip().lower()
+        resolved_auth = normalize_action_token(auth)
         if resolved_auth == "none":
             resolved = "none"
         elif resolved_auth == "env":
@@ -907,7 +1022,7 @@ def _resolve_llamacpp_interrogation_api_key(
     api_key_env: str | None,
     secret_ref: str | None,
 ) -> str | None:
-    normalized_env = api_key_env.strip() if api_key_env else None
+    normalized_env = _optional_cli_text(api_key_env)
     if normalized_env:
         value = os.getenv(normalized_env)
         if value is None:
@@ -916,7 +1031,7 @@ def _resolve_llamacpp_interrogation_api_key(
             )
         return value
 
-    normalized_secret_ref = secret_ref.strip() if secret_ref else None
+    normalized_secret_ref = _optional_cli_text(secret_ref)
     if not normalized_secret_ref:
         return None
 
@@ -937,16 +1052,10 @@ async def _select_llamacpp_model(
     interrogation_api_key: str | None,
     selected_model: str | None,
     interactive: bool,
-    requested_action: Literal[
-        "start_now",
-        "start_now_with_shell",
-        "start_now_smart",
-        "generate_overlay",
-    ]
-    | None,
+    requested_action: _LlamaCppImportAction | None,
 ) -> _LlamaCppSelection | None:
-    if selected_model is not None and selected_model.strip():
-        requested = selected_model.strip()
+    requested = strip_to_none(selected_model)
+    if requested is not None:
         if any(model.model_id == requested for model in catalog.models):
             return _LlamaCppSelection(
                 model_id=requested,
@@ -999,15 +1108,17 @@ def _build_llamacpp_overlay_name(
     registry = load_model_overlay_registry(start_path=start_path, env_dir=env_dir)
     existing_names = set(registry.by_name())
 
-    if requested_name is not None and requested_name.strip():
-        candidate = requested_name.strip()
+    candidate = strip_to_none(requested_name)
+    if candidate is not None:
         return uniquify_overlay_name(candidate, existing_names=existing_names), False, None
 
     generated_candidate = default_overlay_name_for_model(model_id)
 
     for overlay in registry.overlays:
         manifest = overlay.manifest
-        if overlay.name != generated_candidate and not overlay.name.startswith(f"{generated_candidate}-"):
+        if overlay.name != generated_candidate and not overlay.name.startswith(
+            f"{generated_candidate}-"
+        ):
             continue
         if manifest.provider != Provider.OPENRESPONSES:
             continue
@@ -1030,8 +1141,8 @@ def _resolve_llamacpp_persisted_auth(
     reused_overlay: LoadedModelOverlay | None,
     preserve_existing_auth: bool,
 ) -> _LlamaCppPersistedAuth:
-    normalized_api_key_env = api_key_env.strip() if api_key_env else None
-    normalized_secret_ref = secret_ref.strip() if secret_ref else None
+    normalized_api_key_env = _optional_cli_text(api_key_env)
+    normalized_secret_ref = _optional_cli_text(secret_ref)
 
     if not preserve_existing_auth or reused_overlay is None:
         return _LlamaCppPersistedAuth(
@@ -1078,7 +1189,7 @@ def _format_llamacpp_model_listing(model: LlamaCppModelListing) -> str:
 
 
 def _emit_llamacpp_catalog_listing(catalog: LlamaCppDiscoveryCatalog) -> None:
-    typer.echo(f"Discovered {len(catalog.models)} llama.cpp model(s):")
+    typer.echo(f"Discovered {format_count(len(catalog.models), 'llama.cpp model')}:")
     for model in catalog.models:
         typer.echo(f"  - {_format_llamacpp_model_listing(model)}")
 
@@ -1109,13 +1220,7 @@ async def _run_llamacpp_import(
     interrogation_api_key: str | None = None,
     include_sampling_defaults: bool = False,
     preserve_existing_auth: bool = False,
-    requested_action: Literal[
-        "start_now",
-        "start_now_with_shell",
-        "start_now_smart",
-        "generate_overlay",
-    ]
-    | None = None,
+    requested_action: _LlamaCppImportAction | None = None,
 ) -> _LlamaCppImportResult | None:
     if interrogation_api_key is None:
         interrogation_api_key = _resolve_llamacpp_interrogation_api_key(
@@ -1138,9 +1243,7 @@ async def _run_llamacpp_import(
     if selection is None:
         return None
     if dry_run and selection.action != "generate_overlay":
-        raise typer.BadParameter(
-            "Start-now actions are not available together with --dry-run."
-        )
+        raise typer.BadParameter("Start-now actions are not available together with --dry-run.")
     model_id = selection.model_id
 
     discovered_model = await interrogate_llamacpp_model(
@@ -1217,9 +1320,7 @@ def _emit_llamacpp_import_summary(
             typer.echo(f"Context window: {context_window} (runtime /props)")
         elif context_source == "catalog":
             typer.echo(f"Context window: {context_window} (catalog fallback; /props reported none)")
-    typer.echo(
-        f'Use it now: fast-agent go --model {result.overlay_name} --message "hello"'
-    )
+    typer.echo(f'Use it now: fast-agent go --model {result.overlay_name} --message "hello"')
     if include_sampling_defaults and any(
         value is not None
         for value in (
@@ -1238,11 +1339,7 @@ def _emit_llamacpp_import_summary(
         typer.echo(result.overlay_yaml.rstrip())
 
 
-def _resolve_llamacpp_picker_import_defaults(
-    *,
-    start_path: Path,
-    env_dir: str | Path | None,
-) -> _LlamaCppPickerImportDefaults:
+def _resolve_llamacpp_picker_import_defaults() -> _LlamaCppPickerImportDefaults:
     return _LlamaCppPickerImportDefaults(
         url=DEFAULT_LLAMA_CPP_URL,
         auth="none",
@@ -1255,10 +1352,7 @@ async def import_llamacpp_overlay_from_default_url(
     start_path: Path,
     env_dir: str | Path | None,
 ) -> str | None:
-    picker_defaults = _resolve_llamacpp_picker_import_defaults(
-        start_path=start_path,
-        env_dir=env_dir,
-    )
+    picker_defaults = _resolve_llamacpp_picker_import_defaults()
     result = await _run_llamacpp_import(
         start_path=start_path,
         env_dir=env_dir,
@@ -1299,25 +1393,14 @@ def _finalize_llamacpp_import(
             include_sampling_defaults=include_sampling_defaults,
             print_overlay_yaml=print_overlay_yaml,
         )
-    if result.action == "start_now":
+
+    launch_options = _LLAMACPP_LAUNCH_OPTIONS_BY_ACTION.get(result.action)
+    if launch_options is not None:
         _launch_llamacpp_overlay_now(
             overlay_name=result.overlay_name,
             env_dir=resolved_env_dir,
-            announce=not json_output,
-        )
-    if result.action == "start_now_with_shell":
-        _launch_llamacpp_overlay_now(
-            overlay_name=result.overlay_name,
-            env_dir=resolved_env_dir,
-            with_shell=True,
-            announce=not json_output,
-        )
-    if result.action == "start_now_smart":
-        _launch_llamacpp_overlay_now(
-            overlay_name=result.overlay_name,
-            env_dir=resolved_env_dir,
-            with_shell=True,
-            smart=True,
+            with_shell=launch_options.with_shell,
+            smart=launch_options.smart,
             announce=not json_output,
         )
 
@@ -1333,12 +1416,7 @@ def _run_llamacpp_noninteractive_command(
     model_id: str,
     name: str | None,
     dry_run: bool,
-    requested_action: Literal[
-        "start_now",
-        "start_now_with_shell",
-        "start_now_smart",
-        "generate_overlay",
-    ],
+    requested_action: _LlamaCppImportAction,
     include_sampling_defaults: bool = False,
     preserve_existing_auth: bool = False,
     json_output: bool = False,
@@ -1356,7 +1434,7 @@ def _run_llamacpp_noninteractive_command(
             api_key_env=api_key_env,
             secret_ref=secret_ref,
         )
-        result = asyncio.run(
+        result = run_coroutine(
             _run_llamacpp_import(
                 start_path=command_context.start_path,
                 env_dir=command_context.resolved_env_dir,
@@ -1422,7 +1500,7 @@ def _launch_llamacpp_overlay_now(
         smart=smart,
     )
     if announce:
-        typer.echo(f"Launching: {' '.join(shlex.quote(part) for part in argv)}")
+        typer.echo(f"Launching: {join_commandline(argv, syntax='posix')}")
         sys.stdout.flush()
     execvpe_fn(sys.executable, argv, os.environ.copy())
 
@@ -1479,95 +1557,151 @@ def model_export(
     The generated overlay pre-populates model_specific, modalities (tokenizes),
     context window, and other parameters so users can customize them locally.
     """
-    import asyncio
 
-    from fast_agent.llm.provider_types import Provider
+    run_coroutine(
+        _run_model_export_command(
+            model=model,
+            name=name,
+            provider=provider,
+            env=env,
+            replace=replace,
+            dry_run=dry_run,
+            json_output=json_output,
+        )
+    )
 
-    resolved_provider: Provider | None = None
-    if provider:
-        try:
-            resolved_provider = Provider(provider.lower())
-        except ValueError:
-            typer.echo(f"Unknown provider: {provider}", err=True)
-            raise typer.Exit(1)
 
-    async def _run_export() -> None:
-        selected_model = model
-        if selected_model is None:
-            # Use the normal TUI model picker so the user gets the full catalog
-            # with proper search, provider grouping, and no artificial limits.
-            picker_result = await run_model_picker_async()
-            if picker_result is None:
-                typer.echo("No model selected.", err=True)
-                raise typer.Exit(1)
+def _resolve_model_export_provider(provider: str | None) -> Provider | None:
+    if not provider:
+        return None
+    try:
+        return Provider(strip_casefold(provider))
+    except ValueError as exc:
+        typer.echo(f"Unknown provider: {provider}", err=True)
+        raise typer.Exit(1) from exc
 
-            # resolved_model is the fully-qualified spec the user chose
-            # (e.g. "openrouter.gpt-4o" or bare "claude-4-sonnet-20250514")
-            selected_model = picker_result.resolved_model or picker_result.selected_model
-            if not selected_model:
-                typer.echo("No model selected.", err=True)
-                raise typer.Exit(1)
 
-        if not selected_model:
-            typer.echo("Model name is required.", err=True)
-            raise typer.Exit(1)
+async def _select_model_for_export(model: str | None) -> str:
+    if model:
+        return model
 
-        try:
-            manifest = build_model_overlay_manifest_from_database(
-                selected_model,
-                provider=resolved_provider,
-                overlay_name=name,
-            )
-        except Exception as exc:
-            typer.echo(f"Failed to build overlay for '{selected_model}': {exc}", err=True)
-            raise typer.Exit(1)
+    picker_result = await run_model_picker_async()
+    if picker_result is None:
+        typer.echo("No model selected.", err=True)
+        raise typer.Exit(1)
 
-        yaml_text = serialize_model_overlay_manifest(manifest)
+    selected_model = picker_result.resolved_model or picker_result.selected_model
+    if selected_model:
+        return selected_model
 
-        if dry_run:
-            if json_output:
-                payload = {
-                    "overlay_name": manifest.name,
-                    "dry_run": True,
-                    "manifest": manifest.model_dump(mode="json", exclude_none=True),
-                }
-                typer.echo(json.dumps(payload, indent=2))
-            else:
-                typer.echo(f"# Dry-run: would write overlay '{manifest.name}'")
-                typer.echo(yaml_text)
-            return
+    typer.echo("No model selected.", err=True)
+    raise typer.Exit(1)
 
-        try:
-            out_path = write_model_overlay_manifest(
-                manifest,
-                env_dir=env,
-                replace=replace,
-            )
-        except FileExistsError as exc:
-            typer.echo(str(exc), err=True)
-            typer.echo("Use --replace to overwrite.", err=True)
-            raise typer.Exit(1)
 
-        if json_output:
-            payload = {
-                "overlay_name": manifest.name,
-                "path": str(out_path),
-                "dry_run": False,
-                "manifest": manifest.model_dump(mode="json", exclude_none=True),
-            }
-            typer.echo(json.dumps(payload, indent=2))
-        else:
-            typer.echo(f"Wrote overlay: {out_path}")
-            typer.echo(f"Use: fast-agent go --model {manifest.name}")
+def _build_model_export_manifest(
+    *,
+    selected_model: str,
+    provider: Provider | None,
+    overlay_name: str | None,
+) -> Any:
+    try:
+        return build_model_overlay_manifest_from_database(
+            selected_model,
+            provider=provider,
+            overlay_name=overlay_name,
+        )
+    except Exception as exc:
+        typer.echo(f"Failed to build overlay for '{selected_model}': {exc}", err=True)
+        raise typer.Exit(1) from exc
 
-    asyncio.run(_run_export())
+
+def _emit_model_export_dry_run(*, manifest: Any, yaml_text: str, json_output: bool) -> None:
+    if json_output:
+        payload = {
+            "overlay_name": manifest.name,
+            "dry_run": True,
+            "manifest": manifest.model_dump(mode="json", exclude_none=True),
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    typer.echo(f"# Dry-run: would write overlay '{manifest.name}'")
+    typer.echo(yaml_text)
+
+
+def _write_model_export_manifest(
+    *,
+    manifest: Any,
+    env: str | None,
+    replace: bool,
+) -> Path:
+    try:
+        return write_model_overlay_manifest(
+            manifest,
+            env_dir=env,
+            replace=replace,
+        )
+    except FileExistsError as exc:
+        typer.echo(str(exc), err=True)
+        typer.echo("Use --replace to overwrite.", err=True)
+        raise typer.Exit(1) from exc
+
+
+def _emit_model_export_result(*, manifest: Any, out_path: Path, json_output: bool) -> None:
+    if json_output:
+        payload = {
+            "overlay_name": manifest.name,
+            "path": str(out_path),
+            "dry_run": False,
+            "manifest": manifest.model_dump(mode="json", exclude_none=True),
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    typer.echo(f"Wrote overlay: {out_path}")
+    typer.echo(f"Use: fast-agent go --model {manifest.name}")
+
+
+async def _run_model_export_command(
+    *,
+    model: str | None,
+    name: str | None,
+    provider: str | None,
+    env: str | None,
+    replace: bool,
+    dry_run: bool,
+    json_output: bool,
+) -> None:
+    resolved_provider = _resolve_model_export_provider(provider)
+    selected_model = await _select_model_for_export(model)
+    manifest = _build_model_export_manifest(
+        selected_model=selected_model,
+        provider=resolved_provider,
+        overlay_name=name,
+    )
+    yaml_text = serialize_model_overlay_manifest(manifest)
+
+    if dry_run:
+        _emit_model_export_dry_run(
+            manifest=manifest,
+            yaml_text=yaml_text,
+            json_output=json_output,
+        )
+        return
+
+    out_path = _write_model_export_manifest(
+        manifest=manifest,
+        env=env,
+        replace=replace,
+    )
+    _emit_model_export_result(manifest=manifest, out_path=out_path, json_output=json_output)
 
 
 def _model_presets_provider_filter(raw_provider: str | None) -> Provider | None:
     if raw_provider is None:
         return None
 
-    normalized = raw_provider.strip().lower()
+    normalized = normalize_action_token(raw_provider)
     aliases = {
         "codex-responses": "codexresponses",
         "codex_responses": "codexresponses",
@@ -1578,7 +1712,9 @@ def _model_presets_provider_filter(raw_provider: str | None) -> Provider | None:
     try:
         return Provider(provider_name)
     except ValueError as exc:
-        raise typer.BadParameter(f"Unknown provider: {raw_provider}", param_hint="--provider") from exc
+        raise typer.BadParameter(
+            f"Unknown provider: {raw_provider}", param_hint="--provider"
+        ) from exc
 
 
 def _model_presets_key_status(
@@ -1760,7 +1896,7 @@ def model_setup(
     )
 
     try:
-        asyncio.run(
+        run_coroutine(
             _run_model_setup_command(
                 settings=settings,
                 token=token,
@@ -1789,7 +1925,7 @@ def model_doctor(
     )
 
     try:
-        asyncio.run(
+        run_coroutine(
             _run_model_doctor_command(
                 settings=settings,
             )
@@ -1841,7 +1977,7 @@ def model_llamacpp(
             secret_ref=secret_ref,
         )
 
-        result = asyncio.run(
+        result = run_coroutine(
             _run_llamacpp_import(
                 start_path=command_context.start_path,
                 env_dir=command_context.resolved_env_dir,
@@ -1887,12 +2023,8 @@ def model_llamacpp_list(
 
     env = _inherit_llamacpp_group_option(ctx, option_name="env", value=env)
     url = _inherit_llamacpp_group_url(ctx, url=url)
-    api_key_env = _inherit_llamacpp_group_option(
-        ctx, option_name="api_key_env", value=api_key_env
-    )
-    secret_ref = _inherit_llamacpp_group_option(
-        ctx, option_name="secret_ref", value=secret_ref
-    )
+    api_key_env = _inherit_llamacpp_group_option(ctx, option_name="api_key_env", value=api_key_env)
+    secret_ref = _inherit_llamacpp_group_option(ctx, option_name="secret_ref", value=secret_ref)
     try:
         command_context = _resolve_llamacpp_command_context(
             ctx=ctx,
@@ -1900,7 +2032,7 @@ def model_llamacpp_list(
             api_key_env=api_key_env,
             secret_ref=secret_ref,
         )
-        catalog = asyncio.run(
+        catalog = run_coroutine(
             discover_llamacpp_models(
                 url=url,
                 api_key=command_context.interrogation_api_key,
@@ -1939,12 +2071,8 @@ def model_llamacpp_preview(
     env = _inherit_llamacpp_group_option(ctx, option_name="env", value=env)
     url = _inherit_llamacpp_group_url(ctx, url=url)
     auth = _inherit_llamacpp_group_option(ctx, option_name="auth", value=auth)
-    api_key_env = _inherit_llamacpp_group_option(
-        ctx, option_name="api_key_env", value=api_key_env
-    )
-    secret_ref = _inherit_llamacpp_group_option(
-        ctx, option_name="secret_ref", value=secret_ref
-    )
+    api_key_env = _inherit_llamacpp_group_option(ctx, option_name="api_key_env", value=api_key_env)
+    secret_ref = _inherit_llamacpp_group_option(ctx, option_name="secret_ref", value=secret_ref)
     name = _inherit_llamacpp_group_option(ctx, option_name="name", value=name)
     include_sampling_defaults = _inherit_llamacpp_group_bool_option(
         ctx,
@@ -2007,12 +2135,8 @@ def model_llamacpp_import(
     env = _inherit_llamacpp_group_option(ctx, option_name="env", value=env)
     url = _inherit_llamacpp_group_url(ctx, url=url)
     auth = _inherit_llamacpp_group_option(ctx, option_name="auth", value=auth)
-    api_key_env = _inherit_llamacpp_group_option(
-        ctx, option_name="api_key_env", value=api_key_env
-    )
-    secret_ref = _inherit_llamacpp_group_option(
-        ctx, option_name="secret_ref", value=secret_ref
-    )
+    api_key_env = _inherit_llamacpp_group_option(ctx, option_name="api_key_env", value=api_key_env)
+    secret_ref = _inherit_llamacpp_group_option(ctx, option_name="secret_ref", value=secret_ref)
     name = _inherit_llamacpp_group_option(ctx, option_name="name", value=name)
     include_sampling_defaults = _inherit_llamacpp_group_bool_option(
         ctx,
@@ -2028,12 +2152,7 @@ def model_llamacpp_import(
         _llamacpp_option_was_explicit(ctx, option_name=option_name)
         for option_name in ("auth", "api_key_env", "secret_ref")
     )
-    requested_action: Literal[
-        "start_now",
-        "start_now_with_shell",
-        "start_now_smart",
-        "generate_overlay",
-    ]
+    requested_action: _LlamaCppImportAction
     if smart:
         requested_action = "start_now_smart"
     elif with_shell:

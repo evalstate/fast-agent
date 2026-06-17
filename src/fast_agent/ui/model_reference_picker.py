@@ -9,7 +9,6 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.controls import FormattedTextControl
 
 from fast_agent.ui.single_list_picker_layout import build_single_list_picker_app
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 StyleFragments = list[tuple[str, str]]
 
@@ -37,6 +36,19 @@ class ModelReferencePickerResult:
 @dataclass
 class _ReferencePickerState:
     index: int = 0
+
+
+@dataclass(frozen=True)
+class _PickerControlRow:
+    token_text: str
+    status_text: str
+    priority: ModelReferencePickerPriority = "configured"
+
+
+_CUSTOM_ROW = _PickerControlRow(token_text="Add a new reference", status_text="manual entry")
+_DONE_ROW = _PickerControlRow(token_text="Done", status_text="exit setup")
+_CUSTOM_RESULT = ModelReferencePickerResult(action="custom", token=None)
+_DONE_RESULT = ModelReferencePickerResult(action="done", token=None)
 
 
 class _ReferencePicker:
@@ -91,6 +103,22 @@ class _ReferencePicker:
         row_count = len(self.items) + 2
         self.state.index = (self.state.index + delta) % row_count
 
+    def _accept_result(self) -> ModelReferencePickerResult | None:
+        if self._is_done_row():
+            return _DONE_RESULT
+        if self._is_custom_row():
+            return _CUSTOM_RESULT
+        item = self.current_item
+        if item is None:
+            return None
+        return ModelReferencePickerResult(action="set", token=item.token)
+
+    def _remove_result(self) -> ModelReferencePickerResult | None:
+        item = self.current_item
+        if item is None or not item.removable:
+            return None
+        return ModelReferencePickerResult(action="unset", token=item.token)
+
     def _create_key_bindings(self) -> KeyBindings:
         kb = KeyBindings()
 
@@ -108,24 +136,19 @@ class _ReferencePicker:
 
         @kb.add("enter")
         def _accept(event) -> None:
-            if self._is_done_row():
-                event.app.exit(result=ModelReferencePickerResult(action="done", token=None))
+            result = self._accept_result()
+            if result is None:
                 return
-            if self._is_custom_row():
-                event.app.exit(result=ModelReferencePickerResult(action="custom", token=None))
-                return
-            item = self.current_item
-            assert item is not None
-            event.app.exit(result=ModelReferencePickerResult(action="set", token=item.token))
+            event.app.exit(result=result)
 
         @kb.add("delete")
         @kb.add("backspace")
         @kb.add("x")
         def _remove(event) -> None:
-            item = self.current_item
-            if item is None or not item.removable:
+            result = self._remove_result()
+            if result is None:
                 return
-            event.app.exit(result=ModelReferencePickerResult(action="unset", token=item.token))
+            event.app.exit(result=result)
 
         @kb.add("escape")
         @kb.add("q")
@@ -148,10 +171,10 @@ class _ReferencePicker:
         return " ".join(parts)
 
     def _render_rows(self) -> StyleFragments:
-        rows: list[ModelReferencePickerItem | Literal["custom", "done"]] = [
+        rows: list[ModelReferencePickerItem | _PickerControlRow] = [
             *self.items,
-            "custom",
-            "done",
+            _CUSTOM_ROW,
+            _DONE_ROW,
         ]
         width = self._terminal_cols()
         status_width = 34
@@ -159,16 +182,11 @@ class _ReferencePicker:
         fragments: StyleFragments = []
         for index, item in enumerate(rows):
             selected = index == self.state.index
-            if item == "custom":
-                priority = "configured"
-                token_text = "Add a new reference"
-                status_text = "manual entry"
-            elif item == "done":
-                priority = "configured"
-                token_text = "Done"
-                status_text = "exit setup"
+            if isinstance(item, _PickerControlRow):
+                priority = item.priority
+                token_text = item.token_text
+                status_text = item.status_text
             else:
-                assert isinstance(item, ModelReferencePickerItem)
                 priority = item.priority
                 token_text = item.token[: token_width - 1]
                 if len(item.token) > token_width:
@@ -208,7 +226,11 @@ class _ReferencePicker:
                 ("class:muted", "Delete/X removes the selected configured reference."),
             ]
 
-        assert item is not None
+        if item is None:
+            return [
+                ("", "No reference selected.\n"),
+                ("class:muted", "Enter = unavailable • Esc/Ctrl+C = cancel\n"),
+            ]
         references_text = ", ".join(item.references) if item.references else "No references"
         current_value = item.current_value if item.current_value is not None else "<unset>"
         remove_hint = (
@@ -225,8 +247,7 @@ class _ReferencePicker:
         ]
 
     async def run_async(self) -> ModelReferencePickerResult | None:
-        with suppress_known_runtime_warnings():
-            result = await self.app.run_async()
+        result = await self.app.run_async()
         if result is None:
             return None
         if isinstance(result, ModelReferencePickerResult):

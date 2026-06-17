@@ -41,7 +41,9 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("gpt-4o") == 128000
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
+    assert ModelDatabase.get_context_window("Qwen/Qwen3.6-35B-A3B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
+    assert ModelDatabase.get_context_window("google/gemma-4-31B-it:novita") == 262144
     assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
     assert ModelDatabase.get_context_window("deepseek-v4-flash") == 1_048_576
     assert ModelDatabase.get_context_window("deepseek-v4-pro") == 1_048_576
@@ -109,7 +111,27 @@ def test_model_database_default_provider_lookup():
         == Provider.HUGGINGFACE
     )
     assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
+    assert ModelDatabase.get_default_provider("Qwen/Qwen3.6-35B-A3B") == Provider.HUGGINGFACE
+    assert ModelDatabase.get_default_provider("google/gemma-4-31B-it") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
+
+
+def test_model_database_default_provider_lookup_uses_alias_normalization() -> None:
+    assert ModelDatabase.get_default_provider("sonnet") == Provider.ANTHROPIC
+    assert ModelDatabase.get_default_provider("gpt-oss") == Provider.HUGGINGFACE
+    assert ModelDatabase.get_default_provider("codexspark") == Provider.CODEX_RESPONSES
+
+
+def test_model_database_default_provider_prefers_exact_slash_catalog_key() -> None:
+    params = ModelDatabase.get_model_params("openai/gpt-oss-120b")
+    assert params is not None
+    assert ModelDatabase.get_default_provider("openai/gpt-oss-120b") == params.default_provider
+
+
+def test_model_database_provider_qualified_aliases_keep_capabilities() -> None:
+    assert ModelDatabase.get_max_output_tokens(
+        "anthropic-vertex.sonnet"
+    ) == ModelDatabase.get_max_output_tokens("sonnet")
 
 
 def test_anthropic_catalog_keeps_current_and_vertex_legacy_models() -> None:
@@ -152,9 +174,7 @@ def test_google_native_catalog_has_no_gemini_25_preview_entries() -> None:
 
     assert {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash"} <= gemini_models
     assert not {
-        model
-        for model in gemini_models
-        if model.startswith("gemini-2.5-") and "preview" in model
+        model for model in gemini_models if model.startswith("gemini-2.5-") and "preview" in model
     }
 
 
@@ -212,6 +232,26 @@ def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -
     assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
 
 
+def test_huggingface_qwen36_structured_output_uses_prompt_only() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    llm = _make_hf_llm("Qwen/Qwen3.6-35B-A3B")
+
+    prepared_messages, prepared_params = llm._prepare_structured_request(
+        [Prompt.user("return json")],
+        RequestParams(structured_schema=schema),
+    )
+
+    assert llm.resolve_structured_tool_policy(RequestParams(structured_schema=schema)) == "no_tools"
+    assert prepared_params.response_format is None
+    prepared_text = prepared_messages[-1].last_text()
+    assert prepared_text is not None
+    assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
+
+
 def test_huggingface_kimi25_uses_schema_mode() -> None:
     params = ModelDatabase.get_model_params("moonshotai/Kimi-K2.5")
 
@@ -220,31 +260,43 @@ def test_huggingface_kimi25_uses_schema_mode() -> None:
     assert params.structured_tool_policy is None
 
 
+def test_huggingface_gemma4_31b_metadata() -> None:
+    params = ModelDatabase.get_model_params("google/gemma-4-31B-it:novita")
+
+    assert params is not None
+    assert params.context_window == 262_144
+    assert params.max_output_tokens == 65_536
+    assert params.json_mode == "schema"
+    assert params.structured_tool_policy == "no_tools"
+    assert params.reasoning == "reasoning_content"
+    assert params.reasoning_effort_spec is not None
+    assert ModelDatabase.supports_mime("google/gemma-4-31B-it", "image/png")
+    assert not ModelDatabase.supports_mime("google/gemma-4-31B-it", "audio/mpeg")
+
+
 def test_model_database_anthropic_web_tool_versions_for_46_models():
-    assert ModelDatabase.get_anthropic_web_search_version("claude-opus-4-6") == "web_search_20260209"
+    assert (
+        ModelDatabase.get_anthropic_web_search_version("claude-opus-4-6") == "web_search_20260209"
+    )
     assert ModelDatabase.get_anthropic_web_fetch_version("claude-opus-4-6") == "web_fetch_20260209"
     assert ModelDatabase.get_anthropic_required_betas("claude-opus-4-6") == (
         "code-execution-web-tools-2026-02-09",
     )
 
     assert (
-        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-6")
-        == "web_search_20260209"
+        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-6") == "web_search_20260209"
     )
     assert (
-        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-6")
-        == "web_fetch_20260209"
+        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-6") == "web_fetch_20260209"
     )
 
 
 def test_model_database_anthropic_web_tool_versions_for_non_46_models():
     assert (
-        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-5")
-        == "web_search_20250305"
+        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-5") == "web_search_20250305"
     )
     assert (
-        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-5")
-        == "web_fetch_20250910"
+        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-5") == "web_fetch_20250910"
     )
     assert ModelDatabase.get_anthropic_required_betas("claude-sonnet-4-5") is None
 
@@ -321,9 +373,9 @@ def test_model_database_max_tokens():
     assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
     assert ModelDatabase.get_default_max_tokens("Qwen/Qwen3.5-397B-A17B:novita") == 65536
 
-    # Test fallbacks
-    assert ModelDatabase.get_default_max_tokens("unknown-model") == 2048
-    assert ModelDatabase.get_default_max_tokens("") == 2048
+    # Unknown models should omit max_tokens rather than inventing a small cap.
+    assert ModelDatabase.get_default_max_tokens("unknown-model") is None
+    assert ModelDatabase.get_default_max_tokens("") is None
 
 
 def test_model_database_default_temperature():
@@ -349,6 +401,15 @@ def test_model_database_tokenizes():
     assert "image/jpeg" in qwen_tokenizes
 
 
+def test_model_database_tokenizes_returns_copy() -> None:
+    tokenizes = ModelDatabase.get_tokenizes("claude-sonnet-4-0")
+    assert tokenizes is not None
+
+    tokenizes.append("application/x-test")
+
+    assert "application/x-test" not in (ModelDatabase.get_tokenizes("claude-sonnet-4-0") or [])
+
+
 def test_model_database_supports_mime_basic():
     """Test MIME support lookups with normalization and aliases."""
     # Known multimodal model supports images and pdf
@@ -363,6 +424,17 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime(
         "gpt-4o",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+    assert not ModelDatabase.supports_mime(
+        "gpt-4o",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        provider=Provider.OPENAI,
+    )
+    assert ModelDatabase.supports_mime("gpt-4o", "document/pdf", provider=Provider.OPENAI)
+    assert not ModelDatabase.supports_mime(
+        "deepseek-chat",
+        "document/pdf",
+        provider=Provider.OPENAI,
     )
 
     # Text-only models should not support images
@@ -531,14 +603,8 @@ def test_model_database_response_websocket_provider_support() -> None:
         ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.CODEX_RESPONSES)
         is True
     )
-    assert (
-        ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES)
-        is True
-    )
-    assert (
-        ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.RESPONSES)
-        is True
-    )
+    assert ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES) is True
+    assert ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.RESPONSES) is True
     assert (
         ModelDatabase.supports_response_websocket_provider(
             "gpt-5.3-codex-spark", Provider.CODEX_RESPONSES
@@ -607,6 +673,22 @@ def test_model_database_opus_47_reasoning_spec():
     assert spec.allow_toggle_disable
 
 
+def test_model_database_fable_5_reasoning_spec_is_always_on():
+    """Fable 5 adaptive thinking is always on and needs no thinking field."""
+    params = ModelDatabase.get_model_params("claude-fable-5")
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-fable-5")
+
+    assert params is not None
+    assert params.anthropic_thinking_field_required is False
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
+    assert spec.allow_auto is True
+    assert spec.allow_toggle_disable is False
+    assert spec.default is not None
+    assert spec.default.value == "auto"
+
+
 def test_model_database_text_verbosity_spec():
     """Ensure text verbosity support is tracked for GPT-5 models."""
     spec = ModelDatabase.get_text_verbosity_spec("gpt-5")
@@ -623,7 +705,7 @@ def test_openai_llm_normalizes_repeated_roles():
     assert isinstance(llm, OpenAILLM)
 
     assert llm._normalize_role("assistantassistant") == "assistant"
-    assert llm._normalize_role("assistantASSISTANTassistant") == "assistant"
+    assert llm._normalize_role(" assistantASSISTANTassistant ") == "assistant"
     assert llm._normalize_role("user") == "user"
     assert llm._normalize_role(None) == "assistant"
 
@@ -762,6 +844,44 @@ def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_enabled()
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_gemma4_reasoning_toggle_uses_chat_template_kwargs_enabled():
+    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it", reasoning=True)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_gemma4_reasoning_toggle_uses_chat_template_kwargs_disabled():
+    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_huggingface_gemma4_default_reasoning_emits_chat_template_kwargs_enabled():
+    llm = _make_hf_llm("google/gemma-4-31B-it")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_chat_template_kwargs_helper_preserves_existing_values() -> None:
+    extra_body: dict[str, object] = {"chat_template_kwargs": {"temperature": 0.2}}
+
+    HuggingFaceLLM._set_chat_template_kwarg(extra_body, "enable_thinking", False)
+
+    assert extra_body["chat_template_kwargs"] == {
+        "temperature": 0.2,
+        "enable_thinking": False,
+    }
 
 
 def test_huggingface_qwen35_default_reasoning_emits_chat_template_kwargs_enabled():

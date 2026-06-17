@@ -8,11 +8,17 @@ from rich.text import Text
 
 from fast_agent.commands.model_capabilities import (
     describe_service_tier_state,
+    resolve_resolved_model,
     resolve_service_tier_supported,
     resolve_task_budget_supported,
     resolve_task_budget_tokens,
+    resolve_text_verbosity,
+    resolve_text_verbosity_spec,
+    resolve_web_fetch_enabled,
     resolve_web_fetch_supported,
+    resolve_web_search_enabled,
     resolve_web_search_supported,
+    resolve_x_search_enabled,
     resolve_x_search_supported,
 )
 from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
@@ -26,6 +32,22 @@ from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_model,
 )
 from fast_agent.llm.text_verbosity import format_text_verbosity
+from fast_agent.utils.action_normalization import (
+    enabled_disabled_label as enabled_label,
+)
+from fast_agent.utils.numeric import finite_number_or_none, positive_int_or_none
+from fast_agent.utils.text import strip_str_to_none
+
+_STRUCTURED_OUTPUT_LABELS: dict[str | None, str] = {
+    "schema": "schema",
+    "object": "object",
+}
+
+_STRUCTURED_TOOL_POLICY_LABELS: dict[str | None, str] = {
+    "defer": "two-phase (tools first, schema-only final)",
+    "no_tools": "structured-only (regular tools suppressed)",
+    "always": "same-request compatible",
+}
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
@@ -48,6 +70,10 @@ class ResponseTransportAware(Protocol):
 class ShellRuntimeAware(Protocol):
     @property
     def shell_runtime(self): ...
+
+
+def _transport_label(value: object) -> str | None:
+    return strip_str_to_none(value)
 
 
 def format_shell_budget(byte_limit: int, source: str) -> str:
@@ -123,10 +149,6 @@ def _emit_model_line(
     )
 
 
-def _enabled_label(value: bool) -> str:
-    return "enabled" if value else "disabled"
-
-
 def _render_sampling_overrides(llm: FastAgentLLMProtocol) -> str | None:
     request_params = llm.default_request_params
     if request_params is None:
@@ -142,9 +164,10 @@ def _render_sampling_overrides(llm: FastAgentLLMProtocol) -> str | None:
         ("frequency_penalty", request_params.frequency_penalty),
         ("repetition_penalty", request_params.repetition_penalty),
     ):
-        if value is None:
+        sampling_value = finite_number_or_none(value)
+        if sampling_value is None:
             continue
-        parts.append(f"{label}={_format_sampling_value(value)}")
+        parts.append(f"{label}={_format_sampling_value(sampling_value)}")
 
     if not parts:
         return None
@@ -160,10 +183,6 @@ def _format_sampling_value(value: object) -> str:
     return str(value)
 
 
-def _resolved_model_or_none(llm: FastAgentLLMProtocol) -> "ResolvedModelSpec | None":
-    return llm.resolved_model
-
-
 def _provider_value(llm: FastAgentLLMProtocol) -> str:
     return llm.provider.config_name
 
@@ -171,17 +190,11 @@ def _provider_value(llm: FastAgentLLMProtocol) -> str:
 def _iter_model_identity_lines(
     llm: "FastAgentLLMProtocol",
 ) -> list[tuple[str, str, bool]]:
-    resolved_model = _resolved_model_or_none(llm)
+    resolved_model = resolve_resolved_model(llm)
     selected_model = (
-        resolved_model.selected_model_name
-        if resolved_model is not None
-        else llm.model_name
+        resolved_model.selected_model_name if resolved_model is not None else llm.model_name
     )
-    wire_model = (
-        resolved_model.wire_model_name
-        if resolved_model is not None
-        else llm.model_name
-    )
+    wire_model = resolved_model.wire_model_name if resolved_model is not None else llm.model_name
     lines = [
         ("Provider", _provider_value(llm), True),
         ("Selected model", selected_model, True),
@@ -189,8 +202,10 @@ def _iter_model_identity_lines(
         ("Wire model", wire_model, False),
     ]
 
-    context_window = resolved_model.context_window if resolved_model is not None else None
-    if isinstance(context_window, int) and context_window > 0:
+    context_window = (
+        positive_int_or_none(resolved_model.context_window) if resolved_model is not None else None
+    )
+    if context_window is not None:
         lines.append(("Context window", str(context_window), False))
 
     if resolved_model is not None:
@@ -207,24 +222,14 @@ def _iter_structured_output_lines(
     resolved_model: "ResolvedModelSpec",
 ) -> list[tuple[str, str, bool]]:
     json_mode = resolved_model.json_mode
-    if json_mode == "schema":
-        structured_output = "schema"
-    elif json_mode == "object":
-        structured_output = "object"
-    elif json_mode is None and resolved_model.model_params is not None:
+    structured_output = _STRUCTURED_OUTPUT_LABELS.get(json_mode)
+    if structured_output is None and json_mode is None and resolved_model.model_params is not None:
         structured_output = "prompt-only + local validation"
-    else:
+    elif structured_output is None:
         structured_output = "unknown (defaulting to provider behavior)"
 
     policy = resolved_model.structured_tool_policy
-    if policy == "defer":
-        structured_tools = "two-phase (tools first, schema-only final)"
-    elif policy == "no_tools":
-        structured_tools = "structured-only (regular tools suppressed)"
-    elif policy == "always":
-        structured_tools = "same-request compatible"
-    else:
-        structured_tools = "default policy"
+    structured_tools = _STRUCTURED_TOOL_POLICY_LABELS.get(policy, "default policy")
 
     return [
         ("Structured output", structured_output, False),
@@ -245,9 +250,8 @@ def _emit_transport_details(
     outcome: CommandOutcome,
     *,
     llm: "FastAgentLLMProtocol",
-    wire_model_name: str,
 ) -> None:
-    resolved_model = _resolved_model_or_none(llm)
+    resolved_model = resolve_resolved_model(llm)
     if resolved_model is None:
         return
 
@@ -257,19 +261,23 @@ def _emit_transport_details(
 
     _emit_model_line(outcome, "Model transports", ", ".join(response_transports))
 
-    configured_transport = llm.configured_transport if isinstance(llm, ResponseTransportAware) else None
-    if isinstance(configured_transport, str) and configured_transport.strip():
+    configured_transport = (
+        _transport_label(llm.configured_transport)
+        if isinstance(llm, ResponseTransportAware)
+        else None
+    )
+    if configured_transport is not None:
         _emit_model_line(
             outcome,
             "Configured transport",
             configured_transport,
             emphasize_value=True,
         )
-    else:
-        configured_transport = None
 
-    active_transport = llm.active_transport if isinstance(llm, ResponseTransportAware) else None
-    if isinstance(active_transport, str) and active_transport.strip():
+    active_transport = (
+        _transport_label(llm.active_transport) if isinstance(llm, ResponseTransportAware) else None
+    )
+    if active_transport is not None:
         _emit_model_line(
             outcome,
             "Active transport",
@@ -283,12 +291,12 @@ def _add_model_runtime_settings(
     *,
     llm: "FastAgentLLMProtocol",
 ) -> None:
-    text_verbosity_spec = llm.text_verbosity_spec
+    text_verbosity_spec = resolve_text_verbosity_spec(llm)
     if text_verbosity_spec is not None:
         _emit_model_line(
             outcome,
             "Text verbosity",
-            format_text_verbosity(llm.text_verbosity or text_verbosity_spec.default),
+            format_text_verbosity(resolve_text_verbosity(llm) or text_verbosity_spec.default),
         )
 
     if resolve_service_tier_supported(llm):
@@ -302,13 +310,13 @@ def _add_model_runtime_settings(
         )
 
     if resolve_web_search_supported(llm):
-        _emit_model_line(outcome, "Web search", _enabled_label(llm.web_search_enabled))
+        _emit_model_line(outcome, "Web search", enabled_label(resolve_web_search_enabled(llm)))
 
     if resolve_x_search_supported(llm):
-        _emit_model_line(outcome, "X Search", _enabled_label(llm.x_search_enabled))
+        _emit_model_line(outcome, "X Search", enabled_label(resolve_x_search_enabled(llm)))
 
     if resolve_web_fetch_supported(llm):
-        _emit_model_line(outcome, "Web fetch", _enabled_label(llm.web_fetch_enabled))
+        _emit_model_line(outcome, "Web fetch", enabled_label(resolve_web_fetch_enabled(llm)))
 
 
 def _resolve_shell_budget_line(
@@ -327,11 +335,12 @@ def _resolve_shell_budget_line(
 
     settings = ctx.resolve_settings()
     shell_config = settings.shell_execution
-    config_limit = shell_config.output_byte_limit
-    if isinstance(config_limit, int) and config_limit > 0:
+    config_limit = positive_int_or_none(shell_config.output_byte_limit)
+    if config_limit is not None:
         return format_shell_budget(config_limit, "config override")
 
-    if isinstance(max_output_tokens, int):
+    max_output_tokens = positive_int_or_none(max_output_tokens)
+    if max_output_tokens is not None:
         return format_shell_budget(
             calculate_terminal_output_limit_for_max_tokens(max_output_tokens),
             "auto from model",
@@ -353,12 +362,12 @@ def _emit_shell_budget_details(
     agent: object,
     llm: "FastAgentLLMProtocol",
 ) -> None:
-    resolved_model = _resolved_model_or_none(llm)
+    resolved_model = resolve_resolved_model(llm)
     if resolved_model is None:
         return
 
-    max_output_tokens = resolved_model.max_output_tokens
-    if isinstance(max_output_tokens, int):
+    max_output_tokens = positive_int_or_none(resolved_model.max_output_tokens)
+    if max_output_tokens is not None:
         _emit_model_line(outcome, "Model max output tokens", str(max_output_tokens))
 
     shell_budget = _resolve_shell_budget_line(
@@ -383,14 +392,12 @@ def add_model_details(
     for label, value, emphasize in _iter_model_identity_lines(llm):
         _emit_model_line(outcome, label, value, emphasize_value=emphasize)
 
-    resolved_model = _resolved_model_or_none(llm)
+    resolved_model = resolve_resolved_model(llm)
     wire_model_name = (
-        resolved_model.wire_model_name
-        if resolved_model is not None
-        else llm.model_name or ""
+        resolved_model.wire_model_name if resolved_model is not None else llm.model_name or ""
     )
     if wire_model_name:
-        _emit_transport_details(outcome, llm=llm, wire_model_name=wire_model_name)
+        _emit_transport_details(outcome, llm=llm)
 
     if include_runtime_settings:
         _add_model_runtime_settings(outcome, llm=llm)
@@ -406,9 +413,9 @@ def format_model_switch_value(resolved_model: "ResolvedModelSpec | None") -> str
     display_name = (
         resolve_resolved_model_display_name(resolved_model) or resolved_model.wire_model_name
     )
-    if (
-        display_name != resolved_model.selected_model_name
-        and display_name != resolved_model.wire_model_name
+    if display_name not in (
+        resolved_model.selected_model_name,
+        resolved_model.wire_model_name,
     ):
         return (
             f"{resolved_model.selected_model_name} "

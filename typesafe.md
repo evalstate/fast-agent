@@ -84,10 +84,16 @@ Python 3.13+ and current typing guidance.
   once at the boundary to avoid exhausting generators.
 - Annotate public APIs and module boundaries first (CLI entry points, FastAPI routes, shared utils).
 - Avoid `Any` unless crossing untyped boundaries; when unavoidable, localize it and add a comment.
+- When adapting untyped or under-typed third-party SDK payloads, prefer precise internal types plus
+  a narrow `cast(...)` at the boundary over widening a whole collection to `Any`.
 - Prefer `TypedDict` or `Protocol` over loose `dict[str, object]` and `Any` for structured data.
 - Use `Literal` or `Enum` for fixed choices; use `Final` for constants.
 - Prefer `collections.abc` types for inputs (`Sequence`, `Mapping`, `Iterable`) and concrete types
   for outputs (e.g., `list`, `dict`) when callers rely on mutability.
+- Avoid raw tuples for multi-field domain records that escape a small local scope; prefer a
+  dataclass, `NamedTuple`, `TypedDict`, or type alias. Tuples remain appropriate for immutable
+  constants, dictionary keys, fixed return pairs, and private/local plumbing. For callbacks that
+  only promise `Iterable[T]`, return `list[T]` unless tuple immutability is meaningful.
 - If a capability is optional, pick a single shape (property or method) and document it in the
   protocol; avoid supporting both unless required by existing implementations.
 - For pydantic models, prefer explicit field types and `Annotated[...]` where validation metadata

@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from fast_agent.core.agent_card_loader import _resolve_name, dump_agent_to_string, load_agent_cards
+from fast_agent.agents.workflow.agents_as_tools_agent import HistoryMergeTarget, HistorySource
+from fast_agent.core.agent_card_loader import (
+    _agents_as_tools_options,
+    _load_markdown_card,
+    _resolve_name,
+    dump_agent_to_string,
+    load_agent_cards,
+)
 from fast_agent.core.exceptions import AgentConfigError
 
 if TYPE_CHECKING:
@@ -73,8 +80,8 @@ def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
                 "name: mcp_agent",
                 "mcp_connect:",
                 '  - target: "https://demo.hf.space"',
-                '  - target: "@foo/bar"',
-                '    name: "foo_bar"',
+                '  - target: "  @foo/bar  "',
+                '    name: "  foo_bar  "',
                 "    headers:",
                 '      Authorization: "Bearer abc"',
                 "    auth:",
@@ -97,6 +104,70 @@ def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     assert config.mcp_connect[1].name == "foo_bar"
     assert config.mcp_connect[1].headers == {"Authorization": "Bearer abc"}
     assert config.mcp_connect[1].auth == {"oauth": False}
+
+
+def test_load_agent_card_normalizes_padded_instruction(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: test_agent",
+                "instruction: '  Be helpful.  '",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+
+    assert loaded[0].agent_data["config"].instruction == "Be helpful."
+
+
+def test_load_agent_card_accepts_declared_variables_metadata(tmp_path: Path) -> None:
+    card_path = tmp_path / "classifier.md"
+    card_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "name: classifier",
+                "model: passthrough",
+                "variables:",
+                "  policy: ''",
+                "---",
+                "",
+                "Policy:",
+                "{{policy}}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+
+    config = loaded[0].agent_data["config"]
+    assert config.name == "classifier"
+    assert "{{policy}}" in config.instruction
+
+
+def test_load_agent_card_normalizes_markdown_body_markers(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.md"
+    card_path.write_text(
+        "\n".join(
+            [
+                "   ---   ",
+                "name: markdown_agent",
+                "---",
+                "",
+                "   ---SYSTEM   ",
+                "   Be helpful.   ",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+
+    assert loaded[0].agent_data["config"].instruction == "Be helpful."
 
 
 def test_load_agent_card_rejects_skill_manifest_with_clear_error(tmp_path: Path) -> None:
@@ -122,6 +193,47 @@ def test_load_agent_card_rejects_skill_manifest_with_clear_error(tmp_path: Path)
     message = str(exc_info.value)
     assert "Agent Skill manifest, not an AgentCard" in message
     assert "read_text_file/read_skill" in message
+
+
+def test_load_agent_card_reports_markdown_decode_errors(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.md"
+    card_path.write_bytes(b"---\nname: bad\n---\n\xff")
+
+    with pytest.raises(AgentConfigError, match="Failed to parse frontmatter"):
+        _load_markdown_card(card_path)
+
+
+def test_load_agent_card_rejects_boolean_schema_version(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "schema_version: true",
+                "name: bool_schema_agent",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="schema_version.*integer"):
+        load_agent_cards(card_path)
+
+
+@pytest.mark.parametrize(
+    ("option", "message"),
+    [
+        ("max_parallel", "integer"),
+        ("max_display_instances", "integer"),
+        ("child_timeout_sec", "number"),
+    ],
+)
+def test_agents_as_tools_options_rejects_boolean_numeric_options(
+    tmp_path: Path,
+    option: str,
+    message: str,
+) -> None:
+    with pytest.raises(AgentConfigError, match=message):
+        _agents_as_tools_options({option: True}, tmp_path / "agent.yaml")
 
 
 def test_load_agent_card_parses_provider_managed_mcp_connect_entries(
@@ -218,6 +330,31 @@ def test_dump_agent_card_preserves_mcp_connect_auth_fields(tmp_path: Path) -> No
     assert "headers:" in dumped
     assert "auth:" in dumped
     assert "Authorization: Bearer abc" in dumped
+
+
+def test_dump_agent_card_serializes_agents_as_tools_enum_options(tmp_path: Path) -> None:
+    card_path = tmp_path / "orchestrator.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: orchestrator",
+                "type: agent",
+                "agents:",
+                "  - child",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    loaded = load_agent_cards(card_path)
+    loaded[0].agent_data["agents_as_tools_options"] = {
+        "history_source": HistorySource.CHILD,
+        "history_merge_target": HistoryMergeTarget.ORCHESTRATOR,
+    }
+
+    dumped = dump_agent_to_string("orchestrator", loaded[0].agent_data, as_yaml=True)
+
+    assert "history_source: child" in dumped
+    assert "history_merge_target: orchestrator" in dumped
 
 
 def test_dump_agent_card_preserves_provider_mcp_connect_fields(tmp_path: Path) -> None:
@@ -317,7 +454,7 @@ def test_load_agent_card_parses_tool_input_schema(tmp_path: Path) -> None:
                 "  type: object",
                 "  properties:",
                 "    query:",
-                '      type: string',
+                "      type: string",
                 '      description: "What to investigate"',
                 "  required:",
                 "    - query",
@@ -440,7 +577,7 @@ def test_dump_agent_card_preserves_tool_input_schema(tmp_path: Path) -> None:
                 "  type: object",
                 "  properties:",
                 "    query:",
-                '      type: string',
+                "      type: string",
                 '      description: "What to investigate"',
                 "  required:",
                 "    - query",
@@ -466,9 +603,9 @@ def test_load_agent_card_parses_plugin_command_actions(tmp_path: Path) -> None:
                 "commands:",
                 "  draft-next:",
                 "    description: Draft the next user message",
-                "    input_hint: \"[format]\"",
-                "    handler: \"commands.py:draft_next\"",
-                "    key: \"c-x d\"",
+                '    input_hint: "[format]"',
+                '    handler: "commands.py:draft_next"',
+                '    key: "c-x d"',
             ]
         ),
         encoding="utf-8",
@@ -493,7 +630,7 @@ def test_dump_agent_card_preserves_plugin_command_actions(tmp_path: Path) -> Non
                 "commands:",
                 "  review-last:",
                 "    description: Review the last response",
-                "    handler: \"commands.py:review_last\"",
+                '    handler: "commands.py:review_last"',
             ]
         ),
         encoding="utf-8",

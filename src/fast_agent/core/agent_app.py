@@ -7,13 +7,12 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Awaitable, Callable, Mapping, Sequence, Union
+from typing import TYPE_CHECKING, Union
 
 from deprecated import deprecated
 from rich import print as rich_print
 from rich.markup import escape
 
-from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
@@ -21,12 +20,15 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.ui.display_suppression import display_usage_enabled
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
     from pathlib import Path
 
     from mcp.types import GetPromptResult, PromptMessage
 
+    from fast_agent.agents.agent_types import AgentType
     from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy
     from fast_agent.command_actions import PluginCommandActionSpec
     from fast_agent.config import MCPServerSettings
@@ -43,6 +45,39 @@ class AgentRefreshResult:
     changed: bool
     active_agent: str | None = None
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True, frozen=True)
+class AgentCardLoadResult:
+    loaded_names: list[str]
+    attached_names: list[str] = field(default_factory=list)
+
+
+def _format_interactive_final_error(error: Exception) -> str:
+    detail_candidates = [str(arg) for arg in error.args]
+    detail_candidates.extend([str(error), repr(error), type(error).__name__])
+
+    detail = next(
+        (
+            normalized
+            for candidate in detail_candidates
+            if (normalized := strip_to_none(candidate)) is not None
+        ),
+        "",
+    )
+    error_type = type(error).__name__
+    if detail and not detail.startswith(error_type):
+        detail = f"{error_type}: {detail}"
+
+    clean_detail = detail.replace("\n", " ")
+    if len(clean_detail) > 300:
+        clean_detail = clean_detail[:297] + "..."
+    clean_detail = escape(clean_detail)
+    return (
+        f"▲ **System Error:** The agent failed after repeated attempts.\n"
+        f"Error details: {clean_detail}\n"
+        f"\n*Your context is preserved. You can try sending the message again.*"
+    )
 
 
 class AgentApp:
@@ -63,7 +98,7 @@ class AgentApp:
         *,
         reload_callback: Callable[[], Awaitable[AgentRefreshResult]] | None = None,
         refresh_callback: Callable[[], Awaitable[AgentRefreshResult]] | None = None,
-        load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
+        load_card_callback: Callable[[str, str | None], Awaitable[AgentCardLoadResult]]
         | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
@@ -100,7 +135,7 @@ class AgentApp:
             tool_only_agents: Optional set of agent names that are tool-only (hidden from listings)
             card_collision_warnings: Optional list of warnings from agent card name collisions
         """
-        if len(agents) == 0:
+        if not agents:
             raise ValueError("No agents provided!")
         self._agents = agents
         self._reload_callback = reload_callback
@@ -404,7 +439,7 @@ class AgentApp:
 
     async def load_agent_card(
         self, source: str, parent_agent: str | None = None
-    ) -> tuple[list[str], list[str]]:
+    ) -> AgentCardLoadResult:
         """Load an AgentCard source and refresh active instances when available."""
         if not self._load_card_callback:
             raise RuntimeError("Agent card loading is not available.")
@@ -438,7 +473,9 @@ class AgentApp:
         """Attach an MCP server to a running MCP agent."""
         if not self._attach_mcp_server_callback:
             raise RuntimeError("Runtime MCP server attachment is not available.")
-        return await self._attach_mcp_server_callback(agent_name, server_name, server_config, options)
+        return await self._attach_mcp_server_callback(
+            agent_name, server_name, server_config, options
+        )
 
     async def detach_mcp_server(self, agent_name: str, server_name: str) -> "MCPDetachResult":
         """Detach an MCP server from a running MCP agent."""
@@ -512,7 +549,7 @@ class AgentApp:
 
     def set_load_card_callback(
         self,
-        callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]] | None,
+        callback: Callable[[str, str | None], Awaitable[AgentCardLoadResult]] | None,
     ) -> None:
         """Update the callback for loading agent cards at runtime."""
         self._load_card_callback = callback
@@ -566,7 +603,7 @@ class AgentApp:
         self._list_configured_detached_mcp_servers_callback = callback
 
     def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
-        names = [name for name in self._agents.keys() if name not in self._tool_only_agents]
+        names = [name for name in self._agents if name not in self._tool_only_agents]
         if force_include and force_include in self._agents and force_include not in names:
             return [force_include, *names]
         return names
@@ -649,60 +686,13 @@ class AgentApp:
 
         prompt = InteractivePrompt(agent_types=agent_types)
 
-        # Helper for pretty formatting the FINAL error
-        def _format_final_error(error: Exception) -> str:
-            message_attr = getattr(error, "message", None)
-            detail_candidates = []
-            if isinstance(message_attr, str):
-                detail_candidates.append(message_attr)
-            elif message_attr is not None:
-                detail_candidates.append(str(message_attr))
-            detail_candidates.extend([str(error), repr(error), type(error).__name__])
-
-            detail = ""
-            for candidate in detail_candidates:
-                if isinstance(candidate, str) and candidate.strip():
-                    detail = candidate.strip()
-                    break
-
-            error_type = type(error).__name__
-            if detail and not detail.startswith(error_type):
-                detail = f"{error_type}: {detail}"
-
-            clean_detail = detail.replace("\n", " ")
-            if len(clean_detail) > 300:
-                clean_detail = clean_detail[:297] + "..."
-            clean_detail = escape(clean_detail)
-            return (
-                f"▲ **System Error:** The agent failed after repeated attempts.\n"
-                f"Error details: {clean_detail}\n"
-                f"\n*Your context is preserved. You can try sending the message again.*"
-            )
-
         async def send_with_error_handling(message, agent_name, *, show_usage: bool) -> str:
-            try:
-                # The LLM layer will handle the 10s/20s/30s retries internally.
-                turn_start_indices = self._capture_turn_start_indices(agent_name)
-                result = await self.send(message, agent_name, request_params)
-                # Show usage info after each turn
-                if show_usage and display_usage_enabled():
-                    self._show_turn_usage(agent_name, turn_start_indices)
-                return result
-
-            except Exception as e:
-                # If we catch an exception here, it means all retries FAILED.
-                if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
-                    raise e
-
-                logger.exception(
-                    "Agent failed after repeated attempts",
-                    agent_name=agent_name,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-
-                # Return pretty text for API failures (keeps session alive)
-                return _format_final_error(e)
+            return await self._send_interactive_message(
+                message,
+                agent_name,
+                request_params=request_params,
+                show_usage=show_usage,
+            )
 
         async def send_wrapper(message, agent_name) -> str:
             return await send_with_error_handling(message, agent_name, show_usage=True)
@@ -720,22 +710,53 @@ class AgentApp:
             default=default_prompt,
         )
 
+    async def _send_interactive_message(
+        self,
+        message: Union[str, PromptMessage, PromptMessageExtended],
+        agent_name: str | None,
+        *,
+        request_params: RequestParams | None,
+        show_usage: bool,
+    ) -> str:
+        try:
+            # The LLM layer will handle the 10s/20s/30s retries internally.
+            turn_start_indices = self._capture_turn_start_indices(agent_name)
+            result = await self.send(message, agent_name, request_params)
+            if show_usage and display_usage_enabled():
+                self._show_turn_usage(agent_name, turn_start_indices)
+            return result
+        except Exception as e:
+            # If we catch an exception here, it means all retries failed.
+            if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+                raise
+
+            logger.exception(
+                "Agent failed after repeated attempts",
+                agent_name=agent_name,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return _format_interactive_final_error(e)
+
     def _show_turn_usage(
-        self, agent_name: str, turn_start_indices: dict[str, int] | None = None
+        self, agent_name: str | None, turn_start_indices: dict[str, int] | None = None
     ) -> None:
         """Show subtle usage information after each turn."""
+        if agent_name is None:
+            return
         agent = self._agents.get(agent_name)
         if not agent:
             return
 
-        # Check if this is a parallel agent
-        if agent.agent_type == AgentType.PARALLEL:
+        if isinstance(agent, ParallelAgent):
             self._show_parallel_agent_usage(agent, turn_start_indices or {})
         else:
             self._show_regular_agent_usage(agent, (turn_start_indices or {}).get(agent.name))
 
-    def _capture_turn_start_indices(self, agent_name: str) -> dict[str, int]:
+    def _capture_turn_start_indices(self, agent_name: str | None) -> dict[str, int]:
         """Capture usage accumulator turn indices for a user-initiated turn."""
+        if agent_name is None:
+            return {}
         agent = self._agents.get(agent_name)
         if not agent:
             return {}
@@ -767,29 +788,25 @@ class AgentApp:
                 )
 
     def _show_parallel_agent_usage(
-        self, parallel_agent, turn_start_indices: dict[str, int]
+        self, parallel_agent: ParallelAgent, turn_start_indices: dict[str, int]
     ) -> None:
         """Show usage for a parallel agent and its children."""
-        # Collect usage from all child agents
         child_usage_data = []
         total_input = 0
         total_output = 0
         total_tool_calls = 0
 
-        # Get usage from fan-out agents
-        if hasattr(parallel_agent, "fan_out_agents") and parallel_agent.fan_out_agents:
-            for child_agent in parallel_agent.fan_out_agents:
-                usage_info = self._format_agent_usage(
-                    child_agent, turn_start_indices.get(child_agent.name)
-                )
-                if usage_info:
-                    child_usage_data.append({**usage_info, "name": child_agent.name})
-                    total_input += usage_info["input_tokens"]
-                    total_output += usage_info["output_tokens"]
-                    total_tool_calls += usage_info["tool_calls"]
+        for child_agent in parallel_agent.fan_out_agents:
+            usage_info = self._format_agent_usage(
+                child_agent, turn_start_indices.get(child_agent.name)
+            )
+            if usage_info:
+                child_usage_data.append({**usage_info, "name": child_agent.name})
+                total_input += usage_info["input_tokens"]
+                total_output += usage_info["output_tokens"]
+                total_tool_calls += usage_info["tool_calls"]
 
-        # Get usage from fan-in agent
-        if hasattr(parallel_agent, "fan_in_agent") and parallel_agent.fan_in_agent:
+        if parallel_agent.fan_in_agent:
             usage_info = self._format_agent_usage(
                 parallel_agent.fan_in_agent,
                 turn_start_indices.get(parallel_agent.fan_in_agent.name),
@@ -828,59 +845,19 @@ class AgentApp:
         if not turns:
             return None
 
-        last_turn = turns[-1]
-        totals = last_turn_usage(agent.usage_accumulator, turn_start_index)
-        if totals:
-            input_tokens = totals["input_tokens"]
-            output_tokens = totals["output_tokens"]
-            tool_calls = totals["tool_calls"]
-            turn_slice = turns[turn_start_index:] if turn_start_index is not None else [last_turn]
-        else:
-            input_tokens = last_turn.display_input_tokens
-            output_tokens = last_turn.output_tokens
-            tool_calls = last_turn.tool_calls
-            turn_slice = [last_turn]
-
-        # Build cache indicators with bright colors
-        cache_indicators = ""
-        if any(turn.cache_usage.cache_write_tokens > 0 for turn in turn_slice):
-            cache_indicators += "[bright_yellow]^[/bright_yellow]"
-        if any(
-            turn.cache_usage.cache_read_tokens > 0 or turn.cache_usage.cache_hit_tokens > 0
-            for turn in turn_slice
-        ):
-            cache_indicators += "[bright_green]*[/bright_green]"
-
-        # Build cache expiry time if cache is active
-        cache_expiry_text = ""
-        if cache_indicators and agent.usage_accumulator.last_cache_activity_time:
-            llm = getattr(agent, "llm", None)
-            resolved_model = getattr(llm, "resolved_model", None)
-            cache_ttl = getattr(resolved_model, "cache_ttl", None)
-            if cache_ttl:
-                # Override with config setting for Anthropic models
-                context = getattr(agent, "context", None)
-                if context and context.config and context.config.anthropic:
-                    cache_ttl = context.config.anthropic.cache_ttl
-                ttl_minutes = 60 if cache_ttl == "1h" else 5
-                expiry_timestamp = agent.usage_accumulator.last_cache_activity_time + (
-                    ttl_minutes * 60
-                )
-                if expiry_timestamp > time.time():
-                    expiry_time = datetime.fromtimestamp(expiry_timestamp).strftime("%H:%M")
-                    cache_expiry_text = f" [dim]({expiry_time})[/dim]"
-
-        # Build context percentage - get from accumulator, not individual turn
-        context_info = ""
+        usage_totals, turn_slice = self._usage_totals_and_turns(agent, turn_start_index)
+        input_tokens = usage_totals["input_tokens"]
+        output_tokens = usage_totals["output_tokens"]
+        tool_calls = usage_totals["tool_calls"]
+        cache_indicators = self._cache_indicators(turn_slice)
+        cache_expiry_text = self._cache_expiry_text(agent, cache_indicators)
         context_percentage = agent.usage_accumulator.context_usage_percentage
-        if context_percentage is not None:
-            context_info = f" ({context_percentage:.1f}%)"
-
-        # Build tool call info
-        tool_info = f", {tool_calls} tool calls" if tool_calls > 0 else ""
-
-        # Build display text
-        display_text = f"{input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}"
+        display_text = self._usage_display_text(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            tool_calls=tool_calls,
+            context_percentage=context_percentage,
+        )
         cache_suffix = f" {cache_indicators}{cache_expiry_text}" if cache_indicators else ""
 
         return {
@@ -891,3 +868,71 @@ class AgentApp:
             "display_text": display_text,
             "cache_suffix": cache_suffix,
         }
+
+    def _usage_totals_and_turns(self, agent, turn_start_index: int | None):
+        turns = agent.usage_accumulator.turns
+        totals = last_turn_usage(agent.usage_accumulator, turn_start_index)
+        if totals:
+            turn_slice = turns[turn_start_index:] if turn_start_index is not None else [turns[-1]]
+            return totals, turn_slice
+
+        last_turn = turns[-1]
+        return (
+            {
+                "input_tokens": last_turn.display_input_tokens,
+                "output_tokens": last_turn.output_tokens,
+                "tool_calls": last_turn.tool_calls,
+            },
+            [last_turn],
+        )
+
+    @staticmethod
+    def _cache_indicators(turn_slice) -> str:
+        indicators = ""
+        if any(turn.cache_usage.cache_write_tokens > 0 for turn in turn_slice):
+            indicators += "[bright_yellow]^[/bright_yellow]"
+        if any(
+            turn.cache_usage.cache_read_tokens > 0 or turn.cache_usage.cache_hit_tokens > 0
+            for turn in turn_slice
+        ):
+            indicators += "[bright_green]*[/bright_green]"
+        return indicators
+
+    def _cache_expiry_text(self, agent, cache_indicators: str) -> str:
+        last_cache_activity = agent.usage_accumulator.last_cache_activity_time
+        if not cache_indicators or not last_cache_activity:
+            return ""
+
+        cache_ttl = self._cache_ttl(agent)
+        if not cache_ttl:
+            return ""
+
+        ttl_minutes = 60 if cache_ttl == "1h" else 5
+        expiry_timestamp = last_cache_activity + (ttl_minutes * 60)
+        if expiry_timestamp <= time.time():
+            return ""
+
+        expiry_time = datetime.fromtimestamp(expiry_timestamp).strftime("%H:%M")
+        return f" [dim]({expiry_time})[/dim]"
+
+    @staticmethod
+    def _cache_ttl(agent) -> str | None:
+        llm = getattr(agent, "llm", None)
+        resolved_model = getattr(llm, "resolved_model", None)
+        cache_ttl = getattr(resolved_model, "cache_ttl", None)
+        context = getattr(agent, "context", None)
+        if context and context.config and context.config.anthropic:
+            return context.config.anthropic.cache_ttl
+        return cache_ttl
+
+    @staticmethod
+    def _usage_display_text(
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        tool_calls: int,
+        context_percentage: float | None,
+    ) -> str:
+        tool_info = f", {tool_calls} tool calls" if tool_calls > 0 else ""
+        context_info = f" ({context_percentage:.1f}%)" if context_percentage is not None else ""
+        return f"{input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}"

@@ -17,7 +17,7 @@ from mcp.types import (
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents.mcp_agent import McpAgent, ShellEditToolFlags, ShellEditToolMode
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.context import Context
@@ -27,6 +27,7 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.mcp.mcp_aggregator import NamespacedTool
 from fast_agent.skills.registry import SkillRegistry
+from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -82,6 +83,24 @@ def _bottom_items(call: _DisplayCall) -> list[str]:
     return bottom_items
 
 
+def test_shell_edit_tool_flags_follow_mode_contract() -> None:
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.WRITE_TEXT_FILE) == ShellEditToolFlags(
+        write_text_file=True,
+        apply_patch=False,
+        edit_file=True,
+    )
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.APPLY_PATCH) == ShellEditToolFlags(
+        write_text_file=False,
+        apply_patch=True,
+        edit_file=False,
+    )
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.OFF) == ShellEditToolFlags(
+        write_text_file=False,
+        apply_patch=False,
+        edit_file=False,
+    )
+
+
 def _make_agent_config() -> AgentConfig:
     return AgentConfig(name="test-agent", instruction="do things", servers=[])
 
@@ -102,6 +121,17 @@ class StubLLM:
         self.resolved_model = SimpleNamespace(
             max_output_tokens=ModelDatabase.get_max_output_tokens(model_name)
         )
+        self.instruction = ""
+        self.default_request_params = RequestParams()
+
+    @property
+    def model_info(self) -> ModelInfo | None:
+        return ModelInfo.from_name(self.model_name)
+
+
+class StubLLMWithoutResolvedModel:
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
         self.instruction = ""
         self.default_request_params = RequestParams()
 
@@ -332,6 +362,21 @@ async def test_shell_output_limit_refreshes_after_llm_attach() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shell_output_limit_falls_back_when_llm_has_no_resolved_model() -> None:
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    agent = McpAgent(config=config, context=Context())
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+
+    agent._on_llm_attached(cast("Any", StubLLMWithoutResolvedModel("gpt-4.1")))
+
+    assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model("gpt-4.1")
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
 async def test_shell_can_include_local_read_text_file_when_enabled(tmp_path: Path) -> None:
     test_file = tmp_path / "notes.txt"
     test_file.write_text("one\ntwo\nthree\n", encoding="utf-8")
@@ -488,7 +533,9 @@ async def test_local_filesystem_edit_tools_report_completion_to_tool_handler(
     patch_target.write_text("one\ntwo\n", encoding="utf-8")
 
     edit_agent = McpAgent(
-        config=AgentConfig(name="test", instruction="Instruction", servers=[], shell=True, cwd=tmp_path),
+        config=AgentConfig(
+            name="test", instruction="Instruction", servers=[], shell=True, cwd=tmp_path
+        ),
         context=Context(),
     )
     patch_agent = McpAgent(
@@ -515,13 +562,7 @@ async def test_local_filesystem_edit_tools_report_completion_to_tool_handler(
         "apply_patch",
         {
             "input": (
-                "*** Begin Patch\n"
-                "*** Update File: patch.txt\n"
-                "@@\n"
-                "-one\n"
-                "+ONE\n"
-                " two\n"
-                "*** End Patch\n"
+                "*** Begin Patch\n*** Update File: patch.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
             )
         },
         tool_use_id="patch-use-1",
@@ -584,13 +625,7 @@ async def test_shell_can_include_apply_patch_when_model_prefers_it(tmp_path: Pat
     assert "edit_file" not in tool_names
 
     patch_text = (
-        "*** Begin Patch\n"
-        "*** Update File: notes.txt\n"
-        "@@\n"
-        "-one\n"
-        "+ONE\n"
-        " two\n"
-        "*** End Patch\n"
+        "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
     )
     result = await agent.call_tool("apply_patch", {"input": patch_text})
 
@@ -816,8 +851,8 @@ async def test_skills_fallback_to_read_skill_when_local_read_text_file_disabled(
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" in tool_names
     assert "read_text_file" not in tool_names
-    assert "read_skill" in tool_names
-    assert agent.skill_read_tool_name == "read_skill"
+    assert READ_SKILL_TOOL_NAME in tool_names
+    assert agent.skill_read_tool_name == READ_SKILL_TOOL_NAME
 
     await agent._aggregator.close()
 
@@ -832,8 +867,8 @@ async def test_acp_filesystem_runtime_injection_augments_local_shell_edit_tools(
                     description="ACP read tool",
                     inputSchema={
                         "type": "object",
-                            "properties": {"path": {"type": "string"}},
-                        },
+                        "properties": {"path": {"type": "string"}},
+                    },
                 ),
                 Tool(
                     name="write_text_file",
@@ -970,7 +1005,9 @@ async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
-            return CallToolResult(content=[TextContent(type="text", text="acp-read")], isError=False)
+            return CallToolResult(
+                content=[TextContent(type="text", text="acp-read")], isError=False
+            )
 
         async def write_text_file(
             self,
@@ -978,7 +1015,9 @@ async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
-            return CallToolResult(content=[TextContent(type="text", text="acp-write")], isError=False)
+            return CallToolResult(
+                content=[TextContent(type="text", text="acp-write")], isError=False
+            )
 
         def metadata(self) -> dict[str, object]:
             return {"variant": "acp_filesystem", "tools": ["read_text_file", "write_text_file"]}
@@ -1021,13 +1060,7 @@ async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_
     assert "edit_file" not in tool_names
 
     patch_text = (
-        "*** Begin Patch\n"
-        "*** Update File: notes.txt\n"
-        "@@\n"
-        "-one\n"
-        "+ONE\n"
-        " two\n"
-        "*** End Patch\n"
+        "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
     )
     result = await agent.call_tool("apply_patch", {"input": patch_text})
 
@@ -1764,11 +1797,15 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
 
     assert recording_display.result_type_labels == ["file read", "file read"]
     assert recording_display.result_tool_call_ids == [None, None]
-    assert [getattr(result, "read_text_file_line", None) for result in recording_display.results] == [
+    assert [
+        getattr(result, "read_text_file_line", None) for result in recording_display.results
+    ] == [
         1,
         1,
     ]
-    assert [getattr(result, "read_text_file_limit", None) for result in recording_display.results] == [
+    assert [
+        getattr(result, "read_text_file_limit", None) for result in recording_display.results
+    ] == [
         20,
         20,
     ]

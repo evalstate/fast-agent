@@ -288,24 +288,3 @@ mcp:
 ```
 
 Read more about the model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
-
-## Experimental Session Capability (client-first demos)
-
-By default, **fast-agent** does not advertise experimental session capability in
-the client initialize payload. It detects server support from the server's
-initialize response.
-
-To demonstrate a client-first negotiation style, enable per-server advertising:
-
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    server_five:
-      transport: "http"
-      url: "http://localhost:8765/mcp"
-      experimental_session_advertise: true
-      experimental_session_advertise_version: 2
-```
-
-When enabled, those values are included under
-`client.capabilities.experimental.session` during `initialize`.

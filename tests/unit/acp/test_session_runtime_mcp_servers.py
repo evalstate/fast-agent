@@ -134,6 +134,55 @@ def test_build_session_modes_uses_visible_agent_names() -> None:
 
 
 @pytest.mark.asyncio
+async def test_finalize_session_schedules_available_commands_after_restored_agent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    main = cast("AgentProtocol", _Agent("main"))
+    restored = cast("AgentProtocol", _Agent("restored"))
+    instance = AgentInstance(
+        app=AgentApp({"main": main, "restored": restored}),
+        agents={"main": main, "restored": restored},
+        registry_version=0,
+    )
+    server = _build_session_server(instance, [])
+    server._connection = cast("Any", object())
+    session_state = ACPSessionState(
+        session_id="session-1",
+        instance=instance,
+        current_agent_name="restored",
+    )
+    scheduled_agents: list[str | None] = []
+
+    async def fake_send_available_commands_update(_session_id: str) -> None:
+        return None
+
+    def fake_create_background_task(awaitable: Any, *, name: str) -> None:
+        del name
+        slash_handler = session_state.slash_handler
+        assert slash_handler is not None
+        scheduled_agents.append(slash_handler.current_agent_name)
+        awaitable.close()
+
+    monkeypatch.setattr(
+        server, "_send_available_commands_update", fake_send_available_commands_update
+    )
+    monkeypatch.setattr(
+        server._session_runtime, "_create_background_task", fake_create_background_task
+    )
+
+    modes = await server._session_runtime._finalize_session_instance_state(
+        session_state,
+        instance,
+        session_cwd=str(tmp_path),
+        prompt_context={},
+    )
+
+    assert modes.current_mode_id == "restored"
+    assert scheduled_agents == ["restored"]
+
+
+@pytest.mark.asyncio
 async def test_initialize_session_state_applies_session_mcp_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -645,7 +694,9 @@ async def test_attach_session_mcp_server_uses_runtime_manager_error_for_non_mcp_
         lambda instance: [("helper", cast("Any", instance.agents["helper"]))],
     )
 
-    with pytest.raises(RuntimeError, match="Agent 'default' does not support MCP server management"):
+    with pytest.raises(
+        RuntimeError, match="Agent 'default' does not support MCP server management"
+    ):
         await server._attach_mcp_server_for_session(
             session_state,
             agent_name="default",
@@ -844,8 +895,12 @@ async def test_initialize_session_state_injects_terminal_runtime_via_public_shel
     async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
         return None
 
-    monkeypatch.setattr(server, "_send_available_commands_update", fake_send_available_commands_update)
-    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay)
+    monkeypatch.setattr(
+        server, "_send_available_commands_update", fake_send_available_commands_update
+    )
+    monkeypatch.setattr(
+        server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay
+    )
 
     session_state, _ = await server._initialize_session_state(
         "session-1",
@@ -881,8 +936,12 @@ async def test_initialize_session_state_skips_terminal_runtime_when_local_shell_
     async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
         return None
 
-    monkeypatch.setattr(server, "_send_available_commands_update", fake_send_available_commands_update)
-    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay)
+    monkeypatch.setattr(
+        server, "_send_available_commands_update", fake_send_available_commands_update
+    )
+    monkeypatch.setattr(
+        server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay
+    )
 
     session_state, _ = await server._initialize_session_state(
         "session-1",

@@ -14,7 +14,7 @@ from fast_agent.core.direct_factory import (
     create_basic_agents_in_dependency_order,
 )
 from fast_agent.core.exceptions import AgentConfigError
-from fast_agent.core.validation import validate_workflow_references
+from fast_agent.core.validation import normalize_agent_type_value, validate_workflow_references
 from fast_agent.llm.model_factory import ModelFactory
 
 if TYPE_CHECKING:
@@ -52,6 +52,11 @@ class _CustomAgent(LlmAgent):
     pass
 
 
+def test_normalize_agent_type_value_handles_padded_strings() -> None:
+    assert normalize_agent_type_value("  BASIC  ") == "basic"
+    assert normalize_agent_type_value("   ") is None
+
+
 @pytest.mark.asyncio
 async def test_create_basic_agents_accepts_llm_enum_type(tmp_path) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
@@ -81,6 +86,45 @@ async def test_create_basic_agents_accepts_llm_enum_type(tmp_path) -> None:
         await core.cleanup()
 
     assert set(agents) == {"decorated_agent"}
+
+
+@pytest.mark.asyncio
+async def test_create_agents_in_dependency_order_respects_disabled_session_history(
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("session_history: false\n", encoding="utf-8")
+
+    agents_dict = {
+        "decorated_agent": {
+            "config": AgentConfig(
+                name="decorated_agent",
+                instruction="Be helpful.",
+                model="passthrough",
+            ),
+            "type": AgentType.BASIC.value,
+            "func": None,
+        }
+    }
+
+    core = Core(settings=str(config_path))
+    await core.initialize()
+    try:
+        agents = await create_agents_in_dependency_order(
+            core,
+            agents_dict,
+            cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
+        )
+    finally:
+        await core.cleanup()
+
+    agent = agents["decorated_agent"]
+    assert isinstance(agent, LlmAgent)
+    # Session-history persistence must not be wired, but the always-on
+    # (runtime-gated) auto-compaction wrapper is still present.
+    hooks = agent.tool_runner_hooks
+    assert hooks is not None
+    assert hooks.after_turn_complete is not None
 
 
 def test_validate_workflow_references_accepts_basic_like_and_custom_children() -> None:
@@ -220,6 +264,79 @@ async def test_create_custom_agent_accepts_cls_alias(tmp_path) -> None:
         await core.cleanup()
 
     assert isinstance(agents["custom_agent"], _CustomAgent)
+
+
+@pytest.mark.asyncio
+async def test_custom_agent_function_tools_error_uses_class_name(tmp_path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    tool_path = tmp_path / "tools.py"
+    tool_path.write_text("def helper() -> str:\n    return 'ok'\n", encoding="utf-8")
+
+    agents_dict = {
+        "custom_agent": {
+            "config": AgentConfig(
+                name="custom_agent",
+                instruction="Be helpful.",
+                model="passthrough",
+            ),
+            "type": AgentType.CUSTOM.value,
+            "cls": _CustomAgent,
+            "function_tools": ["tools.py:helper"],
+            "source_path": tmp_path / "custom_agent.yaml",
+        }
+    }
+
+    core = Core(settings=str(config_path))
+    await core.initialize()
+    try:
+        with pytest.raises(AgentConfigError) as exc_info:
+            await create_agents_in_dependency_order(
+                core,
+                agents_dict,
+                cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
+            )
+    finally:
+        await core.cleanup()
+
+    assert "Custom agent does not accept function tools" in str(exc_info.value)
+    assert "'_CustomAgent' does not accept tools=" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_custom_agent_rejects_child_agents_without_agent_tool_support(tmp_path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dict = {
+        "custom_agent": {
+            "config": AgentConfig(
+                name="custom_agent",
+                instruction="Be helpful.",
+                model="passthrough",
+            ),
+            "type": AgentType.CUSTOM.value,
+            "cls": _CustomAgent,
+            "child_agents": ["worker"],
+        },
+        "worker": {
+            "config": AgentConfig(name="worker", instruction="Work.", model="passthrough"),
+            "type": AgentType.BASIC.value,
+        },
+    }
+
+    core = Core(settings=str(config_path))
+    await core.initialize()
+    try:
+        with pytest.raises(AgentConfigError, match="does not support agents-as-tools"):
+            await create_agents_in_dependency_order(
+                core,
+                agents_dict,
+                cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
+            )
+    finally:
+        await core.cleanup()
 
 
 @pytest.mark.asyncio

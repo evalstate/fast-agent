@@ -14,8 +14,8 @@ SKILLS_DEFAULT = SkillsDefault()
 
 __all__ = [
     "SKILLS_DEFAULT",
-    "SkillsDefault",
     "SkillManifest",
     "SkillRegistry",
+    "SkillsDefault",
     "format_skills_for_prompt",
 ]

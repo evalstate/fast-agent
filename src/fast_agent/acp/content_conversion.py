@@ -6,6 +6,7 @@ to Model Context Protocol (MCP) format for processing by fast-agent.
 """
 
 import re
+from dataclasses import dataclass
 from typing import cast
 from urllib.parse import urlparse
 
@@ -27,6 +28,7 @@ from mcp.types import ContentBlock as MCPContentBlock
 from pydantic import AnyUrl
 
 from fast_agent.io.path_uri import file_uri_to_path
+from fast_agent.utils.commandline import quote_commandline_token
 
 
 def convert_acp_content_to_mcp(acp_content: ACPContentBlock) -> MCPContentBlock | None:
@@ -42,6 +44,8 @@ def convert_acp_content_to_mcp(acp_content: ACPContentBlock) -> MCPContentBlock 
     Supported conversions:
         - TextContentBlock -> TextContent
         - ImageContentBlock -> ImageContent
+        - AudioContentBlock -> AudioContent
+        - ResourceLink -> ResourceLink
         - EmbeddedResourceContentBlock -> EmbeddedResource
     """
     match acp_content:
@@ -49,10 +53,13 @@ def convert_acp_content_to_mcp(acp_content: ACPContentBlock) -> MCPContentBlock 
             return _convert_text_content(acp_content)
         case acp_schema.ImageContentBlock():
             return _convert_image_content(acp_content)
+        case acp_schema.AudioContentBlock():
+            return _convert_audio_content(acp_content)
+        case acp_schema.ResourceContentBlock():
+            return _convert_resource_link(acp_content)
         case acp_schema.EmbeddedResourceContentBlock():
             return _convert_embedded_resource(acp_content)
         case _:
-            # Unsupported content types (audio, resource links, etc.)
             return None
 
 
@@ -76,6 +83,34 @@ def _convert_image_content(
         data=acp_image.data,
         mimeType=acp_image.mime_type,
         annotations=_convert_annotations(acp_image.annotations),
+    )
+
+
+def _convert_audio_content(
+    acp_audio: acp_schema.AudioContentBlock,
+) -> mcp_types.AudioContent:
+    """Convert ACP AudioContentBlock to MCP AudioContent."""
+    return mcp_types.AudioContent(
+        type="audio",
+        data=acp_audio.data,
+        mimeType=acp_audio.mime_type,
+        annotations=_convert_annotations(acp_audio.annotations),
+    )
+
+
+def _convert_resource_link(
+    acp_link: acp_schema.ResourceContentBlock,
+) -> mcp_types.ResourceLink:
+    """Convert ACP ResourceLink to MCP ResourceLink."""
+    return mcp_types.ResourceLink(
+        type="resource_link",
+        name=acp_link.name,
+        uri=AnyUrl(acp_link.uri),
+        mimeType=acp_link.mime_type,
+        size=acp_link.size,
+        description=acp_link.description,
+        title=acp_link.title,
+        annotations=_convert_annotations(acp_link.annotations),
     )
 
 
@@ -142,11 +177,98 @@ def _file_uri_to_path(uri: str) -> str:
     if parsed.scheme == "file":
         if parsed.netloc and not parsed.path:
             return parsed.netloc
-        path = str(file_uri_to_path(parsed))
-        if re.match(r"^/[A-Za-z]:", path):
-            return path[1:]
-        return path
+        return _normalize_acp_file_path(str(file_uri_to_path(parsed)))
     return uri
+
+
+def _normalize_acp_file_path(path: str) -> str:
+    if re.match(r"^/[A-Za-z]:", path):
+        return path[1:]
+    return path
+
+
+def _quote_slash_command_path(path: str) -> str:
+    return quote_commandline_token(path, syntax="posix")
+
+
+@dataclass(frozen=True, slots=True)
+class _SlashCommandToken:
+    start: int
+    end: int
+    value: str
+
+
+def _slash_command_tokens(text: str) -> list[_SlashCommandToken]:
+    tokens: list[_SlashCommandToken] = []
+    index = 0
+    length = len(text)
+
+    while index < length:
+        while index < length and text[index].isspace():
+            index += 1
+        if index >= length:
+            break
+
+        start = index
+        value: list[str] = []
+        quote: str | None = None
+        while index < length:
+            char = text[index]
+            if quote is None:
+                if char.isspace():
+                    break
+                if char in {'"', "'"}:
+                    quote = char
+                    index += 1
+                    continue
+                if char == "\\" and index + 1 < length:
+                    value.append(text[index + 1])
+                    index += 2
+                    continue
+                value.append(char)
+                index += 1
+                continue
+
+            if char == quote:
+                quote = None
+                index += 1
+                continue
+            if quote == '"' and char == "\\" and index + 1 < length:
+                value.append(text[index + 1])
+                index += 2
+                continue
+            value.append(char)
+            index += 1
+
+        tokens.append(_SlashCommandToken(start=start, end=index, value="".join(value)))
+
+    return tokens
+
+
+def _inline_referenced_resource_paths(
+    text: str,
+    path_by_filename: dict[str, str],
+) -> tuple[str, int]:
+    inlined_parts: list[str] = []
+    replacement_count = 0
+    last_index = 0
+
+    for token in _slash_command_tokens(text):
+        if not token.value.startswith("@"):
+            continue
+        path = path_by_filename.get(token.value[1:])
+        if path is None:
+            continue
+        inlined_parts.append(text[last_index : token.start])
+        inlined_parts.append(path)
+        last_index = token.end
+        replacement_count += 1
+
+    if replacement_count == 0:
+        return text, 0
+
+    inlined_parts.append(text[last_index:])
+    return "".join(inlined_parts), replacement_count
 
 
 def inline_resources_for_slash_command(
@@ -188,45 +310,43 @@ def inline_resources_for_slash_command(
     if not text.lstrip().startswith("/"):
         return acp_prompt
 
-    # Collect paths from resource blocks, indexed by filename
-    # Convert file:// URIs to local paths for slash command handlers
-    path_by_filename: dict[str, str] = {}
-    paths: list[str] = []
-    for block in acp_prompt[1:]:
-        if isinstance(block, acp_schema.EmbeddedResourceContentBlock):
-            uri = block.resource.uri
-            if uri:
-                uri_str = str(uri)
-                # Convert file:// URI to local path
-                path = _file_uri_to_path(uri_str)
-                paths.append(path)
-                # Extract filename for matching @references
-                # e.g., "/path/to/foo.txt" -> "foo.txt"
-                filename = path.rsplit("/", 1)[-1]
-                # Also handle Windows paths with backslashes
-                if "\\" in filename:
-                    filename = filename.rsplit("\\", 1)[-1]
-                if filename:
-                    path_by_filename[filename] = path
-
+    path_by_filename, paths = _resource_paths_by_filename(acp_prompt[1:])
     if not paths:
         return acp_prompt
 
-    # Check if text contains @filename references to replace
-    at_pattern = re.compile(r"@(\S+)")
-    matches = at_pattern.findall(text)
+    inlined_text, replacement_count = _inline_referenced_resource_paths(
+        text,
+        path_by_filename,
+    )
 
-    if matches:
-        # Replace @filename with corresponding path
-        inlined_text = text
-        for match in matches:
-            if match in path_by_filename:
-                inlined_text = inlined_text.replace(f"@{match}", path_by_filename[match])
-    else:
-        # No @references found, append paths to the end
+    if replacement_count == 0:
+        # No matching @references found, append paths to the end
         inlined_text = text.rstrip() + " " + " ".join(paths)
 
     return [acp_schema.TextContentBlock(type="text", text=inlined_text)]
+
+
+def _resource_paths_by_filename(
+    blocks: list[ACPContentBlock],
+) -> tuple[dict[str, str], list[str]]:
+    path_by_filename: dict[str, str] = {}
+    paths: list[str] = []
+
+    for block in blocks:
+        if not isinstance(block, acp_schema.EmbeddedResourceContentBlock):
+            continue
+        if not block.resource.uri:
+            continue
+
+        path = _file_uri_to_path(str(block.resource.uri))
+        quoted_path = _quote_slash_command_path(path)
+        paths.append(quoted_path)
+
+        filename = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        if filename:
+            path_by_filename[filename] = quoted_path
+
+    return path_by_filename, paths
 
 
 def convert_acp_prompt_to_mcp_content_blocks(
@@ -278,21 +398,27 @@ def convert_mcp_content_to_acp(mcp_content: MCPContentBlock) -> ACPContentBlock 
                 title=mcp_content.title,
             )
         case mcp_types.EmbeddedResource():
-            match mcp_content.resource:
-                case mcp_types.TextResourceContents():
-                    embedded = embedded_text_resource(
-                        uri=str(mcp_content.resource.uri),
-                        text=mcp_content.resource.text,
-                        mime_type=mcp_content.resource.mimeType,
-                    )
-                case mcp_types.BlobResourceContents():
-                    embedded = embedded_blob_resource(
-                        uri=str(mcp_content.resource.uri),
-                        blob=mcp_content.resource.blob,
-                        mime_type=mcp_content.resource.mimeType,
-                    )
-                case _:
-                    return None
-            return resource_block(embedded)
+            return _convert_mcp_embedded_resource_to_acp(mcp_content)
         case _:
             return None
+
+
+def _convert_mcp_embedded_resource_to_acp(
+    mcp_content: mcp_types.EmbeddedResource,
+) -> ACPContentBlock | None:
+    match mcp_content.resource:
+        case mcp_types.TextResourceContents():
+            embedded = embedded_text_resource(
+                uri=str(mcp_content.resource.uri),
+                text=mcp_content.resource.text,
+                mime_type=mcp_content.resource.mimeType,
+            )
+        case mcp_types.BlobResourceContents():
+            embedded = embedded_blob_resource(
+                uri=str(mcp_content.resource.uri),
+                blob=mcp_content.resource.blob,
+                mime_type=mcp_content.resource.mimeType,
+            )
+        case _:
+            return None
+    return resource_block(embedded)

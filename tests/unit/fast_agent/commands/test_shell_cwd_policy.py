@@ -179,16 +179,20 @@ def test_create_missing_shell_cwd_directories_creates_unique_paths(tmp_path: Pat
     }
 
     issues = collect_shell_cwd_issues(agents, shell_runtime_requested=False, cwd=tmp_path)
-    created, errors = create_missing_shell_cwd_directories(issues)
+    result = create_missing_shell_cwd_directories(issues)
 
-    assert errors == []
-    assert created == [target]
+    assert result.errors == []
+    assert result.created_paths == [target]
     assert target.is_dir()
 
 
 def test_missing_shell_cwd_policy_resolution_prefers_cli_override() -> None:
-    assert resolve_missing_shell_cwd_policy(cli_override="error", configured_policy="warn") == "error"
-    assert resolve_missing_shell_cwd_policy(cli_override=None, configured_policy="create") == "create"
+    assert (
+        resolve_missing_shell_cwd_policy(cli_override="error", configured_policy="warn") == "error"
+    )
+    assert (
+        resolve_missing_shell_cwd_policy(cli_override=None, configured_policy="create") == "create"
+    )
     assert resolve_missing_shell_cwd_policy(cli_override=None, configured_policy=None) == "warn"
 
 

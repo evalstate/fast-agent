@@ -3,15 +3,16 @@ Manages the lifecycle of multiple MCP server connections.
 """
 
 import asyncio
-import shlex
 import threading
 import time
 import traceback
 from collections import deque
+from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Union, cast
+from typing import TYPE_CHECKING, NoReturn, Protocol, Union, runtime_checkable
 
 import httpx
 from anyio import CancelScope, Event, Lock, create_task_group
@@ -49,6 +50,10 @@ from fast_agent.mcp.sse_tracking import tracking_sse_client
 from fast_agent.mcp.stdio_tracking_simple import tracking_stdio_client
 from fast_agent.mcp.streamable_http_tracking import tracking_streamablehttp_client
 from fast_agent.mcp.transport_tracking import TransportChannelMetrics
+from fast_agent.utils.commandline import join_commandline
+from fast_agent.utils.count_display import format_count
+from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.transports import is_mcp_client_transport, uses_mcp_remote_transport
 
 if TYPE_CHECKING:
     from mcp.client.auth import OAuthClientProvider
@@ -59,6 +64,35 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 STDIO_STDERR_BUFFER_LINES = 12
 OAuthMode = str
+
+
+@runtime_checkable
+class PingableClientSession(Protocol):
+    """Client session capability used by the optional keepalive loop."""
+
+    async def ping(self, read_timeout_seconds: timedelta | None = None) -> object: ...
+
+
+def _pingable_session(session: object | None) -> PingableClientSession | None:
+    return session if isinstance(session, PingableClientSession) else None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedHttpAuth:
+    headers: dict[str, str]
+    oauth_provider: Union["OAuthClientProvider", None]
+    user_auth_keys: set[str]
+
+
+def _format_ping_shutdown_error(missed: int, exc: Exception) -> str:
+    return f"Ping failed {format_count(missed, 'time')}; last error: {exc}"
+
+
+def _format_user_auth_skip_oauth_message(server_name: str, user_auth_keys: set[str]) -> str:
+    return (
+        f"{server_name}: Using user-specified "
+        f"{format_count(len(user_auth_keys), 'auth header')}; skipping OAuth provider."
+    )
 
 
 class StreamingContextAdapter:
@@ -88,20 +122,20 @@ async def _managed_http_transport_context(
     transport_context: AbstractAsyncContextManager,
 ):
     """Own an HTTP client for a transport context built from that client."""
-    async with http_client:
-        async with transport_context as streams:
-            yield streams
+    async with http_client, transport_context as streams:
+        yield streams
 
 
 def _prepare_headers_and_auth(
     server_config: MCPServerSettings,
     *,
     trigger_oauth: bool | None = None,
+    oauth_mode: OAuthMode | None = None,
     oauth_event_handler: OAuthEventHandler | None = None,
     emit_oauth_console_output: bool = True,
     oauth_abort_event: threading.Event | None = None,
     allow_oauth_paste_fallback: bool = True,
-) -> tuple[dict[str, str], Union["OAuthClientProvider", None], set[str]]:
+) -> PreparedHttpAuth:
     """
     Prepare request headers and determine if OAuth authentication should be used.
 
@@ -110,12 +144,24 @@ def _prepare_headers_and_auth(
     """
     headers: dict[str, str] = dict(server_config.headers or {})
     auth_header_keys = {"authorization", "x-hf-authorization"}
-    user_provided_auth_keys = {key for key in headers if key.lower() in auth_header_keys}
+    user_provided_auth_keys = {key for key in headers if strip_casefold(key) in auth_header_keys}
 
-    # OAuth is only relevant for SSE/HTTP transports and should be skipped when the
-    # user has already supplied explicit Authorization headers.
-    if not trigger_oauth or server_config.transport not in ("sse", "http") or user_provided_auth_keys:
-        return headers, None, user_provided_auth_keys
+    force_oauth = oauth_mode == "force" or (oauth_mode is None and trigger_oauth is True)
+    auto_oauth = oauth_mode == "auto"
+    oauth_requested = force_oauth or auto_oauth
+
+    # OAuth is only relevant for SSE/HTTP transports. Auto OAuth defers to explicit
+    # user auth headers, while forced OAuth intentionally replaces stale credentials.
+    if (
+        not oauth_requested
+        or not uses_mcp_remote_transport(server_config.transport)
+        or (auto_oauth and user_provided_auth_keys)
+    ):
+        return PreparedHttpAuth(
+            headers=headers,
+            oauth_provider=None,
+            user_auth_keys=user_provided_auth_keys,
+        )
 
     oauth_auth = build_oauth_provider(
         server_config,
@@ -134,7 +180,11 @@ def _prepare_headers_and_auth(
         ):
             headers.pop(header_name, None)
 
-    return headers, oauth_auth, user_provided_auth_keys
+    return PreparedHttpAuth(
+        headers=headers,
+        oauth_provider=oauth_auth,
+        user_auth_keys=user_provided_auth_keys,
+    )
 
 
 def _resolve_oauth_mode(
@@ -142,7 +192,7 @@ def _resolve_oauth_mode(
     *,
     trigger_oauth: bool | None,
 ) -> OAuthMode:
-    if server_config.transport not in ("sse", "http"):
+    if not uses_mcp_remote_transport(server_config.transport):
         return "disabled"
     if trigger_oauth is False:
         return "disabled"
@@ -166,7 +216,7 @@ def _is_http_auth_challenge_error(error: object) -> bool:
     else:
         haystack = "" if error is None else str(error)
 
-    normalized = " ".join(haystack.lower().split())
+    normalized = " ".join(strip_casefold(haystack).split())
     auth_markers = (
         "http error: 401",
         "401 unauthorized",
@@ -174,6 +224,24 @@ def _is_http_auth_challenge_error(error: object) -> bool:
         "www-authenticate",
     )
     return any(marker in normalized for marker in auth_markers)
+
+
+def _format_lifecycle_exception_group_errors(exception_group: BaseExceptionGroup) -> list[str]:
+    messages: list[str] = []
+    for subexc in exception_group.exceptions:
+        if isinstance(subexc, BaseExceptionGroup):
+            messages.extend(_format_lifecycle_exception_group_errors(subexc))
+            continue
+        if isinstance(subexc, HTTPStatusError):
+            messages.append(
+                f"HTTP Error: {subexc.response.status_code} {subexc.response.reason_phrase} for URL: {subexc.request.url}"
+            )
+            continue
+
+        messages.append(f"{type(subexc).__name__}: {subexc}")
+        if subexc.__cause__ is not None:
+            messages.append(f"Caused by: {type(subexc.__cause__).__name__}: {subexc.__cause__}")
+    return messages
 
 
 def _build_transport_metrics_hook(
@@ -223,14 +291,15 @@ def create_transport_context(
     # server has actually challenged the request; higher-level non-persistent
     # callers may still retry with OAuth enabled after a 401 challenge.
     oauth_mode = _resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
-    headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
+    prepared_auth = _prepare_headers_and_auth(
         config,
         trigger_oauth=oauth_mode == "force",
+        oauth_mode=oauth_mode,
     )
-    if user_auth_keys:
+    if prepared_auth.user_auth_keys and prepared_auth.oauth_provider is None:
         logger.debug(
-            f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
-            user_auth_headers=sorted(user_auth_keys),
+            _format_user_auth_skip_oauth_message(server_name, prepared_auth.user_auth_keys),
+            user_auth_headers=sorted(prepared_auth.user_auth_keys),
         )
 
     if config.transport == "stdio":
@@ -252,16 +321,16 @@ def create_transport_context(
         error_handler = get_stderr_handler(server_name)
         logger.debug(f"{server_name}: Creating stdio client with custom error handler")
         return _add_none_to_context(tracking_stdio_client(server_params, errlog=error_handler))
-    elif config.transport == "sse":
+    if config.transport == "sse":
         if not config.url:
             raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
         return tracking_sse_client(
             config.url,
-            headers,
+            prepared_auth.headers,
             sse_read_timeout=config.read_transport_sse_timeout_seconds,
-            auth=oauth_auth,
+            auth=prepared_auth.oauth_provider,
         )
-    elif config.transport == "http":
+    if config.transport == "http":
         if not config.url:
             raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
         timeout = None
@@ -271,8 +340,8 @@ def create_transport_context(
                 read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
             )
         http_client = create_mcp_http_client(
-            headers=headers,
-            auth=oauth_auth,
+            headers=prepared_auth.headers,
+            auth=prepared_auth.oauth_provider,
             timeout=timeout,
         )
         return _managed_http_transport_context(
@@ -282,8 +351,7 @@ def create_transport_context(
                 http_client=http_client,
             ),
         )
-    else:
-        raise ValueError(f"Unsupported transport: {config.transport}")
+    raise ValueError(f"Unsupported transport: {config.transport}")
 
 
 class ServerConnection:
@@ -549,9 +617,8 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
         if server_conn._shutdown_event.is_set():
             break
         session = server_conn.session
-        if session is None:
-            break
-        if not hasattr(session, "ping"):
+        pingable_session = _pingable_session(session)
+        if pingable_session is None:
             return
         try:
             from fast_agent.human_input.elicitation_state import elicitation_state
@@ -561,7 +628,7 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
         except Exception:
             pass
         try:
-            await cast("MCPAgentClientSession", session).ping(read_timeout_seconds=read_timeout)
+            await pingable_session.ping(read_timeout_seconds=read_timeout)
             missed = 0
             server_conn._ping_ok_count += 1
             server_conn._ping_consecutive_failures = 0
@@ -575,14 +642,10 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
             server_conn._ping_last_fail_at = datetime.now(timezone.utc)
             server_conn._ping_last_error = str(exc)
             server_conn.record_ping_event("error")
-            logger.warning(
-                f"{server_conn.server_name}: Ping failed ({missed}/{max_missed}): {exc}"
-            )
+            logger.warning(f"{server_conn.server_name}: Ping failed ({missed}/{max_missed}): {exc}")
             if missed >= max_missed:
                 server_conn._error_occurred = True
-                server_conn._error_message = (
-                    f"Ping failed {missed} time(s); last error: {exc}"
-                )
+                server_conn._error_message = _format_ping_shutdown_error(missed, exc)
                 server_conn.request_shutdown()
                 break
 
@@ -591,7 +654,9 @@ def _format_stdio_startup_error(server_conn: ServerConnection, exc: OSError) -> 
     config = server_conn.server_config
     command_parts = [config.command] if config.command else []
     command_parts.extend(config.args or [])
-    command_display = shlex.join(command_parts) if command_parts else "<unspecified>"
+    command_display = (
+        join_commandline(command_parts, syntax="posix") if command_parts else "<unspecified>"
+    )
 
     lines = [f"Failed to start stdio MCP server command: {command_display}."]
 
@@ -657,21 +722,13 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
 
 async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
     """Run the server lifecycle inside the connection-owned cancellation scope."""
-    server_name = server_conn.server_name
     try:
         transport_context = server_conn._transport_context_factory()
 
         try:
             async with transport_context as (read_stream, write_stream, get_session_id_cb):
                 server_conn._get_session_id_cb = get_session_id_cb
-
-                if get_session_id_cb is not None:
-                    try:
-                        server_conn.session_id = get_session_id_cb()
-                    except Exception:
-                        logger.debug(f"{server_name}: Unable to retrieve session id from transport")
-                elif server_conn.server_config.transport == "stdio":
-                    server_conn.session_id = "local"
+                _refresh_server_session_id(server_conn, get_session_id_cb)
 
                 server_conn.create_session(read_stream, write_stream)
                 assert server_conn.session is not None
@@ -679,140 +736,153 @@ async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
                 try:
                     async with server_conn.session:
                         await server_conn.initialize_session()
-
-                        if get_session_id_cb is not None:
-                            try:
-                                server_conn.session_id = get_session_id_cb() or server_conn.session_id
-                            except Exception:
-                                logger.debug(f"{server_name}: Unable to refresh session id after init")
-                        elif server_conn.server_config.transport == "stdio":
-                            server_conn.session_id = "local"
-
-                        if (
-                            server_conn.server_config.ping_interval_seconds
-                            and server_conn.server_config.ping_interval_seconds > 0
-                        ):
-                            ping_task = asyncio.create_task(_run_ping_loop(server_conn))
-                            try:
-                                await server_conn.wait_for_shutdown_request()
-                            finally:
-                                if not ping_task.done():
-                                    ping_task.cancel()
-                                with suppress(asyncio.CancelledError):
-                                    await ping_task
-                        else:
-                            await server_conn.wait_for_shutdown_request()
+                        _refresh_server_session_id(server_conn, get_session_id_cb)
+                        await _wait_for_shutdown_with_optional_ping(server_conn)
                 except Exception as session_exit_exc:
-                    if server_conn._shutdown_event.is_set():
-                        # Cleanup errors can happen when disconnecting a session that was already
-                        # terminated; treat as expected during shutdown.
-                        logger.debug(
-                            f"{server_name}: Exception during session cleanup (expected during shutdown): {session_exit_exc}"
-                        )
-                        if not server_conn._initialized_event.is_set():
-                            server_conn._error_occurred = True
-                            server_conn._error_message = "Shutdown requested before initialization"
-                            server_conn._initialized_event.set()
-                    else:
+                    if not _handle_shutdown_cleanup_error(
+                        server_conn,
+                        session_exit_exc,
+                        cleanup_scope="session",
+                    ):
                         raise
         except Exception as transport_exit_exc:
-            if server_conn._shutdown_event.is_set():
-                # Cleanup errors can happen when disconnecting a transport that was already
-                # terminated; treat as expected during shutdown.
-                logger.debug(
-                    f"{server_name}: Exception during transport cleanup (expected during shutdown): {transport_exit_exc}"
-                )
-                if not server_conn._initialized_event.is_set():
-                    server_conn._error_occurred = True
-                    server_conn._error_message = "Shutdown requested before initialization"
-                    server_conn._initialized_event.set()
-            else:
+            if not _handle_shutdown_cleanup_error(
+                server_conn,
+                transport_exit_exc,
+                cleanup_scope="transport",
+            ):
                 raise
 
     except HTTPStatusError as http_exc:
-        logger.error(
-            f"{server_name}: Lifecycle task encountered HTTP error: {http_exc}",
-            exc_info=True,
-            data={
-                "progress_action": ProgressAction.FATAL_ERROR,
-                "server_name": server_name,
-            },
-        )
-        server_conn._error_occurred = True
-        server_conn._error_message = f"HTTP Error: {http_exc.response.status_code} {http_exc.response.reason_phrase} for URL: {http_exc.request.url}"
-        server_conn._initialized_event.set()
+        _record_http_lifecycle_error(server_conn, http_exc)
         # No raise - let get_server handle it with a friendly message
 
     except Exception as exc:
         if server_conn._shutdown_event.is_set() and _is_oauth_cancelled_message(str(exc)):
-            logger.debug(
-                f"{server_name}: OAuth authorization cancelled during shutdown",
-            )
-            server_conn._error_occurred = True
-            server_conn._error_message = str(exc)
-            server_conn._initialized_event.set()
+            _record_oauth_cancelled_shutdown(server_conn, exc)
             return
 
-        logger.error(
-            f"{server_name}: Lifecycle task encountered an error: {exc}",
-            exc_info=True,
-            data={
-                "progress_action": ProgressAction.FATAL_ERROR,
-                "server_name": server_name,
-            },
-        )
-        server_conn._error_occurred = True
-
-        if "ExceptionGroup" in type(exc).__name__ and hasattr(exc, "exceptions"):
-            # Handle ExceptionGroup better by extracting the actual errors
-            def extract_errors(exception_group):
-                """Recursively extract meaningful errors from ExceptionGroups"""
-                messages = []
-                for subexc in exception_group.exceptions:
-                    if "ExceptionGroup" in type(subexc).__name__ and hasattr(subexc, "exceptions"):
-                        # Recursively handle nested ExceptionGroups
-                        messages.extend(extract_errors(subexc))
-                    elif isinstance(subexc, HTTPStatusError):
-                        # Special handling for HTTP errors to make them more user-friendly
-                        messages.append(
-                            f"HTTP Error: {subexc.response.status_code} {subexc.response.reason_phrase} for URL: {subexc.request.url}"
-                        )
-                    else:
-                        # Show the exception type and message, plus the root cause if available
-                        error_msg = f"{type(subexc).__name__}: {subexc}"
-                        messages.append(error_msg)
-
-                        # If there's a root cause, show that too as it's often the most informative
-                        if hasattr(subexc, "__cause__") and subexc.__cause__:
-                            messages.append(
-                                f"Caused by: {type(subexc.__cause__).__name__}: {subexc.__cause__}"
-                            )
-                return messages
-
-            error_messages = extract_errors(exc)
-            # If we didn't extract any meaningful errors, fall back to the original exception
-            if not error_messages:
-                error_messages = [f"{type(exc).__name__}: {exc}"]
-            server_conn._error_message = error_messages
-        elif server_conn.server_config.transport == "stdio" and isinstance(
-            exc,
-            (FileNotFoundError, PermissionError),
-        ):
-            server_conn._error_message = _format_stdio_startup_error(server_conn, exc)
-        else:
-            # For regular exceptions, keep the traceback but format it more cleanly
-            server_conn._error_message = traceback.format_exception(exc)
-
-        # If there's an error, we should also set the event so that
-        # 'get_server' won't hang
-        server_conn._initialized_event.set()
+        _record_lifecycle_error(server_conn, exc)
         # No raise - allow graceful exit
+
+
+def _refresh_server_session_id(
+    server_conn: ServerConnection,
+    get_session_id_cb: GetSessionIdCallback | None,
+) -> None:
+    if get_session_id_cb is not None:
+        try:
+            server_conn.session_id = get_session_id_cb() or server_conn.session_id
+        except Exception:
+            logger.debug(f"{server_conn.server_name}: Unable to retrieve session id from transport")
+        return
+    if server_conn.server_config.transport == "stdio":
+        server_conn.session_id = "local"
+
+
+async def _wait_for_shutdown_with_optional_ping(server_conn: ServerConnection) -> None:
+    if not _ping_loop_enabled(server_conn):
+        await server_conn.wait_for_shutdown_request()
+        return
+
+    ping_task = asyncio.create_task(_run_ping_loop(server_conn))
+    try:
+        await server_conn.wait_for_shutdown_request()
+    finally:
+        if not ping_task.done():
+            ping_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await ping_task
+
+
+def _ping_loop_enabled(server_conn: ServerConnection) -> bool:
+    interval = server_conn.server_config.ping_interval_seconds
+    return bool(interval and interval > 0)
+
+
+def _handle_shutdown_cleanup_error(
+    server_conn: ServerConnection,
+    exc: Exception,
+    *,
+    cleanup_scope: str,
+) -> bool:
+    if not server_conn._shutdown_event.is_set():
+        return False
+
+    logger.debug(
+        f"{server_conn.server_name}: Exception during {cleanup_scope} cleanup "
+        f"(expected during shutdown): {exc}"
+    )
+    if not server_conn._initialized_event.is_set():
+        server_conn._error_occurred = True
+        server_conn._error_message = "Shutdown requested before initialization"
+        server_conn._initialized_event.set()
+    return True
+
+
+def _record_http_lifecycle_error(
+    server_conn: ServerConnection,
+    http_exc: HTTPStatusError,
+) -> None:
+    logger.error(
+        f"{server_conn.server_name}: Lifecycle task encountered HTTP error: {http_exc}",
+        exc_info=True,
+        data={
+            "progress_action": ProgressAction.FATAL_ERROR,
+            "server_name": server_conn.server_name,
+        },
+    )
+    server_conn._error_occurred = True
+    server_conn._error_message = (
+        f"HTTP Error: {http_exc.response.status_code} "
+        f"{http_exc.response.reason_phrase} for URL: {http_exc.request.url}"
+    )
+    server_conn._initialized_event.set()
+
+
+def _record_oauth_cancelled_shutdown(
+    server_conn: ServerConnection,
+    exc: Exception,
+) -> None:
+    logger.debug(f"{server_conn.server_name}: OAuth authorization cancelled during shutdown")
+    server_conn._error_occurred = True
+    server_conn._error_message = str(exc)
+    server_conn._initialized_event.set()
+
+
+def _record_lifecycle_error(server_conn: ServerConnection, exc: Exception) -> None:
+    logger.error(
+        f"{server_conn.server_name}: Lifecycle task encountered an error: {exc}",
+        exc_info=True,
+        data={
+            "progress_action": ProgressAction.FATAL_ERROR,
+            "server_name": server_conn.server_name,
+        },
+    )
+    server_conn._error_occurred = True
+    server_conn._error_message = _lifecycle_error_message(server_conn, exc)
+    server_conn._initialized_event.set()
+
+
+def _lifecycle_error_message(
+    server_conn: ServerConnection,
+    exc: Exception,
+) -> str | list[str]:
+    if isinstance(exc, BaseExceptionGroup):
+        error_messages = _format_lifecycle_exception_group_errors(exc)
+        return error_messages or [f"{type(exc).__name__}: {exc}"]
+    if server_conn.server_config.transport == "stdio" and isinstance(
+        exc,
+        (FileNotFoundError, PermissionError),
+    ):
+        return _format_stdio_startup_error(server_conn, exc)
+    return traceback.format_exception(exc)
 
 
 def _is_oauth_timeout_message(message: str | None) -> bool:
     if not message:
         return False
-    normalized = " ".join(str(message).lower().split())
+    normalized = " ".join(strip_casefold(str(message)).split())
 
     oauth_timeout_phrases = (
         "oauth authorization timed out",
@@ -827,7 +897,7 @@ def _is_oauth_timeout_message(message: str | None) -> bool:
 def _is_oauth_registration_404_message(message: str | None) -> bool:
     if not message:
         return False
-    normalized = message.lower()
+    normalized = strip_casefold(message)
     return "oauth" in normalized and "registration failed: 404" in normalized
 
 
@@ -839,7 +909,7 @@ def _format_oauth_registration_404_details(error_text: str, server_url: str | No
         "- Configure a Client ID Metadata URL (CIMD): auth.client_metadata_url or --client-metadata-url\n"
         "- Use direct bearer authentication with --auth <token>\n"
     )
-    normalized_url = (server_url or "").lower()
+    normalized_url = strip_casefold(server_url or "")
     if "githubcopilot.com" in normalized_url:
         details += "GitHub Copilot MCP commonly expects token auth for external hosts. Try --auth $GITHUB_TOKEN.\n"
     details += f"\nOriginal error:\n{error_text}"
@@ -849,7 +919,7 @@ def _format_oauth_registration_404_details(error_text: str, server_url: str | No
 def _is_oauth_cancelled_message(message: str | None) -> bool:
     if not message:
         return False
-    normalized = message.lower()
+    normalized = strip_casefold(message)
     return "oauth" in normalized and "cancel" in normalized
 
 
@@ -1052,13 +1122,10 @@ class MCPConnectionManager(ContextDependent):
         Connect to a server and return a RunningServer instance that will persist
         until explicitly disconnected.
         """
-        # Create task group if it doesn't exist yet - make this method more resilient
-        if not self._task_group_active:
-            self._task_group = create_task_group()
-            await self._task_group.__aenter__()
-            self._task_group_active = True
-            self._tg = self._task_group
-            logger.info(f"Auto-created task group for server: {server_name}")
+        if startup_timeout_seconds is not None and startup_timeout_seconds <= 0:
+            raise ValueError("startup_timeout_seconds must be > 0 when provided")
+
+        await self._ensure_task_group(server_name)
 
         config = self.server_registry.get_server_config(server_name)
         if not config:
@@ -1069,6 +1136,59 @@ class MCPConnectionManager(ContextDependent):
         oauth_active = oauth_mode == "force" or (
             oauth_mode == "auto" and server_name in self._oauth_required_servers
         )
+
+        transport_metrics = self._launch_transport_metrics(config)
+        server_conn_holder: list[ServerConnection] = []
+
+        server_conn = ServerConnection(
+            server_name=server_name,
+            server_config=config,
+            transport_context_factory=self._transport_context_factory(
+                server_conn_holder,
+                server_name=server_name,
+                config=config,
+                oauth_mode=oauth_mode,
+                oauth_active=oauth_active,
+                oauth_event_handler=oauth_event_handler,
+                allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                transport_metrics=transport_metrics,
+            ),
+            client_session_factory=client_session_factory,
+        )
+        server_conn_holder.append(server_conn)
+
+        if transport_metrics is not None:
+            server_conn.transport_metrics = transport_metrics
+
+        async with self._lock:
+            # Check if already running
+            if server_name in self.running_servers:
+                return self.running_servers[server_name]
+
+            self.running_servers[server_name] = server_conn
+            self._server_oauth_mode[server_name] = oauth_mode
+            self._server_oauth_active[server_name] = oauth_active
+            assert self._tg is not None
+            self._tg.start_soon(_server_lifecycle_task, server_conn)
+
+        logger.info(f"{server_name}: Up and running with a persistent connection!")
+        return server_conn
+
+    async def _ensure_task_group(self, server_name: str) -> None:
+        if self._task_group_active:
+            return
+        self._task_group = create_task_group()
+        await self._task_group.__aenter__()
+        self._task_group_active = True
+        self._tg = self._task_group
+        logger.info(f"Auto-created task group for server: {server_name}")
+
+    def _launch_transport_metrics(
+        self,
+        config: MCPServerSettings,
+    ) -> TransportChannelMetrics | None:
+        if not is_mcp_client_transport(config.transport):
+            return None
 
         timeline_steps = 20
         timeline_seconds = 30
@@ -1083,155 +1203,234 @@ class MCPConnectionManager(ContextDependent):
             timeline_steps = getattr(timeline_config, "steps", timeline_steps)
             timeline_seconds = getattr(timeline_config, "step_seconds", timeline_seconds)
 
-        transport_metrics = (
-            TransportChannelMetrics(
-                bucket_seconds=timeline_seconds,
-                bucket_count=timeline_steps,
+        return TransportChannelMetrics(
+            bucket_seconds=timeline_seconds,
+            bucket_count=timeline_steps,
+        )
+
+    def _transport_context_factory(
+        self,
+        server_conn_holder: list[ServerConnection],
+        *,
+        server_name: str,
+        config: MCPServerSettings,
+        oauth_mode: OAuthMode,
+        oauth_active: bool,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        transport_metrics: TransportChannelMetrics | None,
+    ) -> Callable[[], AbstractAsyncContextManager]:
+        def transport_context_factory() -> AbstractAsyncContextManager:
+            return self._persistent_transport_context(
+                server_conn_holder[0],
+                server_name=server_name,
+                config=config,
+                oauth_mode=oauth_mode,
+                oauth_active=oauth_active,
+                oauth_event_handler=oauth_event_handler,
+                allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                transport_metrics=transport_metrics,
             )
-            if config.transport in ("http", "sse", "stdio")
-            else None
+
+        return transport_context_factory
+
+    def _persistent_transport_context(
+        self,
+        server_conn: ServerConnection,
+        *,
+        server_name: str,
+        config: MCPServerSettings,
+        oauth_mode: OAuthMode,
+        oauth_active: bool,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        transport_metrics: TransportChannelMetrics | None,
+    ) -> AbstractAsyncContextManager:
+        if config.transport == "stdio":
+            return self._persistent_stdio_transport_context(
+                server_conn,
+                server_name=server_name,
+                config=config,
+                transport_metrics=transport_metrics,
+            )
+        if config.transport == "sse":
+            return self._persistent_sse_transport_context(
+                server_conn,
+                server_name=server_name,
+                config=config,
+                oauth_mode=oauth_mode,
+                oauth_active=oauth_active,
+                oauth_event_handler=oauth_event_handler,
+                allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                transport_metrics=transport_metrics,
+            )
+        if config.transport == "http":
+            return self._persistent_http_transport_context(
+                server_conn,
+                server_name=server_name,
+                config=config,
+                oauth_mode=oauth_mode,
+                oauth_active=oauth_active,
+                oauth_event_handler=oauth_event_handler,
+                allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                transport_metrics=transport_metrics,
+            )
+        raise ValueError(f"Unsupported transport: {config.transport}")
+
+    def _persistent_stdio_transport_context(
+        self,
+        server_conn: ServerConnection,
+        *,
+        server_name: str,
+        config: MCPServerSettings,
+        transport_metrics: TransportChannelMetrics | None,
+    ) -> AbstractAsyncContextManager:
+        if not config.command:
+            raise ValueError(
+                f"Server '{server_name}' uses stdio transport but no command is specified"
+            )
+        server_params = self._stdio_server_parameters(config)
+        error_handler = get_stderr_handler(
+            server_name,
+            on_line=server_conn.record_stdio_stderr,
+        )
+        logger.debug(f"{server_name}: Creating stdio client with custom error handler")
+        channel_hook = transport_metrics.record_event if transport_metrics else None
+        return _add_none_to_context(
+            tracking_stdio_client(server_params, channel_hook=channel_hook, errlog=error_handler)
         )
 
-        server_conn: ServerConnection | None = None
+    def _stdio_server_parameters(self, config: MCPServerSettings) -> StdioServerParameters:
+        config_obj = self.context.config
+        return StdioServerParameters(
+            command=config.command or "",
+            args=config.args if config.args is not None else [],
+            env=build_child_environment(
+                active_home=getattr(config_obj, "_fast_agent_home", None) if config_obj else None,
+                noenv=bool(getattr(config_obj, "_fast_agent_noenv", False))
+                if config_obj
+                else False,
+                base=get_default_environment(),
+                overrides=config.env,
+            ),
+            cwd=config.cwd,
+        )
 
-        def transport_context_factory():
-            assert server_conn is not None
-
-            def prepare_http_transport_auth(*, suppress_transport_errors: Callable[[], None]):
-                assert server_conn is not None
-                suppress_transport_errors()
-                self._suppress_mcp_oauth_cancel_errors()
-                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
-                    config,
-                    trigger_oauth=oauth_active,
-                    oauth_event_handler=self._build_oauth_event_handler(
-                        server_conn,
-                        oauth_event_handler,
-                    ),
-                    emit_oauth_console_output=oauth_event_handler is None,
-                    oauth_abort_event=server_conn._oauth_abort_event,
-                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
-                )
-                if user_auth_keys:
-                    logger.debug(
-                        f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
-                        user_auth_headers=sorted(user_auth_keys),
-                    )
-                return headers, oauth_auth, _build_transport_metrics_hook(
-                    server_name,
-                    transport_metrics,
-                )
-
-            if config.transport == "stdio":
-                if not config.command:
-                    raise ValueError(
-                        f"Server '{server_name}' uses stdio transport but no command is specified"
-                    )
-                server_params = StdioServerParameters(
-                    command=config.command,
-                    args=config.args if config.args is not None else [],
-                    env=build_child_environment(
-                        active_home=getattr(self.context.config, "_fast_agent_home", None)
-                        if self.context.config
-                        else None,
-                        noenv=bool(getattr(self.context.config, "_fast_agent_noenv", False))
-                        if self.context.config
-                        else False,
-                        base=get_default_environment(),
-                        overrides=config.env,
-                    ),
-                    cwd=config.cwd,
-                )
-                # Create custom error handler to ensure all output is captured
-                error_handler = get_stderr_handler(
-                    server_name,
-                    on_line=server_conn.record_stdio_stderr,
-                )
-                # Explicitly ensure we're using our custom logger for stderr
-                logger.debug(f"{server_name}: Creating stdio client with custom error handler")
-
-                channel_hook = transport_metrics.record_event if transport_metrics else None
-                return _add_none_to_context(
-                    tracking_stdio_client(
-                        server_params, channel_hook=channel_hook, errlog=error_handler
-                    )
-                )
-            elif config.transport == "sse":
-                if not config.url:
-                    raise ValueError(
-                        f"Server '{server_name}' uses sse transport but no url is specified"
-                    )
-                headers, oauth_auth, channel_hook = prepare_http_transport_auth(
-                    suppress_transport_errors=self._suppress_mcp_sse_errors,
-                )
-
-                return tracking_sse_client(
-                    config.url,
-                    headers,
-                    sse_read_timeout=config.read_transport_sse_timeout_seconds,
-                    auth=oauth_auth,
-                    channel_hook=channel_hook,
-                )
-            elif config.transport == "http":
-                if not config.url:
-                    raise ValueError(
-                        f"Server '{server_name}' uses http transport but no url is specified"
-                    )
-                headers, oauth_auth, channel_hook = prepare_http_transport_auth(
-                    suppress_transport_errors=self._suppress_mcp_streamable_http_errors,
-                )
-
-                timeout = None
-                if (
-                    config.http_timeout_seconds is not None
-                    or config.http_read_timeout_seconds is not None
-                ):
-                    timeout = httpx.Timeout(
-                        config.http_timeout_seconds or MCP_DEFAULT_TIMEOUT,
-                        read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
-                    )
-
-                http_client = create_mcp_http_client(
-                    headers=headers,
-                    auth=oauth_auth,
-                    timeout=timeout,
-                )
-                return _managed_http_transport_context(
-                    http_client,
-                    tracking_streamablehttp_client(
-                        config.url,
-                        http_client=http_client,
-                        channel_hook=channel_hook,
-                    ),
-                )
-            else:
-                raise ValueError(f"Unsupported transport: {config.transport}")
-
-        server_conn = ServerConnection(
+    def _persistent_sse_transport_context(
+        self,
+        server_conn: ServerConnection,
+        *,
+        server_name: str,
+        config: MCPServerSettings,
+        oauth_mode: OAuthMode,
+        oauth_active: bool,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        transport_metrics: TransportChannelMetrics | None,
+    ) -> AbstractAsyncContextManager:
+        if not config.url:
+            raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
+        headers, oauth_auth, channel_hook = self._prepare_persistent_http_transport_auth(
+            server_conn,
             server_name=server_name,
-            server_config=config,
-            transport_context_factory=transport_context_factory,
-            client_session_factory=client_session_factory,
+            config=config,
+            oauth_mode=oauth_mode,
+            oauth_active=oauth_active,
+            oauth_event_handler=oauth_event_handler,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+            transport_metrics=transport_metrics,
+            suppress_transport_errors=self._suppress_mcp_sse_errors,
+        )
+        return tracking_sse_client(
+            config.url,
+            headers,
+            sse_read_timeout=config.read_transport_sse_timeout_seconds,
+            auth=oauth_auth,
+            channel_hook=channel_hook,
         )
 
-        if transport_metrics is not None:
-            server_conn.transport_metrics = transport_metrics
+    def _persistent_http_transport_context(
+        self,
+        server_conn: ServerConnection,
+        *,
+        server_name: str,
+        config: MCPServerSettings,
+        oauth_mode: OAuthMode,
+        oauth_active: bool,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        transport_metrics: TransportChannelMetrics | None,
+    ) -> AbstractAsyncContextManager:
+        if not config.url:
+            raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
+        headers, oauth_auth, channel_hook = self._prepare_persistent_http_transport_auth(
+            server_conn,
+            server_name=server_name,
+            config=config,
+            oauth_mode=oauth_mode,
+            oauth_active=oauth_active,
+            oauth_event_handler=oauth_event_handler,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+            transport_metrics=transport_metrics,
+            suppress_transport_errors=self._suppress_mcp_streamable_http_errors,
+        )
+        http_client = create_mcp_http_client(
+            headers=headers,
+            auth=oauth_auth,
+            timeout=self._http_timeout(config),
+        )
+        return _managed_http_transport_context(
+            http_client,
+            tracking_streamablehttp_client(
+                config.url,
+                http_client=http_client,
+                channel_hook=channel_hook,
+            ),
+        )
 
-        async with self._lock:
-            # Check if already running
-            if server_name in self.running_servers:
-                return self.running_servers[server_name]
+    def _prepare_persistent_http_transport_auth(
+        self,
+        server_conn: ServerConnection,
+        *,
+        server_name: str,
+        config: MCPServerSettings,
+        oauth_mode: OAuthMode,
+        oauth_active: bool,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        transport_metrics: TransportChannelMetrics | None,
+        suppress_transport_errors: Callable[[], None],
+    ) -> tuple[dict[str, str], Union["OAuthClientProvider", None], Callable | None]:
+        suppress_transport_errors()
+        self._suppress_mcp_oauth_cancel_errors()
+        prepared_auth = _prepare_headers_and_auth(
+            config,
+            trigger_oauth=oauth_active,
+            oauth_mode=oauth_mode if oauth_active else "disabled",
+            oauth_event_handler=self._build_oauth_event_handler(server_conn, oauth_event_handler),
+            emit_oauth_console_output=oauth_event_handler is None,
+            oauth_abort_event=server_conn._oauth_abort_event,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+        )
+        if prepared_auth.user_auth_keys and prepared_auth.oauth_provider is None:
+            logger.debug(
+                _format_user_auth_skip_oauth_message(server_name, prepared_auth.user_auth_keys),
+                user_auth_headers=sorted(prepared_auth.user_auth_keys),
+            )
+        return (
+            prepared_auth.headers,
+            prepared_auth.oauth_provider,
+            _build_transport_metrics_hook(server_name, transport_metrics),
+        )
 
-            self.running_servers[server_name] = server_conn
-            self._server_oauth_mode[server_name] = oauth_mode
-            self._server_oauth_active[server_name] = oauth_active
-            if startup_timeout_seconds is not None and startup_timeout_seconds <= 0:
-                raise ValueError("startup_timeout_seconds must be > 0 when provided")
-            assert self._tg is not None
-            self._tg.start_soon(_server_lifecycle_task, server_conn)
-
-        logger.info(f"{server_name}: Up and running with a persistent connection!")
-        return server_conn
+    @staticmethod
+    def _http_timeout(config: MCPServerSettings) -> httpx.Timeout | None:
+        if config.http_timeout_seconds is None and config.http_read_timeout_seconds is None:
+            return None
+        return httpx.Timeout(
+            config.http_timeout_seconds or MCP_DEFAULT_TIMEOUT,
+            read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
+        )
 
     async def _launch_and_wait_for_server(
         self,
@@ -1347,19 +1546,8 @@ class MCPConnectionManager(ContextDependent):
         """
         Get a running server instance, launching it if needed.
         """
-        # Get the server connection if it's already running and healthy
-        async with self._lock:
-            server_conn = self.running_servers.get(server_name)
-            if server_conn and server_conn.is_healthy():
-                return server_conn
-
-            # If server exists but isn't healthy, remove it so we can create a new one
-            if server_conn:
-                logger.info(f"{server_name}: Server exists but is unhealthy, recreating...")
-                self.running_servers.pop(server_name)
-                self._server_oauth_mode.pop(server_name, None)
-                self._server_oauth_active.pop(server_name, None)
-                server_conn.request_shutdown()
+        if running_server := await self._healthy_running_server(server_name):
+            return running_server
 
         server_conn = await self._launch_and_wait_for_server(
             server_name=server_name,
@@ -1371,60 +1559,98 @@ class MCPConnectionManager(ContextDependent):
             timeout_action="Startup",
         )
 
-        # Check if the server is healthy after initialization
-        if not server_conn.is_healthy():
-            if self.should_retry_server_with_oauth(server_name, server_conn._error_message):
-                server_conn = await self._retry_server_with_oauth(
-                    server_name=server_name,
-                    server_conn=server_conn,
-                    client_session_factory=client_session_factory,
-                    startup_timeout_seconds=startup_timeout_seconds,
-                    oauth_event_handler=oauth_event_handler,
-                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
-                    timeout_action="Startup",
-                )
-                if server_conn.is_healthy():
-                    return server_conn
+        return await self._healthy_or_retry_server(
+            server_name=server_name,
+            server_conn=server_conn,
+            client_session_factory=client_session_factory,
+            startup_timeout_seconds=startup_timeout_seconds,
+            oauth_event_handler=oauth_event_handler,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+        )
 
-            await self._clear_running_server_state(server_name, server_conn)
-            error_msg = server_conn._error_message or "Unknown error"
+    async def _healthy_running_server(self, server_name: str) -> ServerConnection | None:
+        async with self._lock:
+            server_conn = self.running_servers.get(server_name)
+            if server_conn is None:
+                return None
+            if server_conn.is_healthy():
+                return server_conn
+            logger.info(f"{server_name}: Server exists but is unhealthy, recreating...")
+            self.running_servers.pop(server_name)
+            self._server_oauth_mode.pop(server_name, None)
+            self._server_oauth_active.pop(server_name, None)
+            server_conn.request_shutdown()
+            return None
 
-            if isinstance(error_msg, list):
-                oauth_error_text = "\n".join(str(line) for line in error_msg)
-            else:
-                oauth_error_text = str(error_msg)
+    async def _healthy_or_retry_server(
+        self,
+        *,
+        server_name: str,
+        server_conn: ServerConnection,
+        client_session_factory: ClientSessionFactory,
+        startup_timeout_seconds: float | None,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+    ) -> ServerConnection:
+        if server_conn.is_healthy():
+            return server_conn
 
-            if server_conn._oauth_callback_timed_out or _is_oauth_timeout_message(oauth_error_text):
-                raise ServerInitializationError(
-                    f"MCP Server: '{server_name}': OAuth authorization timed out.",
-                    "Authorization was not completed in time; retry /mcp connect.",
-                )
+        if self.should_retry_server_with_oauth(server_name, server_conn._error_message):
+            retried_conn = await self._retry_server_with_oauth(
+                server_name=server_name,
+                server_conn=server_conn,
+                client_session_factory=client_session_factory,
+                startup_timeout_seconds=startup_timeout_seconds,
+                oauth_event_handler=oauth_event_handler,
+                allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                timeout_action="Startup",
+            )
+            if retried_conn.is_healthy():
+                return retried_conn
+            server_conn = retried_conn
 
-            # Format the error message for better display
-            if isinstance(error_msg, list):
-                # Join the list with newlines for better readability
-                formatted_error = "\n".join(error_msg)
-            else:
-                formatted_error = str(error_msg)
+        await self._clear_running_server_state(server_name, server_conn)
+        return self._raise_server_initialization_error(server_name, server_conn)
 
-            if _is_oauth_registration_404_message(formatted_error):
-                raise ServerInitializationError(
-                    f"MCP Server: '{server_name}': OAuth client registration failed.",
-                    _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
-                )
+    def _raise_server_initialization_error(
+        self,
+        server_name: str,
+        server_conn: ServerConnection,
+    ) -> NoReturn:
+        error_msg = server_conn._error_message or "Unknown error"
+        formatted_error = self._server_initialization_error_text(error_msg)
 
-            if _is_stdio_startup_error(server_conn, formatted_error):
-                raise ServerInitializationError(
-                    f"MCP Server: '{server_name}': Failed to start stdio server.",
-                    _append_stdio_stderr_details(server_conn, formatted_error),
-                )
-
+        if server_conn._oauth_callback_timed_out or _is_oauth_timeout_message(formatted_error):
             raise ServerInitializationError(
-                f"MCP Server: '{server_name}': Failed to initialize - see details. Check fast-agent.yaml?",
+                f"MCP Server: '{server_name}': OAuth authorization timed out.",
+                "Authorization was not completed in time; retry /mcp connect.",
+            )
+
+        if _is_oauth_registration_404_message(formatted_error):
+            raise ServerInitializationError(
+                f"MCP Server: '{server_name}': OAuth client registration failed.",
+                _format_oauth_registration_404_details(
+                    formatted_error,
+                    server_conn.server_config.url,
+                ),
+            )
+
+        if _is_stdio_startup_error(server_conn, formatted_error):
+            raise ServerInitializationError(
+                f"MCP Server: '{server_name}': Failed to start stdio server.",
                 _append_stdio_stderr_details(server_conn, formatted_error),
             )
 
-        return server_conn
+        raise ServerInitializationError(
+            f"MCP Server: '{server_name}': Failed to initialize - see details. Check fast-agent.yaml?",
+            _append_stdio_stderr_details(server_conn, formatted_error),
+        )
+
+    @staticmethod
+    def _server_initialization_error_text(error_msg: str | list[str]) -> str:
+        if isinstance(error_msg, list):
+            return "\n".join(str(line) for line in error_msg)
+        return str(error_msg)
 
     async def get_server_capabilities(self, server_name: str) -> ServerCapabilities | None:
         """Get the capabilities of a specific server."""
@@ -1527,7 +1753,9 @@ class MCPConnectionManager(ContextDependent):
             if _is_oauth_registration_404_message(formatted_error):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': OAuth client registration failed during reconnect.",
-                    _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
+                    _format_oauth_registration_404_details(
+                        formatted_error, server_conn.server_config.url
+                    ),
                 )
 
             if _is_stdio_startup_error(server_conn, formatted_error):

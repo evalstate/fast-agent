@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import unquote, urlparse
 
 from mcp.types import (
@@ -14,10 +14,10 @@ from mcp.types import (
     EmbeddedResource,
     ImageContent,
     ResourceLink,
-    TextResourceContents,
 )
 from pydantic import AnyUrl
 
+from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import (
     guess_mime_type,
@@ -25,6 +25,8 @@ from fast_agent.mcp.mime_utils import (
     is_text_mime_type,
     normalize_mime_type,
 )
+from fast_agent.utils.numeric import positive_int_or_none
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from fast_agent.llm.model_info import ModelInfo
@@ -47,6 +49,8 @@ ATTACHABLE_MIME_TYPES = [
     "video/webm",
 ]
 
+type SourceKind = Literal["link", "local"]
+
 
 @dataclass(frozen=True, slots=True)
 class AttachMediaResult:
@@ -63,7 +67,7 @@ class AttachMediaResult:
 class _SourceInfo:
     raw_source: str
     resolved_source: str
-    kind: str
+    kind: SourceKind
     mime_type: str
     display_name: str
     local_path: Path | None = None
@@ -74,19 +78,27 @@ def supported_attach_media_mime_types(model_info: ModelInfo | None) -> list[str]
     if model_info is None:
         return []
 
-    supported: list[str] = []
-    for mime_type in ATTACHABLE_MIME_TYPES:
-        if model_info.supports_mime(mime_type, resource_source="embedded") or model_info.supports_mime(
+    return [
+        mime_type
+        for mime_type in ATTACHABLE_MIME_TYPES
+        if model_info.supports_mime(mime_type, resource_source="embedded")
+        or model_info.supports_mime(
             mime_type,
             resource_source="link",
-        ):
-            supported.append(mime_type)
-    return supported
+        )
+    ]
 
 
 def model_supports_attach_media(model_info: ModelInfo | None) -> bool:
     """Return whether the model supports at least one non-text attachment MIME."""
     return bool(supported_attach_media_mime_types(model_info))
+
+
+def normalize_attach_media_max_bytes(value: object) -> int:
+    max_bytes = positive_int_or_none(value)
+    if max_bytes is None:
+        raise ValueError("attach media maximum size must be an integer greater than or equal to 1")
+    return max_bytes
 
 
 def build_attach_media(
@@ -100,6 +112,7 @@ def build_attach_media(
     max_bytes: int = DEFAULT_ATTACH_MEDIA_MAX_BYTES,
 ) -> AttachMediaResult:
     """Create an MCP attachment block for a local file or provider-fetchable URI."""
+    max_byte_limit = normalize_attach_media_max_bytes(max_bytes)
     source_info = _classify_source(
         source,
         base_directory=base_directory,
@@ -112,7 +125,7 @@ def build_attach_media(
             f"Error: '{source_info.mime_type}' is text content; use read_text_file for text/code files"
         )
 
-    resource_source = "link" if _is_link_source(source_info.kind) else "embedded"
+    resource_source = "link" if source_info.kind == "link" else "embedded"
     if model_info is not None and not model_info.supports_mime(
         source_info.mime_type,
         resource_source=resource_source,
@@ -133,7 +146,7 @@ def build_attach_media(
             "attach a local PDF file instead"
         )
 
-    if _is_link_source(source_info.kind):
+    if source_info.kind == "link":
         block = ResourceLink(
             type="resource_link",
             uri=AnyUrl(source_info.resolved_source),
@@ -153,8 +166,8 @@ def build_attach_media(
         raise ValueError("Error: local attachment path could not be resolved")
 
     size = source_info.local_path.stat().st_size
-    if size > max_bytes:
-        limit_mb = max_bytes / (1024 * 1024)
+    if size > max_byte_limit:
+        limit_mb = max_byte_limit / (1024 * 1024)
         actual_mb = size / (1024 * 1024)
         raise ValueError(
             f"Error: attachment is {actual_mb:.1f} MB; maximum inline attachment size is "
@@ -165,15 +178,6 @@ def build_attach_media(
     encoded = base64.b64encode(data).decode("ascii")
     if is_image_mime_type(source_info.mime_type):
         block = ImageContent(type="image", data=encoded, mimeType=source_info.mime_type)
-    elif is_text_mime_type(source_info.mime_type):
-        block = EmbeddedResource(
-            type="resource",
-            resource=TextResourceContents(
-                uri=AnyUrl(source_info.resolved_source),
-                text=data.decode("utf-8", errors="replace"),
-                mimeType=source_info.mime_type,
-            ),
-        )
     else:
         block = EmbeddedResource(
             type="resource",
@@ -208,7 +212,7 @@ def _classify_source(
     normalized_mime = normalize_mime_type(mime_type) if mime_type else None
 
     if parsed.scheme == "file":
-        local_path = Path(unquote(parsed.path)).expanduser()
+        local_path = file_uri_to_path(parsed).expanduser()
         if not local_path.is_absolute():
             local_path = (base_directory / local_path).resolve()
         else:
@@ -289,17 +293,13 @@ def _remote_display_name(source: str) -> str:
     return parsed.netloc or source
 
 
-def _is_link_source(kind: str) -> bool:
-    return kind == "link"
-
-
 def _is_gemini_file_uri(source: str) -> bool:
     return source.startswith("https://generativelanguage.googleapis.com/")
 
 
 def _is_youtube_url(source: str) -> bool:
     parsed = urlparse(source)
-    host = parsed.netloc.lower()
+    host = strip_casefold(parsed.netloc)
     return host in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"} or host.endswith(
         ".youtube.com"
     )

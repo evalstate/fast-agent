@@ -1,12 +1,17 @@
 import asyncio
 import json
 import sys
+from collections.abc import Mapping
 from io import BytesIO
+from typing import Any
 
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import fast_agent.io.source_resolver as source_resolver
 from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
+from fast_agent.batch.summary import BatchSummary
+from fast_agent.cli.commands.batch import _build_trackio_options
 from fast_agent.cli.main import app
 
 
@@ -16,6 +21,25 @@ class FakeHfFileSystem:
 
     def open(self, path: str, mode: str = "rb") -> BytesIO:
         return BytesIO(self.files[path])
+
+
+class RecordingBatchMonitor:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, int]] = []
+
+    def start(self, options: StructuredBatchOptions, selected_rows: int) -> None:
+        self.events.append(("start", selected_rows))
+
+    def row(self, summary: BatchSummary) -> None:
+        self.events.append(("row", summary.processed_rows))
+
+    def complete(self, payload: Mapping[str, Any]) -> None:
+        processed_rows = payload.get("processed_rows")
+        assert isinstance(processed_rows, int)
+        self.events.append(("complete", processed_rows))
+
+    def close(self) -> None:
+        self.events.append(("close", 0))
 
 
 def test_batch_run_direct_mode_with_passthrough(tmp_path):
@@ -95,6 +119,91 @@ def test_batch_run_missing_input_reports_error_without_traceback(tmp_path):
     assert f"Error: Input file not found: {input_path}" in result.output
     assert "Traceback" not in result.output
     assert not output_path.exists()
+
+
+def test_batch_trackio_options_default_to_progress_interval() -> None:
+    options = _build_trackio_options(
+        project="demo",
+        name="run-1",
+        group="phase-a",
+        space_id=None,
+        server_url=None,
+        trackio_every=None,
+        progress_every=25,
+        config={"dataset": "pilot"},
+        disabled=False,
+    )
+
+    assert options is not None
+    assert options.project == "demo"
+    assert options.name == "run-1"
+    assert options.group == "phase-a"
+    assert options.log_every == 25
+    assert options.config == {"dataset": "pilot"}
+
+
+def test_batch_trackio_every_must_be_positive(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    input_path.write_text('{"id":"1"}\n', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--project",
+            "demo",
+            "--trackio-every",
+            "0",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--trackio-every must be greater than zero" in strip_ansi(result.output)
+
+
+def test_batch_trackio_detail_options_require_project(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    input_path.write_text('{"id":"1"}\n', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--run-name",
+            "run-1",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Trackio options require --project or --trackio-project" in result.output
 
 
 def test_batch_run_parallel_missing_parquet_input_reports_error_without_traceback(tmp_path):
@@ -561,6 +670,45 @@ def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
     assert summary["selected_rows"] == 4
 
 
+def test_batch_run_parallel_reports_aggregate_monitor_row_progress(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    summary_path = tmp_path / "summary.json"
+    work_dir = tmp_path / "work"
+    monitor = RecordingBatchMonitor()
+
+    input_path.write_text(
+        "\n".join(json.dumps({"id": str(index), "x": index}) for index in range(4)) + "\n",
+        encoding="utf-8",
+    )
+
+    asyncio.run(
+        run_parallel_structured_batch(
+            StructuredBatchOptions(
+                input_path=input_path,
+                output_path=output_path,
+                model="passthrough",
+                id_field="id",
+                summary_output_path=summary_path,
+                final_summary=False,
+                environment_dir=env_dir,
+                parallel=2,
+                work_dir=work_dir,
+                keep_temp=True,
+                progress=False,
+                monitor=monitor,
+            )
+        )
+    )
+
+    assert ("complete", 4) in monitor.events
+    row_progress = [processed for event, processed in monitor.events if event == "row"]
+    assert row_progress
+    assert row_progress[-1] == 4
+
+
 def test_batch_run_parallel_rejects_final_output_inside_work_dir(tmp_path):
     env_dir = tmp_path / "env"
     env_dir.mkdir()
@@ -637,7 +785,9 @@ def test_batch_run_export_traces_writes_row_trace_and_manifest(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    manifest = [json.loads(line) for line in (trace_dir / "manifest.jsonl").read_text().splitlines()]
+    manifest = [
+        json.loads(line) for line in (trace_dir / "manifest.jsonl").read_text().splitlines()
+    ]
     assert len(manifest) == 1
     assert manifest[0]["id"] == "1"
     assert manifest[0]["ok"] is True
@@ -658,10 +808,7 @@ def test_batch_run_accepts_pydantic_schema_model(tmp_path):
     input_path.write_text('{"id":"1","x":2}\n', encoding="utf-8")
     template_path.write_text("{{row_json}}", encoding="utf-8")
     schema_module.write_text(
-        "from pydantic import BaseModel\n\n"
-        "class RowResult(BaseModel):\n"
-        "    id: str\n"
-        "    x: int\n",
+        "from pydantic import BaseModel\n\nclass RowResult(BaseModel):\n    id: str\n    x: int\n",
         encoding="utf-8",
     )
 
@@ -905,3 +1052,33 @@ def test_batch_run_hf_dataset_requires_export_traces(tmp_path):
 
     assert result.exit_code != 0
     assert "--hf-dataset requires --export-traces" in result.output
+
+
+def test_batch_run_treats_blank_hf_dataset_as_missing_for_dataset_path(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(tmp_path / "rows.jsonl"),
+            "--output",
+            str(tmp_path / "out.jsonl"),
+            "--export-traces",
+            str(tmp_path / "traces"),
+            "--hf-dataset",
+            "   ",
+            "--hf-dataset-path",
+            "runs/",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--hf-dataset-path requires --hf-dataset" in result.output

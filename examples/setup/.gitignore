@@ -17,6 +17,7 @@ Thumbs.db
 
 # Logs/artifacts
 fastagent.jsonl
+fast-agent-log.jsonl
 *.jsonl
 
 # Editors (optional)

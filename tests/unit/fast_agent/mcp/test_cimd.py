@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
+from fast_agent.core.keyring_utils import KeyringStatus
 from fast_agent.mcp.oauth_client import (
     OAuthFlowCancelledError,
     _CallbackServer,
@@ -32,9 +33,7 @@ class TestCIMDConfigValidation:
 
     def test_valid_cimd_url(self):
         """A valid HTTPS URL with non-root path should be accepted."""
-        auth = MCPServerAuthSettings(
-            client_metadata_url="https://example.com/client.json"
-        )
+        auth = MCPServerAuthSettings(client_metadata_url="https://example.com/client.json")
         assert auth.client_metadata_url == "https://example.com/client.json"
 
     def test_valid_cimd_url_with_path(self):
@@ -47,25 +46,19 @@ class TestCIMDConfigValidation:
     def test_cimd_url_rejects_http(self):
         """HTTP URLs should be rejected (must be HTTPS)."""
         with pytest.raises(ValidationError) as exc_info:
-            MCPServerAuthSettings(
-                client_metadata_url="http://example.com/client.json"
-            )
+            MCPServerAuthSettings(client_metadata_url="http://example.com/client.json")
         assert "client_metadata_url must use HTTPS scheme" in str(exc_info.value)
 
     def test_cimd_url_rejects_root_path(self):
         """URLs with root path (/) should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            MCPServerAuthSettings(
-                client_metadata_url="https://example.com/"
-            )
+            MCPServerAuthSettings(client_metadata_url="https://example.com/")
         assert "client_metadata_url must have a non-root pathname" in str(exc_info.value)
 
     def test_cimd_url_rejects_no_path(self):
         """URLs with no path should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            MCPServerAuthSettings(
-                client_metadata_url="https://example.com"
-            )
+            MCPServerAuthSettings(client_metadata_url="https://example.com")
         assert "client_metadata_url must have a non-root pathname" in str(exc_info.value)
 
     def test_cimd_url_none_by_default(self):
@@ -90,9 +83,7 @@ class TestCIMDOAuthProvider:
             MockOAuthClientProvider,
         )
 
-        auth = MCPServerAuthSettings(
-            client_metadata_url="https://example.com/client.json"
-        )
+        auth = MCPServerAuthSettings(client_metadata_url="https://example.com/client.json")
         config = MCPServerSettings(
             name="test",
             transport="http",
@@ -125,9 +116,12 @@ class TestCIMDOAuthProvider:
 
         build_oauth_provider(config)
 
-        assert captured_kwargs.get("client_metadata_url") == "https://fast-agent.ai/oauth/client.json"
+        assert (
+            captured_kwargs.get("client_metadata_url") == "https://fast-agent.ai/oauth/client.json"
+        )
 
-    def test_build_oauth_provider_can_disable_default_cimd_with_env(self, monkeypatch):
+    @pytest.mark.parametrize("env_value", ["", "   "])
+    def test_build_oauth_provider_can_disable_default_cimd_with_env(self, monkeypatch, env_value):
         """Setting FAST_AGENT_OAUTH_CLIENT_METADATA_URL to empty should disable default CIMD."""
         captured_kwargs = {}
 
@@ -139,7 +133,7 @@ class TestCIMDOAuthProvider:
             "fast_agent.mcp.oauth_client.OAuthClientProvider",
             MockOAuthClientProvider,
         )
-        monkeypatch.setenv("FAST_AGENT_OAUTH_CLIENT_METADATA_URL", "")
+        monkeypatch.setenv("FAST_AGENT_OAUTH_CLIENT_METADATA_URL", env_value)
 
         config = MCPServerSettings(
             name="test",
@@ -164,9 +158,7 @@ class TestCIMDOAuthProvider:
             MockOAuthClientProvider,
         )
 
-        auth = MCPServerAuthSettings(
-            client_metadata_url="https://example.com/client.json"
-        )
+        auth = MCPServerAuthSettings(client_metadata_url="https://example.com/client.json")
         config = MCPServerSettings(
             name="test",
             transport="sse",
@@ -180,9 +172,7 @@ class TestCIMDOAuthProvider:
 
     def test_build_oauth_provider_stdio_ignores_cimd(self):
         """build_oauth_provider should return None for stdio transport (no OAuth)."""
-        auth = MCPServerAuthSettings(
-            client_metadata_url="https://example.com/client.json"
-        )
+        auth = MCPServerAuthSettings(client_metadata_url="https://example.com/client.json")
         config = MCPServerSettings(
             name="test",
             transport="stdio",
@@ -197,8 +187,7 @@ class TestCIMDOAuthProvider:
     def test_build_oauth_provider_oauth_disabled_ignores_cimd(self):
         """build_oauth_provider should return None when OAuth is disabled."""
         auth = MCPServerAuthSettings(
-            oauth=False,
-            client_metadata_url="https://example.com/client.json"
+            oauth=False, client_metadata_url="https://example.com/client.json"
         )
         config = MCPServerSettings(
             name="test",
@@ -393,6 +382,32 @@ async def test_print_authorization_link_falls_back_when_console_write_blocks(mon
 
     assert any("Open this link to authorize" in line for line in fallback_lines)
     assert any("https://example.com/oauth" in line for line in fallback_lines)
+
+
+@pytest.mark.asyncio
+async def test_print_authorization_link_prints_keyring_warning_literally(monkeypatch) -> None:
+    printed: list[tuple[object, str | None]] = []
+
+    def _capture_print(message: object, **kwargs: object) -> None:
+        fallback = kwargs.get("fallback")
+        assert fallback is None or isinstance(fallback, str)
+        printed.append((message, fallback))
+
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._safe_console_print", _capture_print)
+    monkeypatch.setattr(
+        "fast_agent.core.keyring_utils.get_keyring_status",
+        lambda: KeyringStatus(name="[mock] backend", available=True, writable=False),
+    )
+
+    await _print_authorization_link("https://example.com/oauth", warn_if_no_keyring=True)
+
+    warning, fallback = printed[-1]
+    assert getattr(warning, "plain", warning) == (
+        "Warning: Keyring backend '[mock] backend' not writable — tokens will not be persisted."
+    )
+    assert fallback == (
+        "Warning: Keyring backend '[mock] backend' not writable — tokens will not be persisted."
+    )
 
 
 def test_read_callback_url_with_abort_event() -> None:

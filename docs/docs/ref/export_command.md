@@ -1,11 +1,11 @@
 ---
 title: fast-agent export command
 description: Export persisted fast-agent session traces locally or to Hugging Face
-  datasets.
+  Hub storage.
 social:
   title: Export Sessions
-  tagline: Export persisted session traces locally or to Hugging Face datasets.
-  description: Export persisted session traces locally or to Hugging Face datasets.
+  tagline: Export persisted session traces locally or to Hugging Face Hub storage.
+  description: Export persisted session traces locally or to Hugging Face Hub storage.
   alt: fast-agent social card — Export Sessions
 ---
 
@@ -13,7 +13,7 @@ social:
 # `fast-agent export` command
 
 Use `fast-agent export` to export a persisted session as a Codex-style JSONL
-trace. You can write the trace locally, upload it to a Hugging Face dataset, or
+trace. You can write the trace locally, upload it to a Hugging Face URL, or
 do both in one step.
 
 ## Usage
@@ -40,7 +40,8 @@ If omitted, `fast-agent export` uses the latest persisted session.
 | `--list` | List recent sessions instead of exporting. Cannot be combined with export options. |
 | `--agent`, `-a <name>` | Export a specific agent history from the session. |
 | `--output`, `-o <path>` | Write the trace to this file path. Parent directories are created as needed. |
-| `--hf-dataset <owner/name>` | Upload the exported trace to a Hugging Face dataset repo. |
+| `--hf-url <hf://...>` | Upload the exported trace to a Hugging Face URL. Supports `hf://buckets/...` and `hf://datasets/...`. |
+| `--hf-dataset <owner/name>` | Compatibility option for uploading to a Hugging Face dataset repo. Prefer `--hf-url` for new workflows. |
 | `--hf-dataset-path <path>` | Target file or folder path inside the dataset repo. Requires `--hf-dataset`. |
 | `--privacy-filter` | Redact exported text content with the local privacy filter. |
 | `--privacy-filter-path <path>` | Use a local OpenAI Privacy Filter model directory. Requires `--privacy-filter`. |
@@ -62,10 +63,13 @@ fast-agent export latest --output trace.jsonl
 # Export a specific agent from a multi-agent session
 fast-agent export 2604201303-x5MNlH --agent dev --output dev-trace.jsonl
 
-# Upload the latest session trace to a Hugging Face dataset
-fast-agent export latest --hf-dataset your-name/fast-agent-traces
+# Upload the latest session trace to a Hugging Face URL
+fast-agent export latest --hf-url hf://buckets/your-name/fast-agent-traces/
 
-# Upload into a folder in the dataset repo
+# Upload to a Hugging Face dataset URL
+fast-agent export latest --hf-url hf://datasets/your-name/fast-agent-traces/trace.jsonl
+
+# Compatibility: upload into a folder in a dataset repo
 fast-agent export latest \
   --hf-dataset your-name/fast-agent-traces \
   --hf-dataset-path evals/
@@ -85,11 +89,13 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 - If `--privacy-filter` is enabled and `--output` is omitted, fast-agent writes
   `{session_id}__{agent_name}__codex-privacy.jsonl`.
 - If the session has multiple exportable agent histories, pass `--agent`.
+- `--hf-url` is the preferred Hugging Face upload option. If the URL ends with
+  `/`, fast-agent appends the local filename.
 - `--hf-dataset-path` requires `--hf-dataset`.
 - If `--hf-dataset-path` ends with `/`, it is treated as a folder and fast-agent
   appends the local filename.
 - Uploads require `huggingface_hub`.
-- The Hugging Face dataset repo is created automatically when needed.
+- Dataset repos are created automatically when needed.
 - `--privacy-filter` requires the optional `privacy` extra and applies before
   local write/upload. See the [privacy filter guide](../guides/privacy_filter/).
 - By default, privacy filtering uses a cached model only. Add
@@ -102,7 +108,8 @@ Inside the interactive prompt, use `/session export`:
 
 ```text
 /session export latest --output trace.jsonl
-/session export latest --hf-dataset your-name/fast-agent-traces
+/session export latest --hf-url hf://buckets/your-name/fast-agent-traces/
+/session export latest --hf-url hf://datasets/your-name/fast-agent-traces/trace.jsonl
 /session export latest --privacy-filter
 /session export latest --privacy-filter --download-privacy-filter
 ```

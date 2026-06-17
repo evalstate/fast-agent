@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from fast_agent.command_actions.config import normalize_plugin_command_name
 from fast_agent.command_actions.loader import load_plugin_command_action_function
 from fast_agent.command_actions.models import (
     PluginCommandAction,
@@ -41,16 +42,16 @@ class PluginCommandActionRegistry:
         base_path: Path | None = None,
     ) -> "PluginCommandActionRegistry":
         registry = cls()
-        for name, spec in (specs or {}).items():
+        for spec in (specs or {}).values():
             handler = load_plugin_command_action_function(spec.handler, base_path=base_path)
             registry.register(PluginCommandAction(spec=spec, handler=handler))
         return registry
 
     def register(self, action: PluginCommandAction) -> None:
-        self._actions[action.spec.name] = action
+        self._actions[normalize_plugin_command_name(action.spec.name)] = action
 
     def resolve(self, name: str) -> PluginCommandAction | None:
-        return self._actions.get(name)
+        return self._actions.get(normalize_plugin_command_name(name))
 
     def list_actions(self) -> list[PluginCommandAction]:
         return list(self._actions.values())

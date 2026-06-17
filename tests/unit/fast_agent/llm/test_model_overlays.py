@@ -96,11 +96,20 @@ def test_export_preserves_explicit_provider_over_catalog_default() -> None:
 
 
 def test_export_preserves_hf_namespace_before_database_lookup() -> None:
-    manifest = build_model_overlay_manifest_from_database("hf.openai/gpt-oss-120b:cerebras")
+    manifest = build_model_overlay_manifest_from_database(
+        "HuggingFace.OpenAI/GPT-OSS-120B:CEREBRAS"
+    )
 
-    assert manifest.name == "hf-openai-gpt-oss-120b-cerebras"
+    assert manifest.name == "hf-OpenAI-GPT-OSS-120B-CEREBRAS"
     assert manifest.provider == Provider.HUGGINGFACE
-    assert manifest.model == "openai/gpt-oss-120b:cerebras"
+    assert manifest.model == "OpenAI/GPT-OSS-120B:CEREBRAS"
+
+
+def test_export_accepts_slash_prefixed_provider_model() -> None:
+    manifest = build_model_overlay_manifest_from_database("anthropic/claude-sonnet-4-5")
+
+    assert manifest.provider == Provider.ANTHROPIC
+    assert manifest.model == "claude-sonnet-4-5"
 
 
 def test_export_default_name_strips_model_query_params() -> None:
@@ -209,7 +218,7 @@ picker:
 metadata:
   context_window: 65536
   max_output_tokens: 2048
-  json_mode: none
+  json_mode: NONE
   structured_tool_policy: defer
   model_specific: Overlay-specific instructions.
   fast: true
@@ -350,6 +359,29 @@ metadata:
         assert resolved.wire_model_name == "overlay-tests/Qwen-Picker"
         assert resolved.context_window == 65536
         assert resolved.max_output_tokens == 2048
+
+
+def test_overlay_registry_loads_uppercase_yaml_suffix(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    _write_overlay(
+        env_dir,
+        "upper-suffix.YAML",
+        """
+name: upper-suffix
+provider: openresponses
+model: overlay-tests/Upper-Suffix
+connection:
+  auth: none
+metadata:
+  context_window: 8192
+  max_output_tokens: 1024
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+        registry = load_model_overlay_registry(start_path=tmp_path, env_dir=env_dir)
+
+    assert "upper-suffix" in registry.by_name()
 
 
 def test_new_overlay_model_defaults_to_schema_json_mode(tmp_path: Path) -> None:
@@ -639,3 +671,51 @@ metadata:
         resolved = ModelFactory.resolve_model_spec("legacy-temp")
         assert resolved.model_params is not None
         assert resolved.model_params.default_temperature == 0.7
+
+
+def test_overlay_numeric_fields_reject_yaml_booleans(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    _write_overlay(
+        env_dir,
+        "valid-numeric-strings.yaml",
+        """
+name: valid-numeric-strings
+provider: openresponses
+model: overlay-tests/Valid-Numeric
+connection:
+  auth: none
+defaults:
+  temperature: "0.4"
+  top_k: "20"
+  max_tokens: "1024"
+metadata:
+  context_window: "8192"
+  max_output_tokens: "1024"
+""".strip(),
+    )
+    _write_overlay(
+        env_dir,
+        "invalid-boolean-numbers.yaml",
+        """
+name: invalid-boolean-numbers
+provider: openresponses
+model: overlay-tests/Invalid-Boolean
+connection:
+  auth: none
+defaults:
+  temperature: true
+metadata:
+  context_window: true
+  max_output_tokens: false
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+        registry = load_model_overlay_registry(start_path=tmp_path, env_dir=env_dir)
+        by_name = registry.by_name()
+
+    assert "valid-numeric-strings" in by_name
+    assert "invalid-boolean-numbers" not in by_name
+    assert by_name["valid-numeric-strings"].manifest.defaults.temperature == 0.4
+    assert by_name["valid-numeric-strings"].manifest.defaults.top_k == 20
+    assert by_name["valid-numeric-strings"].manifest.metadata.context_window == 8192

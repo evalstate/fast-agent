@@ -29,8 +29,8 @@ from fast_agent.patch.parser import (
 from fast_agent.patch.seek_sequence import seek_sequence
 
 __all__ = [
-    "AffectedPaths",
     "AddFileHunk",
+    "AffectedPaths",
     "ApplyPatchArgs",
     "ApplyPatchError",
     "DeleteFileHunk",

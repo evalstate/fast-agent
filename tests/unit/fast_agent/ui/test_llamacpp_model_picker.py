@@ -4,9 +4,18 @@ import asyncio
 from typing import Any, cast
 
 import pytest
+from prompt_toolkit.keys import Keys
 
 from fast_agent.llm.llamacpp_discovery import LlamaCppModelListing
 from fast_agent.ui.llamacpp_model_picker import LlamaCppModelPickerContext, _LlamaCppModelPicker
+
+
+def _enter_binding(picker: _LlamaCppModelPicker):
+    return next(
+        binding
+        for binding in picker._create_key_bindings().bindings
+        if binding.keys == (Keys.ControlM,)
+    )
 
 
 def test_llamacpp_picker_enter_on_actions_returns_selected_action_and_model() -> None:
@@ -39,11 +48,7 @@ def test_llamacpp_picker_enter_on_actions_returns_selected_action_and_model() ->
     picker.state.action_index = 1
     picker.state.focus = "actions"
 
-    enter_binding = next(
-        binding
-        for binding in picker._create_key_bindings().bindings
-        if getattr(binding.handler, "__name__", "") == "_accept"
-    )
+    enter_binding = _enter_binding(picker)
 
     app = _FakeApp()
     cast("Any", enter_binding.handler)(_FakeEvent(app))
@@ -74,11 +79,7 @@ def test_llamacpp_picker_enter_on_models_switches_focus_to_actions() -> None:
     )
     picker.state.focus = "models"
 
-    enter_binding = next(
-        binding
-        for binding in picker._create_key_bindings().bindings
-        if getattr(binding.handler, "__name__", "") == "_accept"
-    )
+    enter_binding = _enter_binding(picker)
 
     cast("Any", enter_binding.handler)(_FakeEvent(_FakeApp()))
 

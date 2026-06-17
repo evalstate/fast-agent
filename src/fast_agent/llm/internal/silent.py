@@ -12,7 +12,6 @@ class ZeroUsageAccumulator(UsageAccumulator):
 
     def add_turn(self, turn: TurnUsage) -> None:
         """Override to do nothing - no usage accumulation."""
-        pass
 
 
 # TODO -- this won't work anymore
@@ -34,8 +33,6 @@ class SilentLLM(PassthroughLLM):
 
     def show_tool_calls(self, tool_calls: Any, **kwargs) -> None:
         """Override to suppress tool call display."""
-        pass
 
     def show_tool_results(self, tool_results: Any, **kwargs) -> None:
         """Override to suppress tool result display."""
-        pass

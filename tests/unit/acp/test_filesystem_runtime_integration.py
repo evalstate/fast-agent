@@ -170,10 +170,7 @@ async def test_filesystem_runtime_tool_call():
             agent.set_filesystem_runtime(fs_runtime)
 
             # Call read_text_file
-            result = await agent.call_tool(
-                "read_text_file",
-                {"path": str(test_file)}
-            )
+            result = await agent.call_tool("read_text_file", {"path": str(test_file)})
 
             assert result.isError is False
             assert len(result.content) > 0
@@ -183,8 +180,7 @@ async def test_filesystem_runtime_tool_call():
             output_file = temp_path / "output.txt"
             write_content = "Written by test"
             result = await agent.call_tool(
-                "write_text_file",
-                {"path": str(output_file), "content": write_content}
+                "write_text_file", {"path": str(output_file), "content": write_content}
             )
 
             assert result.isError is False
@@ -223,16 +219,15 @@ async def test_filesystem_runtime_tools_available_in_run_tools():
                 "call_1": CallToolRequest(
                     method="tools/call",
                     params=CallToolRequestParams(
-                        name="read_text_file",
-                        arguments={"path": str(test_file)}
-                    )
+                        name="read_text_file", arguments={"path": str(test_file)}
+                    ),
                 ),
                 "call_2": CallToolRequest(
                     method="tools/call",
                     params=CallToolRequestParams(
                         name="write_text_file",
-                        arguments={"path": str(output_file), "content": "test output"}
-                    )
+                        arguments={"path": str(output_file), "content": "test output"},
+                    ),
                 ),
             }
 
@@ -250,6 +245,7 @@ async def test_filesystem_runtime_tools_available_in_run_tools():
             # Check that we don't have error channel content
             if result.channels:
                 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+
                 assert FAST_AGENT_ERROR_CHANNEL not in result.channels
 
             # Verify the file was actually written

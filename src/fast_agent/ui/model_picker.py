@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app_or_none
@@ -23,6 +23,7 @@ from fast_agent.ui.model_picker_common import (
     LLAMACPP_IMPORT_SENTINEL,
     LLAMACPP_PROVIDER_KEY,
     REFER_TO_DOCS_PROVIDERS,
+    ModelAvailability,
     ModelOption,
     ModelSource,
     ProviderActivationAction,
@@ -31,10 +32,12 @@ from fast_agent.ui.model_picker_common import (
     find_provider,
     model_identity,
     model_options_for_option,
+    model_options_for_provider,
     provider_activation_action,
+    provider_option_count_label,
 )
 from fast_agent.ui.picker_theme import build_picker_style
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
+from fast_agent.utils.text import strip_to_none
 
 StyleFragments = list[tuple[str, str]]
 
@@ -50,11 +53,57 @@ class ModelPickerResult:
     activation_action: ProviderActivationAction | None = None
 
 
+@dataclass(frozen=True)
+class ProviderAvailability:
+    label: str
+    style: ModelAvailability
+    available: bool
+
+
+@dataclass(frozen=True)
+class ModelAvailabilityDisplay:
+    availability: ModelAvailability
+    marker: str
+
+
 @dataclass
 class PickerState:
     provider_index: int
     model_index: int
     source: ModelSource
+
+
+PROVIDER_DISPLAY_NAME_OVERRIDES = {
+    "responses": "OpenAI",
+    "openai": "OpenAI (Legacy)",
+    "codexresponses": "Codex (Plan)",
+    "generic": "Generic (ollama)",
+    "fast-agent": "fast-agent",
+}
+
+
+_MODEL_AVAILABILITY_MARKERS: dict[ModelAvailability, str] = {
+    "active": "✓",
+    "attention": "!",
+    "inactive": "✗",
+}
+
+
+def _model_availability_display(
+    model: ModelOption,
+    *,
+    provider_available: bool,
+) -> ModelAvailabilityDisplay:
+    if provider_available:
+        availability: ModelAvailability = "active"
+    elif model.activation_action is not None:
+        availability = "attention"
+    else:
+        availability = "inactive"
+    return ModelAvailabilityDisplay(
+        availability=availability,
+        marker=_MODEL_AVAILABILITY_MARKERS[availability],
+    )
 
 
 class _SplitListPicker:
@@ -77,7 +126,7 @@ class _SplitListPicker:
         if not self.snapshot.providers:
             raise ValueError("No providers found in model catalog.")
         self._initial_provider_name = initial_provider
-        self._initial_model_spec = initial_model_spec.strip() if initial_model_spec else None
+        self._initial_model_spec = strip_to_none(initial_model_spec)
 
         self.state = PickerState(
             provider_index=self._initial_provider_index(),
@@ -153,9 +202,8 @@ class _SplitListPicker:
     def current_provider(self) -> ProviderOption:
         return self.snapshot.providers[self.state.provider_index]
 
-    @staticmethod
-    def _provider_is_available(option: ProviderOption) -> bool:
-        return option.active or option.option_key == LLAMACPP_PROVIDER_KEY
+    def _provider_is_available(self, option: ProviderOption) -> bool:
+        return self._provider_availability(option).available
 
     def _provider_requires_docs_only(self) -> bool:
         provider = self.current_provider.provider
@@ -172,8 +220,14 @@ class _SplitListPicker:
 
     @property
     def current_models(self) -> list[ModelOption]:
+        provider = self.current_provider.provider
+        if provider is not None:
+            return model_options_for_provider(
+                self.snapshot,
+                provider,
+                source=self.state.source,
+            )
         return model_options_for_option(
-            self.snapshot,
             self.current_provider,
             source=self.state.source,
         )
@@ -242,11 +296,14 @@ class _SplitListPicker:
             self.current_provider.option_key,
         )
         for source in ("curated", "all"):
-            models = model_options_for_option(
-                self.snapshot,
-                provider_option,
-                source=source,
-            )
+            if provider_option.provider is None:
+                models = model_options_for_option(provider_option, source=source)
+            else:
+                models = model_options_for_provider(
+                    self.snapshot,
+                    provider_option.provider,
+                    source=source,
+                )
             match_index = _find_initial_model_index(models, self._initial_model_spec)
             if match_index is None:
                 continue
@@ -283,7 +340,7 @@ class _SplitListPicker:
         self,
         *,
         selected: bool,
-        availability: Literal["active", "attention", "inactive"],
+        availability: ModelAvailability,
     ) -> str:
         parts: list[str] = []
         if selected:
@@ -292,95 +349,42 @@ class _SplitListPicker:
         return " ".join(parts)
 
     def _provider_availability_label(self, option: ProviderOption) -> str:
-        if option.option_key == LLAMACPP_PROVIDER_KEY:
-            return "available"
-        if option.overlay_group and not option.curated_entries:
-            return "none yet"
-        if option.active:
-            return "available"
-        if option.disabled_reason is not None:
-            return "disabled"
-        if self._provider_activation_action(option) is not None:
-            return "sign in required"
-        return "not configured"
+        return self._provider_availability(option).label
 
     def _provider_availability_style(
         self,
         option: ProviderOption,
-    ) -> Literal["active", "attention", "inactive"]:
+    ) -> ModelAvailability:
+        return self._provider_availability(option).style
+
+    def _provider_availability(self, option: ProviderOption) -> ProviderAvailability:
         if option.option_key == LLAMACPP_PROVIDER_KEY:
-            return "active"
+            return ProviderAvailability("available", "active", True)
         if option.overlay_group and not option.curated_entries:
-            return "inactive"
+            return ProviderAvailability("none yet", "inactive", False)
         if option.active:
-            return "active"
+            return ProviderAvailability("available", "active", True)
         if option.disabled_reason is not None:
-            return "attention"
+            return ProviderAvailability("disabled", "attention", False)
         if self._provider_activation_action(option) is not None:
-            return "attention"
-        return "inactive"
+            return ProviderAvailability("sign in required", "attention", False)
+        return ProviderAvailability("not configured", "inactive", False)
 
     @staticmethod
     def _provider_display_name(config_name: str, default_name: str) -> str:
-        if config_name == "responses":
-            return "OpenAI"
-        if config_name == "openai":
-            return "OpenAI (Legacy)"
-        if config_name == "codexresponses":
-            return "Codex (Plan)"
-        if config_name == "generic":
-            return "Generic (ollama)"
-        if config_name == "fast-agent":
-            return "fast-agent"
-
-        return default_name
+        return PROVIDER_DISPLAY_NAME_OVERRIDES.get(config_name, default_name)
 
     @classmethod
     def _provider_display_name_for_option(cls, option: ProviderOption) -> str:
         if option.display_name is not None:
             return option.display_name
         provider = option.provider
-        assert provider is not None
+        if provider is None:
+            raise ValueError("Provider option requires display_name when provider is unset")
         return cls._provider_display_name(
             provider.config_name,
             provider.display_name,
         )
-
-    @staticmethod
-    def _provider_entry_count_label(option: ProviderOption) -> str:
-        if option.option_key == LLAMACPP_PROVIDER_KEY:
-            return "import flow"
-        if option.overlay_group:
-            entry_count = len(option.curated_entries)
-            suffix = "overlay" if entry_count == 1 else "overlays"
-            return f"{entry_count} {suffix}"
-        return f"{len(option.curated_entries)} curated"
-
-    def _overlay_models(self) -> list[ModelOption]:
-        options: list[ModelOption] = []
-        for entry in self.current_provider.curated_entries:
-            tags: list[str] = []
-            if entry.local:
-                tags.append("local")
-            if entry.fast:
-                tags.append("fast")
-            if not entry.current:
-                tags.append("legacy")
-
-            suffix = f" ({', '.join(tags)})" if tags else ""
-            label = f"{(entry.display_label or entry.alias):<19} → {entry.model}{suffix}"
-            if entry.description:
-                label = f"{label} — {entry.description}"
-            options.append(
-                ModelOption(
-                    spec=entry.model,
-                    label=label,
-                    preset_token=entry.alias,
-                    fast=entry.fast,
-                    curated=entry.current,
-                )
-            )
-        return options
 
     def _model_panel_width(self) -> int:
         cols = self._terminal_cols()
@@ -420,11 +424,8 @@ class _SplitListPicker:
             )
             availability = self._provider_availability_label(option)
             provider_name = self._provider_display_name_for_option(option)
-            count_label = self._provider_entry_count_label(option)
-            text = (
-                f"{cursor}{provider_name:<16} "
-                f"[{availability}] ({count_label})\n"
-            )
+            count_label = provider_option_count_label(option)
+            text = f"{cursor}{provider_name:<16} [{availability}] ({count_label})\n"
             fragments.append((line_style, text))
         return fragments
 
@@ -446,21 +447,18 @@ class _SplitListPicker:
         for index, model in enumerate(models):
             selected = index == self.state.model_index
             cursor = "❯ " if self._models_focused() and selected else "  "
+            availability_display = _model_availability_display(
+                model,
+                provider_available=provider_available,
+            )
             line_style = self._row_style(
                 selected=selected,
-                availability=(
-                    "active"
-                    if provider_available
-                    else "attention"
-                    if model.activation_action is not None
-                    else "inactive"
-                ),
+                availability=availability_display.availability,
             )
-            marker = "✓" if provider_available else "!" if model.activation_action else "✗"
             fragments.append(
                 (
                     line_style,
-                    f"{cursor}{marker} "
+                    f"{cursor}{availability_display.marker} "
                     f"{self._tabulate_model_label(model.label, panel_width=self._model_panel_width())}\n",
                 )
             )
@@ -504,142 +502,180 @@ class _SplitListPicker:
 
         @kb.add("left")
         def _left(event) -> None:
-            self._focus_providers()
-            event.app.invalidate()
+            self._left(event)
 
         @kb.add("right")
         def _right(event) -> None:
-            self._focus_models()
-            event.app.invalidate()
+            self._right(event)
 
         @kb.add("tab")
         def _tab(event) -> None:
-            event.app.layout.focus_next()
-            event.app.invalidate()
+            self._tab(event)
 
         @kb.add("s-tab")
         def _shift_tab(event) -> None:
-            event.app.layout.focus_previous()
-            event.app.invalidate()
+            self._shift_tab(event)
 
         @kb.add("up")
         def _up(event) -> None:
-            if event.app.layout.has_focus(self.provider_window):
-                self._move_provider(-1)
-            else:
-                self._move_model(-1)
-            event.app.invalidate()
+            self._up(event)
 
         @kb.add("down")
         def _down(event) -> None:
-            if event.app.layout.has_focus(self.provider_window):
-                self._move_provider(1)
-            else:
-                self._move_model(1)
-            event.app.invalidate()
+            self._down(event)
 
         @kb.add("c")
         def _toggle_scope(event) -> None:
-            self._toggle_source()
-            event.app.invalidate()
+            self._toggle_scope(event)
 
         @kb.add("enter")
         def _accept(event) -> None:
-            selected_model = self._selected_model()
-            if selected_model is None:
-                return
-
-            provider = self.current_provider
-            selected_value = (
-                selected_model.preset_token
-                if provider.overlay_group and selected_model.preset_token is not None
-                else selected_model.spec
-            )
-            if selected_model.activation_action is not None:
-                event.app.exit(
-                    result=ModelPickerResult(
-                        provider=provider.option_key,
-                        provider_available=self._provider_is_available(provider),
-                        selected_model=selected_value,
-                        resolved_model=None,
-                        source=self.state.source,
-                        refer_to_docs=False,
-                        activation_action=selected_model.activation_action,
-                    )
-                )
-                return
-
-            if (
-                provider.option_key == Provider.GENERIC.config_name
-                and selected_model.spec == GENERIC_CUSTOM_MODEL_SENTINEL
-            ):
-                event.app.exit(
-                    result=ModelPickerResult(
-                        provider=provider.option_key,
-                        provider_available=self._provider_is_available(provider),
-                        selected_model=selected_value,
-                        resolved_model=None,
-                        source=self.state.source,
-                        refer_to_docs=False,
-                        activation_action=None,
-                    )
-                )
-                return
-
-            if (
-                provider.option_key == LLAMACPP_PROVIDER_KEY
-                and selected_model.spec == LLAMACPP_IMPORT_SENTINEL
-            ):
-                event.app.exit(
-                    result=ModelPickerResult(
-                        provider=provider.option_key,
-                        provider_available=self._provider_is_available(provider),
-                        selected_model=selected_model.spec,
-                        resolved_model=None,
-                        source=self.state.source,
-                        refer_to_docs=False,
-                        activation_action=None,
-                    )
-                )
-                return
-
-            if self._provider_requires_docs_only():
-                event.app.exit(
-                    result=ModelPickerResult(
-                        provider=provider.option_key,
-                        provider_available=self._provider_is_available(provider),
-                        selected_model=None,
-                        resolved_model=None,
-                        source=self.state.source,
-                        refer_to_docs=True,
-                        activation_action=None,
-                    )
-                )
-                return
-
-            event.app.exit(
-                result=ModelPickerResult(
-                    provider=provider.option_key,
-                    provider_available=self._provider_is_available(provider),
-                    selected_model=selected_value,
-                    resolved_model=selected_value,
-                    source=self.state.source,
-                    refer_to_docs=False,
-                    activation_action=None,
-                )
-            )
+            self._accept(event)
 
         @kb.add("q")
         @kb.add("escape")
         @kb.add("c-c")
         def _quit(event) -> None:
-            event.app.exit(result=None)
+            self._quit(event)
 
         return kb
 
+    def _left(self, event) -> None:
+        self._focus_providers()
+        event.app.invalidate()
+
+    def _right(self, event) -> None:
+        self._focus_models()
+        event.app.invalidate()
+
+    def _tab(self, event) -> None:
+        event.app.layout.focus_next()
+        event.app.invalidate()
+
+    def _shift_tab(self, event) -> None:
+        event.app.layout.focus_previous()
+        event.app.invalidate()
+
+    def _up(self, event) -> None:
+        if event.app.layout.has_focus(self.provider_window):
+            self._move_provider(-1)
+        else:
+            self._move_model(-1)
+        event.app.invalidate()
+
+    def _down(self, event) -> None:
+        if event.app.layout.has_focus(self.provider_window):
+            self._move_provider(1)
+        else:
+            self._move_model(1)
+        event.app.invalidate()
+
+    def _toggle_scope(self, event) -> None:
+        self._toggle_source()
+        event.app.invalidate()
+
+    def _accept(self, event) -> None:
+        result = self._selected_result()
+        if result is not None:
+            event.app.exit(result=result)
+
+    def _quit(self, event) -> None:
+        event.app.exit(result=None)
+
+    def _selected_result(self) -> ModelPickerResult | None:
+        selected_model = self._selected_model()
+        if selected_model is None:
+            return None
+
+        provider = self.current_provider
+        selected_value = self._selected_model_value(provider, selected_model)
+
+        if selected_model.activation_action is not None:
+            return self._picker_result(
+                provider,
+                selected_model=selected_value,
+                resolved_model=None,
+                refer_to_docs=False,
+                activation_action=selected_model.activation_action,
+            )
+        if self._is_generic_custom_model(provider, selected_model):
+            return self._picker_result(
+                provider,
+                selected_model=selected_value,
+                resolved_model=None,
+                refer_to_docs=False,
+            )
+        if self._is_llamacpp_import_model(provider, selected_model):
+            return self._picker_result(
+                provider,
+                selected_model=selected_model.spec,
+                resolved_model=None,
+                refer_to_docs=False,
+            )
+        if self._provider_requires_docs_only():
+            return self._picker_result(
+                provider,
+                selected_model=None,
+                resolved_model=None,
+                refer_to_docs=True,
+            )
+        return self._picker_result(
+            provider,
+            selected_model=selected_value,
+            resolved_model=selected_value,
+            refer_to_docs=False,
+        )
+
+    def _picker_result(
+        self,
+        provider: ProviderOption,
+        *,
+        selected_model: str | None,
+        resolved_model: str | None,
+        refer_to_docs: bool,
+        activation_action: ProviderActivationAction | None = None,
+    ) -> ModelPickerResult:
+        return ModelPickerResult(
+            provider=provider.option_key,
+            provider_available=self._provider_is_available(provider),
+            selected_model=selected_model,
+            resolved_model=resolved_model,
+            source=self.state.source,
+            refer_to_docs=refer_to_docs,
+            activation_action=activation_action,
+        )
+
+    @staticmethod
+    def _selected_model_value(
+        provider: ProviderOption,
+        selected_model: ModelOption,
+    ) -> str:
+        if provider.overlay_group and selected_model.preset_token is not None:
+            return selected_model.preset_token
+        return selected_model.spec
+
+    @staticmethod
+    def _is_generic_custom_model(
+        provider: ProviderOption,
+        selected_model: ModelOption,
+    ) -> bool:
+        return (
+            provider.option_key == Provider.GENERIC.config_name
+            and selected_model.spec == GENERIC_CUSTOM_MODEL_SENTINEL
+        )
+
+    @staticmethod
+    def _is_llamacpp_import_model(
+        provider: ProviderOption,
+        selected_model: ModelOption,
+    ) -> bool:
+        return (
+            provider.option_key == LLAMACPP_PROVIDER_KEY
+            and selected_model.spec == LLAMACPP_IMPORT_SENTINEL
+        )
+
     def run(self) -> ModelPickerResult | None:
-        with suppress_known_runtime_warnings():
-            result = self.app.run()
+        result = self.app.run()
         if result is None:
             return None
         if isinstance(result, ModelPickerResult):
@@ -647,8 +683,7 @@ class _SplitListPicker:
         return None
 
     async def run_async(self) -> ModelPickerResult | None:
-        with suppress_known_runtime_warnings():
-            result = await self.app.run_async()
+        result = await self.app.run_async()
         if result is None:
             return None
         if isinstance(result, ModelPickerResult):
@@ -699,7 +734,7 @@ def _find_initial_model_index(
         return None
 
     for index, option in enumerate(options):
-        if option.spec == normalized_spec or option.preset_token == normalized_spec:
+        if normalized_spec in (option.spec, option.preset_token):
             return index
 
     target_identity = model_identity(normalized_spec)

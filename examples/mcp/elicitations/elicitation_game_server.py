@@ -108,9 +108,7 @@ async def roll_new_character(campaign_name: str = "Adventure") -> str:
         Character details or status message
     """
 
-    result = await get_context().elicit(
-        f"🎮 Create Character for {campaign_name}!", GameCharacter
-    )
+    result = await get_context().elicit(f"🎮 Create Character for {campaign_name}!", GameCharacter)
 
     match result:
         case AcceptedElicitation(data=data):

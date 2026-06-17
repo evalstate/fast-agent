@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
     from fast_agent.config import OpenAIWebSearchSettings
+
+
+@runtime_checkable
+class _SupportsModelDump(Protocol):
+    def model_dump(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -100,12 +105,11 @@ def build_xai_web_search_tool(
 def _as_payload(value: object) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return {str(key): item for key, item in value.items()}
-    if hasattr(value, "model_dump"):
-        model_dump = getattr(value, "model_dump")
+    if isinstance(value, _SupportsModelDump):
         try:
-            payload = model_dump(mode="json", exclude_none=False)
+            payload = value.model_dump(mode="json", exclude_none=False)
         except TypeError:
-            payload = model_dump()
+            payload = value.model_dump()
         if isinstance(payload, Mapping):
             return {str(key): item for key, item in payload.items()}
     payload: dict[str, Any] = {}
@@ -155,10 +159,7 @@ def _action_queries(action: object | None) -> list[str] | None:
     if not isinstance(raw_queries, Sequence) or isinstance(raw_queries, str):
         return None
 
-    queries: list[str] = []
-    for query in raw_queries:
-        if isinstance(query, str) and query:
-            queries.append(query)
+    queries = [query for query in raw_queries if isinstance(query, str) and query]
     return queries or None
 
 
@@ -189,7 +190,9 @@ def _extract_source_payload(source: object) -> dict[str, str] | None:
     return None
 
 
-def normalize_web_search_call_payload(item: object) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
+def normalize_web_search_call_payload(
+    item: object,
+) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
     payload = _as_payload(item)
     item_type = payload.get("type")
     if item_type != "web_search_call":

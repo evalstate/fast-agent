@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import difflib
-import errno
 import os
 import tempfile
+from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, TypeGuard
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, TypeGuard
+
+from fast_agent.tools.filesystem_tool_args import (
+    is_permission_error,
+    permission_denied_message,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -45,9 +50,6 @@ class EditFileError(TypedDict, total=False):
 
 
 type EditFileResult = EditFileSuccess | EditFileError
-
-
-_PERMISSION_ERRNOS: Final = {errno.EACCES, errno.EPERM}
 
 
 def serialize_edit_file_result(result: EditFileResult) -> dict[str, Any]:
@@ -97,6 +99,68 @@ def edit_file(
     new_string: str,
     replace_all: bool = False,
 ) -> EditFileResult:
+    preflight_error = _preflight_edit_file(
+        path,
+        display_path=display_path,
+        old_string=old_string,
+        new_string=new_string,
+    )
+    if preflight_error is not None:
+        return preflight_error
+
+    read_result = _read_text_file(path, display_path=display_path)
+    if not isinstance(read_result, str):
+        return read_result
+    original_contents = read_result
+
+    matches = _find_match_spans(
+        original_contents,
+        old_string,
+        allow_overlapping=not replace_all,
+    )
+    if not matches:
+        return _error(
+            display_path,
+            "no_match",
+            "old_string was not found in the file. Re-read the file and use the exact current text.",
+        )
+    if len(matches) > 1 and not replace_all:
+        return _multiple_matches_error(display_path, original_contents, matches)
+
+    selected_matches = matches if replace_all else matches[:1]
+    new_contents, updated_spans = _apply_matches(
+        original_contents,
+        selected_matches,
+        new_string=new_string,
+    )
+    diff = _unified_diff(display_path, original_contents, new_contents)
+
+    write_error = _write_text_file_atomic(path, new_contents)
+    if write_error is not None:
+        return _error(display_path, write_error, permission_denied_message(display_path))
+
+    line_start, line_end = _line_range_for_span(
+        new_contents,
+        updated_spans[0][0],
+        updated_spans[-1][1],
+    )
+    return {
+        "success": True,
+        "path": display_path,
+        "line_start": line_start,
+        "line_end": line_end,
+        "replacements": len(selected_matches),
+        "diff": diff,
+    }
+
+
+def _preflight_edit_file(
+    path: Path,
+    *,
+    display_path: str,
+    old_string: str,
+    new_string: str,
+) -> EditFileError | None:
     if not path.exists():
         return _error(
             display_path,
@@ -121,56 +185,24 @@ def edit_file(
             "no_op",
             "old_string and new_string are identical. No change is needed.",
         )
+    return None
 
-    read_result = _read_text_file(path, display_path=display_path)
-    if not isinstance(read_result, str):
-        return read_result
-    original_contents = read_result
 
-    matches = _find_match_spans(original_contents, old_string)
-    if not matches:
-        return _error(
-            display_path,
-            "no_match",
-            "old_string was not found in the file. Re-read the file and use the exact current text.",
-        )
-    if len(matches) > 1 and not replace_all:
-        return {
-            "success": False,
-            "error": "multiple_matches",
-            "message": (
-                f"Found {len(matches)} matches for old_string in {display_path}. "
-                "Use replace_all=True to replace all, or provide more surrounding context "
-                "to uniquely identify the target."
-            ),
-            "path": display_path,
-            "matches": [_location_for_span(original_contents, start, end) for start, end in matches],
-        }
-
-    selected_matches = matches if replace_all else matches[:1]
-    new_contents, updated_spans = _apply_matches(
-        original_contents,
-        selected_matches,
-        new_string=new_string,
-    )
-    diff = _unified_diff(display_path, original_contents, new_contents)
-
-    write_error = _write_text_file_atomic(path, new_contents)
-    if write_error is not None:
-        return _error(display_path, write_error, f"Permission denied for file: {display_path}.")
-
-    line_start, line_end = _line_range_for_span(
-        new_contents,
-        updated_spans[0][0],
-        updated_spans[-1][1],
-    )
+def _multiple_matches_error(
+    display_path: str,
+    original_contents: str,
+    matches: Sequence[tuple[int, int]],
+) -> EditFileError:
     return {
-        "success": True,
+        "success": False,
+        "error": "multiple_matches",
+        "message": (
+            f"Found {len(matches)} matches for old_string in {display_path}. "
+            "Use replace_all=True to replace all, or provide more surrounding context "
+            "to uniquely identify the target."
+        ),
         "path": display_path,
-        "line_start": line_start,
-        "line_end": line_end,
-        "replacements": len(selected_matches),
-        "diff": diff,
+        "matches": [_location_for_span(original_contents, start, end) for start, end in matches],
     }
 
 
@@ -188,14 +220,14 @@ def _read_text_file(path: Path, *, display_path: str) -> str | EditFileError:
         return _error(
             display_path,
             "permission_denied",
-            f"Permission denied for file: {display_path}.",
+            permission_denied_message(display_path),
         )
     except OSError as exc:
-        if exc.errno in _PERMISSION_ERRNOS:
+        if is_permission_error(exc):
             return _error(
                 display_path,
                 "permission_denied",
-                f"Permission denied for file: {display_path}.",
+                permission_denied_message(display_path),
             )
         raise
 
@@ -206,17 +238,13 @@ def _write_text_file_atomic(path: Path, contents: str) -> EditFileErrorCode | No
         fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         os.close(fd)
         temp_path = Path(temp_name)
-        try:
+        with suppress(OSError):
             temp_path.chmod(path.stat().st_mode)
-        except OSError:
-            pass
         with temp_path.open("w", encoding="utf-8", newline="") as handle:
             handle.write(contents)
-        os.replace(temp_path, path)
-    except PermissionError:
-        return "permission_denied"
+        temp_path.replace(path)
     except OSError as exc:
-        if exc.errno in _PERMISSION_ERRNOS:
+        if is_permission_error(exc):
             return "permission_denied"
         raise
     finally:
@@ -225,7 +253,12 @@ def _write_text_file_atomic(path: Path, contents: str) -> EditFileErrorCode | No
     return None
 
 
-def _find_match_spans(contents: str, old_string: str) -> list[tuple[int, int]]:
+def _find_match_spans(
+    contents: str,
+    old_string: str,
+    *,
+    allow_overlapping: bool = False,
+) -> list[tuple[int, int]]:
     matches: list[tuple[int, int]] = []
     start = 0
     while True:
@@ -234,7 +267,7 @@ def _find_match_spans(contents: str, old_string: str) -> list[tuple[int, int]]:
             return matches
         end = index + len(old_string)
         matches.append((index, end))
-        start = end
+        start = index + 1 if allow_overlapping else end
 
 
 def _apply_matches(

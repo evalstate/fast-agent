@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,6 +20,7 @@ from fast_agent.commands.session_export_help import (
     SESSION_EXPORT_AGENT_HELP,
     SESSION_EXPORT_HF_DATASET_HELP,
     SESSION_EXPORT_HF_DATASET_PATH_HELP,
+    SESSION_EXPORT_HF_URL_HELP,
     SESSION_EXPORT_OUTPUT_HELP,
     SESSION_EXPORT_PRIVACY_DEVICE_HELP,
     SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP,
@@ -30,6 +30,7 @@ from fast_agent.commands.session_export_help import (
     SESSION_EXPORT_SHOW_REDACTIONS_HELP,
     SESSION_EXPORT_TARGET_HELP,
 )
+from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from fast_agent.commands.results import CommandMessage
@@ -72,6 +73,11 @@ def export(
     ),
     agent: str | None = typer.Option(None, "--agent", "-a", help=SESSION_EXPORT_AGENT_HELP),
     output: Path | None = typer.Option(None, "--output", "-o", help=SESSION_EXPORT_OUTPUT_HELP),
+    hf_url: str | None = typer.Option(
+        None,
+        "--hf-url",
+        help=SESSION_EXPORT_HF_URL_HELP,
+    ),
     hf_dataset: str | None = typer.Option(
         None,
         "--hf-dataset",
@@ -130,6 +136,7 @@ def export(
             target is not None
             or agent is not None
             or output is not None
+            or hf_url is not None
             or hf_dataset is not None
             or hf_dataset_path is not None
             or privacy_filter
@@ -140,7 +147,7 @@ def export(
             or show_redactions
         ):
             raise typer.BadParameter("Cannot combine --list with export options.")
-        outcome = asyncio.run(
+        outcome = run_coroutine(
             session_handlers.handle_list_sessions(
                 command_context,
                 show_help=False,
@@ -149,12 +156,13 @@ def export(
         _render_outcome(outcome)
         return
 
-    outcome = asyncio.run(
+    outcome = run_coroutine(
         session_export_handlers.handle_session_export(
             command_context,
             target=target,
             agent_name=agent,
             output_path=str(output) if output is not None else None,
+            hf_url=hf_url,
             hf_dataset=hf_dataset,
             hf_dataset_path=hf_dataset_path,
             privacy_filter=privacy_filter,

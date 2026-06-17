@@ -237,9 +237,7 @@ async def test_edit_file_reports_missing_file_and_directory_errors(tmp_path: Pat
         assert _result_payload(directory_result) == {
             "success": False,
             "error": "is_directory",
-            "message": (
-                "Path is a directory, not a file: nested. Use the correct file path."
-            ),
+            "message": ("Path is a directory, not a file: nested. Use the correct file path."),
             "path": "nested",
         }
     finally:
@@ -275,7 +273,9 @@ async def test_edit_file_deletion_preserves_missing_trailing_newline(tmp_path: P
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_edit_file_can_replace_entire_file_and_preserve_trailing_newline(tmp_path: Path) -> None:
+async def test_edit_file_can_replace_entire_file_and_preserve_trailing_newline(
+    tmp_path: Path,
+) -> None:
     target_file = tmp_path / "whole.txt"
     target_file.write_text("alpha\nbeta\n", encoding="utf-8", newline="")
 
@@ -413,7 +413,9 @@ async def test_edit_file_is_whitespace_exact_and_supports_unicode_success(tmp_pa
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_edit_file_preserves_crlf_when_matching_exact_windows_newlines(tmp_path: Path) -> None:
+async def test_edit_file_preserves_crlf_when_matching_exact_windows_newlines(
+    tmp_path: Path,
+) -> None:
     target_file = tmp_path / "crlf.txt"
     target_file.write_bytes(b"alpha\r\nbeta\r\n")
 
@@ -492,9 +494,7 @@ async def test_edit_file_reports_empty_old_string_no_op_and_encoding_errors(
         assert _result_payload(encoding_result) == {
             "success": False,
             "error": "encoding_error",
-            "message": (
-                "File could not be decoded as UTF-8: latin1.txt. Check file encoding."
-            ),
+            "message": ("File could not be decoded as UTF-8: latin1.txt. Check file encoding."),
             "path": "latin1.txt",
         }
     finally:

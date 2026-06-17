@@ -10,26 +10,20 @@ from fast_agent.skills.operations import normalize_marketplace_url
 
 def get_marketplace_url(settings: Settings | None = None) -> str:
     resolved_settings = settings or get_settings()
-    skills_settings = getattr(resolved_settings, "skills", None)
-    url = None
-    if skills_settings is not None:
-        url = getattr(skills_settings, "marketplace_url", None)
-        if not url:
-            urls = getattr(skills_settings, "marketplace_urls", None)
-            if urls:
-                url = urls[0]
+    skills_settings = resolved_settings.skills
+    url = skills_settings.marketplace_url
+    if not url and skills_settings.marketplace_urls:
+        url = skills_settings.marketplace_urls[0]
     return normalize_marketplace_url(url or DEFAULT_MARKETPLACE_URL)
 
 
 def resolve_skill_registries(settings: Settings | None = None) -> list[str]:
     resolved_settings = settings or get_settings()
-    skills_settings = getattr(resolved_settings, "skills", None)
-    configured = getattr(skills_settings, "marketplace_urls", None) if skills_settings else None
-    active = getattr(skills_settings, "marketplace_url", None) if skills_settings else None
+    skills_settings = resolved_settings.skills
     return marketplace_registry_urls.resolve_registry_urls(
-        configured,
+        skills_settings.marketplace_urls,
         default_urls=DEFAULT_SKILL_REGISTRIES,
-        active_url=active,
+        active_url=skills_settings.marketplace_url,
     )
 
 

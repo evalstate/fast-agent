@@ -13,7 +13,7 @@ OpenAI Codex users can use their subscription with **`fast-agent`**, using their
 
 Chat Completions models are also available via **Microsoft Azure**, and supported Anthropic models are available on **Google Vertex**.
 
-Local models with [**llama.cpp**](https://llama.app/) are directly supported, with automatic configuration and connection with the Responses API.
+Local models with [**llama.cpp**](providers/llamacpp.md) are directly supported, with automatic configuration and connection with the Responses API.
 
 ## Selecting a Model
 
@@ -78,14 +78,14 @@ Custom models and configurations can be defined using [Model Overlays](model_ove
 
 Start with the native providers for common use, or use additional providers for hosted OpenAI-compatible APIs, routers, and local endpoints.
 
-| Provider family | Start with | Main features |
-| --- | --- | --- |
-| OpenAI Responses | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex` | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers, connectors |
-| Anthropic | `sonnet`, `opus`, `opus48`, `opus47`, `haiku` | Claude 4.x, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch`, long context, task budget where supported |
-| Google | `gemini`, `gemini3`, `gemini3.1`, `gemini3flash` | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments |
-| xAI / Grok | `grok`, `grok4`, `grok-4.3` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports |
-| Hugging Face | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication |
-| Additional providers | `deepseek`, `qwen-turbo`, `gpt-oss` | Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints |
+| Provider family      | Start with                                               | Main features                                                                                                                                   |
+| -------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI Responses     | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex`         | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers, connectors            |
+| Anthropic            | `fable`, `sonnet`, `opus`, `opus48`, `opus47`, `haiku`   | Claude 4.x, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch`, long context, task budget where supported |
+| Google               | `gemini`, `gemini35flash`                                | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
+| xAI / Grok           | `grok`, `grok4`, `grok-4.3`                              | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                             |
+| Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
+| Additional providers | `deepseek`, `qwen-turbo`, `gpt-oss`                      | Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                         |
 
 ### OpenAI Responses
 

@@ -20,16 +20,31 @@ def test_tool_stream_delta_bootstraps_mode() -> None:
     assembler = _make_assembler()
 
     assembler.handle_tool_event(
-        "delta", {"tool_name": "search", "tool_use_id": "tool-1", "chunk": "{\"q\":1}"}
+        "delta", {"tool_name": "search", "tool_use_id": "tool-1", "chunk": '{"q":1}'}
     )
 
     text = "".join(segment.text for segment in assembler.segments)
     assert "-> search" in text
-    assert "{\"q\":1}" in text
+    assert '{"q":1}' in text
 
     assembler.handle_tool_event("stop", {"tool_name": "search", "tool_use_id": "tool-1"})
     text = "".join(segment.text for segment in assembler.segments)
-    assert "\"q\": 1" in text
+    assert '"q": 1' in text
+
+
+def test_unsupported_tool_event_does_not_change_last_tool_id() -> None:
+    assembler = _make_assembler()
+
+    assert assembler.handle_tool_event(
+        "delta",
+        {"tool_name": "search", "tool_use_id": "tool-1", "chunk": "{}"},
+    )
+    assert not assembler.handle_tool_event(
+        "unsupported",
+        {"tool_name": "noop", "tool_use_id": "other-tool", "chunk": "ignored"},
+    )
+
+    assert assembler.handle_tool_event("stop", {"tool_name": "search"})
 
 
 def test_tool_stream_status_updates_visible_text() -> None:
@@ -299,7 +314,7 @@ def test_remote_tool_stream_failed_blob_does_not_duplicate_completed_output() ->
             "preserve_details": True,
             "tool_display_name": "remote tool: hf_whoami",
             "tool_use_id": "mcp-1",
-            "chunk": "status: failed\nresult: forbidden",
+            "chunk": "status: FAILED\nresult: forbidden",
         },
     )
     assembler.handle_tool_event(
@@ -314,7 +329,7 @@ def test_remote_tool_stream_failed_blob_does_not_duplicate_completed_output() ->
     )
 
     text = "".join(segment.text for segment in assembler.segments)
-    assert text.count("status: failed\nresult: forbidden") == 1
+    assert text.count("status: FAILED\nresult: forbidden") == 1
 
 
 def test_remote_tool_search_collapses_to_compact_completed_status() -> None:
@@ -363,12 +378,7 @@ def test_remote_tool_search_collapses_to_compact_completed_status() -> None:
 def test_tool_stream_apply_patch_preview_keeps_other_args() -> None:
     assembler = _make_assembler()
     command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Add File: a.txt\n"
-        "+hello\n"
-        "*** End Patch\n"
-        "PATCH"
+        "apply_patch <<'PATCH'\n*** Begin Patch\n*** Add File: a.txt\n+hello\n*** End Patch\nPATCH"
     )
     args_chunk = json.dumps(
         {"command": command, "cwd": "/tmp/work", "timeout_seconds": 90},
@@ -390,13 +400,7 @@ def test_tool_stream_apply_patch_preview_keeps_other_args() -> None:
 
 def test_tool_stream_apply_patch_preview_supports_shell_aliases() -> None:
     assembler = _make_assembler()
-    command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Delete File: a.txt\n"
-        "*** End Patch\n"
-        "PATCH"
-    )
+    command = "apply_patch <<'PATCH'\n*** Begin Patch\n*** Delete File: a.txt\n*** End Patch\nPATCH"
     args_chunk = json.dumps(
         {"command": command},
     )
@@ -452,7 +456,9 @@ def test_tool_stream_code_preview_tracks_partial_code() -> None:
         "language": "python",
     }
     assembler = _make_assembler(
-        tool_metadata_resolver=lambda tool_name: metadata if tool_name == "hf_hub_query_raw" else None
+        tool_metadata_resolver=lambda tool_name: (
+            metadata if tool_name == "hf_hub_query_raw" else None
+        )
     )
 
     assembler.handle_tool_event(
@@ -507,12 +513,7 @@ def test_tool_stream_shell_preview_skips_apply_patch_commands() -> None:
         tool_metadata_resolver=lambda tool_name: metadata if tool_name == "execute" else None
     )
     command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Add File: a.txt\n"
-        "+hello\n"
-        "*** End Patch\n"
-        "PATCH"
+        "apply_patch <<'PATCH'\n*** Begin Patch\n*** Add File: a.txt\n+hello\n*** End Patch\nPATCH"
     )
 
     assembler.handle_tool_event(
@@ -538,16 +539,10 @@ def test_tool_stream_apply_patch_preview_appears_before_stop() -> None:
         tool_metadata_resolver=lambda tool_name: metadata if tool_name == "execute" else None
     )
     command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Add File: a.txt\n"
-        "+hello\n"
-        "*** End Patch\n"
-        "PATCH"
+        "apply_patch <<'PATCH'\n*** Begin Patch\n*** Add File: a.txt\n+hello\n*** End Patch\nPATCH"
     )
-    partial_chunk = (
-        '{"command":"'
-        + command.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    partial_chunk = '{"command":"' + command.replace("\\", "\\\\").replace('"', '\\"').replace(
+        "\n", "\\n"
     )
 
     assembler.handle_tool_event(
@@ -572,17 +567,9 @@ def test_tool_stream_apply_patch_preview_colours_partial_patch_lines() -> None:
     assembler = _make_assembler(
         tool_metadata_resolver=lambda tool_name: metadata if tool_name == "execute" else None
     )
-    command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Update File: a.txt\n"
-        "@@\n"
-        "-old\n"
-        "+new"
-    )
-    partial_chunk = (
-        '{"command":"'
-        + command.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    command = "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+new"
+    partial_chunk = '{"command":"' + command.replace("\\", "\\\\").replace('"', '\\"').replace(
+        "\n", "\\n"
     )
 
     assembler.handle_tool_event(

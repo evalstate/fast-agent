@@ -1,59 +1,28 @@
 import json
 import os
 import re
-from typing import Any, Literal, Mapping, Sequence, Union, cast
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal, Protocol, Union, cast, runtime_checkable
 from urllib.parse import urlparse
 
 from anthropic.types.beta import (
-    BetaBase64ImageSourceParam as Base64ImageSourceParam,
-)
-from anthropic.types.beta import (
-    BetaBase64PDFSourceParam as Base64PDFSourceParam,
-)
-from anthropic.types.beta import (
-    BetaContentBlockParam as ContentBlockParam,
-)
-from anthropic.types.beta import (
-    BetaFileDocumentSourceParam as FileDocumentSourceParam,
-)
-from anthropic.types.beta import (
-    BetaImageBlockParam as ImageBlockParam,
-)
-from anthropic.types.beta import (
-    BetaMessageParam as MessageParam,
-)
-from anthropic.types.beta import (
-    BetaPlainTextSourceParam as PlainTextSourceParam,
-)
-from anthropic.types.beta import (
-    BetaRedactedThinkingBlock as RedactedThinkingBlock,
-)
-from anthropic.types.beta import (
-    BetaRedactedThinkingBlockParam as RedactedThinkingBlockParam,
-)
-from anthropic.types.beta import (
-    BetaRequestDocumentBlockParam as DocumentBlockParam,
-)
-from anthropic.types.beta import (
-    BetaTextBlockParam as TextBlockParam,
-)
-from anthropic.types.beta import (
-    BetaThinkingBlock as ThinkingBlock,
-)
-from anthropic.types.beta import (
-    BetaThinkingBlockParam as ThinkingBlockParam,
-)
-from anthropic.types.beta import (
-    BetaToolResultBlockParam as ToolResultBlockParam,
-)
-from anthropic.types.beta import (
-    BetaToolUseBlockParam as ToolUseBlockParam,
-)
-from anthropic.types.beta import (
-    BetaURLImageSourceParam as URLImageSourceParam,
-)
-from anthropic.types.beta import (
-    BetaURLPDFSourceParam as URLPDFSourceParam,
+    BetaBase64ImageSourceParam,
+    BetaBase64PDFSourceParam,
+    BetaContentBlockParam,
+    BetaFileDocumentSourceParam,
+    BetaImageBlockParam,
+    BetaMessageParam,
+    BetaPlainTextSourceParam,
+    BetaRedactedThinkingBlock,
+    BetaRedactedThinkingBlockParam,
+    BetaRequestDocumentBlockParam,
+    BetaTextBlockParam,
+    BetaThinkingBlock,
+    BetaThinkingBlockParam,
+    BetaToolResultBlockParam,
+    BetaToolUseBlockParam,
+    BetaURLImageSourceParam,
+    BetaURLPDFSourceParam,
 )
 from mcp.types import (
     BlobResourceContents,
@@ -99,10 +68,15 @@ ANTHROPIC_FILE_ID_META_KEY = "fast_agent_anthropic_file_id"
 # Validate and normalize replay blocks against *input* content block params.
 # Using output block schemas preserves output-only fields (for example
 # `parsed_output`) that Anthropic rejects when sent back in message history.
-_ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER = TypeAdapter(list[ContentBlockParam])
+_ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER = TypeAdapter(list[BetaContentBlockParam])
 
 # List of image MIME types supported by Anthropic API
 SUPPORTED_IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+
+@runtime_checkable
+class _SupportsModelDump(Protocol):
+    def model_dump(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class AnthropicConverter:
@@ -121,7 +95,7 @@ class AnthropicConverter:
         return mime_type in SUPPORTED_IMAGE_MIME_TYPES
 
     @staticmethod
-    def convert_to_anthropic(multipart_msg: PromptMessageExtended) -> MessageParam:
+    def convert_to_anthropic(multipart_msg: PromptMessageExtended) -> BetaMessageParam:
         """
         Convert a PromptMessageExtended message to Anthropic API format.
 
@@ -129,63 +103,23 @@ class AnthropicConverter:
             multipart_msg: The PromptMessageExtended message to convert
 
         Returns:
-            An Anthropic API MessageParam object
+            An Anthropic API BetaMessageParam object
         """
         role = multipart_msg.role
         all_content_blocks: list = []
 
-        if role == "assistant" and multipart_msg.channels:
-            raw_assistant_content = AnthropicConverter._deserialize_assistant_raw_blocks(
+        if role == "assistant":
+            raw_assistant_content = AnthropicConverter._assistant_raw_content(
                 multipart_msg.channels
             )
-            if raw_assistant_content:
-                return MessageParam(role=role, content=raw_assistant_content)
+            if raw_assistant_content is not None:
+                return BetaMessageParam(role=role, content=raw_assistant_content)
 
-        # If this is an assistant message that contains tool_calls, convert
-        # those into Anthropic tool_use blocks so the next user message can
-        # legally include corresponding tool_result blocks.
         if role == "assistant" and multipart_msg.tool_calls:
-            if multipart_msg.channels:
-                AnthropicConverter._append_assistant_channel_blocks(
-                    multipart_msg.channels,
-                    all_content_blocks,
-                )
+            return AnthropicConverter._assistant_tool_call_message(multipart_msg)
 
-            if multipart_msg.content:
-                anthropic_blocks = AnthropicConverter._convert_content_items(
-                    multipart_msg.content,
-                    document_mode=True,
-                )
-                text_blocks = [
-                    block for block in anthropic_blocks if isinstance(block, dict) and block.get("type") == "text"
-                ]
-                all_content_blocks.extend(text_blocks)
-
-            for tool_use_id, req in multipart_msg.tool_calls.items():
-                sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
-                params = req.params
-                name = params.name if params else None
-                args = params.arguments if params else None
-
-                all_content_blocks.append(
-                    ToolUseBlockParam(
-                        type="tool_use",
-                        id=sanitized_id,
-                        name=name or "unknown_tool",
-                        input=args or {},
-                    )
-                )
-
-            return MessageParam(role=role, content=all_content_blocks)
-
-        # Handle tool_results if present (for user messages with tool results)
-        # Tool results must come FIRST in the content array per Anthropic API requirements
         if multipart_msg.tool_results:
-            # Convert dict to list of tuples for create_tool_results_message
-            tool_results_list = list(multipart_msg.tool_results.items())
-            tool_msg = AnthropicConverter.create_tool_results_message(tool_results_list)
-            # Extract the content blocks from the tool results message
-            all_content_blocks.extend(tool_msg["content"])
+            all_content_blocks.extend(AnthropicConverter._tool_result_content_blocks(multipart_msg))
 
         if role == "assistant" and multipart_msg.channels:
             AnthropicConverter._append_assistant_channel_blocks(
@@ -200,35 +134,100 @@ class AnthropicConverter:
                 multipart_msg.content, document_mode=True
             )
 
-            # Filter blocks based on role (assistant can only have text blocks)
             if role == "assistant":
-                text_blocks = []
-                for block in anthropic_blocks:
-                    block_type = block.get("type") if isinstance(block, dict) else None
-                    if block_type == "text":
-                        text_blocks.append(block)
-                    else:
-                        _logger.warning(
-                            f"Removing non-text block from assistant message: {block_type}"
-                        )
-                anthropic_blocks = text_blocks
+                anthropic_blocks = AnthropicConverter._assistant_text_blocks(anthropic_blocks)
 
             all_content_blocks.extend(anthropic_blocks)
 
         # Handle empty content case
         if not all_content_blocks:
-            return MessageParam(role=role, content=[])
+            return BetaMessageParam(role=role, content=[])
 
         # Create the Anthropic message
-        return MessageParam(role=role, content=all_content_blocks)
+        return BetaMessageParam(role=role, content=all_content_blocks)
+
+    @staticmethod
+    def _assistant_raw_content(
+        channels: Mapping[str, Sequence[ContentBlock]] | None,
+    ) -> list[BetaContentBlockParam] | None:
+        if not channels:
+            return None
+        raw_assistant_content = AnthropicConverter._deserialize_assistant_raw_blocks(channels)
+        return raw_assistant_content or None
+
+    @staticmethod
+    def _assistant_tool_call_message(multipart_msg: PromptMessageExtended) -> BetaMessageParam:
+        all_content_blocks: list[BetaContentBlockParam] = []
+        if multipart_msg.channels:
+            AnthropicConverter._append_assistant_channel_blocks(
+                multipart_msg.channels,
+                all_content_blocks,
+            )
+
+        if multipart_msg.content:
+            anthropic_blocks = AnthropicConverter._convert_content_items(
+                multipart_msg.content,
+                document_mode=True,
+            )
+            all_content_blocks.extend(AnthropicConverter._assistant_text_blocks(anthropic_blocks))
+
+        all_content_blocks.extend(AnthropicConverter._tool_use_blocks(multipart_msg.tool_calls))
+        return BetaMessageParam(role="assistant", content=all_content_blocks)
+
+    @staticmethod
+    def _assistant_text_blocks(
+        blocks: Sequence[BetaContentBlockParam],
+    ) -> list[BetaContentBlockParam]:
+        text_blocks: list[BetaContentBlockParam] = []
+        for block in blocks:
+            block_type = block.get("type") if isinstance(block, dict) else None
+            if block_type == "text":
+                text_blocks.append(block)
+                continue
+            _logger.warning(f"Removing non-text block from assistant message: {block_type}")
+        return text_blocks
+
+    @staticmethod
+    def _tool_use_blocks(tool_calls: Mapping[str, Any] | None) -> list[BetaContentBlockParam]:
+        if not tool_calls:
+            return []
+
+        blocks: list[BetaContentBlockParam] = []
+        for tool_use_id, req in tool_calls.items():
+            sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
+            params = req.params
+            name = params.name if params else None
+            args = params.arguments if params else None
+            blocks.append(
+                BetaToolUseBlockParam(
+                    type="tool_use",
+                    id=sanitized_id,
+                    name=name or "unknown_tool",
+                    input=args or {},
+                )
+            )
+        return blocks
+
+    @staticmethod
+    def _tool_result_content_blocks(
+        multipart_msg: PromptMessageExtended,
+    ) -> list[BetaContentBlockParam]:
+        if not multipart_msg.tool_results:
+            return []
+        tool_results_list = list(multipart_msg.tool_results.items())
+        tool_msg = AnthropicConverter.create_tool_results_message(tool_results_list)
+        content = tool_msg["content"]
+        if isinstance(content, str):
+            return [BetaTextBlockParam(type="text", text=content)]
+        return list(content)
 
     @staticmethod
     def _append_assistant_channel_blocks(
         channels: Mapping[str, Sequence[ContentBlock]],
-        destination: list[ContentBlockParam],
+        destination: list[BetaContentBlockParam],
     ) -> None:
         thinking_blocks = AnthropicConverter._deserialize_thinking_channel_blocks(channels)
-        server_tool_blocks: list[ContentBlockParam] = []
+        server_tool_blocks: list[BetaContentBlockParam] = []
         AnthropicConverter._append_server_tool_channel_blocks(channels, server_tool_blocks)
 
         # Legacy history fallback:
@@ -248,18 +247,18 @@ class AnthropicConverter:
     @staticmethod
     def _deserialize_thinking_channel_blocks(
         channels: Mapping[str, Sequence[ContentBlock]],
-    ) -> list[ContentBlockParam]:
+    ) -> list[BetaContentBlockParam]:
         raw_thinking = channels.get(ANTHROPIC_THINKING_BLOCKS)
         if not raw_thinking:
             return []
 
-        thinking_blocks: list[ContentBlockParam] = []
+        thinking_blocks: list[BetaContentBlockParam] = []
         for thinking_block in raw_thinking:
-            # Pass through raw ThinkingBlock/RedactedThinkingBlock.
+            # Pass through raw BetaThinkingBlock/BetaRedactedThinkingBlock.
             # These contain signatures or encrypted data needed for API verification.
-            if isinstance(thinking_block, ThinkingBlock):
+            if isinstance(thinking_block, BetaThinkingBlock):
                 thinking_blocks.append(
-                    ThinkingBlockParam(
+                    BetaThinkingBlockParam(
                         type="thinking",
                         thinking=thinking_block.thinking,
                         signature=thinking_block.signature,
@@ -267,7 +266,7 @@ class AnthropicConverter:
                 )
                 continue
 
-            if isinstance(thinking_block, RedactedThinkingBlock):
+            if isinstance(thinking_block, BetaRedactedThinkingBlock):
                 thinking_blocks.append(thinking_block)
                 continue
 
@@ -285,7 +284,7 @@ class AnthropicConverter:
             block_type = payload.get("type")
             if block_type == "thinking":
                 thinking_blocks.append(
-                    ThinkingBlockParam(
+                    BetaThinkingBlockParam(
                         type="thinking",
                         thinking=payload.get("thinking", ""),
                         signature=payload.get("signature", ""),
@@ -293,7 +292,7 @@ class AnthropicConverter:
                 )
             elif block_type == "redacted_thinking":
                 thinking_blocks.append(
-                    RedactedThinkingBlockParam(
+                    BetaRedactedThinkingBlockParam(
                         type="redacted_thinking",
                         data=payload.get("data", ""),
                     )
@@ -304,70 +303,76 @@ class AnthropicConverter:
     @staticmethod
     def _deserialize_assistant_raw_blocks(
         channels: Mapping[str, Sequence[ContentBlock]],
-    ) -> list[ContentBlockParam]:
+    ) -> list[BetaContentBlockParam]:
         raw_blocks = channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT)
         if not raw_blocks:
             return []
 
-        deserialized: list[ContentBlockParam] = []
+        deserialized: list[BetaContentBlockParam] = []
         for block in raw_blocks:
-            if not isinstance(block, TextContent):
+            payload = AnthropicConverter._text_content_json_payload(block)
+            if payload is None:
                 continue
 
-            raw_text = block.text
-            if not raw_text:
+            normalized = AnthropicConverter._validated_anthropic_content_block(
+                payload,
+                warning_message="Skipping invalid assistant replay payload",
+            )
+            if normalized is None:
                 continue
 
-            try:
-                payload = json.loads(raw_text)
-            except Exception:
-                continue
+            if normalized.get("type") == "text":
+                normalized.pop("parsed_output", None)
 
-            if not isinstance(payload, dict):
-                continue
-
-            candidate = cast("ContentBlockParam", payload)
-            try:
-                validated_blocks = _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python(
-                    [candidate]
-                )
-            except Exception as error:
-                payload_type = payload.get("type")
-                _logger.warning(
-                    "Skipping invalid assistant replay payload",
-                    data={
-                        "payload_type": payload_type,
-                        "error": str(error),
-                    },
-                )
-                continue
-
-            normalized = validated_blocks[0]
-            if hasattr(normalized, "model_dump"):
-                model_dump = getattr(normalized, "model_dump")
-                try:
-                    normalized = model_dump(mode="json", exclude_none=False)
-                except TypeError:
-                    normalized = model_dump()
-
-            if not isinstance(normalized, dict):
-                continue
-
-            # Strip output-only fields that survive TypedDict validation and
-            # that Anthropic rejects when replayed in message history. Mirrors
-            # the tool-block handling in web_tools.py.
-            mutable_payload = cast("dict[str, Any]", normalized)
-            if mutable_payload.get("type") == "text":
-                mutable_payload.pop("parsed_output", None)
-
-            deserialized.append(cast("ContentBlockParam", mutable_payload))
+            deserialized.append(cast("BetaContentBlockParam", normalized))
 
         return deserialized
 
     @staticmethod
+    def _text_content_json_payload(block: ContentBlock) -> dict[str, Any] | None:
+        if not isinstance(block, TextContent) or not block.text:
+            return None
+        try:
+            payload = json.loads(block.text)
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    @staticmethod
+    def _validated_anthropic_content_block(
+        payload: dict[str, Any],
+        *,
+        warning_message: str,
+    ) -> dict[str, Any] | None:
+        candidate = cast("BetaContentBlockParam", payload)
+        try:
+            validated_blocks = _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python([candidate])
+        except Exception as error:
+            payload_type = payload.get("type")
+            _logger.warning(
+                warning_message,
+                data={
+                    "payload_type": payload_type,
+                    "error": str(error),
+                },
+            )
+            return None
+
+        normalized = validated_blocks[0]
+        if isinstance(normalized, _SupportsModelDump):
+            try:
+                normalized = normalized.model_dump(mode="json", exclude_none=False)
+            except TypeError:
+                normalized = normalized.model_dump()
+
+        if not isinstance(normalized, dict):
+            return None
+        return cast("dict[str, Any]", normalized)
+
+    @staticmethod
     def _append_server_tool_channel_blocks(
         channels: Mapping[str, Sequence[ContentBlock]] | None,
-        destination: list[ContentBlockParam],
+        destination: list[BetaContentBlockParam],
     ) -> None:
         if not channels:
             return
@@ -376,54 +381,29 @@ class AnthropicConverter:
             return
 
         for block in raw_blocks:
-            if not isinstance(block, TextContent):
-                continue
-            raw_text = block.text
-            if not raw_text:
-                continue
-            try:
-                payload = json.loads(raw_text)
-            except Exception:
-                continue
-            if not isinstance(payload, dict):
+            payload = AnthropicConverter._text_content_json_payload(block)
+            if payload is None:
                 continue
             if not is_server_tool_trace_payload(payload):
                 continue
 
-            candidate = cast("ContentBlockParam", payload)
-            try:
-                validated_blocks = _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python(
-                    [candidate]
-                )
-            except Exception as error:
-                payload_type = payload.get("type")
-                _logger.warning(
-                    "Skipping invalid server-tool payload from assistant channel",
-                    data={
-                        "payload_type": payload_type,
-                        "error": str(error),
-                    },
-                )
+            normalized = AnthropicConverter._validated_anthropic_content_block(
+                payload,
+                warning_message="Skipping invalid server-tool payload from assistant channel",
+            )
+            if normalized is None:
                 if os.environ.get("FAST_AGENT_WEBDEBUG"):
                     print(
                         "[webdebug] skipped invalid server-tool channel payload "
-                        f"type={payload_type} error={type(error).__name__}: {error}"
+                        f"type={payload.get('type')} validation failed"
                     )
                 continue
 
-            normalized = validated_blocks[0]
-            if hasattr(normalized, "model_dump"):
-                model_dump = getattr(normalized, "model_dump")
-                try:
-                    normalized = model_dump(mode="json", exclude_none=False)
-                except TypeError:
-                    normalized = model_dump()
-
             if isinstance(normalized, dict):
-                destination.append(cast("ContentBlockParam", normalized))
+                destination.append(cast("BetaContentBlockParam", normalized))
 
     @staticmethod
-    def convert_prompt_message_to_anthropic(message: PromptMessage) -> MessageParam:
+    def convert_prompt_message_to_anthropic(message: PromptMessage) -> BetaMessageParam:
         """
         Convert a standard PromptMessage to Anthropic API format.
 
@@ -431,7 +411,7 @@ class AnthropicConverter:
             message: The PromptMessage to convert
 
         Returns:
-            An Anthropic API MessageParam object
+            An Anthropic API BetaMessageParam object
         """
         # Convert the PromptMessage to a PromptMessageExtended containing a single content item
         multipart = PromptMessageExtended(role=message.role, content=[message.content])
@@ -443,7 +423,7 @@ class AnthropicConverter:
     def _convert_content_items(
         content_items: Sequence[ContentBlock],
         document_mode: bool = True,
-    ) -> list[ContentBlockParam]:
+    ) -> list[BetaContentBlockParam]:
         """
         Convert a list of content items to Anthropic content blocks.
 
@@ -454,14 +434,14 @@ class AnthropicConverter:
         Returns:
             List of Anthropic content blocks
         """
-        anthropic_blocks: list[ContentBlockParam] = []
+        anthropic_blocks: list[BetaContentBlockParam] = []
 
         for content_item in content_items:
             if is_text_content(content_item):
                 # Handle text content
                 text = get_text(content_item)
                 if text:
-                    anthropic_blocks.append(TextBlockParam(type="text", text=text))
+                    anthropic_blocks.append(BetaTextBlockParam(type="text", text=text))
 
             elif is_image_content(content_item):
                 # Handle image content
@@ -471,7 +451,7 @@ class AnthropicConverter:
                 if not AnthropicConverter._is_supported_image_type(mime_type):
                     data_size = len(image_content.data) if image_content.data else 0
                     anthropic_blocks.append(
-                        TextBlockParam(
+                        BetaTextBlockParam(
                             type="text",
                             text=f"Image with unsupported format '{mime_type}' ({data_size} bytes)",
                         )
@@ -480,9 +460,9 @@ class AnthropicConverter:
                     image_data = get_image_data(image_content)
                     if image_data and mime_type in SUPPORTED_IMAGE_MIME_TYPES:
                         anthropic_blocks.append(
-                            ImageBlockParam(
+                            BetaImageBlockParam(
                                 type="image",
-                                source=Base64ImageSourceParam(
+                                source=BetaBase64ImageSourceParam(
                                     type="base64",
                                     media_type=cast(
                                         "Literal['image/jpeg', 'image/png', 'image/gif', 'image/webp']",
@@ -508,7 +488,7 @@ class AnthropicConverter:
     def _convert_embedded_resource(
         resource: EmbeddedResource,
         document_mode: bool = True,
-    ) -> ContentBlockParam:
+    ) -> BetaContentBlockParam:
         """
         Convert EmbeddedResource to appropriate Anthropic block type.
 
@@ -517,7 +497,7 @@ class AnthropicConverter:
             document_mode: Whether to convert text resources to Document blocks (True) or Text blocks (False)
 
         Returns:
-            An appropriate ContentBlockParam for the resource
+            An appropriate BetaContentBlockParam for the resource
         """
         resource_content = resource.resource
         uri_str = get_resource_uri(resource)
@@ -535,117 +515,189 @@ class AnthropicConverter:
         meta = getattr(resource_content, "meta", None)
         file_id = meta.get(ANTHROPIC_FILE_ID_META_KEY) if isinstance(meta, dict) else None
 
-        if (
-            isinstance(file_id, str)
-            and file_id
-            and mime_type in DOCUMENT_MIME_TYPES
-            and mime_type != "application/pdf"
-        ):
-            return DocumentBlockParam(
+        if AnthropicConverter._should_use_anthropic_file_id(file_id, mime_type):
+            return BetaRequestDocumentBlockParam(
                 type="document",
                 title=title,
-                source=FileDocumentSourceParam(type="file", file_id=file_id),
+                source=BetaFileDocumentSourceParam(type="file", file_id=cast("str", file_id)),
             )
 
-        # Convert based on MIME type
+        return AnthropicConverter._convert_resource_by_mime(
+            resource,
+            resource_content=resource_content,
+            mime_type=mime_type,
+            title=title,
+            uri=uri,
+            uri_str=uri_str,
+            is_url=is_url,
+            document_mode=document_mode,
+        )
+
+    @staticmethod
+    def _convert_resource_by_mime(
+        resource: EmbeddedResource,
+        *,
+        resource_content: Any,
+        mime_type: str,
+        title: str,
+        uri: Any,
+        uri_str: str | None,
+        is_url: bool,
+        document_mode: bool,
+    ) -> BetaContentBlockParam:
         if mime_type == "image/svg+xml":
-            return AnthropicConverter._convert_svg_resource(resource_content)
-
+            block = AnthropicConverter._convert_svg_resource(resource_content)
         elif is_image_mime_type(mime_type):
-            if not AnthropicConverter._is_supported_image_type(mime_type):
-                return AnthropicConverter._create_fallback_text(
-                    f"Image with unsupported format '{mime_type}'", resource
-                )
-
-            if is_url and uri_str:
-                return ImageBlockParam(
-                    type="image", source=URLImageSourceParam(type="url", url=uri_str)
-                )
-
-            # Try to get image data
-            image_data = get_image_data(resource)
-            if image_data:
-                return ImageBlockParam(
-                    type="image",
-                    source=Base64ImageSourceParam(
-                        type="base64",
-                        media_type=cast(
-                            "Literal['image/jpeg', 'image/png', 'image/gif', 'image/webp']",
-                            mime_type,
-                        ),
-                        data=image_data,
-                    ),
-                )
-
-            return AnthropicConverter._create_fallback_text("Image missing data", resource)
-
+            block = AnthropicConverter._convert_image_resource(
+                resource,
+                mime_type=mime_type,
+                uri_str=uri_str,
+                is_url=is_url,
+            )
         elif mime_type == "application/pdf":
-            if is_url and uri_str:
-                return DocumentBlockParam(
-                    type="document",
-                    title=title,
-                    source=URLPDFSourceParam(type="url", url=uri_str),
-                )
-            elif isinstance(resource_content, BlobResourceContents):
-                return DocumentBlockParam(
-                    type="document",
-                    title=title,
-                    source=Base64PDFSourceParam(
-                        type="base64",
-                        media_type="application/pdf",
-                        data=resource_content.blob,
-                    ),
-                )
-            return TextBlockParam(type="text", text=f"[PDF resource missing data: {title}]")
-
+            block = AnthropicConverter._convert_pdf_resource(
+                resource_content,
+                title=title,
+                uri_str=uri_str,
+                is_url=is_url,
+            )
         elif is_text_mime_type(mime_type):
-            text = get_text(resource)
-            if not text:
-                return TextBlockParam(
-                    type="text",
-                    text=f"[Text content could not be extracted from {title}]",
-                )
+            block = AnthropicConverter._convert_text_resource(
+                resource,
+                title=title,
+                document_mode=document_mode,
+            )
+        elif text := get_text(resource):
+            block = BetaTextBlockParam(type="text", text=text)
+        elif isinstance(resource.resource, BlobResourceContents):
+            block = AnthropicConverter._unsupported_blob_resource_text(
+                resource.resource,
+                uri=uri,
+                uri_str=uri_str,
+                mime_type=mime_type,
+            )
+        else:
+            block = AnthropicConverter._create_fallback_text(
+                f"Unsupported resource ({mime_type})", resource
+            )
+        return block
 
-            # Create document block when in document mode
-            if document_mode:
-                return DocumentBlockParam(
-                    type="document",
-                    title=title,
-                    source=PlainTextSourceParam(
-                        type="text",
-                        media_type="text/plain",
-                        data=text,
-                    ),
-                )
+    @staticmethod
+    def _should_use_anthropic_file_id(file_id: object, mime_type: str) -> bool:
+        return (
+            isinstance(file_id, str)
+            and bool(file_id)
+            and mime_type in DOCUMENT_MIME_TYPES
+            and mime_type != "application/pdf"
+        )
 
-            # Return as simple text block when not in document mode
-            return TextBlockParam(type="text", text=text)
-
-        # Default fallback - convert to text if possible
-        text = get_text(resource)
-        if text:
-            return TextBlockParam(type="text", text=text)
-
-        # This is for binary resources - match the format expected by the test
-        if isinstance(resource.resource, BlobResourceContents) and hasattr(
-            resource.resource, "blob"
-        ):
-            blob_length = len(resource.resource.blob)
-            uri_display = uri._url if uri else (uri_str or "<unknown>")
-            return TextBlockParam(
-                type="text",
-                text=f"Embedded Resource {uri_display} with unsupported format {mime_type} ({blob_length} characters)",
+    @staticmethod
+    def _convert_image_resource(
+        resource: EmbeddedResource,
+        *,
+        mime_type: str,
+        uri_str: str | None,
+        is_url: bool,
+    ) -> BetaContentBlockParam:
+        if not AnthropicConverter._is_supported_image_type(mime_type):
+            return AnthropicConverter._create_fallback_text(
+                f"Image with unsupported format '{mime_type}'", resource
             )
 
-        return AnthropicConverter._create_fallback_text(
-            f"Unsupported resource ({mime_type})", resource
+        if is_url and uri_str:
+            return BetaImageBlockParam(
+                type="image", source=BetaURLImageSourceParam(type="url", url=uri_str)
+            )
+
+        image_data = get_image_data(resource)
+        if image_data:
+            return BetaImageBlockParam(
+                type="image",
+                source=BetaBase64ImageSourceParam(
+                    type="base64",
+                    media_type=cast(
+                        "Literal['image/jpeg', 'image/png', 'image/gif', 'image/webp']",
+                        mime_type,
+                    ),
+                    data=image_data,
+                ),
+            )
+
+        return AnthropicConverter._create_fallback_text("Image missing data", resource)
+
+    @staticmethod
+    def _convert_pdf_resource(
+        resource_content: Any,
+        *,
+        title: str,
+        uri_str: str | None,
+        is_url: bool,
+    ) -> BetaContentBlockParam:
+        if is_url and uri_str:
+            return BetaRequestDocumentBlockParam(
+                type="document",
+                title=title,
+                source=BetaURLPDFSourceParam(type="url", url=uri_str),
+            )
+        if isinstance(resource_content, BlobResourceContents):
+            return BetaRequestDocumentBlockParam(
+                type="document",
+                title=title,
+                source=BetaBase64PDFSourceParam(
+                    type="base64",
+                    media_type="application/pdf",
+                    data=resource_content.blob,
+                ),
+            )
+        return BetaTextBlockParam(type="text", text=f"[PDF resource missing data: {title}]")
+
+    @staticmethod
+    def _convert_text_resource(
+        resource: EmbeddedResource, *, title: str, document_mode: bool
+    ) -> BetaContentBlockParam:
+        text = get_text(resource)
+        if not text:
+            return BetaTextBlockParam(
+                type="text",
+                text=f"[Text content could not be extracted from {title}]",
+            )
+
+        if document_mode:
+            return BetaRequestDocumentBlockParam(
+                type="document",
+                title=title,
+                source=BetaPlainTextSourceParam(
+                    type="text",
+                    media_type="text/plain",
+                    data=text,
+                ),
+            )
+
+        return BetaTextBlockParam(type="text", text=text)
+
+    @staticmethod
+    def _unsupported_blob_resource_text(
+        resource_content: BlobResourceContents,
+        *,
+        uri: Any,
+        uri_str: str | None,
+        mime_type: str,
+    ) -> BetaContentBlockParam:
+        blob_length = len(resource_content.blob)
+        uri_display = uri._url if uri else (uri_str or "<unknown>")
+        return BetaTextBlockParam(
+            type="text",
+            text=(
+                f"Embedded Resource {uri_display} with unsupported format "
+                f"{mime_type} ({blob_length} characters)"
+            ),
         )
 
     @staticmethod
     def _convert_resource_link(
         resource: ResourceLink,
         document_mode: bool = True,
-    ) -> ContentBlockParam:
+    ) -> BetaContentBlockParam:
         """Convert ResourceLink to an Anthropic block when URL sources are supported."""
         del document_mode
         uri_str = str(resource.uri) if resource.uri else None
@@ -656,36 +708,34 @@ class AnthropicConverter:
         from fast_agent.mcp.resource_utils import extract_title_from_uri
 
         title = (
-            extract_title_from_uri(resource.uri)
-            if resource.uri
-            else (resource.name or "resource")
+            extract_title_from_uri(resource.uri) if resource.uri else (resource.name or "resource")
         )
 
         if is_url and is_image_mime_type(mime_type):
             assert uri_str is not None
             if not AnthropicConverter._is_supported_image_type(mime_type):
-                return TextBlockParam(
+                return BetaTextBlockParam(
                     type="text",
                     text=f"Image with unsupported format '{mime_type}'",
                 )
-            return ImageBlockParam(
+            return BetaImageBlockParam(
                 type="image",
-                source=URLImageSourceParam(type="url", url=uri_str),
+                source=BetaURLImageSourceParam(type="url", url=uri_str),
             )
 
         if is_url and mime_type == "application/pdf":
             assert uri_str is not None
-            return DocumentBlockParam(
+            return BetaRequestDocumentBlockParam(
                 type="document",
                 title=title,
-                source=URLPDFSourceParam(type="url", url=uri_str),
+                source=BetaURLPDFSourceParam(type="url", url=uri_str),
             )
 
         text = get_text(resource)
         if text:
-            return TextBlockParam(type="text", text=text)
+            return BetaTextBlockParam(type="text", text=text)
 
-        return TextBlockParam(type="text", text=f"[Resource link: {title}]")
+        return BetaTextBlockParam(type="text", text=f"[Resource link: {title}]")
 
     @staticmethod
     def _determine_mime_type(
@@ -706,13 +756,13 @@ class AnthropicConverter:
         if resource.uri:
             return guess_mime_type(str(resource.uri))
 
-        if hasattr(resource, "blob"):
+        if isinstance(resource, BlobResourceContents):
             return "application/octet-stream"
 
         return "text/plain"
 
     @staticmethod
-    def _convert_svg_resource(resource_content) -> TextBlockParam:
+    def _convert_svg_resource(resource_content) -> BetaTextBlockParam:
         """
         Convert SVG resource to text block with XML code formatting.
 
@@ -720,18 +770,16 @@ class AnthropicConverter:
             resource_content: The resource content containing SVG data
 
         Returns:
-            A TextBlockParam with formatted SVG content
+            A BetaTextBlockParam with formatted SVG content
         """
         # Use get_text helper to extract text from various content types
         svg_content = get_text(resource_content)
         if svg_content:
-            return TextBlockParam(type="text", text=f"```xml\n{svg_content}\n```")
-        return TextBlockParam(type="text", text="[SVG content could not be extracted]")
+            return BetaTextBlockParam(type="text", text=f"```xml\n{svg_content}\n```")
+        return BetaTextBlockParam(type="text", text="[SVG content could not be extracted]")
 
     @staticmethod
-    def _create_fallback_text(
-        message: str, resource: ContentBlock
-    ) -> TextBlockParam:
+    def _create_fallback_text(message: str, resource: ContentBlock) -> BetaTextBlockParam:
         """
         Create a fallback text block for unsupported resource types.
 
@@ -740,21 +788,21 @@ class AnthropicConverter:
             resource: The resource that couldn't be converted
 
         Returns:
-            A TextBlockParam with the fallback message
+            A BetaTextBlockParam with the fallback message
         """
         if isinstance(resource, EmbeddedResource):
             uri = resource.resource.uri
             if uri:
-                return TextBlockParam(type="text", text=f"[{message}: {uri._url}]")
+                return BetaTextBlockParam(type="text", text=f"[{message}: {uri._url}]")
             if uri_str := get_resource_uri(resource):
-                return TextBlockParam(type="text", text=f"[{message}: {uri_str}]")
+                return BetaTextBlockParam(type="text", text=f"[{message}: {uri_str}]")
 
-        return TextBlockParam(type="text", text=f"[{message}]")
+        return BetaTextBlockParam(type="text", text=f"[{message}]")
 
     @staticmethod
     def create_tool_results_message(
         tool_results: list[tuple[str, CallToolResult]],
-    ) -> MessageParam:
+    ) -> BetaMessageParam:
         """
         Create a user message containing tool results.
 
@@ -762,14 +810,14 @@ class AnthropicConverter:
             tool_results: List of (tool_use_id, tool_result) tuples
 
         Returns:
-            A MessageParam with role='user' containing all tool results
+            A BetaMessageParam with role='user' containing all tool results
         """
         content_blocks = []
 
         for tool_use_id, result in tool_results:
             sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
             # Process each tool result
-            tool_result_blocks = []
+            tool_result_blocks: list[Any] = []
 
             # Process each content item in the result
             for item in canonicalize_tool_result_content_for_llm(
@@ -796,7 +844,7 @@ class AnthropicConverter:
             # Create the tool result block if we have content
             if tool_result_blocks:
                 content_blocks.append(
-                    ToolResultBlockParam(
+                    BetaToolResultBlockParam(
                         type="tool_result",
                         tool_use_id=sanitized_id,
                         content=tool_result_blocks,
@@ -806,17 +854,19 @@ class AnthropicConverter:
             else:
                 # If there's no content, still create a placeholder
                 content_blocks.append(
-                    ToolResultBlockParam(
+                    BetaToolResultBlockParam(
                         type="tool_result",
                         tool_use_id=sanitized_id,
-                        content=[TextBlockParam(type="text", text="[No content in tool result]")],
+                        content=[
+                            BetaTextBlockParam(type="text", text="[No content in tool result]")
+                        ],
                         is_error=result.isError,
                     )
                 )
 
             # All content is now included within the tool_result block.
 
-        return MessageParam(role="user", content=content_blocks)
+        return BetaMessageParam(role="user", content=content_blocks)
 
     @staticmethod
     def _sanitize_tool_id(tool_id: str | None) -> str:

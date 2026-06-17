@@ -14,6 +14,7 @@ from fast_agent.mcp.ui_mixin import McpUIMixin
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
+    from fast_agent.mcp.ui_modes import McpUIMode
 
 
 class McpAgentWithUI(McpUIMixin, McpAgent):
@@ -32,7 +33,7 @@ class McpAgentWithUI(McpUIMixin, McpAgent):
         self,
         config,
         context: "Context | None" = None,
-        ui_mode: str = "auto",
+        ui_mode: "McpUIMode" = "auto",
         **kwargs: Any,
     ) -> None:
         """

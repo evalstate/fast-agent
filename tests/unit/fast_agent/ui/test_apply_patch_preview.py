@@ -1,3 +1,6 @@
+import pytest
+
+from fast_agent.ui import apply_patch_preview
 from fast_agent.ui.apply_patch_preview import (
     build_apply_patch_preview,
     extract_apply_patch_text,
@@ -6,6 +9,7 @@ from fast_agent.ui.apply_patch_preview import (
     format_partial_apply_patch_preview,
     is_shell_execution_tool,
     render_patch_preview,
+    shell_syntax_language,
     style_apply_patch_preview_text,
     summarize_patch,
 )
@@ -23,11 +27,7 @@ def test_extract_apply_patch_text_from_direct_argument() -> None:
 
 def test_extract_apply_patch_text_from_heredoc() -> None:
     command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Delete File: old.txt\n"
-        "*** End Patch\n"
-        "PATCH"
+        "apply_patch <<'PATCH'\n*** Begin Patch\n*** Delete File: old.txt\n*** End Patch\nPATCH"
     )
 
     patch_text = extract_apply_patch_text(command)
@@ -38,7 +38,7 @@ def test_extract_apply_patch_text_from_heredoc() -> None:
 
 def test_extract_apply_patch_text_with_shell_wrapper() -> None:
     command = (
-        "bash -lc \"set -e\n"
+        'bash -lc "set -e\n'
         "apply_patch <<'EOF'\n"
         "*** Begin Patch\n"
         "*** Update File: foo.py\n"
@@ -46,7 +46,7 @@ def test_extract_apply_patch_text_with_shell_wrapper() -> None:
         "-old\n"
         "+new\n"
         "*** End Patch\n"
-        "EOF\""
+        'EOF"'
     )
 
     patch_text = extract_apply_patch_text(command)
@@ -60,14 +60,7 @@ def test_extract_apply_patch_text_returns_none_when_markers_missing() -> None:
 
 
 def test_extract_partial_apply_patch_text_returns_tail_without_end_marker() -> None:
-    command = (
-        "apply_patch <<'PATCH'\n"
-        "*** Begin Patch\n"
-        "*** Update File: foo.py\n"
-        "@@\n"
-        "-old\n"
-        "+new"
-    )
+    command = "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: foo.py\n@@\n-old\n+new"
 
     patch_text = extract_partial_apply_patch_text(command)
 
@@ -98,14 +91,24 @@ def test_summarize_patch_counts_operations() -> None:
 
 
 def test_summarize_patch_returns_none_for_invalid_patch() -> None:
-    patch_text = (
-        "*** Begin Patch\n"
-        "*** Frobnicate File: bad.txt\n"
-        "*** End Patch"
-    )
+    patch_text = "*** Begin Patch\n*** Frobnicate File: bad.txt\n*** End Patch"
 
     assert summarize_patch(patch_text) is None
     assert build_apply_patch_preview(f"apply_patch '{patch_text}'") is None
+
+
+def test_summarize_patch_does_not_hide_parser_runtime_failures(monkeypatch) -> None:
+    def _broken_parse_patch_text(*_args: object) -> object:
+        raise RuntimeError("parser failed")
+
+    monkeypatch.setattr(
+        apply_patch_preview,
+        "parse_patch_text",
+        _broken_parse_patch_text,
+    )
+
+    with pytest.raises(RuntimeError, match="parser failed"):
+        summarize_patch("*** Begin Patch\n*** End Patch")
 
 
 def test_render_patch_preview_truncates_large_patches() -> None:
@@ -128,6 +131,14 @@ def test_render_patch_preview_truncates_large_patches() -> None:
     assert "(+2 more lines)" in rendered
 
 
+def test_render_patch_preview_uses_singular_omitted_line_count() -> None:
+    patch_text = "\n".join(["*** Begin Patch", "*** End Patch"])
+
+    rendered = render_patch_preview(patch_text, max_lines=1)
+
+    assert rendered.endswith("(+1 more line)")
+
+
 def test_format_partial_apply_patch_preview_marks_streaming_patch() -> None:
     text = format_partial_apply_patch_preview(
         "*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+new"
@@ -147,12 +158,58 @@ def test_is_shell_execution_tool_supports_aliases_and_namespaces() -> None:
     assert not is_shell_execution_tool("read_text_file")
 
 
+def test_shell_syntax_language_maps_known_shells_and_fallback() -> None:
+    assert shell_syntax_language("pwsh") == "powershell"
+    assert shell_syntax_language("powershell") == "powershell"
+    assert shell_syntax_language("cmd") == "batch"
+    assert shell_syntax_language(None, shell_path="/usr/bin/fish") == "bash"
+
+
+def test_shell_syntax_language_normalizes_windows_executables() -> None:
+    assert shell_syntax_language(" 'CMD.EXE' ") == "batch"
+    assert shell_syntax_language(None, shell_path=r"C:\Windows\System32\cmd.exe") == "batch"
+
+
 def test_extract_non_command_args_keeps_other_fields() -> None:
     tool_args = {"command": "echo hi", "cwd": "/tmp", "timeout": 30}
 
     remaining = extract_non_command_args(tool_args)
 
     assert remaining == {"cwd": "/tmp", "timeout": 30}
+
+
+def test_format_partial_apply_patch_preview_renders_object_other_args() -> None:
+    text = format_partial_apply_patch_preview(
+        "*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+new",
+        other_args={"cwd": "/tmp", "env": {"DEBUG": True}},
+    )
+
+    assert "other args:" in text
+    assert '"cwd": "/tmp"' in text
+    assert '"DEBUG": true' in text
+
+
+def test_format_partial_apply_patch_preview_falls_back_for_unserializable_other_args() -> None:
+    text = format_partial_apply_patch_preview(
+        "*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+new",
+        other_args={"value": object()},
+    )
+
+    assert "other args:" in text
+    assert "{'value': <object object at " in text
+
+
+def test_format_partial_apply_patch_preview_falls_back_for_circular_other_args() -> None:
+    circular: dict[str, object] = {}
+    circular["self"] = circular
+
+    text = format_partial_apply_patch_preview(
+        "*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+new",
+        other_args=circular,
+    )
+
+    assert "other args:" in text
+    assert "{'self': {...}}" in text
 
 
 def test_style_apply_patch_preview_text_applies_diff_line_styles() -> None:
@@ -198,13 +255,7 @@ def test_style_apply_patch_preview_text_handles_leading_spaces() -> None:
 
 
 def test_style_apply_patch_preview_text_dims_context_lines_by_default() -> None:
-    text = (
-        "apply_patch preview: 1 file (1 update)\n"
-        "*** Begin Patch\n"
-        "@@\n"
-        " context\n"
-        "*** End Patch\n"
-    )
+    text = "apply_patch preview: 1 file (1 update)\n*** Begin Patch\n@@\n context\n*** End Patch\n"
 
     styled = style_apply_patch_preview_text(text)
     context_start = text.index(" context")
@@ -214,3 +265,12 @@ def test_style_apply_patch_preview_text_dims_context_lines_by_default() -> None:
         span.start <= context_start and span.end >= context_end and str(span.style) == "dim"
         for span in styled.spans
     )
+
+
+def test_style_apply_patch_preview_text_dims_singular_omitted_line_count() -> None:
+    text = "(+1 more line)\n"
+
+    styled = style_apply_patch_preview_text(text)
+
+    assert styled.plain == text
+    assert any(str(span.style) == "dim" for span in styled.spans)

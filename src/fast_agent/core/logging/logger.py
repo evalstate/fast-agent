@@ -9,10 +9,12 @@ Logger module for the MCP Agent, which provides:
 
 import asyncio
 import logging
+import sys
 import threading
 import time
 import traceback
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from fast_agent.core.logging.events import Event, EventContext, EventFilter, EventType
@@ -23,6 +25,61 @@ from fast_agent.core.logging.listeners import (
 )
 from fast_agent.core.logging.transport import AsyncEventBus, EventTransport
 from fast_agent.utils.async_utils import ensure_event_loop
+
+
+@dataclass(frozen=True)
+class ExceptionDetails:
+    exc_type: type[BaseException]
+    exc_value: BaseException
+    exc_tb: Any
+
+
+def _exception_details_from_tuple(
+    exc_info: tuple[object, object, object],
+) -> ExceptionDetails | None:
+    maybe_type, maybe_value, maybe_tb = exc_info
+    if not (
+        isinstance(maybe_type, type)
+        and issubclass(maybe_type, BaseException)
+        and isinstance(maybe_value, BaseException)
+    ):
+        return None
+    return ExceptionDetails(maybe_type, maybe_value, maybe_tb)
+
+
+def _exception_details(exc_info: object) -> ExceptionDetails | None:
+    if exc_info is True:
+        current = sys.exc_info()
+        if current[0] is None or current[1] is None:
+            return None
+        return ExceptionDetails(current[0], current[1], current[2])
+    if isinstance(exc_info, BaseException):
+        return ExceptionDetails(type(exc_info), exc_info, exc_info.__traceback__)
+    if isinstance(exc_info, tuple) and len(exc_info) == 3:
+        return _exception_details_from_tuple((exc_info[0], exc_info[1], exc_info[2]))
+    return None
+
+
+def _merge_exception_details(
+    data: dict[str, Any],
+    *,
+    exc_info: object,
+    details: ExceptionDetails | None,
+) -> dict[str, Any]:
+    if details is None:
+        data.setdefault("exception", str(exc_info))
+        return data
+
+    data.setdefault("error", str(details.exc_value))
+    data.setdefault("error_type", details.exc_value.__class__.__name__)
+    data["exception"] = "".join(
+        traceback.format_exception(
+            details.exc_type,
+            details.exc_value,
+            details.exc_tb,
+        )
+    )
+    return data
 
 
 class Logger:
@@ -63,40 +120,11 @@ class Logger:
         if not exc_info:
             return merged
 
-        exc_type: type[BaseException] | None = None
-        exc_value: BaseException | None = None
-        exc_tb: Any = None
-
-        if exc_info is True:
-            import sys
-
-            current = sys.exc_info()
-            if current[0] is not None:
-                exc_type, exc_value, exc_tb = current
-        elif isinstance(exc_info, BaseException):
-            exc_type = type(exc_info)
-            exc_value = exc_info
-            exc_tb = exc_info.__traceback__
-        elif isinstance(exc_info, tuple) and len(exc_info) == 3:
-            maybe_type, maybe_value, maybe_tb = exc_info
-            if isinstance(maybe_type, type) and issubclass(maybe_type, BaseException):
-                exc_type = maybe_type
-            if isinstance(maybe_value, BaseException):
-                exc_value = maybe_value
-            exc_tb = maybe_tb
-
-        if exc_value is not None:
-            merged.setdefault("error", str(exc_value))
-            merged.setdefault("error_type", exc_value.__class__.__name__)
-
-        if exc_type is not None and exc_value is not None:
-            merged["exception"] = "".join(
-                traceback.format_exception(exc_type, exc_value, exc_tb)
-            )
-        else:
-            merged.setdefault("exception", str(exc_info))
-
-        return merged
+        return _merge_exception_details(
+            merged,
+            exc_info=exc_info,
+            details=_exception_details(exc_info),
+        )
 
     def event(
         self,

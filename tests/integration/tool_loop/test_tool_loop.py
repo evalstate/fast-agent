@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams, CallToolResult
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -244,7 +244,9 @@ async def test_resume_preserves_completed_tool_result_after_followup_llm_failure
         saved_result = saved_messages[-1].tool_results["side_effect_call"]
         assert isinstance(saved_result, CallToolResult)
         assert len(saved_result.content) == 1
-        assert saved_result.content[0].text == "ok 1"
+        saved_content = saved_result.content[0]
+        assert isinstance(saved_content, TextContent)
+        assert saved_content.text == "ok 1"
 
         resumed_llm = ContinuedToolResultLlm()
         resumed_agent = ToolAgent(AgentConfig("tool-loop-resume"), [side_effect_tool])
@@ -262,7 +264,9 @@ async def test_resume_preserves_completed_tool_result_after_followup_llm_failure
         assert resumed_llm.seen_last_message.tool_results is not None
         assert "side_effect_call" in resumed_llm.seen_last_message.tool_results
         assert resumed_llm.seen_last_message.all_text() == "after resume"
-        assert resumed_llm.seen_last_message.tool_results["side_effect_call"].content[0].text == "ok 1"
+        resumed_content = resumed_llm.seen_last_message.tool_results["side_effect_call"].content[0]
+        assert isinstance(resumed_content, TextContent)
+        assert resumed_content.text == "ok 1"
     finally:
         update_global_settings(old_settings)
         reset_session_manager()

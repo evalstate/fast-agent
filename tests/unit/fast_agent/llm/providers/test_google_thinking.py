@@ -88,6 +88,16 @@ def test_resolve_thinking_config_effort_levels() -> None:
 
 
 @pytest.mark.unit
+def test_resolve_thinking_config_effort_level_normalizes_case_and_padding() -> None:
+    llm = _build_llm(model="gemini-2.5-flash", reasoning_effort=" HIGH ")
+
+    budget, level = llm._resolve_thinking_config()
+
+    assert budget is None
+    assert level == "HIGH"
+
+
+@pytest.mark.unit
 def test_resolve_thinking_config_none_when_no_model_support() -> None:
     llm = _build_llm(model="gemini-2.0-flash")
     budget, level = llm._resolve_thinking_config()

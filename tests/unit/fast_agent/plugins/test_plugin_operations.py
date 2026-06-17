@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import io
 import json
 import subprocess
-import tarfile
 from typing import TYPE_CHECKING
 
-import pytest
-
+from fast_agent.plugins.models import MarketplacePlugin
 from fast_agent.plugins.operations import (
-    _extract_tar_safely,
+    apply_plugin_updates,
     check_plugin_updates,
     fetch_marketplace_plugins_with_source_sync,
     install_marketplace_plugin_sync,
+    select_plugin_by_name_or_index,
 )
 from fast_agent.plugins.provenance import (
     compute_plugin_content_fingerprint,
@@ -45,6 +43,31 @@ def _commit_all(repo: Path, message: str) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
+def _marketplace_plugin(name: str, repo_path: str) -> MarketplacePlugin:
+    return MarketplacePlugin(
+        name=name,
+        description=None,
+        repo_url="https://github.com/example/plugins",
+        repo_ref=None,
+        repo_path=repo_path,
+    )
+
+
+def test_select_plugin_by_name_or_index_accepts_install_dir_name_alias() -> None:
+    plugin = _marketplace_plugin("bundle-entry", "plugins/canonical/PLUGIN.YAML")
+
+    assert select_plugin_by_name_or_index([plugin], "canonical") is plugin
+
+
+def test_select_plugin_by_name_or_index_rejects_ambiguous_install_dir_name_alias() -> None:
+    plugins = [
+        _marketplace_plugin("first", "bundles/shared/plugin.yaml"),
+        _marketplace_plugin("second", "other/shared/plugin.yaml"),
+    ]
+
+    assert select_plugin_by_name_or_index(plugins, "shared") is None
+
+
 def _write_plugin(repo: Path) -> None:
     plugin_dir = repo / "plugins" / "finder"
     plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -59,13 +82,17 @@ def _write_plugin(repo: Path) -> None:
         encoding="utf-8",
     )
     (plugin_dir / "commands.py").write_text(
-        "async def find(ctx):\n"
-        "    return 'found'\n",
+        "async def find(ctx):\n    return 'found'\n",
         encoding="utf-8",
     )
 
 
-def _write_marketplace(repo: Path, path: Path) -> None:
+def _write_marketplace(
+    repo: Path,
+    path: Path,
+    *,
+    repo_path: str = "plugins/finder",
+) -> None:
     path.write_text(
         json.dumps(
             {
@@ -73,7 +100,7 @@ def _write_marketplace(repo: Path, path: Path) -> None:
                     {
                         "name": "finder",
                         "repo_url": repo.as_posix(),
-                        "repo_path": "plugins/finder",
+                        "repo_path": repo_path,
                     }
                 ]
             }
@@ -98,27 +125,6 @@ def test_plugin_content_fingerprint_ignores_generated_bytecode(tmp_path: Path) -
     assert compute_plugin_content_fingerprint(plugin_dir) == before
 
 
-def test_extract_tar_safely_rejects_links_outside_destination(tmp_path: Path) -> None:
-    archive_file = io.BytesIO()
-    with tarfile.open(fileobj=archive_file, mode="w") as archive:
-        content = b"schema_version: 1\nname: finder\ncommands: {}\n"
-        manifest = tarfile.TarInfo("plugin.yaml")
-        manifest.size = len(content)
-        archive.addfile(manifest, io.BytesIO(content))
-
-        link = tarfile.TarInfo("safe_name")
-        link.type = tarfile.SYMTYPE
-        link.linkname = "../outside"
-        archive.addfile(link)
-
-    archive_file.seek(0)
-
-    with pytest.raises(tarfile.TarError):
-        _extract_tar_safely(archive_file, tmp_path / "plugin")
-
-    assert not (tmp_path / "outside").exists()
-
-
 def test_plugin_update_ignores_unrelated_repo_commit_when_plugin_tree_same(
     tmp_path: Path,
 ) -> None:
@@ -132,10 +138,10 @@ def test_plugin_update_ignores_unrelated_repo_commit_when_plugin_tree_same(
     plugins, _ = fetch_marketplace_plugins_with_source_sync(marketplace_path.as_posix())
     destination_root = tmp_path / "plugins"
     install_dir = install_marketplace_plugin_sync(plugins[0], destination_root=destination_root)
-    source, error = read_installed_plugin_source(install_dir)
-    assert error is None
-    assert source is not None
-    assert source.installed_path_oid is not None
+    read_result = read_installed_plugin_source(install_dir)
+    assert read_result.error is None
+    assert read_result.source is not None
+    assert read_result.source.installed_path_oid is not None
 
     (repo / "README.md").write_text("unrelated change\n", encoding="utf-8")
     _commit_all(repo, "unrelated")
@@ -145,3 +151,112 @@ def test_plugin_update_ignores_unrelated_repo_commit_when_plugin_tree_same(
     assert len(updates) == 1
     assert updates[0].status == "up_to_date"
     assert updates[0].detail == "already up to date"
+
+
+def test_plugin_install_from_manifest_path_tracks_whole_plugin_directory(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_plugin(repo)
+    _commit_all(repo, "initial")
+    marketplace_path = tmp_path / "marketplace.json"
+    _write_marketplace(repo, marketplace_path, repo_path="plugins/finder/plugin.yaml")
+
+    plugins, _ = fetch_marketplace_plugins_with_source_sync(marketplace_path.as_posix())
+    destination_root = tmp_path / "plugins"
+    install_dir = install_marketplace_plugin_sync(
+        plugins[0],
+        destination_root=destination_root,
+    )
+
+    read_result = read_installed_plugin_source(install_dir)
+    assert read_result.error is None
+    assert read_result.source is not None
+    assert read_result.source.repo_path == "plugins/finder"
+    assert read_result.source.installed_path_oid is not None
+
+    (repo / "plugins" / "finder" / "commands.py").write_text(
+        "async def find(ctx):\n    return 'updated'\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "update command")
+
+    updates = check_plugin_updates(destination_root=destination_root)
+
+    assert len(updates) == 1
+    assert updates[0].status == "update_available"
+
+
+def test_plugin_update_reports_missing_local_repo_ref(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_plugin(repo)
+    _commit_all(repo, "initial")
+    marketplace_path = tmp_path / "marketplace.json"
+    _write_marketplace(repo, marketplace_path)
+
+    plugins, _ = fetch_marketplace_plugins_with_source_sync(marketplace_path.as_posix())
+    destination_root = tmp_path / "plugins"
+    install_dir = install_marketplace_plugin_sync(plugins[0], destination_root=destination_root)
+
+    sidecar_path = install_dir / ".plugin-source.json"
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    sidecar["repo_ref"] = "missing-ref"
+    sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
+
+    updates = check_plugin_updates(destination_root=destination_root)
+
+    assert len(updates) == 1
+    assert updates[0].status == "source_ref_missing"
+    assert updates[0].detail == "ref not found: missing-ref"
+
+
+def test_plugin_update_reports_missing_local_source_path(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_plugin(repo)
+    marketplace_path = tmp_path / "marketplace.json"
+    _write_marketplace(repo, marketplace_path)
+
+    plugins, _ = fetch_marketplace_plugins_with_source_sync(marketplace_path.as_posix())
+    destination_root = tmp_path / "plugins"
+    install_marketplace_plugin_sync(plugins[0], destination_root=destination_root)
+
+    (repo / "plugins" / "finder" / "plugin.yaml").unlink()
+
+    updates = check_plugin_updates(destination_root=destination_root)
+
+    assert len(updates) == 1
+    assert updates[0].status == "source_path_missing"
+    assert updates[0].detail == "Plugin manifest not found in repository: plugins/finder"
+
+
+def test_apply_plugin_update_refreshes_stale_source_state(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_plugin(repo)
+    _commit_all(repo, "initial")
+    marketplace_path = tmp_path / "marketplace.json"
+    _write_marketplace(repo, marketplace_path)
+
+    plugins, _ = fetch_marketplace_plugins_with_source_sync(marketplace_path.as_posix())
+    destination_root = tmp_path / "plugins"
+    install_dir = install_marketplace_plugin_sync(plugins[0], destination_root=destination_root)
+
+    (repo / "plugins" / "finder" / "commands.py").write_text(
+        "async def find(ctx):\n    return 'updated'\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "update plugin")
+    stale_updates = check_plugin_updates(destination_root=destination_root)
+    assert stale_updates[0].status == "update_available"
+
+    _git(repo, "rm", "-r", "plugins/finder")
+    _commit_all(repo, "remove plugin")
+
+    applied = apply_plugin_updates(stale_updates, force=False)
+
+    assert applied[0].status == "source_path_missing"
+    assert applied[0].detail is not None
+    assert "plugins/finder" in applied[0].detail
+    assert install_dir.is_dir()

@@ -69,13 +69,13 @@ async def test_acp_filesystem_support_enabled() -> None:
             client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
         )
 
-        assert getattr(init_response, "protocol_version", None) == 1 or getattr(
-            init_response, "protocolVersion", None
-        ) == 1
+        assert (
+            getattr(init_response, "protocol_version", None) == 1
+            or getattr(init_response, "protocolVersion", None) == 1
+        )
         assert (
             getattr(init_response, "agent_capabilities", None)
-            or getattr(init_response, "agentCapabilities", None)
-            is not None
+            or getattr(init_response, "agentCapabilities", None) is not None
         )
 
         # Create session
@@ -84,8 +84,10 @@ async def test_acp_filesystem_support_enabled() -> None:
         assert session_id
 
         # Send prompt that should trigger filesystem operations
-        prompt_text = 'use the read_text_file tool to read: /test/file.txt'
-        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+        prompt_text = "use the read_text_file tool to read: /test/file.txt"
+        prompt_response = await connection.prompt(
+            session_id=session_id, prompt=[text_block(prompt_text)]
+        )
         assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for any notifications
@@ -122,7 +124,30 @@ async def test_acp_filesystem_read_only() -> None:
         session_id = _get_session_id(session_response)
         assert session_id
 
-        # Filesystem runtime should be created with only read tool
+        read_path = "/test/read-only.txt"
+        client.files[read_path] = "read-only content"
+        client.queue_permission_selected("allow_once")
+        read_response = await connection.prompt(
+            session_id=session_id,
+            prompt=[text_block(f'***CALL_TOOL read_text_file {{"path": "{read_path}"}}')],
+        )
+
+        assert _get_stop_reason(read_response) == END_TURN
+        assert client.file_reads == [read_path]
+
+        write_path = "/test/read-only-write.txt"
+        write_response = await connection.prompt(
+            session_id=session_id,
+            prompt=[
+                text_block(
+                    f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "nope"}}'
+                )
+            ],
+        )
+
+        assert _get_stop_reason(write_response) == "refusal"
+        assert client.file_writes == []
+        assert write_path not in client.files
 
 
 @pytest.mark.integration
@@ -152,7 +177,28 @@ async def test_acp_filesystem_write_only() -> None:
         session_id = _get_session_id(session_response)
         assert session_id
 
-        # Filesystem runtime should be created with only write tool
+        write_path = "/test/write-only.txt"
+        client.queue_permission_selected("allow_once")
+        write_response = await connection.prompt(
+            session_id=session_id,
+            prompt=[
+                text_block(
+                    f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "ok"}}'
+                )
+            ],
+        )
+
+        assert _get_stop_reason(write_response) == END_TURN
+        assert client.file_writes == [(write_path, "ok")]
+        assert client.files[write_path] == "ok"
+
+        read_response = await connection.prompt(
+            session_id=session_id,
+            prompt=[text_block(f'***CALL_TOOL read_text_file {{"path": "{write_path}"}}')],
+        )
+
+        assert _get_stop_reason(read_response) == "refusal"
+        assert client.file_reads == []
 
 
 @pytest.mark.integration

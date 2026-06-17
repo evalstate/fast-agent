@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
 from fast_agent.io.path_uri import file_uri_to_path
+from fast_agent.utils.text import starts_with_casefold, strip_casefold
 
 FILE_MENTION_SERVER = "file"
 URL_MENTION_SERVER = "url"
@@ -28,15 +29,15 @@ def normalize_local_attachment_reference(
     decoded_value = unquote(raw_value)
     path_value = os.path.expandvars(decoded_value)
 
-    if path_value.lower().startswith("file://"):
+    if starts_with_casefold(path_value, "file://"):
         parsed = urlparse(path_value)
-        if parsed.scheme.lower() != "file":
+        if strip_casefold(parsed.scheme) != "file":
             raise ValueError(f"Unsupported attachment URI scheme: {parsed.scheme}")
         if not parsed.path:
             raise ValueError("Attachment URI path is empty")
         resolved_path = file_uri_to_path(parsed)
     else:
-        resolved_path = Path(os.path.expanduser(path_value))
+        resolved_path = Path(path_value).expanduser()
 
     if not resolved_path.is_absolute():
         resolved_path = (cwd or Path.cwd()) / resolved_path
@@ -51,12 +52,18 @@ def normalize_remote_attachment_reference(reference: str) -> str:
         raise ValueError("Attachment URL is empty")
 
     parsed = urlparse(raw_value)
-    scheme = parsed.scheme.lower()
+    scheme = strip_casefold(parsed.scheme)
     if scheme not in ("http", "https"):
         raise ValueError(f"Unsupported attachment URI scheme: {parsed.scheme or '<missing>'}")
     if not parsed.netloc:
         raise ValueError("Attachment URL is missing host")
     return raw_value
+
+
+def is_remote_attachment_reference(reference: str) -> bool:
+    """Return true when the reference is an HTTP(S) attachment URL."""
+    scheme = strip_casefold(urlparse(reference.strip()).scheme)
+    return scheme in ("http", "https")
 
 
 def encode_local_attachment_reference(path_text: str) -> str:
@@ -103,21 +110,20 @@ def strip_local_attachment_tokens(text: str) -> str:
         stripped,
         flags=re.MULTILINE,
     )
-    stripped = re.sub(
+    return re.sub(
         rf"(?:(?<=^)|(?<=\s)){_ATTACHMENT_BODY_RE}",
         "",
         stripped,
         flags=re.MULTILINE,
     )
-    return stripped
 
 
 def append_attachment_tokens(text: str, tokens: list[str]) -> str:
     """Append attachment tokens to existing draft text."""
     if not tokens:
         return text
+    token_text = " ".join(tokens)
     if not text:
-        return " ".join(tokens)
-    if text[-1].isspace():
-        return f"{text}{' '.join(tokens)}"
-    return f"{text} {' '.join(tokens)}"
+        return token_text
+    separator = "" if text[-1].isspace() else " "
+    return f"{text}{separator}{token_text}"

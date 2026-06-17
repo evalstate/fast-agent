@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fast_agent.acp.server.agent_acp_server import AgentACPServer
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, MAX_TERMINAL_OUTPUT_BYTE_LIMIT
 
@@ -21,6 +23,15 @@ def test_default_terminal_output_limit_scaled_for_large_output_models() -> None:
     # With the current budgeting constants this should be well above the baseline,
     # and still below the hard cap.
     limit = AgentACPServer._calculate_terminal_output_limit_for_model("gpt-4.1")
+    assert DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT < limit < MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+
+
+def test_agent_terminal_output_limit_falls_back_when_llm_has_no_resolved_model() -> None:
+    server = object.__new__(AgentACPServer)
+    agent = SimpleNamespace(llm=SimpleNamespace(model_name="gpt-4.1"))
+
+    limit = server._calculate_terminal_output_limit(agent)
+
     assert DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT < limit < MAX_TERMINAL_OUTPUT_BYTE_LIMIT
 
 

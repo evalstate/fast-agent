@@ -5,6 +5,7 @@ Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension 
 import inspect
 import json
 from collections import Counter, defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,12 +13,7 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Literal,
-    Mapping,
     Self,
-    Sequence,
-    Type,
     TypeVar,
     Union,
 )
@@ -28,8 +24,9 @@ if TYPE_CHECKING:
     from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.agents.tool_runner import ToolRunnerHooks
     from fast_agent.hooks.lifecycle_hook_loader import AgentLifecycleHooks
+    from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
 
-from a2a.types import AgentCard, AgentInterface
+from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
 from mcp.types import (
     CallToolResult,
@@ -74,6 +71,7 @@ from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, t
 from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.mcp.prompt_metadata import prompt_display_name
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.utils.count_display import plural_label
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -275,23 +273,22 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         source_path = getattr(self.config, "source_path", None)
         if source_path:
             source_path = (
-                Path(source_path).expanduser()
-                if not isinstance(source_path, Path)
-                else source_path
+                Path(source_path).expanduser() if not isinstance(source_path, Path) else source_path
             )
             base_path = source_path.parent
 
         self._lifecycle_hooks = load_lifecycle_hooks(self.config.lifecycle_hooks, base_path)
         return self._lifecycle_hooks
 
-    async def _run_lifecycle_hook(
-        self, hook_type: Literal["on_start", "on_shutdown"]
-    ) -> None:
+    async def _run_lifecycle_hook(self, hook_type: "LifecycleHookType") -> None:
         if not self.config.lifecycle_hooks:
             return
 
+        from fast_agent.hooks.lifecycle_hook_types import lifecycle_hook_descriptor
+
         hooks = self._load_lifecycle_hooks()
-        hook = hooks.on_start if hook_type == "on_start" else hooks.on_shutdown
+        hook_descriptor = lifecycle_hook_descriptor(hook_type)
+        hook = getattr(hooks, hook_descriptor.attr_name)
         if hook is None:
             return
 
@@ -304,22 +301,18 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             hook_type=hook_type,
         )
 
-        hook_kind = "agent_startup" if hook_type == "on_start" else "agent_shutdown"
-
         try:
             await hook(context)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             show_hook_failure(
                 self,
                 hook_name=getattr(hook, "__name__", hook_type),
-                hook_kind=hook_kind,
+                hook_kind=hook_descriptor.progress_kind,
                 error=exc,
             )
-            if hook_type == "on_start":
+            if hook_descriptor.raises_on_failure:
                 logger.exception("Lifecycle hook failed", hook_type=hook_type)
-                raise AgentConfigError(
-                    f"Lifecycle hook '{hook_type}' failed", str(exc)
-                ) from exc
+                raise AgentConfigError(f"Lifecycle hook '{hook_type}' failed", str(exc)) from exc
             logger.exception("Lifecycle hook failed during shutdown", hook_type=hook_type)
 
     @property
@@ -347,16 +340,17 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         from fast_agent.llm.model_factory import ModelFactory
 
-        model_with_aliases = resolve_model_reference(model, get_context_model_references(self._context))
+        model_with_aliases = resolve_model_reference(
+            model,
+            get_context_model_references(self._context),
+        )
         resolved_model = ModelFactory.resolve_model_spec(model_with_aliases)
         wire_model = resolved_model.wire_model_name
         if self._default_request_params:
             self._default_request_params.model = wire_model
 
         if self._llm_attach_kwargs is None:
-            raise RuntimeError(
-                "LLM attachment parameters missing despite factory being available"
-            )
+            raise RuntimeError("LLM attachment parameters missing despite factory being available")
 
         attach_kwargs = dict(self._llm_attach_kwargs)
         request_params = attach_kwargs.pop("request_params", None)
@@ -451,7 +445,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         """Hook for subclasses that need to react when an LLM is attached."""
-        return None
 
     def _clone_constructor_kwargs(self) -> dict[str, Any]:
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""
@@ -468,7 +461,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
         await clone.initialize()
 
-        if self._agent_registry is not None and hasattr(clone, "set_agent_registry"):
+        if self._agent_registry is not None:
             clone.set_agent_registry(self._agent_registry)
 
         # Copy tool_runner_hooks if present
@@ -500,11 +493,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     def merge_usage_from(self, other: "LlmAgent") -> None:
         """Merge LLM usage metrics from another agent instance into this one."""
 
-        if not hasattr(self, "_llm") or not hasattr(other, "_llm"):
-            return
-
-        source_llm = getattr(other, "_llm", None)
-        target_llm = getattr(self, "_llm", None)
+        source_llm = other._llm
+        target_llm = self._llm
         if not source_llm or not target_llm:
             return
 
@@ -592,9 +582,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         )
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
-            return await self.generate_impl(
-                multipart_messages, final_request_params, tools
-            )
+            return await self.generate_impl(multipart_messages, final_request_params, tools)
 
     async def generate_impl(
         self,
@@ -617,14 +605,16 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             The LLM's response as a PromptMessageExtended
         """
-        response, _ = await self._generate_with_summary(
-            messages, request_params, tools
-        )
+        response, _ = await self._generate_with_summary(messages, request_params, tools)
         return response
 
-    async def apply_prompt_template(self, prompt_result: GetPromptResult, prompt_name: str) -> str:
+    async def apply_prompt_template(
+        self,
+        prompt_result: GetPromptResult,
+        prompt_name: str,
+    ) -> str:
         """
-        Apply a prompt template as persistent context that will be included in all future conversations.
+        Apply prompt template as persistent context for future conversations.
         Delegates to the attached LLM.
 
         Args:
@@ -636,7 +626,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """
         from fast_agent.types import PromptMessageExtended
 
-        assert self._llm
+        llm = self._require_llm()
 
         multipart_messages = PromptMessageExtended.parse_get_prompt_result(prompt_result)
         for msg in multipart_messages:
@@ -644,7 +634,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         self._message_history = [msg.model_copy(deep=True) for msg in multipart_messages]
 
-        return await self._llm.apply_prompt_template(prompt_result, prompt_name)
+        return await llm.apply_prompt_template(prompt_result, prompt_name)
 
     async def apply_prompt(
         self,
@@ -694,7 +684,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             PromptMessageExtended,
             Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
@@ -753,7 +743,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     async def structured_impl(
         self,
         messages: list[PromptMessageExtended],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
@@ -794,12 +784,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> tuple[PromptMessageExtended, RemovedContentSummary | None]:
-        assert self._llm, "LLM is not attached"
+        llm = self._require_llm()
         call_ctx = self._prepare_llm_call(messages, request_params)
 
-        response = await self._llm.generate(
-            call_ctx.full_history, call_ctx.call_params, tools
-        )
+        response = await llm.generate(call_ctx.full_history, call_ctx.call_params, tools)
 
         if call_ctx.persist_history:
             self._persist_history(call_ctx.sanitized_messages, response)
@@ -809,15 +797,13 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     async def _structured_with_summary(
         self,
         messages: list[PromptMessageExtended],
-        model: Type[ModelT],
+        model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[tuple[ModelT | None, PromptMessageExtended], RemovedContentSummary | None]:
-        assert self._llm, "LLM is not attached"
+        llm = self._require_llm()
         call_ctx = self._prepare_llm_call(messages, request_params)
 
-        structured_result = await self._llm.structured(
-            call_ctx.full_history, model, call_ctx.call_params
-        )
+        structured_result = await llm.structured(call_ctx.full_history, model, call_ctx.call_params)
 
         if call_ctx.persist_history:
             try:
@@ -833,18 +819,18 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         schema: dict[str, Any],
         request_params: RequestParams | None = None,
     ) -> tuple[tuple[Any | None, PromptMessageExtended], RemovedContentSummary | None]:
-        assert self._llm, "LLM is not attached"
+        llm = self._require_llm()
         normalized_schema = validate_json_schema_definition(schema)
         call_ctx = self._prepare_llm_call(messages, request_params)
         call_params = (call_ctx.call_params or RequestParams()).model_copy(
             update={"structured_schema": normalized_schema}
         )
 
-        response = await self._llm.generate(
+        response = await llm.generate(
             call_ctx.full_history,
             call_params,
         )
-        structured_result = self._llm.parse_structured_schema_response(
+        structured_result = llm.parse_structured_schema_response(
             response,
             normalized_schema,
         )
@@ -1064,7 +1050,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         # This prevents ACP client hangs when content would be empty
         if not kept and removed_in_this_call:
             # Summarize what was removed
-            categories = set(r.category for r in removed_in_this_call)
+            categories = {r.category for r in removed_in_this_call}
             category_label = ", ".join(self._category_label(c) for c in sorted(categories))
             placeholder = text_content(
                 f"[{category_label} content was removed - "
@@ -1103,6 +1089,22 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def _extract_block_metadata(self, block: ContentBlock) -> tuple[str | None, str]:
         """Infer the MIME type and high-level category for a content block."""
+        if direct_metadata := self._direct_block_metadata(block):
+            return direct_metadata
+
+        if isinstance(block, EmbeddedResource):
+            return self._embedded_resource_metadata(block)
+
+        if isinstance(block, ResourceLink):
+            mime = getattr(block, "mimeType", None)
+            return mime, self._category_from_mime(mime)
+
+        return None, "document"
+
+    def _direct_block_metadata(
+        self,
+        block: ContentBlock,
+    ) -> tuple[str | None, str] | None:
         if isinstance(block, TextContent):
             return "text/plain", "text"
 
@@ -1114,24 +1116,25 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             mime = getattr(block, "mimeType", None) or "image/*"
             return mime, "vision"
 
-        if isinstance(block, EmbeddedResource):
-            resource = getattr(block, "resource", None)
-            mime = getattr(resource, "mimeType", None)
-            if isinstance(resource, TextResourceContents) or (mime and is_text_mime_type(mime)):
-                return mime or "text/plain", "text"
-            if mime and mime.startswith("image/"):
-                return mime, "vision"
-            return mime, "document"
+        return None
 
-        if isinstance(block, ResourceLink):
-            mime = getattr(block, "mimeType", None)
-            if mime and mime.startswith("image/"):
-                return mime, "vision"
-            if mime and is_text_mime_type(mime):
-                return mime, "text"
-            return mime, "document"
+    def _embedded_resource_metadata(
+        self,
+        block: EmbeddedResource,
+    ) -> tuple[str | None, str]:
+        resource = getattr(block, "resource", None)
+        mime = getattr(resource, "mimeType", None)
+        if isinstance(resource, TextResourceContents):
+            return mime or "text/plain", "text"
+        return mime, self._category_from_mime(mime)
 
-        return None, "document"
+    @staticmethod
+    def _category_from_mime(mime: str | None) -> str:
+        if mime and mime.startswith("image/"):
+            return "vision"
+        if mime and is_text_mime_type(mime):
+            return "text"
+        return "document"
 
     def _build_error_channel_entries(self, removed: list[_RemovedBlock]) -> list[ContentBlock]:
         """Create informative entries for the error channel."""
@@ -1209,31 +1212,17 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         model_name = self.llm.model_name if self.llm else None
         model_display = model_name or "current model"
 
-        category_order = ["vision", "document", "other", "text"]
-        segments: list[str] = []
-        for category in category_order:
-            if category not in counts:
-                continue
-            count = counts[category]
-            mime_list = ", ".join(category_mimes.get(category, ()))
-            label = self._category_label(category)
-            plural = "s" if count != 1 else ""
-            if mime_list:
-                segments.append(f"{count} {label} block{plural} ({mime_list})")
-            else:
-                segments.append(f"{count} {label} block{plural}")
-
-        # Append any remaining categories not covered in the preferred order
-        for category, count in counts.items():
-            if category in category_order:
-                continue
-            mime_list = ", ".join(category_mimes.get(category, ()))
-            label = self._category_label(category)
-            plural = "s" if count != 1 else ""
-            if mime_list:
-                segments.append(f"{count} {label} block{plural} ({mime_list})")
-            else:
-                segments.append(f"{count} {label} block{plural}")
+        category_order = ("vision", "document", "other", "text")
+        ordered_categories = [category for category in category_order if category in counts]
+        ordered_categories.extend(category for category in counts if category not in category_order)
+        segments = [
+            self._removed_block_segment(
+                count=counts[category],
+                label=self._category_label(category),
+                mime_types=category_mimes.get(category, ()),
+            )
+            for category in ordered_categories
+        ]
 
         detail = "; ".join(segments) if segments else "unknown content"
 
@@ -1280,6 +1269,18 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return "text"
         return "content"
 
+    @staticmethod
+    def _removed_block_segment(
+        *,
+        count: int,
+        label: str,
+        mime_types: tuple[str, ...],
+    ) -> str:
+        base = f"{count} {label} {plural_label(count, 'block')}"
+        if not mime_types:
+            return base
+        return f"{base} ({', '.join(mime_types)})"
+
     @property
     def message_history(self) -> list[PromptMessageExtended]:
         """
@@ -1316,18 +1317,14 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
         """Replace message history with a deep copy of supplied messages (or empty list)."""
         msgs = messages or []
-        self._message_history = [
-            msg.model_copy(deep=True) if hasattr(msg, "model_copy") else msg for msg in msgs
-        ]
+        self._message_history = [msg.model_copy(deep=True) for msg in msgs]
 
     def append_history(self, messages: list[PromptMessageExtended] | None) -> None:
         """Append messages to history as deep copies."""
         if not messages:
             return
         for msg in messages:
-            self._message_history.append(
-                msg.model_copy(deep=True) if hasattr(msg, "model_copy") else msg
-            )
+            self._message_history.append(msg.model_copy(deep=True))
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""
@@ -1443,25 +1440,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """
         Return an A2A card describing this Agent
         """
-        from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
+        from fast_agent.agents.agent_card import build_fast_agent_card
 
-        return AgentCard(
-            skills=[],
+        return build_fast_agent_card(
             name=self._name,
             description=self.config.description or self.instruction,
-            supported_interfaces=[
-                AgentInterface(
-                    url=f"fast-agent://agents/{self._name}/",
-                    protocol_binding="fast-agent",
-                )
-            ],
-            version="0.1",
-            capabilities=DEFAULT_CAPABILITIES,
-            # TODO -- get these from the _llm
-            default_input_modes=["text/plain"],
-            default_output_modes=["text/plain"],
-            provider=None,
-            documentation_url=None,
+            skills=[],
         )
 
     async def run_tools(

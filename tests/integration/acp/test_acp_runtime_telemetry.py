@@ -66,9 +66,10 @@ async def test_acp_terminal_runtime_telemetry(
     """Test that terminal execute operations trigger tool call notifications."""
     connection, client, init_response = acp_runtime_telemetry_shell
 
-    assert getattr(init_response, "protocol_version", None) == 1 or getattr(
-        init_response, "protocolVersion", None
-    ) == 1
+    assert (
+        getattr(init_response, "protocol_version", None) == 1
+        or getattr(init_response, "protocolVersion", None) == 1
+    )
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
@@ -77,7 +78,9 @@ async def test_acp_terminal_runtime_telemetry(
 
     # Call the execute tool via passthrough model
     prompt_text = '***CALL_TOOL execute {"command": "echo test"}'
-    prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    prompt_response = await connection.prompt(
+        session_id=session_id, prompt=[text_block(prompt_text)]
+    )
     assert _get_stop_reason(prompt_response) == END_TURN
 
     # Wait for notifications
@@ -132,7 +135,9 @@ async def test_acp_filesystem_read_runtime_telemetry(
 
     # Call the read_text_file tool via passthrough model
     prompt_text = f'***CALL_TOOL read_text_file {{"path": "{test_path}"}}'
-    prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    prompt_response = await connection.prompt(
+        session_id=session_id, prompt=[text_block(prompt_text)]
+    )
     assert _get_stop_reason(prompt_response) == END_TURN
 
     # Wait for notifications
@@ -178,8 +183,12 @@ async def test_acp_filesystem_write_runtime_telemetry(
     # Call the write_text_file tool via passthrough model
     test_path = "/test/output.txt"
     test_content = "Test content from tool call"
-    prompt_text = f'***CALL_TOOL write_text_file {{"path": "{test_path}", "content": "{test_content}"}}'
-    prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    prompt_text = (
+        f'***CALL_TOOL write_text_file {{"path": "{test_path}", "content": "{test_content}"}}'
+    )
+    prompt_response = await connection.prompt(
+        session_id=session_id, prompt=[text_block(prompt_text)]
+    )
     assert _get_stop_reason(prompt_response) == END_TURN
 
     # Wait for notifications

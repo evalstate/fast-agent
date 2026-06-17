@@ -12,6 +12,7 @@ from mcp.client.session import ElicitationFnT
 
 from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.tools.function_tool_config import FunctionToolSpec
 
@@ -45,6 +46,7 @@ SkillConfig: TypeAlias = (
     | SkillsDefault
 )
 
+
 # Function tools can be:
 # - A callable (Python function)
 # - A string spec like "module.py:function_name" (for dynamic loading)
@@ -67,7 +69,7 @@ FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 # Tool hooks config maps hook type to function spec string
 # e.g., {"after_turn_complete": "hooks.py:my_hook"}
 ToolHooksConfig: TypeAlias = dict[str, str] | None
-LifecycleHooksConfig: TypeAlias = dict[str, str] | None
+LifecycleHooksConfig: TypeAlias = dict[LifecycleHookType, str] | None
 PluginCommandsConfig: TypeAlias = dict[str, PluginCommandActionSpec] | None
 
 

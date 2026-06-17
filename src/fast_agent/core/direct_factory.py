@@ -3,19 +3,17 @@ Direct factory functions for creating agent and workflow instances without proxi
 Implements type-safe factories with improved error handling.
 """
 
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Awaitable,
-    Callable,
-    Mapping,
     Protocol,
-    Sequence,
     TypeVar,
     cast,
+    runtime_checkable,
 )
 
 from fastmcp.tools import FunctionTool
@@ -55,17 +53,22 @@ from fast_agent.interfaces import (
 )
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp.ui_agent import McpAgentWithUI
+from fast_agent.mcp.ui_modes import McpUIMode, normalize_mcp_ui_mode
 from fast_agent.tools.function_tool_loader import load_function_tools
 from fast_agent.tools.hook_loader import load_tool_runner_hooks
 from fast_agent.types import RequestParams
 
 if TYPE_CHECKING:
+    from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsOptions
+    from fast_agent.config import Settings
     from fast_agent.hooks.hook_context import HookAgentProtocol
 
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]
 AgentConfigDict = Mapping[str, AgentCardData | dict[str, Any]]
-AgentTypeBuilder = Callable[[str, Mapping[str, Any], "AgentBuildContext", AgentDict], Awaitable[None]]
+AgentTypeBuilder = Callable[
+    [str, Mapping[str, Any], "AgentBuildContext", AgentDict], Awaitable[None]
+]
 
 
 @dataclass(frozen=True)
@@ -83,17 +86,46 @@ class AgentsAsToolsBuildInputs:
     config: AgentConfig
     function_tools: list[FunctionTool]
     child_agents: list[AgentProtocol]
-    options: Any
+    options: "AgentsAsToolsOptions"
     child_message_files: dict[str, list[Path]]
+
+
+@runtime_checkable
+class _ToolRunnerAgentProvider(Protocol):
+    @property
+    def agent(self) -> object: ...
 
 
 class CoreContextProtocol(Protocol):
     context: Context
 
 
+@runtime_checkable
+class AgentToolAttachable(Protocol):
+    def add_agent_tool(
+        self,
+        child: AgentProtocol,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> str: ...
+
+
 class _ContextCoreShim:
     def __init__(self, context: Context) -> None:
         self.context = context
+
+
+def _resolve_mcp_ui_mode(settings: "Settings | None") -> McpUIMode:
+    if settings is None:
+        return "auto"
+    return normalize_mcp_ui_mode(settings.mcp_ui_mode)
+
+
+def _class_display_name(cls: object) -> str:
+    if isinstance(cls, type):
+        return cls.__name__
+    return repr(cls)
 
 
 def _ensure_basic_only_agents(agents_dict: AgentConfigDict) -> None:
@@ -104,6 +136,7 @@ def _ensure_basic_only_agents(agents_dict: AgentConfigDict) -> None:
                 "Smart tool only supports 'agent' cards",
                 f"Card '{name}' has unsupported type '{agent_type}'",
             )
+
 
 def _load_configured_function_tools(
     config: AgentConfig,
@@ -210,31 +243,30 @@ def _resolve_child_agents(
     return child_agents
 
 
-def _build_agents_as_tools_options(agent_data: Mapping[str, Any]) -> object:
+def _build_agents_as_tools_options(agent_data: Mapping[str, Any]) -> "AgentsAsToolsOptions":
     from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsOptions
 
     raw_opts = agent_data.get("agents_as_tools_options") or {}
-    opt_kwargs = {key: value for key, value in raw_opts.items() if value is not None}
-    return AgentsAsToolsOptions(**opt_kwargs)
+    try:
+        if not isinstance(raw_opts, Mapping):
+            raise TypeError("agents_as_tools_options must be a mapping")
+        opt_kwargs = {key: value for key, value in raw_opts.items() if value is not None}
+        return AgentsAsToolsOptions(**opt_kwargs)
+    except (TypeError, ValueError) as exc:
+        raise AgentConfigError("Invalid agents_as_tools_options", str(exc)) from exc
 
 
 def _collect_child_message_files(
     child_names: Sequence[str],
     agents_dict: AgentConfigDict,
-    options: object,
+    options: "AgentsAsToolsOptions",
 ) -> dict[str, list[Path]]:
     from fast_agent.agents.workflow.agents_as_tools_agent import (
-        HistoryMergeTarget,
         HistorySource,
     )
 
     child_message_files: dict[str, list[Path]] = {}
-    history_source = getattr(options, "history_source", None)
-    history_merge_target = getattr(options, "history_merge_target", None)
-    requires_messages = (
-        history_source == HistorySource.MESSAGES
-        or history_merge_target == HistoryMergeTarget.MESSAGES
-    )
+    requires_messages = options.history_source == HistorySource.MESSAGES
     missing_messages: list[str] = []
 
     for agent_name in child_names:
@@ -249,7 +281,7 @@ def _collect_child_message_files(
     if missing_messages:
         missing_list = ", ".join(sorted(set(missing_messages)))
         raise AgentConfigError(
-            "history_source/history_merge_target=messages requires child agents with messages",
+            "history_source=messages requires child agents with messages",
             f"Missing messages for: {missing_list}",
         )
 
@@ -297,14 +329,13 @@ async def _initialize_agent_with_llm(
 
 
 def _attach_child_agents_as_tools(
-    agent: Any,
+    agent: object,
     parent_name: str,
     child_names: Sequence[str],
     active_agents: AgentDict,
 ) -> None:
-    add_tool_fn = getattr(agent, "add_agent_tool", None)
-    if not callable(add_tool_fn):
-        return
+    if not isinstance(agent, AgentToolAttachable):
+        raise AgentConfigError(f"Agent '{parent_name}' does not support agents-as-tools")
 
     for child_agent in _resolve_child_agents(
         parent_name,
@@ -312,9 +343,7 @@ def _attach_child_agents_as_tools(
         active_agents,
         skip_missing=True,
     ):
-        add_tool_fn(child_agent)
-
-
+        agent.add_agent_tool(child_agent)
 
 
 async def _finalize_agent(
@@ -346,13 +375,12 @@ async def _finalize_agent(
         api_key=config.api_key,
     )
 
-    if config.tool_hooks or config.trim_tool_history or session_history_enabled:
-        _apply_tool_hooks(
-            agent,
-            config,
-            agent_data.get("source_path"),
-            enable_session_history=session_history_enabled,
-        )
+    _apply_tool_hooks(
+        agent,
+        config,
+        agent_data.get("source_path"),
+        enable_session_history=session_history_enabled,
+    )
 
     _register_loaded_agent(result_agents, name, agent)
 
@@ -366,7 +394,7 @@ logger = get_logger(__name__)
 def _create_agent_with_ui_if_needed(
     agent_class: type,
     config: Any,
-    context: Any,
+    context: Context,
     **kwargs: Any,
 ) -> Any:
     """
@@ -381,16 +409,157 @@ def _create_agent_with_ui_if_needed(
     Returns:
         Either a UI-enhanced agent instance or the original agent instance
     """
-    # Check UI mode from settings
-    settings = context.config if hasattr(context, "config") else None
-    ui_mode = getattr(settings, "mcp_ui_mode", "auto") if settings else "auto"
+    ui_mode = _resolve_mcp_ui_mode(context.config)
 
     if ui_mode != "disabled" and agent_class == McpAgent:
         # Use the UI-enhanced agent class instead of the base class
         return McpAgentWithUI(config=config, context=context, ui_mode=ui_mode, **kwargs)
-    else:
-        # Create the original agent instance
-        return agent_class(config=config, context=context, **kwargs)
+
+    # Create the original agent instance
+    return agent_class(config=config, context=context, **kwargs)
+
+
+def _replace_after_turn_complete(existing: Any, hook: Any) -> Any:
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+
+    return replace(existing or ToolRunnerHooks(), after_turn_complete=hook)
+
+
+def _merge_tool_runner_hooks(existing: Any, override: Any) -> Any:
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+
+    base = existing or ToolRunnerHooks()
+    return ToolRunnerHooks(
+        before_llm_call=override.before_llm_call or base.before_llm_call,
+        after_llm_call=override.after_llm_call or base.after_llm_call,
+        before_tool_call=override.before_tool_call or base.before_tool_call,
+        after_tool_call=override.after_tool_call or base.after_tool_call,
+        after_turn_complete=override.after_turn_complete or base.after_turn_complete,
+    )
+
+
+def _tool_hook_context(agent: LlmAgent, runner: Any, message: Any) -> Any:
+    from fast_agent.hooks.hook_context import HookContext
+
+    hook_agent = runner.agent if isinstance(runner, _ToolRunnerAgentProvider) else agent
+    return HookContext(
+        runner=runner,
+        agent=cast("HookAgentProtocol", hook_agent),
+        message=message,
+        hook_type="after_turn_complete",
+    )
+
+
+def _after_turn_failure(ctx: Any, hook_name: str, error: Exception) -> None:
+    show_hook_failure(
+        ctx,
+        hook_name=hook_name,
+        hook_kind="tool",
+        error=error,
+    )
+    logger.exception(
+        "Tool hook failed",
+        hook_type="after_turn_complete",
+        hook_name=hook_name,
+    )
+
+
+def _trim_history_after_turn_hook(agent: LlmAgent) -> Callable[[Any, Any], Awaitable[None]]:
+    from fast_agent.hooks import trim_tool_loop_history
+
+    async def _trimmer_wrapper(runner: Any, message: Any) -> None:
+        ctx = _tool_hook_context(agent, runner, message)
+        try:
+            await trim_tool_loop_history(ctx)
+        except Exception as exc:
+            _after_turn_failure(ctx, "trim_tool_loop_history", exc)
+            raise
+
+    return _trimmer_wrapper
+
+
+def _session_history_after_turn_hook(
+    agent: LlmAgent,
+    existing_after_turn: Callable[[Any, Any], Awaitable[None]] | None,
+) -> Callable[[Any, Any], Awaitable[None]]:
+    from fast_agent.hooks import save_session_history
+
+    async def _session_history_wrapper(runner: Any, message: Any) -> None:
+        if existing_after_turn is not None:
+            await existing_after_turn(runner, message)
+        ctx = _tool_hook_context(agent, runner, message)
+        try:
+            await save_session_history(ctx)
+        except Exception as exc:
+            _after_turn_failure(ctx, "save_session_history", exc)
+            raise
+
+    return _session_history_wrapper
+
+
+def _apply_trim_history_hook(agent: LlmAgent, config: AgentConfig) -> dict[str, str] | None:
+    hooks_config = config.tool_hooks
+    if not config.trim_tool_history:
+        return hooks_config
+
+    hooks_config = hooks_config or {}
+    if "after_turn_complete" not in hooks_config:
+        agent.tool_runner_hooks = _replace_after_turn_complete(
+            agent.tool_runner_hooks,
+            _trim_history_after_turn_hook(agent),
+        )
+    return hooks_config
+
+
+def _apply_configured_tool_hooks(
+    agent: LlmAgent,
+    hooks_config: dict[str, str] | None,
+    source_path: str | None,
+) -> None:
+    if not hooks_config:
+        return
+    base_path = Path(source_path).parent if source_path else None
+    loaded_hooks = load_tool_runner_hooks(hooks_config, base_path)
+    if loaded_hooks:
+        agent.tool_runner_hooks = _merge_tool_runner_hooks(
+            agent.tool_runner_hooks,
+            loaded_hooks,
+        )
+
+
+def _apply_session_history_hook(agent: LlmAgent) -> None:
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+
+    existing_hooks = agent.tool_runner_hooks or ToolRunnerHooks()
+    agent.tool_runner_hooks = _replace_after_turn_complete(
+        existing_hooks,
+        _session_history_after_turn_hook(agent, existing_hooks.after_turn_complete),
+    )
+
+
+def _auto_compaction_after_turn_hook(
+    agent: LlmAgent,
+    existing_after_turn: Callable[[Any, Any], Awaitable[None]] | None,
+) -> Callable[[Any, Any], Awaitable[None]]:
+    from fast_agent.hooks.compaction import auto_compact_history
+
+    async def _auto_compact_wrapper(runner: Any, message: Any) -> None:
+        if existing_after_turn is not None:
+            await existing_after_turn(runner, message)
+        # auto_compact_history handles its own failures; never breaks the turn.
+        await auto_compact_history(_tool_hook_context(agent, runner, message))
+
+    return _auto_compact_wrapper
+
+
+def _apply_auto_compaction_hook(agent: LlmAgent) -> None:
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+
+    existing_hooks = agent.tool_runner_hooks or ToolRunnerHooks()
+    agent.tool_runner_hooks = _replace_after_turn_complete(
+        existing_hooks,
+        _auto_compaction_after_turn_hook(agent, existing_hooks.after_turn_complete),
+    )
 
 
 def _apply_tool_hooks(
@@ -403,118 +572,26 @@ def _apply_tool_hooks(
     """
     Apply tool runner hooks to an agent based on config.
 
-    Handles both:
+    Handles:
     - tool_hooks: dict mapping hook types to function specs
     - trim_tool_history: shortcut to apply built-in history trimmer
+    - built-in auto-compaction (runtime-gated by settings.compaction)
+    - built-in session history persistence
+
+    Auto-compaction runs after trim/custom hooks and before the session save,
+    so persisted sessions reflect the compacted history.
 
     Args:
         agent: The agent to apply hooks to
         config: Agent configuration with tool_hooks and/or trim_tool_history
         source_path: Path to the source file for resolving relative hook paths
     """
-    # Import here to avoid circular imports
-    from fast_agent.agents.tool_runner import ToolRunnerHooks
-    from fast_agent.hooks import save_session_history, trim_tool_loop_history
-    from fast_agent.hooks.hook_context import HookContext
-
-    hooks_config = config.tool_hooks
-    trim_history = config.trim_tool_history
-
-    # If trim_tool_history is set and no after_turn_complete hook is configured,
-    # add the built-in trimmer
-    if trim_history:
-        if hooks_config is None:
-            hooks_config = {}
-        if "after_turn_complete" not in hooks_config:
-            # Use a wrapper that creates HookContext for the built-in trimmer
-            async def _trimmer_wrapper(runner, message):
-                ctx = HookContext(
-                    runner=runner,
-                    agent=cast("HookAgentProtocol", agent),
-                    message=message,
-                    hook_type="after_turn_complete",
-                )
-                try:
-                    await trim_tool_loop_history(ctx)
-                except Exception as exc:  # noqa: BLE001
-                    show_hook_failure(
-                        ctx,
-                        hook_name="trim_tool_loop_history",
-                        hook_kind="tool",
-                        error=exc,
-                    )
-                    logger.exception(
-                        "Tool hook failed",
-                        hook_type="after_turn_complete",
-                        hook_name="trim_tool_loop_history",
-                    )
-                    raise
-
-            # Set the hooks directly since we have a callable, not a spec string
-            existing_hooks = getattr(agent, "tool_runner_hooks", None) or ToolRunnerHooks()
-            agent.tool_runner_hooks = ToolRunnerHooks(
-                before_llm_call=existing_hooks.before_llm_call,
-                after_llm_call=existing_hooks.after_llm_call,
-                before_tool_call=existing_hooks.before_tool_call,
-                after_tool_call=existing_hooks.after_tool_call,
-                after_turn_complete=_trimmer_wrapper,
-            )
-            # Keep going so session history hooks can still be applied
-
-    # Load custom hooks from config
-    if hooks_config:
-        base_path = Path(source_path).parent if source_path else None
-        loaded_hooks = load_tool_runner_hooks(hooks_config, agent, base_path)
-        if loaded_hooks:
-            # Merge with any existing hooks (trim_tool_history wrapper)
-            existing = getattr(agent, "tool_runner_hooks", None)
-            if existing:
-                agent.tool_runner_hooks = ToolRunnerHooks(
-                    before_llm_call=loaded_hooks.before_llm_call or existing.before_llm_call,
-                    after_llm_call=loaded_hooks.after_llm_call or existing.after_llm_call,
-                    before_tool_call=loaded_hooks.before_tool_call or existing.before_tool_call,
-                    after_tool_call=loaded_hooks.after_tool_call or existing.after_tool_call,
-                    after_turn_complete=loaded_hooks.after_turn_complete or existing.after_turn_complete,
-                )
-            else:
-                agent.tool_runner_hooks = loaded_hooks
+    hooks_config = _apply_trim_history_hook(agent, config)
+    _apply_configured_tool_hooks(agent, hooks_config, source_path)
+    _apply_auto_compaction_hook(agent)
 
     if enable_session_history:
-        existing_hooks = getattr(agent, "tool_runner_hooks", None) or ToolRunnerHooks()
-        existing_after_turn = existing_hooks.after_turn_complete
-
-        async def _session_history_wrapper(runner, message):
-            if existing_after_turn is not None:
-                await existing_after_turn(runner, message)
-            ctx = HookContext(
-                runner=runner,
-                agent=cast("HookAgentProtocol", agent),
-                message=message,
-                hook_type="after_turn_complete",
-            )
-            try:
-                await save_session_history(ctx)
-            except Exception as exc:  # noqa: BLE001
-                show_hook_failure(
-                    ctx,
-                    hook_name="save_session_history",
-                    hook_kind="tool",
-                    error=exc,
-                )
-                logger.exception(
-                    "Tool hook failed",
-                    hook_type="after_turn_complete",
-                    hook_name="save_session_history",
-                )
-                raise
-
-        agent.tool_runner_hooks = ToolRunnerHooks(
-            before_llm_call=existing_hooks.before_llm_call,
-            after_llm_call=existing_hooks.after_llm_call,
-            before_tool_call=existing_hooks.before_tool_call,
-            after_tool_call=existing_hooks.after_tool_call,
-            after_turn_complete=_session_history_wrapper,
-        )
+        _apply_session_history_hook(agent)
 
 
 class AgentCreatorProtocol(Protocol):
@@ -529,7 +606,6 @@ class AgentCreatorProtocol(Protocol):
         model_factory_func: ModelFactoryFunctionProtocol | None = None,
         **kwargs: Any,
     ) -> AgentDict: ...
-
 
 
 def get_model_factory(
@@ -561,32 +637,32 @@ def get_model_factory(
         ModelFactory instance for the specified or default model
     """
     cli_model = cli_model or get_context_cli_model_override(context)
-    model_spec, source = resolve_model_spec(
+    resolved_model = resolve_model_spec(
         context,
         model=model,
         default_model=default_model,
         cli_model=cli_model,
         hardcoded_default=HARDCODED_DEFAULT_MODEL,
     )
-    if model_spec is None:
+    if resolved_model.model is None:
         raise ModelConfigError(
             "No model configured",
             "Set --model, FAST_AGENT_MODEL, or default_model in config.",
         )
     logger.info(
-        f"Resolved model '{model_spec}' via {source}",
-        model=model_spec,
-        source=source,
+        f"Resolved model '{resolved_model.model}' via {resolved_model.source}",
+        model=resolved_model.model,
+        source=resolved_model.source,
     )
 
     # Update or create request_params with the final model choice
     if request_params:
-        request_params = request_params.model_copy(update={"model": model_spec})
+        request_params = request_params.model_copy(update={"model": resolved_model.model})
     else:
-        request_params = RequestParams(model=model_spec)
+        request_params = RequestParams(model=resolved_model.model)
 
     # Let model factory handle the model string parsing and setup
-    return ModelFactory.create_factory(model_spec)
+    return ModelFactory.create_factory(resolved_model.model)
 
 
 def get_default_model_source(
@@ -606,16 +682,16 @@ def get_default_model_source(
     if cli_model:
         return None
 
-    _, source = resolve_model_spec(
+    resolved_model = resolve_model_spec(
         context=None,
         default_model=config_default_model,
         cli_model=None,
         fallback_to_hardcoded=False,
         model_references=model_references,
     )
-    if source == "config file":
+    if resolved_model.source == "config file":
         return "config file"
-    if source and source.startswith("environment variable"):
+    if resolved_model.source and resolved_model.source.startswith("environment variable"):
         return "environment variable"
 
     return None
@@ -688,10 +764,8 @@ async def _create_smart_agent(
 
         from fast_agent.agents.smart_agent import SmartAgent, SmartAgentWithUI
 
-        settings = (
-            build_ctx.app_instance.context.config if build_ctx.app_instance.context else None
-        )
-        ui_mode = getattr(settings, "mcp_ui_mode", "auto") if settings else "auto"
+        settings = build_ctx.app_instance.context.config if build_ctx.app_instance.context else None
+        ui_mode = _resolve_mcp_ui_mode(settings)
         if ui_mode != "disabled":
             agent = SmartAgentWithUI(
                 config=config,
@@ -739,7 +813,7 @@ async def _create_custom_agent(
         raise AgentConfigError(
             "Custom agent does not accept function tools",
             f"Custom agent '{name}' cannot use function_tools because "
-            f"{getattr(cls, '__name__', cls)!r} does not accept tools=.",
+            f"{_class_display_name(cls)!r} does not accept tools=.",
         )
 
     create_kwargs: dict[str, Any] = {}
@@ -760,17 +834,12 @@ async def _create_custom_agent(
     if child_names:
         _attach_child_agents_as_tools(agent, name, child_names, build_ctx.active_agents)
 
-    if (
-        config.tool_hooks
-        or config.trim_tool_history
-        or build_ctx.session_history_enabled
-    ):
-        _apply_tool_hooks(
-            agent,
-            config,
-            agent_data.get("source_path"),
-            enable_session_history=build_ctx.session_history_enabled,
-        )
+    _apply_tool_hooks(
+        agent,
+        config,
+        agent_data.get("source_path"),
+        enable_session_history=build_ctx.session_history_enabled,
+    )
 
     _register_loaded_agent(result_agents, name, agent)
 
@@ -978,7 +1047,6 @@ async def create_agents_by_type(
     model_factory_func: ModelFactoryFunctionProtocol,
     active_agents: AgentDict | None = None,
     global_function_tools: Sequence[FunctionTool] = (),
-    **kwargs: Any,
 ) -> AgentDict:
     """
     Generic method to create agents of a specific type without using proxies.
@@ -989,8 +1057,6 @@ async def create_agents_by_type(
         agent_type: Type of agents to create
         active_agents: Dictionary of already created agents (for dependencies)
         model_factory_func: Function for creating model factories
-        **kwargs: Additional type-specific parameters
-
     Returns:
         Dictionary of initialized agent instances
     """
@@ -1000,7 +1066,7 @@ async def create_agents_by_type(
     result_agents: AgentDict = {}
     session_history_enabled = True
     if app_instance.context and app_instance.context.config:
-        session_history_enabled = getattr(app_instance.context.config, "session_history", True)
+        session_history_enabled = app_instance.context.config.session_history
     builder = _AGENT_TYPE_BUILDERS.get(agent_type)
     if builder is None:
         raise ValueError(f"Unknown agent type: {agent_type}")
@@ -1033,7 +1099,7 @@ async def active_agents_in_dependency_group(
 
     Notice: This function modifies the active_agents dictionary in-place which is a feature (no copies).
     """
-    type_of_agents = list(map(lambda c: (c, c.value), AgentType))
+    type_of_agents = [(agent_type, agent_type.value) for agent_type in AgentType]
     for agent_type, agent_type_value in type_of_agents:
         agents_dict_local = {
             name: agents_dict[name]

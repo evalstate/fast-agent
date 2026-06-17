@@ -181,7 +181,7 @@
           "description": "Enable or disable the progress display"
         },
         "path": {
-          "default": "fastagent.jsonl",
+          "default": "fast-agent-log.jsonl",
           "title": "Path",
           "type": "string",
           "description": "Path to log file, if logger 'type' is 'file'."
@@ -842,7 +842,7 @@
         "type": "file",
         "level": "warning",
         "progress_display": true,
-        "path": "fastagent.jsonl",
+        "path": "fast-agent-log.jsonl",
         "batch_size": 100,
         "flush_interval": 2.0,
         "max_queue_size": 2048,

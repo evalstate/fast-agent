@@ -12,6 +12,10 @@ from mcp.types import (
 
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
+from fast_agent.mcp.tool_result_metadata import get_tool_result_media_preview
+from fast_agent.tools import attach_media
+from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
+from fast_agent.tools.attach_media import _classify_source
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
 
 
@@ -116,6 +120,72 @@ def test_attach_media_auto_hidden_for_text_only_model() -> None:
     assert _tool_by_name(runtime, "attach_media") is None
 
 
+def test_attach_media_classifies_remote_sources_as_links(tmp_path: Path) -> None:
+    source = _classify_source(
+        "https://example.com/photo.jpg",
+        base_directory=tmp_path,
+        mime_type=None,
+        name=None,
+    )
+
+    assert source.kind == "link"
+    assert source.local_path is None
+
+
+def test_attach_media_classifies_local_sources_as_local(tmp_path: Path) -> None:
+    image_path = tmp_path / "pixel.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    source = _classify_source(
+        "pixel.png",
+        base_directory=tmp_path,
+        mime_type=None,
+        name=None,
+    )
+
+    assert source.kind == "local"
+    assert source.local_path == image_path
+
+
+def test_attach_media_file_uri_localhost_resolves_local_path(tmp_path: Path) -> None:
+    image_path = tmp_path / "pixel.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    source = _classify_source(
+        image_path.as_uri().replace("file://", "file://localhost", 1),
+        base_directory=tmp_path,
+        mime_type=None,
+        name=None,
+    )
+
+    assert source.kind == "local"
+    assert source.local_path == image_path
+
+
+def test_attach_media_file_uri_preserves_nonlocal_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Path] = {}
+
+    def capture_local_source_info(raw_source, local_path, normalized_mime, name):
+        del raw_source, normalized_mime, name
+        captured["local_path"] = local_path
+        raise RuntimeError("captured")
+
+    monkeypatch.setattr(attach_media, "_local_source_info", capture_local_source_info)
+
+    with pytest.raises(RuntimeError, match="captured"):
+        _classify_source(
+            "file://server/share/pixel.png",
+            base_directory=tmp_path,
+            mime_type=None,
+            name=None,
+        )
+
+    assert captured["local_path"] == Path("//server/share/pixel.png").resolve()
+
+
 @pytest.mark.asyncio
 async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> None:
     image_path = tmp_path / "pixel.png"
@@ -133,11 +203,36 @@ async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> No
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert len(result.content) == 1
+    preview = get_tool_result_media_preview(result)
+    assert preview is not None
+    assert len(preview) == 1
+    assert isinstance(preview[0], ImageContent)
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
     assert pending[0].mimeType == "image/png"
     assert runtime.consume_pending_media_attachments() == []
+
+
+@pytest.mark.asyncio
+async def test_attach_resource_call_tool_aliases_attach_media(tmp_path: Path) -> None:
+    image_path = tmp_path / "pixel.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        working_directory=tmp_path,
+        model_info=_model_info("image/png"),
+    )
+
+    result = await runtime.call_tool("attach_resource", {"source": "pixel.png"})
+
+    assert result.isError is False
+    assert runtime.has_tool("attach_resource") is False
+    assert _tool_by_name(runtime, "attach_resource") is None
+    pending = runtime.consume_pending_media_attachments()
+    assert len(pending) == 1
+    assert isinstance(pending[0], ImageContent)
 
 
 @pytest.mark.asyncio
@@ -155,6 +250,7 @@ async def test_attach_media_local_pdf_stages_embedded_blob(tmp_path: Path) -> No
     assert result.isError is False
     assert result.content is not None
     assert len(result.content) == 1
+    assert get_tool_result_media_preview(result) is None
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], EmbeddedResource)
@@ -183,6 +279,51 @@ async def test_attach_media_https_image_stages_resource_link() -> None:
 
 
 @pytest.mark.asyncio
+async def test_attach_media_trims_optional_mime_type() -> None:
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        model_info=_model_info("image/png"),
+    )
+
+    result = await runtime.attach_media(
+        {
+            "source": "https://example.com/download",
+            "mime_type": " image/png ",
+        }
+    )
+
+    assert result.isError is False
+    pending = runtime.consume_pending_media_attachments()
+    assert len(pending) == 1
+    assert isinstance(pending[0], ResourceLink)
+    assert pending[0].mimeType == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_attach_media_ignores_blank_optional_name(tmp_path: Path) -> None:
+    image_path = tmp_path / "pixel.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        model_info=_model_info("image/png"),
+    )
+
+    result = await runtime.attach_media(
+        {
+            "source": str(image_path),
+            "name": "   ",
+        }
+    )
+
+    assert result.isError is False
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "Staged pixel.png as embedded image/png media input" in result.content[0].text
+
+
+@pytest.mark.asyncio
 async def test_attach_media_youtube_url_stages_video_resource_link() -> None:
     runtime = LocalFilesystemRuntime(
         logging.getLogger("local-filesystem-runtime-test"),
@@ -190,9 +331,7 @@ async def test_attach_media_youtube_url_stages_video_resource_link() -> None:
         model_info=_model_info("video/mp4"),
     )
 
-    result = await runtime.attach_media(
-        {"source": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}
-    )
+    result = await runtime.attach_media({"source": "https://WWW.YouTube.com/watch?v=dQw4w9WgXcQ"})
 
     assert result.isError is False
     assert result.content is not None
@@ -209,7 +348,7 @@ async def test_attach_media_rejects_google_remote_pdf_link() -> None:
         logging.getLogger("local-filesystem-runtime-test"),
         enable_attach_media="on",
         model_info=ModelInfo(
-            name="gemini-test",
+            name="Gemini-Test",
             provider=Provider.GOOGLE,
             context_window=None,
             max_output_tokens=None,
@@ -242,7 +381,9 @@ async def test_attach_media_rejects_unsupported_mime_for_model(tmp_path: Path) -
     assert result.isError is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
-    assert "does not support embedded attachments with MIME type 'image/png'" in result.content[0].text
+    assert (
+        "does not support embedded attachments with MIME type 'image/png'" in result.content[0].text
+    )
 
 
 @pytest.mark.asyncio
@@ -264,6 +405,27 @@ async def test_attach_media_rejects_oversized_local_file(tmp_path: Path) -> None
     assert "maximum inline attachment size" in result.content[0].text
 
 
+def test_attach_media_rejects_boolean_size_limits(tmp_path: Path) -> None:
+    image_path = tmp_path / "pixel.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    with pytest.raises(ValueError, match="integer greater than or equal to 1"):
+        LocalFilesystemRuntime(
+            logging.getLogger("local-filesystem-runtime-test"),
+            enable_attach_media="on",
+            attach_media_max_bytes=True,
+            model_info=_model_info("image/png"),
+        )
+
+    with pytest.raises(ValueError, match="integer greater than or equal to 1"):
+        attach_media.build_attach_media(
+            str(image_path),
+            base_directory=tmp_path,
+            model_info=_model_info("image/png"),
+            max_bytes=False,
+        )
+
+
 @pytest.mark.asyncio
 async def test_attach_media_rejects_internal_resource_uri() -> None:
     runtime = LocalFilesystemRuntime(
@@ -278,6 +440,36 @@ async def test_attach_media_rejects_internal_resource_uri() -> None:
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "use get_resource" in result.content[0].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "expected_error"),
+    [
+        (None, "Error: arguments must be a dict"),
+        ({}, "Error: 'source' argument is required and must be a string"),
+        ({"source": "   "}, "Error: 'source' argument is required and must be a string"),
+        ({"source": "x", "mime_type": 1}, "Error: 'mime_type' must be a string"),
+        ({"source": "x", "name": 1}, "Error: 'name' must be a string"),
+        ({"source": "x", "description": 1}, "Error: 'description' must be a string"),
+    ],
+)
+async def test_attach_media_rejects_invalid_arguments(
+    arguments: dict[str, object] | None,
+    expected_error: str,
+) -> None:
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        model_info=_model_info("image/png"),
+    )
+
+    result = await runtime.attach_media(arguments)
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == expected_error
 
 
 def test_set_enabled_tools_preserves_edit_file_flag_when_omitted() -> None:
@@ -345,6 +537,18 @@ async def test_read_text_file_rejects_boolean_line_or_limit(
 
 
 @pytest.mark.asyncio
+async def test_read_text_file_rejects_whitespace_only_path() -> None:
+    runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
+
+    result = await runtime.read_text_file({"path": "   "})
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "Error: 'path' argument is required and must be a string"
+
+
+@pytest.mark.asyncio
 async def test_read_text_file_resolves_relative_paths_from_working_directory(
     tmp_path: Path,
 ) -> None:
@@ -366,6 +570,26 @@ async def test_read_text_file_resolves_relative_paths_from_working_directory(
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "relative content"
+
+
+@pytest.mark.asyncio
+async def test_read_text_file_reports_stable_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
+
+    def deny_read(self: Path, *args, **kwargs) -> str:
+        del self, args, kwargs
+        raise PermissionError("blocked")
+
+    monkeypatch.setattr(Path, "read_text", deny_read)
+
+    result = await runtime.read_text_file({"path": "secret.txt"})
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "Permission denied for file: secret.txt."
 
 
 @pytest.mark.asyncio
@@ -420,6 +644,7 @@ async def test_write_text_file_invalid_args_returns_error() -> None:
         await runtime.write_text_file(None),
         await runtime.write_text_file({"path": "file.txt"}),
         await runtime.write_text_file({"path": "", "content": "x"}),
+        await runtime.write_text_file({"path": "   ", "content": "x"}),
         await runtime.write_text_file({"path": "file.txt", "content": 123}),
     ]
 
@@ -452,15 +677,35 @@ async def test_write_text_file_resolves_relative_paths_from_working_directory(
     assert output_file.read_text(encoding="utf-8") == "relative write"
 
 
+@pytest.mark.asyncio
+async def test_write_text_file_reports_stable_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
+
+    def deny_write(self: Path, *args, **kwargs) -> int:
+        del self, args, kwargs
+        raise PermissionError("blocked")
+
+    monkeypatch.setattr(Path, "write_text", deny_write)
+
+    result = await runtime.write_text_file({"path": "secret.txt", "content": "x"})
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "Permission denied for file: secret.txt."
+
+
 def test_apply_patch_tool_schema_uses_input_field() -> None:
     runtime = LocalFilesystemRuntime(
         logging.getLogger("local-filesystem-runtime-test"),
         enable_apply_patch=True,
     )
 
-    tool = _tool_by_name(runtime, "apply_patch")
+    tool = _tool_by_name(runtime, APPLY_PATCH_TOOL_NAME)
     assert tool is not None
-    assert tool.name == "apply_patch"
+    assert tool.name == APPLY_PATCH_TOOL_NAME
     assert tool.inputSchema == {
         "type": "object",
         "properties": {
@@ -497,13 +742,7 @@ async def test_apply_patch_updates_file_relative_to_working_directory(tmp_path: 
     )
 
     patch_text = (
-        "*** Begin Patch\n"
-        "*** Update File: notes.txt\n"
-        "@@\n"
-        "-one\n"
-        "+ONE\n"
-        " two\n"
-        "*** End Patch\n"
+        "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
     )
     result = await runtime.apply_patch({"input": patch_text})
 
@@ -568,3 +807,19 @@ def test_attach_media_tool_description_conditional() -> None:
     assert openai_tool is not None
     assert "Gemini YouTube links" not in openai_tool.description
 
+    gemini_named_runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        model_info=ModelInfo(
+            name="Gemini-Compatible",
+            provider=Provider.OPENAI,
+            context_window=None,
+            max_output_tokens=None,
+            tokenizes=["image/png"],
+            json_mode=None,
+            reasoning=None,
+        ),
+    )
+    gemini_named_tool = _tool_by_name(gemini_named_runtime, "attach_media")
+    assert gemini_named_tool is not None
+    assert "Gemini YouTube links" in gemini_named_tool.description

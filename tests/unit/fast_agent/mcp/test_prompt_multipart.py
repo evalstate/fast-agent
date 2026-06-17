@@ -164,7 +164,7 @@ def test_load_markdown_prompt_applies_template_arguments(tmp_path):
 
 
 def test_load_json_prompt_applies_text_template_arguments(tmp_path):
-    prompt_path = tmp_path / "prompt.json"
+    prompt_path = tmp_path / "prompt.JSON"
     prompt_path.write_text(
         """
 {

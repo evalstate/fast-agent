@@ -2,15 +2,29 @@ import io
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from click.utils import strip_ansi
 from rich.console import Console
 
 from fast_agent.mcp.mcp_aggregator import ServerStatus
+from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp.transport_tracking import ChannelSnapshot, TransportSnapshot
 from fast_agent.ui import console
 from fast_agent.ui.mcp_display import (
-    _format_experimental_session_status,
+    SYMBOL_NOTIFICATION,
+    SYMBOL_REQUEST,
+    SYMBOL_RESPONSE,
+    SYMBOL_STDIO_ACTIVITY,
+    Colours,
+    _capability_token_style,
+    _channel_arrow_style,
+    _elicitation_capability_state,
+    _format_compact_duration,
+    _format_timeline_label,
     _get_health_state,
     _render_channel_summary,
+    _sampling_capability_state,
+    _skybridge_capability_state,
+    _timeline_symbol_for_state,
     render_mcp_status,
 )
 
@@ -40,58 +54,140 @@ def test_health_state_marks_stale_when_last_ping_exceeds_window():
         ping_last_ok_at=now - timedelta(seconds=16),
     )
 
-    state, _style = _get_health_state(status)
+    state = _get_health_state(status)
 
-    assert state == "stale"
-
-
-def test_experimental_session_status_not_advertised_when_disabled() -> None:
-    status = ServerStatus(server_name="test", experimental_session_supported=False)
-
-    rendered = _format_experimental_session_status(status)
-
-    assert rendered.plain == "not advertised"
+    assert state.label == "stale"
 
 
-def test_experimental_session_status_shows_created_to_expiry_range() -> None:
-    created_iso = "2026-02-24T10:00:00+00:00"
-    expiry_iso = "2026-02-24T12:34:56.000000+00:00"
+def test_health_state_uses_newer_failed_ping_when_ok_ping_is_older():
+    now = datetime.now(timezone.utc)
     status = ServerStatus(
         server_name="test",
-        experimental_session_supported=True,
-        session_cookie={
-            "sessionId": "sess-cookie-id-1234567890abcdefghijklmnop",
-            "created": created_iso,
-            "expiresAt": expiry_iso,
-        },
+        is_connected=True,
+        ping_interval_seconds=5,
+        ping_max_missed=3,
+        ping_consecutive_failures=1,
+        ping_last_ok_at=now - timedelta(seconds=60),
+        ping_last_fail_at=now - timedelta(seconds=2),
     )
 
-    rendered = _format_experimental_session_status(status)
-    expected_created = datetime.fromisoformat(created_iso).astimezone().strftime("%d/%m/%y %H:%M")
-    expected_expiry = datetime.fromisoformat(expiry_iso).astimezone().strftime("%d/%m/%y %H:%M")
+    state = _get_health_state(status)
 
-    assert rendered.plain.startswith("sess-cookie-id")
-    assert "(" in rendered.plain and ")" in rendered.plain
-    assert " → " in rendered.plain
-    assert expected_created in rendered.plain
-    assert expected_expiry in rendered.plain
-    assert "T12:34:56" not in rendered.plain
-    assert "..." in rendered.plain
+    assert state.label == "missed"
 
 
-def test_experimental_session_status_uses_session_id_field() -> None:
+def test_health_state_uses_newer_ok_ping_when_failed_ping_is_older():
+    now = datetime.now(timezone.utc)
     status = ServerStatus(
         server_name="test",
-        experimental_session_supported=True,
-        session_cookie={
-            "sessionId": "sess-new-format-1234567890",
-            "expiresAt": "2026-02-24T12:34:56.000000+00:00",
-        },
+        is_connected=True,
+        ping_interval_seconds=5,
+        ping_max_missed=3,
+        ping_consecutive_failures=0,
+        ping_last_ok_at=now - timedelta(seconds=2),
+        ping_last_fail_at=now - timedelta(seconds=60),
     )
 
-    rendered = _format_experimental_session_status(status)
+    state = _get_health_state(status)
 
-    assert "sess-new-format" in rendered.plain
+    assert state.label == "ok"
+
+
+def test_format_compact_duration_omits_missing_and_non_finite_values() -> None:
+    assert _format_compact_duration(None) is None
+    assert _format_compact_duration(float("nan")) is None
+    assert _format_compact_duration(float("inf")) is None
+
+
+def test_format_compact_duration_formats_positive_values() -> None:
+    assert _format_compact_duration(0.5) == "<1s"
+    assert _format_compact_duration(65) == "1m05s"
+    assert _format_compact_duration(3700) == "1h01m"
+
+
+@pytest.mark.parametrize(
+    ("total_seconds", "expected"),
+    [
+        (0, "0s"),
+        (-5, "0s"),
+        (5, "5s"),
+        (60, "1m"),
+        (65, "1m05s"),
+        (3600, "1h"),
+        (3660, "1h01m"),
+        (86400, "1d"),
+        (90000, "1d1h"),
+        (86400 + 59 * 60, "1d"),
+    ],
+)
+def test_format_timeline_label_uses_largest_two_units(
+    total_seconds: int,
+    expected: str,
+) -> None:
+    assert _format_timeline_label(total_seconds) == expected
+
+
+def test_skybridge_capability_state_returns_false_when_config_disabled() -> None:
+    status = ServerStatus(
+        server_name="test",
+        skybridge=SkybridgeServerConfig(server_name="test"),
+    )
+
+    assert _skybridge_capability_state(status) is False
+
+
+def test_capability_mode_states_are_normalized() -> None:
+    assert _elicitation_capability_state(None) is False
+    assert _elicitation_capability_state(" NONE ") is False
+    assert _elicitation_capability_state(" Auto-Cancel ") == "red"
+    assert _elicitation_capability_state("forms") is True
+
+    assert _sampling_capability_state(None) is False
+    assert _sampling_capability_state(" AUTO ") is True
+    assert _sampling_capability_state(" Configured ") == "blue"
+    assert _sampling_capability_state("disabled") is False
+
+
+def test_capability_token_style_maps_special_states_and_fallbacks() -> None:
+    assert _capability_token_style("red", highlighted=False) == Colours.TOKEN_ERROR
+    assert _capability_token_style("blue", highlighted=False) == Colours.TOKEN_WARNING
+    assert _capability_token_style("warn", highlighted=False) == Colours.CAP_TOKEN_CAUTION
+    assert _capability_token_style(False, highlighted=True) == Colours.TOKEN_DISABLED
+    assert _capability_token_style(True, highlighted=True) == Colours.CAP_TOKEN_HIGHLIGHTED
+    assert _capability_token_style(True, highlighted=False) == Colours.CAP_TOKEN_ENABLED
+
+
+def test_timeline_symbol_for_state_uses_stdio_fallback_after_special_states() -> None:
+    assert _timeline_symbol_for_state("request") == SYMBOL_REQUEST
+    assert _timeline_symbol_for_state("notification") == SYMBOL_NOTIFICATION
+    assert _timeline_symbol_for_state("response") == SYMBOL_RESPONSE
+    assert _timeline_symbol_for_state("request", is_stdio=True) == SYMBOL_STDIO_ACTIVITY
+    assert _timeline_symbol_for_state("response", is_stdio=True) == SYMBOL_STDIO_ACTIVITY
+
+
+@pytest.mark.parametrize(
+    ("channel", "expected_style"),
+    [
+        (None, Colours.ARROW_OFF),
+        (ChannelSnapshot(state="open", last_status_code=405), Colours.ARROW_METHOD_NOT_ALLOWED),
+        (ChannelSnapshot(state=" ERROR "), Colours.ARROW_ERROR),
+        (ChannelSnapshot(state=" DISABLED "), Colours.ARROW_OFF),
+        (ChannelSnapshot(state="open"), Colours.ARROW_IDLE),
+        (
+            ChannelSnapshot(state=" CONNECTED ", request_count=1, response_count=1),
+            Colours.ARROW_ACTIVE,
+        ),
+        (
+            ChannelSnapshot(state="closing", request_count=1, response_count=1),
+            Colours.ARROW_IDLE,
+        ),
+    ],
+)
+def test_channel_arrow_style_preserves_status_precedence(
+    channel: ChannelSnapshot | None,
+    expected_style: str,
+) -> None:
+    assert _channel_arrow_style(channel) == expected_style
 
 
 def test_render_channel_summary_shows_health_row_and_errors() -> None:
@@ -144,6 +240,34 @@ def test_render_channel_summary_shows_health_row_and_errors() -> None:
     assert "legend:" in output
 
 
+def test_render_channel_summary_uses_legacy_post_channel() -> None:
+    status = ServerStatus(
+        server_name="demo",
+        transport="http",
+        transport_channels=TransportSnapshot(
+            post=ChannelSnapshot(
+                state="error",
+                last_status_code=502,
+                last_error="bad gateway",
+                request_count=1,
+                response_count=0,
+            ),
+        ),
+    )
+
+    original_console = _set_console_size()
+    try:
+        with console.console.capture() as capture:
+            _render_channel_summary(status, indent="  ", total_width=100)
+        output = capture.get()
+    finally:
+        _restore_console_size(original_console)
+
+    assert "HTTP" in output
+    assert "POST (JSON)" in output
+    assert "bad gateway (502)" in output
+
+
 class _FakeConfig:
     def __init__(self, instruction: str) -> None:
         self.instruction = instruction
@@ -176,7 +300,6 @@ async def test_render_mcp_status_renders_server_details_and_calls() -> None:
                 reconnect_count=1,
                 instructions_available=True,
                 instructions_enabled=True,
-                experimental_session_supported=True,
                 ping_interval_seconds=30,
                 ping_ok_count=2,
                 ping_last_ok_at=now - timedelta(seconds=10),
@@ -213,6 +336,54 @@ async def test_render_mcp_status_renders_server_details_and_calls() -> None:
     assert "reconnects:" in output
     assert "STDIO" in output
     assert "session" in output
+
+
+@pytest.mark.asyncio
+async def test_render_mcp_status_shows_skills_hint_above_capability_bar() -> None:
+    agent = _FakeAgent(
+        {
+            "skills-server": ServerStatus(
+                server_name="skills-server",
+                is_connected=True,
+                staleness_seconds=202,
+                transport="stdio",
+                mcp_skills_enabled=True,
+                transport_channels=TransportSnapshot(
+                    activity_bucket_seconds=30,
+                    activity_bucket_count=4,
+                    stdio=ChannelSnapshot(
+                        state="connected",
+                        message_count=1,
+                        request_count=1,
+                        response_count=1,
+                        notification_count=0,
+                        activity_buckets=["request", "response"],
+                    ),
+                ),
+            )
+        },
+        instruction="",
+    )
+
+    original_console = _set_console_size(width=120)
+    try:
+        with console.console.capture() as capture:
+            await render_mcp_status(agent, indent="  ")
+        output = strip_ansi(capture.get())
+    finally:
+        _restore_console_size(original_console)
+
+    assert "last activity:" in output
+    assert "last activity:" in output and "SEP-2640" in output
+    assert "last activity:" not in next(line for line in output.splitlines() if "SEP-2640" in line)
+
+    lines = output.splitlines()
+    transport_index = next(index for index, line in enumerate(lines) if "STDIO" in line)
+    skills_index = next(index for index, line in enumerate(lines) if "SEP-2640" in line)
+    capability_index = next(index for index, line in enumerate(lines) if "─| " in line)
+
+    assert transport_index < skills_index < capability_index
+    assert " Sk " in lines[capability_index] or " Sk" in lines[capability_index]
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -14,6 +15,7 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import (
     SessionManager,
     apply_session_window,
+    get_session_history_window,
     get_session_manager,
     load_session_snapshot,
     reset_session_manager,
@@ -96,6 +98,22 @@ def test_prune_sessions_skips_pinned(tmp_path) -> None:
         reset_session_manager()
 
 
+def test_session_history_window_rejects_boolean_config(tmp_path) -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "environment_dir": str(tmp_path / "env"),
+            "session_history_window": True,
+        }
+    )
+    update_global_settings(override)
+
+    try:
+        assert get_session_history_window() == 20
+    finally:
+        update_global_settings(old_settings)
+
+
 def test_get_session_manager_resolves_relative_environment_dir_without_mutating_env(
     tmp_path,
 ) -> None:
@@ -152,6 +170,29 @@ def test_get_session_manager_refreshes_workspace_dir_for_shared_environment(tmp_
             os.environ["ENVIRONMENT_DIR"] = original_env
 
 
+@pytest.mark.asyncio
+async def test_save_history_preview_skips_empty_first_user_message(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = _Agent(
+        name="main",
+        instruction="Stored prompt",
+        history=[
+            _message("user", "   "),
+            _message("user", "actual prompt"),
+            _message("assistant", "done"),
+        ],
+    )
+
+    await session.save_history(cast("AgentProtocol", agent))
+
+    assert session.info.metadata["first_user_preview"] == "actual prompt"
+
+
 def test_apply_session_window_appends_pinned_overflow(tmp_path) -> None:
     old_settings = get_settings()
     env_dir = tmp_path / "env"
@@ -203,6 +244,52 @@ def test_resolve_session_name_ordinal_includes_pinned_overflow(tmp_path) -> None
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
+
+
+def test_resolve_session_name_strips_user_input(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    first = manager.create_session()
+    second = manager.create_session()
+
+    assert manager.resolve_session_name("  ") is None
+    assert manager.resolve_session_name(" 1 ") == second.info.name
+    assert manager.resolve_session_name(f" {first.info.name} ") == first.info.name
+
+
+def test_delete_session_rejects_path_like_name(tmp_path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=env_dir,
+        respect_env_override=False,
+    )
+    sibling_dir = env_dir / "agent-cards"
+    sibling_dir.mkdir(parents=True)
+    (sibling_dir / "support.md").write_text("---\ntype: agent\n---\n", encoding="utf-8")
+
+    assert manager.delete_session("../agent-cards") is False
+    assert sibling_dir.is_dir()
+    assert (sibling_dir / "support.md").exists()
+
+
+def test_create_and_delete_session_with_id_share_path_like_id_rules(tmp_path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=env_dir,
+        respect_env_override=False,
+    )
+
+    session = manager.create_session_with_id("../agent-cards")
+
+    assert session.info.name != "../agent-cards"
+    assert pathlib.Path(session.info.name).name == session.info.name
+    assert manager.delete_session("../agent-cards") is False
+    assert (env_dir / "sessions" / session.info.name).is_dir()
 
 
 def test_load_session_marks_loaded_session_as_latest(tmp_path) -> None:

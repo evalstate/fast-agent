@@ -1,11 +1,5 @@
+from importlib import import_module
 from typing import Any
-
-try:
-    from azure.identity import (  # ty: ignore[unresolved-import]
-        DefaultAzureCredential as _DefaultAzureCredential,
-    )
-except ImportError:
-    _DefaultAzureCredential = None
 
 from openai import AsyncAzureOpenAI, AsyncOpenAI, AuthenticationError
 
@@ -13,7 +7,16 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 
-DefaultAzureCredential: type[Any] | None = _DefaultAzureCredential
+
+def _load_default_azure_credential() -> type[Any] | None:
+    try:
+        azure_identity = import_module("azure.identity")
+    except ImportError:
+        return None
+    return getattr(azure_identity, "DefaultAzureCredential")
+
+
+DefaultAzureCredential: type[Any] | None = _load_default_azure_credential()
 
 
 def _extract_resource_name(url: str) -> str | None:
@@ -147,27 +150,26 @@ class AzureOpenAILLM(OpenAILLM):
                     api_version=self.api_version,
                     azure_deployment=self.deployment_name,
                 )
-            else:
-                if self.base_url is None:
-                    raise ProviderKeyError(
-                        "Missing Azure endpoint",
-                        "azure_endpoint (base_url) is None at client creation time.",
-                    )
-                default_headers = self._default_headers()
-                if default_headers:
-                    return AsyncAzureOpenAI(
-                        api_key=self.api_key,
-                        azure_endpoint=self.base_url,
-                        api_version=self.api_version,
-                        azure_deployment=self.deployment_name,
-                        default_headers=default_headers,
-                    )
+            if self.base_url is None:
+                raise ProviderKeyError(
+                    "Missing Azure endpoint",
+                    "azure_endpoint (base_url) is None at client creation time.",
+                )
+            default_headers = self._default_headers()
+            if default_headers:
                 return AsyncAzureOpenAI(
                     api_key=self.api_key,
                     azure_endpoint=self.base_url,
                     api_version=self.api_version,
                     azure_deployment=self.deployment_name,
+                    default_headers=default_headers,
                 )
+            return AsyncAzureOpenAI(
+                api_key=self.api_key,
+                azure_endpoint=self.base_url,
+                api_version=self.api_version,
+                azure_deployment=self.deployment_name,
+            )
         except AuthenticationError as e:
             if self.use_default_cred:
                 raise ProviderKeyError(
@@ -175,9 +177,8 @@ class AzureOpenAILLM(OpenAILLM):
                     "The configured Azure AD credentials were rejected.\n"
                     "Please check your Azure identity setup.",
                 ) from e
-            else:
-                raise ProviderKeyError(
-                    "Invalid Azure OpenAI API key",
-                    "The configured Azure OpenAI API key was rejected.\n"
-                    "Please check that your API key is valid and not expired.",
-                ) from e
+            raise ProviderKeyError(
+                "Invalid Azure OpenAI API key",
+                "The configured Azure OpenAI API key was rejected.\n"
+                "Please check that your API key is valid and not expired.",
+            ) from e

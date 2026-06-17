@@ -14,14 +14,27 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_chunk as _save_stream_chunk,
 )
+from fast_agent.llm.provider.openai.responses_events import (
+    is_responses_reasoning_delta_event,
+    is_responses_terminal_event,
+    is_responses_text_delta_event,
+)
 from fast_agent.llm.provider.openai.streaming_utils import fetch_and_finalize_stream_response
 from fast_agent.llm.provider.openai.tool_event_helpers import (
+    ResponsesLifecycleEventInfo,
+    ToolStreamLifecycleEvent,
     fallback_tool_spec,
     item_is_responses_tool,
+    item_type_is_responses_function_tool_call,
+    responses_event_item_id,
+    responses_item_tool_use_id,
+    responses_item_type,
+    responses_lifecycle_event_info,
     responses_tool_name,
     responses_tool_use_id,
     tool_event_payload,
     tool_family_for_item_type,
+    tool_stream_log_record,
 )
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.openai.tool_stream_state import OpenAIToolStreamState
@@ -38,19 +51,18 @@ from fast_agent.utils.reasoning_chunk_join import (
 
 _logger = get_logger(__name__)
 
-_TOOL_START_EVENT_TYPES = {
-    "response.web_search_call.in_progress",
-    "response.web_search_call.searching",
-    "response.mcp_list_tools.in_progress",
-    "response.mcp_call.in_progress",
+_ARGUMENT_DELTA_EVENT_TYPES = {
+    "response.function_call_arguments.delta",
+    "response.custom_tool_call_input.delta",
+    "response.mcp_call_arguments.delta",
 }
-_TOOL_STOP_EVENT_TYPES = {
-    "response.web_search_call.completed",
-    "response.web_search_call.failed",
-    "response.mcp_list_tools.completed",
-    "response.mcp_list_tools.failed",
-    "response.mcp_call.completed",
-    "response.mcp_call.failed",
+type _ResponsesToolKind = Literal["tool", "server_tool", "web_search"]
+_DEFAULT_TOOL_KIND: _ResponsesToolKind = "tool"
+_TOOL_KIND_BY_ACTIVITY_FAMILY: dict[ToolActivityFamily, _ResponsesToolKind] = {
+    "web_search": "web_search",
+    "remote_tool": "server_tool",
+    "remote_tool_listing": "server_tool",
+    "remote_tool_search": "server_tool",
 }
 
 
@@ -58,12 +70,9 @@ def _preview_json_like(value: Any) -> str | None:
     normalized = snapshot_json_value(value)
     if normalized is None:
         return None
-    if normalized == {} or normalized == []:
+    if normalized in ({}, []):
         return None
-    if isinstance(normalized, str):
-        preview = normalized.strip()
-    else:
-        preview = json.dumps(normalized)
+    preview = normalized.strip() if isinstance(normalized, str) else json.dumps(normalized)
     if not preview:
         return None
     if len(preview) > 120:
@@ -80,7 +89,7 @@ def _tool_search_arguments_chunk(arguments: Any) -> str | None:
 
 
 def _tool_progress_chunk(item: Any, *, family: ToolActivityFamily) -> str | None:
-    item_type = getattr(item, "type", None)
+    item_type = responses_item_type(item)
     if item_type == "tool_search_call":
         return _tool_search_arguments_chunk(getattr(item, "arguments", None)) or (
             tool_activity_status_text(family=family, status="in_progress")
@@ -124,6 +133,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         def chat_turn(self) -> int: ...
 
     def _is_provider_managed_function_call(self, name: str) -> bool:
+        del name
         return False
 
     def _tool_family_for_responses_item(
@@ -145,11 +155,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             item_type=item_type,
             tool_name=tool_name,
         )
-        if family == "web_search":
-            return "web_search"
-        if family in {"remote_tool", "remote_tool_listing", "remote_tool_search"}:
-            return "server_tool"
-        return "tool"
+        return _TOOL_KIND_BY_ACTIVITY_FAMILY.get(family, _DEFAULT_TOOL_KIND)
 
     def _log_tool_stream_event(
         self,
@@ -157,24 +163,29 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         model: str,
         tool_name: str | None,
         tool_use_id: str | None,
-        event_type: Literal["start", "stop"],
+        event_type: ToolStreamLifecycleEvent,
     ) -> None:
-        message = (
-            "Model started streaming tool call"
-            if event_type == "start"
-            else "Model finished streaming tool call"
+        message, data = tool_stream_log_record(
+            agent_name=self.name,
+            model=model,
+            tool_name=tool_name,
+            tool_use_id=tool_use_id,
+            event_type=event_type,
         )
-        data: dict[str, Any] = {
-            "progress_action": ProgressAction.CALLING_TOOL,
-            "agent_name": self.name,
-            "model": model,
-            "tool_name": tool_name,
-            "tool_use_id": tool_use_id,
-            "tool_event": event_type,
-        }
-        if event_type == "stop":
-            data["tool_terminal"] = True
         self.logger.info(message, data=data)
+
+    @staticmethod
+    def _mark_responses_tool_notified(
+        *,
+        notified_tool_indices: set[int],
+        notified_tool_use_ids: set[str] | None,
+        index: int | None,
+        tool_use_id: str | None,
+    ) -> None:
+        if index is not None and index >= 0:
+            notified_tool_indices.add(index)
+        if notified_tool_use_ids is not None and tool_use_id:
+            notified_tool_use_ids.add(tool_use_id)
 
     def _handle_responses_output_item_added(
         self,
@@ -183,26 +194,26 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         tool_state: OpenAIToolStreamState,
         notified_tool_indices: set[int],
         model: str,
+        notified_tool_use_ids: set[str] | None = None,
     ) -> bool:
         item = getattr(event, "item", None)
         if not item_is_responses_tool(item):
             return False
-        item_type = getattr(item, "type", None) or "tool"
+        item_type = responses_item_type(item) or "tool"
         tool_name = responses_tool_name(item)
 
         index = getattr(event, "output_index", None)
-        if index is None:
-            return True
+        item_id = responses_event_item_id(event, item)
 
         tool_info = tool_state.register(
             tool_use_id=responses_tool_use_id(
                 item,
                 index,
-                getattr(event, "item_id", None),
+                item_id,
             ),
             name=tool_name,
             index=index,
-            item_id=getattr(event, "item_id", None),
+            item_id=item_id,
             item_type=item_type,
             kind=self._tool_kind_for_responses_item(
                 item_type=item_type,
@@ -227,11 +238,13 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         payload = tool_event_payload(
             tool_name=tool_info.tool_name,
             tool_use_id=tool_info.tool_use_id,
-            index=index,
+            index=index if index is not None else -1,
             family=family,
             phase="call",
             chunk=display_chunk,
         )
+        if index is None:
+            payload["index"] = None
         payload["tool_display_name"] = display_name
         self._notify_tool_stream_listeners("start", payload)
         self._log_tool_stream_event(
@@ -241,7 +254,12 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             event_type="start",
         )
         tool_info.start_notified = True
-        notified_tool_indices.add(index)
+        self._mark_responses_tool_notified(
+            notified_tool_indices=notified_tool_indices,
+            notified_tool_use_ids=notified_tool_use_ids,
+            index=index,
+            tool_use_id=tool_info.tool_use_id,
+        )
         return True
 
     def _handle_responses_argument_delta(
@@ -251,10 +269,8 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         tool_state: OpenAIToolStreamState,
     ) -> bool:
         index = getattr(event, "output_index", None)
-        if index is None:
-            return True
-
-        tool_info = tool_state.resolve_open(index=index)
+        item_id = responses_event_item_id(event)
+        tool_info = tool_state.resolve_open(index=index, item_id=item_id)
         if tool_info is not None and tool_info.item_type == "mcp_call":
             event_name = (
                 "replace"
@@ -272,14 +288,16 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             payload = {
                 "tool_name": None,
                 "tool_use_id": None,
-                "index": index,
+                "index": index if index is not None else -1,
                 "chunk": getattr(event, "delta", None),
             }
+            if index is None:
+                payload["index"] = None
         else:
             payload = tool_event_payload(
                 tool_name=tool_info.tool_name,
                 tool_use_id=tool_info.tool_use_id,
-                index=index,
+                index=index if index is not None else -1,
                 family=self._tool_family_for_responses_item(
                     item_type=tool_info.item_type,
                     tool_name=tool_info.tool_name,
@@ -287,13 +305,15 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 phase="call",
                 chunk=getattr(event, "delta", None),
             )
+            if index is None:
+                payload["index"] = None
         self._notify_tool_stream_listeners(event_name, payload)
         return True
 
     def _resolve_lifecycle_tool_info(
         self,
         *,
-        event_type: str,
+        event_info: ResponsesLifecycleEventInfo,
         event_index: int | None,
         event_item_id: str | None,
         tool_state: OpenAIToolStreamState,
@@ -305,25 +325,15 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             return None
 
         fallback_index = event_index if event_index is not None else -1
-        if "web_search_call" in event_type:
-            fallback_name = "web_search"
-            fallback_item_type = "web_search_call"
-        elif "mcp_list_tools" in event_type:
-            fallback_name = "mcp_list_tools"
-            fallback_item_type = "mcp_list_tools"
-        else:
-            fallback_name = "mcp_call"
-            fallback_item_type = "mcp_call"
-
         return tool_state.register(
-            tool_use_id=event_item_id or f"{fallback_name}-{fallback_index}",
-            name=fallback_name,
+            tool_use_id=event_item_id or f"{event_info.tool_name}-{fallback_index}",
+            name=event_info.tool_name,
             index=fallback_index,
             item_id=event_item_id,
-            item_type=fallback_item_type,
+            item_type=event_info.item_type,
             kind=self._tool_kind_for_responses_item(
-                item_type=fallback_item_type,
-                tool_name=fallback_name,
+                item_type=event_info.item_type,
+                tool_name=event_info.tool_name,
             ),
         )
 
@@ -331,15 +341,16 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         self,
         *,
         event: Any,
-        event_type: str,
+        event_info: ResponsesLifecycleEventInfo,
         tool_state: OpenAIToolStreamState,
         notified_tool_indices: set[int],
         model: str,
+        notified_tool_use_ids: set[str] | None = None,
     ) -> bool:
         event_index = getattr(event, "output_index", None)
-        event_item_id = getattr(event, "item_id", None)
+        event_item_id = responses_event_item_id(event)
         tool_info = self._resolve_lifecycle_tool_info(
-            event_type=event_type,
+            event_info=event_info,
             event_index=event_index,
             event_item_id=event_item_id,
             tool_state=tool_state,
@@ -349,8 +360,8 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
         index = tool_info.index if tool_info.index is not None else -1
         tool_use_id = tool_info.tool_use_id
-        tool_name = tool_info.tool_name or "web_search"
-        status = event_type.rsplit(".", 1)[-1]
+        tool_name = tool_info.tool_name or event_info.tool_name
+        status = event_info.status
         family = self._tool_family_for_responses_item(
             item_type=tool_info.item_type,
             tool_name=tool_name,
@@ -366,7 +377,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         )
         self._notify_tool_stream_listeners("status", payload)
 
-        if event_type in _TOOL_START_EVENT_TYPES and not tool_info.start_notified:
+        if event_info.lifecycle == "start" and not tool_info.start_notified:
             self._notify_tool_stream_listeners("start", payload)
             self._log_tool_stream_event(
                 model=model,
@@ -375,10 +386,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 event_type="start",
             )
             tool_info.start_notified = True
-            if index >= 0:
-                notified_tool_indices.add(index)
+            self._mark_responses_tool_notified(
+                notified_tool_indices=notified_tool_indices,
+                notified_tool_use_ids=notified_tool_use_ids,
+                index=index,
+                tool_use_id=tool_use_id,
+            )
 
-        if event_type not in _TOOL_STOP_EVENT_TYPES:
+        if event_info.lifecycle != "stop":
             return True
 
         if tool_info.item_type == "mcp_call":
@@ -399,6 +414,12 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         )
         tool_info.stop_notified = True
         tool_state.close(index=index, tool_use_id=tool_use_id, item_id=event_item_id)
+        self._mark_responses_tool_notified(
+            notified_tool_indices=notified_tool_indices,
+            notified_tool_use_ids=notified_tool_use_ids,
+            index=index,
+            tool_use_id=tool_use_id,
+        )
         return True
 
     def _handle_responses_output_item_done(
@@ -408,14 +429,15 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         tool_state: OpenAIToolStreamState,
         notified_tool_indices: set[int],
         model: str,
+        notified_tool_use_ids: set[str] | None = None,
     ) -> bool:
         item = getattr(event, "item", None)
         if not item_is_responses_tool(item):
             return False
 
         index = getattr(event, "output_index", None)
-        item_id = getattr(event, "item_id", None) or getattr(item, "id", None)
-        tool_use_id = getattr(item, "call_id", None) or getattr(item, "id", None)
+        item_id = responses_event_item_id(event, item)
+        tool_use_id = responses_item_tool_use_id(item)
         tool_info = tool_state.resolve(
             index=index,
             tool_use_id=tool_use_id,
@@ -426,11 +448,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             tool_use_id=tool_use_id,
             item_id=item_id,
         )
-        tool_info = tool_state.close(
-            index=index,
-            tool_use_id=tool_use_id,
-            item_id=item_id,
-        ) or tool_info
+        tool_info = (
+            tool_state.close(
+                index=index,
+                tool_use_id=tool_use_id,
+                item_id=item_id,
+            )
+            or tool_info
+        )
         if tool_info is None and tool_state.is_completed(
             index=index,
             tool_use_id=tool_use_id,
@@ -444,7 +469,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         tool_use_id = tool_use_id or tool_info.tool_use_id
         if index is None:
             index = tool_info.index if tool_info.index is not None else -1
-        item_type = tool_info.item_type if tool_info else getattr(item, "type", None)
+        item_type = tool_info.item_type if tool_info else responses_item_type(item)
         family = self._tool_family_for_responses_item(
             item_type=item_type if isinstance(item_type, str) else None,
             tool_name=tool_name,
@@ -490,9 +515,95 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             event_type="stop",
         )
         tool_info.stop_notified = True
-        if index >= 0:
-            notified_tool_indices.add(index)
+        self._mark_responses_tool_notified(
+            notified_tool_indices=notified_tool_indices,
+            notified_tool_use_ids=notified_tool_use_ids,
+            index=index,
+            tool_use_id=tool_use_id,
+        )
         return True
+
+    async def _handle_responses_reasoning_delta(
+        self,
+        *,
+        event: Any,
+        event_type: str | None,
+        reasoning_segments: ReasoningTextAccumulator,
+        reasoning_chars: int,
+        model: str,
+    ) -> tuple[bool, int]:
+        if not isinstance(
+            event, ResponseReasoningSummaryTextDeltaEvent
+        ) and not is_responses_reasoning_delta_event(event_type):
+            return False, reasoning_chars
+
+        delta = getattr(event, "delta", None)
+        if not delta:
+            return True, reasoning_chars
+
+        normalized_delta = reasoning_segments.append(delta)
+        if not normalized_delta:
+            return True, reasoning_chars
+
+        self._notify_stream_listeners(StreamChunk(text=normalized_delta, is_reasoning=True))
+        reasoning_chars += len(normalized_delta)
+        await self._emit_streaming_progress(
+            model=f"{model} (summary)",
+            new_total=reasoning_chars,
+            type=ProgressAction.THINKING,
+        )
+        return True, reasoning_chars
+
+    def _handle_responses_tool_stream_event(
+        self,
+        *,
+        event: Any,
+        event_type: str | None,
+        tool_state: OpenAIToolStreamState,
+        notified_tool_indices: set[int],
+        notified_tool_use_ids: set[str],
+        model: str,
+    ) -> bool:
+        if event_type == "response.output_item.added":
+            self._handle_responses_output_item_added(
+                event=event,
+                tool_state=tool_state,
+                notified_tool_indices=notified_tool_indices,
+                notified_tool_use_ids=notified_tool_use_ids,
+                model=model,
+            )
+            return True
+
+        if event_type in _ARGUMENT_DELTA_EVENT_TYPES:
+            self._handle_responses_argument_delta(
+                event=event,
+                tool_state=tool_state,
+            )
+            return True
+
+        lifecycle_event_info = responses_lifecycle_event_info(event_type)
+        if lifecycle_event_info is not None:
+            self._handle_responses_tool_lifecycle_event(
+                event=event,
+                event_info=lifecycle_event_info,
+                tool_state=tool_state,
+                notified_tool_indices=notified_tool_indices,
+                notified_tool_use_ids=notified_tool_use_ids,
+                model=model,
+            )
+            return True
+
+        if event_type == "response.output_item.done":
+            self._handle_responses_output_item_done(
+                event=event,
+                tool_state=tool_state,
+                notified_tool_indices=notified_tool_indices,
+                notified_tool_use_ids=notified_tool_use_ids,
+                model=model,
+            )
+            return True
+
+        return False
 
     async def _process_stream(
         self, stream: Any, model: str, capture_filename: Path | None
@@ -502,36 +613,26 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
         tool_state = OpenAIToolStreamState()
         notified_tool_indices: set[int] = set()
+        notified_tool_use_ids: set[str] = set()
         final_response: Any | None = None
 
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
             event_type = getattr(event, "type", None)
 
-            if isinstance(event, ResponseReasoningSummaryTextDeltaEvent) or event_type in {
-                "response.reasoning_summary_text.delta",
-                "response.reasoning_summary.delta",
-            }:
-                delta = getattr(event, "delta", None)
-                if delta:
-                    normalized_delta = reasoning_segments.append(delta)
-                    if not normalized_delta:
-                        continue
-                    self._notify_stream_listeners(
-                        StreamChunk(text=normalized_delta, is_reasoning=True)
-                    )
-                    reasoning_chars += len(normalized_delta)
-                    await self._emit_streaming_progress(
-                        model=f"{model} (summary)",
-                        new_total=reasoning_chars,
-                        type=ProgressAction.THINKING,
-                    )
+            handled, reasoning_chars = await self._handle_responses_reasoning_delta(
+                event=event,
+                event_type=event_type,
+                reasoning_segments=reasoning_segments,
+                reasoning_chars=reasoning_chars,
+                model=model,
+            )
+            if handled:
                 continue
 
-            if isinstance(event, ResponseTextDeltaEvent) or event_type in {
-                "response.output_text.delta",
-                "response.text.delta",
-            }:
+            if isinstance(event, ResponseTextDeltaEvent) or is_responses_text_delta_event(
+                event_type
+            ):
                 delta = getattr(event, "delta", None)
                 if delta:
                     estimated_tokens = self._emit_stream_text_delta(
@@ -541,47 +642,31 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     )
                 continue
 
-            if event_type in {"response.completed", "response.incomplete", "response.done"}:
+            if is_responses_terminal_event(event_type):
                 final_response = getattr(event, "response", None) or final_response
                 continue
-            if event_type == "response.output_item.added":
-                self._handle_responses_output_item_added(
-                    event=event,
-                    tool_state=tool_state,
-                    notified_tool_indices=notified_tool_indices,
-                    model=model,
-                )
+            if self._handle_responses_tool_stream_event(
+                event=event,
+                event_type=event_type,
+                tool_state=tool_state,
+                notified_tool_indices=notified_tool_indices,
+                notified_tool_use_ids=notified_tool_use_ids,
+                model=model,
+            ):
                 continue
 
-            if event_type in {
-                "response.function_call_arguments.delta",
-                "response.custom_tool_call_input.delta",
-                "response.mcp_call_arguments.delta",
-            }:
-                self._handle_responses_argument_delta(
-                    event=event,
-                    tool_state=tool_state,
-                )
-                continue
-
-            if event_type in (_TOOL_START_EVENT_TYPES | _TOOL_STOP_EVENT_TYPES):
-                self._handle_responses_tool_lifecycle_event(
-                    event=event,
-                    event_type=event_type,
-                    tool_state=tool_state,
-                    notified_tool_indices=notified_tool_indices,
-                    model=model,
-                )
-                continue
-
-            if event_type == "response.output_item.done":
-                self._handle_responses_output_item_done(
-                    event=event,
-                    tool_state=tool_state,
-                    notified_tool_indices=notified_tool_indices,
-                    model=model,
-                )
-                continue
+        def emit_tool_fallback(
+            output_items: list[Any],
+            notified_indices: set[int],
+            *,
+            model: str,
+        ) -> None:
+            self._emit_tool_notification_fallback(
+                output_items,
+                notified_indices,
+                model=model,
+                notified_tool_use_ids=notified_tool_use_ids,
+            )
 
         final_response = await fetch_and_finalize_stream_response(
             stream=stream,
@@ -594,7 +679,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             chat_turn=self.chat_turn,
             logger=self.logger,
             notified_tool_indices=notified_tool_indices,
-            emit_tool_fallback=self._emit_tool_notification_fallback,
+            emit_tool_fallback=emit_tool_fallback,
         )
         self._emit_deferred_mcp_result_notifications(
             final_response=final_response,
@@ -611,16 +696,20 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         model: str,
     ) -> None:
         for index, item in enumerate(getattr(final_response, "output", []) or []):
-            if getattr(item, "type", None) != "mcp_call":
+            if responses_item_type(item) != "mcp_call":
                 continue
-            tool_use_id = getattr(item, "call_id", None) or getattr(item, "id", None)
-            item_id = getattr(item, "id", None)
+            tool_use_id = responses_item_tool_use_id(item)
+            item_id = responses_event_item_id(None, item)
             tool_info = tool_state.resolve(
                 index=index,
                 tool_use_id=tool_use_id,
                 item_id=item_id,
             )
-            if tool_info is None or not tool_info.awaiting_output_item_done or tool_info.stop_notified:
+            if (
+                tool_info is None
+                or not tool_info.awaiting_output_item_done
+                or tool_info.stop_notified
+            ):
                 continue
             tool_name = responses_tool_name(item)
             stop_payload = tool_event_payload(
@@ -655,6 +744,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         notified_indices: set[int],
         *,
         model: str,
+        notified_tool_use_ids: set[str] | None = None,
     ) -> None:
         """Emit start/stop notifications when streaming metadata was missing."""
         if not output_items:
@@ -663,23 +753,18 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         for index, item in enumerate(output_items):
             if index in notified_indices:
                 continue
-            if getattr(item, "type", None) not in {
-                "function_call",
-                "custom_tool_call",
-                "tool_search_call",
-                "web_search_call",
-                "mcp_list_tools",
-                "mcp_call",
-            }:
+            if not item_is_responses_tool(item):
                 continue
 
             tool_name, tool_use_id, family = fallback_tool_spec(item, index)
-            if getattr(item, "type", None) in {
-                "function_call",
-                "custom_tool_call",
-            } and self._is_provider_managed_function_call(tool_name):
+            if notified_tool_use_ids is not None and tool_use_id in notified_tool_use_ids:
+                continue
+            item_type = responses_item_type(item)
+            if item_type_is_responses_function_tool_call(
+                item_type
+            ) and self._is_provider_managed_function_call(tool_name):
                 family = self._tool_family_for_responses_item(
-                    item_type=getattr(item, "type", None),
+                    item_type=item_type,
                     tool_name=tool_name,
                 )
             payload = tool_event_payload(

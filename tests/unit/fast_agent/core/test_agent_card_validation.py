@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from fast_agent.core.agent_card_validation import scan_agent_card_directory, scan_agent_card_path
+from fast_agent.core.agent_card_rules import normalize_card_type
+from fast_agent.core.agent_card_validation import (
+    _instruction_texts,
+    _iter_file_placeholders,
+    _markdown_has_frontmatter,
+    scan_agent_card_directory,
+    scan_agent_card_path,
+)
 
 
 def test_scan_agent_cards_reports_invalid_history_json(tmp_path: Path) -> None:
@@ -27,13 +34,36 @@ def test_scan_agent_cards_reports_invalid_history_json(tmp_path: Path) -> None:
     assert any("Failed to parse JSON prompt file" in err for err in errors)
 
 
+def test_normalize_card_type_handles_padded_mixed_case_values() -> None:
+    assert normalize_card_type("  MaKeR  ") == "MAKER"
+    assert normalize_card_type("   ") == "agent"
+
+
+def test_instruction_texts_normalizes_instruction_and_body() -> None:
+    assert _instruction_texts("  {{file: docs/a.md }}  ", "   ") == ["{{file: docs/a.md }}"]
+    assert _instruction_texts(None, "  Use {{file: docs/b.md }}  ") == ["Use {{file: docs/b.md }}"]
+
+
+def test_iter_file_placeholders_normalizes_values() -> None:
+    assert list(_iter_file_placeholders("{{file: docs/a.md }} {{file:   }}")) == ["docs/a.md"]
+
+
+def test_markdown_has_frontmatter_normalizes_first_non_empty_line(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.md"
+    card_path.write_text("\n \t\n  ---  \nname: assistant\n", encoding="utf-8")
+
+    assert _markdown_has_frontmatter(card_path) is True
+
+
 def test_scan_agent_card_path_for_file(tmp_path: Path) -> None:
     card_path = tmp_path / "agent.yaml"
     card_path.write_text(
-        "\n".join([
-            "name: solo_agent",
-            "model: gpt-4.1",
-        ]),
+        "\n".join(
+            [
+                "name: solo_agent",
+                "model: gpt-4.1",
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -46,16 +76,36 @@ def test_scan_agent_card_path_for_file(tmp_path: Path) -> None:
 def test_scan_agent_card_path_for_directory(tmp_path: Path) -> None:
     card_path = tmp_path / "agent.yaml"
     card_path.write_text(
-        "\n".join([
-            "name: dir_agent",
-            "model: gpt-4.1",
-        ]),
+        "\n".join(
+            [
+                "name: dir_agent",
+                "model: gpt-4.1",
+            ]
+        ),
         encoding="utf-8",
     )
 
     results = scan_agent_card_path(tmp_path)
     assert len(results) == 1
     assert results[0].name == "dir_agent"
+
+
+def test_scan_agent_cards_reports_boolean_schema_version(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "schema_version: true",
+                "name: bool_schema_agent",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+
+    assert len(results) == 1
+    assert "'schema_version' must be an integer" in results[0].errors
 
 
 def test_scan_agent_cards_reports_dependency_cycle(tmp_path: Path) -> None:
@@ -85,12 +135,8 @@ def test_scan_agent_cards_reports_dependency_cycle(tmp_path: Path) -> None:
     results = scan_agent_card_directory(tmp_path)
     errors_by_name = {entry.name: entry.errors for entry in results}
 
-    assert any(
-        "Circular dependency detected" in err for err in errors_by_name.get("agent_a", [])
-    )
-    assert any(
-        "Circular dependency detected" in err for err in errors_by_name.get("agent_b", [])
-    )
+    assert any("Circular dependency detected" in err for err in errors_by_name.get("agent_a", []))
+    assert any("Circular dependency detected" in err for err in errors_by_name.get("agent_b", []))
 
 
 def test_scan_agent_cards_allows_acyclic_dependencies(tmp_path: Path) -> None:
@@ -139,7 +185,7 @@ def test_scan_agent_cards_reports_unparseable_mcp_connect_entry(tmp_path: Path) 
             [
                 "name: mcp_agent",
                 "mcp_connect:",
-                "  - target: \"npx 'unterminated\"",
+                '  - target: "npx \'unterminated"',
             ]
         ),
         encoding="utf-8",
@@ -208,6 +254,31 @@ def test_scan_agent_cards_accepts_provider_connector_mcp_connect_entry(tmp_path:
 
     results = scan_agent_card_directory(tmp_path)
     assert len(results) == 1
+    assert results[0].errors == []
+
+
+def test_scan_agent_cards_normalizes_padded_name_and_mcp_connect_strings(
+    tmp_path: Path,
+) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: '  connector agent  '",
+                "mcp_connect:",
+                "  - name: '  dropbox  '",
+                "    management: '  provider  '",
+                "    connector_id: '  connector_dropbox  '",
+                "    access_token: '  token-123  '",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].name == "connector_agent"
     assert results[0].errors == []
 
 
@@ -304,6 +375,107 @@ def test_scan_agent_cards_reports_invalid_tool_input_schema(tmp_path: Path) -> N
     assert any("tool_input_schema" in err and "type" in err for err in results[0].errors)
 
 
+def test_scan_agent_cards_validates_function_tool_entrypoints(tmp_path: Path) -> None:
+    tool_path = tmp_path / "tools.PY"
+    tool_path.write_text(
+        "\n".join(
+            [
+                "def available_tool():",
+                "    return 'ok'",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: tool_agent",
+                "function_tools:",
+                "  - tools.PY:available_tool",
+                "  - tools.PY:missing_tool",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].errors == ["Function 'missing_tool' not found in tools.PY"]
+
+
+def test_scan_agent_cards_reports_invalid_function_tool_python(tmp_path: Path) -> None:
+    tool_path = tmp_path / "tools.py"
+    tool_path.write_text("def broken(:\n", encoding="utf-8")
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: tool_agent",
+                "function_tools:",
+                "  - tools.py:available_tool",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+
+    assert len(results) == 1
+    assert len(results[0].errors) == 1
+    assert results[0].errors[0].startswith(f"Failed to parse tool module ({tool_path}):")
+
+
+def test_scan_agent_cards_rejects_blank_scalar_function_tool(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: tool_agent",
+                "function_tools: '   '",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].errors == ["'function_tools' entries must be non-empty strings"]
+
+
+def test_scan_agent_cards_accepts_function_tool_path_with_colon(tmp_path: Path) -> None:
+    tool_dir = tmp_path / "tool:bundle"
+    tool_dir.mkdir()
+    tool_path = tool_dir / "tools.py"
+    tool_path.write_text(
+        "\n".join(
+            [
+                "def available_tool():",
+                "    return 'ok'",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: tool_agent",
+                "function_tools:",
+                "  - tool:bundle/tools.py:available_tool",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].errors == []
+
+
 def test_scan_agent_cards_reports_unsupported_fields_by_type(tmp_path: Path) -> None:
     card_path = tmp_path / "router.yaml"
     card_path.write_text(
@@ -329,6 +501,29 @@ def test_scan_agent_cards_reports_unsupported_fields_by_type(tmp_path: Path) -> 
     router_result = next(result for result in results if result.name == "router_agent")
     assert any("Unsupported fields for type 'router'" in err for err in router_result.errors)
     assert any("mcp_connect" in err for err in router_result.errors)
+
+
+def test_scan_agent_cards_accepts_agent_variables_metadata(tmp_path: Path) -> None:
+    card_path = tmp_path / "classifier.md"
+    card_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "name: classifier",
+                "variables:",
+                "  policy: ''",
+                "---",
+                "",
+                "{{policy}}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].errors == []
 
 
 def test_scan_agent_cards_normalizes_maker_type_casing(tmp_path: Path) -> None:

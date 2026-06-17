@@ -1,8 +1,9 @@
 """Simplified, robust elicitation form dialog."""
 
 import re
+from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Tuple
+from typing import Any
 
 from mcp.types import ElicitRequestedSchema
 from prompt_toolkit import Application
@@ -26,9 +27,34 @@ from pydantic import ValidationError as PydanticValidationError
 
 from fast_agent.human_input.form_elements import ValidatedCheckboxList
 from fast_agent.ui.elicitation_style import ELICITATION_STYLE
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
+from fast_agent.utils.count_display import format_count
 
-text_navigation_mode = False
+_FORMAT_ERROR_MESSAGES = {
+    "email": "Invalid email format",
+    "uri": "Invalid URI format",
+    "date": "Invalid date (use YYYY-MM-DD)",
+    "date-time": "Invalid datetime (use ISO 8601)",
+}
+_FIELD_VALUE_PARSERS = {
+    "integer": int,
+    "number": float,
+}
+_FIELD_VALUE_TYPE_LABELS = {
+    "integer": "integer",
+    "number": "number",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class MultilineInputConfig:
+    enabled: bool
+    initial_height: int
+
+
+@dataclass(frozen=True, slots=True)
+class FormValidationResult:
+    is_valid: bool
+    error_message: str | None = None
 
 
 class SimpleNumberValidator(Validator):
@@ -45,10 +71,7 @@ class SimpleNumberValidator(Validator):
             return  # Empty is OK for optional fields
 
         try:
-            if self.field_type == "integer":
-                value = int(text)
-            else:
-                value = float(text)
+            value = int(text) if self.field_type == "integer" else float(text)
 
             if self.minimum is not None and value < self.minimum:
                 raise ValidationError(
@@ -60,8 +83,11 @@ class SimpleNumberValidator(Validator):
                     message=f"Must be ≤ {self.maximum}", cursor_position=len(text)
                 )
 
-        except ValueError:
-            raise ValidationError(message=f"Invalid {self.field_type}", cursor_position=len(text))
+        except ValueError as exc:
+            raise ValidationError(
+                message=f"Invalid {self.field_type}",
+                cursor_position=len(text),
+            ) from exc
 
 
 class SimpleStringValidator(Validator):
@@ -84,12 +110,13 @@ class SimpleStringValidator(Validator):
 
         if self.min_length is not None and len(text) < self.min_length:
             raise ValidationError(
-                message=f"Need {self.min_length - len(text)} more chars", cursor_position=len(text)
+                message=f"Need {format_count(self.min_length - len(text), 'more char')}",
+                cursor_position=len(text),
             )
 
         if self.max_length is not None and len(text) > self.max_length:
             raise ValidationError(
-                message=f"Too long by {len(text) - self.max_length} chars",
+                message=f"Too long by {format_count(len(text) - self.max_length, 'char')}",
                 cursor_position=self.max_length,
             )
 
@@ -105,36 +132,23 @@ class FormatValidator(Validator):
 
     _EMAIL_ADAPTER = TypeAdapter(EmailStr)
     _URI_ADAPTER = TypeAdapter(AnyUrl)
+    _VALIDATORS = {
+        "email": _EMAIL_ADAPTER.validate_python,
+        "uri": _URI_ADAPTER.validate_strings,
+        "date": date.fromisoformat,
+        "date-time": datetime.fromisoformat,
+    }
 
     def __init__(self, format_type: str):
         self.format_type = format_type
 
     def _validate_non_empty_text(self, text: str) -> None:
-        if self.format_type == "email":
-            self._EMAIL_ADAPTER.validate_python(text)
-            return
-
-        if self.format_type == "uri":
-            self._URI_ADAPTER.validate_strings(text)
-            return
-
-        if self.format_type == "date":
-            date.fromisoformat(text)
-            return
-
-        if self.format_type == "date-time":
-            datetime.fromisoformat(text.replace("Z", "+00:00"))
+        validator = self._VALIDATORS.get(self.format_type)
+        if validator is not None:
+            validator(text)
 
     def _validation_error_message(self) -> str:
-        if self.format_type == "email":
-            return "Invalid email format"
-        if self.format_type == "uri":
-            return "Invalid URI format"
-        if self.format_type == "date":
-            return "Invalid date (use YYYY-MM-DD)"
-        if self.format_type == "date-time":
-            return "Invalid datetime (use ISO 8601)"
-        return f"Invalid {self.format_type} format"
+        return _FORMAT_ERROR_MESSAGES.get(self.format_type, f"Invalid {self.format_type} format")
 
     def validate(self, document):
         text = document.text.strip()
@@ -143,11 +157,11 @@ class FormatValidator(Validator):
 
         try:
             self._validate_non_empty_text(text)
-        except (PydanticValidationError, ValueError):
+        except (PydanticValidationError, ValueError) as exc:
             raise ValidationError(
                 message=self._validation_error_message(),
                 cursor_position=len(text),
-            )
+            ) from exc
 
 
 class ElicitationForm:
@@ -168,6 +182,9 @@ class ElicitationForm:
         # Field storage
         self.field_widgets: dict[str, Any] = {}
         self.multiline_fields: set[str] = set()  # Track which fields are multiline
+        self._text_navigation_mode = False
+        self._toolbar_hidden = False
+        self.app: Application
 
         # Result
         self.result = None
@@ -295,14 +312,14 @@ class ElicitationForm:
         return VSplit([Window(width=4), dialog, Window(width=4)])
 
     def _toolbar_text(self) -> FormattedText:
-        if hasattr(self, "_toolbar_hidden") and self._toolbar_hidden:
+        if self._toolbar_hidden:
             return FormattedText([])
 
-        mode_label = "TEXT MODE" if text_navigation_mode else "FIELD MODE"
-        mode_color = "ansired" if text_navigation_mode else "ansigreen"
+        mode_label = "TEXT MODE" if self._text_navigation_mode else "FIELD MODE"
+        mode_color = "ansired" if self._text_navigation_mode else "ansigreen"
         actions_line = (
             " Esc cancel • Tab move • Enter newline • Ctrl+T field mode"
-            if text_navigation_mode
+            if self._text_navigation_mode
             else " Enter submit • Esc cancel • Tab move • Ctrl+J newline • Ctrl+T text mode"
         )
         return FormattedText(
@@ -318,6 +335,12 @@ class ElicitationForm:
                 self.multiline_fields.add(field_name)
                 break
 
+    def _field_navigation_mode(self) -> bool:
+        return not self._text_navigation_mode
+
+    def _toggle_text_navigation_mode(self) -> None:
+        self._text_navigation_mode = not self._text_navigation_mode
+
     def _add_navigation_key_bindings(self, kb: KeyBindings) -> None:
         @kb.add("tab")
         def focus_next_with_refresh(event):
@@ -329,52 +352,50 @@ class ElicitationForm:
 
         @kb.add("c-t")
         def toggle_text_navigation_mode(event):
-            global text_navigation_mode
-            text_navigation_mode = not text_navigation_mode
+            self._toggle_text_navigation_mode()
             event.app.invalidate()
 
-        @kb.add("down", filter=Condition(lambda: not text_navigation_mode))
+        @kb.add("down", filter=Condition(self._field_navigation_mode))
         def focus_next_arrow(event):
             focus_next(event)
 
-        @kb.add("up", filter=Condition(lambda: not text_navigation_mode))
+        @kb.add("up", filter=Condition(self._field_navigation_mode))
         def focus_previous_arrow(event):
             focus_previous(event)
 
-        @kb.add("right", eager=True, filter=Condition(lambda: not text_navigation_mode))
+        @kb.add("right", eager=True, filter=Condition(self._field_navigation_mode))
         def focus_next_right(event):
             focus_next(event)
 
-        @kb.add("left", eager=True, filter=Condition(lambda: not text_navigation_mode))
+        @kb.add("left", eager=True, filter=Condition(self._field_navigation_mode))
         def focus_previous_left(event):
             focus_previous(event)
 
     def _add_submission_key_bindings(self, kb: KeyBindings) -> None:
-        @kb.add("c-m", filter=Condition(lambda: not text_navigation_mode))
-        def submit_enter(event):
+        @kb.add("c-m", filter=Condition(self._field_navigation_mode))
+        def submit_enter(_event):
             self._accept()
 
-        @kb.add("c-j", filter=Condition(lambda: not text_navigation_mode))
+        @kb.add("c-j", filter=Condition(self._field_navigation_mode))
         def insert_newline_cj(event):
             event.current_buffer.insert_text("\n")
             self._track_multiline_buffer(event.current_buffer)
 
-        @kb.add("c-m", filter=Condition(lambda: text_navigation_mode))
+        @kb.add("c-m", filter=Condition(lambda: self._text_navigation_mode))
         def insert_newline_enter(event):
             event.current_buffer.insert_text("\n")
             self._track_multiline_buffer(event.current_buffer)
 
-        @kb.add("c-j", filter=Condition(lambda: text_navigation_mode))
+        @kb.add("c-j", filter=Condition(lambda: self._text_navigation_mode))
         def _(event):
             pass
 
         @kb.add("escape", eager=True, is_global=True)
-        def cancel(event):
+        def cancel(_event):
             self._cancel()
 
     def _build_key_bindings(self) -> KeyBindings:
-        global text_navigation_mode
-        text_navigation_mode = False
+        self._text_navigation_mode = False
         kb = KeyBindings()
         self._add_navigation_key_bindings(kb)
         self._add_submission_key_bindings(kb)
@@ -394,7 +415,7 @@ class ElicitationForm:
     def _set_initial_focus(self, submit_btn: Button) -> None:
         try:
             first_field = None
-            for field_name in self.properties.keys():
+            for field_name in self.properties:
                 widget = self.field_widgets.get(field_name)
                 if widget:
                     first_field = widget
@@ -425,7 +446,7 @@ class ElicitationForm:
         self.app.invalidate()
         self._set_initial_focus(submit_btn)
 
-    def _extract_enum_schema_options(self, schema_def: dict[str, Any]) -> list[Tuple[str, str]]:
+    def _extract_enum_schema_options(self, schema_def: dict[str, Any]) -> list[tuple[str, str]]:
         """Extract options from oneOf/anyOf/enum schema patterns.
 
         Args:
@@ -438,11 +459,7 @@ class ElicitationForm:
 
         # First check for bare enum (most common pattern for arrays)
         if "enum" in schema_def:
-            enum_values = schema_def["enum"]
-            enum_names = schema_def.get("enumNames", enum_values)
-            for val, name in zip(enum_values, enum_names):
-                values.append((val, str(name)))
-            return values
+            return self._enum_value_labels(schema_def)
 
         # Then check for oneOf/anyOf patterns
         options = schema_def.get("oneOf", [])
@@ -454,8 +471,22 @@ class ElicitationForm:
                 value = option["const"]
                 title = option.get("title", str(value))
                 values.append((value, title))
+            elif "enum" in option:
+                values.extend(self._enum_value_labels(option))
 
         return values
+
+    @staticmethod
+    def _enum_value_labels(schema_def: dict[str, Any]) -> list[tuple[str, str]]:
+        enum_values = schema_def["enum"]
+        enum_names = schema_def.get("enumNames", enum_values)
+        return [
+            (
+                value,
+                str(enum_names[index]) if index < len(enum_names) else str(value),
+            )
+            for index, value in enumerate(enum_values)
+        ]
 
     def _extract_string_constraints(self, field_def: dict[str, Any]) -> dict[str, Any]:
         """Extract string constraints from field definition, handling anyOf schemas."""
@@ -525,9 +556,9 @@ class ElicitationForm:
         hints: list[str] = []
         constraints = self._extract_string_constraints(field_def)
         if constraints.get("minLength"):
-            hints.append(f"min {constraints['minLength']} chars")
+            hints.append(f"min {format_count(constraints['minLength'], 'char')}")
         if constraints.get("maxLength"):
-            hints.append(f"max {constraints['maxLength']} chars")
+            hints.append(f"max {format_count(constraints['maxLength'], 'char')}")
         return hints
 
     def _number_field_hints(self, field_def: dict[str, Any]) -> list[str]:
@@ -547,7 +578,9 @@ class ElicitationForm:
             return self._number_field_hints(field_def)
         return []
 
-    def _build_field_label(self, field_name: str, field_type: str, field_def: dict[str, Any]) -> Label:
+    def _build_field_label(
+        self, field_name: str, field_type: str, field_def: dict[str, Any]
+    ) -> Label:
         title = field_def.get("title", field_name)
         description = field_def.get("description", "")
         label_text = title + (" *" if field_name in self.required_fields else "")
@@ -571,7 +604,9 @@ class ElicitationForm:
             )
         return Label(text=FormattedText([("class:field-label", label_text)]))
 
-    def _build_boolean_field(self, field_name: str, label: Label, field_def: dict[str, Any]) -> HSplit:
+    def _build_boolean_field(
+        self, field_name: str, label: Label, field_def: dict[str, Any]
+    ) -> HSplit:
         checkbox = Checkbox(text="Yes")
         checkbox.checked = field_def.get("default", False)
         self.field_widgets[field_name] = checkbox
@@ -581,7 +616,7 @@ class ElicitationForm:
         self,
         field_name: str,
         label: Label,
-        values: list[Tuple[str, str]],
+        values: list[tuple[str, str]],
         *,
         default_value: Any = None,
     ) -> HSplit:
@@ -629,11 +664,19 @@ class ElicitationForm:
             pattern=constraints.get("pattern"),
         )
 
-    def _multiline_config(self, field_name: str, field_type: str, field_def: dict[str, Any]) -> tuple[bool, int]:
+    def _multiline_config(
+        self,
+        field_name: str,
+        field_type: str,
+        field_def: dict[str, Any],
+    ) -> MultilineInputConfig:
         default_value = field_def.get("default")
         if field_type == "string" and default_value is not None and "\n" in str(default_value):
             self.multiline_fields.add(field_name)
-            return True, str(default_value).count("\n") + 1
+            return MultilineInputConfig(
+                enabled=True,
+                initial_height=str(default_value).count("\n") + 1,
+            )
 
         max_length = None
         if field_type == "string":
@@ -644,9 +687,12 @@ class ElicitationForm:
 
         if max_length and max_length > 100:
             self.multiline_fields.add(field_name)
-            return True, 3 if max_length <= 300 else 5
+            return MultilineInputConfig(
+                enabled=True,
+                initial_height=3 if max_length <= 300 else 5,
+            )
 
-        return False, 1
+        return MultilineInputConfig(enabled=False, initial_height=1)
 
     def _build_text_input_field(
         self,
@@ -656,10 +702,10 @@ class ElicitationForm:
         field_def: dict[str, Any],
     ) -> HSplit:
         validator = self._input_validator(field_type, field_def)
-        multiline, initial_height = self._multiline_config(field_name, field_type, field_def)
+        multiline_config = self._multiline_config(field_name, field_type, field_def)
         buffer = Buffer(
             validator=validator,
-            multiline=multiline,
+            multiline=multiline_config.enabled,
             validate_while_typing=True,
             complete_while_typing=False,
             enable_history_search=False,
@@ -670,9 +716,9 @@ class ElicitationForm:
         self.field_widgets[field_name] = buffer
         text_input = Window(
             BufferControl(buffer=buffer),
-            height=lambda: self._field_display_height(buffer, initial_height),
+            height=lambda: self._field_display_height(buffer, multiline_config.initial_height),
             style=lambda: self._field_style(buffer),
-            wrap_lines=multiline,
+            wrap_lines=multiline_config.enabled,
             char=" ",
         )
         input_with_prefix = VSplit(
@@ -705,17 +751,9 @@ class ElicitationForm:
         label = self._build_field_label(field_name, field_type, field_def)
         if field_type == "boolean":
             return self._build_boolean_field(field_name, label, field_def)
-        if field_type == "string" and "enum" in field_def:
-            enum_values = field_def["enum"]
-            enum_names = field_def.get("enumNames", enum_values)
-            values = [(val, name) for val, name in zip(enum_values, enum_names)]
-            return self._build_enum_radio_field(
-                field_name,
-                label,
-                values,
-                default_value=field_def.get("default"),
-            )
-        if field_type == "string" and "oneOf" in field_def:
+        if field_type == "string" and (
+            "enum" in field_def or "oneOf" in field_def or "anyOf" in field_def
+        ):
             values = self._extract_enum_schema_options(field_def)
             if values:
                 return self._build_enum_radio_field(
@@ -741,7 +779,7 @@ class ElicitationForm:
             return f"'{title}': {widget.validation_error.message}"
         return None
 
-    def _required_widget_missing(self, field_name: str, widget: Any) -> bool:
+    def _required_widget_missing(self, _field_name: str, widget: Any) -> bool:
         if isinstance(widget, Buffer):
             return not widget.text.strip()
         if isinstance(widget, RadioList):
@@ -750,7 +788,7 @@ class ElicitationForm:
             return not widget.current_values
         return False
 
-    def _validate_form(self) -> tuple[bool, str | None]:
+    def _validate_form(self) -> FormValidationResult:
         """Validate the entire form."""
         for field_name, field_def in self.properties.items():
             widget = self.field_widgets.get(field_name)
@@ -758,7 +796,7 @@ class ElicitationForm:
                 continue
             error = self._validation_error_for_widget(field_name, field_def, widget)
             if error is not None:
-                return False, error
+                return FormValidationResult(is_valid=False, error_message=error)
 
         for field_name in self.required_fields:
             widget = self.field_widgets.get(field_name)
@@ -766,27 +804,37 @@ class ElicitationForm:
                 continue
             if self._required_widget_missing(field_name, widget):
                 title = self.properties[field_name].get("title", field_name)
-                return False, f"'{title}' is required"
+                return FormValidationResult(
+                    is_valid=False,
+                    error_message=f"'{title}' is required",
+                )
 
-        return True, None
+        return FormValidationResult(is_valid=True)
 
     def _buffer_field_value(self, field_name: str, field_type: str, widget: Buffer) -> Any | None:
         value = widget.text.strip()
         if not value:
-            if field_name in self.required_fields:
-                return ""
-            return None
-        if field_type == "integer":
-            try:
-                return int(value)
-            except ValueError as exc:
-                raise ValueError(f"Invalid integer value for {field_name}: {value}") from exc
-        if field_type == "number":
-            try:
-                return float(value)
-            except ValueError as exc:
-                raise ValueError(f"Invalid number value for {field_name}: {value}") from exc
-        return value
+            return "" if field_name in self.required_fields else None
+
+        parser = _FIELD_VALUE_PARSERS.get(field_type)
+        if parser is None:
+            return value
+
+        try:
+            return parser(value)
+        except ValueError as exc:
+            value_type = _FIELD_VALUE_TYPE_LABELS[field_type]
+            raise ValueError(f"Invalid {value_type} value for {field_name}: {value}") from exc
+
+    def _checkbox_list_field_value(
+        self, field_name: str, widget: ValidatedCheckboxList
+    ) -> list[Any] | None:
+        selected_values = widget.current_values
+        if selected_values:
+            return list(selected_values)
+        if field_name not in self.required_fields:
+            return []
+        return None
 
     def _widget_field_value(self, field_name: str, field_def: dict[str, Any], widget: Any) -> Any:
         field_type = field_def.get("type", "string")
@@ -797,12 +845,7 @@ class ElicitationForm:
         if isinstance(widget, RadioList):
             return widget.current_value
         if isinstance(widget, ValidatedCheckboxList):
-            selected_values = widget.current_values
-            if selected_values:
-                return list(selected_values)
-            if field_name not in self.required_fields:
-                return []
-            return None
+            return self._checkbox_list_field_value(field_name, widget)
         return None
 
     def _get_form_data(self) -> dict[str, Any]:
@@ -821,11 +864,11 @@ class ElicitationForm:
     def _accept(self):
         """Handle form submission."""
         # Validate
-        is_valid, error_msg = self._validate_form()
-        if not is_valid:
+        validation = self._validate_form()
+        if not validation.is_valid:
             # Use styled error message
             self.status_control.text = FormattedText(
-                [("class:validation-error", f"Error: {error_msg}")]
+                [("class:validation-error", f"Error: {validation.error_message}")]
             )
             return
 
@@ -837,9 +880,7 @@ class ElicitationForm:
             self.app.exit()
         except Exception as e:
             # Use styled error message
-            self.status_control.text = FormattedText(
-                [("class:validation-error", f"Error: {str(e)}")]
-            )
+            self.status_control.text = FormattedText([("class:validation-error", f"Error: {e!s}")])
 
     def _cancel(self):
         """Handle cancel."""
@@ -877,15 +918,13 @@ class ElicitationForm:
         new_layout = HSplit([empty_window])
 
         # Update the app's layout
-        if hasattr(self, "app") and self.app:
-            self.app.layout.container = new_layout
-            self.app.invalidate()
+        self.app.layout.container = new_layout
+        self.app.invalidate()
 
     async def run_async(self) -> tuple[str, dict[str, Any] | None]:
         """Run the form and return result."""
         try:
-            with suppress_known_runtime_warnings():
-                await self.app.run_async()
+            await self.app.run_async()
         except Exception as e:
             print(f"Form error: {e}")
             self.action = "cancel"

@@ -26,6 +26,11 @@ When valid `SKILL.md` files are found:
 
     Skills installed from any git repo (local or remote) can be automatically updated.
 
+!!! note "Skills over MCP"
+
+    Thanks to Ola Hungerford, fast-agent has early access support for MCP SEP-2640: [Skills over MCP](../mcp/skills-over-mcp.md)
+
+
 ## Installing Skills
 
 Skills can be installed, updated and removed from the CLI or TUI with the `skills` command.

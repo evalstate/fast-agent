@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Iterable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from rich.console import Console
 
     from fast_agent.ui.markdown_truncator import MarkdownTruncator
@@ -18,11 +21,20 @@ def estimate_plain_text_height(text: str, width: int) -> int:
     if not text:
         return 0
     width = max(1, width)
-    total = 0
-    for line in text.split("\n"):
-        expanded_len = len(line.expandtabs())
-        total += max(1, math.ceil(expanded_len / width)) if expanded_len else 1
-    return total
+    return sum(_estimate_plain_text_line_height(line, width) for line in text.split("\n"))
+
+
+def _estimate_plain_text_line_height(line: str, width: int) -> int:
+    expanded_len = len(line.expandtabs())
+    if not expanded_len:
+        return 1
+    return max(1, math.ceil(expanded_len / width))
+
+
+@dataclass(frozen=True, slots=True)
+class StreamViewportWindow:
+    segments: list[StreamSegment]
+    heights: list[int]
 
 
 class StreamViewport:
@@ -47,13 +59,13 @@ class StreamViewport:
         console: Console,
         target_ratio: float,
     ) -> list[StreamSegment]:
-        window_segments, _ = self.slice_segments_with_heights(
+        window = self.slice_segments_with_heights(
             segments,
             terminal_height=terminal_height,
             console=console,
             target_ratio=target_ratio,
         )
-        return window_segments
+        return window.segments
 
     def slice_segments_with_heights(
         self,
@@ -62,7 +74,7 @@ class StreamViewport:
         terminal_height: int,
         console: Console,
         target_ratio: float,
-    ) -> tuple[list[StreamSegment], list[int]]:
+    ) -> StreamViewportWindow:
         if terminal_height <= 0:
             segments_list = list(segments)
             width = max(1, console.size.width)
@@ -70,27 +82,26 @@ class StreamViewport:
                 self._segment_height(segment, console=console, width=width)
                 for segment in segments_list
             ]
-            return segments_list, heights
+            return StreamViewportWindow(segments=segments_list, heights=heights)
 
         width = max(1, console.size.width)
         segments_list = [segment for segment in segments if segment.text]
         if not segments_list:
-            return [], []
+            return StreamViewportWindow(segments=[], heights=[])
 
         max_lines = max(1, int(terminal_height * target_ratio))
 
         heights = [
-            self._segment_height(segment, console=console, width=width)
-            for segment in segments_list
+            self._segment_height(segment, console=console, width=width) for segment in segments_list
         ]
         total_height = sum(heights)
         if total_height <= max_lines:
-            return segments_list, heights
+            return StreamViewportWindow(segments=segments_list, heights=heights)
 
         remaining = max_lines
         window: list[StreamSegment] = []
         window_heights: list[int] = []
-        for segment, height in zip(reversed(segments_list), reversed(heights)):
+        for segment, height in zip(reversed(segments_list), reversed(heights), strict=True):
             if remaining <= 0:
                 break
             if height <= remaining:
@@ -107,17 +118,15 @@ class StreamViewport:
             )
             if trimmed.text:
                 window.append(trimmed)
-                window_heights.append(
-                    self._segment_height(trimmed, console=console, width=width)
-                )
+                window_heights.append(self._segment_height(trimmed, console=console, width=width))
             break
 
         window.reverse()
         window_heights.reverse()
-        return window, window_heights
+        return StreamViewportWindow(segments=window, heights=window_heights)
 
     def _segment_height(self, segment: StreamSegment, *, console: Console, width: int) -> int:
-        if segment.kind in ("markdown", "reasoning"):
+        if segment.uses_markdown_layout:
             return self._markdown_truncator.measure_rendered_height(
                 segment.text,
                 console,
@@ -135,7 +144,7 @@ class StreamViewport:
     ) -> StreamSegment:
         if terminal_height <= 0 or not segment.text:
             return segment.copy_with_text("")
-        if segment.kind in ("markdown", "reasoning"):
+        if segment.uses_markdown_layout:
             truncated = self._markdown_truncator.truncate_to_height(
                 segment.text,
                 terminal_height=terminal_height,
@@ -151,4 +160,4 @@ class StreamViewport:
         return segment.copy_with_text(truncated)
 
 
-__all__ = ["StreamViewport", "estimate_plain_text_height"]
+__all__ = ["StreamViewport", "StreamViewportWindow", "estimate_plain_text_height"]

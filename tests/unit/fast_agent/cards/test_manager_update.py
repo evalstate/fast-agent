@@ -9,6 +9,34 @@ from fast_agent.cards import manager
 from fast_agent.paths import resolve_environment_paths
 
 
+def test_format_card_pack_publish_status_normalizes_detail(tmp_path) -> None:
+    text, style = manager.format_card_pack_publish_status(
+        manager.CardPackPublishResult(
+            pack_name="alpha",
+            pack_dir=tmp_path / "alpha",
+            status="publish_failed",
+            detail="  push\n\nfailed  ",
+        )
+    )
+
+    assert text == "publish failed: push failed"
+    assert style == "yellow"
+
+
+def test_format_card_pack_publish_status_ignores_blank_detail(tmp_path) -> None:
+    text, style = manager.format_card_pack_publish_status(
+        manager.CardPackPublishResult(
+            pack_name="alpha",
+            pack_dir=tmp_path / "alpha",
+            status="publish_failed",
+            detail="   ",
+        )
+    )
+
+    assert text == "publish failed"
+    assert style == "yellow"
+
+
 def _git(repo, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -60,6 +88,44 @@ def _pack(repo) -> manager.MarketplaceCardPack:
         repo_path="packs/alpha",
         source_url=None,
     )
+
+
+def test_install_from_manifest_path_tracks_whole_card_pack_directory(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_pack(repo, body="v1")
+    _commit_all(repo, "initial")
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    manager._install_marketplace_card_pack_sync(
+        manager.MarketplaceCardPack(
+            name="alpha",
+            description="test",
+            kind="card",
+            repo_url=str(repo),
+            repo_ref=None,
+            repo_path="packs/alpha/card-pack.yaml",
+            source_url=None,
+        ),
+        env_paths,
+        False,
+        False,
+        None,
+    )
+
+    source, error = manager.read_installed_card_pack_source(env_paths.card_packs / "alpha")
+    assert error is None
+    assert source is not None
+    assert source.repo_path == "packs/alpha"
+    assert source.installed_path_oid is not None
+
+    _write_pack(repo, body="v2")
+    _commit_all(repo, "update card")
+
+    updates = manager.check_card_pack_updates(environment_paths=env_paths)
+
+    assert len(updates) == 1
+    assert updates[0].status == "update_available"
 
 
 def test_update_check_and_apply(tmp_path) -> None:
@@ -131,6 +197,25 @@ def test_update_skips_dirty_without_force_and_overwrites_with_force(tmp_path) ->
     assert "local edit" not in installed_text
 
 
+def test_update_reports_invalid_pack_when_manifest_path_is_directory(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_pack(repo, body="v1")
+    _commit_all(repo, "initial")
+
+    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+
+    manifest_path = env_paths.card_packs / "alpha" / "card-pack.yaml"
+    manifest_path.unlink()
+    manifest_path.mkdir()
+
+    updates = manager.check_card_pack_updates(environment_paths=env_paths)
+
+    assert updates[0].status == "invalid_local_pack"
+    assert updates[0].detail == "card-pack.yaml not found"
+
+
 def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -138,7 +223,7 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
     pack_root = repo / "packs" / "alpha"
     pack_root.mkdir(parents=True, exist_ok=True)
     (pack_root / "fastagent.config.yaml").write_text(
-        "default_model: \"$system.default\"\n"
+        'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
         "    fast: codexspark\n"
@@ -163,7 +248,7 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
 
     config_path = env_paths.root / "fast-agent.yaml"
     config_path.write_text(
-        "default_model: \"$system.default\"\n"
+        'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
         "    fast: codexspark\n"
@@ -172,7 +257,7 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
     )
 
     (pack_root / "fastagent.config.yaml").write_text(
-        "default_model: \"$system.default\"\n"
+        'default_model: "$system.default"\n'
         "model_references:\n"
         "  system:\n"
         "    fast: codexmax\n"
@@ -210,7 +295,9 @@ def test_publish_commits_local_changes_without_push(tmp_path) -> None:
     _commit_all(repo, "initial")
 
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    install_result = manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    install_result = manager._install_marketplace_card_pack_sync(
+        _pack(repo), env_paths, False, False, None
+    )
 
     installed_card = env_paths.agent_cards / "alpha.md"
     installed_card.write_text(
@@ -244,7 +331,9 @@ def test_publish_creates_patch_when_push_fails(tmp_path) -> None:
     _commit_all(repo, "initial")
 
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    install_result = manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    install_result = manager._install_marketplace_card_pack_sync(
+        _pack(repo), env_paths, False, False, None
+    )
 
     installed_card = env_paths.agent_cards / "alpha.md"
     installed_card.write_text(
@@ -276,7 +365,9 @@ def test_publish_remote_clone_failure_can_retain_temp_checkout(tmp_path) -> None
     _commit_all(repo, "initial")
 
     env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    install_result = manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    install_result = manager._install_marketplace_card_pack_sync(
+        _pack(repo), env_paths, False, False, None
+    )
 
     source, error = manager.read_installed_card_pack_source(install_result.pack_dir)
     assert error is None

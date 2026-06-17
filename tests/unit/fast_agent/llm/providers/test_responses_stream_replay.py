@@ -112,7 +112,9 @@ class _FakeResponsesStream:
 
 
 def _load_sanitized_trace_stream(*, fixture_dir: str) -> Any:
-    trace_path = REPO_ROOT / "tests" / "fixtures" / "llm_traces" / "sanitized" / fixture_dir / "stream.jsonl"
+    trace_path = (
+        REPO_ROOT / "tests" / "fixtures" / "llm_traces" / "sanitized" / fixture_dir / "stream.jsonl"
+    )
     payloads = [
         json.loads(line)
         for line in trace_path.read_text(encoding="utf-8").splitlines()
@@ -201,9 +203,7 @@ async def test_openresponses_status_before_added_emits_single_start() -> None:
 
     await harness._process_stream(stream, model="gpt-test", capture_filename=None)
 
-    start_events = [
-        event for event in harness.tool_events if event["event_type"] == "start"
-    ]
+    start_events = [event for event in harness.tool_events if event["event_type"] == "start"]
     assert len(start_events) == 1
     assert start_events[0]["payload"]["tool_use_id"] == "call_123"
 
@@ -249,15 +249,9 @@ async def test_openresponses_status_after_added_uses_registered_tool_state() -> 
 
     await harness._process_stream(stream, model="gpt-test", capture_filename=None)
 
-    start_events = [
-        event for event in harness.tool_events if event["event_type"] == "start"
-    ]
-    status_events = [
-        event for event in harness.tool_events if event["event_type"] == "status"
-    ]
-    stop_events = [
-        event for event in harness.tool_events if event["event_type"] == "stop"
-    ]
+    start_events = [event for event in harness.tool_events if event["event_type"] == "start"]
+    status_events = [event for event in harness.tool_events if event["event_type"] == "status"]
+    stop_events = [event for event in harness.tool_events if event["event_type"] == "stop"]
     assert len(start_events) == 1
     assert start_events[0]["payload"]["tool_use_id"] == "call_123"
     assert len(status_events) == 1
@@ -273,9 +267,7 @@ async def test_responses_stream_trace_preserves_reasoning_summary_section_breaks
     harness = _ResponsesHarness()
 
     _final_response, reasoning_segments = await harness._process_stream(
-        _load_sanitized_trace_stream(
-            fixture_dir="responses/gpt-5-4/reasoning_summary_sections"
-        ),
+        _load_sanitized_trace_stream(fixture_dir="responses/gpt-5-4/reasoning_summary_sections"),
         model="gpt-5.4",
         capture_filename=None,
     )
@@ -327,12 +319,8 @@ async def test_responses_stream_namespaces_mcp_call_tool_with_server_label() -> 
 
     await harness._process_stream(stream, model="gpt-test", capture_filename=None)
 
-    start_events = [
-        event for event in harness.tool_events if event["event_type"] == "start"
-    ]
-    stop_events = [
-        event for event in harness.tool_events if event["event_type"] == "stop"
-    ]
+    start_events = [event for event in harness.tool_events if event["event_type"] == "start"]
+    stop_events = [event for event in harness.tool_events if event["event_type"] == "stop"]
     assert start_events[0]["payload"]["tool_name"] == "stripe/create_payment_link"
     assert stop_events[-1]["payload"]["tool_name"] == "stripe/create_payment_link"
 
@@ -366,9 +354,7 @@ async def test_openresponses_out_of_order_tool_events_are_ignored() -> None:
 
     await harness._process_stream(stream, model="gpt-test", capture_filename=None)
 
-    stop_events = [
-        event for event in harness.tool_events if event["event_type"] == "stop"
-    ]
+    stop_events = [event for event in harness.tool_events if event["event_type"] == "stop"]
     assert stop_events == []
 
 
@@ -485,6 +471,77 @@ async def test_openresponses_null_output_index_still_streams_tool_arguments() ->
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_responses_null_output_index_still_streams_tool_arguments() -> None:
+    harness = _ResponsesHarness()
+    final_response = SimpleNamespace(
+        output=[
+            SimpleNamespace(type="reasoning"),
+            SimpleNamespace(
+                type="function_call",
+                id=None,
+                call_id="call_123",
+                name="weather",
+                arguments='{"city":"Paris"}',
+            ),
+        ],
+        usage=None,
+    )
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=None,
+                item_id="call_123",
+                item=SimpleNamespace(
+                    type="function_call",
+                    id=None,
+                    call_id="call_123",
+                    name="weather",
+                ),
+            ),
+            SimpleNamespace(
+                type="response.function_call_arguments.delta",
+                output_index=None,
+                item_id="call_123",
+                delta='{"city":"',
+            ),
+            SimpleNamespace(
+                type="response.function_call_arguments.delta",
+                output_index=None,
+                item_id="call_123",
+                delta='Paris"}',
+            ),
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=None,
+                item_id="call_123",
+                item=SimpleNamespace(
+                    type="function_call",
+                    id=None,
+                    call_id="call_123",
+                    name="weather",
+                ),
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    await harness._process_stream(stream, model="gpt-test", capture_filename=None)
+
+    event_types = [event["event_type"] for event in harness.tool_events]
+    assert event_types == ["start", "delta", "delta", "stop"]
+    assert harness.tool_events[0]["payload"]["index"] is None
+    assert harness.tool_events[0]["payload"]["tool_use_id"] == "call_123"
+    assert harness.tool_events[1]["payload"]["chunk"] == '{"city":"'
+    assert harness.tool_events[1]["payload"]["index"] is None
+    assert harness.tool_events[2]["payload"]["chunk"] == 'Paris"}'
+    assert harness.tool_events[2]["payload"]["index"] is None
+    assert harness.tool_events[3]["payload"]["index"] == -1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("harness_factory", "response_event_type"),
     [
@@ -520,7 +577,7 @@ async def test_incomplete_responses_return_final_payload(
                 type="response.function_call_arguments.delta",
                 output_index=0,
                 item_id="fc_123",
-                delta="{\"city\":\"Paris\"",
+                delta='{"city":"Paris"',
             ),
             SimpleNamespace(type=response_event_type, response=final_response),
         ],

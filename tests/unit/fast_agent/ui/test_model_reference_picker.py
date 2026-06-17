@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from fast_agent.ui.model_reference_picker import (
     ModelReferencePickerItem,
+    ModelReferencePickerResult,
     _ReferencePicker,
 )
 
@@ -48,3 +49,49 @@ def test_reference_picker_window_scrolls_to_keep_cursor_visible() -> None:
     )
 
     assert picker.selection_window.vertical_scroll == 11 - picker.LIST_VISIBLE_ROWS + 1
+
+
+def test_reference_picker_accept_result_for_rows() -> None:
+    picker = _ReferencePicker(_build_items(1))
+
+    assert picker._accept_result() == ModelReferencePickerResult(
+        action="set",
+        token="MODEL_0",
+    )
+
+    picker.state.index = 1
+    assert picker._accept_result() == ModelReferencePickerResult(
+        action="custom",
+        token=None,
+    )
+
+    picker.state.index = 2
+    assert picker._accept_result() == ModelReferencePickerResult(
+        action="done",
+        token=None,
+    )
+
+
+def test_reference_picker_remove_result_requires_removable_item() -> None:
+    picker = _ReferencePicker(_build_items(1))
+
+    assert picker._remove_result() is None
+
+    picker = _ReferencePicker(
+        (
+            ModelReferencePickerItem(
+                token="MODEL_0",
+                priority="configured",
+                status="configured",
+                summary="Configured model",
+                current_value="gpt-5",
+                references=("main",),
+                removable=True,
+            ),
+        )
+    )
+
+    assert picker._remove_result() == ModelReferencePickerResult(
+        action="unset",
+        token="MODEL_0",
+    )

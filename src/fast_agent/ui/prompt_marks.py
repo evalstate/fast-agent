@@ -6,6 +6,7 @@ import sys
 from typing import TextIO
 
 from fast_agent.config import Settings, get_settings
+from fast_agent.ui.terminal_streams import is_tty_stream
 
 _OSC = "\x1b]"
 _ST = "\x07"
@@ -38,7 +39,7 @@ def prompt_mark_sequence(
         return ""
 
     target_stream = stream or sys.stdout
-    if not hasattr(target_stream, "isatty") or not target_stream.isatty():
+    if not is_tty_stream(target_stream):
         return ""
 
     resolved_settings = settings or get_settings()

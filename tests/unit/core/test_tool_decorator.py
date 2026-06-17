@@ -53,6 +53,20 @@ def _make_agent(fast: _FakeFastAgent, name: str = "test_agent"):
     return _agent_fn
 
 
+def test_agents_without_servers_get_independent_server_lists() -> None:
+    fast = _FakeFastAgent()
+    _make_agent(fast, "one")
+    _make_agent(fast, "two")
+
+    one_config = fast.agents["one"]["config"]
+    two_config = fast.agents["two"]["config"]
+
+    one_config.servers.append("filesystem")
+
+    assert one_config.servers == ["filesystem"]
+    assert two_config.servers == []
+
+
 def _make_custom(fast: _FakeFastAgent, cls, name: str = "custom_agent"):
     """Return the decorated async function from ``@fast.custom(...)``."""
 

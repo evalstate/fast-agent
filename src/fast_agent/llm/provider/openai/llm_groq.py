@@ -17,7 +17,9 @@ class GroqLLM(OpenAICompatibleLLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Groq default parameters"""
-        base_params = self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_GROQ_MODEL)
+        base_params = self._initialize_default_params_with_model_fallback(
+            kwargs, DEFAULT_GROQ_MODEL
+        )
         base_params.parallel_tool_calls = False
 
         return base_params

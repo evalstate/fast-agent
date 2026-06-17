@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, AsyncGenerator, Callable, TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 

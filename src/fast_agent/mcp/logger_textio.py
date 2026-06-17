@@ -4,7 +4,9 @@ Utilities for MCP stdio client integration with our logging system.
 
 import io
 import os
-from typing import Callable, TextIO
+from collections.abc import Callable
+from contextlib import suppress
+from typing import TextIO
 
 from fast_agent.core.logging.logger import get_logger
 
@@ -31,6 +33,7 @@ class LoggerTextIO(io.StringIO):
         self._on_line = on_line
         # Keep track of complete and partial lines
         self._line_buffer = ""
+        self._devnull_fd: int | None = None
 
     def _emit_line(self, line: str) -> None:
         if not line.strip():
@@ -80,6 +83,7 @@ class LoggerTextIO(io.StringIO):
         # Log any remaining content in the line buffer
         if self._line_buffer:
             self._emit_line(self._line_buffer)
+        self._close_devnull_fd()
         super().close()
 
     def readable(self) -> bool:
@@ -97,17 +101,22 @@ class LoggerTextIO(io.StringIO):
         This prevents output from showing on the terminal
         while still allowing our write() method to capture it for logging.
         """
-        if not hasattr(self, "_devnull_fd"):
+        if self._devnull_fd is None:
             self._devnull_fd = os.open(os.devnull, os.O_WRONLY)
         return self._devnull_fd
 
-    def __del__(self):
+    def _close_devnull_fd(self) -> None:
+        if self._devnull_fd is None:
+            return
+        fd = self._devnull_fd
+        self._devnull_fd = None
+        with suppress(OSError):
+            os.close(fd)
+
+    def __del__(self) -> None:
         """Clean up the devnull file descriptor."""
-        if hasattr(self, "_devnull_fd"):
-            try:
-                os.close(self._devnull_fd)
-            except (OSError, AttributeError):
-                pass
+        with suppress(AttributeError):
+            self._close_devnull_fd()
 
 
 def get_stderr_handler(

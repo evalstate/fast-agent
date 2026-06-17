@@ -1,26 +1,40 @@
 from __future__ import annotations
 
+from inspect import getattr_static
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.core.model_resolution import get_context_model_references, resolve_model_reference
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from fast_agent.context import Context
     from fast_agent.llm.resolved_model import ResolvedModelSpec
+
+
+_MISSING = object()
 
 
 def deep_merge(dict1: dict[Any, Any], dict2: dict[Any, Any]) -> dict[Any, Any]:
     """Recursively merge ``dict2`` into ``dict1`` in place."""
-    for key in dict2:
-        if key in dict1 and isinstance(dict1[key], dict) and isinstance(dict2[key], dict):
-            deep_merge(dict1[key], dict2[key])
+    for key, value in dict2.items():
+        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
+            deep_merge(dict1[key], value)
         else:
-            dict1[key] = dict2[key]
+            dict1[key] = value
     return dict1
+
+
+def _read_existing_attribute(obj: object, name: str) -> Any:
+    try:
+        getattr_static(obj, name)
+    except AttributeError:
+        return _MISSING
+    return getattr(obj, name)
 
 
 def get_provider_config(
@@ -41,10 +55,9 @@ def get_provider_config(
             continue
         checked_sections.add(section_name)
 
-        if not hasattr(context_config, section_name):
+        provider_config = _read_existing_attribute(context_config, section_name)
+        if provider_config is _MISSING:
             continue
-
-        provider_config = getattr(context_config, section_name)
         if provider_config is not None:
             return provider_config
 
@@ -54,9 +67,7 @@ def get_provider_config(
 def normalize_model_name(value: str | None) -> str | None:
     if not isinstance(value, str):
         return None
-
-    normalized = value.strip()
-    return normalized or None
+    return strip_to_none(value)
 
 
 def resolve_config_default_model(
@@ -76,15 +87,15 @@ def resolve_config_default_model(
     if provider_config is None:
         return None
 
-    value = getattr(provider_config, "default_model", None)
+    value = _read_existing_attribute(provider_config, "default_model")
+    if value is _MISSING:
+        return None
     if not isinstance(value, str):
         return None
-
-    normalized = value.strip()
-    return normalized or None
+    return strip_to_none(value)
 
 
-def resolve_model_references(*, context: object, value: str) -> str:
+def resolve_model_references(*, context: "Context | None", value: str) -> str:
     aliases = get_context_model_references(context)
     return resolve_model_reference(value, aliases)
 
@@ -96,8 +107,8 @@ def initialize_base_default_params(
     resolved_model_spec: "ResolvedModelSpec | None" = None,
 ) -> RequestParams:
     """Build provider-agnostic default request params."""
-    model = kwargs.get("model")
-    max_tokens: int
+    model = normalize_model_name(kwargs.get("model"))
+    max_tokens: int | None
     if (
         isinstance(model, str)
         and resolved_model_spec is not None
@@ -106,7 +117,7 @@ def initialize_base_default_params(
     ):
         max_tokens = resolved_model_spec.max_output_tokens
     else:
-        max_tokens = ModelDatabase.get_default_max_tokens(model) if model else 16384
+        max_tokens = ModelDatabase.get_default_max_tokens(model) if model else None
 
     return RequestParams(
         model=model,
@@ -116,6 +127,8 @@ def initialize_base_default_params(
         max_iterations=DEFAULT_MAX_ITERATIONS,
         use_history=True,
     )
+
+
 def merge_request_params(
     default_params: RequestParams,
     provided_params: RequestParams,

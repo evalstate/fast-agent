@@ -1,6 +1,3 @@
-"""Tests for the MCP UI Mixin."""
-
-
 import pytest
 from mcp.types import CallToolResult, EmbeddedResource, TextContent, TextResourceContents
 from pydantic import AnyUrl
@@ -9,6 +6,7 @@ from rich.text import Text
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.constants import MCP_UI
 from fast_agent.mcp.ui_mixin import McpUIMixin
+from fast_agent.mcp.ui_modes import is_mcp_ui_mode, normalize_mcp_ui_mode
 from fast_agent.types import PromptMessageExtended
 
 
@@ -323,6 +321,22 @@ def test_set_ui_mode(ui_agent):
     assert ui_agent._ui_mode == "auto"
 
 
+def test_constructor_normalizes_invalid_ui_mode(mock_config, mock_context):
+    """Invalid constructor modes use the same fallback as set_ui_mode."""
+    agent = UIAgentForTesting(config=mock_config, context=mock_context, ui_mode="invalid")
+
+    assert agent._ui_mode == "auto"
+
+
+def test_mcp_ui_mode_predicate_and_normalizer() -> None:
+    assert is_mcp_ui_mode("disabled")
+    assert is_mcp_ui_mode("enabled")
+    assert is_mcp_ui_mode("auto")
+    assert not is_mcp_ui_mode("invalid")
+    assert normalize_mcp_ui_mode("enabled") == "enabled"
+    assert normalize_mcp_ui_mode("invalid") == "auto"
+
+
 @pytest.mark.asyncio
 async def test_split_ui_blocks(ui_agent):
     """Test the internal UI block splitting logic."""
@@ -331,26 +345,26 @@ async def test_split_ui_blocks(ui_agent):
 
     blocks = [ui_resource, text_block, create_ui_resource("ui://another")]
 
-    ui_blocks, other_blocks = ui_agent._split_ui_blocks(blocks)
+    split_blocks = ui_agent._split_ui_blocks(blocks)
 
-    assert len(ui_blocks) == 2
-    assert len(other_blocks) == 1
-    assert ui_resource in ui_blocks
-    assert text_block in other_blocks
+    assert len(split_blocks.ui_blocks) == 2
+    assert len(split_blocks.other_blocks) == 1
+    assert ui_resource in split_blocks.ui_blocks
+    assert text_block in split_blocks.other_blocks
 
 
 @pytest.mark.asyncio
 async def test_extract_ui_from_tool_results_handles_empty_results(ui_agent):
     """Test that empty tool results are handled gracefully."""
     # Test with None
-    result, ui_blocks = ui_agent._extract_ui_from_tool_results(None)
-    assert result is None
-    assert ui_blocks == []
+    extraction = ui_agent._extract_ui_from_tool_results(None)
+    assert extraction.tool_results is None
+    assert extraction.ui_blocks == []
 
     # Test with empty dict
-    result, ui_blocks = ui_agent._extract_ui_from_tool_results({})
-    assert result == {}
-    assert ui_blocks == []
+    extraction = ui_agent._extract_ui_from_tool_results({})
+    assert extraction.tool_results == {}
+    assert extraction.ui_blocks == []
 
 
 @pytest.mark.asyncio
@@ -370,9 +384,10 @@ async def test_extract_ui_from_tool_results_handles_exceptions(ui_agent):
     tool_results = {"broken": BrokenResult()}
 
     # Should not raise an exception
-    result, ui_blocks = ui_agent._extract_ui_from_tool_results(tool_results)
+    extraction = ui_agent._extract_ui_from_tool_results(tool_results)
 
     # Should pass through the broken result untouched
-    assert "broken" in result
-    assert result["broken"] == tool_results["broken"]
-    assert ui_blocks == []
+    assert extraction.tool_results is not None
+    assert "broken" in extraction.tool_results
+    assert extraction.tool_results["broken"] == tool_results["broken"]
+    assert extraction.ui_blocks == []

@@ -11,7 +11,7 @@ from fast_agent.constants import SMART_AGENT_INSTRUCTION
 from fast_agent.context import Context
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
-from fast_agent.tools.skill_reader import SkillReader
+from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.ui import console, notification_tracker
 
 
@@ -61,7 +61,7 @@ async def test_mcp_agent_exposes_skill_tools(tmp_path: Path) -> None:
     assert "alpha" not in tool_names
     # With local filesystem runtime enabled by default, skills use read_text_file
     assert "read_text_file" in tool_names
-    assert "read_skill" not in tool_names
+    assert READ_SKILL_TOOL_NAME not in tool_names
     # Path should be absolute
     assert manifests[0].path.is_absolute()
 
@@ -85,7 +85,7 @@ async def test_mcp_agent_skills_no_shell_uses_read_skill_fallback(tmp_path: Path
     tool_names = {tool.name for tool in tools_result.tools}
     assert "execute" not in tool_names
     assert "read_text_file" not in tool_names
-    assert "read_skill" in tool_names
+    assert READ_SKILL_TOOL_NAME in tool_names
 
 
 @pytest.mark.asyncio
@@ -171,6 +171,23 @@ async def test_skill_reader_rejects_relative_path(tmp_path: Path) -> None:
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
     assert "Path must be absolute" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_skill_reader_rejects_non_dict_arguments(tmp_path: Path) -> None:
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    reader = SkillReader(manifests, logging.getLogger(__name__))
+
+    result = await reader.execute("not a mapping")  # ty: ignore[invalid-argument-type]
+
+    assert result.isError is True
+    assert result.content is not None
+    assert result.content[0].type == "text"
+    assert isinstance(result.content[0], TextContent)
+    assert "arguments must be a dict" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -402,7 +419,7 @@ def test_format_skills_for_prompt_standard_format(tmp_path: Path) -> None:
     assert f"<assets>{skill_dir / 'assets'}</assets>" in prompt
 
     # Check preamble mentions read_skill tool by default
-    assert "read_skill" in prompt
+    assert READ_SKILL_TOOL_NAME in prompt
     assert "Prefer that file-reading tool over shell commands" in prompt
     assert "<directory> is the resolved absolute path to the skill's root directory" in prompt
     assert "<scripts>, <references>, and <assets>" in prompt

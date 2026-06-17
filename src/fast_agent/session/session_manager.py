@@ -21,7 +21,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any
 
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.logging.logger import get_logger
@@ -34,9 +34,11 @@ from fast_agent.session.snapshot import (
     session_info_from_snapshot,
     snapshot_from_session_info,
 )
+from fast_agent.utils.async_utils import run_coroutine
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.hydrator import SessionHydrationResult, SessionHydrationWarning
@@ -88,9 +90,12 @@ def _session_environment_override(
     if env_override is not None:
         return env_override
 
-    if explicit_cwd:
-        if settings.environment_dir is None and settings._fast_agent_home_source == "default":
-            return DEFAULT_ENVIRONMENT_DIR
+    if (
+        explicit_cwd
+        and settings.environment_dir is None
+        and settings._fast_agent_home_source == "default"
+    ):
+        return DEFAULT_ENVIRONMENT_DIR
 
     return None
 
@@ -108,7 +113,6 @@ def is_session_pinned(info: "SessionInfo") -> bool:
     return value is True
 
 
-
 def _sanitize_component(name: str, limit: int = 100) -> str:
     """Sanitize a name for filesystem safety."""
     name = name.replace(" ", "_").replace("/", "_").replace("\\", "_")
@@ -120,24 +124,31 @@ def _extract_history_agent(filename: str) -> str:
     """Extract agent name from a history filename."""
     if filename.startswith(HISTORY_PREFIX) and filename.endswith(HISTORY_SUFFIX):
         agent_name = filename[len(HISTORY_PREFIX) : -len(HISTORY_SUFFIX)]
-        if agent_name.endswith("_previous"):
-            agent_name = agent_name[: -len("_previous")]
+        agent_name = agent_name.removesuffix("_previous")
         return agent_name or "agent"
     return pathlib.Path(filename).stem
 
 
-def _first_user_preview(
-    messages: list["PromptMessageExtended"], limit: int = 240
-) -> str | None:
+def _normalize_explicit_session_id(session_id: str | None) -> str | None:
+    """Return a stripped, path-safe explicit session id or None."""
+    requested_id = strip_to_none(session_id)
+    if requested_id is None:
+        return None
+    if pathlib.Path(requested_id).name != requested_id:
+        return None
+    return requested_id
+
+
+def _first_user_preview(messages: list["PromptMessageExtended"], limit: int = 240) -> str | None:
     for message in messages:
         if message.role != "user":
             continue
-        if getattr(message, "is_template", False):
+        if message.is_template:
             continue
         text = message.all_text() or message.first_text() or ""
         text = " ".join(text.split())
         if not text:
-            return None
+            continue
         return text[:limit]
     return None
 
@@ -148,7 +159,9 @@ def get_session_history_window() -> int:
         from fast_agent.config import get_settings
 
         settings = get_settings()
-        value = getattr(settings, "session_history_window", 20)
+        value = settings.session_history_window
+        if isinstance(value, bool):
+            return 20
         if isinstance(value, int):
             return value
         return int(value)
@@ -268,7 +281,6 @@ class Session:
         self._manager = manager
         self._dirty = False
 
-
     async def save_history(
         self,
         agent: AgentProtocol,
@@ -317,9 +329,8 @@ class Session:
                     history_files.append(previous_filename)
             history_files.append(current_filename)
             self.info.history_files = history_files
-        else:
-            if filename not in self.info.history_files:
-                self.info.history_files.append(filename)
+        elif filename not in self.info.history_files:
+            self.info.history_files.append(filename)
 
         agent_name = getattr(agent, "name", None)
         if agent_name:
@@ -373,8 +384,8 @@ class Session:
             await HistoryExporter.save(agent, str(temp_path))
 
             if current_path.exists():
-                os.replace(current_path, previous_path)
-            os.replace(temp_path, current_path)
+                current_path.replace(previous_path)
+            temp_path.replace(current_path)
         finally:
             if temp_path and temp_path.exists():
                 try:
@@ -448,7 +459,7 @@ class Session:
                 handle.flush()
                 os.fsync(handle.fileno())
                 temp_path = pathlib.Path(handle.name)
-            os.replace(temp_path, path)
+            temp_path.replace(path)
         finally:
             if temp_path and temp_path.exists():
                 try:
@@ -537,7 +548,7 @@ class Session:
 
     def _read_lock_info(self, lock_path: pathlib.Path) -> dict[str, Any] | None:
         try:
-            with open(lock_path, encoding="utf-8") as handle:
+            with lock_path.open(encoding="utf-8") as handle:
                 data = json.load(handle)
                 return data if isinstance(data, dict) else None
         except Exception:
@@ -648,14 +659,20 @@ class SessionManager:
         logger.info(f"Created new session: {session_id}")
         return session
 
-    def create_session_with_id(self, session_id: str, metadata: dict | None = None) -> Session:
+    def create_session_with_id(
+        self,
+        session_id: str,
+        metadata: dict | None = None,
+        *,
+        metadata_id_key: str | None = "acp_session_id",
+    ) -> Session:
         """Create or load a session using the provided id."""
-        requested_id = (session_id or "").strip()
+        requested_id = _normalize_explicit_session_id(session_id)
         session_metadata = dict(metadata or {})
-        if requested_id:
-            session_metadata.setdefault("acp_session_id", requested_id)
+        if requested_id and metadata_id_key is not None:
+            session_metadata.setdefault(metadata_id_key, requested_id)
 
-        if not requested_id or pathlib.Path(requested_id).name != requested_id:
+        if requested_id is None:
             logger.warning(
                 "Invalid session id provided; falling back to generated id",
                 data={"session_id": session_id},
@@ -666,8 +683,11 @@ class SessionManager:
         if session_dir.exists():
             session = self.load_session(requested_id)
             if session:
-                if session.info.metadata.get("acp_session_id") != requested_id:
-                    session.info.metadata["acp_session_id"] = requested_id
+                if (
+                    metadata_id_key is not None
+                    and session.info.metadata.get(metadata_id_key) != requested_id
+                ):
+                    session.info.metadata[metadata_id_key] = requested_id
                     session._save_metadata()
                 return session
 
@@ -700,7 +720,7 @@ class SessionManager:
             metadata_file = session_dir / "session.json"
             if metadata_file.exists():
                 try:
-                    with open(metadata_file, encoding="utf-8") as f:
+                    with metadata_file.open(encoding="utf-8") as f:
                         data = json.load(f)
                         info = SessionInfo.from_dict(data)
                         sessions.append(info)
@@ -719,7 +739,7 @@ class SessionManager:
             return None
 
         try:
-            with open(metadata_file, encoding="utf-8") as f:
+            with metadata_file.open(encoding="utf-8") as f:
                 data = json.load(f)
                 snapshot = load_session_snapshot(data)
 
@@ -736,19 +756,26 @@ class SessionManager:
 
     def delete_session(self, name: str) -> bool:
         """Delete a session."""
-        session_dir = self.base_dir / name
+        session_id = _normalize_explicit_session_id(name)
+        if session_id is None:
+            logger.warning(
+                "Invalid session id provided for deletion",
+                data={"session_id": name},
+            )
+            return False
+        session_dir = self.base_dir / session_id
 
         if not session_dir.is_dir():
             return False
 
         try:
             shutil.rmtree(session_dir)
-            logger.info(f"Deleted session: {name}")
-            if self._current_session and self._current_session.info.name == name:
+            logger.info(f"Deleted session: {session_id}")
+            if self._current_session and self._current_session.info.name == session_id:
                 self._current_session = None
             return True
         except Exception as e:
-            logger.error(f"Failed to delete session {name}: {e}")
+            logger.error(f"Failed to delete session {session_id}: {e}")
             return False
 
     async def save_current_session(
@@ -812,7 +839,9 @@ class SessionManager:
         from fast_agent.session.hydrator import SessionHydrator
 
         session_name = self._resolve_session_name(name)
-        session = self.load_latest_session() if session_name is None else self.load_session(session_name)
+        session = (
+            self.load_latest_session() if session_name is None else self.load_session(session_name)
+        )
         if session is None:
             return None
 
@@ -834,7 +863,7 @@ class SessionManager:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_coroutine(
                 self._hydrate_session_agents_async(
                     agents,
                     name,
@@ -842,8 +871,8 @@ class SessionManager:
                 )
             )
         raise RuntimeError(
-            'SessionManager._hydrate_session_agents() cannot be used from an async context; '
-            'use _hydrate_session_agents_async() instead.'
+            "SessionManager._hydrate_session_agents() cannot be used from an async context; "
+            "use _hydrate_session_agents_async() instead."
         )
 
     def resume_session(
@@ -918,7 +947,7 @@ class SessionManager:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_coroutine(
                 self.resume_session_agents_async(
                     agents,
                     name,
@@ -926,8 +955,8 @@ class SessionManager:
                 )
             )
         raise RuntimeError(
-            'SessionManager.resume_session_agents() cannot be used from an async context; '
-            'use resume_session_agents_async() instead.'
+            "SessionManager.resume_session_agents() cannot be used from an async context; "
+            "use resume_session_agents_async() instead."
         )
 
     def fork_current_session(self, title: str | None = None) -> Session | None:
@@ -963,7 +992,7 @@ class SessionManager:
             return None
 
         try:
-            with open(metadata_file, encoding="utf-8") as f:
+            with metadata_file.open(encoding="utf-8") as f:
                 data = json.load(f)
                 info = SessionInfo.from_dict(data)
             return Session(info, session_dir, manager=self)
@@ -994,8 +1023,8 @@ class SessionManager:
 
     def _resolve_session_name(self, name: str | None) -> str | None:
         """Resolve a session name or ordinal index into a session id."""
-        session_name = None if name in (None, "") else name
-        if session_name is None:
+        session_name = strip_to_none(name)
+        if not session_name:
             return None
         if session_name.isdigit():
             ordinal = int(session_name)
@@ -1009,8 +1038,7 @@ class SessionManager:
         matches = [
             session.name
             for session in sessions
-            if session.name.endswith(f"-{session_name}")
-            and SESSION_ID_PATTERN.match(session.name)
+            if session.name.endswith(f"-{session_name}") and SESSION_ID_PATTERN.match(session.name)
         ]
         if len(matches) == 1:
             return matches[0]
@@ -1036,7 +1064,9 @@ class SessionManager:
     def _generate_session_id(self) -> str:
         """Generate a secure session identifier."""
         timestamp = datetime.now().strftime(SESSION_TIMESTAMP_FORMAT)
-        random_suffix = "".join(secrets.choice(SESSION_ID_ALPHABET) for _ in range(SESSION_ID_LENGTH))
+        random_suffix = "".join(
+            secrets.choice(SESSION_ID_ALPHABET) for _ in range(SESSION_ID_LENGTH)
+        )
         return f"{timestamp}-{random_suffix}"
 
     def _copy_history_file(self, src_path: pathlib.Path, dest_dir: pathlib.Path) -> str:
@@ -1056,7 +1086,7 @@ class SessionManager:
     def _load_authoritative_snapshot(self, session: Session) -> SessionSnapshot:
         metadata_file = session.directory / "session.json"
         try:
-            with open(metadata_file, encoding="utf-8") as handle:
+            with metadata_file.open(encoding="utf-8") as handle:
                 return load_session_snapshot(json.load(handle))
         except Exception as exc:
             logger.warning(

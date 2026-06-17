@@ -6,6 +6,7 @@ from mcp.types import ElicitRequestedSchema
 
 from fast_agent.human_input.form_fields import FormSchema
 from fast_agent.utils.async_utils import run_sync
+from fast_agent.utils.text import strip_str_to_none
 
 
 async def form(
@@ -47,8 +48,7 @@ async def form(
 
     if isinstance(elicit_schema, dict):
         elicit_schema = dict(elicit_schema)
-        existing_title = elicit_schema.get("title")
-        if not isinstance(existing_title, str) or not existing_title.strip():
+        if strip_str_to_none(elicit_schema.get("title")) is None:
             elicit_schema["title"] = title
 
     # Import here to avoid import-time cycles via package __init__
@@ -65,8 +65,7 @@ async def form(
     # Return results based on action
     if action == "accept":
         return result
-    else:
-        return None
+    return None
 
 
 def form_sync(

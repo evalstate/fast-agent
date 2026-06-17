@@ -11,6 +11,14 @@ from anthropic.types.beta import (
     BetaCodeExecutionToolResultBlock,
     BetaContainer,
     BetaEncryptedCodeExecutionResultBlock,
+    BetaMessage,
+    BetaRawContentBlockDeltaEvent,
+    BetaServerToolUseBlock,
+    BetaTextBlock,
+    BetaTextDelta,
+    BetaThinkingBlock,
+    BetaToolUseBlock,
+    BetaUsage,
 )
 from mcp.types import TextContent
 from pydantic import ValidationError
@@ -29,16 +37,6 @@ from fast_agent.constants import (
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
 )
 from fast_agent.context import Context
-from fast_agent.llm.provider.anthropic.beta_types import (
-    Message,
-    RawContentBlockDeltaEvent,
-    ServerToolUseBlock,
-    TextBlock,
-    TextDelta,
-    ThinkingBlock,
-    ToolUseBlock,
-    Usage,
-)
 from fast_agent.llm.provider.anthropic.llm_anthropic import LONG_CONTEXT_BETA, AnthropicLLM
 from fast_agent.llm.provider.anthropic.web_tools import serialize_anthropic_block_payload
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -58,6 +56,37 @@ def test_web_tool_settings_validate_domains_and_limits() -> None:
 
     with pytest.raises(ValidationError):
         AnthropicWebFetchSettings(enabled=True, max_content_tokens=0)
+
+
+def test_web_tool_settings_reject_boolean_limits() -> None:
+    with pytest.raises(TypeError, match="max_uses must be an integer"):
+        AnthropicWebSearchSettings.model_validate({"max_uses": True})
+
+    with pytest.raises(TypeError, match="max_uses must be an integer"):
+        AnthropicWebFetchSettings.model_validate({"max_uses": False})
+
+    with pytest.raises(TypeError, match="max_content_tokens must be an integer"):
+        AnthropicWebFetchSettings.model_validate({"max_content_tokens": True})
+
+
+def test_web_tool_settings_keep_integer_string_coercion() -> None:
+    search_settings = AnthropicWebSearchSettings.model_validate({"max_uses": "3"})
+    fetch_settings = AnthropicWebFetchSettings.model_validate(
+        {"max_uses": "4", "max_content_tokens": "2048"}
+    )
+
+    assert search_settings.max_uses == 3
+    assert fetch_settings.max_uses == 4
+    assert fetch_settings.max_content_tokens == 2048
+
+
+def test_web_tool_settings_normalize_domain_filters() -> None:
+    settings = AnthropicWebSearchSettings(
+        enabled=True,
+        allowed_domains=[" Example.COM ", "*.Docs.Example.com", "example.com"],
+    )
+
+    assert settings.allowed_domains == ["example.com", "*.docs.example.com"]
 
 
 def test_serialize_anthropic_text_payload_strips_parsed_output() -> None:
@@ -114,10 +143,10 @@ class _FinalMessageValidationFailureStream:
         if self._emitted:
             raise StopAsyncIteration
         self._emitted = True
-        return RawContentBlockDeltaEvent(
+        return BetaRawContentBlockDeltaEvent(
             type="content_block_delta",
             index=0,
-            delta=TextDelta(type="text_delta", text="streamed fallback text"),
+            delta=BetaTextDelta(type="text_delta", text="streamed fallback text"),
         )
 
     async def get_final_message(self):
@@ -184,14 +213,14 @@ async def test_request_includes_web_tools_and_required_beta_for_46_model() -> No
         ),
     )
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_1",
         type="message",
         role="assistant",
-        content=[TextBlock(type="text", text="done")],
+        content=[BetaTextBlock(type="text", text="done")],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -234,14 +263,14 @@ async def test_request_uses_legacy_web_tool_versions_for_non_46_models() -> None
         web_fetch=AnthropicWebFetchSettings(enabled=True),
     )
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_2",
         type="message",
         role="assistant",
-        content=[TextBlock(type="text", text="done")],
+        content=[BetaTextBlock(type="text", text="done")],
         model="claude-sonnet-4-5",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -271,14 +300,14 @@ async def test_request_uses_legacy_web_tool_versions_for_non_46_models() -> None
 async def test_46_models_do_not_send_long_context_beta_header() -> None:
     llm = _create_llm(model="claude-opus-4-6", long_context=True)
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_2b",
         type="message",
         role="assistant",
-        content=[TextBlock(type="text", text="done")],
+        content=[BetaTextBlock(type="text", text="done")],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -302,14 +331,14 @@ async def test_46_models_do_not_send_long_context_beta_header() -> None:
 async def test_legacy_long_context_models_still_send_beta_header() -> None:
     llm = _create_llm(model="claude-sonnet-4-5", long_context=True)
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_2c",
         type="message",
         role="assistant",
-        content=[TextBlock(type="text", text="done")],
+        content=[BetaTextBlock(type="text", text="done")],
         model="claude-sonnet-4-5",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -333,12 +362,12 @@ async def test_legacy_long_context_models_still_send_beta_header() -> None:
 async def test_server_tool_only_tool_use_does_not_create_mcp_tool_calls() -> None:
     llm = _create_llm(model="claude-opus-4-6")
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_3",
         type="message",
         role="assistant",
         content=[
-            ServerToolUseBlock(
+            BetaServerToolUseBlock(
                 type="server_tool_use",
                 id="srv_1",
                 name="web_search",
@@ -347,7 +376,7 @@ async def test_server_tool_only_tool_use_does_not_create_mcp_tool_calls() -> Non
         ],
         model="claude-opus-4-6",
         stop_reason="tool_use",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -374,12 +403,12 @@ async def test_server_tool_only_tool_use_does_not_create_mcp_tool_calls() -> Non
 async def test_code_execution_tool_results_are_preserved_in_server_tool_channel() -> None:
     llm = _create_llm(model="claude-opus-4-6")
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_3b",
         type="message",
         role="assistant",
         content=[
-            ServerToolUseBlock(
+            BetaServerToolUseBlock(
                 type="server_tool_use",
                 id="srv_1",
                 name="code_execution",
@@ -396,11 +425,11 @@ async def test_code_execution_tool_results_are_preserved_in_server_tool_channel(
                     stderr="",
                 ),
             ),
-            TextBlock(type="text", text="done"),
+            BetaTextBlock(type="text", text="done"),
         ],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -430,14 +459,16 @@ async def test_code_execution_tool_results_are_preserved_in_server_tool_channel(
 async def test_tool_use_with_thinking_persists_raw_assistant_content_channel() -> None:
     llm = _create_llm(model="claude-haiku-4-5")
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_3c",
         type="message",
         role="assistant",
         content=[
-            ThinkingBlock(type="thinking", thinking="I should call a tool", signature="sig_123"),
-            TextBlock(type="text", text="Let me fetch data."),
-            ToolUseBlock(
+            BetaThinkingBlock(
+                type="thinking", thinking="I should call a tool", signature="sig_123"
+            ),
+            BetaTextBlock(type="text", text="Let me fetch data."),
+            BetaToolUseBlock(
                 type="tool_use",
                 id="toolu_123",
                 name="mcp__demo",
@@ -446,7 +477,7 @@ async def test_tool_use_with_thinking_persists_raw_assistant_content_channel() -
         ],
         model="claude-haiku-4-5",
         stop_reason="tool_use",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -473,14 +504,14 @@ async def test_tool_use_with_thinking_persists_raw_assistant_content_channel() -
 async def test_response_container_id_is_persisted_for_followup_requests() -> None:
     llm = _create_llm(model="claude-opus-4-6")
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_container",
         type="message",
         role="assistant",
-        content=[TextBlock(type="text", text="done")],
+        content=[BetaTextBlock(type="text", text="done")],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
         container=BetaContainer(id="cont_123", expires_at=datetime.now(UTC)),
     )
 
@@ -507,14 +538,14 @@ async def test_response_container_id_is_persisted_for_followup_requests() -> Non
 async def test_request_reuses_container_id_from_history_channel() -> None:
     llm = _create_llm(model="claude-opus-4-6")
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_container_reuse",
         type="message",
         role="assistant",
-        content=[TextBlock(type="text", text="done")],
+        content=[BetaTextBlock(type="text", text="done")],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     history = [
@@ -547,12 +578,12 @@ async def test_request_reuses_container_id_from_history_channel() -> None:
 
 
 def test_convert_message_to_message_param_keeps_code_execution_tool_result() -> None:
-    message = Message(
+    message = BetaMessage(
         id="msg_3c",
         type="message",
         role="assistant",
         content=[
-            ServerToolUseBlock(
+            BetaServerToolUseBlock(
                 type="server_tool_use",
                 id="srv_1",
                 name="code_execution",
@@ -569,11 +600,11 @@ def test_convert_message_to_message_param_keeps_code_execution_tool_result() -> 
                     stderr="",
                 ),
             ),
-            TextBlock(type="text", text="done"),
+            BetaTextBlock(type="text", text="done"),
         ],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     converted = AnthropicLLM.convert_message_to_message_param(message)
@@ -585,7 +616,7 @@ def test_convert_message_to_message_param_keeps_code_execution_tool_result() -> 
 
 
 def test_convert_message_to_message_param_keeps_mcp_tool_result() -> None:
-    message = Message.model_validate(
+    message = BetaMessage.model_validate(
         {
             "id": "msg_mcp",
             "type": "message",
@@ -626,17 +657,17 @@ def test_convert_message_to_message_param_keeps_mcp_tool_result() -> None:
 
 
 def test_convert_message_to_message_param_skips_text_blocks_with_null_text() -> None:
-    message = Message.model_construct(
+    message = BetaMessage.model_construct(
         id="msg_null_text",
         type="message",
         role="assistant",
         content=[
-            TextBlock.model_construct(type="text", text=None),
-            TextBlock(type="text", text="safe text"),
+            BetaTextBlock.model_construct(type="text", text=None),
+            BetaTextBlock(type="text", text="safe text"),
         ],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=1, output_tokens=1),
+        usage=BetaUsage(input_tokens=1, output_tokens=1),
     )
 
     converted = AnthropicLLM.convert_message_to_message_param(message)
@@ -649,17 +680,17 @@ def test_convert_message_to_message_param_skips_text_blocks_with_null_text() -> 
 async def test_anthropic_completion_skips_null_text_blocks_in_final_message() -> None:
     llm = _create_llm(model="claude-opus-4-6")
 
-    final_message = Message.model_construct(
+    final_message = BetaMessage.model_construct(
         id="msg_null_text_final",
         type="message",
         role="assistant",
         content=[
-            TextBlock.model_construct(type="text", text=None),
-            TextBlock(type="text", text="safe text"),
+            BetaTextBlock.model_construct(type="text", text=None),
+            BetaTextBlock(type="text", text="safe text"),
         ],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -682,12 +713,12 @@ async def test_anthropic_completion_skips_null_text_blocks_in_final_message() ->
 async def test_text_block_citations_are_captured_in_channel() -> None:
     llm = _create_llm(model="claude-opus-4-6")
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_4",
         type="message",
         role="assistant",
         content=[
-            TextBlock(
+            BetaTextBlock(
                 type="text",
                 text="Here is a source.",
                 citations=[
@@ -703,7 +734,7 @@ async def test_text_block_citations_are_captured_in_channel() -> None:
         ],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -733,14 +764,14 @@ async def test_text_block_citations_are_captured_in_channel() -> None:
 async def test_streamed_text_fallback_when_final_message_has_no_text_blocks() -> None:
     llm = _create_llm(model="claude-opus-4-6")
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_5",
         type="message",
         role="assistant",
         content=[],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -770,14 +801,14 @@ async def test_streamed_text_fallback_when_final_message_has_no_text_blocks() ->
 async def test_streamed_text_overrides_mismatched_final_text_blocks() -> None:
     llm = _create_llm(model="claude-opus-4-6")
 
-    final_message = Message(
+    final_message = BetaMessage(
         id="msg_6",
         type="message",
         role="assistant",
-        content=[TextBlock(type="text", text="Short final text")],
+        content=[BetaTextBlock(type="text", text="Short final text")],
         model="claude-opus-4-6",
         stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=20),
+        usage=BetaUsage(input_tokens=10, output_tokens=20),
     )
 
     with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
@@ -808,7 +839,7 @@ async def test_process_stream_falls_back_when_final_message_has_invalid_text_blo
     llm = _create_llm(model="claude-opus-4-6")
 
     try:
-        TextBlock.model_validate({"type": "text", "text": None})
+        BetaTextBlock.model_validate({"type": "text", "text": None})
     except ValidationError as exc:
         error = exc
     else:

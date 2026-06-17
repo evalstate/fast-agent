@@ -39,7 +39,7 @@ def test_build_fence_focus_scenario_contains_mixed_fence_cases() -> None:
     assert "```bash" in markdown
     assert "```apply_patch" in markdown
     assert "#### Case 5 — reference definitions around a fenced block" in markdown
-    assert "[render-docs]: https://example.com/rendering \"Renderer notes\"" in markdown
+    assert '[render-docs]: https://example.com/rendering "Renderer notes"' in markdown
     assert "Trailing prose marker" in markdown
 
 

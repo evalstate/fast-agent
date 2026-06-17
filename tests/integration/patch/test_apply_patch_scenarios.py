@@ -18,7 +18,9 @@ class SnapshotEntry:
 
 @pytest.mark.integration
 def test_apply_patch_scenarios() -> None:
-    scenarios_dir = Path(__file__).resolve().parent.parent.parent / "fixtures" / "patch" / "scenarios"
+    scenarios_dir = (
+        Path(__file__).resolve().parent.parent.parent / "fixtures" / "patch" / "scenarios"
+    )
     for scenario in sorted(scenarios_dir.iterdir()):
         if scenario.is_dir():
             _run_apply_patch_scenario(scenario)
@@ -43,9 +45,9 @@ def _run_apply_patch_scenario(scenario_dir: Path) -> None:
         expected_snapshot = _snapshot_dir(scenario_dir / "expected")
         actual_snapshot = _snapshot_dir(tmp_path)
 
-        assert (
-            actual_snapshot == expected_snapshot
-        ), f"Scenario {scenario_dir} did not match expected final state"
+        assert actual_snapshot == expected_snapshot, (
+            f"Scenario {scenario_dir} did not match expected final state"
+        )
 
 
 def _snapshot_dir(root: Path) -> dict[Path, SnapshotEntry]:

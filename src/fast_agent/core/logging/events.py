@@ -69,14 +69,12 @@ class EventFilter(BaseModel):
         Check if an event matches this EventFilter criteria.
         """
         # 1) Filter by broad event type
-        if self.types:
-            if event.type not in self.types:
-                return False
+        if self.types and event.type not in self.types:
+            return False
 
         # 2) Filter by custom event name
-        if self.names:
-            if not event.name or event.name not in self.names:
-                return False
+        if self.names and (not event.name or event.name not in self.names):
+            return False
 
         # 3) Filter by namespace prefix
         if self.namespaces and not any(event.namespace.startswith(ns) for ns in self.namespaces):

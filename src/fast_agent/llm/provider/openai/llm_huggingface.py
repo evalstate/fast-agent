@@ -90,6 +90,17 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if moved or extra_body:
             arguments["extra_body"] = extra_body
 
+    @staticmethod
+    def _set_chat_template_kwarg(
+        extra_body: dict[str, Any],
+        key: str,
+        value: bool,
+    ) -> None:
+        chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
+        chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
+        chat_kwargs[key] = value
+        extra_body["chat_template_kwargs"] = chat_kwargs
+
     def _apply_reasoning_toggle(self, arguments: dict[str, Any]) -> None:
         spec = self.reasoning_effort_spec
         if not spec or spec.kind != "toggle":
@@ -101,11 +112,13 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         disable_reasoning = not bool(effective.value)
         uses_kimi_25_chat_toggle = self._uses_kimi_25_chat_toggle(arguments.get("model"))
         uses_kimi_26_chat_toggle = self._uses_kimi_26_chat_toggle(arguments.get("model"))
-        uses_qwen_chat_toggle = self._uses_qwen_chat_template_toggle(arguments.get("model"))
+        uses_chat_template_enable_thinking = self._uses_enable_thinking_chat_template_toggle(
+            arguments.get("model")
+        )
         if (
             not uses_kimi_25_chat_toggle
             and not uses_kimi_26_chat_toggle
-            and not uses_qwen_chat_toggle
+            and not uses_chat_template_enable_thinking
             and not disable_reasoning
             and self.reasoning_effort is None
         ):
@@ -122,21 +135,19 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
                 extra_body["thinking"] = {"type": "disabled"}
                 arguments["extra_body"] = extra_body
             return
-        elif uses_kimi_26_chat_toggle:
+        if uses_kimi_26_chat_toggle:
             # Kimi 2.6 also defaults to thinking-enabled on the provider side.
             # Instant mode is exposed via the model chat template toggle.
             if disable_reasoning:
-                chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
-                chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
-                chat_kwargs["thinking"] = False
-                extra_body["chat_template_kwargs"] = chat_kwargs
+                self._set_chat_template_kwarg(extra_body, "thinking", False)
                 arguments["extra_body"] = extra_body
             return
-        elif uses_qwen_chat_toggle:
-            chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
-            chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
-            chat_kwargs["enable_thinking"] = not disable_reasoning
-            extra_body["chat_template_kwargs"] = chat_kwargs
+        if uses_chat_template_enable_thinking:
+            self._set_chat_template_kwarg(
+                extra_body,
+                "enable_thinking",
+                not disable_reasoning,
+            )
         else:
             extra_body["disable_reasoning"] = disable_reasoning
         arguments["extra_body"] = extra_body
@@ -171,10 +182,13 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         return ModelDatabase.normalize_model_name(model) == "moonshotai/kimi-k2.6"
 
     @staticmethod
-    def _uses_qwen_chat_template_toggle(model: str | None) -> bool:
+    def _uses_enable_thinking_chat_template_toggle(model: str | None) -> bool:
         if not model:
             return False
-        return ModelDatabase.normalize_model_name(model) == "qwen/qwen3.5-397b-a17b"
+        return ModelDatabase.normalize_model_name(model) in {
+            "qwen/qwen3.5-397b-a17b",
+            "google/gemma-4-31b-it",
+        }
 
     def _resolve_default_provider(self) -> str | None:
         config_provider = None

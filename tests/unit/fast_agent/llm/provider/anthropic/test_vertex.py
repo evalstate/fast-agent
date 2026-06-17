@@ -1,12 +1,12 @@
 import types
 
 import pytest
+from anthropic.types.beta import BetaToolParam
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.llm.provider.anthropic.beta_types import ToolParam
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
 from fast_agent.llm.provider.anthropic.vertex_config import (
@@ -36,8 +36,8 @@ def test_vertex_cfg_accepts_model_object() -> None:
         "vertex_ai",
         types.SimpleNamespace(
             enabled=True,
-            project_id="proj",
-            location="global",
+            project_id="  proj  ",
+            location="  global  ",
             base_url="https://vertex.example",
         ),
     )
@@ -144,6 +144,29 @@ def test_initialize_anthropic_client_uses_direct_sdk(monkeypatch) -> None:
     assert called["default_headers"] == {"X-Test": "direct"}
 
 
+def test_initialize_anthropic_client_allows_sdk_credentials_without_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    config = Settings.model_validate({"anthropic": {"base_url": "https://api.anthropic.example"}})
+    llm = _build_direct_llm(config)
+
+    called: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs) -> None:
+            called.update(kwargs)
+
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic",
+        FakeClient,
+    )
+
+    client = llm._initialize_anthropic_client()
+
+    assert isinstance(client, FakeClient)
+    assert "api_key" not in called
+    assert called["base_url"] == "https://api.anthropic.example"
+
+
 def test_vertex_client_requires_google_adc(monkeypatch) -> None:
     config = Settings.model_validate(
         {
@@ -183,7 +206,7 @@ def test_vertex_beta_support_is_selective() -> None:
         model="claude-sonnet-4-5",
         long_context=True,
     )
-    request_tools = [ToolParam(name="demo", description="", input_schema={})]
+    request_tools = [BetaToolParam(name="demo", description="", input_schema={})]
 
     beta_flags = llm._resolve_anthropic_beta_flags(
         model="claude-sonnet-4-5",

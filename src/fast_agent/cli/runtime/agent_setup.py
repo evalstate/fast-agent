@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
@@ -15,9 +15,11 @@ from urllib.parse import urlparse
 import typer
 from pydantic import BaseModel
 
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
+from fast_agent.config import Settings
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
@@ -31,7 +33,9 @@ from fast_agent.ui.model_picker_common import (
     infer_initial_picker_provider,
     normalize_generic_model_spec,
 )
-from fast_agent.utils.async_utils import suppress_known_runtime_warnings
+from fast_agent.utils.filename import sanitize_filename_suffix
+from fast_agent.utils.text import strip_casefold, strip_to_none
+from fast_agent.utils.transports import uses_protocol_stdio
 
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
 from .shell_cwd_policy import (
@@ -46,12 +50,20 @@ from .shell_cwd_policy import (
 if TYPE_CHECKING:
     from mcp.types import ContentBlock
 
+    from fast_agent.core.model_resolution import ResolvedModelSpec
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.structured_schema import StructuredSchemaSource
     from fast_agent.types import PromptMessageExtended, StructuredToolPolicy
 
     from .run_request import AgentRunRequest
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _ModelPickerInitialSelection:
+    provider: str | None = None
+    model_spec: str | None = None
 
 
 async def _structured_call(
@@ -81,7 +93,9 @@ def _structured_output_payload(parsed: Any) -> Any:
 
 
 def _find_last_assistant_text(history: list[Any]) -> str | None:
-    typed_history = [message for message in history if hasattr(message, "role")]
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+
+    typed_history = [message for message in history if isinstance(message, PromptMessageExtended)]
     return find_last_assistant_preview_text(typed_history)
 
 
@@ -111,21 +125,15 @@ def _explicit_agent_cards_define_startup_model(
 
     try:
         from fast_agent.core.agent_card_loader import load_agent_cards
-        from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
     except Exception:
         return False
 
     loaded_cards = []
     temp_paths: list[Path] = []
     try:
-        for source in request.agent_cards:
-            parsed = urlparse(source)
-            if parsed.scheme in REMOTE_TEXT_SCHEMES:
-                suffix = Path(parsed.path).suffix or ".md"
-                path = materialize_text_source(source, label="AgentCard URL", suffix=suffix)
+        for path, is_temporary in _materialized_agent_card_paths(request.agent_cards):
+            if is_temporary:
                 temp_paths.append(path)
-            else:
-                path = materialize_text_source(source, label="AgentCard source")
             loaded_cards.extend(load_agent_cards(path))
     except Exception:
         return False
@@ -133,24 +141,57 @@ def _explicit_agent_cards_define_startup_model(
         for path in temp_paths:
             path.unlink(missing_ok=True)
 
+    runnable_configs = _runnable_agent_card_configs(loaded_cards)
+    if len(runnable_configs) != 1:
+        return False
+
+    return _agent_config_defines_startup_model(
+        runnable_configs[0],
+        model_references=model_references,
+    )
+
+
+def _materialized_agent_card_paths(sources: list[str]) -> list[tuple[Path, bool]]:
+    from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
+
+    paths: list[tuple[Path, bool]] = []
+    for source in sources:
+        parsed = urlparse(source)
+        if parsed.scheme in REMOTE_TEXT_SCHEMES:
+            suffix = Path(parsed.path).suffix or ".md"
+            paths.append(
+                (
+                    materialize_text_source(source, label="AgentCard URL", suffix=suffix),
+                    True,
+                )
+            )
+        else:
+            paths.append((materialize_text_source(source, label="AgentCard source"), False))
+    return paths
+
+
+def _runnable_agent_card_configs(loaded_cards: list[Any]) -> list[Any]:
     runnable_configs = []
     for card in loaded_cards:
         if card.agent_data.get("tool_only", False):
             continue
         config = card.agent_data.get("config")
-        if config is None:
-            continue
-        runnable_configs.append(config)
+        if config is not None:
+            runnable_configs.append(config)
+    return runnable_configs
 
-    if len(runnable_configs) != 1:
-        return False
 
-    model = runnable_configs[0].model
+def _agent_config_defines_startup_model(
+    agent_config: Any,
+    *,
+    model_references: Mapping[str, Mapping[str, str]] | None,
+) -> bool:
+    model = agent_config.model
     if not isinstance(model, str):
         return False
 
-    model_spec = model.strip()
-    if not model_spec:
+    model_spec = strip_to_none(model)
+    if model_spec is None:
         return False
     if not model_spec.startswith("$"):
         return True
@@ -162,8 +203,7 @@ def _explicit_agent_cards_define_startup_model(
     except ModelConfigError:
         return False
 
-    return bool(resolved_model.strip())
-
+    return strip_to_none(resolved_model) is not None
 
 
 def _resolve_model_without_hardcoded_default(
@@ -171,7 +211,7 @@ def _resolve_model_without_hardcoded_default(
     model: str | None,
     config_default_model: str | None,
     model_references: Mapping[str, Mapping[str, str]] | None,
-) -> tuple[str | None, str | None]:
+) -> ResolvedModelSpec:
     """Resolve model precedence without falling back to the hardcoded system default."""
     from fast_agent.core.model_resolution import resolve_model_spec
 
@@ -185,7 +225,7 @@ def _resolve_model_without_hardcoded_default(
     )
 
 
-def _load_request_settings(request: "AgentRunRequest"):
+def _load_request_settings(request: "AgentRunRequest") -> "Settings":
     from fast_agent import config as config_module
 
     if request.config_path is None:
@@ -200,65 +240,105 @@ def _load_request_settings(request: "AgentRunRequest"):
 
 def _resolve_model_picker_initial_selection(
     *,
-    settings: Any,
-) -> tuple[str | None, str | None]:
+    settings: "Settings",
+) -> _ModelPickerInitialSelection:
     from fast_agent.core.exceptions import ModelConfigError
     from fast_agent.core.model_resolution import resolve_model_reference
     from fast_agent.llm.model_overlays import load_model_overlay_registry
     from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
     from fast_agent.ui.model_picker_common import model_identity
 
-    references = getattr(settings, "model_references", None)
-    if not isinstance(references, Mapping):
-        return None, None
-
-    system_references = references.get("system")
-    if not isinstance(system_references, Mapping):
-        return None, None
-
-    raw_last_used = system_references.get("last_used")
-    if not isinstance(raw_last_used, str):
-        return None, None
-
-    initial_model_spec = raw_last_used.strip()
-    if not initial_model_spec:
-        return None, None
+    references = _settings_model_references(settings)
+    initial_model_spec = _last_used_model_reference(references)
+    if initial_model_spec is None:
+        return _ModelPickerInitialSelection()
 
     overlay_registry = load_model_overlay_registry(
         start_path=resolve_model_reference_start_path(
             settings=settings,
             fallback_path=Path.cwd(),
         ),
-        env_dir=getattr(settings, "environment_dir", None),
+        env_dir=settings.environment_dir,
     )
-    if overlay_registry.resolve_model_string(initial_model_spec) is not None:
-        return "overlays", initial_model_spec
+    overlay_selection = _overlay_model_picker_selection(
+        overlay_registry,
+        initial_model_spec,
+    )
+    if overlay_selection is not None:
+        return overlay_selection
 
-    provider_name: str | None = None
-    if model_identity(initial_model_spec) is not None:
-        provider_name = infer_initial_picker_provider(initial_model_spec)
-        return provider_name, initial_model_spec
+    identity_selection = _identity_model_picker_selection(
+        initial_model_spec,
+        model_identity=model_identity,
+    )
+    if identity_selection is not None:
+        return identity_selection
 
     try:
         resolved_model_spec = resolve_model_reference(initial_model_spec, references)
     except ModelConfigError:
-        return None, initial_model_spec
+        return _ModelPickerInitialSelection(model_spec=initial_model_spec)
 
-    if overlay_registry.resolve_model_string(resolved_model_spec) is not None:
-        return "overlays", resolved_model_spec
+    overlay_selection = _overlay_model_picker_selection(overlay_registry, resolved_model_spec)
+    if overlay_selection is not None:
+        return overlay_selection
 
-    resolved_identity = model_identity(resolved_model_spec)
-    if resolved_identity is not None:
-        provider_name = infer_initial_picker_provider(resolved_model_spec)
-        return provider_name, resolved_model_spec
+    identity_selection = _identity_model_picker_selection(
+        resolved_model_spec,
+        model_identity=model_identity,
+    )
+    return identity_selection or _ModelPickerInitialSelection(model_spec=initial_model_spec)
 
-    return None, initial_model_spec
+
+def _settings_model_references(settings: "Settings") -> Mapping[str, Mapping[str, str]] | None:
+    references = settings.model_references
+    if not isinstance(references, Mapping):
+        return None
+    return references
+
+
+def _last_used_model_reference(
+    references: Mapping[str, Mapping[str, str]] | None,
+) -> str | None:
+    if references is None:
+        return None
+    system_references = references.get("system")
+    if not isinstance(system_references, Mapping):
+        return None
+
+    raw_last_used = system_references.get("last_used")
+    if not isinstance(raw_last_used, str):
+        return None
+
+    return strip_to_none(raw_last_used)
+
+
+def _overlay_model_picker_selection(
+    overlay_registry: Any,
+    model_spec: str,
+) -> _ModelPickerInitialSelection | None:
+    if overlay_registry.resolve_model_string(model_spec) is None:
+        return None
+    return _ModelPickerInitialSelection(provider="overlays", model_spec=model_spec)
+
+
+def _identity_model_picker_selection(
+    model_spec: str,
+    *,
+    model_identity: Callable[[str], object | None],
+) -> _ModelPickerInitialSelection | None:
+    if model_identity(model_spec) is None:
+        return None
+    return _ModelPickerInitialSelection(
+        provider=infer_initial_picker_provider(model_spec),
+        model_spec=model_spec,
+    )
 
 
 def _persist_model_picker_last_used_selection(
     request: AgentRunRequest,
     *,
-    settings: Any,
+    settings: "Settings",
     model_spec: str,
 ) -> bool:
     from fast_agent.llm.model_reference_config import (
@@ -267,23 +347,26 @@ def _persist_model_picker_last_used_selection(
     )
     from fast_agent.paths import resolve_environment_dir
 
-    normalized_model = model_spec.strip()
-    if request.noenv or not normalized_model:
+    normalized_model = strip_to_none(model_spec)
+    if request.noenv or normalized_model is None:
         return False
 
     start_path = resolve_model_reference_start_path(settings=settings, fallback_path=Path.cwd())
     explicit_config_path = None
     if request.config_path is not None:
         loaded_config_file = getattr(settings, "_config_file", None)
-        if isinstance(loaded_config_file, str) and loaded_config_file.strip():
-            explicit_config_path = Path(loaded_config_file).expanduser().resolve()
+        loaded_config_file_path = (
+            strip_to_none(loaded_config_file) if isinstance(loaded_config_file, str) else None
+        )
+        if loaded_config_file_path is not None:
+            explicit_config_path = Path(loaded_config_file_path).expanduser().resolve()
         else:
             explicit_config_path = Path(request.config_path).expanduser().resolve()
 
     env_dir = resolve_environment_dir(
         settings=settings,
         cwd=Path.cwd(),
-        override=request.environment_dir or getattr(settings, "environment_dir", None),
+        override=request.environment_dir or settings.environment_dir,
     )
     write_target = "project" if explicit_config_path is not None else "env"
 
@@ -308,7 +391,7 @@ def _persist_model_picker_last_used_selection(
         )
         return False
 
-    references = getattr(settings, "model_references", None)
+    references = settings.model_references
     if isinstance(references, dict):
         system_references = references.get("system")
         if isinstance(system_references, dict):
@@ -321,12 +404,8 @@ def _persist_model_picker_last_used_selection(
     return True
 
 
-def _normalize_generic_model_spec(raw_model: str) -> str | None:
-    return normalize_generic_model_spec(raw_model)
-
-
 def _generic_model_prompt_default(initial_model_spec: str | None) -> str:
-    candidate = (initial_model_spec or "").strip()
+    candidate = strip_to_none(initial_model_spec) or ""
     if candidate.startswith("generic."):
         candidate = candidate.removeprefix("generic.")
         return candidate or "llama3.2"
@@ -341,16 +420,15 @@ async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> 
     prompt_session = PromptSession()
     while True:
         try:
-            with suppress_known_runtime_warnings():
-                entered = await prompt_session.prompt_async(
-                    "Local model (e.g. llama3.2): ",
-                    default=default_model,
-                )
+            entered = await prompt_session.prompt_async(
+                "Local model (e.g. llama3.2): ",
+                default=default_model,
+            )
         except (EOFError, KeyboardInterrupt):
             typer.echo("Model selection cancelled.", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
-        normalized = _normalize_generic_model_spec(entered)
+        normalized = normalize_generic_model_spec(entered)
         if normalized:
             return normalized
 
@@ -365,7 +443,7 @@ async def _import_llamacpp_overlay_from_picker(
     from fast_agent.cli.commands.model import import_llamacpp_overlay_from_default_url
 
     settings = _load_request_settings(request)
-    env_dir = request.environment_dir or getattr(settings, "environment_dir", None)
+    env_dir = request.environment_dir or settings.environment_dir
 
     try:
         return await import_llamacpp_overlay_from_default_url(
@@ -516,9 +594,10 @@ def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> No
     if not issues:
         return
 
-    settings = getattr(fast.app.context, "config", None)
-    shell_settings = getattr(settings, "shell_execution", None)
-    configured_policy = getattr(shell_settings, "missing_cwd_policy", None)
+    settings = fast.app.context.config
+    configured_policy = (
+        settings.shell_execution.missing_cwd_policy if isinstance(settings, Settings) else None
+    )
     resolved_policy = resolve_missing_shell_cwd_policy(
         cli_override=request.missing_shell_cwd_policy,
         configured_policy=configured_policy,
@@ -557,17 +636,17 @@ def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> No
         )
         return
 
-    created_paths, creation_errors = create_missing_shell_cwd_directories(issues)
-    if created_paths:
+    creation_result = create_missing_shell_cwd_directories(issues)
+    if creation_result.created_paths:
         created_lines = [
             "Created missing shell cwd directories:",
-            *[f" - {path}" for path in created_paths],
+            *[f" - {path}" for path in creation_result.created_paths],
         ]
         _emit_startup_notice(request, "\n".join(created_lines))
 
-    if creation_errors:
+    if creation_result.errors:
         error_lines = ["Failed to create one or more shell cwd directories:"]
-        error_lines.extend(f" - {item.path}: {item.message}" for item in creation_errors)
+        error_lines.extend(f" - {item.path}: {item.message}" for item in creation_result.errors)
         typer.echo("\n".join(error_lines), err=True)
         raise typer.Exit(1)
 
@@ -589,118 +668,212 @@ def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> No
 
 
 async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> None:
-    if request.noenv:
-        if request.resume:
-            typer.echo("Error: --resume cannot be used with --noenv.", err=True)
-            raise typer.Exit(1)
-        return
-
-    if not request.resume:
+    _validate_resume_request(request)
+    if not request.resume or request.noenv:
         return
 
     from fast_agent.session import get_session_manager
     from fast_agent.ui.enhanced_prompt import queue_startup_markdown_notice, queue_startup_notice
 
     manager = get_session_manager()
-    session_id = None if request.resume in ("", RESUME_LATEST_SENTINEL) else request.resume
+    session_id = _resume_session_id(request)
     default_agent = agent_app._agent(None)
-    agents_map = agent_app.registered_agents()
-    fallback_agent_name = (
-        agent_app.resolve_target_agent_name(request.target_agent_name)
-        or getattr(default_agent, "name", None)
-    )
     result = await manager.resume_session_agents_async(
-        agents_map,
+        agent_app.registered_agents(),
         session_id,
-        fallback_agent_name=fallback_agent_name,
+        fallback_agent_name=_resume_fallback_agent_name(agent_app, request, default_agent),
     )
     interactive_notice = request.is_repl
     if not result:
-        if session_id:
-            notice = f"[yellow]Session not found:[/yellow] {session_id}"
-        else:
-            notice = "[yellow]No sessions found to resume.[/yellow]"
-        if interactive_notice:
-            queue_startup_notice(notice)
-        else:
-            typer.echo(
-                notice.replace("[yellow]", "").replace("[/yellow]", ""),
-                err=True,
-            )
+        _emit_resume_not_found_notice(session_id, interactive_notice, queue_startup_notice)
         return
 
+    _emit_resume_status_notices(result, interactive_notice, queue_startup_notice)
+    _emit_resume_history_summary(result, interactive_notice, queue_startup_notice)
+
+    if result.active_agent is not None:
+        request.target_agent_name = result.active_agent
+
+    preview_agent = _resume_preview_agent(agent_app, request, default_agent, result.loaded)
+    _emit_resume_assistant_preview(
+        preview_agent,
+        interactive_notice,
+        queue_startup_markdown_notice,
+    )
+
+
+def _validate_resume_request(request: AgentRunRequest) -> None:
+    if request.noenv and request.resume:
+        typer.echo("Error: --resume cannot be used with --noenv.", err=True)
+        raise typer.Exit(1)
+
+
+def _resume_session_id(request: AgentRunRequest) -> str | None:
+    return None if request.resume in ("", RESUME_LATEST_SENTINEL) else request.resume
+
+
+def _resume_fallback_agent_name(
+    agent_app: Any,
+    request: AgentRunRequest,
+    default_agent: "AgentProtocol",
+) -> str | None:
+    return agent_app.resolve_target_agent_name(request.target_agent_name) or default_agent.name
+
+
+def _plain_resume_notice(notice: str) -> str:
+    return (
+        notice.replace("[yellow]", "")
+        .replace("[/yellow]", "")
+        .replace("[dim]", "")
+        .replace("[/dim]", "")
+        .replace("[cyan]", "")
+        .replace("[/cyan]", "")
+    )
+
+
+def _emit_resume_notice(
+    notice: str,
+    *,
+    interactive_notice: bool,
+    queue_startup_notice: Any,
+    plain_notice: str | None = None,
+) -> None:
+    if interactive_notice:
+        queue_startup_notice(notice)
+    else:
+        typer.echo(
+            plain_notice if plain_notice is not None else _plain_resume_notice(notice), err=True
+        )
+
+
+def _emit_resume_not_found_notice(
+    session_id: str | None,
+    interactive_notice: bool,
+    queue_startup_notice: Any,
+) -> None:
+    notice = (
+        f"[yellow]Session not found:[/yellow] {session_id}"
+        if session_id
+        else "[yellow]No sessions found to resume.[/yellow]"
+    )
+    _emit_resume_notice(
+        notice,
+        interactive_notice=interactive_notice,
+        queue_startup_notice=queue_startup_notice,
+    )
+
+
+def _emit_resume_status_notices(
+    result: Any,
+    interactive_notice: bool,
+    queue_startup_notice: Any,
+) -> None:
     session = result.session
-    loaded = result.loaded
-    missing_agents = result.missing_agents
-    usage_notices = result.usage_notices
-    active_agent_name = result.active_agent
     session_time = session.info.last_activity.strftime("%y-%m-%d %H:%M")
     resume_notice = (
         f"[dim]Resumed session[/dim] [cyan]{session.info.name}[/cyan] [dim]({session_time})[/dim]"
     )
-    if interactive_notice:
-        queue_startup_notice(resume_notice)
-    else:
-        typer.echo(
-            f"Resumed session {session.info.name} ({session_time})",
-            err=True,
-        )
-    if missing_agents:
-        missing_list = ", ".join(sorted(missing_agents))
-        missing_notice = f"[yellow]Missing agents from session:[/yellow] {missing_list}"
-        if interactive_notice:
-            queue_startup_notice(missing_notice)
-        else:
-            typer.echo(f"Missing agents from session: {missing_list}", err=True)
+    _emit_resume_notice(
+        resume_notice,
+        interactive_notice=interactive_notice,
+        queue_startup_notice=queue_startup_notice,
+        plain_notice=f"Resumed session {session.info.name} ({session_time})",
+    )
+    _emit_missing_resume_agents_notice(
+        result.missing_agents, interactive_notice, queue_startup_notice
+    )
+    _emit_resume_warnings(result.warnings, interactive_notice, queue_startup_notice)
+    _emit_resume_usage_notices(result.usage_notices, interactive_notice, queue_startup_notice)
 
-    for warning in result.warnings:
+
+def _emit_missing_resume_agents_notice(
+    missing_agents: list[str],
+    interactive_notice: bool,
+    queue_startup_notice: Any,
+) -> None:
+    if not missing_agents:
+        return
+    missing_list = ", ".join(sorted(missing_agents))
+    _emit_resume_notice(
+        f"[yellow]Missing agents from session:[/yellow] {missing_list}",
+        interactive_notice=interactive_notice,
+        queue_startup_notice=queue_startup_notice,
+        plain_notice=f"Missing agents from session: {missing_list}",
+    )
+
+
+def _emit_resume_warnings(
+    warnings: list[Any],
+    interactive_notice: bool,
+    queue_startup_notice: Any,
+) -> None:
+    for warning in warnings:
         if warning.code == "missing-agent":
             continue
-        warning_notice = f"[yellow]{warning.message}[/yellow]"
-        if interactive_notice:
-            queue_startup_notice(warning_notice)
-        else:
-            typer.echo(warning.message, err=True)
+        _emit_resume_notice(
+            f"[yellow]{warning.message}[/yellow]",
+            interactive_notice=interactive_notice,
+            queue_startup_notice=queue_startup_notice,
+            plain_notice=warning.message,
+        )
 
+
+def _emit_resume_usage_notices(
+    usage_notices: list[str],
+    interactive_notice: bool,
+    queue_startup_notice: Any,
+) -> None:
     for usage_notice in usage_notices:
         if not usage_notice:
             continue
-        if interactive_notice:
-            queue_startup_notice(usage_notice)
-        else:
-            typer.echo(
-                usage_notice
-                .replace("[yellow]", "")
-                .replace("[/yellow]", "")
-                .replace("[dim]", "")
-                .replace("[/dim]", ""),
-                err=True,
-            )
+        _emit_resume_notice(
+            usage_notice,
+            interactive_notice=interactive_notice,
+            queue_startup_notice=queue_startup_notice,
+        )
 
-    if missing_agents or not loaded:
+
+def _emit_resume_history_summary(
+    result: Any,
+    interactive_notice: bool,
+    queue_startup_notice: Any,
+) -> None:
+    if result.missing_agents or not result.loaded:
         from fast_agent.session import format_history_summary, summarize_session_histories
 
-        summary = summarize_session_histories(session)
+        summary = summarize_session_histories(result.session)
         summary_text = format_history_summary(summary)
         if summary_text:
-            summary_notice = f"[dim]Available histories:[/dim] {summary_text}"
-            if interactive_notice:
-                queue_startup_notice(summary_notice)
-            else:
-                typer.echo(f"Available histories: {summary_text}", err=True)
+            _emit_resume_notice(
+                f"[dim]Available histories:[/dim] {summary_text}",
+                interactive_notice=interactive_notice,
+                queue_startup_notice=queue_startup_notice,
+                plain_notice=f"Available histories: {summary_text}",
+            )
 
-    if active_agent_name is not None:
-        request.target_agent_name = active_agent_name
 
+def _resume_preview_agent(
+    agent_app: Any,
+    request: AgentRunRequest,
+    default_agent: Any,
+    loaded: Mapping[str, Any],
+) -> Any:
     preview_agent = default_agent
     default_name = default_agent.name
     preview_name = request.target_agent_name or default_name
     if loaded and preview_name not in loaded:
-        first_loaded_name = sorted(loaded.keys())[0]
+        first_loaded_name = next(iter(loaded))
         preview_agent = agent_app.get_agent(first_loaded_name) or default_agent
     elif preview_name is not None:
         preview_agent = agent_app.get_agent(preview_name) or default_agent
+    return preview_agent
 
+
+def _emit_resume_assistant_preview(
+    preview_agent: Any,
+    interactive_notice: bool,
+    queue_startup_markdown_notice: Any,
+) -> None:
     preview_history = preview_agent.message_history
     assistant_text = _find_last_assistant_text(list(preview_history))
     if assistant_text:
@@ -770,7 +943,7 @@ def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> Non
     if selected_agent_data is None:
         for agent_data in fast.agents.values():
             config = agent_data.get("config")
-            if config and getattr(config, "default", False):
+            if isinstance(config, AgentConfig) and config.default:
                 selected_agent_data = agent_data
                 break
 
@@ -784,13 +957,6 @@ def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> Non
             config.servers = existing + [
                 server for server in request.server_list if server not in existing
             ]
-
-
-def _sanitize_result_suffix(label: str) -> str:
-    normalized = re.sub(r"[\\/\s]+", "_", label.strip())
-    sanitized = re.sub(r"[^A-Za-z0-9_.-]", "_", normalized)
-    sanitized = re.sub(r"_+", "_", sanitized).strip("._-")
-    return sanitized or "agent"
 
 
 def _build_result_file_with_suffix(base_file: Path, suffix: str) -> Path:
@@ -808,7 +974,7 @@ def _build_fan_out_result_paths(
     exports: list[tuple[str, Path]] = []
 
     for agent_name in fan_out_agent_names:
-        suffix = _sanitize_result_suffix(agent_name)
+        suffix = sanitize_filename_suffix(agent_name)
         suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
         if suffix_counts[suffix] > 1:
             suffix = f"{suffix}-{suffix_counts[suffix]}"
@@ -837,7 +1003,7 @@ def _cli_attachment_token(source: str) -> str:
     )
 
     parsed = urlparse(source)
-    if parsed.scheme.lower() in {"http", "https"}:
+    if strip_casefold(parsed.scheme) in {"http", "https"}:
         return build_remote_attachment_token(source)
     return build_local_attachment_token(source)
 
@@ -975,7 +1141,7 @@ async def _export_result_histories(
                 else None
             ),
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         typer.echo(f"Error exporting result file: {exc}", err=True)
         raise typer.Exit(1) from exc
 
@@ -1000,53 +1166,6 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
-    async def _run_interactive_with_interrupt_recovery() -> None:
-        ctrl_c_exit_window_seconds = 2.0
-        ctrl_c_deadline: float | None = None
-
-        while True:
-            try:
-                write_interactive_trace(
-                    "cli.interactive.enter",
-                    agent=request.target_agent_name,
-                )
-                await agent_app.interactive(agent_name=request.target_agent_name)
-                write_interactive_trace(
-                    "cli.interactive.return",
-                    agent=request.target_agent_name,
-                )
-                return
-            except asyncio.CancelledError:
-                write_interactive_trace(
-                    "cli.interactive.cancelled_error",
-                    agent=request.target_agent_name,
-                )
-                task = asyncio.current_task()
-                if task is not None:
-                    while task.uncancel() > 0:
-                        pass
-                await asyncio.sleep(0)
-                continue
-            except KeyboardInterrupt:
-                now = time.monotonic()
-                write_interactive_trace(
-                    "cli.interactive.keyboard_interrupt",
-                    agent=request.target_agent_name,
-                    had_deadline=ctrl_c_deadline is not None,
-                    exiting=ctrl_c_deadline is not None and now <= ctrl_c_deadline,
-                )
-                if ctrl_c_deadline is not None and now <= ctrl_c_deadline:
-                    typer.echo("Second Ctrl+C received; exiting fast-agent.", err=True)
-                    raise
-
-                ctrl_c_deadline = now + ctrl_c_exit_window_seconds
-                typer.echo(
-                    "Interrupted operation; returning to fast-agent prompt. "
-                    "Press Ctrl+C again within 2 seconds to exit.",
-                    err=True,
-                )
-                continue
-
     await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
     if request.execution_mode == "one_shot_message":
@@ -1058,31 +1177,16 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             request.message,
             request.attachments,
         )
-        if structured_source is None:
-            response = await agent_obj.generate(prompt_payload)
-            print(response.last_text() or "")
-        else:
-            parsed, response = await _structured_call(
-                agent_obj,
-                prompt_payload,
-                structured_source,
-                request.structured_tool_policy,
-            )
-            if parsed is None:
-                typer.echo(
-                    "Error: model response did not produce valid JSON matching the structured output schema.",
-                    err=True,
-                )
-                raise typer.Exit(1)
-            sys.stdout.write(json.dumps(_structured_output_payload(parsed), ensure_ascii=False))
-        if request.result_file and not _response_was_persisted(
+        response = await _run_one_shot_payload(
+            agent_obj, prompt_payload, request, structured_source
+        )
+        transient_messages_by_agent = _transient_result_messages_if_needed(
+            agent_obj,
+            request,
             history_before,
-            agent_obj.message_history,
+            prompt_payload,
             response,
-        ):
-            transient_messages_by_agent = {
-                agent_obj.name: _build_transient_result_messages(prompt_payload, response)
-            }
+        )
     elif request.execution_mode == "one_shot_prompt_file":
         assert request.prompt_file is not None
         prompt = load_prompt(request.prompt_file)
@@ -1093,33 +1197,18 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             prompt,
             request.attachments,
         )
-        if structured_source is None:
-            response = await agent_obj.generate(prompt_payload)
-            print(response.last_text() or "")
-        else:
-            parsed, response = await _structured_call(
-                agent_obj,
-                prompt_payload,
-                structured_source,
-                request.structured_tool_policy,
-            )
-            if parsed is None:
-                typer.echo(
-                    "Error: model response did not produce valid JSON matching the structured output schema.",
-                    err=True,
-                )
-                raise typer.Exit(1)
-            sys.stdout.write(json.dumps(_structured_output_payload(parsed), ensure_ascii=False))
-        if request.result_file and not _response_was_persisted(
+        response = await _run_one_shot_payload(
+            agent_obj, prompt_payload, request, structured_source
+        )
+        transient_messages_by_agent = _transient_result_messages_if_needed(
+            agent_obj,
+            request,
             history_before,
-            agent_obj.message_history,
+            prompt_payload,
             response,
-        ):
-            transient_messages_by_agent = {
-                agent_obj.name: _build_transient_result_messages(prompt_payload, response)
-            }
+        )
     else:
-        await _run_interactive_with_interrupt_recovery()
+        await _run_interactive_with_interrupt_recovery(agent_app, request)
 
     await _export_result_histories(
         agent_app,
@@ -1128,86 +1217,167 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
     )
 
 
-async def run_agent_request(request: AgentRunRequest) -> None:
-    """Run the normalized CLI request."""
-    startup_model_source_override: str | None = None
+async def _run_interactive_with_interrupt_recovery(
+    agent_app: Any,
+    request: AgentRunRequest,
+) -> None:
+    ctrl_c_exit_window_seconds = 2.0
+    ctrl_c_deadline: float | None = None
 
-    if request.model is None:
-        settings = _load_request_settings(request)
-        startup_model_defined_by_card = _explicit_agent_cards_define_startup_model(
-            request,
-            model_references=getattr(settings, "model_references", None),
-        )
-        _, explicit_source = _resolve_model_without_hardcoded_default(
-            model=request.model,
-            config_default_model=getattr(settings, "default_model", None),
-            model_references=getattr(settings, "model_references", None),
-        )
+    while True:
+        try:
+            write_interactive_trace("cli.interactive.enter", agent=request.target_agent_name)
+            await agent_app.interactive(agent_name=request.target_agent_name)
+            write_interactive_trace("cli.interactive.return", agent=request.target_agent_name)
+            return
+        except asyncio.CancelledError:
+            write_interactive_trace(
+                "cli.interactive.cancelled_error",
+                agent=request.target_agent_name,
+            )
+            task = asyncio.current_task()
+            if task is not None:
+                while task.uncancel() > 0:
+                    pass
+            await asyncio.sleep(0)
+        except KeyboardInterrupt:
+            now = time.monotonic()
+            exiting = ctrl_c_deadline is not None and now <= ctrl_c_deadline
+            write_interactive_trace(
+                "cli.interactive.keyboard_interrupt",
+                agent=request.target_agent_name,
+                had_deadline=ctrl_c_deadline is not None,
+                exiting=exiting,
+            )
+            if exiting:
+                typer.echo("Second Ctrl+C received; exiting fast-agent.", err=True)
+                raise
 
-        if (
-            explicit_source is None
-            and not startup_model_defined_by_card
-            and _should_prompt_for_model_picker(
-            request,
-            stdin_is_tty=sys.stdin.isatty(),
-            stdout_is_tty=sys.stdout.isatty(),
+            ctrl_c_deadline = now + ctrl_c_exit_window_seconds
+            typer.echo(
+                "Interrupted operation; returning to fast-agent prompt. "
+                "Press Ctrl+C again within 2 seconds to exit.",
+                err=True,
             )
-        ):
-            _emit_model_picker_keyring_notice(request)
-            initial_provider, initial_model_spec = _resolve_model_picker_initial_selection(
-                settings=settings,
-            )
-            request.model = await _select_model_from_picker(
-                request,
-                config_payload=settings.model_dump(),
-                initial_provider=initial_provider,
-                initial_model_spec=initial_model_spec,
-            )
-            _persist_model_picker_last_used_selection(
-                request,
-                settings=settings,
-                model_spec=request.model,
-            )
-            startup_model_source_override = "model picker"
-        elif explicit_source is None and not startup_model_defined_by_card:
-            _, initial_model_spec = _resolve_model_picker_initial_selection(
-                settings=settings,
-            )
-            if initial_model_spec:
-                request.model = initial_model_spec
-                startup_model_source_override = "last used model"
 
-    serve_permissions_enabled = request.permissions_enabled and not (
-        request.noenv and request.mode == "serve"
+
+async def _run_one_shot_payload(
+    agent_obj: Any,
+    prompt_payload: Any,
+    request: AgentRunRequest,
+    structured_source: Any,
+) -> PromptMessageExtended:
+    if structured_source is None:
+        response = await agent_obj.generate(prompt_payload)
+        print(response.last_text() or "")
+        return response
+
+    parsed, response = await _structured_call(
+        agent_obj,
+        prompt_payload,
+        structured_source,
+        request.structured_tool_policy,
     )
-
-    instruction = request.instruction
-    if instruction is None:
-        instruction = resolve_default_instruction(
-            request.model,
-            request.mode,
-            force_smart=request.force_smart,
+    if parsed is None:
+        typer.echo(
+            "Error: model response did not produce valid JSON matching the structured output schema.",
+            err=True,
         )
+        raise typer.Exit(1)
+    sys.stdout.write(json.dumps(_structured_output_payload(parsed), ensure_ascii=False))
+    return response
 
-    smart_agent_enabled = resolve_smart_agent_enabled(
+
+def _transient_result_messages_if_needed(
+    agent_obj: Any,
+    request: AgentRunRequest,
+    history_before: list[PromptMessageExtended],
+    prompt_payload: str | PromptMessageExtended | list[PromptMessageExtended],
+    response: PromptMessageExtended,
+) -> dict[str, list[PromptMessageExtended]] | None:
+    if not request.result_file:
+        return None
+    if _response_was_persisted(history_before, agent_obj.message_history, response):
+        return None
+    return {agent_obj.name: _build_transient_result_messages(prompt_payload, response)}
+
+
+async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | None:
+    if request.model is not None:
+        return None
+
+    settings = _load_request_settings(request)
+    startup_model_defined_by_card = _explicit_agent_cards_define_startup_model(
+        request,
+        model_references=settings.model_references,
+    )
+    resolved_model = _resolve_model_without_hardcoded_default(
+        model=request.model,
+        config_default_model=settings.default_model,
+        model_references=settings.model_references,
+    )
+    if resolved_model.source is not None or startup_model_defined_by_card:
+        return None
+
+    if _should_prompt_for_model_picker(
+        request,
+        stdin_is_tty=sys.stdin.isatty(),
+        stdout_is_tty=sys.stdout.isatty(),
+    ):
+        _emit_model_picker_keyring_notice(request)
+        initial_selection = _resolve_model_picker_initial_selection(settings=settings)
+        request.model = await _select_model_from_picker(
+            request,
+            config_payload=settings.model_dump(),
+            initial_provider=initial_selection.provider,
+            initial_model_spec=initial_selection.model_spec,
+        )
+        _persist_model_picker_last_used_selection(
+            request,
+            settings=settings,
+            model_spec=request.model,
+        )
+        return "model picker"
+
+    initial_selection = _resolve_model_picker_initial_selection(settings=settings)
+    if initial_selection.model_spec:
+        request.model = initial_selection.model_spec
+        return "last used model"
+    return None
+
+
+def _serve_permissions_enabled(request: AgentRunRequest) -> bool:
+    return request.permissions_enabled and not (request.noenv and request.mode == "serve")
+
+
+def _request_instruction(request: AgentRunRequest) -> str | None:
+    if request.instruction is not None:
+        return request.instruction
+    return resolve_default_instruction(
         request.model,
         request.mode,
         force_smart=request.force_smart,
     )
-    smart_unavailable_warning = (
+
+
+def _smart_unavailable_warning() -> str:
+    return (
         "Warning: --smart requested, but smart defaults are unavailable when using "
         "multiple models. Continuing with non-smart defaults."
     )
-    if request.mode == "serve" and request.transport in ["stdio", "acp"]:
+
+
+def _configure_stdio_server_console(request: AgentRunRequest) -> None:
+    if request.mode == "serve" and uses_protocol_stdio(request.transport):
         from fast_agent.ui.console import configure_console_stream
 
         configure_console_stream("stderr")
 
-    from fast_agent import FastAgent
-    from fast_agent.agents.llm_agent import LlmAgent
-    from fast_agent.ui.console_display import ConsoleDisplay
 
-    fast = FastAgent(
+def _build_fast_agent(request: AgentRunRequest):
+    from fast_agent import FastAgent
+
+    return FastAgent(
         name=request.name,
         config_path=request.config_path,
         ignore_unknown_args=True,
@@ -1218,30 +1388,43 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         noenv=request.noenv,
     )
 
+
+def _apply_fast_args(
+    fast: Any,
+    request: AgentRunRequest,
+    *,
+    model_source_override: str | None = None,
+) -> None:
     if request.model:
         fast.args.model = request.model
-    if startup_model_source_override:
-        fast.args.model_source_override = startup_model_source_override
+    if model_source_override:
+        fast.args.model_source_override = model_source_override
     fast.args.noenv = request.noenv
     fast.args.reload = request.reload
     fast.args.watch = request.watch
     fast.args.agent = request.target_agent_name or request.agent_name or "agent"
 
-    if request.noenv or request.shell_runtime or request.no_shell or request.prefer_local_shell:
-        await fast.app.initialize()
-        if request.noenv:
-            config = fast.app.context.config
-            if config is not None:
-                config.session_history = False
-        if request.shell_runtime:
-            setattr(fast.app.context, "shell_runtime", True)
-        if request.no_shell:
-            setattr(fast.app.context, "no_shell", True)
-        if request.prefer_local_shell:
-            config = fast.app.context.config
-            if config is not None:
-                config.shell_execution.prefer_local_shell = True
 
+async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) -> None:
+    if not (
+        request.noenv or request.shell_runtime or request.no_shell or request.prefer_local_shell
+    ):
+        return
+
+    await fast.app.initialize()
+    config = fast.app.context.config
+    if request.noenv and config is not None:
+        config.session_history = False
+    context = fast.app.context
+    if request.shell_runtime:
+        context.shell_runtime = True
+    if request.no_shell:
+        context.no_shell = True
+    if request.prefer_local_shell and config is not None:
+        config.shell_execution.prefer_local_shell = True
+
+
+async def _add_cli_servers(fast: Any, request: AgentRunRequest) -> None:
     if request.url_servers:
         await add_servers_to_config(
             fast,
@@ -1253,224 +1436,388 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             cast("dict[str, dict[str, Any]]", request.stdio_servers),
         )
 
-    if request.agent_cards or request.card_tools:
-        try:
-            loaded_agent_names: list[str] = []
-            if request.agent_cards:
-                for card_source in request.agent_cards:
-                    loaded_agent_names.extend(fast.load_agents(card_source))
 
-            has_explicit_default = False
-            explicit_default_type: str | None = None
-            for agent_data in fast.agents.values():
-                config = agent_data.get("config")
-                if config and getattr(config, "default", False):
-                    has_explicit_default = True
-                    explicit_default_type = (
-                        str(agent_data.get("type")) if agent_data.get("type") is not None else None
-                    )
-                    break
+def _card_defined_default_type(fast: Any) -> str | None:
+    for agent_data in fast.agents.values():
+        config = agent_data.get("config")
+        if isinstance(config, AgentConfig) and config.default:
+            agent_type = agent_data.get("type")
+            return str(agent_type) if agent_type is not None else None
+    return None
 
-            if has_explicit_default and request.force_smart:
-                from fast_agent.agents.agent_types import AgentType
 
-                if explicit_default_type != AgentType.SMART.value:
-                    typer.echo(
-                        "Warning: --smart requested, but loaded AgentCards already define a "
-                        "non-smart default agent. Keeping the card-defined default.",
-                        err=True,
-                    )
-            elif request.force_smart and not smart_agent_enabled:
-                typer.echo(smart_unavailable_warning, err=True)
+def _warn_if_card_default_overrides_smart(
+    request: AgentRunRequest,
+    explicit_default_type: str | None,
+    smart_agent_enabled: bool,
+    smart_unavailable_warning: str,
+) -> None:
+    if explicit_default_type is not None and request.force_smart:
+        if explicit_default_type != AgentType.SMART.value:
+            typer.echo(
+                "Warning: --smart requested, but loaded AgentCards already define a "
+                "non-smart default agent. Keeping the card-defined default.",
+                err=True,
+            )
+    elif request.force_smart and not smart_agent_enabled:
+        typer.echo(smart_unavailable_warning, err=True)
 
-            selected_loaded_agent = _select_loaded_card_agent(
+
+def _define_card_fallback_agent(
+    fast: Any,
+    request: AgentRunRequest,
+    instruction: str | None,
+    smart_agent_enabled: bool,
+) -> None:
+    agent_decorator = fast.smart if smart_agent_enabled else fast.agent
+
+    @agent_decorator(
+        name="agent",
+        instruction=instruction,
+        servers=request.server_list or [],
+        model=request.model,
+        default=True,
+    )
+    async def default_fallback_agent() -> None:
+        pass
+
+
+def _attach_loaded_card_tools(
+    fast: Any,
+    request: AgentRunRequest,
+    tool_loaded_names: list[str],
+) -> None:
+    if not tool_loaded_names:
+        return
+
+    target_name = (
+        request.target_agent_name
+        if request.target_agent_name and request.target_agent_name in fast.agents
+        else None
+    )
+    if not target_name:
+        target_name = (
+            request.agent_name if request.agent_name and request.agent_name in fast.agents else None
+        )
+    if not target_name:
+        target_name = fast.get_default_agent_name()
+    if target_name:
+        fast.attach_agent_tools(target_name, tool_loaded_names)
+
+
+def _load_card_tool_agents(fast: Any, request: AgentRunRequest) -> list[str]:
+    tool_loaded_names: list[str] = []
+    for card_source in request.card_tools or []:
+        tool_loaded_names.extend(fast.load_agents(card_source))
+    return tool_loaded_names
+
+
+def _configure_card_agents(
+    fast: Any,
+    request: AgentRunRequest,
+    instruction: str | None,
+    smart_agent_enabled: bool,
+    smart_unavailable_warning: str,
+) -> None:
+    try:
+        loaded_agent_names: list[str] = []
+        if request.agent_cards:
+            for card_source in request.agent_cards:
+                loaded_agent_names.extend(fast.load_agents(card_source))
+
+        explicit_default_type = _card_defined_default_type(fast)
+        _warn_if_card_default_overrides_smart(
+            request,
+            explicit_default_type,
+            smart_agent_enabled,
+            smart_unavailable_warning,
+        )
+
+        selected_loaded_agent = _select_loaded_card_agent(
+            fast,
+            request,
+            loaded_agent_names,
+        )
+        if selected_loaded_agent:
+            fast.args.agent = selected_loaded_agent
+
+        if explicit_default_type is None and selected_loaded_agent is None:
+            _define_card_fallback_agent(
                 fast,
                 request,
-                loaded_agent_names,
+                instruction,
+                smart_agent_enabled,
             )
-            if selected_loaded_agent:
-                fast.args.agent = selected_loaded_agent
 
-            if not has_explicit_default and selected_loaded_agent is None:
-                agent_decorator = fast.smart if smart_agent_enabled else fast.agent
-
-                @agent_decorator(
-                    name="agent",
-                    instruction=instruction,
-                    servers=request.server_list or [],
-                    model=request.model,
-                    default=True,
-                )
-                async def default_fallback_agent() -> None:
-                    pass
-
-            tool_loaded_names: list[str] = []
-            if request.card_tools:
-                for card_source in request.card_tools:
-                    tool_loaded_names.extend(fast.load_agents(card_source))
-
-            if tool_loaded_names:
-                target_name = (
-                    request.target_agent_name
-                    if request.target_agent_name and request.target_agent_name in fast.agents
-                    else None
-                )
-                if not target_name:
-                    target_name = (
-                        request.agent_name
-                        if request.agent_name and request.agent_name in fast.agents
-                        else None
-                    )
-                if not target_name:
-                    target_name = fast.get_default_agent_name()
-                if target_name:
-                    fast.attach_agent_tools(target_name, tool_loaded_names)
-
-            _validate_target_agent_name(fast, request)
-            _apply_shell_cwd_policy_preflight(fast, request)
-        except AgentConfigError as exc:
-            fast._handle_error(exc)
-            raise typer.Exit(1) from exc
-
-        _attach_cli_servers_to_selected_agent(fast, request)
-
-        async def cli_agent() -> None:
-            async with fast.run() as agent:
-                await _run_single_agent_cli_flow(agent, request)
-
-    elif request.model and "," in request.model:
-        if request.force_smart and not smart_agent_enabled:
-            typer.echo(smart_unavailable_warning, err=True)
-
-        models = [m.strip() for m in request.model.split(",") if m.strip()]
-
-        fan_out_agents: list[str] = []
-        for model_name in models:
-            branch_agent_name = f"{model_name}"
-
-            @fast.agent(
-                name=branch_agent_name,
-                instruction=instruction,
-                servers=request.server_list or [],
-                model=model_name,
-            )
-            async def model_agent() -> None:
-                pass
-
-            fan_out_agents.append(branch_agent_name)
+        _attach_loaded_card_tools(
+            fast,
+            request,
+            _load_card_tool_agents(fast, request),
+        )
 
         _validate_target_agent_name(fast, request)
+        _apply_shell_cwd_policy_preflight(fast, request)
+    except AgentConfigError as exc:
+        fast._handle_error(exc)
+        raise typer.Exit(1) from exc
 
-        class SilentFanInAgent(LlmAgent):
-            async def show_assistant_message(self, *args, **kwargs):
-                return None
+    _attach_cli_servers_to_selected_agent(fast, request)
 
-            def show_user_message(self, *args, **kwargs):
-                return None
 
-        @fast.custom(
-            SilentFanInAgent,
-            name="aggregate",
-            model="passthrough",
-            instruction="You aggregate parallel outputs without displaying intermediate messages.",
+def _build_card_cli_agent(
+    fast: Any,
+    request: AgentRunRequest,
+    instruction: str | None,
+    smart_agent_enabled: bool,
+    smart_unavailable_warning: str,
+) -> Callable[[], Awaitable[None]]:
+    _configure_card_agents(
+        fast,
+        request,
+        instruction,
+        smart_agent_enabled,
+        smart_unavailable_warning,
+    )
+
+    async def cli_agent() -> None:
+        async with fast.run() as agent:
+            await _run_single_agent_cli_flow(agent, request)
+
+    return cli_agent
+
+
+def _split_requested_models(model: str) -> list[str]:
+    return [
+        model_name
+        for raw_model_name in model.split(",")
+        if (model_name := strip_to_none(raw_model_name)) is not None
+    ]
+
+
+def _define_model_fanout_agents(
+    fast: Any,
+    models: list[str],
+    request: AgentRunRequest,
+    instruction: str | None,
+) -> list[str]:
+    fan_out_agents: list[str] = []
+    for model_name in models:
+        branch_agent_name = f"{model_name}"
+
+        @fast.agent(
+            name=branch_agent_name,
+            instruction=instruction,
+            servers=request.server_list or [],
+            model=model_name,
         )
-        async def aggregate() -> None:
+        async def model_agent() -> None:
             pass
 
-        @fast.parallel(
-            name="parallel",
-            fan_out=fan_out_agents,
-            fan_in="aggregate",
-            include_request=True,
-            default=True,
+        fan_out_agents.append(branch_agent_name)
+    return fan_out_agents
+
+
+def _define_parallel_fan_in_agent(fast: Any) -> None:
+    from fast_agent.agents.llm_agent import LlmAgent
+
+    class SilentFanInAgent(LlmAgent):
+        async def show_assistant_message(self, *args, **kwargs):
+            del args, kwargs
+
+        def show_user_message(self, *args, **kwargs):
+            del args, kwargs
+
+    @fast.custom(
+        SilentFanInAgent,
+        name="aggregate",
+        model="passthrough",
+        instruction="You aggregate parallel outputs without displaying intermediate messages.",
+    )
+    async def aggregate() -> None:
+        pass
+
+
+def _define_parallel_agent(fast: Any, fan_out_agents: list[str]) -> None:
+    @fast.parallel(
+        name="parallel",
+        fan_out=fan_out_agents,
+        fan_in="aggregate",
+        include_request=True,
+        default=True,
+    )
+    async def parallel() -> None:
+        pass
+
+
+async def _run_parallel_target_one_shot(
+    agent_obj: Any,
+    request: AgentRunRequest,
+    prompt_payload: Any,
+) -> dict[str, list["PromptMessageExtended"]] | None:
+    history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
+    response = await agent_obj.generate(prompt_payload)
+    print(response.last_text() or "")
+    if request.result_file and not _response_was_persisted(
+        history_before,
+        agent_obj.message_history,
+        response,
+    ):
+        return {
+            agent_obj.name: _build_transient_result_messages(
+                prompt_payload,
+                response,
+            )
+        }
+    return None
+
+
+async def _run_parallel_message(
+    agent_app: Any,
+    request: AgentRunRequest,
+) -> dict[str, list["PromptMessageExtended"]] | None:
+    assert request.message is not None
+    if request.target_agent_name:
+        agent_obj = agent_app._agent(request.target_agent_name)
+        prompt_payload = await _build_cli_message_payload(
+            agent_obj,
+            request.message,
+            request.attachments,
         )
-        async def cli_agent() -> None:
-            async with fast.run() as agent:
-                await _resume_session_if_requested(agent, request)
-                transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
-                if request.execution_mode == "one_shot_message":
-                    assert request.message is not None
-                    if request.target_agent_name:
-                        agent_obj = agent._agent(request.target_agent_name)
-                        history_before = [
-                            message.model_copy(deep=True) for message in agent_obj.message_history
-                        ]
-                        prompt_payload = await _build_cli_message_payload(
-                            agent_obj,
-                            request.message,
-                            request.attachments,
-                        )
-                        response = await agent_obj.generate(prompt_payload)
-                        print(response.last_text() or "")
-                        if request.result_file and not _response_was_persisted(
-                            history_before,
-                            agent_obj.message_history,
-                            response,
-                        ):
-                            transient_messages_by_agent = {
-                                agent_obj.name: _build_transient_result_messages(
-                                    prompt_payload,
-                                    response,
-                                )
-                            }
-                    else:
-                        prompt_payload = await _build_cli_message_payload(
-                            object(),
-                            request.message,
-                            request.attachments,
-                        )
-                        await agent.parallel.send(prompt_payload)
-                        display = ConsoleDisplay(config=None)
-                        display.show_parallel_results(agent.parallel)
-                elif request.execution_mode == "one_shot_prompt_file":
-                    assert request.prompt_file is not None
-                    from fast_agent.mcp.prompts.prompt_load import load_prompt
+        return await _run_parallel_target_one_shot(agent_obj, request, prompt_payload)
 
-                    prompt = load_prompt(request.prompt_file)
-                    if request.target_agent_name:
-                        agent_obj = agent._agent(request.target_agent_name)
-                        history_before = [
-                            message.model_copy(deep=True) for message in agent_obj.message_history
-                        ]
-                        prompt_payload = await _build_cli_prompt_file_payload(
-                            agent_obj,
-                            prompt,
-                            request.attachments,
-                        )
-                        response = await agent_obj.generate(prompt_payload)
-                        print(response.last_text() or "")
-                        if request.result_file and not _response_was_persisted(
-                            history_before,
-                            agent_obj.message_history,
-                            response,
-                        ):
-                            transient_messages_by_agent = {
-                                agent_obj.name: _build_transient_result_messages(
-                                    prompt_payload,
-                                    response,
-                                )
-                            }
-                    else:
-                        prompt_payload = await _build_cli_prompt_file_payload(
-                            object(),
-                            prompt,
-                            request.attachments,
-                        )
-                        await agent.parallel.generate(prompt_payload)
-                        display = ConsoleDisplay(config=None)
-                        display.show_parallel_results(agent.parallel)
-                else:
-                    await agent.interactive(
-                        agent_name=request.target_agent_name,
-                        pretty_print_parallel=True,
-                    )
+    from fast_agent.ui.console_display import ConsoleDisplay
 
-                await _export_result_histories(
-                    agent,
-                    request,
-                    fan_out_agent_names=fan_out_agents,
-                    transient_messages_by_agent=transient_messages_by_agent,
-                )
+    prompt_payload = await _build_cli_message_payload(
+        object(),
+        request.message,
+        request.attachments,
+    )
+    await agent_app.parallel.send(prompt_payload)
+    ConsoleDisplay(config=None).show_parallel_results(agent_app.parallel)
+    return None
+
+
+async def _run_parallel_prompt_file(
+    agent_app: Any,
+    request: AgentRunRequest,
+) -> dict[str, list["PromptMessageExtended"]] | None:
+    assert request.prompt_file is not None
+    from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+    prompt = load_prompt(request.prompt_file)
+    if request.target_agent_name:
+        agent_obj = agent_app._agent(request.target_agent_name)
+        prompt_payload = await _build_cli_prompt_file_payload(
+            agent_obj,
+            prompt,
+            request.attachments,
+        )
+        return await _run_parallel_target_one_shot(agent_obj, request, prompt_payload)
+
+    from fast_agent.ui.console_display import ConsoleDisplay
+
+    prompt_payload = await _build_cli_prompt_file_payload(
+        object(),
+        prompt,
+        request.attachments,
+    )
+    await agent_app.parallel.generate(prompt_payload)
+    ConsoleDisplay(config=None).show_parallel_results(agent_app.parallel)
+    return None
+
+
+async def _run_parallel_cli_flow(
+    agent_app: Any,
+    request: AgentRunRequest,
+    fan_out_agent_names: list[str],
+) -> None:
+    await _resume_session_if_requested(agent_app, request)
+    transient_messages_by_agent: dict[str, list["PromptMessageExtended"]] | None = None
+    if request.execution_mode == "one_shot_message":
+        transient_messages_by_agent = await _run_parallel_message(agent_app, request)
+    elif request.execution_mode == "one_shot_prompt_file":
+        transient_messages_by_agent = await _run_parallel_prompt_file(agent_app, request)
+    else:
+        await agent_app.interactive(
+            agent_name=request.target_agent_name,
+            pretty_print_parallel=True,
+        )
+
+    await _export_result_histories(
+        agent_app,
+        request,
+        fan_out_agent_names=fan_out_agent_names,
+        transient_messages_by_agent=transient_messages_by_agent,
+    )
+
+
+def _build_multi_model_cli_agent(
+    fast: Any,
+    request: AgentRunRequest,
+    instruction: str | None,
+    smart_agent_enabled: bool,
+    smart_unavailable_warning: str,
+) -> Callable[[], Awaitable[None]]:
+    if request.force_smart and not smart_agent_enabled:
+        typer.echo(smart_unavailable_warning, err=True)
+
+    assert request.model is not None
+    fan_out_agents = _define_model_fanout_agents(
+        fast,
+        _split_requested_models(request.model),
+        request,
+        instruction,
+    )
+    _validate_target_agent_name(fast, request)
+    _define_parallel_fan_in_agent(fast)
+    _define_parallel_agent(fast, fan_out_agents)
+
+    async def cli_agent() -> None:
+        async with fast.run() as agent:
+            await _run_parallel_cli_flow(agent, request, fan_out_agents)
+
+    return cli_agent
+
+
+async def run_agent_request(request: AgentRunRequest) -> None:
+    """Run the normalized CLI request."""
+    startup_model_source_override = await _select_startup_model_if_needed(request)
+    serve_permissions_enabled = _serve_permissions_enabled(request)
+    instruction = _request_instruction(request)
+    smart_agent_enabled = resolve_smart_agent_enabled(
+        request.model,
+        request.mode,
+        force_smart=request.force_smart,
+    )
+    smart_unavailable_warning = _smart_unavailable_warning()
+    _configure_stdio_server_console(request)
+
+    fast = _build_fast_agent(request)
+    _apply_fast_args(
+        fast,
+        request,
+        model_source_override=startup_model_source_override,
+    )
+    await _apply_runtime_context_overrides(fast, request)
+    await _add_cli_servers(fast, request)
+
+    if request.agent_cards or request.card_tools:
+        cli_agent = _build_card_cli_agent(
+            fast,
+            request,
+            instruction,
+            smart_agent_enabled,
+            smart_unavailable_warning,
+        )
+
+    elif request.model and "," in request.model:
+        cli_agent = _build_multi_model_cli_agent(
+            fast,
+            request,
+            instruction,
+            smart_agent_enabled,
+            smart_unavailable_warning,
+        )
 
     else:
         agent_decorator = fast.smart if smart_agent_enabled else fast.agent

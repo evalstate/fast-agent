@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-import shlex
 import time
+from collections.abc import Mapping
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast, runtime_checkable
 from urllib.parse import unquote
 
 from mcp.types import ResourceTemplate
@@ -22,11 +22,21 @@ from fast_agent.command_actions.accessors import (
     plugin_commands_for_agent,
     plugin_commands_for_provider,
 )
+from fast_agent.commands.command_catalog import get_command_spec
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import model as model_handlers
+from fast_agent.commands.model_capabilities import (
+    resolve_reasoning_effort_spec,
+    resolve_task_budget_supported,
+    resolve_text_verbosity_spec,
+)
 from fast_agent.config import get_settings
 from fast_agent.llm.reasoning_effort import available_reasoning_values
 from fast_agent.llm.text_verbosity import available_text_verbosity_values
+from fast_agent.mcp.connect_targets import (
+    connect_flag_name,
+    connect_flag_requires_value_token,
+)
 from fast_agent.mcp.provider_management import provider_managed_base_url
 from fast_agent.ui.prompt.attachment_tokens import (
     FILE_MENTION_SERVER,
@@ -34,6 +44,14 @@ from fast_agent.ui.prompt.attachment_tokens import (
     encode_local_attachment_reference,
 )
 from fast_agent.ui.prompt.resource_mentions import template_argument_names
+from fast_agent.utils.async_utils import run_coroutine
+from fast_agent.utils.commandline import join_commandline
+from fast_agent.utils.text import (
+    casefold_text,
+    starts_with_casefold,
+    strip_casefold,
+    strip_str_to_none,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterable, Iterator, Sequence
@@ -44,6 +62,110 @@ if TYPE_CHECKING:
 
 
 CompletionResultT = TypeVar("CompletionResultT")
+McpConnectCompletionContext = Literal["target", "flag", "flag_value", "new_token"]
+JSON_FILE_SUFFIXES = frozenset({".json"})
+HISTORY_FILE_SUFFIXES = frozenset({".json", ".md"})
+AGENT_CARD_FILE_SUFFIXES = frozenset({".md", ".markdown", ".yaml", ".yml"})
+
+
+def _path_has_suffix(path: Path, suffixes: frozenset[str]) -> bool:
+    return strip_casefold(path.suffix) in suffixes
+
+
+@dataclass(frozen=True, slots=True)
+class McpConnectCompletionState:
+    context: McpConnectCompletionContext
+    target_count: int
+    partial: str
+
+
+@dataclass(frozen=True, slots=True)
+class MentionArgumentSection:
+    template_uri: str
+    argument_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class _McpServerTargetParts:
+    management: object
+    url: object
+    command: object
+    args: object
+
+
+@dataclass(frozen=True, slots=True)
+class _ConfiguredMcpServers:
+    configured: set[str]
+    attached: set[str]
+    server_targets: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _ManagedCompletionEntry:
+    index: int
+    name: str
+    is_managed: bool
+    local_meta: str
+    managed_meta: str
+
+    @property
+    def display_meta(self) -> str:
+        return self.managed_meta if self.is_managed else self.local_meta
+
+
+@runtime_checkable
+class _ResourceServerCapabilities(Protocol):
+    @property
+    def resources(self) -> object | None: ...
+
+
+@runtime_checkable
+class _ConnectedServerStatus(Protocol):
+    @property
+    def is_connected(self) -> bool | None: ...
+
+
+@runtime_checkable
+class _ResourceServerStatus(_ConnectedServerStatus, Protocol):
+    @property
+    def server_capabilities(self) -> object | None: ...
+
+
+@runtime_checkable
+class _NamedServerStatus(_ConnectedServerStatus, Protocol):
+    @property
+    def implementation_name(self) -> object | None: ...
+
+
+def _current_completion_token(raw_tokens: list[str], *, trailing_space: bool) -> str:
+    if trailing_space or not raw_tokens:
+        return ""
+    return raw_tokens[-1]
+
+
+def _completed_completion_tokens(raw_tokens: list[str], *, trailing_space: bool) -> list[str]:
+    if trailing_space:
+        return raw_tokens
+    return raw_tokens[:-1]
+
+
+def _mcp_server_target_values(server_config: Any) -> Mapping[str, object]:
+    if isinstance(server_config, Mapping):
+        return server_config
+    try:
+        return vars(server_config)
+    except TypeError:
+        return {}
+
+
+def _mcp_server_target_parts(server_config: Any) -> _McpServerTargetParts:
+    values = _mcp_server_target_values(server_config)
+    return _McpServerTargetParts(
+        management=values.get("management"),
+        url=values.get("url"),
+        command=values.get("command"),
+        args=values.get("args"),
+    )
 
 
 class CompleterHistoryAgent(Protocol):
@@ -54,6 +176,74 @@ class CompleterHistoryAgent(Protocol):
 class CompleterLlmAgent(Protocol):
     @property
     def llm(self) -> FastAgentLLMProtocol | None: ...
+
+
+class CompleterMcpServerRegistry(Protocol):
+    @property
+    def registry(self) -> dict[object, object]: ...
+
+
+class CompleterMcpContext(Protocol):
+    @property
+    def server_registry(self) -> CompleterMcpServerRegistry: ...
+
+
+class CompleterMcpAggregator(Protocol):
+    @property
+    def context(self) -> CompleterMcpContext: ...
+
+    def list_attached_servers(self) -> Iterable[str]: ...
+
+    def list_configured_detached_servers(self) -> Iterable[str]: ...
+
+    async def collect_server_status(self) -> object: ...
+
+    async def get_capabilities(self, server_name: object) -> object: ...
+
+
+class CompleterMcpAgent(Protocol):
+    @property
+    def aggregator(self) -> CompleterMcpAggregator: ...
+
+
+class CompleterResourceAgent(Protocol):
+    async def list_resources(self, *, namespace: str) -> object: ...
+
+
+class CompleterResourceAggregator(CompleterMcpAggregator, Protocol):
+    async def list_resource_templates(self, server_name: str) -> object: ...
+
+    async def complete_resource_argument(
+        self,
+        *,
+        server_name: str,
+        template_uri: str,
+        argument_name: str,
+        value: str,
+        context_args: dict[str, str] | None = None,
+    ) -> object: ...
+
+
+class CompleterResourceMcpAgent(Protocol):
+    @property
+    def aggregator(self) -> CompleterResourceAggregator: ...
+
+
+class CompleterResourceArgumentCompletion(Protocol):
+    @property
+    def values(self) -> object: ...
+
+
+def _catalog_command_description(command_name: str) -> str:
+    spec = get_command_spec(command_name)
+    if spec is None:
+        return command_name
+
+    examples = [f"/{spec.command}"]
+    examples.extend(spec.examples)
+    if not spec.examples:
+        examples.extend(f"/{spec.command} {action.action}" for action in spec.actions)
+    return f"{spec.summary} ({', '.join(examples)})"
 
 
 class AgentCompleter(Completer):
@@ -94,33 +284,23 @@ class AgentCompleter(Completer):
         self.cwd = cwd
         # Map commands to their descriptions for better completion hints
         self.commands = {
-            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect|session)",
+            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect)",
             "connect": "Alias for /mcp connect with target auto-detection",
             "history": (
                 "Show conversation history overview "
                 "(or /history show|detail|save|load|clear|rewind|fix)"
             ),
+            "compact": "Compact history into a checkpoint summary (/compact preview|prompt)",
             "tools": "List tools",
-            "model": (
-                "Inspect/switch models and update runtime settings "
-                "(/model reasoning|task_budget|verbosity|fast|web_search|web_fetch|switch [starts new session]|doctor|references|catalog)"
-            ),
-            "skills": (
-                "Manage skills "
-                "(/skills, /skills available, /skills search, /skills add, "
-                "/skills remove, /skills update, /skills registry, /skills help)"
-            ),
-            "cards": (
-                "Manage card packs "
-                "(/cards, /cards add, /cards remove, /cards update, /cards publish, /cards registry)"
-            ),
-            "plugins": (
-                "Manage command plugins "
-                "(/plugins, /plugins available, /plugins add, "
-                "/plugins remove, /plugins update, /plugins registry, /plugins help)"
-            ),
+            "model": _catalog_command_description("model"),
+            "models": _catalog_command_description("models"),
+            "check": _catalog_command_description("check"),
+            "commands": "Show command map and detailed command help",
+            "skills": _catalog_command_description("skills"),
+            "cards": _catalog_command_description("cards"),
+            "plugins": _catalog_command_description("plugins"),
             "prompt": "Load a Prompt File or use MCP Prompt",
-            "attach": "Stage file path or remote URL attachment token(s) for the next prompt",
+            "attach": "Stage file paths or remote URL attachments for the next prompt",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
@@ -185,11 +365,8 @@ class AgentCompleter(Completer):
         prefix = ""
         explicit_current_dir = False
         if partial:
-            if (
-                partial.endswith("/")
-                or partial.endswith(os.sep)
-                or (os.altsep is not None and partial.endswith(os.altsep))
-            ):
+            path_separators = ("/", os.sep) if os.altsep is None else ("/", os.sep, os.altsep)
+            if partial.endswith(path_separators):
                 raw_dir = partial
                 prefix = ""
             else:
@@ -199,7 +376,7 @@ class AgentCompleter(Completer):
                 )
 
         raw_dir = raw_dir or "."
-        expanded_dir = Path(os.path.expandvars(os.path.expanduser(raw_dir)))
+        expanded_dir = Path(os.path.expandvars(raw_dir)).expanduser()
         if not expanded_dir.is_absolute():
             expanded_dir = (self.cwd or Path.cwd()) / expanded_dir
         expanded_dir = expanded_dir.resolve(strict=False)
@@ -242,7 +419,7 @@ class AgentCompleter(Completer):
                 is_hidden = name.startswith(".")
                 if is_hidden and not (include_hidden_dirs and entry.is_dir()):
                     continue
-                if not name.lower().startswith(prefix.lower()):
+                if not starts_with_casefold(name, prefix):
                     continue
 
                 completion_text = f"{completion_prefix}{name}" if completion_prefix else name
@@ -274,15 +451,33 @@ class AgentCompleter(Completer):
         """Generate completions for history files (.json and .md)."""
 
         def _history_filter(entry: Path) -> bool:
-            return entry.name.endswith(".json") or entry.name.endswith(".md")
+            return _path_has_suffix(entry, HISTORY_FILE_SUFFIXES)
 
         def _history_meta(entry: Path) -> str:
-            return "JSON history" if entry.name.endswith(".json") else "Markdown"
+            return "JSON history" if _path_has_suffix(entry, JSON_FILE_SUFFIXES) else "Markdown"
 
         yield from self._iter_file_completions(
             partial,
             file_filter=_history_filter,
             file_meta=_history_meta,
+            include_hidden_dirs=True,
+        )
+
+    def _complete_prompt_files(self, partial: str):
+        """Generate completions for prompt files."""
+
+        def _prompt_filter(entry: Path) -> bool:
+            return entry.is_file()
+
+        def _prompt_meta(entry: Path) -> str:
+            return (
+                "JSON prompt" if _path_has_suffix(entry, JSON_FILE_SUFFIXES) else "Prompt template"
+            )
+
+        yield from self._iter_file_completions(
+            partial,
+            file_filter=_prompt_filter,
+            file_meta=_prompt_meta,
             include_hidden_dirs=True,
         )
 
@@ -294,46 +489,55 @@ class AgentCompleter(Completer):
             return normalized
         return normalized[: limit - 1] + "…"
 
+    @staticmethod
+    def _starts_user_turn(message: PromptMessageExtended) -> bool:
+        return message.role == "user" and not message.tool_results
+
+    @staticmethod
+    def _first_user_prompt(turn: Sequence[PromptMessageExtended]) -> PromptMessageExtended | None:
+        if not turn:
+            return None
+        first = turn[0]
+        return first if AgentCompleter._starts_user_turn(first) else None
+
+    @staticmethod
+    def _append_message_to_turns(
+        turns: list[list[PromptMessageExtended]],
+        current: list[PromptMessageExtended],
+        message: PromptMessageExtended,
+        *,
+        saw_assistant: bool,
+    ) -> tuple[list[PromptMessageExtended], bool]:
+        if not AgentCompleter._starts_user_turn(message):
+            current.append(message)
+            return current, saw_assistant or message.role == "assistant"
+        if not current or not saw_assistant:
+            current.append(message)
+            return current, False
+        turns.append(current)
+        return [message], False
+
     def _iter_user_turns(self):
         agent_obj = self._current_history_agent()
         if agent_obj is None:
             return []
-        history = agent_obj.message_history
         turns: list[list[PromptMessageExtended]] = []
         current: list[PromptMessageExtended] = []
         saw_assistant = False
 
-        for message in list(history):
-            is_new_user = message.role == "user" and not message.tool_results
-            if is_new_user:
-                if not current:
-                    current = [message]
-                    saw_assistant = False
-                    continue
-                if not saw_assistant:
-                    current.append(message)
-                    continue
-                turns.append(current)
-                current = [message]
-                saw_assistant = False
-                continue
-            if current:
-                current.append(message)
-                if message.role == "assistant":
-                    saw_assistant = True
+        for message in agent_obj.message_history:
+            if current or self._starts_user_turn(message):
+                current, saw_assistant = self._append_message_to_turns(
+                    turns,
+                    current,
+                    message,
+                    saw_assistant=saw_assistant,
+                )
 
         if current:
             turns.append(current)
 
-        user_turns = []
-        for turn in turns:
-            if not turn:
-                continue
-            first = turn[0]
-            if first.role != "user" or first.tool_results:
-                continue
-            user_turns.append(first)
-        return user_turns
+        return [first for turn in turns if (first := self._first_user_prompt(turn)) is not None]
 
     def _current_history_agent(self) -> CompleterHistoryAgent | None:
         if not self.agent_provider or not self.current_agent:
@@ -363,7 +567,7 @@ class AgentCompleter(Completer):
         llm = self._current_agent_llm()
         if not llm:
             return []
-        values = available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
+        values = available_reasoning_values(resolve_reasoning_effort_spec(llm))
         if "auto" in values:
             values = ["adaptive" if value == "auto" else value for value in values]
         return values
@@ -372,7 +576,7 @@ class AgentCompleter(Completer):
         llm = self._current_agent_llm()
         if llm is None:
             return False
-        return bool(getattr(llm, "task_budget_supported", False))
+        return resolve_task_budget_supported(llm)
 
     def _resolve_task_budget_values(self) -> list[str]:
         if not self._supports_task_budget_setting():
@@ -383,7 +587,7 @@ class AgentCompleter(Completer):
         llm = self._current_agent_llm()
         if not llm:
             return []
-        return available_text_verbosity_values(getattr(llm, "text_verbosity_spec", None))
+        return available_text_verbosity_values(resolve_text_verbosity_spec(llm))
 
     def _supports_web_search_setting(self) -> bool:
         llm = self._current_agent_llm()
@@ -425,21 +629,23 @@ class AgentCompleter(Completer):
             index_str = str(index)
             if partial_clean and not index_str.startswith(partial_clean):
                 continue
-            content = getattr(message, "content", []) or []
-            text = None
-            if content:
-                from fast_agent.mcp.helpers.content_helpers import get_text
-
-                text = get_text(content[0])
-            if not text or text == "<no text>":
-                text = ""
-            preview = self._normalize_turn_preview(text or "")
             yield Completion(
                 index_str,
                 start_position=-len(partial),
                 display=f"turn {index_str}",
-                display_meta=preview,
+                display_meta=self._turn_preview(message),
             )
+
+    def _turn_preview(self, message: "PromptMessageExtended") -> str:
+        content = message.content or []
+        text = ""
+        if content:
+            from fast_agent.mcp.helpers.content_helpers import get_text
+
+            text = get_text(content[0])
+        if not text or text == "<no text>":
+            text = ""
+        return self._normalize_turn_preview(text)
 
     def _complete_session_ids(self, partial: str, *, start_position: int | None = None):
         """Generate completions for recent session ids."""
@@ -451,27 +657,20 @@ class AgentCompleter(Completer):
             display_session_name,
             get_session_manager,
         )
+        from fast_agent.session.formatting import extract_session_title
 
         manager = get_session_manager()
         sessions = apply_session_window(manager.list_sessions())
-        partial_lower = partial.lower()
         for session_info in sessions:
             session_id = session_info.name
             display_name = display_session_name(session_id)
             if partial and not (
-                session_id.lower().startswith(partial_lower)
-                or display_name.lower().startswith(partial_lower)
+                starts_with_casefold(session_id, partial)
+                or starts_with_casefold(display_name, partial)
             ):
                 continue
             display_time = session_info.last_activity.strftime("%Y-%m-%d %H:%M")
-            metadata = session_info.metadata or {}
-            summary = (
-                metadata.get("title")
-                or metadata.get("label")
-                or metadata.get("first_user_preview")
-                or ""
-            )
-            summary = " ".join(str(summary).split())
+            summary = extract_session_title(session_info.metadata)
             if summary:
                 summary = summary[:30]
                 display_meta = f"{display_time} • {summary}"
@@ -486,10 +685,9 @@ class AgentCompleter(Completer):
 
     def _complete_agent_card_files(self, partial: str):
         """Generate completions for AgentCard files (.md/.markdown/.yaml/.yml)."""
-        card_extensions = {".md", ".markdown", ".yaml", ".yml"}
 
         def _card_filter(entry: Path) -> bool:
-            return entry.suffix.lower() in card_extensions
+            return _path_has_suffix(entry, AGENT_CARD_FILE_SUFFIXES)
 
         def _card_meta(_: Path) -> str:
             return "AgentCard"
@@ -500,6 +698,37 @@ class AgentCompleter(Completer):
             file_meta=_card_meta,
             include_hidden_dirs=True,
         )
+
+    @staticmethod
+    def _managed_item_completions(
+        entries: Iterable[_ManagedCompletionEntry],
+        partial: str,
+        *,
+        managed_only: bool = False,
+        include_indices: bool = True,
+    ) -> Iterator[Completion]:
+        include_numbers = include_indices and (not partial or partial.isdigit())
+        for entry in entries:
+            if managed_only and not entry.is_managed:
+                continue
+
+            if entry.name and (not partial or starts_with_casefold(entry.name, partial)):
+                yield Completion(
+                    entry.name,
+                    start_position=-len(partial),
+                    display=entry.name,
+                    display_meta=entry.display_meta,
+                )
+
+            if include_numbers:
+                index_text = str(entry.index)
+                if not partial or index_text.startswith(partial):
+                    yield Completion(
+                        index_text,
+                        start_position=-len(partial),
+                        display=index_text,
+                        display_meta=entry.name,
+                    )
 
     def _complete_local_skill_names(
         self,
@@ -518,34 +747,27 @@ class AgentCompleter(Completer):
         if not manifests:
             return
 
-        partial_lower = partial.lower()
-        include_numbers = include_indices and (not partial or partial.isdigit())
-        for index, manifest in enumerate(manifests, 1):
-            if managed_only:
-                source, _ = read_installed_skill_source(Path(manifest.path).parent)
-                if source is None:
-                    continue
-
-            name = manifest.name
-            if name and (not partial or name.lower().startswith(partial_lower)):
-                yield Completion(
-                    name,
-                    start_position=-len(partial),
-                    display=name,
-                    display_meta="managed skill" if managed_only else "local skill",
-                )
-            if include_numbers:
-                index_text = str(index)
-                if not partial or index_text.startswith(partial):
-                    yield Completion(
-                        index_text,
-                        start_position=-len(partial),
-                        display=index_text,
-                        display_meta=name or "local skill",
-                    )
+        entries = (
+            _ManagedCompletionEntry(
+                index=index,
+                name=manifest.name,
+                is_managed=(
+                    read_installed_skill_source(Path(manifest.path).parent).source is not None
+                ),
+                local_meta="local skill",
+                managed_meta="managed skill",
+            )
+            for index, manifest in enumerate(manifests, 1)
+        )
+        yield from self._managed_item_completions(
+            entries,
+            partial,
+            managed_only=managed_only,
+            include_indices=include_indices,
+        )
 
     def _complete_skill_registries(self, partial: str):
-        """Generate completions for configured skills registries."""
+        """Generate completions for configured and MCP-backed skills registries."""
         from fast_agent.skills.configuration import (
             format_marketplace_display_url,
             resolve_skill_registries,
@@ -557,6 +779,64 @@ class AgentCompleter(Completer):
             configured_urls=configured_urls,
             display_formatter=format_marketplace_display_url,
         )
+        yield from self._complete_mcp_skill_registries(partial, offset=len(configured_urls))
+
+    def _complete_mcp_skill_registries(self, partial: str, *, offset: int = 0):
+        """Generate completions for live MCP skill registries."""
+        cache_key = (
+            "mcp_skill_registries",
+            self.current_agent,
+            partial,
+            offset,
+        )
+        cached = self._completion_cache_get(cache_key)
+        if cached is not None:
+            yield from cached
+            return
+
+        choices = self._list_mcp_skill_registry_choices()
+        partial_lower = partial.lower()
+        include_numbers = not partial or partial.isdigit()
+        include_servers = bool(partial) and not partial.isdigit()
+        completions: list[Completion] = []
+
+        for index, (server_name, display, skill_count) in enumerate(choices, offset + 1):
+            skill_word = "skill" if skill_count == 1 else "skills"
+            meta = f"{display} ({skill_count:,} {skill_word})"
+            index_text = str(index)
+            if include_numbers and index_text.startswith(partial):
+                completions.append(
+                    Completion(
+                        index_text,
+                        start_position=-len(partial),
+                        display=index_text,
+                        display_meta=meta,
+                    )
+                )
+            if include_servers:
+                if partial_lower.startswith("mcp://"):
+                    source = f"mcp://{server_name}"
+                    if source.lower().startswith(partial_lower):
+                        completions.append(
+                            Completion(
+                                source,
+                                start_position=-len(partial),
+                                display=server_name,
+                                display_meta=meta,
+                            )
+                        )
+                elif server_name.lower().startswith(partial_lower):
+                    completions.append(
+                        Completion(
+                            server_name,
+                            start_position=-len(partial),
+                            display=server_name,
+                            display_meta=meta,
+                        )
+                    )
+
+        self._completion_cache_put(cache_key, completions)
+        yield from completions
 
     def _complete_registry_urls(
         self,
@@ -566,7 +846,6 @@ class AgentCompleter(Completer):
         display_formatter: "Callable[[str], str]",
     ):
         """Generate index/url completions for a registry URL list."""
-        partial_lower = partial.lower()
         include_numbers = not partial or partial.isdigit()
         include_urls = bool(partial) and not partial.isdigit()
 
@@ -580,7 +859,7 @@ class AgentCompleter(Completer):
                     display=index_text,
                     display_meta=display,
                 )
-            if include_urls and url.lower().startswith(partial_lower):
+            if include_urls and starts_with_casefold(url, partial):
                 yield Completion(
                     url,
                     start_position=-len(partial),
@@ -612,30 +891,22 @@ class AgentCompleter(Completer):
         if not packs:
             return
 
-        partial_lower = partial.lower()
-        include_numbers = include_indices and (not partial or partial.isdigit())
-        for entry in packs:
-            if managed_only and entry.source is None:
-                continue
-
-            name = entry.name
-            if name and (not partial or name.lower().startswith(partial_lower)):
-                yield Completion(
-                    name,
-                    start_position=-len(partial),
-                    display=name,
-                    display_meta="managed card pack" if entry.source else "local card pack",
-                )
-
-            if include_numbers:
-                index_text = str(entry.index)
-                if not partial or index_text.startswith(partial):
-                    yield Completion(
-                        index_text,
-                        start_position=-len(partial),
-                        display=index_text,
-                        display_meta=name,
-                    )
+        entries = (
+            _ManagedCompletionEntry(
+                index=entry.index,
+                name=entry.name,
+                is_managed=entry.source is not None,
+                local_meta="local card pack",
+                managed_meta="managed card pack",
+            )
+            for entry in packs
+        )
+        yield from self._managed_item_completions(
+            entries,
+            partial,
+            managed_only=managed_only,
+            include_indices=include_indices,
+        )
 
     def _complete_card_registries(self, partial: str):
         """Generate completions for configured card registries."""
@@ -664,30 +935,22 @@ class AgentCompleter(Completer):
         if not plugins:
             return
 
-        partial_lower = partial.lower()
-        include_numbers = include_indices and (not partial or partial.isdigit())
-        for entry in plugins:
-            if managed_only and entry.source is None:
-                continue
-
-            name = entry.name
-            if name and (not partial or name.lower().startswith(partial_lower)):
-                yield Completion(
-                    name,
-                    start_position=-len(partial),
-                    display=name,
-                    display_meta="managed plugin" if entry.source else "local plugin",
-                )
-
-            if include_numbers:
-                index_text = str(entry.index)
-                if not partial or index_text.startswith(partial):
-                    yield Completion(
-                        index_text,
-                        start_position=-len(partial),
-                        display=index_text,
-                        display_meta=name,
-                    )
+        entries = (
+            _ManagedCompletionEntry(
+                index=entry.index,
+                name=entry.name,
+                is_managed=entry.source is not None,
+                local_meta="local plugin",
+                managed_meta="managed plugin",
+            )
+            for entry in plugins
+        )
+        yield from self._managed_item_completions(
+            entries,
+            partial,
+            managed_only=managed_only,
+            include_indices=include_indices,
+        )
 
     def _complete_plugin_registries(self, partial: str):
         """Generate completions for configured plugin registries."""
@@ -738,9 +1001,45 @@ class AgentCompleter(Completer):
             return True
         if os.sep in token:
             return True
-        if os.altsep and os.altsep in token:
-            return True
-        return False
+        return bool(os.altsep and os.altsep in token)
+
+    @staticmethod
+    def _shell_current_token(shell_text: str) -> str:
+        quote_char: str | None = None
+        escaped = False
+        token_start = 0
+        for index, char in enumerate(shell_text):
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if quote_char is not None:
+                if char == quote_char:
+                    quote_char = None
+                continue
+            if char in {"'", '"'}:
+                quote_char = char
+                continue
+            if char.isspace():
+                token_start = index + 1
+        return shell_text[token_start:]
+
+    @staticmethod
+    def _quote_shell_path_completion(completion: Completion) -> Completion:
+        return Completion(
+            join_commandline([completion.text]),
+            start_position=completion.start_position,
+            display=completion.display,
+            display_meta=completion.display_meta,
+        )
+
+    def _quoted_shell_path_completions(self, partial: str, delete_len: int) -> list[Completion]:
+        return [
+            self._quote_shell_path_completion(completion)
+            for completion in self._complete_shell_paths(partial, delete_len)
+        ]
 
     def _complete_shell_paths(self, partial: str, delete_len: int, max_results: int = 100):
         """Complete file/directory paths for shell commands.
@@ -766,7 +1065,7 @@ class AgentCompleter(Completer):
                 name = entry.name
                 if name.startswith(".") and not prefix.startswith("."):
                     continue
-                if not name.lower().startswith(prefix.lower()):
+                if not starts_with_casefold(name, prefix):
                     continue
 
                 completion_text = f"{completion_prefix}{name}" if completion_prefix else name
@@ -791,7 +1090,7 @@ class AgentCompleter(Completer):
 
     def _complete_local_attachment_paths(self, partial: str) -> list[Completion]:
         decoded_partial = unquote(partial)
-        if decoded_partial.lower().startswith("file://"):
+        if starts_with_casefold(decoded_partial, "file://"):
             from fast_agent.ui.prompt.attachment_tokens import normalize_local_attachment_reference
 
             try:
@@ -814,7 +1113,7 @@ class AgentCompleter(Completer):
                 name = entry.name
                 if name.startswith(".") and not prefix.startswith("."):
                     continue
-                if not name.lower().startswith(prefix.lower()):
+                if not starts_with_casefold(name, prefix):
                     continue
 
                 completion_text = f"{completion_prefix}{name}" if completion_prefix else name
@@ -838,7 +1137,7 @@ class AgentCompleter(Completer):
         self,
         parts: Sequence[str],
         remainder: str,
-        subcommands: dict[str, str],
+        subcommands: Mapping[str, str],
     ) -> Iterator[Completion]:
         """Yield completions for subcommand names from a dict.
 
@@ -850,7 +1149,7 @@ class AgentCompleter(Completer):
         if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
             partial = parts[0] if parts else ""
             for subcmd, description in subcommands.items():
-                if subcmd.startswith(partial.lower()):
+                if starts_with_casefold(subcmd, partial):
                     yield Completion(
                         subcmd,
                         start_position=-len(partial),
@@ -860,38 +1159,22 @@ class AgentCompleter(Completer):
 
     @staticmethod
     def _configured_mcp_server_target(server_config: Any) -> str | None:
-        management_value: Any
-        url_value: Any
-        if isinstance(server_config, dict):
-            management_value = server_config.get("management")
-            url_value = server_config.get("url")
-        else:
-            management_value = getattr(server_config, "management", None)
-            url_value = getattr(server_config, "url", None)
+        target_parts = _mcp_server_target_parts(server_config)
 
-        if isinstance(url_value, str):
-            normalized = url_value.strip()
+        if isinstance(target_parts.url, str):
+            normalized = target_parts.url.strip()
             if normalized:
-                if management_value == "provider":
+                if target_parts.management == "provider":
                     return provider_managed_base_url(normalized)
                 return normalized
 
-        command_value: Any
-        args_value: Any
-        if isinstance(server_config, dict):
-            command_value = server_config.get("command")
-            args_value = server_config.get("args")
-        else:
-            command_value = getattr(server_config, "command", None)
-            args_value = getattr(server_config, "args", None)
-
-        if isinstance(command_value, str):
-            command = command_value.strip()
+        if isinstance(target_parts.command, str):
+            command = target_parts.command.strip()
             if command:
                 args: list[str] = []
-                if isinstance(args_value, list):
-                    args = [str(value) for value in args_value]
-                return shlex.join([command, *args])
+                if isinstance(target_parts.args, list):
+                    args = [str(value) for value in target_parts.args]
+                return join_commandline([command, *args], syntax="posix")
 
         return None
 
@@ -903,63 +1186,77 @@ class AgentCompleter(Completer):
             return f"{target[:79]}…"
         return target
 
-    def _list_configured_mcp_servers(self) -> list[tuple[str, str | None]]:
+    def _runtime_mcp_servers(self) -> _ConfiguredMcpServers:
         configured: set[str] = set()
         attached: set[str] = set()
         server_targets: dict[str, str] = {}
 
-        # Prefer the runtime aggregator when available so completions include
-        # both config-backed entries and runtime-attached server names.
-        if self.agent_provider is not None and self.current_agent:
-            try:
-                agent = self.agent_provider._agent(self.current_agent)
-                aggregator = getattr(agent, "aggregator", None)
-                list_attached = getattr(aggregator, "list_attached_servers", None)
-                if callable(list_attached):
-                    attached.update(list_attached())
+        if self.agent_provider is None or not self.current_agent:
+            return _ConfiguredMcpServers(configured, attached, server_targets)
 
-                list_detached = getattr(aggregator, "list_configured_detached_servers", None)
-                if callable(list_detached):
-                    configured.update(list_detached())
+        try:
+            agent = cast("CompleterMcpAgent", lookup_agent(self.agent_provider, self.current_agent))
+            if agent is None:
+                return _ConfiguredMcpServers(configured, attached, server_targets)
+            aggregator = agent.aggregator
+            attached.update(aggregator.list_attached_servers())
+            configured.update(aggregator.list_configured_detached_servers())
+            registry_data = aggregator.context.server_registry.registry
+        except Exception:
+            return _ConfiguredMcpServers(configured, attached, server_targets)
 
-                context = getattr(aggregator, "context", None)
-                server_registry = getattr(context, "server_registry", None)
-                registry_data = getattr(server_registry, "registry", None)
-                if isinstance(registry_data, dict):
-                    for name, server_config in registry_data.items():
-                        server_name = str(name)
-                        configured.add(server_name)
-                        target = self._configured_mcp_server_target(server_config)
-                        if target is not None:
-                            server_targets[server_name] = target
-            except Exception:
-                pass
+        self._add_registry_mcp_servers(registry_data, configured, server_targets)
+        return _ConfiguredMcpServers(configured, attached, server_targets)
 
-        # Fall back to global settings so completion still works before agent
-        # startup wiring is fully available.
+    def _settings_mcp_servers(self) -> _ConfiguredMcpServers:
+        configured: set[str] = set()
+        server_targets: dict[str, str] = {}
         try:
             settings = get_settings()
-            mcp_settings = getattr(settings, "mcp", None)
-            server_map = getattr(mcp_settings, "servers", None)
-            if isinstance(server_map, dict):
-                for name, server_config in server_map.items():
-                    server_name = str(name)
-                    configured.add(server_name)
-                    target = self._configured_mcp_server_target(server_config)
-                    if target is not None:
-                        server_targets[server_name] = target
         except Exception:
-            pass
+            return _ConfiguredMcpServers(configured, set(), server_targets)
+        if settings.mcp is None:
+            return _ConfiguredMcpServers(configured, set(), server_targets)
+        self._add_registry_mcp_servers(
+            settings.mcp.servers,
+            configured,
+            server_targets,
+        )
+        return _ConfiguredMcpServers(configured, set(), server_targets)
 
-        if attached:
-            configured.difference_update(attached)
+    def _add_registry_mcp_servers(
+        self,
+        registry_data: object,
+        configured: set[str],
+        server_targets: dict[str, str],
+    ) -> None:
+        if not isinstance(registry_data, dict):
+            return
+        for name, server_config in registry_data.items():
+            server_name = str(name)
+            configured.add(server_name)
+            target = self._configured_mcp_server_target(server_config)
+            if target is not None:
+                server_targets[server_name] = target
 
-        return [(server_name, server_targets.get(server_name)) for server_name in sorted(configured)]
+    def _list_configured_mcp_servers(self) -> list[tuple[str, str | None]]:
+        runtime_servers = self._runtime_mcp_servers()
+        settings_servers = self._settings_mcp_servers()
+
+        configured = runtime_servers.configured | settings_servers.configured
+        configured.difference_update(runtime_servers.attached)
+        server_targets = {
+            **settings_servers.server_targets,
+            **runtime_servers.server_targets,
+        }
+
+        return [
+            (server_name, server_targets.get(server_name)) for server_name in sorted(configured)
+        ]
 
     def _complete_configured_mcp_servers(self, partial: str):
-        partial_lower = partial.lower()
         for server_name, server_url in self._list_configured_mcp_servers():
-            if partial and not server_name.lower().startswith(partial_lower):
+            if partial and not starts_with_casefold(server_name, partial):
                 continue
             yield Completion(
                 server_name,
@@ -977,22 +1274,20 @@ class AgentCompleter(Completer):
         )
 
     @staticmethod
-    def _mcp_connect_context(remainder: str) -> tuple[str, int, str]:
+    def _mcp_connect_context(remainder: str) -> McpConnectCompletionState:
         """Classify completion context for `/mcp connect ...`.
 
-        Returns (context, target_count, partial) where:
-          - context: one of "target", "flag", "flag_value", "new_token"
-          - target_count: number of fully-formed target tokens before `partial`
-          - partial: token currently being edited (or "" when cursor is after whitespace)
+        `target_count` is the number of fully-formed target tokens before
+        `partial`, which is the token currently being edited.
         """
-
-        takes_value = {"--name", "-n", "--timeout", "--auth"}
-        switch_only = {"--oauth", "--no-oauth", "--reconnect", "--no-reconnect"}
 
         raw_tokens = remainder.split()
         trailing_space = remainder.endswith(" ")
-        partial = "" if trailing_space else (raw_tokens[-1] if raw_tokens else "")
-        complete_tokens = raw_tokens if trailing_space else raw_tokens[:-1]
+        partial = _current_completion_token(raw_tokens, trailing_space=trailing_space)
+        complete_tokens = _completed_completion_tokens(
+            raw_tokens,
+            trailing_space=trailing_space,
+        )
 
         target_count = 0
         waiting_for_flag_value = False
@@ -1000,27 +1295,38 @@ class AgentCompleter(Completer):
             if waiting_for_flag_value:
                 waiting_for_flag_value = False
                 continue
-            if token in takes_value:
+            flag_name = connect_flag_name(token)
+            if connect_flag_requires_value_token(token):
                 waiting_for_flag_value = True
                 continue
-            if token.startswith("--auth="):
-                continue
-            if token in switch_only:
+            if flag_name is not None:
                 continue
             target_count += 1
 
         if trailing_space:
-            return (
-                "flag_value" if waiting_for_flag_value else "new_token",
-                target_count,
-                partial,
+            return McpConnectCompletionState(
+                context="flag_value" if waiting_for_flag_value else "new_token",
+                target_count=target_count,
+                partial=partial,
             )
 
         if waiting_for_flag_value:
-            return "flag_value", target_count, partial
-        if partial in takes_value or partial in switch_only or partial.startswith("--"):
-            return "flag", target_count, partial
-        return "target", target_count, partial
+            return McpConnectCompletionState(
+                context="flag_value",
+                target_count=target_count,
+                partial=partial,
+            )
+        if connect_flag_name(partial) is not None or partial.startswith("--"):
+            return McpConnectCompletionState(
+                context="flag",
+                target_count=target_count,
+                partial=partial,
+            )
+        return McpConnectCompletionState(
+            context="target",
+            target_count=target_count,
+            partial=partial,
+        )
 
     def _current_agent_object(self) -> object | None:
         if self.agent_provider is None or not self.current_agent:
@@ -1038,179 +1344,134 @@ class AgentCompleter(Completer):
             return False
         try:
             return bool(value)
-        except Exception:  # noqa: BLE001 - defensive fallback for capability objects
+        except Exception:
             return True
 
-    async def _list_connected_resource_servers(self) -> list[str]:
-        agent = self._current_agent_object()
-        if agent is None:
-            return []
+    @staticmethod
+    def _resource_capability_enabled(capabilities: object | None) -> bool:
+        if not isinstance(capabilities, _ResourceServerCapabilities):
+            return False
+        return AgentCompleter._feature_enabled(capabilities.resources)
 
-        aggregator = getattr(agent, "aggregator", None)
-        if aggregator is None:
-            return []
+    @staticmethod
+    def _resource_server_status_enabled(status: object) -> bool:
+        return (
+            isinstance(status, _ResourceServerStatus)
+            and status.is_connected is True
+            and AgentCompleter._resource_capability_enabled(status.server_capabilities)
+        )
 
-        collect_status = getattr(aggregator, "collect_server_status", None)
-        if callable(collect_status):
-            try:
-                status_map = await collect_status()
-            except Exception:
-                status_map = None
-            if isinstance(status_map, dict):
-                names: set[str] = set()
-                for server_name, status in status_map.items():
-                    if getattr(status, "is_connected", None) is not True:
-                        continue
+    @staticmethod
+    def _resource_server_names_from_status(status_map: object) -> list[str] | None:
+        if not isinstance(status_map, dict):
+            return None
+        names = {
+            str(server_name)
+            for server_name, status in status_map.items()
+            if AgentCompleter._resource_server_status_enabled(status)
+        }
+        return sorted(names)
 
-                    capabilities = getattr(status, "server_capabilities", None)
-                    resources_capability = (
-                        getattr(capabilities, "resources", None) if capabilities is not None else None
-                    )
-                    if not self._feature_enabled(resources_capability):
-                        continue
+    async def _resource_server_names_from_status_api(
+        self,
+        aggregator: CompleterMcpAggregator,
+    ) -> list[str] | None:
+        try:
+            status_map = await aggregator.collect_server_status()
+        except Exception:
+            return None
+        return self._resource_server_names_from_status(status_map)
 
-                    names.add(str(server_name))
-                return sorted(names)
-
-        list_attached = getattr(aggregator, "list_attached_servers", None)
-        get_capabilities = getattr(aggregator, "get_capabilities", None)
-        if not callable(list_attached) or not callable(get_capabilities):
-            return []
-
+    async def _resource_server_names_from_capabilities_api(
+        self,
+        aggregator: CompleterMcpAggregator,
+    ) -> list[str]:
         names: set[str] = set()
         try:
-            attached_servers = list_attached()
+            attached_servers = aggregator.list_attached_servers()
         except Exception:
-            attached_servers = []
+            return []
 
         for server_name in attached_servers:
             try:
-                capabilities = await get_capabilities(server_name)
+                capabilities = await aggregator.get_capabilities(server_name)
             except Exception:
                 continue
-            resources_capability = (
-                getattr(capabilities, "resources", None) if capabilities is not None else None
-            )
-            if self._feature_enabled(resources_capability):
+            if self._resource_capability_enabled(capabilities):
                 names.add(str(server_name))
-
         return sorted(names)
 
-    async def _list_server_session_cookie_choices(
+    @staticmethod
+    def _identity_name(value: object) -> str | None:
+        return strip_str_to_none(value)
+
+    @staticmethod
+    def _connected_servers_from_status(
+        status_map: object,
+    ) -> list[tuple[str, str | None]] | None:
+        if not isinstance(status_map, dict):
+            return None
+        return [
+            (
+                str(server_name),
+                AgentCompleter._identity_name(status.implementation_name)
+                if isinstance(status, _NamedServerStatus)
+                else None,
+            )
+            for server_name, status in sorted(status_map.items())
+            if isinstance(status, _ConnectedServerStatus) and status.is_connected is True
+        ]
+
+    async def _connected_servers_from_status_api(
         self,
-        server_identifier: str | None,
-    ) -> list[tuple[str, str | None, bool]]:
-        agent = self._current_agent_object()
-        if agent is None:
-            return []
-
-        aggregator = getattr(agent, "aggregator", None)
-        if aggregator is None:
-            return []
-
-        session_client = getattr(aggregator, "experimental_sessions", None)
-        list_server_cookies = getattr(session_client, "list_server_cookies", None)
-        if not callable(list_server_cookies):
-            return []
-
+        aggregator: CompleterMcpAggregator,
+    ) -> list[tuple[str, str | None]] | None:
         try:
-            _server_name, _identity, active_id, cookies = await list_server_cookies(server_identifier)
+            status_map = await aggregator.collect_server_status()
+        except Exception:
+            return None
+        connected = self._connected_servers_from_status(status_map)
+        return connected if connected else None
+
+    @staticmethod
+    def _connected_servers_from_attached_api(
+        aggregator: CompleterMcpAggregator,
+    ) -> list[tuple[str, str | None]]:
+        try:
+            attached = aggregator.list_attached_servers()
         except Exception:
             return []
-
-        choices: list[tuple[str, str | None, bool]] = []
-        for cookie in cookies:
-            if not isinstance(cookie, dict):
-                continue
-            cookie_id = cookie.get("id")
-            if not isinstance(cookie_id, str) or not cookie_id:
-                continue
-            title = cookie.get("title")
-            title_text = title if isinstance(title, str) and title.strip() else None
-            is_active = cookie_id == active_id
-            choices.append((cookie_id, title_text, is_active))
-
-        return choices
-
-    async def _list_connected_mcp_servers_with_identity(self) -> list[tuple[str, str | None]]:
-        agent = self._current_agent_object()
-        if agent is None:
-            return []
-
-        aggregator = getattr(agent, "aggregator", None)
-        if aggregator is None:
-            return []
-
-        collect_status = getattr(aggregator, "collect_server_status", None)
-        if callable(collect_status):
-            try:
-                status_map = await collect_status()
-            except Exception:
-                status_map = None
-            if isinstance(status_map, dict):
-                connected: list[tuple[str, str | None]] = []
-                for server_name, status in sorted(status_map.items()):
-                    if getattr(status, "is_connected", None) is not True:
-                        continue
-                    identity = getattr(status, "implementation_name", None)
-                    identity_name = identity if isinstance(identity, str) and identity.strip() else None
-                    connected.append((str(server_name), identity_name))
-                if connected:
-                    return connected
-
-        list_attached = getattr(aggregator, "list_attached_servers", None)
-        if not callable(list_attached):
-            return []
-        try:
-            attached = list_attached()
-        except Exception:
-            return []
-
         return [(str(server_name), None) for server_name in attached]
 
-    async def _list_attached_session_cookie_choices(
-        self,
-    ) -> list[tuple[str, str | None, str, str | None, bool]]:
-        agent = self._current_agent_object()
+    async def _list_connected_resource_servers(self) -> list[str]:
+        agent = cast("CompleterMcpAgent | None", self._current_agent_object())
         if agent is None:
             return []
 
-        aggregator = getattr(agent, "aggregator", None)
-        session_client = getattr(aggregator, "experimental_sessions", None) if aggregator else None
-        list_server_cookies = getattr(session_client, "list_server_cookies", None)
-        if not callable(list_server_cookies):
+        try:
+            aggregator = agent.aggregator
+        except Exception:
             return []
 
-        choices: list[tuple[str, str | None, str, str | None, bool]] = []
-        servers = await self._list_connected_mcp_servers_with_identity()
-        for server_name, fallback_identity in servers:
-            try:
-                _resolved_name, identity, active_id, cookies = await list_server_cookies(server_name)
-            except Exception:
-                continue
+        names = await self._resource_server_names_from_status_api(aggregator)
+        if names is not None:
+            return names
+        return await self._resource_server_names_from_capabilities_api(aggregator)
 
-            display_identity = (
-                identity if isinstance(identity, str) and identity.strip() else fallback_identity
-            )
-            for cookie in cookies:
-                if not isinstance(cookie, dict):
-                    continue
-                cookie_id = cookie.get("id")
-                if not isinstance(cookie_id, str) or not cookie_id:
-                    continue
-                title = cookie.get("title")
-                title_text = title if isinstance(title, str) and title.strip() else None
-                choices.append(
-                    (
-                        server_name,
-                        display_identity,
-                        cookie_id,
-                        title_text,
-                        cookie_id == active_id,
-                    )
-                )
+    async def _list_connected_mcp_servers_with_identity(self) -> list[tuple[str, str | None]]:
+        agent = cast("CompleterMcpAgent | None", self._current_agent_object())
+        if agent is None:
+            return []
 
-        return choices
+        try:
+            aggregator = agent.aggregator
+        except Exception:
+            return []
+
+        connected = await self._connected_servers_from_status_api(aggregator)
+        if connected is not None:
+            return connected
+        return self._connected_servers_from_attached_api(aggregator)
 
     def _completion_cache_get(self, key: tuple[Any, ...]) -> tuple[Completion, ...] | None:
         cached = self._mention_cache.get(key)
@@ -1228,7 +1489,7 @@ class AgentCompleter(Completer):
         )
 
     def _run_async_completion(
-        self, awaitable: Coroutine[Any, Any, CompletionResultT]
+        self, create_awaitable: Callable[[], Coroutine[Any, Any, CompletionResultT]]
     ) -> CompletionResultT | None:
         owner_loop = self._owner_loop
         if owner_loop is not None and owner_loop.is_running():
@@ -1237,7 +1498,11 @@ class AgentCompleter(Completer):
             except RuntimeError:
                 current_loop = None
 
+            if current_loop is owner_loop:
+                return None
+
             if current_loop is not owner_loop:
+                awaitable = create_awaitable()
                 future = asyncio.run_coroutine_threadsafe(awaitable, owner_loop)
                 try:
                     return future.result(timeout=self._completion_wait_timeout_seconds)
@@ -1248,36 +1513,77 @@ class AgentCompleter(Completer):
                     return None
 
         try:
-            return asyncio.run(awaitable)
+            awaitable = create_awaitable()
+            return run_coroutine(awaitable)
         except Exception:
             return None
 
     async def _list_server_resource_uris(self, server_name: str) -> list[str]:
-        agent = self._current_agent_object()
+        agent = cast("CompleterResourceAgent | None", self._current_agent_object())
         if agent is None:
             return []
 
-        list_resources = getattr(agent, "list_resources", None)
-        if not callable(list_resources):
+        try:
+            result = await agent.list_resources(namespace=server_name)
+        except Exception:
             return []
 
-        result = await list_resources(namespace=server_name)
-        uris = result.get(server_name, []) if isinstance(result, dict) else []
+        uris = self._server_result_list(result, server_name)
         return [str(uri) for uri in uris]
 
-    async def _list_server_resource_templates(self, server_name: str) -> list[ResourceTemplate]:
+    def _list_mcp_skill_registry_choices(self) -> list[tuple[str, str, int]]:
         agent = self._current_agent_object()
         if agent is None:
             return []
 
         aggregator = getattr(agent, "aggregator", None)
-        list_templates = getattr(aggregator, "list_resource_templates", None)
-        if not callable(list_templates):
+        cached_registries = getattr(aggregator, "cached_mcp_skill_registries", None)
+        if not callable(cached_registries):
             return []
 
-        result = await list_templates(server_name)
-        templates = result.get(server_name, []) if isinstance(result, dict) else []
+        try:
+            registries = cached_registries()
+        except Exception:
+            return []
+
+        choices: list[tuple[str, str, int]] = []
+        for registry in registries:
+            server_name = getattr(registry, "server_name", None)
+            if not isinstance(server_name, str) or not server_name:
+                continue
+            display_name = getattr(registry, "display_name", None)
+            display = display_name if isinstance(display_name, str) else f"mcp-server {server_name}"
+            skills = getattr(registry, "skills", ())
+            try:
+                skill_count = len(skills)
+            except TypeError:
+                skill_count = 0
+            choices.append((server_name, display, skill_count))
+
+        return sorted(choices, key=lambda choice: choice[0].lower())
+
+    async def _list_server_resource_templates(self, server_name: str) -> list[ResourceTemplate]:
+        agent = cast("CompleterResourceMcpAgent | None", self._current_agent_object())
+        if agent is None:
+            return []
+
+        try:
+            result = await agent.aggregator.list_resource_templates(server_name)
+        except Exception:
+            return []
+
+        templates = self._server_result_list(result, server_name)
         return [template for template in templates if isinstance(template, ResourceTemplate)]
+
+    @staticmethod
+    def _server_result_list(result: object, server_name: str) -> list[object]:
+        if not isinstance(result, dict):
+            return []
+        result_by_server = cast("dict[str, object]", result)
+        values = result_by_server.get(server_name)
+        if not isinstance(values, list):
+            return []
+        return list(values)
 
     async def _complete_server_template_argument(
         self,
@@ -1287,34 +1593,31 @@ class AgentCompleter(Completer):
         value: str,
         context_args: dict[str, str] | None = None,
     ) -> list[str]:
-        agent = self._current_agent_object()
+        agent = cast("CompleterResourceMcpAgent | None", self._current_agent_object())
         if agent is None:
             return []
 
-        aggregator = getattr(agent, "aggregator", None)
-        complete_arg = getattr(aggregator, "complete_resource_argument", None)
-        if not callable(complete_arg):
+        try:
+            completion = cast(
+                "CompleterResourceArgumentCompletion",
+                await agent.aggregator.complete_resource_argument(
+                    server_name=server_name,
+                    template_uri=template_uri,
+                    argument_name=argument_name,
+                    value=value,
+                    context_args=context_args,
+                ),
+            )
+            values = completion.values
+        except Exception:
             return []
-
-        completion = await complete_arg(
-            server_name=server_name,
-            template_uri=template_uri,
-            argument_name=argument_name,
-            value=value,
-            context_args=context_args,
-        )
-        values = getattr(completion, "values", None)
         if not isinstance(values, list):
             return []
         return [str(item) for item in values]
 
     @staticmethod
-    def _extract_template_argument_names(template_uri: str) -> list[str]:
-        return template_argument_names(template_uri)
-
-    @staticmethod
-    def _split_mention_argument_section(remainder: str) -> tuple[str, str] | None:
-        """Split a mention remainder into (template_uri, argument_text).
+    def _split_mention_argument_section(remainder: str) -> MentionArgumentSection | None:
+        """Split a mention remainder into template URI and argument text.
 
         Returns ``None`` when no trailing argument section has been started.
         The argument section starts at the first unmatched ``{`` from the end,
@@ -1330,18 +1633,95 @@ class AgentCompleter(Completer):
                     open_index = index
                 depth += 1
                 continue
-            if char == "}":
-                if depth > 0:
-                    depth -= 1
-                    if depth == 0:
-                        open_index = None
+            if char == "}" and depth > 0:
+                depth -= 1
+                if depth == 0:
+                    open_index = None
 
         if depth == 0 or open_index is None:
             return None
         if depth != 1:
             return None
 
-        return remainder[:open_index], remainder[open_index + 1 :]
+        return MentionArgumentSection(
+            template_uri=remainder[:open_index],
+            argument_text=remainder[open_index + 1 :],
+        )
+
+    @classmethod
+    def _mention_context(
+        cls,
+        *,
+        token: str,
+        kind: str,
+        server_name: str | None = None,
+        partial: str = "",
+        template_uri: str | None = None,
+        argument_name: str | None = None,
+        argument_value: str = "",
+        context_args: dict[str, str] | None = None,
+    ) -> _MentionContext:
+        return cls._MentionContext(
+            token=token,
+            kind=kind,
+            server_name=server_name,
+            partial=partial,
+            template_uri=template_uri,
+            argument_name=argument_name,
+            argument_value=argument_value,
+            context_args=context_args or {},
+        )
+
+    @staticmethod
+    def _completed_mention_arguments(argument_text: str) -> tuple[dict[str, str], str]:
+        context_args: dict[str, str] = {}
+        raw_segments = [segment.strip() for segment in argument_text.strip().split(",")]
+        if not raw_segments:
+            return context_args, ""
+
+        for segment in raw_segments[:-1]:
+            if "=" not in segment:
+                continue
+            key, value = segment.split("=", 1)
+            key = key.strip()
+            if key:
+                context_args[key] = value.strip()
+
+        return context_args, raw_segments[-1]
+
+    def _argument_mention_context(
+        self,
+        *,
+        token: str,
+        server_name: str,
+        split_result: MentionArgumentSection,
+    ) -> _MentionContext | None:
+        argument_text = split_result.argument_text
+        if "}" in argument_text:
+            return None
+
+        context_args, current_segment = self._completed_mention_arguments(argument_text)
+        if not current_segment or "=" not in current_segment:
+            return self._mention_context(
+                token=token,
+                kind="argument_name",
+                server_name=server_name,
+                partial=current_segment,
+                template_uri=split_result.template_uri,
+                context_args=context_args,
+            )
+
+        argument_name, value_partial = current_segment.split("=", 1)
+        return self._mention_context(
+            token=token,
+            kind="argument_value",
+            server_name=server_name,
+            partial=value_partial,
+            template_uri=split_result.template_uri,
+            argument_name=argument_name.strip(),
+            argument_value=value_partial,
+            context_args=context_args,
+        )
 
     def _mention_context_for_text(self, text: str) -> _MentionContext | None:
         match = self._MENTION_RE.search(text)
@@ -1350,18 +1730,8 @@ class AgentCompleter(Completer):
 
         token = match.group(1)
         payload = token[1:]
-
         if ":" not in payload:
-            return self._MentionContext(
-                token=token,
-                kind="server",
-                server_name=None,
-                partial=payload,
-                template_uri=None,
-                argument_name=None,
-                argument_value="",
-                context_args={},
-            )
+            return self._mention_context(token=token, kind="server", partial=payload)
 
         server_name, remainder = payload.split(":", 1)
         if not server_name:
@@ -1369,73 +1739,203 @@ class AgentCompleter(Completer):
 
         split_result = self._split_mention_argument_section(remainder)
         if split_result is None:
-            return self._MentionContext(
+            return self._mention_context(
                 token=token,
                 kind="resource",
                 server_name=server_name,
                 partial=remainder,
-                template_uri=None,
-                argument_name=None,
-                argument_value="",
-                context_args={},
             )
 
-        template_uri, argument_text = split_result
-        if "}" in argument_text:
-            return None
-
-        argument_text = argument_text.strip()
-        context_args: dict[str, str] = {}
-        raw_segments = [segment.strip() for segment in argument_text.split(",")]
-        if not raw_segments:
-            raw_segments = [""]
-
-        for segment in raw_segments[:-1]:
-            if "=" not in segment:
-                continue
-            key, value = segment.split("=", 1)
-            key = key.strip()
-            if not key:
-                continue
-            context_args[key] = value.strip()
-
-        current_segment = raw_segments[-1]
-        if not current_segment:
-            return self._MentionContext(
-                token=token,
-                kind="argument_name",
-                server_name=server_name,
-                partial="",
-                template_uri=template_uri,
-                argument_name=None,
-                argument_value="",
-                context_args=context_args,
-            )
-
-        if "=" not in current_segment:
-            return self._MentionContext(
-                token=token,
-                kind="argument_name",
-                server_name=server_name,
-                partial=current_segment,
-                template_uri=template_uri,
-                argument_name=None,
-                argument_value="",
-                context_args=context_args,
-            )
-
-        argument_name, value_partial = current_segment.split("=", 1)
-        argument_name = argument_name.strip()
-        return self._MentionContext(
+        return self._argument_mention_context(
             token=token,
-            kind="argument_value",
             server_name=server_name,
-            partial=value_partial,
-            template_uri=template_uri,
-            argument_name=argument_name,
-            argument_value=value_partial,
-            context_args=context_args,
+            split_result=split_result,
         )
+
+    @staticmethod
+    def _mention_server_meta(server_name: str) -> str:
+        if server_name == FILE_MENTION_SERVER:
+            return "local file attachment"
+        if server_name == URL_MENTION_SERVER:
+            return "remote URL attachment"
+        return "connected mcp server (resources)"
+
+    def _mention_server_completions(self, context: _MentionContext) -> list[Completion]:
+        cache_key = (
+            "resource_server",
+            self.current_agent,
+            context.partial,
+        )
+        cached = self._completion_cache_get(cache_key)
+        if cached is not None:
+            return list(cached)
+
+        server_names = self._run_async_completion(self._list_connected_resource_servers) or []
+        server_names = list(dict.fromkeys([*server_names, FILE_MENTION_SERVER, URL_MENTION_SERVER]))
+        completions = [
+            Completion(
+                f"{server_name}:",
+                start_position=-len(context.partial),
+                display=server_name,
+                display_meta=self._mention_server_meta(server_name),
+            )
+            for server_name in server_names
+            if not context.partial or starts_with_casefold(server_name, context.partial)
+        ]
+        self._completion_cache_put(cache_key, completions)
+        return completions
+
+    def _mention_url_completions(self, partial: str) -> list[Completion]:
+        return [
+            Completion(
+                scheme,
+                start_position=-len(partial),
+                display=scheme,
+                display_meta="remote URL attachment",
+            )
+            for scheme in ("https://", "http://")
+            if not partial or starts_with_casefold(scheme, partial)
+        ]
+
+    def _mention_remote_resource_completions(
+        self,
+        context: _MentionContext,
+    ) -> list[Completion]:
+        if context.server_name is None:
+            return []
+
+        cache_key = (
+            "resource",
+            self.current_agent,
+            context.server_name,
+            context.partial,
+        )
+        cached = self._completion_cache_get(cache_key)
+        if cached is not None:
+            return list(cached)
+
+        server_name = context.server_name
+        resources = (
+            self._run_async_completion(lambda: self._list_server_resource_uris(server_name)) or []
+        )
+        templates = (
+            self._run_async_completion(lambda: self._list_server_resource_templates(server_name))
+            or []
+        )
+
+        completions = [
+            Completion(
+                uri,
+                start_position=-len(context.partial),
+                display=uri,
+                display_meta="resource",
+            )
+            for uri in sorted(set(resources))
+            if not context.partial or starts_with_casefold(uri, context.partial)
+        ]
+        completions.extend(
+            Completion(
+                f"{template.uriTemplate}{{",
+                start_position=-len(context.partial),
+                display=template.uriTemplate,
+                display_meta="resource template",
+            )
+            for template in templates
+            if not context.partial or starts_with_casefold(template.uriTemplate, context.partial)
+        )
+
+        self._completion_cache_put(cache_key, completions)
+        return completions
+
+    def _mention_resource_completions(self, context: _MentionContext) -> list[Completion]:
+        if context.server_name == FILE_MENTION_SERVER:
+            return self._complete_local_attachment_paths(context.partial)
+        if context.server_name == URL_MENTION_SERVER:
+            return self._mention_url_completions(context.partial)
+        return self._mention_remote_resource_completions(context)
+
+    def _mention_argument_name_completions(
+        self,
+        context: _MentionContext,
+    ) -> list[Completion]:
+        if not context.template_uri:
+            return []
+        return [
+            Completion(
+                f"{argument_name}=",
+                start_position=-len(context.partial),
+                display=argument_name,
+                display_meta="template argument",
+            )
+            for argument_name in template_argument_names(context.template_uri)
+            if argument_name not in context.context_args
+            if not context.partial or starts_with_casefold(argument_name, context.partial)
+        ]
+
+    def _mention_argument_value_completions(
+        self,
+        context: _MentionContext,
+    ) -> list[Completion]:
+        if not context.template_uri or not context.argument_name or not context.server_name:
+            return []
+
+        cache_key = (
+            "arg_value",
+            self.current_agent,
+            context.server_name,
+            context.template_uri,
+            context.argument_name,
+            tuple(sorted(context.context_args.items())),
+            context.argument_value,
+        )
+        cached = self._completion_cache_get(cache_key)
+        if cached is not None:
+            return list(cached)
+
+        server_name = context.server_name
+        template_uri = context.template_uri
+        argument_name = context.argument_name
+        values = (
+            self._run_async_completion(
+                lambda: self._complete_server_template_argument(
+                    server_name=server_name,
+                    template_uri=template_uri,
+                    argument_name=argument_name,
+                    value=context.argument_value,
+                    context_args=context.context_args or None,
+                )
+            )
+            or []
+        )
+
+        completions = [
+            Completion(
+                value,
+                start_position=-len(context.argument_value),
+                display=value,
+                display_meta=f"{context.server_name} completion",
+            )
+            for value in values
+        ]
+        self._completion_cache_put(cache_key, completions)
+        return completions
+
+    def _server_scoped_mention_completions(self, context: _MentionContext) -> list[Completion]:
+        if context.server_name is None:
+            return []
+
+        handlers: dict[
+            str,
+            Callable[[AgentCompleter._MentionContext], list[Completion]],
+        ] = {
+            "resource": self._mention_resource_completions,
+            "argument_name": self._mention_argument_name_completions,
+            "argument_value": self._mention_argument_value_completions,
+        }
+        handler = handlers.get(context.kind)
+        if handler is None:
+            return []
+        return handler(context)
 
     def _mention_completions(self, text_before_cursor: str) -> list[Completion] | None:
         context = self._mention_context_for_text(text_before_cursor)
@@ -1443,196 +1943,119 @@ class AgentCompleter(Completer):
             return None
 
         if context.kind == "server":
-            cache_key = (
-                "resource_server",
-                self.current_agent,
-                context.partial,
-            )
-            cached = self._completion_cache_get(cache_key)
-            if cached is not None:
-                return list(cached)
+            return self._mention_server_completions(context)
+        return self._server_scoped_mention_completions(context)
 
-            server_names = self._run_async_completion(self._list_connected_resource_servers()) or []
-            server_names = list(
-                dict.fromkeys([*server_names, FILE_MENTION_SERVER, URL_MENTION_SERVER])
-            )
-            partial = context.partial.lower()
-            completions = [
-                Completion(
-                    f"{server_name}:",
-                    start_position=-len(context.partial),
-                    display=server_name,
-                    display_meta=(
-                        "local file attachment"
-                        if server_name == FILE_MENTION_SERVER
-                        else (
-                            "remote URL attachment"
-                            if server_name == URL_MENTION_SERVER
-                            else "connected mcp server (resources)"
-                        )
-                    ),
-                )
-                for server_name in server_names
-                if not partial or server_name.lower().startswith(partial)
-            ]
-            self._completion_cache_put(cache_key, completions)
-            return completions
-
-        if context.server_name is None:
+    def _shell_token_completions(
+        self,
+        shell_text: str,
+        *,
+        completion_requested: bool,
+    ) -> list[Completion]:
+        if not shell_text:
+            if completion_requested:
+                return list(self._complete_executables("", max_results=100))
             return []
 
-        if context.kind == "resource":
-            if context.server_name == FILE_MENTION_SERVER:
-                return self._complete_local_attachment_paths(context.partial)
-            if context.server_name == URL_MENTION_SERVER:
-                prefix = context.partial.lower()
-                return [
-                    Completion(
-                        scheme,
-                        start_position=-len(context.partial),
-                        display=scheme,
-                        display_meta="remote URL attachment",
-                    )
-                    for scheme in ("https://", "http://")
-                    if not prefix or scheme.startswith(prefix)
-                ]
+        path_part = self._shell_current_token(shell_text)
+        if path_part == shell_text:
+            if self._is_shell_path_token(path_part):
+                return self._quoted_shell_path_completions(path_part, len(path_part))
+            return list(self._complete_executables(shell_text))
 
-            cache_key = (
-                "resource",
-                self.current_agent,
-                context.server_name,
-                context.partial,
-            )
-            cached = self._completion_cache_get(cache_key)
-            if cached is not None:
-                return list(cached)
+        return self._quoted_shell_path_completions(path_part, len(path_part))
 
-            resources = self._run_async_completion(
-                self._list_server_resource_uris(context.server_name)
-            ) or []
-            templates = self._run_async_completion(
-                self._list_server_resource_templates(context.server_name)
-            ) or []
-
-            prefix = context.partial.lower()
-            completions: list[Completion] = []
-            for uri in sorted(set(resources)):
-                if prefix and not uri.lower().startswith(prefix):
-                    continue
-                completions.append(
-                    Completion(
-                        uri,
-                        start_position=-len(context.partial),
-                        display=uri,
-                        display_meta="resource",
-                    )
-                )
-
-            for template in templates:
-                template_uri = template.uriTemplate
-                if prefix and not template_uri.lower().startswith(prefix):
-                    continue
-                completions.append(
-                    Completion(
-                        f"{template_uri}{{",
-                        start_position=-len(context.partial),
-                        display=template_uri,
-                        display_meta="resource template",
-                    )
-                )
-
-            self._completion_cache_put(cache_key, completions)
-            return completions
-
-        if context.kind == "argument_name":
-            if not context.template_uri:
+    def _shell_command_completions(
+        self,
+        text: str,
+        complete_event,
+        *,
+        completion_requested: bool,
+    ) -> list[Completion] | None:
+        if text.lstrip().startswith("!"):
+            if complete_event and complete_event.text_inserted:
                 return []
-            argument_names = self._extract_template_argument_names(context.template_uri)
-            prefix = context.partial.lower()
-            return [
-                Completion(
-                    f"{argument_name}=",
-                    start_position=-len(context.partial),
-                    display=argument_name,
-                    display_meta="template argument",
-                )
-                for argument_name in argument_names
-                if argument_name not in context.context_args
-                if not prefix or argument_name.lower().startswith(prefix)
-            ]
-
-        if context.kind == "argument_value":
-            if (
-                not context.template_uri
-                or not context.argument_name
-                or not context.server_name
-            ):
-                return []
-
-            cache_key = (
-                "arg_value",
-                self.current_agent,
-                context.server_name,
-                context.template_uri,
-                context.argument_name,
-                tuple(sorted(context.context_args.items())),
-                context.argument_value,
+            # Text after "!" with leading/trailing whitespace stripped
+            shell_text = text.lstrip()[1:].lstrip()
+            return self._shell_token_completions(
+                shell_text,
+                completion_requested=completion_requested,
             )
-            cached = self._completion_cache_get(cache_key)
-            if cached is not None:
-                return list(cached)
 
-            values = self._run_async_completion(
-                self._complete_server_template_argument(
-                    server_name=context.server_name,
-                    template_uri=context.template_uri,
-                    argument_name=context.argument_name,
-                    value=context.argument_value,
-                    context_args=context.context_args or None,
-                )
-            ) or []
+        return None
 
-            completions = [
-                Completion(
-                    value,
-                    start_position=-len(context.argument_value),
-                    display=value,
-                    display_meta=f"{context.server_name} completion",
-                )
-                for value in values
-            ]
-            self._completion_cache_put(cache_key, completions)
-            return completions
+    def _slash_command_completions(self, text_lower: str) -> list[Completion] | None:
+        if not text_lower.startswith("/"):
+            return None
 
-        return []
+        cmd = text_lower[1:]
+        return [
+            Completion(
+                command,
+                start_position=-len(cmd),
+                display=command,
+                display_meta=description,
+            )
+            for command, description in self.commands.items()
+            if starts_with_casefold(command, cmd)
+        ]
+
+    def _agent_name_completions(self, text: str) -> list[Completion] | None:
+        if not text.startswith("@"):
+            return None
+
+        agent_name = text[1:]
+        return [
+            Completion(
+                agent,
+                start_position=-len(agent_name),
+                display=agent,
+                display_meta=self.agent_types.get(agent, AgentType.BASIC).value,
+            )
+            for agent in self.agents
+            if starts_with_casefold(agent, agent_name)
+        ]
+
+    def _requested_path_completions(self, text: str) -> list[Completion]:
+        partial = text.split()[-1] if text and not text[-1].isspace() else ""
+        return list(self._complete_shell_paths(partial, len(partial)))
+
+    def _hash_agent_completions(self, text: str) -> list[Completion] | None:
+        if not text.startswith(("##", "#")):
+            return None
+
+        prefix = "##" if text.startswith("##") else "#"
+        rest = text[len(prefix) :]
+        if rest and rest[0].isspace():
+            return []
+        if " " in rest or "\t" in rest:
+            return []
+
+        agent_name = rest
+        return [
+            Completion(
+                agent + " ",
+                start_position=-len(agent_name),
+                display=agent,
+                display_meta=f"{prefix} {self.agent_types.get(agent, AgentType.BASIC).value}",
+            )
+            for agent in self.agents
+            if starts_with_casefold(agent, agent_name)
+        ]
 
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
-        text_lower = text.lower()
+        text_lower = casefold_text(text)
         completion_requested = bool(complete_event and complete_event.completion_requested)
 
-        # Shell completion mode - detect ! prefix
-        if text.lstrip().startswith("!"):
-            if complete_event and complete_event.text_inserted:
-                return
-            # Text after "!" with leading/trailing whitespace stripped
-            shell_text = text.lstrip()[1:].lstrip()
-            if not shell_text:
-                if completion_requested:
-                    yield from self._complete_executables("", max_results=100)
-                return
-
-            if " " not in shell_text:
-                # First token: complete executables or paths.
-                if self._is_shell_path_token(shell_text):
-                    yield from self._complete_shell_paths(shell_text, len(shell_text))
-                else:
-                    yield from self._complete_executables(shell_text)
-            else:
-                # After first token: complete paths
-                _, path_part = shell_text.rsplit(" ", 1)
-                yield from self._complete_shell_paths(path_part, len(path_part))
+        shell_completions = self._shell_command_completions(
+            text,
+            complete_event,
+            completion_requested=completion_requested,
+        )
+        if shell_completions is not None:
+            yield from shell_completions
             return
 
         mention_completions = self._mention_completions(text)
@@ -1647,55 +2070,18 @@ class AgentCompleter(Completer):
             yield from source_completions
             return
 
-        # Complete commands
-        if text_lower.startswith("/"):
-            cmd = text_lower[1:]
-            # Simple command completion - match beginning of command
-            for command, description in self.commands.items():
-                if command.lower().startswith(cmd):
-                    yield Completion(
-                        command,
-                        start_position=-len(cmd),
-                        display=command,
-                        display_meta=description,
-                    )
-
-        # Complete agent names for agent-related commands
-        elif text.startswith("@"):
-            agent_name = text[1:]
-            for agent in self.agents:
-                if agent.lower().startswith(agent_name.lower()):
-                    # Get agent type or default to "Agent"
-                    agent_type = self.agent_types.get(agent, AgentType.BASIC).value
-                    yield Completion(
-                        agent,
-                        start_position=-len(agent_name),
-                        display=agent,
-                        display_meta=agent_type,
-                    )
+        slash_completions = self._slash_command_completions(text_lower)
+        if slash_completions is not None:
+            yield from slash_completions
+        else:
+            agent_completions = self._agent_name_completions(text)
+            if agent_completions is not None:
+                yield from agent_completions
 
         if completion_requested:
-            if text and not text[-1].isspace():
-                partial = text.split()[-1]
-            else:
-                partial = ""
-            yield from self._complete_shell_paths(partial, len(partial))
+            yield from self._requested_path_completions(text)
             return
 
-        # Complete agent names for hash commands (#agent_name message / ##agent_name message)
-        elif text.startswith("##") or text.startswith("#"):
-            prefix = "##" if text.startswith("##") else "#"
-            rest = text[len(prefix) :]
-            if rest and rest[0].isspace():
-                return
-            if " " not in rest and "\t" not in rest:
-                agent_name = rest
-                for agent in self.agents:
-                    if agent.lower().startswith(agent_name.lower()):
-                        agent_type = self.agent_types.get(agent, AgentType.BASIC).value
-                        yield Completion(
-                            agent + " ",
-                            start_position=-len(agent_name),
-                            display=agent,
-                            display_meta=f"{prefix} {agent_type}",
-                        )
+        hash_completions = self._hash_agent_completions(text)
+        if hash_completions is not None:
+            yield from hash_completions

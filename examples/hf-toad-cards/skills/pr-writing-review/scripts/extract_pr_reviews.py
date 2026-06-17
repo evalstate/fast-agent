@@ -94,7 +94,9 @@ def run_gh(args: list[str], check: bool = True) -> dict | list | str:
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         if check:
-            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+            raise subprocess.CalledProcessError(
+                result.returncode, cmd, result.stdout, result.stderr
+            )
         return ""
     try:
         return json.loads(result.stdout)
@@ -108,7 +110,9 @@ def run_gh_jsonlines(args: list[str], check: bool = True) -> list[dict]:
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         if check:
-            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+            raise subprocess.CalledProcessError(
+                result.returncode, cmd, result.stdout, result.stderr
+            )
         return []
 
     out: list[dict] = []
@@ -213,9 +217,7 @@ def extract_original_from_diff_hunk(diff_hunk: str, num_lines: int = 1) -> str:
     return "\n".join(added_lines[-num_lines:])
 
 
-_SUGGESTION_BLOCK_RE = re.compile(
-    r"```suggestion(?:[^\n`]*)?\s*\n(.*?)```", re.DOTALL
-)
+_SUGGESTION_BLOCK_RE = re.compile(r"```suggestion(?:[^\n`]*)?\s*\n(.*?)```", re.DOTALL)
 
 
 def parse_suggestions(body: str) -> list[str]:
@@ -277,7 +279,9 @@ def get_file_content_at_ref(owner: str, repo: str, path: str, ref: str) -> Optio
     return None
 
 
-def trace_file_through_commits(owner: str, repo: str, commits: list[dict], final_path: str) -> list[str]:
+def trace_file_through_commits(
+    owner: str, repo: str, commits: list[dict], final_path: str
+) -> list[str]:
     """Trace a file backwards through commits to find all names it had.
 
     Returns a list of paths from oldest name to newest.
@@ -336,7 +340,9 @@ def find_first_content(
 # -----------------
 
 
-def fetch_pr_data(owner: str, repo: str, pr_number: int, track_evolution: bool = False) -> PRReviewData:
+def fetch_pr_data(
+    owner: str, repo: str, pr_number: int, track_evolution: bool = False
+) -> PRReviewData:
     """Fetch all review data for a PR."""
 
     repo_ref = f"{owner}/{repo}"
@@ -463,7 +469,9 @@ def fetch_pr_data(owner: str, repo: str, pr_number: int, track_evolution: bool =
             all_paths = list(dict.fromkeys(all_paths))
 
             evo = FileEvolution(final_path=final_path, all_paths=all_paths)
-            evo.first_content, evo.first_commit = find_first_content(owner, repo, commits, all_paths)
+            evo.first_content, evo.first_commit = find_first_content(
+                owner, repo, commits, all_paths
+            )
             evo.final_content = (
                 get_file_content_at_ref(owner, repo, final_path, head_sha) if head_sha else None
             )
@@ -495,8 +503,6 @@ def fenced_block(text: str, lang: str = "text") -> str:
     text = text or ""
     text = normalize_newlines(text).rstrip("\n")
     return f"```{lang}\n{text}\n```"
-
-
 
 
 def maybe_truncate_text(text: str, limit: int | None) -> str:
@@ -633,7 +639,9 @@ def format_diff_comparison(data: PRReviewData, max_file_chars: int | None = None
         lines.append("")
         lines.append("## File Evolution (first draft → final)")
         lines.append("")
-        lines.append("*Compare paragraph-by-paragraph to see how the author responded to feedback.*")
+        lines.append(
+            "*Compare paragraph-by-paragraph to see how the author responded to feedback.*"
+        )
         lines.append("")
 
         for path, evo in data.file_evolutions.items():
@@ -678,10 +686,16 @@ def parse_cli_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("target", nargs="+", help="PR URL or 'owner/repo pr_number'")
     parser.add_argument("--diff", action="store_true", help="Include file evolution output")
     parser.add_argument("--json", action="store_true", help="Emit raw JSON instead of Markdown")
-    parser.add_argument("--max-file-chars", type=int, default=None, help="Trim FIRST/FINAL dumps to this many characters per file")
-    parser.add_argument("--no-files", action="store_true", help="Skip file evolution even when --diff is set")
+    parser.add_argument(
+        "--max-file-chars",
+        type=int,
+        default=None,
+        help="Trim FIRST/FINAL dumps to this many characters per file",
+    )
+    parser.add_argument(
+        "--no-files", action="store_true", help="Skip file evolution even when --diff is set"
+    )
     return parser.parse_args(argv)
-
 
 
 def main() -> None:

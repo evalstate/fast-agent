@@ -2,12 +2,46 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import TypedDict
+
+from fast_agent.commands.metadata_labels import (
+    metadata_argument_label,
+    metadata_option_label,
+)
+from fast_agent.utils.markdown import escape_markdown_text, markdown_code_span
+from fast_agent.utils.text import strip_to_none
+
+
+class SessionExportArgumentDetail(TypedDict):
+    name: str
+    required: bool
+    value_name: str | None
+    summary: str
+
+
+class SessionExportOptionDetail(TypedDict):
+    name: str
+    aliases: list[str]
+    value_name: str | None
+    summary: str
+
+
+class SessionExportActionDetail(TypedDict):
+    name: str
+    summary: str
+    usage: str
+    examples: list[str]
+    arguments: list[SessionExportArgumentDetail]
+    options: list[SessionExportOptionDetail]
+    notes: list[str]
+
 
 SESSION_EXPORT_USAGE = (
     "/session export [latest|id|path] [--agent name] [--output path] "
-    "[--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] "
-    "[--privacy-filter-variant q4|q4f16|q8|fp16]"
+    "[--hf-url hf://...] [--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] "
+    "[--privacy-filter-path path] [--download-privacy-filter] "
+    "[--privacy-filter-device auto|cpu|cuda] "
+    "[--privacy-filter-variant q4|q4f16|q8|fp16] [--show-redactions]"
 )
 
 SESSION_EXPORT_TARGET_HELP = (
@@ -19,7 +53,10 @@ SESSION_EXPORT_OUTPUT_HELP = (
     "working directory. Parent directories are created as needed."
 )
 SESSION_EXPORT_HF_DATASET_HELP = (
-    "Upload the exported trace to this Hugging Face dataset repo (owner/name)."
+    "Compatibility option: upload the exported trace to this Hugging Face dataset repo (owner/name). Prefer --hf-url for new workflows."
+)
+SESSION_EXPORT_HF_URL_HELP = (
+    "Upload the exported trace to this Hugging Face URL. Supports hf://buckets/... and hf://datasets/...."
 )
 SESSION_EXPORT_HF_DATASET_PATH_HELP = (
     "Path in the dataset repo. Defaults to the root using the local filename. "
@@ -30,9 +67,7 @@ SESSION_EXPORT_PRIVACY_PATH_HELP = "Local OpenAI Privacy Filter model directory.
 SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP = (
     "Download the default privacy-filter model if it is not already cached."
 )
-SESSION_EXPORT_PRIVACY_DEVICE_HELP = (
-    "Privacy filter device: auto, cpu, or cuda. Defaults to auto."
-)
+SESSION_EXPORT_PRIVACY_DEVICE_HELP = "Privacy filter device: auto, cpu, or cuda. Defaults to auto."
 SESSION_EXPORT_PRIVACY_VARIANT_HELP = (
     "Privacy filter model variant: q4, q4f16, q8, or fp16. Defaults to q8."
 )
@@ -42,7 +77,8 @@ SESSION_EXPORT_SHOW_REDACTIONS_HELP = (
 
 SESSION_EXPORT_EXAMPLES: tuple[str, ...] = (
     "/session export latest --output trace.jsonl",
-    "/session export latest --hf-dataset owner/name",
+    "/session export latest --hf-url hf://buckets/owner/traces/",
+    "/session export latest --hf-url hf://datasets/owner/name/trace.jsonl",
     "/session export latest --privacy-filter",
     "/session export latest --help",
 )
@@ -57,7 +93,7 @@ SESSION_EXPORT_NOTES: tuple[str, ...] = (
 )
 
 
-def build_session_export_action_detail() -> dict[str, object]:
+def build_session_export_action_detail() -> SessionExportActionDetail:
     """Return structured discovery metadata for `/session export`."""
 
     return {
@@ -85,6 +121,12 @@ def build_session_export_action_detail() -> dict[str, object]:
                 "aliases": ["-o"],
                 "value_name": "path",
                 "summary": SESSION_EXPORT_OUTPUT_HELP,
+            },
+            {
+                "name": "--hf-url",
+                "aliases": [],
+                "value_name": "hf://...",
+                "summary": SESSION_EXPORT_HF_URL_HELP,
             },
             {
                 "name": "--hf-dataset",
@@ -145,6 +187,29 @@ def build_session_export_action_detail() -> dict[str, object]:
     }
 
 
+def _argument_label(argument: SessionExportArgumentDetail) -> str | None:
+    return metadata_argument_label(argument)
+
+
+def _option_label(option: SessionExportOptionDetail) -> str | None:
+    return metadata_option_label(option)
+
+
+def _append_labeled_help_line(
+    lines: list[str],
+    *,
+    label: str | None,
+    summary: str,
+) -> None:
+    if label is None:
+        return
+    summary_text = strip_to_none(summary)
+    if summary_text is None:
+        lines.append(f"- {label}")
+        return
+    lines.append(f"- {label} — {escape_markdown_text(summary_text)}")
+
+
 def render_session_export_help_markdown() -> str:
     """Render markdown help for `/session export`."""
 
@@ -154,59 +219,38 @@ def render_session_export_help_markdown() -> str:
         "",
         "Export a persisted session trace.",
         "",
-        f"Usage: `{detail['usage']}`",
+        f"Usage: {markdown_code_span(detail['usage'])}",
         "",
         "Arguments:",
     ]
 
-    arguments = detail.get("arguments")
-    if isinstance(arguments, list):
-        for argument in arguments:
-            if not isinstance(argument, dict):
-                continue
-            argument_map = cast("dict[str, object]", argument)
-            name = str(argument_map.get("name", "")).strip()
-            if not name:
-                continue
-            value_name = argument_map.get("value_name")
-            label = f"`{name}`"
-            if isinstance(value_name, str) and value_name:
-                label = f"`{name}` (`{value_name}`)"
-            summary = str(argument_map.get("summary", "")).strip()
-            lines.append(f"- {label} — {summary}")
+    for argument in detail["arguments"]:
+        _append_labeled_help_line(
+            lines,
+            label=_argument_label(argument),
+            summary=argument["summary"],
+        )
 
     lines.extend(["", "Options:"])
-    options = detail.get("options")
-    if isinstance(options, list):
-        for option in options:
-            if not isinstance(option, dict):
-                continue
-            option_map = cast("dict[str, object]", option)
-            name = str(option_map.get("name", "")).strip()
-            if not name:
-                continue
-            labels = [f"`{name}`"]
-            aliases = option_map.get("aliases")
-            if isinstance(aliases, list):
-                labels.extend(f"`{alias}`" for alias in aliases if isinstance(alias, str) and alias)
-            value_name = option_map.get("value_name")
-            if isinstance(value_name, str) and value_name:
-                labels[0] = f"`{name} {value_name}`"
-            summary = str(option_map.get("summary", "")).strip()
-            lines.append(f"- {', '.join(labels)} — {summary}")
+    for option in detail["options"]:
+        _append_labeled_help_line(
+            lines,
+            label=_option_label(option),
+            summary=option["summary"],
+        )
 
     lines.extend(["", "Behavior:"])
-    notes = detail.get("notes")
-    if isinstance(notes, list):
-        for note in notes:
-            if isinstance(note, str) and note:
-                lines.append(f"- {note}")
+    lines.extend(
+        f"- {escape_markdown_text(note)}"
+        for value in detail["notes"]
+        if (note := strip_to_none(value)) is not None
+    )
 
     lines.extend(["", "Examples:"])
-    examples = detail.get("examples")
-    if isinstance(examples, list):
-        for example in examples:
-            if isinstance(example, str) and example:
-                lines.append(f"- `{example}`")
+    lines.extend(
+        f"- {markdown_code_span(example)}"
+        for value in detail["examples"]
+        if (example := strip_to_none(value)) is not None
+    )
 
     return "\n".join(lines)

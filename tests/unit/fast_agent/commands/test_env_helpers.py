@@ -20,9 +20,7 @@ def test_resolve_environment_dir_option_returns_absolute_path(tmp_path: Path) ->
         resolved = resolve_environment_dir_option(None, Path(".dev"))
         assert resolved == (workspace / ".dev").resolve()
         assert os.environ.get("ENVIRONMENT_DIR") == str((workspace / ".dev").resolve())
-        assert os.environ.get(FAST_AGENT_RUNTIME_ENVIRONMENT) == str(
-            (workspace / ".dev").resolve()
-        )
+        assert os.environ.get(FAST_AGENT_RUNTIME_ENVIRONMENT) == str((workspace / ".dev").resolve())
     finally:
         os.chdir(original_cwd)
         if original_env is None:

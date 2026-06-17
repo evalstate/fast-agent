@@ -23,16 +23,17 @@
 | `claude-sonnet-4-5-20250929` | `anthropic` | Text, Vision, Document | `json` (schema) | budget: `low`, `medium`, `high`, `max`, `0`, `1024`, `16000`, `32000`, `off`<br>Example: `claude-sonnet-4-5-20250929?reasoning=1024` | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
 | `claude-sonnet-4-5` | `anthropic` | Text, Vision, Document | `json` (schema) | budget: `low`, `medium`, `high`, `max`, `0`, `1024`, `16000`, `32000`, `off`<br>Example: `claude-sonnet-4-5?reasoning=1024` | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
 | `claude` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `max`, `off`<br>Example: `claude.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
+| `fable` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`<br>Example: `fable.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `haiku` | `anthropic` | Text, Vision, Document | `json` (schema) | budget: `low`, `medium`, `high`, `max`, `0`, `1024`, `16000`, `32000`, `off`<br>Example: `haiku?reasoning=1024` | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
 | `opus46` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `max`, `off`<br>Example: `opus46.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `opus47` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus47.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `opus` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `codexspark` | `codexresponses` | Text | `json` (schema) | — | — | — |
-| `deepseek-chat` | `deepseek` | Text | `json` (schema) | — | — | — |
+| `deepseek-chat` | `deepseek` | Text | `json` (object) | — | — | — |
 | `deepseek-reasoner` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek-reasoner.high` | — | — |
 | `deepseek.deepseek-ai/deepseek-v3.1` | `deepseek` | Text | `json` (schema) | — | — | — |
-| `deepseek4flash` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek4flash.high` | — | — |
-| `deepseek` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek.high` | — | — |
+| `deepseek4flash` | `deepseek` | Text | `json` (object) | effort: `high`, `max`, `off`<br>Example: `deepseek4flash.high` | — | — |
+| `deepseek` | `deepseek` | Text | `json` (object) | effort: `high`, `max`, `off`<br>Example: `deepseek.high` | — | — |
 | `passthrough` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `playback` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `silent` | `fast-agent` | Text | `json` (schema) | — | — | — |
@@ -52,18 +53,24 @@
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
+| `gemma4` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `gemma4?reasoning=off` | — | — |
 | `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
 | `glm` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm?reasoning=off` | — | — |
+| `gpt-oss-20b` | `hf` | Text | `json` (schema) | — | — | — |
+| `gpt-oss` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.minimaxai/minimax-m2` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.qwen/qwen3-next-80b-a3b-instruct` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.zai-org/glm-4.6` | `hf` | Text | `json` (schema) | — | — | — |
 | `kimi25` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi25?reasoning=off` | — | — |
-| `kimi` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi?reasoning=off` | — | — |
+| `kimi26` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi26?reasoning=off` | — | — |
+| `kimi` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `minimax21` | `hf` | Text | `json` (schema) | — | — | — |
 | `minimax25` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax25?reasoning=off` | — | — |
-| `minimax` | `hf` | Text | `json` (schema) | — | — | — |
+| `minimax27` | `hf` | Text | `json` (schema) | — | — | — |
+| `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
+| `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
 | `gpt-4.1-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
@@ -74,9 +81,7 @@
 | `gpt-4o-mini-2024-07-18` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4o-mini` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4o` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
-| `gpt-oss-20b` | `openai` | Text | `json` (schema) | — | — | — |
-| `gpt-oss` | `openai` | Text | `json` (schema) | — | — | — |
-| `chatgpt` | `responses` | Text, Vision, Document | `json` (schema) | — | — | — |
+| `chat-latest` | `responses` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `codex` | `responses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `codex.medium` | `low`, `medium`, `high`<br>Example: `codex?verbosity=low` | — |
 | `gpt-5-mini` | `responses` | Text, Vision, Document | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gpt-5-mini.medium` | `low`, `medium`, `high`<br>Example: `gpt-5-mini?verbosity=low` | — |
 | `gpt-5-nano-2025-08-07` | `responses` | Text, Vision, Document | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gpt-5-nano-2025-08-07.medium` | `low`, `medium`, `high`<br>Example: `gpt-5-nano-2025-08-07?verbosity=low` | — |

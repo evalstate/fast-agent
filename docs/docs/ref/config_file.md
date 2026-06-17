@@ -51,6 +51,14 @@ session_history: true
 session_history_window: 20
 ```
 
+History compaction defaults are generated from `fast_agent.config.CompactionSettings`:
+
+--8<-- "_generated/compaction_config_snippet.md"
+
+Relative `compaction.prompt` file paths are resolved from the loaded config file's directory. If
+`FAST_AGENT_HOME` points at a home config, the path is relative to that home config file; it is not
+resolved from the process current working directory.
+
 `llm_retries` defaults to `1` and is the preferred way to control retry attempts. If unset in
 config, the `FAST_AGENT_RETRIES` environment variable is used as a fallback.
 
@@ -141,13 +149,28 @@ For a complete guide, see [Model Overlays](../models/model_overlays/).
 
 `environment_dir` sets the base folder for local fast-agent data such as skills, sessions, and permission history. You can also override this per run with `fast-agent --env <path>`. Use `--noenv` for ephemeral runs that intentionally skip environment-based side effects.
 
+### History Compaction
+
+When a conversation grows large, fast-agent can compact older turns into a single checkpoint summary, freeing context while preserving the work done so far. The summary is produced by the agent's own model and inserted into history as a clearly-marked message (shown as `compacted` in `/history`); the most recent turns are kept verbatim.
+
+--8<-- "_generated/compaction_settings_reference.md"
+
+You can also compact on demand:
+
+- `/compact` &mdash; compact now, showing the before/after context usage.
+- `/compact <instructions>` &mdash; steer the summary (for example, `/compact focus on the database migration`).
+- `/compact preview` &mdash; show what would be kept and dropped, without calling the model.
+- `/compact prompt` &mdash; print the active summarization prompt.
+
+The pre-compaction history is archived to a `compacted_*.json` file in the session directory so the original conversation is never lost.
+
 ## Model Providers
 
 ### Anthropic
 
 ```yaml
 anthropic:
-  api_key: "your_anthropic_key"  # Can also use ANTHROPIC_API_KEY env var
+  api_key: "your_anthropic_key"  # Optional; can also use ANTHROPIC_API_KEY or Anthropic SDK credentials
   base_url: "https://api.anthropic.com/v1"  # Optional, only include to override
   reasoning: auto  # Adaptive models: auto/low/medium/high/max. Budget models: integer tokens or off.
   structured_output_mode: auto  # auto (default), json, or tool_use
@@ -170,6 +193,16 @@ anthropic:
     allowed_domains: ["example.com"]  # Optional; mutually exclusive with blocked_domains
     # blocked_domains: ["ads.example"]
 ```
+
+Anthropic authentication uses this precedence:
+
+1. `anthropic.api_key` in fast-agent config/secrets.
+2. `ANTHROPIC_API_KEY`.
+3. Anthropic SDK credential discovery, including `ANTHROPIC_AUTH_TOKEN`, Anthropic profiles
+   (`ANTHROPIC_PROFILE` / `ANTHROPIC_CONFIG_DIR` / active profile), and workload identity
+   federation environment variables.
+
+This means `api_key` is no longer required when Anthropic SDK credentials are available.
 
 Anthropic models fall into three groups:
 
@@ -669,7 +702,7 @@ logger:
   type: "file"  # "none", "console", "file", or "http"
   level: "warning"  # "debug", "info", "warning", or "error"
   progress_display: true  # Enable/disable progress display
-  path: "fastagent.jsonl"  # Path to log file (for "file" type)
+  path: "fast-agent-log.jsonl"  # Path to log file (for "file" type)
   batch_size: 100  # Events to accumulate before processing
   flush_interval: 2.0  # Flush interval in seconds
   max_queue_size: 2048  # Maximum queue size for events
@@ -764,7 +797,7 @@ mcp:
 logger:
   type: "file"
   level: "info"
-  path: "logs/fastagent.jsonl"
+  path: "logs/fast-agent-log.jsonl"
 ```
 
 ## Environment Variables

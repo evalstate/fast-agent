@@ -100,11 +100,11 @@ def _start_llamacpp_server(
                         "default_generation_settings": {
                             "n_ctx": 32768,
                             "params": {
-                            "temperature": 0.7,
-                            "top_k": 30,
-                            "top_p": 0.9,
-                            "min_p": 0.02,
-                            "n_predict": 1024,
+                                "temperature": 0.7,
+                                "top_k": 30,
+                                "top_p": 0.9,
+                                "min_p": 0.02,
+                                "n_predict": 1024,
                             },
                         },
                         "model_alias": "Llama local",
@@ -192,9 +192,8 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
         server.close()
 
     assert result.exit_code == 0, result.stdout
-    assert server.state.request_paths[:3] == ["/v1/models", "/props", "/slots"]
-    assert server.state.auth_headers[:3] == [
-        "Bearer test-token",
+    assert server.state.request_paths[:2] == ["/v1/models", "/props"]
+    assert server.state.auth_headers[:2] == [
         "Bearer test-token",
         "Bearer test-token",
     ]
@@ -208,13 +207,13 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
     assert payload["connection"]["base_url"] == f"{server.base_url}/v1"
     assert payload["connection"]["auth"] == "env"
     assert payload["connection"]["api_key_env"] == "LLAMA_CPP_TOKEN"
-    assert payload["defaults"]["max_tokens"] == 2048
+    assert "max_tokens" not in payload["defaults"]
     assert "temperature" not in payload["defaults"]
     assert "top_k" not in payload["defaults"]
     assert "top_p" not in payload["defaults"]
     assert "min_p" not in payload["defaults"]
     assert payload["metadata"]["context_window"] == 75264
-    assert payload["metadata"]["max_output_tokens"] == 2048
+    assert "max_output_tokens" not in payload["metadata"]
     assert payload["metadata"]["tokenizes"] == [
         "text/plain",
         "image/jpeg",
@@ -228,7 +227,7 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
     assert "copied the server's current sampling defaults" not in result.stdout
 
 
-def test_model_llamacpp_import_tolerates_null_props_params_and_uses_slots_fallback(
+def test_model_llamacpp_import_tolerates_null_props_params_without_slots_fallback(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -261,10 +260,12 @@ def test_model_llamacpp_import_tolerates_null_props_params_and_uses_slots_fallba
     assert result.exit_code == 0, result.stdout
     overlay_path = env_dir / "model-overlays" / "qwen-local.yaml"
     payload = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
-    assert payload["defaults"]["max_tokens"] == 2048
+    assert "max_tokens" not in payload["defaults"]
     assert "temperature" not in payload["defaults"]
     assert payload["metadata"]["context_window"] == 262144
+    assert "max_output_tokens" not in payload["metadata"]
     assert "Context window: 262144 (catalog fallback; /props reported none)" in result.stdout
+    assert "/slots" not in server.state.request_paths
 
     registry = load_model_overlay_registry(start_path=workspace, env_dir=env_dir)
     loaded = registry.resolve_model_string("qwen-local")
@@ -290,10 +291,7 @@ def test_resolve_llamacpp_picker_import_defaults_ignores_openresponses_settings(
             ),
         )
 
-        defaults = model_command._resolve_llamacpp_picker_import_defaults(
-            start_path=workspace,
-            env_dir=None,
-        )
+        defaults = model_command._resolve_llamacpp_picker_import_defaults()
     finally:
         if previous_base_url is None:
             os.environ.pop("OPENRESPONSES_BASE_URL", None)
@@ -307,6 +305,39 @@ def test_resolve_llamacpp_picker_import_defaults_ignores_openresponses_settings(
     assert defaults.url == model_command.DEFAULT_LLAMA_CPP_URL
     assert defaults.auth == "none"
     assert defaults.interrogation_api_key is None
+
+
+def test_normalize_llamacpp_auth_trims_env_and_secret_ref_values() -> None:
+    assert (
+        model_command._normalize_llamacpp_auth(
+            auth=" ENV ",
+            api_key_env="  LLAMA_CPP_TOKEN  ",
+            secret_ref=None,
+        )
+        == "env"
+    )
+    assert (
+        model_command._normalize_llamacpp_auth(
+            auth=" SECRET_REF ",
+            api_key_env=None,
+            secret_ref="  local-secret  ",
+        )
+        == "secret_ref"
+    )
+
+
+def test_resolve_llamacpp_persisted_auth_trims_new_auth_values() -> None:
+    persisted = model_command._resolve_llamacpp_persisted_auth(
+        auth="env",
+        api_key_env="  LLAMA_CPP_TOKEN  ",
+        secret_ref="  local-secret  ",
+        reused_overlay=None,
+        preserve_existing_auth=False,
+    )
+
+    assert persisted.auth == "env"
+    assert persisted.api_key_env == "LLAMA_CPP_TOKEN"
+    assert persisted.secret_ref == "local-secret"
 
 
 def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) -> None:
@@ -338,7 +369,7 @@ def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) ->
         server.close()
 
     assert result.exit_code == 0, result.stdout
-    assert server.state.request_paths[:3] == ["/v1/models", "/props", "/slots"]
+    assert server.state.request_paths[:2] == ["/v1/models", "/props"]
 
     overlay_path = env_dir / "model-overlays" / "group-first.yaml"
     assert overlay_path.exists()
@@ -466,9 +497,7 @@ def test_model_llamacpp_command_json_lists_discovered_models(tmp_path: Path) -> 
     ]
 
 
-def test_model_llamacpp_import_json_start_now_still_launches(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_model_llamacpp_import_json_start_now_still_launches(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     env_dir = workspace / ".model-env"
     workspace.mkdir(parents=True)
@@ -569,7 +598,7 @@ def test_model_llamacpp_list_command_has_human_readable_output(tmp_path: Path) -
         server.close()
 
     assert result.exit_code == 0, result.stdout
-    assert "Discovered 2 llama.cpp model(s):" in result.stdout
+    assert "Discovered 2 llama.cpp models:" in result.stdout
     assert "unsloth/Qwen3.5-9B-GGUF (ctx 262144)" in result.stdout
 
 

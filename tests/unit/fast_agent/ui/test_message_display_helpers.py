@@ -1,8 +1,12 @@
-from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent
+import pytest
+from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent, TextContent
 
+from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.message_display_helpers import (
+    _content_metadata,
+    build_safety_additional_message,
     build_tool_use_additional_message,
     build_user_message_display,
     build_user_message_image_previews,
@@ -12,6 +16,16 @@ from fast_agent.ui.message_display_helpers import (
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
 )
+
+
+class _BrokenMetadataContent:
+    @property
+    def meta(self) -> object:
+        raise AttributeError("meta unavailable")
+
+
+class _NoMetadataContent:
+    pass
 
 
 def _tool_use_message(tool_name: str) -> PromptMessageExtended:
@@ -27,6 +41,18 @@ def _tool_use_message(tool_name: str) -> PromptMessageExtended:
     )
 
 
+def _tool_use_message_with_names(*tool_names: str) -> PromptMessageExtended:
+    return PromptMessageExtended(
+        role="assistant",
+        content=[],
+        stop_reason=LlmStopReason.TOOL_USE,
+        tool_calls={
+            str(index): CallToolRequest(params=CallToolRequestParams(name=tool_name, arguments={}))
+            for index, tool_name in enumerate(tool_names, start=1)
+        },
+    )
+
+
 def test_tool_use_requests_shell_access_for_execute_when_assumed() -> None:
     message = _tool_use_message("execute")
 
@@ -35,6 +61,18 @@ def test_tool_use_requests_shell_access_for_execute_when_assumed() -> None:
 
 def test_tool_use_requests_shell_access_ignores_execute_without_context() -> None:
     message = _tool_use_message("execute")
+
+    assert not tool_use_requests_shell_access(message)
+
+
+def test_tool_use_requests_shell_access_normalizes_explicit_shell_tool_name() -> None:
+    message = _tool_use_message("server.execute")
+
+    assert tool_use_requests_shell_access(message, shell_tool_name="execute")
+
+
+def test_tool_use_requests_shell_access_rejects_mixed_tool_calls() -> None:
+    message = _tool_use_message_with_names("bash", "read_text_file")
 
     assert not tool_use_requests_shell_access(message)
 
@@ -52,6 +90,18 @@ def test_tool_use_requests_file_read_access_for_read_text_file() -> None:
     message = _tool_use_message("read_text_file")
 
     assert tool_use_requests_file_read_access(message)
+
+
+def test_tool_use_requests_file_read_access_normalizes_explicit_read_tool_name() -> None:
+    message = _tool_use_message("server.local_read")
+
+    assert tool_use_requests_file_read_access(message, read_tool_name="local_read")
+
+
+def test_tool_use_requests_file_read_access_rejects_mixed_tool_calls() -> None:
+    message = _tool_use_message_with_names("read_text_file", "bash")
+
+    assert not tool_use_requests_file_read_access(message)
 
 
 def test_build_tool_use_additional_message_uses_file_read_copy() -> None:
@@ -80,6 +130,37 @@ def test_build_tool_use_additional_message_pluralizes_file_reads() -> None:
     additional = build_tool_use_additional_message(message, file_read=True)
 
     assert additional is None
+
+
+def test_build_safety_additional_message_includes_anthropic_refusal_category() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        stop_reason=LlmStopReason.SAFETY,
+        channels={
+            FAST_AGENT_SAFETY_DETAILS: [
+                TextContent(type="text", text='{"type": "refusal", "category": "cyber"}')
+            ]
+        },
+    )
+
+    additional = build_safety_additional_message(message)
+
+    assert additional is not None
+    assert additional.plain == "\n\nRequest refused by safety classifier (cyber)."
+
+
+def test_build_safety_additional_message_handles_missing_category() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        stop_reason=LlmStopReason.SAFETY,
+    )
+
+    additional = build_safety_additional_message(message)
+
+    assert additional is not None
+    assert additional.plain == "\n\nRequest refused by safety classifier."
 
 
 def test_resolve_highlight_index_for_string_target() -> None:
@@ -171,3 +252,12 @@ def test_build_user_message_display_prefers_original_text_metadata() -> None:
 
     assert message_text == "can you see ^file:/tmp/photo.png"
     assert attachments == ["image (file:///tmp/photo.png)"]
+
+
+def test_content_metadata_returns_none_without_metadata_protocol() -> None:
+    assert _content_metadata(_NoMetadataContent()) is None
+
+
+def test_content_metadata_does_not_swallow_broken_meta_property() -> None:
+    with pytest.raises(AttributeError, match="meta unavailable"):
+        _content_metadata(_BrokenMetadataContent())

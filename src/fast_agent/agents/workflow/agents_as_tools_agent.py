@@ -34,6 +34,8 @@ Benefits over iterative_planner/orchestrator:
 - Better LLM utilization: Modern LLMs excel at function calling
 - Natural composition: Agents nest cleanly without special handling
 - Parallel by default: Leverage asyncio.gather for concurrent execution
+- Optional concurrency bound: `max_parallel` limits concurrent child calls without
+  dropping requested calls
 
 Algorithm
 ---------
@@ -140,7 +142,7 @@ Implementation Notes
   - Only modify display config when first instance starts (count 0→1)
   - Only restore display config when last instance completes (count 1→0)
   - Prevents race condition where early-finishing instances restore config while others run
-- **Child agent(s)**
+- **Child agents**
   - Existing agents (typically `McpAgent`-based) with their own MCP servers, skills, tools, etc.
   - Serve as **templates**; `run_tools` now clones them before every tool call via
     `spawn_detached_instance`, so runtime work happens inside short-lived replicas.
@@ -189,10 +191,10 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import contextmanager, nullcontext
-from copy import copy, deepcopy
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Literal, assert_never
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
@@ -200,11 +202,13 @@ from mcp.types import CallToolResult
 from fast_agent.acp.tool_call_context import acp_tool_call_context
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
+from fast_agent.agents.workflow.request_params import child_request_params
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
     FORCE_SEQUENTIAL_TOOL_CALLS,
     should_parallelize_tool_calls,
 )
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ToolRunnerHookCapable
@@ -217,8 +221,10 @@ from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.utils.async_utils import gather_with_cancel
+from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping
     from pathlib import Path
 
     from fast_agent.agents.agent_types import AgentConfig
@@ -226,12 +232,60 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+_RESPONSE_MODE_OVERRIDES: Mapping[str, ToolResultMode | None] = {
+    "inherit": None,
+    "postprocess": response_mode_to_tool_result_mode("postprocess"),
+    "passthrough": response_mode_to_tool_result_mode("passthrough"),
+}
+_RESPONSE_MODE_FIELD = "response_mode"
+_MISSING_RESPONSE_MODE = object()
+
+
+@dataclass(frozen=True, slots=True)
+class _ResponseModeControl:
+    arguments: dict[str, Any]
+    tool_result_mode_override: ToolResultMode | None = None
+    error: str | None = None
+
+
+_ChildToolStatus = Literal["pending", "done", "error", "missing"]
+
+
+@dataclass(slots=True)
+class _ChildToolDescriptor:
+    id: str
+    tool: str
+    args: dict[str, Any]
+    status: _ChildToolStatus = "pending"
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ChildToolResultRecord:
+    descriptor: _ChildToolDescriptor
+    result: CallToolResult
+
+
+@dataclass(frozen=True, slots=True)
+class _ChildHookInstall:
+    installed: bool
+    previous_hooks: ToolRunnerHooks | None = None
+
+
+@dataclass(slots=True)
+class _ChildToolRunPlan:
+    tool_results: dict[str, CallToolResult]
+    tool_loop_error: str | None
+    call_descriptors: list[_ChildToolDescriptor]
+    descriptor_by_id: dict[str, _ChildToolDescriptor]
+    id_list: list[str]
+
 
 def _response_mode_schema() -> dict[str, Any]:
     return {
         "type": "string",
         "description": "Override how the child agent returns tool results for this call.",
-        "enum": ["inherit", "postprocess", "passthrough"],
+        "enum": list(_RESPONSE_MODE_OVERRIDES),
         "default": "inherit",
     }
 
@@ -252,15 +306,15 @@ class HistorySource(str, Enum):
             return value
         try:
             return cls(str(value))
-        except Exception:
-            return cls.NONE
+        except ValueError as exc:
+            valid_values = ", ".join(member.value for member in cls)
+            raise ValueError(f"history_source must be one of: {valid_values}") from exc
 
 
 class HistoryMergeTarget(str, Enum):
     """Merge targets for detached child history."""
 
     NONE = "none"
-    MESSAGES = "messages"
     CHILD = "child"
     ORCHESTRATOR = "orchestrator"
 
@@ -270,10 +324,15 @@ class HistoryMergeTarget(str, Enum):
             return cls.NONE
         if isinstance(value, cls):
             return value
+        if str(value) == "messages":
+            raise ValueError(
+                "history_merge_target=messages is not supported; use child or orchestrator"
+            )
         try:
             return cls(str(value))
-        except Exception:
-            return cls.NONE
+        except ValueError as exc:
+            valid_values = ", ".join(member.value for member in cls)
+            raise ValueError(f"history_merge_target must be one of: {valid_values}") from exc
 
 
 @dataclass(kw_only=True)
@@ -343,13 +402,15 @@ class AgentsAsToolsAgent(McpAgent):
         self._child_message_files = child_message_files or {}
         self._history_merge_lock = asyncio.Lock()
         self._display_suppression_count: dict[int, int] = {}
-        self._original_display_configs: dict[int, Any] = {}
+        self._original_display_logger_settings: dict[int, Any] = {}
 
         for child in agents:
             tool_name = self._make_tool_name(child.name)
             if tool_name in self._child_agents:
-                logger.warning(
-                    f"Duplicate tool name '{tool_name}' for child agent '{child.name}', overwriting"
+                existing_child = self._child_agents[tool_name]
+                raise AgentConfigError(
+                    f"Duplicate Agents-as-Tools tool name '{tool_name}' for child agents "
+                    f"'{existing_child.name}' and '{child.name}'"
                 )
             self._child_agents[tool_name] = child
 
@@ -375,9 +436,12 @@ class AgentsAsToolsAgent(McpAgent):
 
     async def initialize(self) -> None:
         """Initialize this agent and all child agents."""
+        if self.initialized:
+            return
+
         await super().initialize()
         for agent in self._child_agents.values():
-            if not getattr(agent, "initialized", False):
+            if not agent.initialized:
                 await agent.initialize()
 
     async def shutdown(self) -> None:
@@ -413,10 +477,7 @@ class AgentsAsToolsAgent(McpAgent):
 
     @staticmethod
     def _child_tool_result_mode(child: LlmAgent) -> ToolResultMode:
-        config = getattr(child, "config", None)
-        request_params = (
-            getattr(config, "default_request_params", None) if config is not None else None
-        )
+        request_params = child.config.default_request_params
         if request_params is None:
             return "postprocess"
         return request_params.tool_result_mode
@@ -439,14 +500,27 @@ class AgentsAsToolsAgent(McpAgent):
         if not isinstance(updated_properties, dict):
             return schema
 
-        updated_properties.setdefault("response_mode", _response_mode_schema())
+        updated_properties.setdefault(_RESPONSE_MODE_FIELD, _response_mode_schema())
         return updated_schema
 
     @staticmethod
     def _configured_child_tool_schema(child: LlmAgent) -> dict[str, Any] | None:
-        config = getattr(child, "config", None)
-        schema = getattr(config, "tool_input_schema", None) if config is not None else None
+        schema = child.config.tool_input_schema
         return schema if isinstance(schema, dict) else None
+
+    @classmethod
+    def _child_response_mode_control_enabled(cls, child: LlmAgent) -> bool:
+        if not cls._child_response_mode_enabled(child):
+            return False
+        schema = cls._configured_child_tool_schema(child)
+        if schema is None:
+            return True
+        if schema.get("type") != "object":
+            return False
+        properties = schema.get("properties")
+        if properties is None:
+            return True
+        return isinstance(properties, dict) and _RESPONSE_MODE_FIELD not in properties
 
     @classmethod
     def _resolved_child_tool_schema(cls, child: LlmAgent) -> dict[str, Any]:
@@ -454,7 +528,7 @@ class AgentsAsToolsAgent(McpAgent):
         schema = (
             configured_schema if configured_schema is not None else cls._default_child_tool_schema()
         )
-        if cls._child_response_mode_enabled(child):
+        if cls._child_response_mode_control_enabled(child):
             return cls._augment_schema_with_response_mode(schema)
         return schema
 
@@ -466,7 +540,10 @@ class AgentsAsToolsAgent(McpAgent):
         properties = configured_schema.get("properties")
         if not isinstance(properties, dict):
             return True
-        property_names = {name for name in properties.keys() if name != "response_mode"}
+        if cls._child_response_mode_control_enabled(child):
+            property_names = {name for name in properties if name != _RESPONSE_MODE_FIELD}
+        else:
+            property_names = set(properties)
         return property_names != {"message"}
 
     @staticmethod
@@ -476,36 +553,53 @@ class AgentsAsToolsAgent(McpAgent):
     @staticmethod
     def _split_response_mode_control(
         arguments: dict[str, Any],
-    ) -> tuple[dict[str, Any], ToolResultMode | None]:
-        sanitized_arguments = dict(arguments)
-        raw_mode = sanitized_arguments.pop("response_mode", None)
-        if not isinstance(raw_mode, str):
-            return sanitized_arguments, None
+        *,
+        enabled: bool,
+    ) -> _ResponseModeControl:
+        if not enabled:
+            return _ResponseModeControl(arguments=dict(arguments))
 
-        mode = raw_mode.lower()
-        if mode == "inherit":
-            return sanitized_arguments, None
-        if mode == "postprocess":
-            return sanitized_arguments, response_mode_to_tool_result_mode("postprocess")
-        if mode == "passthrough":
-            return sanitized_arguments, response_mode_to_tool_result_mode("passthrough")
-        return sanitized_arguments, None
+        sanitized_arguments = dict(arguments)
+        raw_mode = sanitized_arguments.pop("response_mode", _MISSING_RESPONSE_MODE)
+        if raw_mode is _MISSING_RESPONSE_MODE:
+            return _ResponseModeControl(arguments=sanitized_arguments)
+        if not isinstance(raw_mode, str):
+            return _ResponseModeControl(
+                arguments=sanitized_arguments,
+                error="response_mode must be one of: inherit, postprocess, passthrough",
+            )
+
+        normalized = strip_casefold(raw_mode)
+        if normalized not in _RESPONSE_MODE_OVERRIDES:
+            return _ResponseModeControl(
+                arguments=sanitized_arguments,
+                error=(
+                    f"Invalid response_mode '{raw_mode}'. "
+                    "Expected one of: inherit, postprocess, passthrough"
+                ),
+            )
+
+        return _ResponseModeControl(
+            arguments=sanitized_arguments,
+            tool_result_mode_override=_RESPONSE_MODE_OVERRIDES[normalized],
+        )
 
     @staticmethod
     def _build_child_request_params(
         request_params: RequestParams | None,
         tool_result_mode_override: ToolResultMode | None,
     ) -> RequestParams | None:
-        tool_result_mode: ToolResultMode | None = None
-        if request_params is not None:
-            tool_result_mode = request_params.tool_result_mode
         if tool_result_mode_override is not None:
-            tool_result_mode = tool_result_mode_override
+            if request_params is None:
+                return RequestParams(tool_result_mode=tool_result_mode_override)
+            forwarded_params = child_request_params(request_params)
+            if forwarded_params is None:
+                return RequestParams(tool_result_mode=tool_result_mode_override)
+            return forwarded_params.model_copy(
+                update={"tool_result_mode": tool_result_mode_override}
+            )
 
-        if tool_result_mode is None:
-            return None
-
-        return RequestParams(tool_result_mode=tool_result_mode)
+        return child_request_params(request_params)
 
     async def list_tools(self) -> ListToolsResult:
         """List MCP tools plus child agents exposed as tools."""
@@ -518,10 +612,7 @@ class AgentsAsToolsAgent(McpAgent):
             if tool_name in existing_names:
                 continue
 
-            description = None
-            config = getattr(agent, "config", None)
-            if config is not None:
-                description = getattr(config, "description", None)
+            description = agent.config.description
             if not description:
                 description = agent.instruction
 
@@ -538,24 +629,21 @@ class AgentsAsToolsAgent(McpAgent):
         return ListToolsResult(tools=tools)
 
     @contextmanager
-    def _child_display_suppressed(self, child: LlmAgent):
+    def _child_display_suppressed(self, child: LlmAgent) -> Iterator[None]:
         """Context manager to hide child chat while keeping tool logs visible."""
         child_id = id(child)
         count = self._display_suppression_count.get(child_id, 0)
         if count == 0:
-            if (
-                hasattr(child, "display")
-                and child.display
-                and getattr(child.display, "config", None)
-            ):
-                self._original_display_configs[child_id] = child.display.config
-                temp_config = copy(child.display.config)
-                if hasattr(temp_config, "logger"):
-                    temp_logger = copy(temp_config.logger)
-                    temp_logger.show_chat = False
-                    temp_logger.show_tools = True
-                    temp_config.logger = temp_logger
-                child.display.config = temp_config
+            original_settings = child.display.logger_settings
+            self._original_display_logger_settings[child_id] = original_settings
+            child.display.update_logger_settings(
+                original_settings.model_copy(
+                    update={
+                        "show_chat": False,
+                        "show_tools": True,
+                    }
+                )
+            )
         self._display_suppression_count[child_id] = count + 1
         try:
             yield
@@ -563,15 +651,53 @@ class AgentsAsToolsAgent(McpAgent):
             self._display_suppression_count[child_id] -= 1
             if self._display_suppression_count[child_id] <= 0:
                 del self._display_suppression_count[child_id]
-                original_config = self._original_display_configs.pop(child_id, None)
-                if original_config is not None and hasattr(child, "display") and child.display:
-                    child.display.config = original_config
+                original_settings = self._original_display_logger_settings.pop(
+                    child_id,
+                    None,
+                )
+                if original_settings is not None:
+                    child.display.update_logger_settings(original_settings)
 
     async def _merge_history(self, target: LlmAgent, clone: LlmAgent, start_index: int) -> None:
         """Append clone history from start_index into target with a global merge lock."""
         async with self._history_merge_lock:
             new_messages = clone.message_history[start_index:]
             target.append_history(new_messages)
+
+    def _history_for_source(
+        self,
+        child: LlmAgent,
+        source: HistorySource,
+    ) -> list[PromptMessageExtended]:
+        match source:
+            case HistorySource.NONE:
+                return []
+            case HistorySource.MESSAGES:
+                return self._load_child_message_history(child.name)
+            case HistorySource.CHILD:
+                return list(child.message_history)
+            case HistorySource.ORCHESTRATOR:
+                return list(self.message_history)
+            case _:
+                assert_never(source)
+
+    async def _merge_history_for_target(
+        self,
+        *,
+        target: HistoryMergeTarget,
+        child: LlmAgent,
+        clone: LlmAgent,
+        start_index: int,
+    ) -> None:
+        match target:
+            case HistoryMergeTarget.NONE:
+                return
+            case HistoryMergeTarget.CHILD:
+                await self._merge_history(target=child, clone=clone, start_index=start_index)
+            case HistoryMergeTarget.ORCHESTRATOR:
+                await self._merge_history(target=self, clone=clone, start_index=start_index)
+            case _:
+                assert_never(target)
 
     def _load_child_message_history(self, child_name: str) -> list[PromptMessageExtended]:
         message_files = self._child_message_files.get(child_name, [])
@@ -588,6 +714,190 @@ class AgentsAsToolsAgent(McpAgent):
                 )
         return messages
 
+    def _child_input_text(self, child: LlmAgent, args: dict[str, Any]) -> str:
+        if self._child_uses_structured_args(child):
+            return self._render_structured_args(args)
+        # Extract message from arguments for legacy child tool schemas.
+        if isinstance(args.get("message"), str):
+            return args["message"]
+        if isinstance(args.get("text"), str):  # backwards compat
+            return args["text"]
+        return str(args) if args else ""
+
+    @staticmethod
+    def _child_tool_result_from_response(
+        response: PromptMessageExtended,
+    ) -> tuple[CallToolResult, list[Any] | None]:
+        content_blocks = list(response.content or [])
+        error_blocks = None
+        if response.channels and FAST_AGENT_ERROR_CHANNEL in response.channels:
+            error_blocks = list(response.channels.get(FAST_AGENT_ERROR_CHANNEL) or [])
+            if error_blocks:
+                content_blocks.extend(error_blocks)
+
+        return (
+            CallToolResult(
+                content=content_blocks,
+                isError=bool(error_blocks),
+            ),
+            error_blocks,
+        )
+
+    @staticmethod
+    async def _complete_child_tool_call(
+        *,
+        tool_handler: Any,
+        tool_call_id: str | None,
+        tool_result: CallToolResult,
+        error_blocks: list[Any] | None,
+    ) -> None:
+        if not tool_handler or not tool_call_id:
+            return
+        try:
+            if tool_result.isError:
+                error_text = get_text(error_blocks[0]) if error_blocks else None
+                with acp_tool_call_context():
+                    await tool_handler.on_tool_complete(
+                        tool_call_id,
+                        False,
+                        None,
+                        error_text,
+                    )
+                return
+
+            with acp_tool_call_context():
+                await tool_handler.on_tool_complete(
+                    tool_call_id,
+                    True,
+                    tool_result.content,
+                    None,
+                )
+        except Exception:
+            pass
+
+    @staticmethod
+    async def _fail_child_tool_call(
+        *,
+        tool_handler: Any,
+        tool_call_id: str | None,
+        error: str,
+    ) -> None:
+        if not tool_handler or not tool_call_id:
+            return
+        try:
+            with acp_tool_call_context():
+                await tool_handler.on_tool_complete(tool_call_id, False, None, error)
+        except Exception:
+            pass
+
+    @staticmethod
+    async def _start_child_tool_call(
+        *,
+        tool_handler: Any,
+        child: LlmAgent,
+        args: dict[str, Any],
+        tool_use_id: str | None,
+    ) -> str | None:
+        if not tool_handler:
+            return None
+        try:
+            with acp_tool_call_context():
+                return await tool_handler.on_tool_start(
+                    child.name,
+                    "agent",
+                    args,
+                    tool_use_id,
+                )
+        except Exception:
+            return None
+
+    @staticmethod
+    async def _emit_child_tool_progress(
+        *,
+        tool_handler: Any,
+        tool_call_id: str | None,
+        progress_step: int,
+    ) -> int:
+        if not tool_handler or not tool_call_id:
+            return progress_step
+        next_step = progress_step + 1
+        try:
+            # Title already includes the agent instance name; keep progress updates minimal.
+            # The progress counter itself is shown as `[N]` in ACP tool titles.
+            with acp_tool_call_context():
+                await tool_handler.on_tool_progress(
+                    tool_call_id,
+                    float(next_step),
+                    None,
+                    None,
+                )
+        except Exception:
+            pass
+        return next_step
+
+    async def _install_child_progress_hooks(
+        self,
+        *,
+        child: LlmAgent,
+        tool_handler: Any,
+        tool_call_id: str | None,
+        emit_progress: Callable[[], Any],
+    ) -> _ChildHookInstall:
+        if not tool_handler or not tool_call_id or not isinstance(child, ToolRunnerHookCapable):
+            return _ChildHookInstall(installed=False)
+
+        previous_hooks = child.tool_runner_hooks
+        before_llm_call = previous_hooks.before_llm_call if previous_hooks else None
+        before_tool_call = previous_hooks.before_tool_call if previous_hooks else None
+        after_llm_call = previous_hooks.after_llm_call if previous_hooks else None
+        after_tool_call = previous_hooks.after_tool_call if previous_hooks else None
+        after_turn_complete = previous_hooks.after_turn_complete if previous_hooks else None
+
+        async def handle_before_llm_call(runner, messages):
+            if before_llm_call:
+                await before_llm_call(runner, messages)
+            await emit_progress()
+
+        async def handle_before_tool_call(runner, message):
+            if before_tool_call:
+                await before_tool_call(runner, message)
+            await emit_progress()
+
+        child.tool_runner_hooks = ToolRunnerHooks(
+            before_llm_call=handle_before_llm_call,
+            after_llm_call=after_llm_call,
+            before_tool_call=handle_before_tool_call,
+            after_tool_call=after_tool_call,
+            after_turn_complete=after_turn_complete,
+        )
+        return _ChildHookInstall(installed=True, previous_hooks=previous_hooks)
+
+    async def _generate_child_tool_response(
+        self,
+        *,
+        child: LlmAgent,
+        child_request: PromptMessageExtended,
+        child_request_params: RequestParams | None,
+        suppress_display: bool,
+        tool_handler: Any,
+        tool_call_id: str | None,
+        hooks_set: bool,
+        emit_progress: Callable[[], Any],
+    ) -> PromptMessageExtended:
+        scope = (
+            acp_tool_call_context(parent_tool_call_id=tool_call_id)
+            if tool_handler and tool_call_id
+            else acp_tool_call_context()
+        )
+        display_scope = self._child_display_suppressed(child) if suppress_display else nullcontext()
+        with scope, display_scope:
+            if tool_handler and tool_call_id and not hooks_set:
+                await emit_progress()
+            return await child.generate(
+                [child_request],
+                request_params=child_request_params,
+            )
+
     async def _invoke_child_agent(
         self,
         child: LlmAgent,
@@ -601,147 +911,73 @@ class AgentsAsToolsAgent(McpAgent):
         """Shared helper to execute a child agent with standard serialization and display rules."""
 
         raw_args = arguments or {}
-        args, tool_result_mode_override = self._split_response_mode_control(raw_args)
+        response_mode_control = self._split_response_mode_control(
+            raw_args,
+            enabled=self._child_response_mode_control_enabled(child),
+        )
+        if response_mode_control.error is not None:
+            return CallToolResult(
+                content=[text_content(response_mode_control.error)],
+                isError=True,
+            )
         child_request_params = self._build_child_request_params(
             request_params,
-            tool_result_mode_override,
+            response_mode_control.tool_result_mode_override,
         )
-
-        if self._child_uses_structured_args(child):
-            input_text = self._render_structured_args(args)
-        # Extract message from arguments for legacy child tool schemas.
-        elif isinstance(args.get("message"), str):
-            input_text = args["message"]
-        elif isinstance(args.get("text"), str):  # backwards compat
-            input_text = args["text"]
-        else:
-            input_text = str(args) if args else ""
-
-        child_request = Prompt.user(input_text)
+        args = response_mode_control.arguments
+        child_request = Prompt.user(self._child_input_text(child, args))
 
         tool_handler = self._get_tool_handler(request_params)
-        tool_call_id: str | None = None
         progress_step = 0
+        tool_call_id = await self._start_child_tool_call(
+            tool_handler=tool_handler,
+            child=child,
+            args=args,
+            tool_use_id=tool_use_id,
+        )
 
-        # ACP/Nexus UX: treat "agent tool calls" as task-like tool calls and expose
-        # the detached instance suffix (e.g. `PM-1-DayStatusSummarizer[1]`) in the title.
-        # NOTE: detached instances set the runtime name on a private `_name` field.
-        # Using `.name` here would drop the `[i]` suffix, and ACP progress updates
-        # would then show a bracketed counter (e.g. `[7]`) which is easy to confuse
-        # with the instance index. Prefer `_name` when available.
-        agent_instance_name = getattr(child, "_name", child.name)
-        server_name = "agent"
-        base_tool_name = agent_instance_name
-
-        if tool_handler and base_tool_name:
-            try:
-                with acp_tool_call_context():
-                    tool_call_id = await tool_handler.on_tool_start(
-                        base_tool_name,
-                        server_name,
-                        args,
-                        tool_use_id,
-                    )
-            except Exception:
-                tool_call_id = None
-
-        async def emit_progress(label: str | None = None) -> None:
+        async def emit_progress() -> None:
             nonlocal progress_step
-            if not tool_handler or not tool_call_id:
-                return
-            progress_step += 1
-            try:
-                # Title already includes the agent instance name; keep progress updates minimal.
-                # The progress counter itself is shown as `[N]` in ACP tool titles.
-                with acp_tool_call_context():
-                    await tool_handler.on_tool_progress(
-                        tool_call_id,
-                        float(progress_step),
-                        None,
-                        None,
-                    )
-            except Exception:
-                pass
-
-        hooks_set = False
-        previous_hooks: ToolRunnerHooks | None = None
-        if tool_handler and tool_call_id and isinstance(child, ToolRunnerHookCapable):
-            previous_hooks = child.tool_runner_hooks
-            before_llm_call = previous_hooks.before_llm_call if previous_hooks else None
-            before_tool_call = previous_hooks.before_tool_call if previous_hooks else None
-            after_llm_call = previous_hooks.after_llm_call if previous_hooks else None
-            after_tool_call = previous_hooks.after_tool_call if previous_hooks else None
-            after_turn_complete = previous_hooks.after_turn_complete if previous_hooks else None
-
-            async def handle_before_llm_call(runner, messages):
-                if before_llm_call:
-                    await before_llm_call(runner, messages)
-                await emit_progress("llm")
-
-            async def handle_before_tool_call(runner, message):
-                if before_tool_call:
-                    await before_tool_call(runner, message)
-                await emit_progress("tool")
-
-            child.tool_runner_hooks = ToolRunnerHooks(
-                before_llm_call=handle_before_llm_call,
-                after_llm_call=after_llm_call,
-                before_tool_call=handle_before_tool_call,
-                after_tool_call=after_tool_call,
-                after_turn_complete=after_turn_complete,
+            progress_step = await self._emit_child_tool_progress(
+                tool_handler=tool_handler,
+                tool_call_id=tool_call_id,
+                progress_step=progress_step,
             )
-            hooks_set = True
+
+        hook_install = await self._install_child_progress_hooks(
+            child=child,
+            tool_handler=tool_handler,
+            tool_call_id=tool_call_id,
+            emit_progress=emit_progress,
+        )
+        hooks_set = hook_install.installed
 
         try:
-            scope = (
-                acp_tool_call_context(parent_tool_call_id=tool_call_id)
-                if tool_handler and tool_call_id
-                else acp_tool_call_context()
+            response = await self._generate_child_tool_response(
+                child=child,
+                child_request=child_request,
+                child_request_params=child_request_params,
+                suppress_display=suppress_display,
+                tool_handler=tool_handler,
+                tool_call_id=tool_call_id,
+                hooks_set=hooks_set,
+                emit_progress=emit_progress,
             )
-            with scope:
-                with self._child_display_suppressed(child) if suppress_display else nullcontext():
-                    if tool_handler and tool_call_id and not hooks_set:
-                        await emit_progress("run")
-                    response: PromptMessageExtended = await child.generate(
-                        [child_request],
-                        request_params=child_request_params,
-                    )
-            content_blocks = list(response.content or [])
-
-            error_blocks = None
-            if response.channels and FAST_AGENT_ERROR_CHANNEL in response.channels:
-                error_blocks = response.channels.get(FAST_AGENT_ERROR_CHANNEL) or []
-                if error_blocks:
-                    content_blocks.extend(error_blocks)
-
-            tool_result = CallToolResult(
-                content=content_blocks,
-                isError=bool(error_blocks),
+            tool_result, error_blocks = self._child_tool_result_from_response(response)
+            await self._complete_child_tool_call(
+                tool_handler=tool_handler,
+                tool_call_id=tool_call_id,
+                tool_result=tool_result,
+                error_blocks=error_blocks,
             )
-            if tool_handler and tool_call_id:
-                try:
-                    if tool_result.isError:
-                        error_text = None
-                        if error_blocks:
-                            error_text = get_text(error_blocks[0])
-                        with acp_tool_call_context():
-                            await tool_handler.on_tool_complete(
-                                tool_call_id,
-                                False,
-                                None,
-                                error_text,
-                            )
-                    else:
-                        with acp_tool_call_context():
-                            await tool_handler.on_tool_complete(
-                                tool_call_id,
-                                True,
-                                tool_result.content,
-                                None,
-                            )
-                except Exception:
-                    pass
             return tool_result
+        except asyncio.CancelledError:
+            await self._fail_child_tool_call(
+                tool_handler=tool_handler,
+                tool_call_id=tool_call_id,
+                error="Child agent tool call cancelled",
+            )
+            raise
         except Exception as exc:
             import traceback
 
@@ -754,19 +990,380 @@ class AgentsAsToolsAgent(McpAgent):
                     "traceback": traceback.format_exc(),
                 },
             )
-            if tool_handler and tool_call_id:
-                try:
-                    with acp_tool_call_context():
-                        await tool_handler.on_tool_complete(tool_call_id, False, None, str(exc))
-                except Exception:
-                    pass
+            await self._fail_child_tool_call(
+                tool_handler=tool_handler,
+                tool_call_id=tool_call_id,
+                error=str(exc),
+            )
             return CallToolResult(content=[text_content(f"Error: {exc}")], isError=True)
         finally:
             if hooks_set and isinstance(child, ToolRunnerHookCapable):
-                child.tool_runner_hooks = previous_hooks
+                child.tool_runner_hooks = hook_install.previous_hooks
 
     def _resolve_child_agent(self, name: str) -> LlmAgent | None:
         return self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
+
+    async def _base_tool_names(self) -> set[str]:
+        base = await super().list_tools()
+        return {tool.name for tool in base.tools}
+
+    async def _resolve_child_agent_for_call(self, name: str) -> LlmAgent | None:
+        if name in await self._base_tool_names():
+            return None
+        return self._resolve_child_agent(name)
+
+    async def _available_child_tool_names(self) -> set[str]:
+        try:
+            listed = await self.list_tools()
+            return {tool.name for tool in listed.tools}
+        except Exception as exc:
+            logger.warning(f"Failed to list tools before execution: {exc}")
+            return set(self._child_agents.keys())
+
+    def _child_tool_is_available(self, tool_name: str, available_tools: set[str]) -> bool:
+        return tool_name in available_tools or self._make_tool_name(tool_name) in available_tools
+
+    async def _build_child_tool_run_plan(
+        self,
+        *,
+        request: PromptMessageExtended,
+        target_ids: set[str],
+    ) -> _ChildToolRunPlan:
+        available_tools = await self._available_child_tool_names()
+        tool_results: dict[str, CallToolResult] = {}
+        call_descriptors: list[_ChildToolDescriptor] = []
+        descriptor_by_id: dict[str, _ChildToolDescriptor] = {}
+        id_list: list[str] = []
+        tool_loop_error: str | None = None
+
+        for correlation_id, tool_request in (request.tool_calls or {}).items():
+            if correlation_id not in target_ids:
+                continue
+
+            tool_name = tool_request.params.name
+            tool_args = tool_request.params.arguments or {}
+            descriptor = _ChildToolDescriptor(
+                id=correlation_id,
+                tool=tool_name,
+                args=tool_args,
+            )
+            call_descriptors.append(descriptor)
+            descriptor_by_id[correlation_id] = descriptor
+
+            if self._child_tool_is_available(tool_name, available_tools):
+                descriptor.status = "pending"
+                id_list.append(correlation_id)
+                continue
+
+            error_message = f"Tool '{tool_name}' is not available"
+            tool_results[correlation_id] = CallToolResult(
+                content=[text_content(error_message)], isError=True
+            )
+            tool_loop_error = tool_loop_error or error_message
+            descriptor.status = "error"
+            descriptor.error_message = error_message
+
+        return _ChildToolRunPlan(
+            tool_results=tool_results,
+            tool_loop_error=tool_loop_error,
+            call_descriptors=call_descriptors,
+            descriptor_by_id=descriptor_by_id,
+            id_list=id_list,
+        )
+
+    async def _run_child_tool_clone(
+        self,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        instance: int,
+        correlation_id: str,
+        request_params: RequestParams | None,
+    ) -> CallToolResult:
+        child = self._resolve_child_agent(tool_name)
+        if not child:
+            error_msg = f"Unknown agent-tool: {tool_name}"
+            return CallToolResult(content=[text_content(error_msg)], isError=True)
+
+        instance_name = f"{child.name}[{instance}]"
+        try:
+            clone = await child.spawn_detached_instance(name=instance_name)
+        except Exception as exc:
+            logger.error(
+                "Failed to spawn dedicated child instance",
+                data={
+                    "tool_name": tool_name,
+                    "agent_name": child.name,
+                    "error": str(exc),
+                },
+            )
+            return CallToolResult(content=[text_content(f"Spawn failed: {exc}")], isError=True)
+
+        fork_index = self._load_history_into_clone(child, clone, instance_name)
+        progress_started = self._start_child_clone_progress(
+            instance_name=instance_name,
+            correlation_id=correlation_id,
+            tool_name=tool_name,
+        )
+        try:
+            call_coro = self._invoke_child_agent(
+                clone,
+                tool_args,
+                tool_name=tool_name,
+                tool_use_id=correlation_id,
+                request_params=request_params,
+            )
+            timeout = self._options.child_timeout_sec
+            if timeout:
+                return await asyncio.wait_for(call_coro, timeout=timeout)
+            return await call_coro
+        finally:
+            await self._cleanup_child_clone(
+                child=child,
+                clone=clone,
+                instance_name=instance_name,
+                fork_index=fork_index,
+                progress_started=progress_started,
+                correlation_id=correlation_id,
+                tool_name=tool_name,
+            )
+
+    def _load_history_into_clone(
+        self,
+        child: LlmAgent,
+        clone: LlmAgent,
+        instance_name: str,
+    ) -> int:
+        try:
+            base_history = self._history_for_source(child, self._options.history_source)
+            clone.load_message_history(base_history)
+            return len(base_history)
+        except Exception as hist_exc:
+            logger.warning(
+                "Failed to load history into clone",
+                data={"instance_name": instance_name, "error": str(hist_exc)},
+            )
+            return 0
+
+    @staticmethod
+    def _start_child_clone_progress(
+        *,
+        instance_name: str,
+        correlation_id: str,
+        tool_name: str,
+    ) -> bool:
+        from fast_agent.event_progress import ProgressAction, ProgressEvent
+        from fast_agent.ui.progress_display import (
+            progress_display as outer_progress_display,
+        )
+
+        outer_progress_display.update(
+            ProgressEvent(
+                action=ProgressAction.SENDING,
+                target=instance_name,
+                details="",
+                agent_name=instance_name,
+                correlation_id=correlation_id,
+                instance_name=instance_name,
+                tool_name=tool_name,
+            )
+        )
+        return True
+
+    @staticmethod
+    def _finish_child_clone_progress(
+        *,
+        instance_name: str,
+        correlation_id: str,
+        tool_name: str,
+    ) -> None:
+        from fast_agent.event_progress import ProgressAction, ProgressEvent
+        from fast_agent.ui.progress_display import (
+            progress_display as outer_progress_display,
+        )
+
+        outer_progress_display.update(
+            ProgressEvent(
+                action=ProgressAction.READY,
+                target=instance_name,
+                details=None,
+                agent_name=instance_name,
+                correlation_id=correlation_id,
+                instance_name=instance_name,
+                tool_name=tool_name,
+            )
+        )
+
+    async def _cleanup_child_clone(
+        self,
+        *,
+        child: LlmAgent,
+        clone: LlmAgent,
+        instance_name: str,
+        fork_index: int,
+        progress_started: bool,
+        correlation_id: str,
+        tool_name: str,
+    ) -> None:
+        try:
+            await clone.shutdown()
+        except Exception as shutdown_exc:
+            logger.warning(
+                "Error shutting down dedicated child instance",
+                data={"instance_name": instance_name, "error": str(shutdown_exc)},
+            )
+        try:
+            child.merge_usage_from(clone)
+        except Exception as merge_exc:
+            logger.warning(
+                "Failed to merge usage from child instance",
+                data={"instance_name": instance_name, "error": str(merge_exc)},
+            )
+        try:
+            await self._merge_history_for_target(
+                target=self._options.history_merge_target,
+                child=child,
+                clone=clone,
+                start_index=fork_index,
+            )
+        except Exception as merge_hist_exc:
+            logger.warning(
+                "Failed to merge child history",
+                data={
+                    "instance_name": instance_name,
+                    "target": self._options.history_merge_target.value,
+                    "error": str(merge_hist_exc),
+                },
+            )
+        if progress_started and instance_name:
+            self._finish_child_clone_progress(
+                instance_name=instance_name,
+                correlation_id=correlation_id,
+                tool_name=tool_name,
+            )
+
+    def _close_streaming_for_parallel_child_tools(self, tool_call_count: int) -> None:
+        if tool_call_count <= 1:
+            return
+        did_close = self.close_active_streaming_display(reason="parallel tool calls")
+        if did_close:
+            logger.info(
+                "Closing streaming display due to parallel subagent tool calls",
+                tool_call_count=tool_call_count,
+                agent_name=self.name,
+            )
+
+    async def _execute_child_tool_calls(
+        self,
+        *,
+        plan: _ChildToolRunPlan,
+        request_params: RequestParams | None,
+    ) -> list[CallToolResult | BaseException]:
+        if not plan.id_list:
+            return []
+        if FORCE_SEQUENTIAL_TOOL_CALLS:
+            return await self._execute_child_tool_calls_sequential(
+                plan=plan,
+                request_params=request_params,
+            )
+        return await self._execute_child_tool_calls_parallel(
+            plan=plan,
+            request_params=request_params,
+        )
+
+    async def _execute_child_tool_calls_sequential(
+        self,
+        *,
+        plan: _ChildToolRunPlan,
+        request_params: RequestParams | None,
+    ) -> list[CallToolResult | BaseException]:
+        results: list[CallToolResult | BaseException] = []
+        for instance, correlation_id in enumerate(plan.id_list, 1):
+            descriptor = plan.descriptor_by_id[correlation_id]
+            try:
+                results.append(
+                    await self._run_child_tool_clone(
+                        tool_name=descriptor.tool,
+                        tool_args=descriptor.args,
+                        instance=instance,
+                        correlation_id=correlation_id,
+                        request_params=request_params,
+                    )
+                )
+            except Exception as exc:
+                results.append(exc)
+        return results
+
+    async def _execute_child_tool_calls_parallel(
+        self,
+        *,
+        plan: _ChildToolRunPlan,
+        request_params: RequestParams | None,
+    ) -> list[CallToolResult | BaseException]:
+        semaphore = (
+            asyncio.Semaphore(self._options.max_parallel) if self._options.max_parallel else None
+        )
+
+        async def bounded_call(
+            descriptor: _ChildToolDescriptor,
+            instance: int,
+        ) -> CallToolResult:
+            if semaphore is None:
+                return await self._run_child_tool_clone(
+                    tool_name=descriptor.tool,
+                    tool_args=descriptor.args,
+                    instance=instance,
+                    correlation_id=descriptor.id,
+                    request_params=request_params,
+                )
+            async with semaphore:
+                return await self._run_child_tool_clone(
+                    tool_name=descriptor.tool,
+                    tool_args=descriptor.args,
+                    instance=instance,
+                    correlation_id=descriptor.id,
+                    request_params=request_params,
+                )
+
+        return await gather_with_cancel(
+            bounded_call(plan.descriptor_by_id[correlation_id], instance)
+            for instance, correlation_id in enumerate(plan.id_list, 1)
+        )
+
+    @staticmethod
+    def _merge_child_tool_execution_results(
+        *,
+        plan: _ChildToolRunPlan,
+        results: list[CallToolResult | BaseException],
+    ) -> None:
+        for index, result in enumerate(results):
+            correlation_id = plan.id_list[index]
+            descriptor = plan.descriptor_by_id[correlation_id]
+            if isinstance(result, BaseException):
+                msg = f"Tool execution failed: {result}"
+                plan.tool_results[correlation_id] = CallToolResult(
+                    content=[text_content(msg)], isError=True
+                )
+                plan.tool_loop_error = plan.tool_loop_error or msg
+                descriptor.status = "error"
+                descriptor.error_message = msg
+                continue
+
+            plan.tool_results[correlation_id] = result
+            descriptor.status = "error" if result.isError else "done"
+
+    @staticmethod
+    def _ordered_child_tool_records(
+        plan: _ChildToolRunPlan,
+    ) -> list[_ChildToolResultRecord]:
+        ordered_records: list[_ChildToolResultRecord] = []
+        for correlation_id in plan.id_list:
+            result = plan.tool_results.get(correlation_id)
+            if result is None:
+                continue
+            descriptor = plan.descriptor_by_id[correlation_id]
+            ordered_records.append(_ChildToolResultRecord(descriptor=descriptor, result=result))
+        return ordered_records
 
     async def call_tool(
         self,
@@ -782,7 +1379,7 @@ class AgentsAsToolsAgent(McpAgent):
         can safely pass the LLM's ``tool_use_id`` as a positional argument.
         """
 
-        child = self._resolve_child_agent(name)
+        child = await self._resolve_child_agent_for_call(name)
         if child is not None:
             # Child agents don't currently use tool_use_id, they operate via
             # a plain PromptMessageExtended tool call.
@@ -798,7 +1395,7 @@ class AgentsAsToolsAgent(McpAgent):
 
     def _show_parallel_tool_calls(
         self,
-        descriptors: list[dict[str, Any]],
+        descriptors: list[_ChildToolDescriptor],
         *,
         show_tool_call_id: bool = False,
     ) -> None:
@@ -820,16 +1417,16 @@ class AgentsAsToolsAgent(McpAgent):
         limit = self._options.max_display_instances or total
 
         # Show detailed call information for each agent
-        for i, desc in enumerate(descriptors[:limit], 1):
-            tool_name = desc.get("tool", "(unknown)")
-            corr_id = desc.get("id")
-            args = desc.get("args", {})
-            status = desc.get("status", "pending")
+        for desc in descriptors[:limit]:
+            tool_name = desc.tool
+            corr_id = desc.id
+            args = desc.args
+            status = desc.status
 
             if status == "error":
                 continue  # Skip display for error tools, will show in results
 
-            base_tool_name = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+            base_tool_name = tool_name.removeprefix("agent__")
             display_tool_name = base_tool_name
 
             # Build bottom item for THIS instance only (not all instances)
@@ -863,7 +1460,7 @@ class AgentsAsToolsAgent(McpAgent):
 
     def _show_parallel_tool_results(
         self,
-        records: list[dict[str, Any]],
+        records: list[_ChildToolResultRecord],
         *,
         show_tool_call_id: bool = False,
     ) -> None:
@@ -879,14 +1476,14 @@ class AgentsAsToolsAgent(McpAgent):
         limit = self._options.max_display_instances or total
 
         # Show detailed result for each agent
-        for i, record in enumerate(records[:limit], 1):
-            descriptor = record.get("descriptor", {})
-            result = record.get("result")
-            tool_name = descriptor.get("tool", "(unknown)")
-            corr_id = descriptor.get("id")
+        for record in records[:limit]:
+            descriptor = record.descriptor
+            result = record.result
+            tool_name = descriptor.tool
+            corr_id = descriptor.id
 
             if result:
-                base_tool_name = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+                base_tool_name = tool_name.removeprefix("agent__")
                 display_tool_name = base_tool_name
 
                 # Show individual tool result with full content
@@ -924,8 +1521,10 @@ class AgentsAsToolsAgent(McpAgent):
             return PromptMessageExtended(role="user", tool_results={})
 
         child_ids: list[str] = []
+        base_tool_names = await self._base_tool_names()
         for correlation_id, tool_request in request.tool_calls.items():
-            if self._resolve_child_agent(tool_request.params.name):
+            tool_name = tool_request.params.name
+            if tool_name not in base_tool_names and self._resolve_child_agent(tool_name):
                 child_ids.append(correlation_id)
 
         if not child_ids:
@@ -941,7 +1540,7 @@ class AgentsAsToolsAgent(McpAgent):
             return self._finalize_tool_results(child_results, tool_loop_error=child_error)
 
         # Execute remaining MCP/local tools via base implementation
-        remaining_ids = [cid for cid in request.tool_calls.keys() if cid not in child_ids]
+        remaining_ids = [cid for cid in request.tool_calls if cid not in child_ids]
         mcp_request = PromptMessageExtended(
             role=request.role,
             content=request.content,
@@ -951,9 +1550,12 @@ class AgentsAsToolsAgent(McpAgent):
         mcp_results = mcp_message.tool_results or {}
         mcp_error = self._extract_error_text(mcp_message)
 
-        combined_results = {}
-        combined_results.update(child_results)
-        combined_results.update(mcp_results)
+        combined_results = {
+            correlation_id: result
+            for correlation_id in request.tool_calls
+            if (result := child_results.get(correlation_id) or mcp_results.get(correlation_id))
+            is not None
+        }
 
         tool_loop_error = child_error or mcp_error
         return self._finalize_tool_results(combined_results, tool_loop_error=tool_loop_error)
@@ -969,269 +1571,29 @@ class AgentsAsToolsAgent(McpAgent):
         if not target_ids:
             return {}, None
 
-        tool_results: dict[str, CallToolResult] = {}
-        tool_loop_error: str | None = None
-
-        try:
-            listed = await self.list_tools()
-            available_tools = {t.name for t in listed.tools}
-        except Exception as exc:
-            logger.warning(f"Failed to list tools before execution: {exc}")
-            available_tools = set(self._child_agents.keys())
-
-        call_descriptors: list[dict[str, Any]] = []
-        descriptor_by_id: dict[str, dict[str, Any]] = {}
-        id_list: list[str] = []
-
-        for correlation_id, tool_request in (request.tool_calls or {}).items():
-            if correlation_id not in target_ids:
-                continue
-
-            tool_name = tool_request.params.name
-            tool_args = tool_request.params.arguments or {}
-
-            descriptor = {
-                "id": correlation_id,
-                "tool": tool_name,
-                "args": tool_args,
-            }
-            call_descriptors.append(descriptor)
-            descriptor_by_id[correlation_id] = descriptor
-
-            if (
-                tool_name not in available_tools
-                and self._make_tool_name(tool_name) not in available_tools
-            ):
-                error_message = f"Tool '{tool_name}' is not available"
-                tool_results[correlation_id] = CallToolResult(
-                    content=[text_content(error_message)], isError=True
-                )
-                tool_loop_error = tool_loop_error or error_message
-                descriptor["status"] = "error"
-                continue
-
-            descriptor["status"] = "pending"
-            id_list.append(correlation_id)
-
-        max_parallel = self._options.max_parallel
-        if max_parallel and len(id_list) > max_parallel:
-            skipped_ids = id_list[max_parallel:]
-            id_list = id_list[:max_parallel]
-            skip_msg = f"Skipped {len(skipped_ids)} agent-tool calls (max_parallel={max_parallel})"
-            tool_loop_error = tool_loop_error or skip_msg
-            for cid in skipped_ids:
-                tool_results[cid] = CallToolResult(
-                    content=[text_content(skip_msg)],
-                    isError=True,
-                )
-                descriptor_by_id[cid]["status"] = "error"
-                descriptor_by_id[cid]["error_message"] = skip_msg
-
-        from fast_agent.event_progress import ProgressAction, ProgressEvent
-        from fast_agent.ui.progress_display import (
-            progress_display as outer_progress_display,
+        plan = await self._build_child_tool_run_plan(
+            request=request,
+            target_ids=target_ids,
         )
-
-        async def call_with_instance_name(
-            tool_name: str,
-            tool_args: dict[str, Any],
-            instance: int,
-            correlation_id: str,
-        ) -> CallToolResult:
-            child = self._resolve_child_agent(tool_name)
-            if not child:
-                error_msg = f"Unknown agent-tool: {tool_name}"
-                return CallToolResult(content=[text_content(error_msg)], isError=True)
-
-            base_name = getattr(child, "_name", child.name)
-            instance_name = f"{base_name}[{instance}]"
-
-            try:
-                clone = await child.spawn_detached_instance(name=instance_name)
-            except Exception as exc:
-                logger.error(
-                    "Failed to spawn dedicated child instance",
-                    data={
-                        "tool_name": tool_name,
-                        "agent_name": base_name,
-                        "error": str(exc),
-                    },
-                )
-                return CallToolResult(content=[text_content(f"Spawn failed: {exc}")], isError=True)
-
-            history_source = self._options.history_source
-            history_merge_target = self._options.history_merge_target
-            base_history: list[PromptMessageExtended] = []
-            fork_index = 0
-            try:
-                if history_source == HistorySource.MESSAGES:
-                    base_history = self._load_child_message_history(child.name)
-                elif history_source == HistorySource.CHILD:
-                    base_history = child.message_history
-                elif history_source == HistorySource.ORCHESTRATOR:
-                    base_history = self.message_history
-                clone.load_message_history(base_history)
-                fork_index = len(base_history)
-            except Exception as hist_exc:
-                logger.warning(
-                    "Failed to load history into clone",
-                    data={"instance_name": instance_name, "error": str(hist_exc)},
-                )
-
-            progress_started = False
-            try:
-                outer_progress_display.update(
-                    ProgressEvent(
-                        action=ProgressAction.SENDING,
-                        target=instance_name,
-                        details="",
-                        agent_name=instance_name,
-                        correlation_id=correlation_id,
-                        instance_name=instance_name,
-                        tool_name=tool_name,
-                    )
-                )
-                progress_started = True
-                call_coro = self._invoke_child_agent(
-                    clone,
-                    tool_args,
-                    tool_name=tool_name,
-                    tool_use_id=correlation_id,
-                    request_params=request_params,
-                )
-                timeout = self._options.child_timeout_sec
-                if timeout:
-                    return await asyncio.wait_for(call_coro, timeout=timeout)
-                return await call_coro
-            finally:
-                try:
-                    await clone.shutdown()
-                except Exception as shutdown_exc:
-                    logger.warning(
-                        "Error shutting down dedicated child instance",
-                        data={
-                            "instance_name": instance_name,
-                            "error": str(shutdown_exc),
-                        },
-                    )
-                try:
-                    child.merge_usage_from(clone)
-                except Exception as merge_exc:
-                    logger.warning(
-                        "Failed to merge usage from child instance",
-                        data={
-                            "instance_name": instance_name,
-                            "error": str(merge_exc),
-                        },
-                    )
-                if history_merge_target == HistoryMergeTarget.MESSAGES:
-                    logger.warning(
-                        "history_merge_target=messages is deferred",
-                        data={"instance_name": instance_name},
-                    )
-                elif history_merge_target == HistoryMergeTarget.CHILD:
-                    try:
-                        await self._merge_history(target=child, clone=clone, start_index=fork_index)
-                    except Exception as merge_hist_exc:
-                        logger.warning(
-                            "Failed to merge child history",
-                            data={
-                                "instance_name": instance_name,
-                                "error": str(merge_hist_exc),
-                            },
-                        )
-                elif history_merge_target == HistoryMergeTarget.ORCHESTRATOR:
-                    try:
-                        await self._merge_history(target=self, clone=clone, start_index=fork_index)
-                    except Exception as merge_hist_exc:
-                        logger.warning(
-                            "Failed to merge orchestrator history",
-                            data={
-                                "instance_name": instance_name,
-                                "error": str(merge_hist_exc),
-                            },
-                        )
-                if progress_started and instance_name:
-                    outer_progress_display.update(
-                        ProgressEvent(
-                            action=ProgressAction.READY,
-                            target=instance_name,
-                            details=None,
-                            agent_name=instance_name,
-                            correlation_id=correlation_id,
-                            instance_name=instance_name,
-                            tool_name=tool_name,
-                        )
-                    )
-
-        show_tool_call_id = should_parallelize_tool_calls(len(id_list))
-        if len(id_list) > 1:
-            try:
-                did_close = self.close_active_streaming_display(reason="parallel tool calls")
-            except AttributeError:
-                did_close = False
-            if did_close:
-                logger.info(
-                    "Closing streaming display due to parallel subagent tool calls",
-                    tool_call_count=len(id_list),
-                    agent_name=self.name,
-                )
+        show_tool_call_id = should_parallelize_tool_calls(len(plan.id_list))
+        self._close_streaming_for_parallel_child_tools(len(plan.id_list))
 
         self._show_parallel_tool_calls(
-            call_descriptors,
+            plan.call_descriptors,
             show_tool_call_id=show_tool_call_id,
         )
 
-        results: list[CallToolResult | BaseException] = []
-        if id_list:
-            if FORCE_SEQUENTIAL_TOOL_CALLS:
-                for i, cid in enumerate(id_list, 1):
-                    tool_name = descriptor_by_id[cid]["tool"]
-                    tool_args = descriptor_by_id[cid]["args"]
-                    try:
-                        results.append(await call_with_instance_name(tool_name, tool_args, i, cid))
-                    except Exception as exc:
-                        results.append(exc)
-            else:
-                results = await gather_with_cancel(
-                    call_with_instance_name(
-                        descriptor_by_id[cid]["tool"],
-                        descriptor_by_id[cid]["args"],
-                        i,
-                        cid,
-                    )
-                    for i, cid in enumerate(id_list, 1)
-                )
-            for i, result in enumerate(results):
-                correlation_id = id_list[i]
-                if isinstance(result, BaseException):
-                    msg = f"Tool execution failed: {result}"
-                    tool_results[correlation_id] = CallToolResult(
-                        content=[text_content(msg)], isError=True
-                    )
-                    tool_loop_error = tool_loop_error or msg
-                    descriptor_by_id[correlation_id]["status"] = "error"
-                    descriptor_by_id[correlation_id]["error_message"] = msg
-                else:
-                    tool_results[correlation_id] = result
-                    descriptor_by_id[correlation_id]["status"] = (
-                        "error" if result.isError else "done"
-                    )
-
-        ordered_records: list[dict[str, Any]] = []
-        for cid in id_list:
-            result = tool_results.get(cid)
-            if result is None:
-                continue
-            descriptor = descriptor_by_id.get(cid, {})
-            ordered_records.append({"descriptor": descriptor, "result": result})
-
+        results = await self._execute_child_tool_calls(
+            plan=plan,
+            request_params=request_params,
+        )
+        self._merge_child_tool_execution_results(plan=plan, results=results)
         self._show_parallel_tool_results(
-            ordered_records,
+            self._ordered_child_tool_records(plan),
             show_tool_call_id=show_tool_call_id,
         )
 
-        return tool_results, tool_loop_error
+        return plan.tool_results, plan.tool_loop_error
 
     def _extract_error_text(self, message: PromptMessageExtended) -> str | None:
         if not message.channels:

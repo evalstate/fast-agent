@@ -262,9 +262,10 @@ async def test_acp_session_modes_included_in_new_session(
     """Test that session/new response includes modes field."""
     connection, _client, init_response = acp_basic
 
-    assert getattr(init_response, "protocol_version", None) == 1 or getattr(
-        init_response, "protocolVersion", None
-    ) == 1
+    assert (
+        getattr(init_response, "protocol_version", None) == 1
+        or getattr(init_response, "protocolVersion", None) == 1
+    )
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
@@ -300,9 +301,10 @@ async def test_acp_overlapping_prompts_are_serialized(
     """
     connection, _client, init_response = acp_basic
 
-    assert getattr(init_response, "protocol_version", None) == 1 or getattr(
-        init_response, "protocolVersion", None
-    ) == 1
+    assert (
+        getattr(init_response, "protocol_version", None) == 1
+        or getattr(init_response, "protocolVersion", None) == 1
+    )
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))

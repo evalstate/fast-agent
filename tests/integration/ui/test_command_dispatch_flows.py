@@ -159,7 +159,7 @@ async def test_dispatch_history_load_restores_file_without_session(tmp_path: Pat
     await dispatch_tui_command(f"/history load {target}", owner=owner, prompt_provider=provider)
 
     assert [message.first_text() for message in source.message_history] == ["reload this"]
-    assert any(f"Loaded 1 messages from {target}" in message for message in source.display.messages)
+    assert any(f"Loaded 1 message from {target}" in message for message in source.display.messages)
 
 
 @pytest.mark.integration
@@ -236,3 +236,25 @@ async def test_dispatch_attach_command_rejects_directories(tmp_path: Path) -> No
     )
 
     assert result.buffer_prefill == "draft"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dispatch_mcp_list_reports_attached_and_detached_servers() -> None:
+    provider = CommandSurfaceProvider(
+        {"main": CommandSurfaceAgent(name="main")},
+        attached_mcp_servers=["local"],
+        detached_mcp_servers=["docs"],
+    )
+    owner = CommandSurfaceOwner(agent_types=provider.agent_types())
+
+    result = await dispatch_tui_command(
+        "/mcp list",
+        owner=owner,
+        prompt_provider=provider,
+    )
+
+    emitted = "\n".join(provider._agent("main").display.messages)
+    assert result.handled is True
+    assert "Attached MCP servers: local" in emitted
+    assert "Configured but detached: docs" in emitted

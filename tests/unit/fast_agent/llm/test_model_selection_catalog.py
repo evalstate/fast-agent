@@ -19,10 +19,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.vertex_config import GoogleAdcStatus
 from fast_agent.llm.provider_types import Provider
+from fast_agent.utils.collections import unique_preserve_order
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,13 +55,33 @@ def _static_current_entries(provider: Provider) -> list:
 
 def test_list_curated_models_for_provider() -> None:
     models = ModelSelectionCatalog.list_curated_models(Provider.ANTHROPIC)
-    expected = [entry.model for entry in _static_current_entries(Provider.ANTHROPIC)]
+    expected = unique_preserve_order(
+        entry.model for entry in _static_current_entries(Provider.ANTHROPIC)
+    )
     assert models == expected
 
 
 def test_list_curated_aliases_for_provider() -> None:
     aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
-    assert aliases == ["opus", "opus46", "sonnet", "haiku"]
+
+    assert aliases == unique_preserve_order(aliases)
+    assert {
+        "fable",
+        "haiku",
+        "opus",
+        "sonnet",
+    }.issubset(aliases)
+    assert aliases.index("opus") < aliases.index("opus46")
+
+
+def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
+    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
+
+    assert aliases
+    for alias in aliases:
+        assert alias in ModelFactory.MODEL_PRESETS
+    assert ModelFactory.MODEL_PRESETS["fable"] == "claude-fable-5"
+    assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
 
 
 def test_deepseek_curated_order_prefers_pro_above_flash() -> None:
@@ -73,11 +95,18 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
 
     assert set(curated_aliases).isdisjoint(legacy_aliases)
     assert "glm51" in curated_aliases
+    assert "gemma4" in curated_aliases
     assert "kimi26instant" in curated_aliases
     assert "deepseek-hf" in curated_aliases
+    assert "kimi27" in curated_aliases
+    assert "kimi27code" in curated_aliases
+    assert "qwen36" in curated_aliases
+    assert "qwen36instruct" in curated_aliases
     assert "kimi-k2-instruct" not in curated_aliases
-    assert "kimi25" in curated_aliases
-    assert "kimi25instant" in curated_aliases
+    assert "kimi25" not in curated_aliases
+    assert "kimi25instant" not in curated_aliases
+    assert "kimi25" in legacy_aliases
+    assert "kimi25instant" in legacy_aliases
     assert "glm5" not in curated_aliases
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
@@ -93,9 +122,9 @@ def test_list_fast_models_uses_explicit_curated_designation() -> None:
         Provider.HUGGINGFACE,
         Provider.GROQ,
     ):
-        assert ModelSelectionCatalog.list_fast_models(provider) == [
+        assert ModelSelectionCatalog.list_fast_models(provider) == unique_preserve_order(
             entry.model for entry in _static_current_entries(provider) if entry.fast
-        ]
+        )
 
 
 def test_groq_curated_aliases_drop_deprecated_kimi_entry() -> None:
@@ -120,12 +149,12 @@ def test_current_catalog_helpers_project_current_entries(provider: Provider) -> 
     assert ModelSelectionCatalog.list_current_aliases(provider) == [
         entry.alias for entry in current_entries
     ]
-    assert ModelSelectionCatalog.list_current_models(provider) == [
+    assert ModelSelectionCatalog.list_current_models(provider) == unique_preserve_order(
         entry.model for entry in current_entries
-    ]
-    assert ModelSelectionCatalog.list_fast_models(provider) == [
+    )
+    assert ModelSelectionCatalog.list_fast_models(provider) == unique_preserve_order(
         entry.model for entry in current_entries if entry.fast
-    ]
+    )
 
 
 @pytest.mark.parametrize(

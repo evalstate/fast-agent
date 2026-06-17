@@ -4,8 +4,10 @@
 - Use `uv run` for repo scripts and examples.
 - Always run `uv run scripts/lint.py` and `uv run scripts/typecheck.py` after code changes.
 - Check the type safety rules in `typesafe.md` and avoid hasattr/getattr style checks
+- Avoid unnecessary defensive programming. Validate at boundaries and use static analysis and type safety rules to write concise code. Do not caveat without good cause (external data processing for example).
 - Keep examples under `examples/` in sync with packaged resources when relevant.
 - Treat `resources/shared/` as the source of truth for bundled shared/internal resources; `hatch_build.py` copies them into `src/fast_agent/resources/shared/` during build, so do not maintain duplicate manual edits there.
+- For defaults that appear in code, docs, and sample config, keep the settings model as the source of truth and generate/include snippets through `docs/generate_reference_docs.py` where practical. Keep the annotated setup template in `examples/setup/fast-agent.yaml`; packaged setup resources are copied from there during build.
 - Prefer small, focused diffs; avoid reformatting unrelated code.
 - For tests, prefer contract/invariant/smoke coverage over symbiotic tests that
   restate implementation tables or manually rebuild internal objects with the
