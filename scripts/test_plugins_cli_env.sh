@@ -21,6 +21,26 @@ run_fast_agent() {
   )
 }
 
+assert_file_exists() {
+  local path="$1"
+  if [ ! -f "$path" ]; then
+    echo "Expected file to exist: $path" >&2
+    return 1
+  fi
+}
+
+assert_contains() {
+  local pattern="$1"
+  local path="$2"
+  if ! grep -q "$pattern" "$path"; then
+    echo "Expected '$path' to contain: $pattern" >&2
+    echo "---- $path ----" >&2
+    cat "$path" >&2
+    echo "--------------" >&2
+    return 1
+  fi
+}
+
 git_init() {
   git -C "$1" init >/dev/null
   git -C "$1" config user.email tests@example.com
@@ -130,24 +150,24 @@ YAML
 
   unset FAST_AGENT_HOME
   HOME="$USER_HOME" run_fast_agent plugins --registry "$PACK_REPO/marketplace.json" add finder --global
-  test -f "$USER_HOME/.fast-agent/plugins/finder/plugin.yaml"
-  grep -q "finder" "$USER_HOME/.fast-agent/fast-agent.yaml"
+  assert_file_exists "$USER_HOME/.fast-agent/plugins/finder/plugin.yaml"
+  assert_contains "finder" "$USER_HOME/.fast-agent/fast-agent.yaml"
 
   run_fast_agent plugins --registry "$PACK_REPO/marketplace.json" add finder
-  test -f "$PROJECT_ENV/plugins/finder/plugin.yaml"
-  grep -q "finder" fast-agent.yaml
+  assert_file_exists "$PROJECT_ENV/plugins/finder/plugin.yaml"
+  assert_contains "finder" fast-agent.yaml
 
   run_fast_agent cards --registry "$PACK_REPO/marketplace.json" add alpha
-  test -f "$PROJECT_ENV/plugins/editor/plugin.yaml"
-  grep -q "editor" fast-agent.yaml
+  assert_file_exists "$PROJECT_ENV/plugins/editor/plugin.yaml"
+  assert_contains "editor" fast-agent.yaml
 
   run_fast_agent plugins list > "$WORK_DIR/plugins.list"
-  grep -q "finder" "$WORK_DIR/plugins.list"
-  grep -q "editor" "$WORK_DIR/plugins.list"
-  grep -q "find" "$WORK_DIR/plugins.list"
-  grep -q "edit-last" "$WORK_DIR/plugins.list"
-  grep -q "c-x f" "$WORK_DIR/plugins.list"
-  grep -q "c-x e" "$WORK_DIR/plugins.list"
+  assert_contains "finder" "$WORK_DIR/plugins.list"
+  assert_contains "editor" "$WORK_DIR/plugins.list"
+  assert_contains "find" "$WORK_DIR/plugins.list"
+  assert_contains "edit-last" "$WORK_DIR/plugins.list"
+  assert_contains "c-x f" "$WORK_DIR/plugins.list"
+  assert_contains "c-x e" "$WORK_DIR/plugins.list"
 )
 
 cat > "$GLOBAL_HOME/fast-agent.yaml" <<YAML
@@ -158,8 +178,8 @@ YAML
 (
   cd "$PROJECT_DIR"
   FAST_AGENT_HOME="$GLOBAL_HOME" run_fast_agent plugins --registry "$PACK_REPO/marketplace.json" add finder --global
-  test -f "$GLOBAL_HOME/plugins/finder/plugin.yaml"
-  grep -q "finder" "$GLOBAL_HOME/fast-agent.yaml"
+  assert_file_exists "$GLOBAL_HOME/plugins/finder/plugin.yaml"
+  assert_contains "finder" "$GLOBAL_HOME/fast-agent.yaml"
 
   PYTHONPATH="$REPO_ROOT/src" "$REPO_ROOT/.venv/bin/python" - <<'PY'
 from fast_agent.config import get_settings
@@ -184,12 +204,12 @@ git -C "$PACK_REPO" commit -m "update finder plugin" >/dev/null
 (
   cd "$PROJECT_DIR"
   run_fast_agent plugins update > "$WORK_DIR/plugins.update"
-  grep -q "update available" "$WORK_DIR/plugins.update" || {
+  assert_contains "update available" "$WORK_DIR/plugins.update" || {
     cat "$WORK_DIR/plugins.update"
     exit 1
   }
   run_fast_agent plugins update finder
-  grep -q "finder v2" "$PROJECT_ENV/plugins/finder/commands.py"
+  assert_contains "finder v2" "$PROJECT_ENV/plugins/finder/commands.py"
 )
 
 echo "Plugin CLI environment test completed successfully."
