@@ -9,17 +9,23 @@ from io import BytesIO
 import pytest
 from mcp.types import (
     BlobResourceContents,
+    ListResourcesResult,
     ReadResourceResult,
+    Resource,
     ServerCapabilities,
     TextResourceContents,
 )
 from pydantic import AnyUrl
 
+from fast_agent.skills import mcp_registry
 from fast_agent.skills.mcp_registry import (
     INDEX_URI,
+    MAX_WALK_PAGES,
     McpRegistrySkill,
+    _validate_archive_name,
     install_mcp_registry_skill,
     scan_mcp_skill_registry,
+    server_supports_directory_read,
     server_supports_mcp_skills,
 )
 from fast_agent.skills.provenance import read_installed_skill_source
@@ -54,9 +60,11 @@ class _Aggregator:
         *,
         capabilities: ServerCapabilities,
         responses: dict[str, str | bytes],
+        directories: dict[str, list[Resource]] | None = None,
     ) -> None:
         self.capabilities = capabilities
         self.responses = responses
+        self.directories = directories or {}
 
     async def get_capabilities(self, server_name: str) -> ServerCapabilities:
         del server_name
@@ -71,9 +79,18 @@ class _Aggregator:
             return _blob(resource_uri, response)
         return _text(resource_uri, response)
 
+    async def read_directory(
+        self, uri: str, *, server_name: str | None = None, cursor: str | None = None
+    ) -> ListResourcesResult:
+        del server_name, cursor
+        return ListResourcesResult(resources=self.directories.get(uri, []))
 
-def _skills_capabilities() -> ServerCapabilities:
-    return ServerCapabilities.model_validate({"extensions": {"io.modelcontextprotocol/skills": {}}})
+
+def _skills_capabilities(*, directory_read: bool = False) -> ServerCapabilities:
+    settings: dict[str, object] = {"directoryRead": True} if directory_read else {}
+    return ServerCapabilities.model_validate(
+        {"extensions": {"io.modelcontextprotocol/skills": settings}}
+    )
 
 
 def _tar_gz(files: dict[str, bytes]) -> bytes:
@@ -91,15 +108,20 @@ def test_server_supports_mcp_skills_from_extensions_extra() -> None:
     assert not server_supports_mcp_skills(ServerCapabilities())
 
 
+def test_server_supports_directory_read() -> None:
+    assert server_supports_directory_read(_skills_capabilities(directory_read=True))
+    # An empty extension object means supported but without directoryRead.
+    assert not server_supports_directory_read(_skills_capabilities(directory_read=False))
+    assert not server_supports_directory_read(ServerCapabilities())
+
+
 @pytest.mark.asyncio
 async def test_scan_mcp_skill_registry_requires_capability() -> None:
     index = json.dumps(
         {
             "skills": [
                 {
-                    "type": "skill-md",
-                    "name": "demo",
-                    "description": "Demo skill",
+                    "frontmatter": {"name": "demo", "description": "Demo skill"},
                     "url": "skill://demo/SKILL.md",
                     "digest": "sha256:" + "0" * 64,
                 }
@@ -119,23 +141,23 @@ async def test_scan_mcp_skill_registry_reads_verified_skill_entries() -> None:
         {
             "skills": [
                 {
-                    "type": "skill-md",
-                    "name": "demo",
-                    "description": "Demo skill",
+                    "frontmatter": {"name": "demo", "description": "Demo skill"},
                     "url": "skill://demo/SKILL.md",
                     "digest": _digest(skill_text),
                 },
                 {
-                    "type": "archive",
-                    "name": "bundle",
-                    "description": "Bundled skill",
-                    "url": "bundle/bundle.tar.gz",
-                    "digest": _digest(archive),
+                    "frontmatter": {"name": "bundle", "description": "Bundled skill"},
+                    "archives": [
+                        {
+                            "url": "bundle/bundle.tar.gz",
+                            "mimeType": "application/gzip",
+                            "digest": _digest(archive),
+                        }
+                    ],
                 },
                 {
-                    "type": "mcp-resource-template",
-                    "description": "Template",
-                    "url": "skill://docs/{product}/SKILL.md",
+                    # No url and no archives -> not installable, skipped.
+                    "frontmatter": {"name": "broken", "description": "Missing artifacts"},
                 },
             ]
         }
@@ -148,10 +170,71 @@ async def test_scan_mcp_skill_registry_reads_verified_skill_entries() -> None:
     assert registry.server_name == "hf"
     assert registry.server_version == "1.2.3"
     assert [skill.name for skill in registry.skills] == ["demo", "bundle"]
+    assert registry.skills[0].artifact_type == "skill-md"
     assert registry.skills[0].source_url == "skill://demo/SKILL.md"
     assert registry.skills[0].digest == _digest(skill_text)
+    assert registry.skills[0].description == "Demo skill"
+    assert registry.skills[0].frontmatter == {"name": "demo", "description": "Demo skill"}
     assert registry.skills[1].artifact_type == "archive"
     assert registry.skills[1].source_url == "skill://bundle/bundle.tar.gz"
+    assert registry.skills[1].artifact_mime_type == "application/gzip"
+
+
+@pytest.mark.asyncio
+async def test_scan_prefers_archive_when_entry_has_both() -> None:
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    archive = _tar_gz({"SKILL.md": skill_text.encode("utf-8")})
+    index = json.dumps(
+        {
+            "skills": [
+                {
+                    "frontmatter": {"name": "demo", "description": "Demo skill"},
+                    "url": "skill://demo/SKILL.md",
+                    "digest": _digest(skill_text),
+                    "archives": [
+                        {
+                            "url": "skill://demo.tar.gz",
+                            "mimeType": "application/gzip",
+                            "digest": _digest(archive),
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    aggregator = _Aggregator(capabilities=_skills_capabilities(), responses={INDEX_URI: index})
+
+    registry = await scan_mcp_skill_registry(aggregator, "hf")
+
+    assert registry is not None
+    assert registry.skills[0].artifact_type == "archive"
+    assert registry.skills[0].source_url == "skill://demo.tar.gz"
+
+
+@pytest.mark.asyncio
+async def test_scan_ignores_unsupported_archive_media_type() -> None:
+    index = json.dumps(
+        {
+            "skills": [
+                {
+                    "frontmatter": {"name": "demo", "description": "Demo skill"},
+                    "archives": [
+                        {
+                            "url": "skill://demo.7z",
+                            "mimeType": "application/x-7z-compressed",
+                            "digest": "sha256:" + "0" * 64,
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    aggregator = _Aggregator(capabilities=_skills_capabilities(), responses={INDEX_URI: index})
+
+    registry = await scan_mcp_skill_registry(aggregator, "hf")
+
+    assert registry is not None
+    assert registry.skills == []
 
 
 @pytest.mark.asyncio
@@ -160,9 +243,7 @@ async def test_scan_mcp_skill_registry_rejects_padded_file_urls() -> None:
         {
             "skills": [
                 {
-                    "type": "skill-md",
-                    "name": "local",
-                    "description": "Local skill",
+                    "frontmatter": {"name": "local", "description": "Local skill"},
                     "url": " file:///tmp/SKILL.md",
                     "digest": "sha256:" + "0" * 64,
                 }
@@ -183,9 +264,7 @@ async def test_scan_mcp_skill_registry_skips_entries_without_sha256() -> None:
         {
             "skills": [
                 {
-                    "type": "skill-md",
-                    "name": "demo",
-                    "description": "Demo skill",
+                    "frontmatter": {"name": "demo", "description": "Demo skill"},
                     "url": "skill://demo/SKILL.md",
                 }
             ]
@@ -236,6 +315,256 @@ async def test_install_mcp_registry_skill_writes_provenance(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_install_direct_skill_materializes_supporting_files(tmp_path) -> None:
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nSee references/GUIDE.md\n"
+    guide_text = "# Guide\nbody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/references/GUIDE.md": guide_text,
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/SKILL.md"), name="SKILL.md"),
+                Resource(
+                    uri=AnyUrl("skill://demo/references"),
+                    name="references",
+                    mimeType="inode/directory",
+                ),
+            ],
+            "skill://demo/references": [
+                Resource(uri=AnyUrl("skill://demo/references/GUIDE.md"), name="GUIDE.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert (install_dir / "references" / "GUIDE.md").read_text(encoding="utf-8") == guide_text
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_walks_lowercase_skill_md_url(tmp_path) -> None:
+    """A url addressing the manifest as '/skill.md' still triggers the directory walk.
+
+    The skill root is derived by stripping the manifest suffix case-insensitively;
+    a case-sensitive check would silently disable supporting-file materialization.
+    """
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nSee GUIDE.md\n"
+    guide_text = "# Guide\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/skill.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/skill.md": skill_text,
+            "skill://demo/GUIDE.md": guide_text,
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert (install_dir / "GUIDE.md").read_text(encoding="utf-8") == guide_text
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_rejects_oversized_supporting_file(
+    tmp_path, monkeypatch
+) -> None:
+    """A supporting file over the per-resource cap aborts the (best-effort) walk."""
+    monkeypatch.setattr(mcp_registry, "MAX_SUPPORTING_FILE_BYTES", 16)
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/BIG.md": "x" * 1024,  # exceeds the patched 16-byte cap
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/BIG.md"), name="BIG.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    # Verified single-file skill survives; the oversized sibling is not written.
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert not (install_dir / "BIG.md").exists()
+
+
+def test_validate_archive_name_rejects_windows_traversal() -> None:
+    # Forward-slash traversal and POSIX absolute paths (pre-existing guard).
+    for bad in ("../evil.md", "/etc/passwd", "a/../../b"):
+        with pytest.raises(ValueError):
+            _validate_archive_name(bad)
+    # Windows separators and drive anchors: a PurePosixPath-only check would
+    # let these escape install_dir when later joined with the OS path API.
+    for bad in ("..\\..\\evil.md", "sub\\evil.md", "C:\\Windows\\evil", "C:/Windows/evil"):
+        with pytest.raises(ValueError):
+            _validate_archive_name(bad)
+    # Legitimate nested names still pass.
+    _validate_archive_name("references/GUIDE.md")
+    _validate_archive_name("a/b/c.txt")
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_does_not_overwrite_verified_skill_md(tmp_path) -> None:
+    """A sibling named 'skill.md' must not clobber the digest-verified SKILL.md.
+
+    On case-insensitive filesystems (Windows, macOS) an unverified sibling whose
+    name differs only in case would otherwise overwrite the verified SKILL.md.
+    """
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nVerified body\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/skill.md": "UNVERIFIED OVERWRITE",
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/SKILL.md"), name="SKILL.md"),
+                Resource(uri=AnyUrl("skill://demo/skill.md"), name="skill.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_rolls_back_partial_supporting_files(tmp_path) -> None:
+    """A mid-walk failure leaves only the verified SKILL.md, not a half-written tree."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/GUIDE.md": "# Guide\n",
+        },
+        directories={
+            # GUIDE.md is staged first, then the unsafe backslash sibling raises
+            # mid-walk (validated by _validate_archive_name).
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
+                Resource(uri=AnyUrl(r"skill://demo/..\..\evil.md"), name="evil.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    # The walk failed after staging GUIDE.md, so nothing is merged in.
+    assert not (install_dir / "GUIDE.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_bounds_infinite_pagination(tmp_path) -> None:
+    """A server returning a never-terminating cursor must not hang the install."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+
+    class _InfinitePagerAggregator(_Aggregator):
+        def __init__(self) -> None:
+            super().__init__(
+                capabilities=_skills_capabilities(directory_read=True),
+                responses={"skill://demo/SKILL.md": skill_text},
+            )
+            self.calls = 0
+
+        async def read_directory(self, uri, *, server_name=None, cursor=None):
+            del uri, server_name, cursor
+            self.calls += 1
+            return ListResourcesResult(resources=[], nextCursor="more")
+
+    aggregator = _InfinitePagerAggregator()
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    # Walk is best-effort: it aborts at the page cap and leaves the valid skill.
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert aggregator.calls <= MAX_WALK_PAGES + 1
+
+
+@pytest.mark.asyncio
+async def test_install_direct_skill_skips_walk_without_capability(tmp_path) -> None:
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=False),
+        responses={"skill://demo/SKILL.md": skill_text},
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/extra.md"), name="extra.md"),
+            ]
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert not (install_dir / "extra.md").exists()
+
+
+@pytest.mark.asyncio
 async def test_install_mcp_registry_skill_rejects_digest_mismatch(tmp_path) -> None:
     skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
     skill = McpRegistrySkill(
@@ -272,6 +601,7 @@ async def test_install_mcp_registry_archive_skill(tmp_path) -> None:
         server_name="hf",
         digest=_digest(artifact),
         artifact_type="archive",
+        artifact_mime_type="application/gzip",
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(),

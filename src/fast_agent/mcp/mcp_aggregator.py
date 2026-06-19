@@ -3130,21 +3130,23 @@ class MCPAggregator(ContextDependent):
         # If we reach here, we couldn't find the resource on any server
         raise ValueError(f"Resource '{resource_uri}' not found on any server")
 
-    async def _get_resource_from_server(
-        self, server_name: str, resource_uri: str
-    ) -> ReadResourceResult:
-        """
-        Internal helper method to get a resource from a specific server.
+    async def _execute_resource_read(
+        self,
+        server_name: str,
+        *,
+        uri: str,
+        operation_type: str,
+        method_name: str,
+        noun: str,
+        extra_args: dict[str, Any] | None = None,
+    ) -> Any:
+        """Shared implementation behind ``get_resource`` and ``read_directory``.
 
-        Args:
-            server_name: Name of the server to get the resource from
-            resource_uri: URI of the resource to retrieve
-
-        Returns:
-            ReadResourceResult containing the resource
-
-        Raises:
-            Exception: If the resource couldn't be found or other error occurs
+        Both ``resources/read`` and ``resources/directory/read`` share the same
+        shape: verify the resources capability, emit a READING_RESOURCE progress
+        event, validate the URI, dispatch via ``_execute_on_server``, and treat a
+        ``None`` result as not-found. ``noun`` ("Resource"/"Directory") is woven
+        into the error messages.
         """
         # Check if server supports resources capability
         if not await self.server_supports_feature(server_name, "resources"):
@@ -3156,32 +3158,84 @@ class MCPAggregator(ContextDependent):
                 action=ProgressAction.READING_RESOURCE,
                 server_name=server_name,
                 agent_name=self.agent_name,
-                details=resource_uri,
-                extra={"resource_uri": resource_uri},
+                details=uri,
+                extra={"resource_uri": uri},
             ),
         )
 
         try:
-            uri = AnyUrl(resource_uri)
+            uri_obj = AnyUrl(uri)
         except Exception as e:
-            raise ValueError(f"Invalid resource URI: {resource_uri}. Error: {e}") from e
+            raise ValueError(f"Invalid {noun.lower()} URI: {uri}. Error: {e}") from e
 
-        # Use the _execute_on_server method to call read_resource on the server
+        method_args: dict[str, Any] = {"uri": uri_obj}
+        if extra_args:
+            method_args.update(extra_args)
+
         result = await self._execute_on_server(
             server_name=server_name,
-            operation_type="resources/read",
-            operation_name=resource_uri,
-            method_name="read_resource",
-            method_args={"uri": uri},
-            # Don't create ValueError, just return None on error so we can catch it
-            #            error_factory=lambda _: None,
+            operation_type=operation_type,
+            operation_name=uri,
+            method_name=method_name,
+            method_args=method_args,
+            # Don't create ValueError, just return None on error so we can catch it.
         )
 
         # If result is None, the resource was not found
         if result is None:
-            raise ValueError(f"Resource '{resource_uri}' not found on server '{server_name}'")
+            raise ValueError(f"{noun} '{uri}' not found on server '{server_name}'")
 
         return result
+
+    async def _get_resource_from_server(
+        self, server_name: str, resource_uri: str
+    ) -> ReadResourceResult:
+        """Internal helper method to get a resource from a specific server."""
+        return await self._execute_resource_read(
+            server_name,
+            uri=resource_uri,
+            operation_type="resources/read",
+            method_name="read_resource",
+            noun="Resource",
+        )
+
+    async def read_directory(
+        self,
+        uri: str,
+        *,
+        server_name: str | None = None,
+        cursor: str | None = None,
+    ) -> ListResourcesResult:
+        """List the direct children of a directory resource via SEP-2640.
+
+        Routes ``resources/directory/read`` to the named server. Callers should
+        only invoke this against servers that declared ``directoryRead``.
+
+        ``server_name`` is required: a walk is scoped to the one server hosting
+        the skill. Unlike ``get_resource`` we don't fan out, since a same-named
+        directory URI on another server would read off the wrong server.
+        """
+        if not self.initialized:
+            await self.load_servers()
+
+        if server_name is None:
+            raise ValueError("read_directory requires an explicit server_name")
+        if server_name not in self.server_names:
+            raise ValueError(f"Server '{server_name}' not found")
+        return await self._read_directory_from_server(server_name, uri, cursor=cursor)
+
+    async def _read_directory_from_server(
+        self, server_name: str, uri: str, *, cursor: str | None = None
+    ) -> ListResourcesResult:
+        """Internal helper to call ``resources/directory/read`` on a server."""
+        return await self._execute_resource_read(
+            server_name,
+            uri=uri,
+            operation_type="resources/directory/read",
+            method_name="read_directory",
+            noun="Directory",
+            extra_args={"cursor": cursor} if cursor is not None else None,
+        )
 
     async def _list_resources_from_server(
         self, server_name: str, *, check_support: bool = True
