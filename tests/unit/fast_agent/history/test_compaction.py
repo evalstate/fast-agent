@@ -1,7 +1,7 @@
 """Unit tests for conversation history compaction."""
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
@@ -25,6 +25,9 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.session import get_session_manager, reset_session_manager
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
+
+if TYPE_CHECKING:
+    from fast_agent.event_progress import ProgressAction
 
 
 def _user(text: str, *, template: bool = False) -> PromptMessageExtended:
@@ -273,6 +276,7 @@ class TestEstimateTokens:
 class _FakeLLM:
     def __init__(self, summary: str = "SUMMARY OF WORK") -> None:
         self.summary = summary
+        self.verb: str | ProgressAction | None = None
         self.requests: list[list[PromptMessageExtended]] = []
 
     async def generate(self, messages, request_params=None, tools=None):

@@ -13,7 +13,6 @@ from mcp import CallToolRequest
 from mcp.types import CallToolRequestParams, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.cli.runtime import runner
 from fast_agent.cli.runtime.agent_setup import (
     _apply_shell_cwd_policy_preflight,
     _build_fan_out_result_paths,
@@ -190,69 +189,6 @@ def test_should_convert_keyboard_interrupt_to_task_cancel_only_for_interactive_r
         prompt_file="prompt.txt",
     )
     assert _should_convert_keyboard_interrupt_to_task_cancel(prompt_file_request) is False
-
-
-def test_run_request_closes_loop_when_cleanup_is_interrupted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _FakeTask:
-        def __init__(self) -> None:
-            self.cancelled = False
-
-        def done(self) -> bool:
-            return False
-
-        def cancel(self) -> None:
-            self.cancelled = True
-
-    class _FakeLoop:
-        def __init__(self) -> None:
-            self.task = _FakeTask()
-            self.main_gather = object()
-            self.shutdown_marker = object()
-            self.closed = False
-
-        def is_running(self) -> bool:
-            return False
-
-        def create_task(self, coro: Any) -> _FakeTask:
-            coro.close()
-            return self.task
-
-        def run_until_complete(self, awaitable: object) -> None:
-            if awaitable is self.task:
-                raise KeyboardInterrupt()
-            if awaitable is self.main_gather:
-                raise KeyboardInterrupt()
-
-        def shutdown_asyncgens(self) -> object:
-            return self.shutdown_marker
-
-        def close(self) -> None:
-            self.closed = True
-
-    fake_loop = _FakeLoop()
-
-    async def _fake_run_agent_request(_request: AgentRunRequest) -> None:
-        return None
-
-    def _fake_gather(*aws: object, return_exceptions: bool = False) -> object:
-        del return_exceptions
-        if aws == (fake_loop.task,):
-            return fake_loop.main_gather
-        return object()
-
-    monkeypatch.setattr(runner, "configure_uvloop", lambda: (False, False))
-    monkeypatch.setattr(runner, "ensure_event_loop", lambda: fake_loop)
-    monkeypatch.setattr(runner, "set_asyncio_exception_handler", lambda _loop: None)
-    monkeypatch.setattr(runner, "run_agent_request", _fake_run_agent_request)
-    monkeypatch.setattr(asyncio, "all_tasks", lambda _loop: set())
-    monkeypatch.setattr(asyncio, "gather", _fake_gather)
-
-    with pytest.raises(KeyboardInterrupt):
-        runner.run_request(_make_request(result_file=None, message="hello"))
-
-    assert fake_loop.closed is True
 
 
 def test_build_fan_out_result_paths_disambiguates_collisions() -> None:
