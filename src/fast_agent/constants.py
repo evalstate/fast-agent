@@ -55,7 +55,7 @@ def should_parallelize_tool_calls(tool_call_count: int) -> bool:
 DEFAULT_MAX_ITERATIONS = 199
 """Maximum number of User/Assistant turns to take"""
 
-DEFAULT_STREAMING_TIMEOUT = 300.0
+DEFAULT_STREAMING_TIMEOUT = 120.0
 """Default idle timeout in seconds between provider streaming events."""
 
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 8192

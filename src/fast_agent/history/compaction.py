@@ -23,6 +23,7 @@ from mcp.types import TextContent
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
+from fast_agent.event_progress import ProgressAction
 
 if TYPE_CHECKING:
     from fast_agent.config import CompactionSettings
@@ -387,7 +388,12 @@ async def compact_conversation(
         )
 
     summary_source = plan.templates + plan.compact_region
-    response = await llm.generate(summary_source + [Prompt.user(request_text)], None, tools=None)
+    previous_verb = llm.verb
+    llm.verb = ProgressAction.COMPACTING
+    try:
+        response = await llm.generate(summary_source + [Prompt.user(request_text)], None, tools=None)
+    finally:
+        llm.verb = previous_verb
     summary_text = (response.last_text() or "").strip()
     if not summary_text:
         raise CompactionError("Compaction model returned an empty summary; history unchanged.")

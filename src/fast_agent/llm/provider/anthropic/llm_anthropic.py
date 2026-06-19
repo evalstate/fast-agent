@@ -92,6 +92,7 @@ from fast_agent.llm.provider.anthropic.web_tools import (
     web_tool_progress_label,
 )
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.streaming_timeouts import await_stream_start, enter_stream_with_timeout
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     AUTO_REASONING,
@@ -2112,6 +2113,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         arguments: dict[str, Any],
         model: str,
         capture_filename: Path | None,
+        timeout_seconds: float | None,
     ) -> tuple[BetaMessage, list[str], list[str]]:
         otel_span: Span | None = None
         otel_span_error = False
@@ -2123,19 +2125,37 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 otel_span = _start_fallback_stream_span(model)
 
             stream_call = stream_method(**arguments)
-            stream_manager = await stream_call if asyncio.iscoroutine(stream_call) else stream_call
+            stream_manager = (
+                await await_stream_start(
+                    stream_call,
+                    timeout_seconds=timeout_seconds,
+                    timeout_message=f"Anthropic stream did not start within {timeout_seconds} seconds.",
+                )
+                if asyncio.iscoroutine(stream_call)
+                else stream_call
+            )
             stream_manager = cast("BetaAsyncMessageStream", stream_manager)
 
             if otel_span is not None:
                 with trace.use_span(otel_span, end_on_exit=False):
-                    async with stream_manager as stream:
+                    async with enter_stream_with_timeout(
+                        stream_manager,
+                        timeout_seconds=timeout_seconds,
+                        timeout_message=(
+                            f"Anthropic stream did not start within {timeout_seconds} seconds."
+                        ),
+                    ) as stream:
                         (
                             response,
                             thinking_segments,
                             streamed_text_segments,
                         ) = await self._process_stream(stream, model, capture_filename)
             else:
-                async with stream_manager as stream:
+                async with enter_stream_with_timeout(
+                    stream_manager,
+                    timeout_seconds=timeout_seconds,
+                    timeout_message=f"Anthropic stream did not start within {timeout_seconds} seconds.",
+                ) as stream:
                     (
                         response,
                         thinking_segments,
@@ -2726,6 +2746,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 arguments=arguments,
                 model=model,
                 capture_filename=capture_filename,
+                timeout_seconds=request.params.streaming_timeout,
             )
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"

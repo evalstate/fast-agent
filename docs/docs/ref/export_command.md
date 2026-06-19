@@ -89,6 +89,11 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 - If `--privacy-filter` is enabled and `--output` is omitted, fast-agent writes
   `{session_id}__{agent_name}__codex-privacy.jsonl`.
 - If the session has multiple exportable agent histories, pass `--agent`.
+- If `git_aware: true` was enabled while the session was saved, the
+  `session_meta` record includes a `git` block with the repository state
+  captured at the start of the session and at the latest save. This includes
+  the repo root, commit, capture time, branch, dirty state, GitHub `owner/repo`
+  when available, and a sanitized `origin` remote URL.
 - `--hf-url` is the preferred Hugging Face upload option. If the URL ends with
   `/`, fast-agent appends the local filename.
 - `--hf-dataset-path` requires `--hf-dataset`.
@@ -98,6 +103,9 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 - Dataset repos are created automatically when needed.
 - `--privacy-filter` requires the optional `privacy` extra and applies before
   local write/upload. See the [privacy filter guide](../guides/privacy_filter/).
+- Privacy filtering redacts trace text content, not structured provenance fields
+  such as `session_meta.git`; review git-aware exports before sharing if paths,
+  branch names, or repository names are sensitive.
 - By default, privacy filtering uses a cached model only. Add
   `--download-privacy-filter` to allow the initial model download.
 - `--noenv` runs do not persist sessions, so there is nothing to export later.

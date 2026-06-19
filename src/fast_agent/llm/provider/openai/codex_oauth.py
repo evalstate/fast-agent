@@ -453,10 +453,9 @@ def _save_codex_cli_tokens(tokens: CodexOAuthTokens) -> None:
 
 
 def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | None]:
-    if _prefer_codex_cli_auth_path():
-        tokens = _load_codex_cli_tokens()
-        if tokens:
-            return tokens, "auth.json"
+    tokens = _load_codex_cli_tokens()
+    if tokens:
+        return tokens, "auth.json"
 
     payload = _get_keyring_password()
     if payload:
@@ -464,10 +463,6 @@ def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | Non
             return CodexOAuthTokens.model_validate_json(payload), "keyring"
         except Exception:
             return None, None
-
-    tokens = _load_codex_cli_tokens()
-    if tokens:
-        return tokens, "auth.json"
     return None, None
 
 
@@ -483,7 +478,7 @@ def load_codex_tokens() -> CodexOAuthTokens | None:
 
 
 def save_codex_tokens(tokens: CodexOAuthTokens) -> None:
-    if _prefer_codex_cli_auth_path():
+    if _prefer_codex_cli_auth_path() or _resolve_codex_cli_auth_path().exists():
         _save_codex_cli_tokens(tokens)
         return
     _set_keyring_password(tokens.model_dump_json())

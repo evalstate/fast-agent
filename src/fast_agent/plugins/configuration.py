@@ -29,6 +29,47 @@ def get_manager_directory(settings: "Settings | None" = None, *, cwd: Path | Non
     return resolve_environment_paths(settings, cwd=cwd).plugins
 
 
+def enabled_plugins_by_scope(settings: "Settings | None" = None) -> tuple[list[str], list[str]]:
+    """Return ``(home_enabled, project_enabled)`` for the active config.
+
+    Mirrors the load scoping used at startup: home plugins load first, then
+    project plugins override them. Used by tooling that needs to know which
+    scope a given enabled plugin name loads from.
+    """
+    from fast_agent.config import _enabled_plugin_sources, get_settings
+
+    if settings is None:
+        settings = get_settings()
+    sources = _enabled_plugin_sources(settings)
+    return list(sources.home), list(sources.project)
+
+
+def installed_plugin_roots(
+    settings: "Settings | None" = None,
+    *,
+    project_plugins: "Path | None" = None,
+) -> list[tuple[str, "Path"]]:
+    """Return ``(scope, plugins_dir)`` roots that are installed to, in load order.
+
+    ``project`` first (overrides), then ``global`` (FAST_AGENT_HOME / ~/.fast-agent)
+    when distinct from the project root.
+    """
+    from pathlib import Path
+
+    from fast_agent.utils.text import strip_to_none
+
+    if project_plugins is None:
+        project_plugins = get_manager_directory(settings)
+    roots: list[tuple[str, Path]] = [("project", project_plugins)]
+    global_home = strip_to_none(settings._fast_agent_global_plugin_home) if settings is not None else None
+    if global_home is None:
+        return roots
+    global_plugins = Path(global_home).expanduser() / "plugins"
+    if global_plugins.resolve() != project_plugins.resolve():
+        roots.append(("global", global_plugins))
+    return roots
+
+
 def resolve_registries(settings: "Settings | None" = None) -> list[str]:
     configured = settings.plugins.marketplace_urls if settings is not None else None
     active = settings.plugins.marketplace_url if settings is not None else None

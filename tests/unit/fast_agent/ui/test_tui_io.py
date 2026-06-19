@@ -132,6 +132,25 @@ async def test_emit_render_markdown_uses_assistant_renderer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_emit_plain_message_forwards_post_content() -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+    post_content = "image-renderable"
+
+    await io.emit(CommandMessage(text="plain result", post_content=post_content))
+
+    assert display.status_messages == []
+    assert len(display.display_calls) == 1
+    display_call = display.display_calls[0]
+    assert display_call["content"] == "plain result"
+    assert display_call["message_type"] == MessageType.ASSISTANT
+    assert display_call["name"] == "alpha"
+    assert display_call["render_markdown"] is False
+    assert display_call["post_content"] is post_content
+
+
+@pytest.mark.asyncio
 async def test_handle_model_activation_returns_false_on_provider_key_error(monkeypatch) -> None:
     display = _FakeDisplay()
     provider = cast("AgentProvider", _FakeProvider(display))

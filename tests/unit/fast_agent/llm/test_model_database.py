@@ -16,7 +16,7 @@ from mcp import Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.config import HuggingFaceSettings, OpenAISettings, Settings
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.context import Context
 from fast_agent.llm.fastagent_llm import FastAgentLLM
@@ -64,6 +64,13 @@ def test_deepseek_v4_direct_model_metadata():
     assert spec.default.value == "high"
     assert spec.allowed_efforts == ["high", "max"]
     assert spec.allow_toggle_disable is True
+
+
+def test_glm52_hf_provider_suffix_resolves_without_provider_prefix():
+    parsed = ModelFactory.parse_model_spec("zai-org/GLM-5.2:zai-org")
+
+    assert parsed.provider == Provider.HUGGINGFACE
+    assert parsed.model_name == "zai-org/GLM-5.2:zai-org"
 
 
 def test_model_database_long_context_windows():
@@ -786,6 +793,106 @@ def test_huggingface_glm_disable_reasoning_toggle():
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["disable_reasoning"] is True
+
+
+def test_huggingface_glm52_default_preserves_thinking():
+    llm = _make_hf_llm("zai-org/glm-5.2:zai-org")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert args["model"] == "zai-org/glm-5.2:zai-org"
+    assert args["reasoning_effort"] == "max"
+    assert extra_body["thinking"] == {"type": "enabled", "clear_thinking": False}
+
+
+def test_huggingface_glm52_default_ignores_openai_reasoning_default():
+    settings = Settings(
+        hf=HuggingFaceSettings(),
+        openai=OpenAISettings(reasoning="medium"),
+    )
+    context = Context(config=settings)
+    llm = HuggingFaceLLM(context=context, model="zai-org/glm-5.2:zai-org", name="test-agent")
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "max"
+
+
+def test_huggingface_glm52_routes_use_json_object_structured_mode():
+    for provider in ("zai-org", "together", "deepinfra", "novita", "fireworks-ai"):
+        llm = _make_hf_llm(f"zai-org/glm-5.2:{provider}")
+
+        assert llm._structured_json_mode(llm.default_request_params) == "object"
+
+
+def test_huggingface_glm52_deepinfra_default_uses_xhigh_reasoning_effort():
+    llm = _make_hf_llm("zai-org/glm-5.2:deepinfra")
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "zai-org/glm-5.2:deepinfra"
+    assert args["reasoning_effort"] == "xhigh"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_deepinfra_xhigh_reasoning_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:deepinfra", reasoning="xhigh")
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "xhigh"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_deepinfra_disable_reasoning_uses_none_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:deepinfra", reasoning=False)
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_fireworks_default_uses_reasoning_effort_only():
+    llm = _make_hf_llm("zai-org/glm-5.2:fireworks-ai")
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "zai-org/glm-5.2:fireworks-ai"
+    assert args["reasoning_effort"] == "max"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_fireworks_passes_requested_reasoning_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:fireworks-ai", reasoning="low")
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "low"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_fireworks_disable_reasoning_uses_none_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:fireworks-ai", reasoning=False)
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_reasoning_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:zai-org", reasoning="high")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert args["reasoning_effort"] == "high"
+    assert extra_body["thinking"] == {"type": "enabled", "clear_thinking": False}
+
+
+def test_huggingface_glm52_disable_reasoning():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:zai-org", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert "reasoning_effort" not in args
+    assert extra_body["thinking"] == {"type": "disabled"}
 
 
 def test_huggingface_kimi25_disable_reasoning_toggle():

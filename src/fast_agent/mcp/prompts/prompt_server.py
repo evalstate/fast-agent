@@ -81,7 +81,7 @@ class PromptConfig(PromptMetadata):
     http_timeout: float = 10.0
     transport: str = "stdio"
     port: int = 8000
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
 
 
 exposed_resources: dict[str, Path] = {}
@@ -437,8 +437,8 @@ def parse_args():
     parser.add_argument(
         "--host",
         type=str,
-        default="0.0.0.0",
-        help="Host to bind to for HTTP transport (default: 0.0.0.0)",
+        default="127.0.0.1",
+        help="Host to bind to for HTTP transport (default: 127.0.0.1)",
     )
     parser.add_argument(
         "--test", type=str, help="Test a specific prompt without starting the server"

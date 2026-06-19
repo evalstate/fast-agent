@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from fast_agent.llm.provider.openai.openresponses_streaming import OpenResponsesStreamingMixin
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_events import is_responses_terminal_event
+from fast_agent.llm.provider.streaming_timeouts import await_stream_start
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
@@ -163,8 +164,13 @@ class OpenResponsesLLM(OpenResponsesStreamingMixin, ResponsesLLM):
         *,
         client: AsyncOpenAI,
         arguments: dict[str, Any],
+        timeout_seconds: float | None = None,
     ):
-        raw_stream = await client.responses.create(**arguments, stream=True)
+        raw_stream = await await_stream_start(
+            client.responses.create(**arguments, stream=True),
+            timeout_seconds=timeout_seconds,
+            timeout_message=f"OpenResponses stream did not start within {timeout_seconds} seconds.",
+        )
         wrapped_stream = _OpenResponsesRawStream(raw_stream)
         try:
             yield wrapped_stream

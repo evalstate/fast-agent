@@ -215,6 +215,13 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
+    GLM_52_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="max"),
+    )
+
     KIMI_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
         kind="toggle",
         default=ReasoningEffortSetting(kind="toggle", value=True),
@@ -819,6 +826,17 @@ class ModelDatabase:
         stream_mode="manual",
     )
 
+    GLM_5_2 = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_52_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.HUGGINGFACE,
+    )
+
     MINIMAX_21 = ModelParameters(
         context_window=202752,
         max_output_tokens=131072,
@@ -1084,6 +1102,9 @@ class ModelDatabase:
         "zai-org/glm-5": _with_fast(GLM_5),
         "zai-org/glm-5.1": _with_fast(
             GLM_5.model_copy(update={"structured_tool_policy": "no_tools"})
+        ),
+        "zai-org/glm-5.2": _with_fast(
+            GLM_5_2.model_copy(update={"structured_tool_policy": "no_tools"})
         ),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,

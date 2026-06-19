@@ -384,10 +384,7 @@ class FastAgentReflectionLM:
             command.extend(["--model", self.model])
         if self.agent is not None:
             command.extend(["--agent", self.agent])
-        if isinstance(prompt, str):
-            command.extend(["--message", prompt])
-        else:
-            command.extend(["--prompt-file", str(audit.prompt_path)])
+        command.extend(["--prompt-file", str(audit.prompt_path)])
         command.extend(["--results", str(audit.path / "results.json")])
         return command
 
@@ -804,14 +801,34 @@ def _row_wise_eval_metrics(
     row_score_summary: Mapping[str, Any],
 ) -> dict[str, NumericMetric]:
     metrics: dict[str, NumericMetric] = {}
-    for key in ("eval_index", "batch_size", "avg_score", "num_metric_calls"):
+    for key in ("batch_size",):
         value = row_score_summary.get(key)
         if _is_numeric_metric(value):
             metrics[f"fast_agent/eval/{key}"] = value
-    for key in ("processed_rows", "failed_rows", "skipped_rows", "selected_rows", "duration_ms"):
+    objective_averages = row_score_summary.get("objective_averages")
+    _extend_numeric_metrics(
+        metrics,
+        objective_averages,
+        prefix="fast_agent/eval/objective_avg/",
+    )
+    if not isinstance(objective_averages, Mapping):
+        avg_score = row_score_summary.get("avg_score")
+        if _is_numeric_metric(avg_score):
+            metrics["fast_agent/eval/avg_score"] = avg_score
+    for key in ("failed_rows", "skipped_rows"):
         value = batch_summary.get(key)
         if _is_numeric_metric(value):
             metrics[f"fast_agent/eval/{key}"] = value
+    duration_ms = batch_summary.get("duration_ms")
+    selected_rows = batch_summary.get("selected_rows")
+    if not _is_numeric_metric(selected_rows) or selected_rows <= 0:
+        selected_rows = row_score_summary.get("batch_size")
+    if _is_numeric_metric(duration_ms) and _is_numeric_metric(selected_rows) and selected_rows > 0:
+        duration_seconds = duration_ms / 1000
+        metrics["fast_agent/eval/duration_seconds"] = duration_seconds
+        metrics["fast_agent/eval/duration_seconds_per_row"] = duration_seconds / selected_rows
+        if duration_seconds > 0:
+            metrics["fast_agent/eval/rows_per_second"] = selected_rows / duration_seconds
     usage = batch_summary.get("usage")
     if isinstance(usage, Mapping):
         _copy_selected_metrics(
@@ -819,21 +836,24 @@ def _row_wise_eval_metrics(
             usage,
             prefix="fast_agent/eval/usage/",
             names=(
-                "input_tokens",
-                "output_tokens",
-                "total_tokens",
                 "billing_tokens",
-                "reasoning_tokens",
-                "tool_use_tokens",
                 "tool_calls",
-                "rows_with_usage",
                 "usage_coverage_percent",
             ),
         )
         rows_with_usage = usage.get("rows_with_usage")
-        billing_tokens = usage.get("billing_tokens")
-        if _is_numeric_metric(rows_with_usage) and rows_with_usage > 0 and _is_numeric_metric(billing_tokens):
-            metrics["fast_agent/eval/usage/billing_tokens_per_row"] = billing_tokens / rows_with_usage
+        if _is_numeric_metric(rows_with_usage) and rows_with_usage > 0:
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "billing_tokens",
+                "reasoning_tokens",
+                "tool_use_tokens",
+                "tool_calls",
+            ):
+                value = usage.get(key)
+                if _is_numeric_metric(value):
+                    metrics[f"fast_agent/eval/usage/{key}_per_row"] = value / rows_with_usage
     cache = batch_summary.get("cache")
     if isinstance(cache, Mapping):
         _copy_selected_metrics(
@@ -841,16 +861,8 @@ def _row_wise_eval_metrics(
             cache,
             prefix="fast_agent/eval/cache/",
             names=(
-                "read_tokens",
-                "write_tokens",
-                "hit_tokens",
-                "served_tokens",
-                "activity_tokens",
-                "effective_input_tokens",
                 "hit_rate_percent",
-                "write_rate_percent",
-                "activity_rate_percent",
-                "served_to_effective_input_ratio",
+                "row_cache_activity_percent",
             ),
         )
     return metrics
@@ -864,11 +876,14 @@ def _filter_eval_metrics(
     if include_score_summary:
         return dict(metrics)
     blocked = {
-        "fast_agent/eval/batch_size",
         "fast_agent/eval/avg_score",
         "fast_agent/eval/num_metric_calls",
     }
-    return {key: value for key, value in metrics.items() if key not in blocked}
+    return {
+        key: value
+        for key, value in metrics.items()
+        if key not in blocked and not key.startswith("fast_agent/eval/objective_avg/")
+    }
 
 
 def _reflection_usage_metrics(
@@ -878,9 +893,13 @@ def _reflection_usage_metrics(
     duration_seconds: float,
 ) -> dict[str, NumericMetric]:
     metrics: dict[str, NumericMetric] = {
-        "fast_agent/reflection/call_index": call_index,
         "fast_agent/reflection/duration_seconds": duration_seconds,
     }
+    turn_count: int | None = None
+    turns = usage.get("turns")
+    if isinstance(turns, Sequence) and not isinstance(turns, str | bytes):
+        turn_count = len(turns)
+        metrics["fast_agent/reflection/turns"] = turn_count
     summary = usage.get("summary")
     if isinstance(summary, Mapping):
         _copy_selected_metrics(
@@ -888,20 +907,20 @@ def _reflection_usage_metrics(
             summary,
             prefix="fast_agent/reflection/usage/",
             names=(
-                "cumulative_input_tokens",
-                "cumulative_output_tokens",
-                "cumulative_total_tokens",
                 "cumulative_billing_tokens",
-                "cumulative_reasoning_tokens",
-                "cumulative_cache_read_tokens",
-                "cumulative_cache_write_tokens",
-                "cumulative_cache_hit_tokens",
                 "cache_hit_rate_percent",
             ),
         )
-    turns = usage.get("turns")
-    if isinstance(turns, Sequence) and not isinstance(turns, str | bytes):
-        metrics["fast_agent/reflection/turns"] = len(turns)
+        if turn_count:
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "billing_tokens",
+                "reasoning_tokens",
+            ):
+                value = summary.get(f"cumulative_{key}")
+                if _is_numeric_metric(value):
+                    metrics[f"fast_agent/reflection/usage/{key}_per_turn"] = value / turn_count
     return metrics
 
 
@@ -929,6 +948,11 @@ def _evaluation_event_metrics(
             metrics[metric_key] = int(value)
         elif _is_numeric_metric(value):
             metrics[metric_key] = value
+    total_metric_calls = event.get("total_metric_calls")
+    if not _is_numeric_metric(total_metric_calls):
+        total_metric_calls = event.get("metric_calls_used")
+    if _is_numeric_metric(total_metric_calls):
+        metrics["gepa/total_metric_calls"] = total_metric_calls
     if not include_context:
         return metrics
     parent_ids = event.get("parent_ids")
@@ -951,6 +975,11 @@ def _proposal_event_metrics(
     iteration = event.get("iteration")
     if _is_numeric_metric(iteration):
         metrics["gepa/iteration"] = iteration
+    total_metric_calls = event.get("total_metric_calls")
+    if not _is_numeric_metric(total_metric_calls):
+        total_metric_calls = event.get("metric_calls_used")
+    if _is_numeric_metric(total_metric_calls):
+        metrics["gepa/total_metric_calls"] = total_metric_calls
     if not include_context:
         return metrics
     new_instructions = event.get("new_instructions")

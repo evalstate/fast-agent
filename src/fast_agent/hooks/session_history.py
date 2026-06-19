@@ -163,7 +163,7 @@ def _session_history_context(ctx: "HookContext") -> _SessionHistoryContext:
     agent_context = ctx.context
     acp_context = agent_context.acp if agent_context else None
     if acp_context is None:
-        return _SessionHistoryContext()
+        return _SessionHistoryContext(session_cwd=Path.cwd().resolve())
 
     return _SessionHistoryContext(
         acp_session_id=acp_context.session_id,

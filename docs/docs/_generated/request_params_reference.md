@@ -32,7 +32,7 @@
 | `emit_loop_progress` | `bool` | `False` |  |
 | `tool_result_mode` | `Literal` | `'postprocess'` |  |
 | `batch_context` | `fast_agent.llm.request_params.BatchRequestContext | None` | `None` |  |
-| `streaming_timeout` | `float | None` | `300.0` |  |
+| `streaming_timeout` | `float | None` | `120.0` |  |
 | `top_p` | `float | None` | `None` |  |
 | `top_k` | `int | None` | `None` |  |
 | `min_p` | `float | None` | `None` |  |

@@ -12,6 +12,7 @@ from fast_agent.core.agent_app import AgentRefreshResult
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui import interactive_prompt
 from fast_agent.ui.interactive_prompt import InteractivePrompt
+from fast_agent.ui.prompt import input as prompt_input
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -177,7 +178,7 @@ async def test_prompt_loop_resolves_attach_paths_from_shell_working_dir(
 
     monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
     monkeypatch.setattr(
-        interactive_prompt, "resolve_shell_working_dir", lambda **_kwargs: shell_dir
+        prompt_input, "resolve_shell_working_dir", lambda **_kwargs: shell_dir
     )
 
     sent_payloads: list[str | PromptMessageExtended] = []
@@ -280,7 +281,7 @@ async def test_resolve_prompt_payload_uses_shell_working_dir_for_local_file_ment
     notes.write_text("hello", encoding="utf-8")
 
     monkeypatch.setattr(
-        interactive_prompt, "resolve_shell_working_dir", lambda **_kwargs: shell_dir
+        prompt_input, "resolve_shell_working_dir", lambda **_kwargs: shell_dir
     )
 
     prompt_ui = InteractivePrompt()

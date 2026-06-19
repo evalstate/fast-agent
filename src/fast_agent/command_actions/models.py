@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
@@ -58,6 +58,16 @@ class PluginCommandActionSpec:
     handler: str
     input_hint: str | None = None
     key: str | None = None
+    completer: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PluginCommandActionImage:
+    """Image source a plugin command wants rendered in the terminal."""
+
+    source: str
+    label: str | None = None
+    mime_type: str | None = None
 
 
 @dataclass(slots=True)
@@ -69,6 +79,29 @@ class PluginCommandActionResult:
     buffer_prefill: str | None = None
     switch_agent: str | None = None
     refresh_agents: bool = False
+    images: list[PluginCommandActionImage] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class PluginCommandCompletion:
+    """Completion returned by a plugin command completer."""
+
+    value: str
+    display: str | None = None
+    detail: str | None = None
+
+
+@dataclass(slots=True)
+class PluginCommandCompletionContext:
+    """Runtime context passed to plugin command completion functions."""
+
+    command_name: str
+    arguments: str
+    current_token: str
+    completed_tokens: tuple[str, ...]
+    agent: PluginCommandAgentProtocol
+    settings: "Settings | None" = None
+    session_cwd: Path | None = None
 
 
 class PluginCommandActionFunction(Protocol):
@@ -80,6 +113,17 @@ class PluginCommandActionFunction(Protocol):
         self,
         ctx: "PluginCommandActionContext",
     ) -> Awaitable[PluginCommandActionResult | str | None]: ...
+
+
+class PluginCommandCompletionFunction(Protocol):
+    """Async plugin command completion callable."""
+
+    __name__: str
+
+    def __call__(
+        self,
+        ctx: PluginCommandCompletionContext,
+    ) -> Awaitable[list[PluginCommandCompletion | str]]: ...
 
 
 @dataclass(frozen=True, slots=True)

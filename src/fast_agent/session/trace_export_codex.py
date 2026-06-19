@@ -1058,6 +1058,11 @@ def _session_meta_payload(
         payload["model_provider"] = meta.provider
     if meta.model_spec is not None:
         payload["model_spec"] = meta.model_spec
+    if resolved.snapshot.continuation.git is not None:
+        payload["git"] = resolved.snapshot.continuation.git.model_dump(
+            mode="json",
+            exclude_none=True,
+        )
     if agent_snapshot.resolved_prompt:
         payload["base_instructions"] = {
             "text": _sanitize_text(sanitization, agent_snapshot.resolved_prompt)

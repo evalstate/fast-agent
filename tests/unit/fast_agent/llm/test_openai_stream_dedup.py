@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
@@ -75,6 +76,29 @@ class ToolStreamRecorder:
 async def _stream_chunks(chunks: list[StubChunk]):
     for chunk in chunks:
         yield chunk
+
+
+async def _raw_stream_chunks(chunks: list[object]):
+    for chunk in chunks:
+        yield chunk
+
+
+@pytest.mark.asyncio
+async def test_stream_error_chunk_raises_provider_error() -> None:
+    llm = OpenAILLM(context=Context(), model="gpt-test")
+
+    with pytest.raises(RuntimeError, match="Provider stream error: .*empty array"):
+        await llm._process_stream(
+            _raw_stream_chunks(
+                [
+                    SimpleNamespace(
+                        choices=None,
+                        error_message="`tools` must not be an empty array.",
+                    )
+                ]
+            ),
+            "gpt-test",
+        )
 
 
 @pytest.mark.asyncio

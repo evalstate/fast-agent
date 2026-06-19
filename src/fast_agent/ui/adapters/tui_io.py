@@ -23,6 +23,8 @@ from fast_agent.ui.model_reference_picker import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from rich.console import RenderableType
+
     from fast_agent.commands.context import AgentProvider
     from fast_agent.config import Settings
     from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
@@ -56,6 +58,7 @@ class TuiMarkdownDisplay(TuiStatusDisplay, Protocol):
         right_info: str,
         truncate_content: bool,
         render_markdown: bool,
+        post_content: "RenderableType | None" = None,
     ) -> None: ...
 
 
@@ -156,6 +159,7 @@ class TuiCommandIO(CommandIO):
                 right_info=message.right_info or "",
                 truncate_content=False,
                 render_markdown=True,
+                post_content=message.post_content,
             )
             return
 
@@ -185,6 +189,18 @@ class TuiCommandIO(CommandIO):
             content = header
 
         self._apply_channel_style(content, message.channel)
+
+        if message.post_content is not None and isinstance(display, TuiMarkdownDisplay):
+            display.display_message(
+                content=content.plain,
+                message_type=MessageType.ASSISTANT,
+                name=message.agent_name or self.agent_name,
+                right_info=message.right_info or "",
+                truncate_content=False,
+                render_markdown=False,
+                post_content=message.post_content,
+            )
+            return
 
         display.show_status_message(content)
 

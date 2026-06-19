@@ -5,6 +5,7 @@ Enhanced prompt functionality with advanced prompt_toolkit features.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from contextlib import suppress
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ from importlib.metadata import version
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, runtime_checkable
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import Completer, WordCompleter
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
@@ -86,7 +87,6 @@ from fast_agent.ui.prompt.agent_info import (
 from fast_agent.ui.prompt.agent_info import (
     display_all_agents_with_hierarchy as _display_all_agents_with_hierarchy_impl,
 )
-from fast_agent.ui.prompt.completer import AgentCompleter
 from fast_agent.ui.prompt.input_runtime import (
     build_prompt_style,
     cleanup_prompt_session,
@@ -223,6 +223,26 @@ _SHELL_PATH_SWITCH_DELAY_SECONDS = 8.0
 _ELLIPSIS = "…"
 logger = get_logger(__name__)
 ModelSettingT = TypeVar("ModelSettingT")
+
+
+class _LazyAgentCompleter(Completer):
+    def __init__(self, **kwargs: Any) -> None:
+        self._kwargs = kwargs
+        self._delegate: Completer | None = None
+        self._lock = threading.Lock()
+
+    def _get_delegate(self) -> Completer:
+        if self._delegate is None:
+            with self._lock:
+                if self._delegate is None:
+                    from fast_agent.ui.prompt.completer import AgentCompleter
+
+                    self._delegate = AgentCompleter(**self._kwargs)
+                    self._kwargs = {}
+        return self._delegate
+
+    def get_completions(self, document: Any, complete_event: Any):
+        yield from self._get_delegate().get_completions(document, complete_event)
 
 
 def _env_float(name: str, default: float) -> float:
@@ -1250,7 +1270,7 @@ async def get_enhanced_input(
     )
     session = create_prompt_session(
         history=agent_histories[agent_name],
-        completer=AgentCompleter(
+        completer=_LazyAgentCompleter(
             agents=list(available_agents) if available_agents else [],
             agent_types=agent_types or {},
             is_human_input=is_human_input,

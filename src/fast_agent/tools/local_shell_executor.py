@@ -218,8 +218,13 @@ class LocalShellExecutor:
             )
         )
 
-        output.exit_code = await self._wait_for_process_exit(process)
-        await self._cancel_task_if_running(watchdog_task)
+        try:
+            output.exit_code = await self._wait_for_process_exit(process)
+        except asyncio.CancelledError:
+            await self._terminate_cancelled_process(process, is_windows=plan.is_windows)
+            raise
+        finally:
+            await self._cancel_task_if_running(watchdog_task)
         drain_timed_out = await self._drain_output_tasks(
             [stdout_task, stderr_task],
             timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
@@ -416,6 +421,15 @@ class LocalShellExecutor:
                 process.kill()
             except Exception:
                 return
+
+    async def _terminate_cancelled_process(
+        self,
+        process: asyncio.subprocess.Process,
+        *,
+        is_windows: bool,
+    ) -> None:
+        self._logger.debug("Shell execution cancelled, terminating process group")
+        await self._terminate_timed_out_process(process, is_windows=is_windows)
 
     async def _terminate_windows_process(self, process: asyncio.subprocess.Process) -> None:
         try:

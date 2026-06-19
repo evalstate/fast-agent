@@ -30,6 +30,7 @@ from fast_agent.llm.provider.google._stream_capture import (
     stream_capture_filename,
 )
 from fast_agent.llm.provider.google.google_converter import GoogleConverter, GoogleToolResult
+from fast_agent.llm.provider.streaming_timeouts import await_stream_start
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     format_reasoning_setting,
@@ -374,6 +375,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         contents: list[types.Content],
         config: types.GenerateContentConfig,
         client: genai.Client,
+        timeout_seconds: float | None,
     ) -> types.GenerateContentResponse | None:
         """Stream Gemini responses and return the final aggregated completion."""
         capture_base = stream_capture_filename(self.chat_turn())
@@ -386,14 +388,20 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             },
         )
         try:
-            response_stream = await client.aio.models.generate_content_stream(
-                model=model,
-                contents=cast("types.ContentListUnion", contents),
-                config=config,
+            response_stream = await await_stream_start(
+                client.aio.models.generate_content_stream(
+                    model=model,
+                    contents=cast("types.ContentListUnion", contents),
+                    config=config,
+                ),
+                timeout_seconds=timeout_seconds,
+                timeout_message=f"Google stream did not start within {timeout_seconds} seconds.",
             )
         except AttributeError:
             # Older SDKs might not expose streaming; fall back to non-streaming.
             return None
+        except TimeoutError:
+            raise
         except errors.APIError:
             raise
         except Exception as exc:  # pragma: no cover - defensive fallback
@@ -848,6 +856,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         generate_content_config: types.GenerateContentConfig,
         response_mime_type: str | None,
         response_schema: object | None,
+        streaming_timeout: float | None,
     ) -> types.GenerateContentResponse:
         async with client.aio:
             api_response = None
@@ -858,6 +867,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     contents=conversation_history,
                     config=generate_content_config,
                     client=client,
+                    timeout_seconds=streaming_timeout,
                 )
             if api_response is None:
                 api_response = await client.aio.models.generate_content(
@@ -1118,6 +1128,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 generate_content_config=generate_content_config,
                 response_mime_type=response_mime_type,
                 response_schema=response_schema,
+                streaming_timeout=request_params.streaming_timeout,
             )
             self.logger.debug("Google generate_content response:", data=api_response)
             self._track_google_usage(api_response, model_name)

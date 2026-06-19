@@ -22,7 +22,6 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.cli.runtime.agent_setup import (
     _agent_config_defines_startup_model,
     _attach_cli_servers_to_selected_agent,
-    _emit_model_picker_keyring_notice,
     _explicit_agent_cards_define_startup_model,
     _generic_model_prompt_default,
     _last_used_model_reference,
@@ -31,6 +30,7 @@ from fast_agent.cli.runtime.agent_setup import (
     _resolve_model_picker_initial_selection,
     _resolve_model_without_hardcoded_default,
     _select_model_from_picker,
+    _select_startup_model_if_needed,
     _should_prompt_for_model_picker,
     _split_requested_models,
     run_agent_request,
@@ -69,6 +69,7 @@ def _make_request(
     prompt_file: str | None = None,
     agent_cards: list[str] | None = None,
     card_tools: list[str] | None = None,
+    resume: str | None = None,
 ) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
@@ -81,7 +82,7 @@ def _make_request(
         message=message,
         prompt_file=prompt_file,
         result_file=None,
-        resume=None,
+        resume=resume,
         url_servers=None,
         stdio_servers=None,
         agent_name="agent",
@@ -143,6 +144,40 @@ def test_should_prompt_for_model_picker_when_cards_present() -> None:
         stdin_is_tty=True,
         stdout_is_tty=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_startup_model_selection_skipped_when_resuming(monkeypatch) -> None:
+    # On --resume the session snapshot owns the model; the startup picker must
+    # not run (its selection would be overridden by hydration anyway). Instead
+    # a distinctive model source is returned so the startup status notice names
+    # session resumption as the source.
+    async def _fail(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("model picker must not run during resume")
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail
+    )
+    request = _make_request(resume="__latest__")
+
+    assert await _select_startup_model_if_needed(request) == "session resumption"
+    assert request.model is None
+
+
+@pytest.mark.asyncio
+async def test_startup_model_selection_skipped_when_resuming_named_session(
+    monkeypatch,
+) -> None:
+    async def _fail(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("model picker must not run during resume")
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail
+    )
+    request = _make_request(resume="session-123")
+
+    assert await _select_startup_model_if_needed(request) == "session resumption"
+    assert request.model is None
 
 
 def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
@@ -259,33 +294,6 @@ def test_explicit_remote_agent_card_model_reference_only_suppresses_when_availab
         )
         is expected
     )
-
-
-def test_model_picker_keyring_notice_is_emitted_immediately(monkeypatch) -> None:
-    emitted: list[tuple[str, bool]] = []
-    queued: list[object] = []
-
-    def fake_emit_keyring_access_notice(*, purpose=None, emitter=None):
-        assert purpose == "checking stored Codex OAuth tokens for model setup"
-        assert emitter is not None
-        emitter("keyring notice")
-        return True
-
-    monkeypatch.setattr(
-        "fast_agent.cli.runtime.agent_setup.emit_keyring_access_notice",
-        fake_emit_keyring_access_notice,
-    )
-    monkeypatch.setattr(
-        "fast_agent.cli.runtime.agent_setup.typer.echo",
-        lambda message, err=False: emitted.append((message, err)),
-    )
-    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.sys.stderr.isatty", lambda: True)
-    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", queued.append)
-
-    _emit_model_picker_keyring_notice(_make_request())
-
-    assert emitted == [("keyring notice", True)]
-    assert queued == []
 
 
 def test_resolve_model_without_hardcoded_default_returns_none_without_sources() -> None:
@@ -856,9 +864,6 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
         del args, kwargs
         return "gpt-4.1-mini"
 
-    def fake_emit_model_picker_keyring_notice(*args, **kwargs) -> None:
-        del args, kwargs
-
     class _AbortFastAgent:
         def __init__(self, *args, **kwargs) -> None:
             del args, kwargs
@@ -877,10 +882,6 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
         monkeypatch.setattr(
             "fast_agent.cli.runtime.agent_setup._select_model_from_picker",
             fake_select_model_from_picker,
-        )
-        monkeypatch.setattr(
-            "fast_agent.cli.runtime.agent_setup._emit_model_picker_keyring_notice",
-            fake_emit_model_picker_keyring_notice,
         )
         monkeypatch.setattr(fast_agent, "FastAgent", _AbortFastAgent)
 

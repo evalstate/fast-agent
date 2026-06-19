@@ -10,6 +10,8 @@ from rich.text import Text
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from rich.console import RenderableType
+
 CommandChannel = Literal["system", "info", "warning", "error"]
 COMMAND_CHANNELS: tuple[CommandChannel, ...] = ("system", "info", "warning", "error")
 COMMAND_CHANNEL_LABELS: dict[CommandChannel, str] = {
@@ -38,6 +40,7 @@ class CommandMessage:
     agent_name: str | None = None
     render_markdown: bool = False
     metadata: dict[str, object] = field(default_factory=dict)
+    post_content: RenderableType | None = None
 
     def plain_text(self) -> str:
         content = self.text
@@ -68,6 +71,7 @@ class CommandOutcome:
         agent_name: str | None = None,
         render_markdown: bool = False,
         metadata: Mapping[str, object] | None = None,
+        post_content: RenderableType | None = None,
     ) -> None:
         self.messages.append(
             CommandMessage(
@@ -78,5 +82,6 @@ class CommandOutcome:
                 agent_name=agent_name,
                 render_markdown=render_markdown,
                 metadata=dict(metadata) if metadata is not None else {},
+                post_content=post_content,
             )
         )

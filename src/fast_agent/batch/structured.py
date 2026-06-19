@@ -57,6 +57,8 @@ from fast_agent.session.trace_export_errors import SessionExportUploadError
 from fast_agent.utils.numeric import nonnegative_int_or_none, positive_int_or_none
 from fast_agent.utils.text import strip_to_none
 
+DEFAULT_CHUNKS_PER_WORKER = 8
+
 if TYPE_CHECKING:
     from fast_agent.core.fastagent import FastAgent
     from fast_agent.interfaces import AgentProtocol
@@ -105,7 +107,7 @@ class StructuredBatchOptions:
 
 
 @dataclass(frozen=True)
-class BatchShard:
+class BatchChunk:
     index: int
     offset: int
     limit: int
@@ -119,7 +121,7 @@ class BatchShard:
 class ParallelManifest:
     input_rows: int
     selected_rows: int
-    shards: list[BatchShard]
+    chunks: list[BatchChunk]
 
 
 @dataclass
@@ -140,7 +142,7 @@ class _UsageTotalsSnapshot:
 
 
 @dataclass
-class _ShardMonitorSnapshot:
+class _ChunkMonitorSnapshot:
     processed_rows: int = 0
     skipped_rows: int = 0
     failed_rows: int = 0
@@ -156,10 +158,10 @@ class _ParallelMonitorState:
     summary: BatchSummary
 
 
-class _ParallelShardMonitor:
+class _ParallelChunkMonitor:
     def __init__(self, state: _ParallelMonitorState) -> None:
         self._state = state
-        self._snapshot = _ShardMonitorSnapshot()
+        self._snapshot = _ChunkMonitorSnapshot()
 
     def start(self, options: StructuredBatchOptions, selected_rows: int) -> None:
         pass
@@ -183,7 +185,7 @@ class _ParallelShardMonitor:
             current=summary.usage_totals,
             previous=self._snapshot.usage,
         )
-        self._snapshot = _snapshot_shard_summary(summary)
+        self._snapshot = _snapshot_chunk_summary(summary)
         self._state.monitor.row(aggregate)
 
     def complete(self, payload: Mapping[str, Any]) -> None:
@@ -211,8 +213,8 @@ def _snapshot_usage_totals(totals: BatchUsageTotals) -> _UsageTotalsSnapshot:
     )
 
 
-def _snapshot_shard_summary(summary: BatchSummary) -> _ShardMonitorSnapshot:
-    return _ShardMonitorSnapshot(
+def _snapshot_chunk_summary(summary: BatchSummary) -> _ChunkMonitorSnapshot:
+    return _ChunkMonitorSnapshot(
         processed_rows=summary.processed_rows,
         skipped_rows=summary.skipped_rows,
         failed_rows=summary.failed_rows,
@@ -923,75 +925,25 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
     monitor.start(options, len(selected))
 
     try:
-        from fast_agent import FastAgent
-
-        fast = FastAgent(
+        fast, target_agent_name = await _configured_batch_fast(
+            options=options,
+            instruction=instruction,
             name="batch",
-            parse_cli_args=False,
-            ignore_unknown_args=True,
-            quiet=True,
-            environment_dir=options.environment_dir,
         )
-        if options.model:
-            fast.args.model = options.model
-        if options.variables:
-            fast.set_prompt_context(options.variables)
-
-        target_agent_name = await _configure_batch_worker(fast, options, instruction)
         if options.agent_card_source is not None:
             summary.metadata["agent"] = target_agent_name
 
-        if options.shell_runtime:
-            await fast.app.initialize()
-            context = cast("Any", fast.app.context)
-            context.shell_runtime = True
-
-        output_mode = _output_mode(options)
-
         async with fast.run() as agent_app:
             worker = agent_app._agent(target_agent_name)
-            trace_recorder = _configure_trace_recorder(worker, options, summary.metadata)
-            with (
-                options.output_path.open(output_mode, encoding="utf-8") as output_handle,
-                _optional_jsonl_handle(
-                    options.error_output_path, "a" if options.resume else "w"
-                ) as error_handle,
-                _optional_jsonl_handle(
-                    options.telemetry_output_path,
-                    "a" if options.resume else "w",
-                ) as telemetry_handle,
-            ):
-                for candidate in selected:
-                    if _max_errors_reached(summary.failed_rows, options.max_errors):
-                        break
-                    prepared = _prepare_batch_row(
-                        candidate,
-                        options=options,
-                        template=template,
-                    )
-                    if prepared.identity in completed_ids:
-                        summary.skipped_rows += 1
-                        continue
-
-                    await _process_prepared_batch_row(
-                        worker=worker,
-                        prepared=prepared,
-                        schema_source=schema_source,
-                        options=options,
-                        output_handle=cast("TextIO", output_handle),
-                        error_handle=error_handle,
-                        telemetry_handle=telemetry_handle,
-                        summary=summary,
-                        monitor=monitor,
-                        trace_recorder=trace_recorder,
-                    )
-                    if _max_errors_reached(summary.failed_rows, options.max_errors):
-                        break
-
-            _finalize_trace_export(
+            await _process_batch_selection(
+                worker=worker,
                 options=options,
+                selected=selected,
+                completed_ids=completed_ids,
+                schema_source=schema_source,
+                template=template,
                 summary=summary,
-                trace_recorder=trace_recorder,
+                monitor=monitor,
             )
 
         payload = _write_batch_summary(
@@ -1005,8 +957,90 @@ async def run_structured_batch(options: StructuredBatchOptions) -> dict[str, Any
         monitor.close()
 
 
+async def _configured_batch_fast(
+    *,
+    options: StructuredBatchOptions,
+    instruction: str | None,
+    name: str,
+) -> tuple["FastAgent", str]:
+    from fast_agent import FastAgent
+
+    fast = FastAgent(
+        name=name,
+        parse_cli_args=False,
+        ignore_unknown_args=True,
+        quiet=True,
+        environment_dir=options.environment_dir,
+    )
+    if options.model:
+        fast.args.model = options.model
+    if options.variables:
+        fast.set_prompt_context(options.variables)
+
+    target_agent_name = await _configure_batch_worker(fast, options, instruction)
+    if options.shell_runtime:
+        await fast.app.initialize()
+        context = cast("Any", fast.app.context)
+        context.shell_runtime = True
+    return fast, target_agent_name
+
+
+async def _process_batch_selection(
+    *,
+    worker: "AgentProtocol",
+    options: StructuredBatchOptions,
+    selected: list[RowCandidate],
+    completed_ids: set[str | int],
+    schema_source: LoadedSchemaSource | None,
+    template: str,
+    summary: BatchSummary,
+    monitor: BatchMonitor,
+) -> None:
+    output_mode = _output_mode(options)
+    trace_recorder = _configure_trace_recorder(worker, options, summary.metadata)
+    with (
+        options.output_path.open(output_mode, encoding="utf-8") as output_handle,
+        _optional_jsonl_handle(options.error_output_path, "a" if options.resume else "w")
+        as error_handle,
+        _optional_jsonl_handle(options.telemetry_output_path, "a" if options.resume else "w")
+        as telemetry_handle,
+    ):
+        for candidate in selected:
+            if _max_errors_reached(summary.failed_rows, options.max_errors):
+                break
+            prepared = _prepare_batch_row(
+                candidate,
+                options=options,
+                template=template,
+            )
+            if prepared.identity in completed_ids:
+                summary.skipped_rows += 1
+                continue
+
+            await _process_prepared_batch_row(
+                worker=worker,
+                prepared=prepared,
+                schema_source=schema_source,
+                options=options,
+                output_handle=cast("TextIO", output_handle),
+                error_handle=error_handle,
+                telemetry_handle=telemetry_handle,
+                summary=summary,
+                monitor=monitor,
+                trace_recorder=trace_recorder,
+            )
+            if _max_errors_reached(summary.failed_rows, options.max_errors):
+                break
+
+    _finalize_trace_export(
+        options=options,
+        summary=summary,
+        trace_recorder=trace_recorder,
+    )
+
+
 async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict[str, Any]:
-    """Run a batch job across local shard workers and merge their JSONL outputs."""
+    """Run a batch job across local workers and merge deterministic chunk outputs."""
     options = normalize_structured_batch_options(options)
     parallel = options.parallel or 1
     if parallel <= 1:
@@ -1022,10 +1056,10 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
     started_monotonic = time.monotonic()
     _prepare_parallel_work_dir(work_dir, resume=options.resume, overwrite=options.overwrite)
 
-    shards: list[BatchShard] | None = None
+    chunks: list[BatchChunk] | None = None
     if options.resume:
         manifest = _load_parallel_manifest(options, work_dir, input_rows=input_counts.input_rows)
-        shards = manifest.shards
+        chunks = manifest.chunks
         selected_rows = manifest.selected_rows
     else:
         selected_rows = input_counts.selected_rows
@@ -1041,7 +1075,7 @@ async def run_parallel_structured_batch(options: StructuredBatchOptions) -> dict
             started_at=started_at,
             started_monotonic=started_monotonic,
             selected_rows=selected_rows,
-            shards=shards if options.resume else None,
+            chunks=chunks if options.resume else None,
             monitor=monitor,
         )
     finally:
@@ -1057,30 +1091,39 @@ async def _run_parallel_structured_batch_started(
     started_at: str,
     started_monotonic: float,
     selected_rows: int,
-    shards: list[BatchShard] | None,
+    chunks: list[BatchChunk] | None,
     monitor: BatchMonitor,
 ) -> dict[str, Any]:
     if not selected_rows:
         _write_empty_parallel_outputs(options)
-        payload = _empty_parallel_summary(options, started_at, input_counts.input_rows, work_dir)
+        payload = _empty_parallel_summary(
+            options,
+            started_at,
+            input_counts.input_rows,
+            work_dir,
+            worker_count=parallel,
+        )
         _write_parallel_summary(options, payload)
         _cleanup_parallel_work_dir(options, work_dir)
         monitor.complete(payload)
         return payload
 
     if not options.resume:
-        shards = _plan_parallel_shards(options, work_dir, selected_rows, parallel)
+        chunks = _plan_parallel_chunks(options, work_dir, selected_rows, parallel)
         _write_parallel_manifest(
             options,
             work_dir,
-            shards,
+            chunks,
             input_counts.input_rows,
             selected_rows,
         )
-    assert shards is not None
+    assert chunks is not None
     _emit_progress(
         options,
-        f"planned {len(shards)} shards for {selected_rows} selected rows work_dir={work_dir}",
+        (
+            f"planned {len(chunks)} chunks for {selected_rows} selected rows "
+            f"workers={min(parallel, len(chunks))} work_dir={work_dir}"
+        ),
     )
 
     monitor_state = _ParallelMonitorState(
@@ -1092,45 +1135,32 @@ async def _run_parallel_structured_batch_started(
             metadata={},
         ),
     )
-    shard_tasks = []
-    for shard in shards:
-        _emit_progress(
-            options,
-            (
-                f"shard {shard.index} start offset={shard.offset} "
-                f"limit={shard.limit} output={shard.output_path}"
-            ),
-        )
-        shard_tasks.append(
-            run_structured_batch(
-                _shard_options(
-                    options,
-                    shard,
-                    monitor=_ParallelShardMonitor(monitor_state),
-                )
-            )
-        )
 
     try:
-        shard_summaries = await asyncio.gather(*shard_tasks)
+        chunk_summaries = await _run_parallel_chunks(
+            options=options,
+            chunks=chunks,
+            worker_count=parallel,
+            monitor_state=monitor_state,
+        )
     except Exception:
-        _emit_progress(options, f"failed; kept shard outputs in {work_dir}")
+        _emit_progress(options, f"failed; kept chunk outputs in {work_dir}")
         raise
 
-    _emit_progress(options, f"merging {len(shards)} shards into {options.output_path}")
-    _merge_jsonl_shards([shard.output_path for shard in shards], options.output_path, work_dir)
+    _emit_progress(options, f"merging {len(chunks)} chunks into {options.output_path}")
+    _merge_jsonl_chunks([chunk.output_path for chunk in chunks], options.output_path, work_dir)
     if options.error_output_path is not None:
-        _merge_jsonl_shards(
-            [shard.error_output_path for shard in shards if shard.error_output_path is not None],
+        _merge_jsonl_chunks(
+            [chunk.error_output_path for chunk in chunks if chunk.error_output_path is not None],
             options.error_output_path,
             work_dir,
         )
     if options.telemetry_output_path is not None:
-        _merge_jsonl_shards(
+        _merge_jsonl_chunks(
             [
-                shard.telemetry_output_path
-                for shard in shards
-                if shard.telemetry_output_path is not None
+                chunk.telemetry_output_path
+                for chunk in chunks
+                if chunk.telemetry_output_path is not None
             ],
             options.telemetry_output_path,
             work_dir,
@@ -1144,8 +1174,9 @@ async def _run_parallel_structured_batch_started(
         input_rows=input_counts.input_rows,
         selected_rows=selected_rows,
         work_dir=work_dir,
-        shards=shards,
-        shard_summaries=shard_summaries,
+        worker_count=parallel,
+        chunks=chunks,
+        chunk_summaries=chunk_summaries,
     )
     _write_parallel_summary(options, payload)
     monitor.complete(payload)
@@ -1160,6 +1191,133 @@ async def _run_parallel_structured_batch_started(
     )
     _cleanup_parallel_work_dir(options, work_dir)
     return payload
+
+
+async def _run_parallel_chunks(
+    *,
+    options: StructuredBatchOptions,
+    chunks: list[BatchChunk],
+    worker_count: int,
+    monitor_state: _ParallelMonitorState,
+) -> list[dict[str, Any]]:
+    schema_source = load_schema_source(options)
+    template = _batch_template(options)
+    instruction = _batch_instruction(options)
+
+    queue: asyncio.Queue[BatchChunk] = asyncio.Queue()
+    for chunk in chunks:
+        queue.put_nowait(chunk)
+
+    summaries: list[dict[str, Any] | None] = [None] * len(chunks)
+    active_workers = min(worker_count, len(chunks))
+    await asyncio.gather(
+        *(
+            _run_parallel_chunk_worker(
+                worker_index=index,
+                options=options,
+                queue=queue,
+                summaries=summaries,
+                schema_source=schema_source,
+                template=template,
+                instruction=instruction,
+                monitor_state=monitor_state,
+            )
+            for index in range(active_workers)
+        )
+    )
+    return [summary for summary in summaries if summary is not None]
+
+
+async def _run_parallel_chunk_worker(
+    *,
+    worker_index: int,
+    options: StructuredBatchOptions,
+    queue: asyncio.Queue[BatchChunk],
+    summaries: list[dict[str, Any] | None],
+    schema_source: LoadedSchemaSource | None,
+    template: str,
+    instruction: str | None,
+    monitor_state: _ParallelMonitorState,
+) -> None:
+    fast, target_agent_name = await _configured_batch_fast(
+        options=options,
+        instruction=instruction,
+        name=f"batch-worker-{worker_index}",
+    )
+    async with fast.run() as agent_app:
+        worker = agent_app._agent(target_agent_name)
+        while True:
+            try:
+                chunk = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+
+            try:
+                summaries[chunk.index] = await _run_parallel_chunk(
+                    worker=worker,
+                    target_agent_name=target_agent_name,
+                    options=options,
+                    chunk=chunk,
+                    worker_index=worker_index,
+                    schema_source=schema_source,
+                    template=template,
+                    monitor=_ParallelChunkMonitor(monitor_state),
+                )
+            finally:
+                queue.task_done()
+
+
+async def _run_parallel_chunk(
+    *,
+    worker: "AgentProtocol",
+    target_agent_name: str,
+    options: StructuredBatchOptions,
+    chunk: BatchChunk,
+    worker_index: int,
+    schema_source: LoadedSchemaSource | None,
+    template: str,
+    monitor: BatchMonitor,
+) -> dict[str, Any]:
+    chunk_options = _chunk_options(options, chunk, monitor=monitor)
+    _prepare_output_files(chunk_options)
+
+    loaded_candidates = _load_input_candidates(chunk_options)
+    selected = loaded_candidates.selected
+    _validate_selected_identities(selected, id_field=chunk_options.id_field)
+    completed_ids = load_completed_ids(chunk_options.output_path) if chunk_options.resume else set()
+
+    started_at = utc_now_iso()
+    summary = BatchSummary(
+        input_rows=loaded_candidates.input_rows,
+        selected_rows=len(selected),
+        started_at=started_at,
+        metadata=_batch_summary_metadata(chunk_options, schema_source=schema_source),
+    )
+    if chunk_options.agent_card_source is not None:
+        summary.metadata["agent"] = target_agent_name
+
+    _emit_progress(
+        options,
+        (
+            f"worker {worker_index} chunk {chunk.index} start "
+            f"offset={chunk.offset} limit={chunk.limit} output={chunk.output_path}"
+        ),
+    )
+    await _process_batch_selection(
+        worker=worker,
+        options=chunk_options,
+        selected=selected,
+        completed_ids=completed_ids,
+        schema_source=schema_source,
+        template=template,
+        summary=summary,
+        monitor=monitor,
+    )
+    return _write_batch_summary(
+        chunk_options,
+        summary,
+        completed_at=utc_now_iso(),
+    )
 
 
 def _validate_parallel_options(options: StructuredBatchOptions, parallel: int) -> None:
@@ -1182,7 +1340,7 @@ def _prepare_parallel_output_files(options: StructuredBatchOptions) -> None:
     if options.output_path.exists():
         if options.resume and not options.overwrite:
             raise ValueError(
-                "--parallel --resume resumes shard work directories, not an existing final output; "
+                "--parallel --resume resumes chunk work directories, not an existing final output; "
                 "move the output file or use --overwrite"
             )
         if not options.overwrite:
@@ -1238,24 +1396,28 @@ def _prepare_parallel_work_dir(work_dir: Path, *, resume: bool, overwrite: bool)
     work_dir.mkdir(parents=True, exist_ok=True)
 
 
-def _plan_parallel_shards(
+def _parallel_chunk_count(selected_rows: int, worker_count: int) -> int:
+    return min(selected_rows, worker_count * DEFAULT_CHUNKS_PER_WORKER)
+
+
+def _plan_parallel_chunks(
     options: StructuredBatchOptions,
     work_dir: Path,
     selected_rows: int,
-    parallel: int,
-) -> list[BatchShard]:
-    shard_count = min(parallel, selected_rows)
-    base = selected_rows // shard_count
-    remainder = selected_rows % shard_count
+    worker_count: int,
+) -> list[BatchChunk]:
+    chunk_count = _parallel_chunk_count(selected_rows, worker_count)
+    base = selected_rows // chunk_count
+    remainder = selected_rows % chunk_count
     global_offset = options.offset or 0
     relative_offset = 0
-    width = max(3, len(str(shard_count - 1)))
-    shards: list[BatchShard] = []
-    for index in range(shard_count):
+    width = max(3, len(str(chunk_count - 1)))
+    chunks: list[BatchChunk] = []
+    for index in range(chunk_count):
         limit = base + (1 if index < remainder else 0)
-        suffix = f"part-{index:0{width}d}"
-        shards.append(
-            BatchShard(
+        suffix = f"chunk-{index:0{width}d}"
+        chunks.append(
+            BatchChunk(
                 index=index,
                 offset=global_offset + relative_offset,
                 limit=limit,
@@ -1274,32 +1436,32 @@ def _plan_parallel_shards(
             )
         )
         relative_offset += limit
-    return shards
+    return chunks
 
 
-def _shard_options(
+def _chunk_options(
     options: StructuredBatchOptions,
-    shard: BatchShard,
+    chunk: BatchChunk,
     *,
     monitor: BatchMonitor,
 ) -> StructuredBatchOptions:
     return replace(
         options,
-        output_path=shard.output_path,
-        offset=shard.offset,
-        limit=shard.limit,
+        output_path=chunk.output_path,
+        offset=chunk.offset,
+        limit=chunk.limit,
         sample=None,
         seed=None,
         resume=options.resume,
         overwrite=not options.resume,
-        error_output_path=shard.error_output_path,
-        telemetry_output_path=shard.telemetry_output_path,
-        summary_output_path=shard.summary_output_path,
+        error_output_path=chunk.error_output_path,
+        telemetry_output_path=chunk.telemetry_output_path,
+        summary_output_path=chunk.summary_output_path,
         final_summary=False,
         parallel=None,
         work_dir=None,
         keep_temp=True,
-        progress_label=f"shard {shard.index}",
+        progress_label=f"chunk {chunk.index}",
         trackio=None,
         monitor=monitor,
     )
@@ -1308,7 +1470,7 @@ def _shard_options(
 def _write_parallel_manifest(
     options: StructuredBatchOptions,
     work_dir: Path,
-    shards: list[BatchShard],
+    chunks: list[BatchChunk],
     input_rows: int,
     selected_rows: int,
 ) -> None:
@@ -1316,24 +1478,26 @@ def _write_parallel_manifest(
         "input": _input_source_identity(options.input_path),
         "output": str(options.output_path),
         "parallel": options.parallel,
+        "worker_count": options.parallel,
+        "chunk_count": len(chunks),
         "input_rows": input_rows,
         "selected_rows": selected_rows,
         "created_at": utc_now_iso(),
-        "shards": [
+        "chunks": [
             {
-                "index": shard.index,
-                "offset": shard.offset,
-                "limit": shard.limit,
-                "output": str(shard.output_path),
-                "error_output": str(shard.error_output_path)
-                if shard.error_output_path is not None
+                "index": chunk.index,
+                "offset": chunk.offset,
+                "limit": chunk.limit,
+                "output": str(chunk.output_path),
+                "error_output": str(chunk.error_output_path)
+                if chunk.error_output_path is not None
                 else None,
-                "telemetry_output": str(shard.telemetry_output_path)
-                if shard.telemetry_output_path is not None
+                "telemetry_output": str(chunk.telemetry_output_path)
+                if chunk.telemetry_output_path is not None
                 else None,
-                "summary_output": str(shard.summary_output_path),
+                "summary_output": str(chunk.summary_output_path),
             }
-            for shard in shards
+            for chunk in chunks
         ],
     }
     (work_dir / "manifest.json").write_text(
@@ -1372,50 +1536,54 @@ def _load_parallel_manifest(
     if manifest_selected_rows is None:
         raise ValueError("Saved parallel manifest has invalid selected_rows")
 
-    manifest_shards = manifest_mapping.get("shards")
-    if not isinstance(manifest_shards, list):
-        raise ValueError("Saved parallel manifest has invalid shards")
+    manifest_chunks = manifest_mapping.get("chunks")
+    if manifest_chunks is None:
+        manifest_chunks = manifest_mapping.get("shards")
+    if not isinstance(manifest_chunks, list):
+        raise ValueError("Saved parallel manifest has invalid chunks")
 
-    shards = [_load_parallel_manifest_shard(item) for item in manifest_shards]
-    if sum(shard.limit for shard in shards) != manifest_selected_rows:
-        raise ValueError("Saved parallel manifest shard limits do not match selected_rows")
+    chunks = [_load_parallel_manifest_chunk(item) for item in manifest_chunks]
+    if [chunk.index for chunk in chunks] != list(range(len(chunks))):
+        raise ValueError("Saved parallel manifest chunk indexes must be contiguous")
+    if sum(chunk.limit for chunk in chunks) != manifest_selected_rows:
+        raise ValueError("Saved parallel manifest chunk limits do not match selected_rows")
 
     return ParallelManifest(
         input_rows=manifest_input_rows,
         selected_rows=manifest_selected_rows,
-        shards=shards,
+        chunks=chunks,
     )
 
 
-def _load_parallel_manifest_shard(item: object) -> BatchShard:
+def _load_parallel_manifest_chunk(item: object) -> BatchChunk:
     if not isinstance(item, dict):
-        raise ValueError("Saved parallel manifest has invalid shard entries")
-    shard = cast("Mapping[str, object]", item)
+        raise ValueError("Saved parallel manifest has invalid chunk entries")
+    chunk = cast("Mapping[str, object]", item)
 
-    output = shard.get("output")
-    summary_output = shard.get("summary_output")
-    error_output = shard.get("error_output")
-    telemetry_output = shard.get("telemetry_output")
+    output = chunk.get("output")
+    summary_output = chunk.get("summary_output")
+    error_output = chunk.get("error_output")
+    telemetry_output = chunk.get("telemetry_output")
 
-    index = nonnegative_int_or_none(shard.get("index"))
+    index = nonnegative_int_or_none(chunk.get("index"))
     if index is None:
-        raise ValueError("Saved parallel manifest has invalid shard index")
-    offset = nonnegative_int_or_none(shard.get("offset"))
+        raise ValueError("Saved parallel manifest has invalid chunk index")
+    offset = nonnegative_int_or_none(chunk.get("offset"))
     if offset is None:
-        raise ValueError("Saved parallel manifest has invalid shard offset")
-    limit = positive_int_or_none(shard.get("limit"))
+        raise ValueError("Saved parallel manifest has invalid chunk offset")
+    limit = positive_int_or_none(chunk.get("limit"))
     if limit is None:
-        raise ValueError("Saved parallel manifest has invalid shard limit")
+        raise ValueError("Saved parallel manifest has invalid chunk limit")
     if not isinstance(output, str):
-        raise ValueError("Saved parallel manifest has invalid shard output")
+        raise ValueError("Saved parallel manifest has invalid chunk output")
     if not isinstance(summary_output, str):
-        raise ValueError("Saved parallel manifest has invalid shard summary_output")
+        raise ValueError("Saved parallel manifest has invalid chunk summary_output")
     if error_output is not None and not isinstance(error_output, str):
-        raise ValueError("Saved parallel manifest has invalid shard error_output")
+        raise ValueError("Saved parallel manifest has invalid chunk error_output")
     if telemetry_output is not None and not isinstance(telemetry_output, str):
-        raise ValueError("Saved parallel manifest has invalid shard telemetry_output")
+        raise ValueError("Saved parallel manifest has invalid chunk telemetry_output")
 
-    return BatchShard(
+    return BatchChunk(
         index=index,
         offset=offset,
         limit=limit,
@@ -1433,13 +1601,13 @@ def _input_source_identity(source: str | Path) -> str:
     return str(Path(source_text).expanduser().resolve())
 
 
-def _merge_jsonl_shards(source_paths: list[Path], output_path: Path, work_dir: Path) -> None:
+def _merge_jsonl_chunks(source_paths: list[Path], output_path: Path, work_dir: Path) -> None:
     ensure_parent(output_path)
     tmp_path = work_dir / f"{output_path.name}.tmp"
     with tmp_path.open("w", encoding="utf-8") as output_handle:
         for source_path in source_paths:
             if not source_path.exists():
-                raise ValueError(f"Shard output missing: {source_path}")
+                raise ValueError(f"Chunk output missing: {source_path}")
             with source_path.open("r", encoding="utf-8") as input_handle:
                 shutil.copyfileobj(input_handle, output_handle)
     tmp_path.replace(output_path)
@@ -1454,12 +1622,13 @@ def _merge_parallel_summaries(
     input_rows: int,
     selected_rows: int,
     work_dir: Path,
-    shards: list[BatchShard],
-    shard_summaries: list[dict[str, Any]],
+    worker_count: int,
+    chunks: list[BatchChunk],
+    chunk_summaries: list[dict[str, Any]],
 ) -> dict[str, Any]:
     schema_source = load_schema_source(options)
-    processed_rows = sum(_summary_int(summary, "processed_rows") for summary in shard_summaries)
-    usage_totals = merge_usage_totals_from_summaries(shard_summaries)
+    processed_rows = sum(_summary_int(summary, "processed_rows") for summary in chunk_summaries)
+    usage_totals = merge_usage_totals_from_summaries(chunk_summaries)
     payload: dict[str, Any] = {
         "model": options.model,
         "input": str(options.input_path),
@@ -1468,34 +1637,36 @@ def _merge_parallel_summaries(
         "schema_model": options.schema_model,
         "instruction": str(options.instruction_source) if options.instruction_source else None,
         "agent_card": options.agent_card_source,
-        "agent": _first_summary_value(shard_summaries, "agent"),
+        "agent": _first_summary_value(chunk_summaries, "agent"),
         "template": str(options.template_source) if options.template_source else "<default>",
         "shell_runtime": options.shell_runtime,
         "output_mode": "structured" if schema_source is not None else "text",
         "export_traces": None,
         "hf_dataset": None,
         "hf_dataset_path": None,
-        "parallel": len(shards),
+        "parallel": worker_count,
+        "worker_count": worker_count,
+        "chunk_count": len(chunks),
         "work_dir": str(work_dir),
         "started_at": started_at,
         "completed_at": completed_at,
         "input_rows": input_rows,
         "selected_rows": selected_rows,
         "processed_rows": processed_rows,
-        "skipped_rows": sum(_summary_int(summary, "skipped_rows") for summary in shard_summaries),
-        "failed_rows": sum(_summary_int(summary, "failed_rows") for summary in shard_summaries),
+        "skipped_rows": sum(_summary_int(summary, "skipped_rows") for summary in chunk_summaries),
+        "failed_rows": sum(_summary_int(summary, "failed_rows") for summary in chunk_summaries),
         "duration_ms": duration_ms,
-        "timing_ms": _merge_timing_summaries(shard_summaries),
+        "timing_ms": _merge_timing_summaries(chunk_summaries),
         "usage": usage_totals.usage_block(processed_rows=processed_rows),
         "cache": usage_totals.cache_block(),
-        "shards": [
+        "chunks": [
             {
-                "index": shard.index,
-                "offset": shard.offset,
-                "limit": shard.limit,
-                "output": str(shard.output_path),
+                "index": chunk.index,
+                "offset": chunk.offset,
+                "limit": chunk.limit,
+                "output": str(chunk.output_path),
             }
-            for shard in shards
+            for chunk in chunks
         ],
     }
     return payload
@@ -1506,6 +1677,8 @@ def _empty_parallel_summary(
     started_at: str,
     input_rows: int,
     work_dir: Path,
+    *,
+    worker_count: int,
 ) -> dict[str, Any]:
     completed_at = utc_now_iso()
     usage_totals = BatchUsageTotals()
@@ -1526,7 +1699,9 @@ def _empty_parallel_summary(
         "export_traces": None,
         "hf_dataset": None,
         "hf_dataset_path": None,
-        "parallel": options.parallel,
+        "parallel": worker_count,
+        "worker_count": worker_count,
+        "chunk_count": 0,
         "work_dir": str(work_dir),
         "started_at": started_at,
         "completed_at": completed_at,
@@ -1543,7 +1718,7 @@ def _empty_parallel_summary(
         },
         "usage": usage_totals.usage_block(processed_rows=0),
         "cache": usage_totals.cache_block(),
-        "shards": [],
+        "chunks": [],
     }
 
 

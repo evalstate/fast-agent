@@ -23,7 +23,7 @@ fast-agent serve [OPTIONS]
 Key options:
 
 - `--transport [http|stdio|acp]` (default http). Note: `acp` exposes Agent Client Protocol instead of MCP (see [ACP](../acp/)).
-- `--port / --host` (for HTTP)
+- `--port / --host` (for HTTP; host defaults to `127.0.0.1`)
 - `--instance-scope [shared|connection|request] `– choose how agent state is isolated
     - `shared` (default) reuses a single agent for all clients
     - `connection` (sessions) Create one Agent per MCP session (separate history per client)
@@ -42,6 +42,11 @@ Standard CLI flags also apply (e.g. `--config-path`, `--model`, `--servers`, `--
 This allows **`fast-agent`** to serve any existing MCP Server in "Agent Mode", use custom system prompts and so on.
 
 `--noenv` conflicts with `--env` (they cannot be used together).
+
+HTTP serving binds to loopback by default. Use `--host 0.0.0.0` or another
+non-loopback address only when remote clients should connect; `fast-agent serve`
+prints a warning for remote HTTP binds, and an additional warning when `--shell`
+is also enabled.
 
 Examples:
 

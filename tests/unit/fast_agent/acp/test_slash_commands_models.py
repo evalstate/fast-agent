@@ -178,7 +178,6 @@ async def test_slash_command_models_not_registered_in_available_commands(tmp_pat
         os.chdir(previous_cwd)
 
     assert "models" not in command_names
-    assert "plugins" not in command_names
     assert "commands" in command_names
     assert "model" in command_names
 

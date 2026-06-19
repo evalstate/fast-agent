@@ -68,7 +68,6 @@ from fast_agent.ui.enhanced_prompt import (
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.interactive_shell import run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
-from fast_agent.ui.prompt.input import resolve_shell_working_dir
 from fast_agent.ui.prompt.resource_mentions import (
     build_prompt_with_resources,
     parse_mentions,
@@ -833,6 +832,7 @@ class InteractivePrompt:
 
         if is_command_payload(command_result):
             from fast_agent.ui.interactive.command_dispatch import dispatch_command_payload
+            from fast_agent.ui.prompt.input import resolve_shell_working_dir
 
             try:
                 dispatch_result = await dispatch_command_payload(
@@ -999,6 +999,8 @@ class InteractivePrompt:
         agent_name: str,
         user_input: str,
     ) -> str | PromptMessageExtended | None:
+        from fast_agent.ui.prompt.input import resolve_shell_working_dir
+
         prompt_payload: str | PromptMessageExtended = user_input
         parsed_mentions = parse_mentions(
             user_input,

@@ -55,6 +55,7 @@ from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_time
 from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOutputMixin
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
+from fast_agent.llm.provider.streaming_timeouts import await_stream_start
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
@@ -761,6 +762,7 @@ class OpenAILLM(
             chunk_count += 1
             # Save chunk if stream capture is enabled
             _save_stream_chunk(capture_filename, chunk)
+            self._raise_stream_chunk_error(chunk)
             # Handle chunk accumulation
             state.handle_chunk(chunk)
             # Process streaming events for tool calls
@@ -837,6 +839,13 @@ class OpenAILLM(
         )
 
         return final_completion, reasoning_segments.parts()
+
+    def _raise_stream_chunk_error(self, chunk: Any) -> None:
+        if getattr(chunk, "choices", None):
+            return
+        error_message = getattr(chunk, "error_message", None)
+        if error_message:
+            raise RuntimeError(f"Provider stream error: {error_message}")
 
     def _normalize_role(self, role: str | None) -> str:
         """Ensure the role string matches MCP expectations."""
@@ -1130,8 +1139,12 @@ class OpenAILLM(
         request: _OpenAICompletionRequest,
         capture_filename: Path | None,
     ) -> _OpenAICompletionResponse:
-        stream = await client.chat.completions.create(**request.arguments)
         timeout = request.params.streaming_timeout
+        stream = await await_stream_start(
+            client.chat.completions.create(**request.arguments),
+            timeout_seconds=timeout,
+            timeout_message=f"OpenAI stream did not start within {timeout} seconds.",
+        )
         timed_stream = with_stream_idle_timeout(
             stream,
             idle_timeout_seconds=timeout,

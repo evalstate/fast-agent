@@ -6,11 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable
 
-from fast_agent.agents.agent_types import AgentConfig
-
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.cli.runtime.run_request import ExecutionMode
     from fast_agent.core.agent_card_types import AgentCardData
 
@@ -106,6 +105,8 @@ def collect_shell_cwd_issues(
     cwd: Path | None = None,
 ) -> list[ShellCwdIssue]:
     """Collect invalid shell cwd entries from currently loaded agent configs."""
+    from fast_agent.agents.agent_types import AgentConfig
+
     if no_shell:
         return []
 
